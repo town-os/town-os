@@ -13,7 +13,7 @@ auto-test:
 lint:
 	golangci-lint run
 
-btrfs:
+btrfs: clean-btrfs
 	echo $$(mktemp btrfs.XXXXXX) >town-os.disk
 	truncate -s 50G $$(cat town-os.disk)
 	mkfs.btrfs -L town-os-test $$(cat town-os.disk)
@@ -22,6 +22,6 @@ btrfs:
 	sudo mount -t btrfs $$(sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }') local-mount
 
 clean-btrfs:
-	sudo umount local-mount
-	sudo losetup -d $$(sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }')
+	sudo umount -Rf local-mount || :
+	sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }' | xargs -I{} sudo losetup -d {}
 	rm -f btrfs.* town-os.disk
