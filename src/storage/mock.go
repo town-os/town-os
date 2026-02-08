@@ -77,15 +77,18 @@ func (m *MockController) IsSubvolume(name string) error {
 	m.Lock.Lock()
 
 	var err error = nil
+	found := false
 
 	for _, fs := range m.Filesystems {
 		if fs.Name == name {
-			err = nil
+			found = true
 			break
 		}
 	}
 
-	err = ErrNoFilesystem
+	if !found {
+		err = ErrNoFilesystem
+	}
 
 	m.addCall("IsSubvolume", err, name)
 	return err
@@ -129,11 +132,13 @@ func (m *MockController) SubvolID(name string) (uint64, error) {
 }
 
 func (m *MockController) SubvolInfo(name string) (btrfs.Info, error) {
-	var info = new(btrfs.Info)
+	var info *btrfs.Info = nil
+
 	var err error = nil
 	for _, fs := range m.Filesystems {
 		if fs.Name == name {
 			info = &fs
+			break
 		}
 	}
 
@@ -142,7 +147,11 @@ func (m *MockController) SubvolInfo(name string) (btrfs.Info, error) {
 	}
 
 	m.addCall("SubvolInfo", err, name)
-	return *info, err
+	if info != nil {
+		return *info, err
+	} else {
+		return btrfs.Info{}, err
+	}
 }
 
 func (m *MockController) SubvolSnapshot(dst, src string, readonly bool) error {
