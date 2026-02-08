@@ -98,8 +98,15 @@ func (m *MockController) SubvolCreate(name string) error {
 }
 
 func (m *MockController) SubvolDelete(name string) error {
-	m.removeFilesystem(name)
-	m.addCall("SubvolDelete", nil, name)
+	list, err := m.SubvolList(name)
+
+	if err == nil {
+		for _, info := range list {
+			m.removeFilesystem(info.Name)
+		}
+	}
+
+	m.addCall("SubvolDelete", err, name)
 	return nil
 }
 

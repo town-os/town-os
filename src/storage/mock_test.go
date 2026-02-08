@@ -2,6 +2,13 @@ package storage
 
 import "testing"
 
+/*
+FIXME
+
+Finish testing mock calls
+Test call log
+*/
+
 func TestMockBasic(t *testing.T) {
 	mock := InitMock()
 
@@ -77,11 +84,59 @@ func TestMockBasic(t *testing.T) {
 		t.Fatal("test/sub volume does not exist in list call (id check)")
 	}
 
+	if err := mock.SubvolDelete("test/sub"); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err = mock.SubvolList("test/sub")
+	if err != nil {
+		t.Fatalf("Unable to list test subvolumes: %v", err)
+	}
+
+	if len(info) != 0 {
+		t.Fatal("Subvol `test/sub` was not deleted after delete call")
+	}
+
 	if err := mock.SubvolDelete("test"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := mock.SubvolDelete("test/sub"); err != nil {
+	info, err = mock.SubvolList("test")
+	if err != nil {
+		t.Fatalf("Unable to list test subvolumes: %v", err)
+	}
+
+	if len(info) != 0 {
+		t.Fatal("Subvol `test` was not deleted after delete call")
+	}
+
+	if err := mock.SubvolCreate("test"); err != nil {
 		t.Fatal(err)
+	}
+
+	if err := mock.SubvolCreate("test/sub"); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err = mock.SubvolList("test")
+	if err != nil {
+		t.Fatalf("Unable to list test subvolumes: %v", err)
+	}
+
+	if len(info) != 2 {
+		t.Fatal("Volumes were not re-created")
+	}
+
+	if err := mock.SubvolDelete("test"); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err = mock.SubvolList("test")
+	if err != nil {
+		t.Fatalf("Unable to list test subvolumes: %v", err)
+	}
+
+	if len(info) != 0 {
+		t.Fatal("Subvol `test` was not deleted after delete call")
 	}
 }
