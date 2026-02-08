@@ -7,23 +7,18 @@ import (
 )
 
 var ErrNoFilesystem = errors.New("invalid filesystem")
+var ErrUnimplemented = errors.New("unimplemented call")
 
 type Filesystem struct {
-	Name string `json:"name"`
-	Size uint64 `json:"size"`
-}
-
-type Volume struct {
-	Name       string  `json:"name"`
-	Size       uint64  `json:"size"`
-	Filesystem *string `json:"filesystem"`
+	Name  string `json:"name"`
+	Quota uint64 `json:"quota"`
 }
 
 type Storage interface {
 	CreateFilesystem(Filesystem) error
 	ModifyFilesystem(string, Filesystem) error
 	RemoveFilesystem(string) error
-	ListFilesystems() ([]Filesystem, error)
+	ListFilesystems(string) ([]Filesystem, error)
 }
 
 type Controller interface {
