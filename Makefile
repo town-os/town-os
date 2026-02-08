@@ -3,8 +3,8 @@ test:
 
 test-integration:
 	go clean -testcache
-	go test -p 1 -tags=integration -v ./...
+	go test -tags=integration -v ./...
 
 auto-test:
-	go get github.com/cespare/reflex
+	go get github.com/cespare/reflex@latest
 	reflex -r '\.go$$' make test
