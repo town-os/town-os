@@ -2,8 +2,8 @@ test: lint
 	go test -v ./...
 
 test-integration: lint btrfs
-	go clean -testcache
-	go test -tags=integration -v ./...
+	sudo go clean -testcache
+	sudo go test -tags=integration -v ./...
 	make clean-btrfs
 
 auto-test:
@@ -16,6 +16,10 @@ lint:
 btrfs:
 	echo $$(mktemp btrfs.XXXXXX) >town-os.disk
 	truncate -s 50G $$(cat town-os.disk)
+	mkfs.btrfs -L town-os-test $$(cat town-os.disk)
+	sudo losetup -f --partscan $$(cat town-os.disk)
+	sudo mkdir -p local-mount
+	sudo mount -t btrfs $$(sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }') local-mount
 
 clean-btrfs:
 	rm -f $$(cat town-os.disk) town-os.disk
