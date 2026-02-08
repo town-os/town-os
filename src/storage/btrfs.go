@@ -102,8 +102,8 @@ func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
 	return ErrUnimplemented
 }
 
-func (b *BtrFS) RemoveFilesystem(f Filesystem) error {
-	return b.Controller.SubvolDelete(f.Name)
+func (b *BtrFS) RemoveFilesystem(name string) error {
+	return b.Controller.SubvolDelete(name)
 }
 
 func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
@@ -122,20 +122,24 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 		return nil, fmt.Errorf("could not determine absolute path of prefix: %v", err)
 	}
 
-	suffix, err := filepath.Rel(mnt, p)
+	s, err := filepath.Rel(mnt, p)
 	if err != nil {
 		return nil, fmt.Errorf("could not determine relative path: %v", err)
 	}
 
-	if suffix == "." {
-		suffix = ""
+	if s == "." {
+		s = ""
 	}
 
+	uniq := map[string]struct{}{}
 	fs := []Filesystem{}
 
 	for _, item := range info {
-		if strings.HasPrefix(item.Name, suffix) {
-			fs = append(fs, Filesystem{Name: item.Name})
+		if s == "" || (s != "" && strings.HasPrefix(item.Name, s)) {
+			if _, ok := uniq[item.Name]; !ok {
+				fs = append(fs, Filesystem{Name: item.Name})
+				uniq[item.Name] = struct{}{}
+			}
 		}
 	}
 
