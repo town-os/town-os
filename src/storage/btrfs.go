@@ -23,18 +23,11 @@ type BtrFS struct {
 }
 
 func BtrFSDefault() *BtrFS {
-	return &BtrFS{
-		BinPath: "btrfs",
-		// FIXME finish
-		Controller: BtrFSController{},
-	}
+	return InitBtrFS(BtrFSController{})
 }
 
 func BtrFSMock() *BtrFS {
-	return &BtrFS{
-		BinPath:    "btrfs",
-		Controller: new(MockController),
-	}
+	return InitBtrFS(InitMock())
 }
 
 func InitBtrFS(c Controller) *BtrFS {

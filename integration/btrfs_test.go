@@ -12,4 +12,16 @@ func TestBtrFS(t *testing.T) {
 	if err := btr.NewFilesystem(storage.Filesystem{Name: "../local-mount/test"}); err != nil {
 		t.Fatalf("Could not create filesystem test: %v", err)
 	}
+
+	/*
+	   list, err := btr.ListFilesystems("../local-mount")
+
+	   	if err != nil {
+	   		t.Fatalf("Error while listing filesystems: %v", err)
+	   	}
+
+	   	if len(list) != 1 {
+	   		t.Fatalf("Incorrect number of filesystems: %d", len(list))
+	   	}
+	*/
 }

@@ -22,4 +22,6 @@ btrfs:
 	sudo mount -t btrfs $$(sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }') local-mount
 
 clean-btrfs:
-	rm -f $$(cat town-os.disk) town-os.disk
+	sudo umount local-mount
+	sudo losetup -d $$(sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }')
+	rm -f btrfs.* town-os.disk
