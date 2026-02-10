@@ -24,11 +24,11 @@ type FilesystemName struct {
 }
 
 type SystemControllerHandlers struct {
-	controller SystemController
+	Controller SystemController
 }
 
 func getHandler(sc SystemController) *SystemControllerHandlers {
-	return &SystemControllerHandlers{controller: sc}
+	return &SystemControllerHandlers{Controller: sc}
 }
 
 func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
@@ -39,7 +39,7 @@ func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 		return err
 	}
 
-	if err := s.controller.GetStorage().CreateFilesystem(fs); err != nil {
+	if err := s.Controller.GetStorage().CreateFilesystem(fs); err != nil {
 		return err
 	}
 
@@ -55,7 +55,7 @@ func (s *SystemControllerHandlers) removeFilesystem(c *echo.Context) error {
 		return err
 	}
 
-	if err := s.controller.GetStorage().RemoveFilesystem(fs.Name); err != nil {
+	if err := s.Controller.GetStorage().RemoveFilesystem(fs.Name); err != nil {
 		return err
 	}
 
@@ -71,7 +71,7 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 		return err
 	}
 
-	list, err := s.controller.GetStorage().ListFilesystems(fs.Name)
+	list, err := s.Controller.GetStorage().ListFilesystems(fs.Name)
 	if err != nil {
 		return err
 	}
