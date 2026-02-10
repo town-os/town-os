@@ -11,6 +11,35 @@ Finish testing mock calls
 Test call log
 */
 
+func TestMockBtrFSStorage(t *testing.T) {
+	mock := InitBtrFSMock()
+	if err := mock.CreateFilesystem(Filesystem{Name: "test"}); err != nil {
+		t.Fatal(err)
+	}
+
+	fs, err := mock.ListFilesystems("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fs) != 1 {
+		t.Fatalf("Len should be 1 and was not: %d", len(fs))
+	}
+
+	if err := mock.RemoveFilesystem("test"); err != nil {
+		t.Fatal(err)
+	}
+
+	fs, err = mock.ListFilesystems("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fs) != 0 {
+		t.Fatalf("Len should be 0 and was not: %d", len(fs))
+	}
+}
+
 func TestMockBtrFSBasic(t *testing.T) {
 	mock := InitBtrFSMockController()
 

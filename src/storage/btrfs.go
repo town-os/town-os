@@ -72,7 +72,45 @@ func (BtrFSController) SubvolSnapshot(dst, src string, readonly bool) error {
 
 func (BtrFSController) SubvolInfo(name string) (btrfs.Info, error) { return btrfs.SubvolInfo(name) }
 
-func (BtrFSController) SubvolList(name string) ([]btrfs.Info, error) { return btrfs.SubvolList(name) }
+func (BtrFSController) SubvolList(name string) ([]btrfs.Info, error) {
+	mnt, err := findMountPoint(name)
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := filepath.Abs(name)
+	if err != nil {
+		return nil, fmt.Errorf("could not determine absolute path of prefix: %v", err)
+	}
+
+	s, err := filepath.Rel(mnt, p)
+	if err != nil {
+		return nil, fmt.Errorf("could not determine relative path: %v", err)
+	}
+
+	if s == "." {
+		s = ""
+	}
+
+	info, err := btrfs.SubvolList(name)
+	if err != nil {
+		return nil, err
+	}
+
+	uniq := map[string]struct{}{}
+	fs := []btrfs.Info{}
+
+	for _, item := range info {
+		if s == "" || (s != "" && strings.HasPrefix(item.Name, s)) {
+			if _, ok := uniq[item.Name]; !ok {
+				fs = append(fs, item)
+				uniq[item.Name] = struct{}{}
+			}
+		}
+	}
+
+	return fs, nil
+}
 
 type BtrFS struct {
 	BinPath    string
@@ -107,40 +145,15 @@ func (b *BtrFS) RemoveFilesystem(name string) error {
 }
 
 func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
-	mnt, err := findMountPoint(prefix)
-	if err != nil {
-		return nil, err
-	}
-
 	info, err := b.Controller.SubvolList(prefix)
 	if err != nil {
 		return nil, err
 	}
 
-	p, err := filepath.Abs(prefix)
-	if err != nil {
-		return nil, fmt.Errorf("could not determine absolute path of prefix: %v", err)
-	}
-
-	s, err := filepath.Rel(mnt, p)
-	if err != nil {
-		return nil, fmt.Errorf("could not determine relative path: %v", err)
-	}
-
-	if s == "." {
-		s = ""
-	}
-
-	uniq := map[string]struct{}{}
 	fs := []Filesystem{}
 
 	for _, item := range info {
-		if s == "" || (s != "" && strings.HasPrefix(item.Name, s)) {
-			if _, ok := uniq[item.Name]; !ok {
-				fs = append(fs, Filesystem{Name: item.Name})
-				uniq[item.Name] = struct{}{}
-			}
-		}
+		fs = append(fs, Filesystem{Name: item.Name})
 	}
 
 	return fs, nil

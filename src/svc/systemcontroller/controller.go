@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 
 	"gitea.com/town-os/town-os/src/storage"
 	"github.com/labstack/echo/v5"
@@ -30,7 +31,7 @@ func getHandler(sc SystemController) *SystemControllerHandlers {
 	return &SystemControllerHandlers{controller: sc}
 }
 
-func (s *SystemControllerHandlers) addFilesystem(c *echo.Context) error {
+func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	fs := storage.Filesystem{}
 
@@ -79,9 +80,9 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 }
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
-	e.Add("POST", "/storage/add", s.addFilesystem)
+	e.Add("POST", "/storage/create", s.createFilesystem)
 	e.Add("POST", "/storage/remove", s.removeFilesystem)
-	e.Add("GET", "/storage", s.listFilesystems)
+	e.Add("POST", "/storage", s.listFilesystems)
 }
 
 type TestServer struct {
@@ -99,7 +100,11 @@ func configureTestRouter(sc SystemController) http.Handler {
 	handlers := getHandler(sc)
 
 	e := echo.New()
-	e.Use(middleware.RequestLogger())
+
+	if os.Getenv("DEBUG") != "" {
+		e.Use(middleware.RequestLogger())
+	}
+
 	handlers.configureRoutes(e)
 
 	return e
@@ -115,7 +120,7 @@ func (ts *TestServer) Run() error {
 }
 
 func (ts *TestServer) Client() (*SystemClient, error) {
-	return FromClient(ts.Server.Client())
+	return FromClient(ts.Server.Client(), ts.Server.URL)
 }
 
 type UnixServer struct {
