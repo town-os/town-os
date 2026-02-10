@@ -15,7 +15,7 @@ func TestBtrFS(t *testing.T) {
 
 	btr := storage.InitBtrFS()
 
-	if err := btr.NewFilesystem(storage.Filesystem{Name: filepath.Join(path, "test")}); err != nil {
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: filepath.Join(path, "test")}); err != nil {
 		t.Fatalf("Could not create filesystem test: %v", err)
 	}
 

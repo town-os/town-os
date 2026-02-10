@@ -94,7 +94,7 @@ func InitBtrFSFromController(c Controller) *BtrFS {
 	}
 }
 
-func (b *BtrFS) NewFilesystem(f Filesystem) error {
+func (b *BtrFS) CreateFilesystem(f Filesystem) error {
 	return b.Controller.SubvolCreate(f.Name)
 }
 
