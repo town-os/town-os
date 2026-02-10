@@ -79,15 +79,15 @@ type BtrFS struct {
 	Controller Controller
 }
 
-func BtrFSDefault() *BtrFS {
-	return InitBtrFS(BtrFSController{})
+func InitBtrFS() *BtrFS {
+	return InitBtrFSFromController(BtrFSController{})
 }
 
-func BtrFSMock() *BtrFS {
-	return InitBtrFS(InitMock())
+func InitBtrFSMock() *BtrFS {
+	return InitBtrFSFromController(InitBtrFSMockController())
 }
 
-func InitBtrFS(c Controller) *BtrFS {
+func InitBtrFSFromController(c Controller) *BtrFS {
 	return &BtrFS{
 		BinPath:    "btrfs",
 		Controller: c,

@@ -11,8 +11,8 @@ Finish testing mock calls
 Test call log
 */
 
-func TestMockBasic(t *testing.T) {
-	mock := InitMock()
+func TestMockBtrFSBasic(t *testing.T) {
+	mock := InitBtrFSMockController()
 
 	if err := mock.SubvolCreate("test"); err != nil {
 		t.Fatal(err)

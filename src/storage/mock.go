@@ -19,37 +19,37 @@ type Call struct {
 	Error     error
 }
 
-type MockController struct {
+type MockBtrFSController struct {
 	Lock        *sync.Mutex
 	Call        []Call
 	NextID      uint64
 	Filesystems []btrfs.Info
 }
 
-func InitMock() *MockController {
-	return &MockController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []btrfs.Info{}, NextID: 0}
+func InitBtrFSMockController() *MockBtrFSController {
+	return &MockBtrFSController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []btrfs.Info{}, NextID: 0}
 }
 
-func (m *MockController) GetLog() []Call {
+func (m *MockBtrFSController) GetLog() []Call {
 	defer m.Lock.Unlock()
 	m.Lock.Lock()
 	return m.Call
 }
 
-func (m *MockController) GetFilesystems() []btrfs.Info {
+func (m *MockBtrFSController) GetFilesystems() []btrfs.Info {
 	defer m.Lock.Unlock()
 	m.Lock.Lock()
 	return m.Filesystems
 }
 
-func (m *MockController) addCall(op string, err error, args ...any) {
+func (m *MockBtrFSController) addCall(op string, err error, args ...any) {
 	defer m.Lock.Unlock()
 	m.Lock.Lock()
 
 	m.Call = append(m.Call, Call{Operation: op, Arguments: args, Error: err})
 }
 
-func (m *MockController) addFilesystem(name string) {
+func (m *MockBtrFSController) addFilesystem(name string) {
 	defer m.Lock.Unlock()
 	m.Lock.Lock()
 
@@ -57,7 +57,7 @@ func (m *MockController) addFilesystem(name string) {
 	m.Filesystems = append(m.Filesystems, btrfs.Info{Name: name, ID: m.NextID})
 }
 
-func (m *MockController) removeFilesystem(name string) {
+func (m *MockBtrFSController) removeFilesystem(name string) {
 	defer m.Lock.Unlock()
 	m.Lock.Lock()
 
@@ -72,7 +72,7 @@ func (m *MockController) removeFilesystem(name string) {
 	m.Filesystems = fs
 }
 
-func (m *MockController) IsSubvolume(name string) error {
+func (m *MockBtrFSController) IsSubvolume(name string) error {
 	defer m.Lock.Unlock()
 	m.Lock.Lock()
 
@@ -94,13 +94,13 @@ func (m *MockController) IsSubvolume(name string) error {
 	return err
 }
 
-func (m *MockController) SubvolCreate(name string) error {
+func (m *MockBtrFSController) SubvolCreate(name string) error {
 	m.addFilesystem(name)
 	m.addCall("SubvolCreate", nil, name)
 	return nil
 }
 
-func (m *MockController) SubvolDelete(name string) error {
+func (m *MockBtrFSController) SubvolDelete(name string) error {
 	list, err := m.SubvolList(name)
 
 	if err == nil {
@@ -113,7 +113,7 @@ func (m *MockController) SubvolDelete(name string) error {
 	return nil
 }
 
-func (m *MockController) SubvolID(name string) (uint64, error) {
+func (m *MockBtrFSController) SubvolID(name string) (uint64, error) {
 	var id uint64 = 0
 	var err error = nil
 
@@ -131,7 +131,7 @@ func (m *MockController) SubvolID(name string) (uint64, error) {
 	return id, err
 }
 
-func (m *MockController) SubvolInfo(name string) (btrfs.Info, error) {
+func (m *MockBtrFSController) SubvolInfo(name string) (btrfs.Info, error) {
 	var info *btrfs.Info = nil
 
 	var err error = nil
@@ -154,12 +154,12 @@ func (m *MockController) SubvolInfo(name string) (btrfs.Info, error) {
 	}
 }
 
-func (m *MockController) SubvolSnapshot(dst, src string, readonly bool) error {
+func (m *MockBtrFSController) SubvolSnapshot(dst, src string, readonly bool) error {
 	m.addCall("SubvolSnapshot", nil, dst, src, readonly)
 	return nil
 }
 
-func (m *MockController) SubvolList(name string) ([]btrfs.Info, error) {
+func (m *MockBtrFSController) SubvolList(name string) ([]btrfs.Info, error) {
 	// FIXME: I doubt this works right
 
 	info := []btrfs.Info{}

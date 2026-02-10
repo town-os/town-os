@@ -2,6 +2,8 @@ package systemcontroller
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 
@@ -14,7 +16,6 @@ type SystemController interface {
 	Run() error
 	GetStorage() storage.Storage
 	Client() (*SystemClient, error)
-	ConfigureRouter() http.Handler
 }
 
 type FilesystemName struct {
@@ -77,19 +78,31 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 	return c.JSON(200, list)
 }
 
-func (ts *TestServer) ConfigureRouter() http.Handler {
-	handlers := getHandler(ts)
-	e := echo.New()
-	e.Use(middleware.RequestLogger())
-	e.Add("POST", "/storage/add", handlers.addFilesystem)
-	e.Add("POST", "/storage/remove", handlers.removeFilesystem)
-	e.Add("GET", "/storage", handlers.listFilesystems)
-	return e
+func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
+	e.Add("POST", "/storage/add", s.addFilesystem)
+	e.Add("POST", "/storage/remove", s.removeFilesystem)
+	e.Add("GET", "/storage", s.listFilesystems)
 }
 
 type TestServer struct {
 	Storage storage.Storage
 	Server  *httptest.Server
+}
+
+func InitTestServer(s storage.Storage) *TestServer {
+	ts := &TestServer{Storage: s}
+	ts.Server = httptest.NewServer(configureTestRouter(ts))
+	return ts
+}
+
+func configureTestRouter(sc SystemController) http.Handler {
+	handlers := getHandler(sc)
+
+	e := echo.New()
+	e.Use(middleware.RequestLogger())
+	handlers.configureRoutes(e)
+
+	return e
 }
 
 func (ts *TestServer) GetStorage() storage.Storage {
@@ -105,11 +118,26 @@ func (ts *TestServer) Client() (*SystemClient, error) {
 	return FromClient(ts.Server.Client())
 }
 
-/*
 type UnixServer struct {
 	Socket  string
 	Storage storage.Storage
 	Handler http.Handler
+}
+
+func InitUnixServer(sock string, s storage.Storage) *UnixServer {
+	us := &UnixServer{Socket: sock, Storage: s}
+	us.Handler = configureUnixRouter(us)
+	return us
+}
+
+func configureUnixRouter(sc SystemController) http.Handler {
+	handlers := getHandler(sc)
+
+	e := echo.New()
+	e.Use(middleware.RequestLogger())
+	handlers.configureRoutes(e)
+
+	return e
 }
 
 func (us *UnixServer) Run() error {
@@ -119,11 +147,25 @@ func (us *UnixServer) Run() error {
 	}
 
 	server := &http.Server{}
-	server.Handler = us.Handler
+	server.Handler = us.ConfigureRouter()
+
 	return server.Serve(lis)
 }
 
-func (s *SystemController) Run(sock string) error {
-	return CreateUnixServer(sock, e).Start()
+func (us *UnixServer) Client() (*SystemClient, error) {
+	return InitClient(us.Socket)
 }
-*/
+
+func (us *UnixServer) GetStorage() storage.Storage {
+	return us.Storage
+}
+
+func (us *UnixServer) ConfigureRouter() http.Handler {
+	handlers := getHandler(us)
+
+	e := echo.New()
+	e.Use(middleware.RequestLogger())
+	handlers.configureRoutes(e)
+
+	return e
+}

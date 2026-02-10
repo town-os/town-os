@@ -13,7 +13,7 @@ func TestBtrFS(t *testing.T) {
 		t.Fatalf("Could not find absolute path: %v", err)
 	}
 
-	btr := storage.BtrFSDefault()
+	btr := storage.InitBtrFS()
 
 	if err := btr.NewFilesystem(storage.Filesystem{Name: filepath.Join(path, "test")}); err != nil {
 		t.Fatalf("Could not create filesystem test: %v", err)
