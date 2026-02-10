@@ -12,7 +12,6 @@ func TestSystemControllerStorage(t *testing.T) {
 	ts := InitTestServer(mock)
 
 	c, err := ts.Client()
-
 	if err != nil {
 		t.Fatalf("Could not create client: %v", err)
 	}
@@ -30,8 +29,7 @@ func TestSystemControllerStorage(t *testing.T) {
 		t.Fatalf("Could not create filesystem: %v", err)
 	}
 
-	info = controller.GetFilesystems()
-	if len(info) != 0 {
+	if len(controller.GetFilesystems()) != 0 {
 		t.Fatalf("Filesystem was not removed, len should be 0: %d", len(info))
 	}
 

@@ -147,6 +147,7 @@ func (m *MockBtrFSController) SubvolInfo(name string) (btrfs.Info, error) {
 	}
 
 	m.addCall("SubvolInfo", err, name)
+
 	if info != nil {
 		return *info, err
 	} else {
@@ -160,8 +161,6 @@ func (m *MockBtrFSController) SubvolSnapshot(dst, src string, readonly bool) err
 }
 
 func (m *MockBtrFSController) SubvolList(name string) ([]btrfs.Info, error) {
-	// FIXME: I doubt this works right
-
 	info := []btrfs.Info{}
 
 	for _, fs := range m.Filesystems {
