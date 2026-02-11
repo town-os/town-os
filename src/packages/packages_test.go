@@ -4,9 +4,10 @@ import "testing"
 
 func TestApplyTemplate(t *testing.T) {
 	table := map[string][4]string{
-		"basic":         {"this is a @template@", "template", "replacement", "this is a replacement"},
-		"non-existent":  {"this is a @template@", "not-template", "replacement", "this is a @template@"},
-		"two variables": {"this is a @template@ and @another-template@", "another-template", "replacement", "this is a @template@ and replacement"},
+		"basic":            {"this is a @template@", "template", "replacement", "this is a replacement"},
+		"non-existent":     {"this is a @template@", "not-template", "replacement", "this is a @template@"},
+		"two variables":    {"this is a @template@ and @another-template@", "another-template", "replacement", "this is a @template@ and replacement"},
+		"invalid template": {"this is a @template", "template", "replacement", "this is a @template"},
 	}
 
 	for name, data := range table {

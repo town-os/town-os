@@ -73,6 +73,10 @@ func applyTemplate(input string, v string, repl string) string {
 		}
 	}
 
+	if inside {
+		out += fmt.Sprintf("%c%s", TemplateChar, tv)
+	}
+
 	return out
 }
 
