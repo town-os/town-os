@@ -75,6 +75,34 @@ func TestPackageCompile(t *testing.T) {
 			},
 			err: false,
 		},
+		"template-errors": {
+			input: InputPackage{
+				Image:       "debian:@tag@",
+				Environment: map[string]string{"HELLO": "@name@"},
+				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
+				Volumes:     map[string]PackageVolume{},
+				Questions: map[string]string{
+					"tag":      "What tag should I use?",
+					"name":     "Who should I say hello to?",
+					"external": "What port to forward?",
+					"internal": "What port to use internally?",
+				},
+			},
+			output: Package{
+				// FIXME: this should expand to a full image url
+				Image:       "debian:latest",
+				Environment: map[string]string{"HELLO": "scarlett"},
+				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
+				Volumes:     map[string]PackageVolume{},
+			},
+			responses: Responses{
+				"tag":      "latest",
+				"name":     "scarlett",
+				"external": "-80",
+				"internal": "128",
+			},
+			err: true,
+		},
 	}
 
 	for name, data := range table {
