@@ -27,13 +27,6 @@ const (
 	Volume   OutputType = "volume"
 )
 
-type Responses map[string]string
-
-type Prompt struct {
-	Question string     `yaml:"question"`
-	Type     OutputType `yaml:"type"`
-}
-
 func (o OutputType) Output(answer string) (any, error) {
 	switch o {
 	case Port:

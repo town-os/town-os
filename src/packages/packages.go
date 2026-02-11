@@ -6,7 +6,10 @@ import (
 	"strconv"
 )
 
-type PortMap map[uint16]uint16
+type (
+	Responses map[string]string
+	PortMap   map[uint16]uint16
+)
 
 const TemplateChar = '@'
 
