@@ -27,9 +27,10 @@ const (
 	Volume   OutputType = "volume"
 )
 
+type Responses map[string]string
+
 type Prompt struct {
 	Question string     `yaml:"question"`
-	Variable string     `yaml:"variable"`
 	Type     OutputType `yaml:"type"`
 }
 
@@ -41,7 +42,7 @@ func (o OutputType) Output(answer string) (any, error) {
 			return nil, err
 		}
 
-		if u > 65535 {
+		if u >= 65535 {
 			return 0, ErrInvalidPort
 		}
 
