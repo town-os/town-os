@@ -49,11 +49,12 @@ func TestPackageCompile(t *testing.T) {
 		},
 		"basic-template": {
 			input: InputPackage{
-				Image:       "debian:latest",
+				Image:       "debian:@tag@",
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
 				Volumes:     map[string]PackageVolume{},
 				Questions: map[string]string{
+					"tag":      "What tag should I use?",
 					"name":     "Who should I say hello to?",
 					"external": "What port to forward?",
 					"internal": "What port to use internally?",
@@ -67,6 +68,7 @@ func TestPackageCompile(t *testing.T) {
 				Volumes:     map[string]PackageVolume{},
 			},
 			responses: Responses{
+				"tag":      "latest",
 				"name":     "scarlett",
 				"external": "80",
 				"internal": "128",
