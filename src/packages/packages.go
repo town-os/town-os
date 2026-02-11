@@ -93,13 +93,21 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		i.Environment[k] = applyTemplate(v, iv, response)
 	}
 
+	out := map[string]string{}
+
 	for s, d := range i.Network.External {
-		i.Network.External[applyTemplate(s, iv, response)] = applyTemplate(d, iv, response)
+		out[applyTemplate(s, iv, response)] = applyTemplate(d, iv, response)
 	}
 
+	i.Network.External = out
+
+	out = map[string]string{}
+
 	for s, d := range i.Network.Internal {
-		i.Network.Internal[applyTemplate(s, iv, response)] = applyTemplate(d, iv, response)
+		out[applyTemplate(s, iv, response)] = applyTemplate(d, iv, response)
 	}
+
+	i.Network.Internal = out
 
 	for name := range i.Volumes {
 		pv := i.Volumes[name]

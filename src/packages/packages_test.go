@@ -32,20 +32,46 @@ func TestPackageCompile(t *testing.T) {
 		"basic": {
 			input: InputPackage{
 				Image:       "debian:latest",
-				Environment: map[string]string{},
-				Network:     InputPackageNetwork{External: map[string]string{}, Internal: map[string]string{}},
+				Environment: map[string]string{"HELLO": "scarlett"},
+				Network:     InputPackageNetwork{External: map[string]string{"80": "80"}, Internal: map[string]string{"128": "128"}},
 				Volumes:     map[string]PackageVolume{},
 				Questions:   map[string]string{},
 			},
 			output: Package{
 				// FIXME: this should expand to a full image url
 				Image:       "debian:latest",
-				Environment: map[string]string{},
-				Network:     PackageNetwork{External: PortMap{}, Internal: PortMap{}},
+				Environment: map[string]string{"HELLO": "scarlett"},
+				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
 				Volumes:     map[string]PackageVolume{},
 			},
 			responses: Responses{},
 			err:       false,
+		},
+		"basic-template": {
+			input: InputPackage{
+				Image:       "debian:latest",
+				Environment: map[string]string{"HELLO": "@name@"},
+				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
+				Volumes:     map[string]PackageVolume{},
+				Questions: map[string]string{
+					"name":     "Who should I say hello to?",
+					"external": "What port to forward?",
+					"internal": "What port to use internally?",
+				},
+			},
+			output: Package{
+				// FIXME: this should expand to a full image url
+				Image:       "debian:latest",
+				Environment: map[string]string{"HELLO": "scarlett"},
+				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
+				Volumes:     map[string]PackageVolume{},
+			},
+			responses: Responses{
+				"name":     "scarlett",
+				"external": "80",
+				"internal": "128",
+			},
+			err: false,
 		},
 	}
 
@@ -55,10 +81,12 @@ func TestPackageCompile(t *testing.T) {
 			if err == nil {
 				t.Fatalf("%s: error was expected but not received", name)
 			}
-		}
-
-		if !reflect.DeepEqual(*p, data.output) {
-			t.Fatalf("%s: expected output was not equal to compiled output: %#v %#v", name, data.output, *p)
+		} else if err != nil {
+			t.Fatalf("%s: error encountered when none was expected: %v", name, err)
+		} else {
+			if !reflect.DeepEqual(*p, data.output) {
+				t.Fatalf("%s: expected output was not equal to compiled output: %#v %#v", name, data.output, *p)
+			}
 		}
 	}
 }
