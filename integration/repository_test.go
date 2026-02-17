@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -268,6 +269,230 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		if !found[name] {
 			t.Fatalf("expected package %s to be present", name)
 		}
+	}
+}
+
+// --- Installed package integration tests ---
+
+func TestInstalledInstallFromRepo(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatalf("failed to install nginx 1.0: %v", err)
+	}
+
+	// Verify symlink resolves and the YAML is readable.
+	link := filepath.Join(root.BaseDir, packages.InstalledDir, "nginx", "1.0.yaml")
+	content, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatalf("could not read installed symlink: %v", err)
+	}
+	if len(content) == 0 {
+		t.Fatal("expected non-empty YAML content through symlink")
+	}
+}
+
+func TestInstalledListFromRepo(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Install("test-packages-core", "redis", "7.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	pkgs, err := mgr.ListInstalled()
+	if err != nil {
+		t.Fatalf("failed to list installed: %v", err)
+	}
+
+	if len(pkgs) != 3 {
+		t.Fatalf("expected 3 installed entries, got %d", len(pkgs))
+	}
+
+	// Sorted: nginx@1.0, nginx@2.0, redis@7.0
+	expected := []struct{ name, version string }{
+		{"nginx", "1.0"},
+		{"nginx", "2.0"},
+		{"redis", "7.0"},
+	}
+	for i, want := range expected {
+		if pkgs[i].Name != want.name || pkgs[i].Version != want.version {
+			t.Fatalf("entry %d: expected %s@%s, got %s@%s", i, want.name, want.version, pkgs[i].Name, pkgs[i].Version)
+		}
+	}
+}
+
+func TestInstalledUninstallFromRepo(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Install("test-packages-core", "redis", "7.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.Uninstall("nginx", "2.0"); err != nil {
+		t.Fatalf("failed to uninstall: %v", err)
+	}
+
+	pkgs, err := mgr.ListInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 installed after uninstall, got %d", len(pkgs))
+	}
+	if pkgs[0].Name != "redis" {
+		t.Fatalf("expected redis to remain, got %s", pkgs[0].Name)
+	}
+
+	// Uninstalling again should fail.
+	err = mgr.Uninstall("nginx", "2.0")
+	if err == nil {
+		t.Fatal("expected error uninstalling already-removed package")
+	}
+	if !errors.Is(err, packages.ErrNotInstalled) {
+		t.Fatalf("expected ErrNotInstalled, got %v", err)
+	}
+}
+
+func TestInstalledMultipleRepos(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+		{Name: "test-packages-extras", URL: extrasURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+		t.Fatalf("failed to clone extras: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	// Install from different repos.
+	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Install("test-packages-extras", "postgres", "17.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	pkgs, err := mgr.ListInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 installed packages, got %d", len(pkgs))
+	}
+
+	// Both symlinks should resolve.
+	for _, p := range pkgs {
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, p.Name, p.Version+".yaml")
+		if _, err := os.ReadFile(link); err != nil {
+			t.Fatalf("symlink for %s@%s does not resolve: %v", p.Name, p.Version, err)
+		}
+	}
+}
+
+func TestInstalledLifecycleWithRepo(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	// Empty.
+	pkgs, err := mgr.ListInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected empty, got %d", len(pkgs))
+	}
+
+	// Install.
+	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	pkgs, err = mgr.ListInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1, got %d", len(pkgs))
+	}
+
+	// Duplicate should fail.
+	err = mgr.Install("test-packages-core", "nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error for duplicate install")
+	}
+	if !errors.Is(err, packages.ErrAlreadyInstalled) {
+		t.Fatalf("expected ErrAlreadyInstalled, got %v", err)
+	}
+
+	// Uninstall.
+	if err := mgr.Uninstall("nginx", "1.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	pkgs, err = mgr.ListInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 after uninstall, got %d", len(pkgs))
+	}
+
+	// Can re-install after uninstall.
+	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatalf("re-install failed: %v", err)
+	}
+
+	pkgs, err = mgr.ListInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 after re-install, got %d", len(pkgs))
 	}
 }
 
