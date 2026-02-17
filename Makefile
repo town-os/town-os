@@ -10,12 +10,18 @@ test-integration: lint btrfs
 	rm -f .gitconfig.tmp .git-credentials.tmp
 	make clean-btrfs
 
+test-full: test test-integration
+
 auto-test:
 	go get github.com/cespare/reflex@latest
 	reflex -r '\.go$$' make test
 
+auto-test-full:
+	go get github.com/cespare/reflex@latest
+	sudo -E $(shell go env GOPATH)/bin/reflex -r '\.go$$' make test-full
+
 lint:
-	golangci-lint run
+	$(shell go env GOPATH)/bin/golangci-lint run
 
 btrfs: clean-btrfs
 	echo $$(mktemp btrfs.XXXXXX) >town-os.disk
