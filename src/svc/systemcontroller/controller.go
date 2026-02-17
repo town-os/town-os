@@ -44,6 +44,11 @@ type RepositoryInfo struct {
 	URL  string `json:"url"`
 }
 
+type PackageInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 type SystemControllerHandlers struct {
 	Controller SystemController
 }
@@ -185,6 +190,24 @@ func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 	return c.JSON(200, out)
 }
 
+// --- Package handlers ---
+
+func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
+	rr := s.Controller.GetRepositoryRoot()
+
+	pkgs, err := rr.ListPackages()
+	if err != nil {
+		return err
+	}
+
+	out := make([]PackageInfo, len(pkgs))
+	for i, p := range pkgs {
+		out[i] = PackageInfo{Name: p.Name, Version: p.Version}
+	}
+
+	return c.JSON(200, out)
+}
+
 // --- Routes ---
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
@@ -196,6 +219,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/repository/add", s.addRepository)
 	e.Add("POST", "/repository/remove", s.removeRepository)
 	e.Add("POST", "/repository", s.listRepositories)
+
+	e.Add("POST", "/packages", s.listPackages)
 }
 
 // --- TestServer ---

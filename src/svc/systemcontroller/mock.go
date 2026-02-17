@@ -11,6 +11,7 @@ type MockClient struct {
 	mu           sync.Mutex
 	Filesystems  map[string]storage.Filesystem
 	Repositories []RepositoryInfo
+	Packages     []PackageInfo
 	Calls        []MockCall
 	CreateErr    error
 	ModifyErr    error
@@ -19,6 +20,7 @@ type MockClient struct {
 	AddRepoErr   error
 	RemRepoErr   error
 	ListRepoErr  error
+	ListPkgErr   error
 }
 
 type MockCall struct {
@@ -155,5 +157,21 @@ func (m *MockClient) ListRepositories() ([]RepositoryInfo, error) {
 
 	out := make([]RepositoryInfo, len(m.Repositories))
 	copy(out, m.Repositories)
+	return out, nil
+}
+
+// --- Packages ---
+
+func (m *MockClient) ListPackages() ([]PackageInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListPackages", Args: nil})
+
+	if m.ListPkgErr != nil {
+		return nil, m.ListPkgErr
+	}
+
+	out := make([]PackageInfo, len(m.Packages))
+	copy(out, m.Packages)
 	return out, nil
 }

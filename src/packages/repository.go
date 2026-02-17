@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -315,4 +316,38 @@ func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, erro
 	}
 
 	return bestPkg, bestVersion, nil
+}
+
+// ListPackages returns the latest version of every package across all
+// repositories. Repositories are consulted in preferential order; when two
+// repositories carry the same highest version the one listed first wins.
+func (rr *RepositoryRoot) ListPackages() ([]PackageIdentity, error) {
+	best := map[string]string{}
+
+	for _, repo := range rr.Items {
+		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+		}
+
+		for name, versions := range pkgs {
+			for version := range versions {
+				prev, exists := best[name]
+				if !exists || CompareVersions(version, prev) > 0 {
+					best[name] = version
+				}
+			}
+		}
+	}
+
+	out := make([]PackageIdentity, 0, len(best))
+	for name, version := range best {
+		out = append(out, PackageIdentity{Name: name, Version: version})
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+
+	return out, nil
 }

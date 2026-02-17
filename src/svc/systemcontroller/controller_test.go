@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -770,5 +772,209 @@ func TestHTTPRepositoryWrongMethod(t *testing.T) {
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for GET on POST-only route")
+	}
+}
+
+// --- ListPackages HTTP endpoint tests ---
+
+func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content string) {
+	t.Helper()
+	dir := filepath.Join(baseDir, repoName, packages.PackagesDir, pkgName)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, version+".yaml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPListPackagesEmpty(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, _ := url.Parse("https://example.com/repo-a.git")
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	// create empty packages dir
+	if err := os.MkdirAll(filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkgs, err := c.ListPackages()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 packages, got %d", len(pkgs))
+	}
+}
+
+func TestHTTPListPackagesPopulated(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, _ := url.Parse("https://example.com/repo-a.git")
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
+
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkgs, err := c.ListPackages()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	}
+
+	// results are sorted by name
+	if pkgs[0].Name != "nginx" || pkgs[0].Version != "2.0" {
+		t.Fatalf("expected nginx@2.0, got %s@%s", pkgs[0].Name, pkgs[0].Version)
+	}
+	if pkgs[1].Name != "redis" || pkgs[1].Version != "7.0" {
+		t.Fatalf("expected redis@7.0, got %s@%s", pkgs[1].Name, pkgs[1].Version)
+	}
+}
+
+func TestHTTPListPackagesMultipleRepos(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u1, _ := url.Parse("https://example.com/repo-a.git")
+	u2, _ := url.Parse("https://example.com/repo-b.git")
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u1},
+		{Name: "repo-b", URL: *u2},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-b", "redis", "7.0", "image: redis:7.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-b", "nginx", "3.0", "image: nginx:3.0\n")
+
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkgs, err := c.ListPackages()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	}
+
+	// nginx should be 3.0 (higher version from repo-b wins)
+	if pkgs[0].Name != "nginx" || pkgs[0].Version != "3.0" {
+		t.Fatalf("expected nginx@3.0, got %s@%s", pkgs[0].Name, pkgs[0].Version)
+	}
+	if pkgs[1].Name != "redis" || pkgs[1].Version != "7.0" {
+		t.Fatalf("expected redis@7.0, got %s@%s", pkgs[1].Name, pkgs[1].Version)
+	}
+}
+
+func TestHTTPListPackagesWrongMethod(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := http.Get(ts.Server.URL + "/packages")
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 for GET on POST-only route")
+	}
+}
+
+// --- MockClient ListPackages tests ---
+
+func TestMockClientListPackages(t *testing.T) {
+	m := InitMockClient()
+	m.Packages = []PackageInfo{
+		{Name: "nginx", Version: "2.0"},
+		{Name: "redis", Version: "7.0"},
+	}
+
+	pkgs, err := m.ListPackages()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	}
+
+	if pkgs[0].Name != "nginx" || pkgs[0].Version != "2.0" {
+		t.Fatalf("expected nginx@2.0, got %s@%s", pkgs[0].Name, pkgs[0].Version)
+	}
+}
+
+func TestMockClientListPackagesEmpty(t *testing.T) {
+	m := InitMockClient()
+
+	pkgs, err := m.ListPackages()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 packages, got %d", len(pkgs))
+	}
+}
+
+func TestMockClientListPackagesErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.ListPkgErr = injected
+	if _, err := m.ListPackages(); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockClientListPackagesCallLog(t *testing.T) {
+	m := InitMockClient()
+	m.Packages = []PackageInfo{{Name: "nginx", Version: "1.0"}}
+
+	m.ListPackages()
+	m.ListPackages()
+
+	calls := m.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+
+	for _, c := range calls {
+		if c.Method != "ListPackages" {
+			t.Fatalf("expected method ListPackages, got %q", c.Method)
+		}
 	}
 }

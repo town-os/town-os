@@ -531,3 +531,206 @@ func TestLatestPackage(t *testing.T) {
 		}
 	})
 }
+
+func TestListPackages(t *testing.T) {
+	t.Run("single repo picks latest of each package", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+		writePackageYAML(t, dir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkgs, err := root.ListPackages()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 2 {
+			t.Fatalf("expected 2 packages, got %d", len(pkgs))
+		}
+
+		// sorted by name
+		if pkgs[0].Name != "nginx" || pkgs[0].Version != "2.0" {
+			t.Fatalf("expected nginx@2.0, got %s@%s", pkgs[0].Name, pkgs[0].Version)
+		}
+		if pkgs[1].Name != "redis" || pkgs[1].Version != "7.0" {
+			t.Fatalf("expected redis@7.0, got %s@%s", pkgs[1].Name, pkgs[1].Version)
+		}
+	})
+
+	t.Run("multiple repos no overlap", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-b", "redis", "7.0", "image: redis:7.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkgs, err := root.ListPackages()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 2 {
+			t.Fatalf("expected 2 packages, got %d", len(pkgs))
+		}
+
+		if pkgs[0].Name != "nginx" || pkgs[1].Name != "redis" {
+			t.Fatalf("expected nginx and redis, got %s and %s", pkgs[0].Name, pkgs[1].Name)
+		}
+	})
+
+	t.Run("preferred repo wins on version tie", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// both repos have nginx 2.0 — repo-a listed first, so its version wins
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+		writePackageYAML(t, dir, "repo-b", "nginx", "2.0", "image: nginx:2.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkgs, err := root.ListPackages()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 1 {
+			t.Fatalf("expected 1 package, got %d", len(pkgs))
+		}
+		if pkgs[0].Version != "2.0" {
+			t.Fatalf("expected version 2.0, got %s", pkgs[0].Version)
+		}
+	})
+
+	t.Run("later repo higher version wins", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-b", "nginx", "3.0", "image: nginx:3.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkgs, err := root.ListPackages()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 1 {
+			t.Fatalf("expected 1 package, got %d", len(pkgs))
+		}
+		if pkgs[0].Version != "3.0" {
+			t.Fatalf("expected version 3.0, got %s", pkgs[0].Version)
+		}
+	})
+
+	t.Run("no packages returns empty", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// create the packages dir but leave it empty
+		if err := os.MkdirAll(filepath.Join(dir, "repo-a", PackagesDir), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkgs, err := root.ListPackages()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 0 {
+			t.Fatalf("expected 0 packages, got %d", len(pkgs))
+		}
+	})
+
+	t.Run("results sorted by name", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "zookeeper", "1.0", "image: zk:1.0\n")
+		writePackageYAML(t, dir, "repo-a", "alpine", "3.18", "image: alpine:3.18\n")
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkgs, err := root.ListPackages()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 3 {
+			t.Fatalf("expected 3 packages, got %d", len(pkgs))
+		}
+
+		expected := []string{"alpine", "nginx", "zookeeper"}
+		for i, want := range expected {
+			if pkgs[i].Name != want {
+				t.Fatalf("expected package %d to be %q, got %q", i, want, pkgs[i].Name)
+			}
+		}
+	})
+}
