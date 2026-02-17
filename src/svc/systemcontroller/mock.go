@@ -36,16 +36,16 @@ func (m *MockClient) GetCalls() []MockCall {
 	return out
 }
 
-func (m *MockClient) CreateFilesystem(name string) error {
+func (m *MockClient) CreateFilesystem(fs storage.Filesystem) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "CreateFilesystem", Args: []any{name}})
+	m.Calls = append(m.Calls, MockCall{Method: "CreateFilesystem", Args: []any{fs}})
 
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
 
-	m.Filesystems[name] = storage.Filesystem{Name: name}
+	m.Filesystems[fs.Name] = fs
 	return nil
 }
 

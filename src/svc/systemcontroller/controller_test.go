@@ -29,7 +29,7 @@ func initTestClient(t *testing.T) (*SystemClient, *storage.MockBtrFSController) 
 func TestCreateFilesystem(t *testing.T) {
 	c, controller := initTestClient(t)
 
-	if err := c.CreateFilesystem("test-vol"); err != nil {
+	if err := c.CreateFilesystem(storage.Filesystem{Name: "test-vol"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -48,7 +48,7 @@ func TestCreateFilesystemMultiple(t *testing.T) {
 
 	names := []string{"vol-a", "vol-b", "vol-c"}
 	for _, name := range names {
-		if err := c.CreateFilesystem(name); err != nil {
+		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("unexpected error creating %q: %v", name, err)
 		}
 	}
@@ -80,7 +80,7 @@ func TestCreateFilesystemBadJSON(t *testing.T) {
 func TestModifyFilesystem(t *testing.T) {
 	c, _ := initTestClient(t)
 
-	if err := c.CreateFilesystem("test-vol"); err != nil {
+	if err := c.CreateFilesystem(storage.Filesystem{Name: "test-vol"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestModifyFilesystemBadJSON(t *testing.T) {
 func TestRemoveFilesystem(t *testing.T) {
 	c, controller := initTestClient(t)
 
-	if err := c.CreateFilesystem("test-vol"); err != nil {
+	if err := c.CreateFilesystem(storage.Filesystem{Name: "test-vol"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,10 +129,10 @@ func TestRemoveFilesystem(t *testing.T) {
 func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 	c, controller := initTestClient(t)
 
-	if err := c.CreateFilesystem("keep"); err != nil {
+	if err := c.CreateFilesystem(storage.Filesystem{Name: "keep"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.CreateFilesystem("remove"); err != nil {
+	if err := c.CreateFilesystem(storage.Filesystem{Name: "remove"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -185,7 +185,7 @@ func TestListFilesystemsAll(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	for _, name := range []string{"vol-a", "vol-b", "vol-c"} {
-		if err := c.CreateFilesystem(name); err != nil {
+		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -204,7 +204,7 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	for _, name := range []string{"app-web", "app-db", "data-cache"} {
-		if err := c.CreateFilesystem(name); err != nil {
+		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -231,7 +231,7 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 	c, _ := initTestClient(t)
 
-	if err := c.CreateFilesystem("vol-a"); err != nil {
+	if err := c.CreateFilesystem(storage.Filesystem{Name: "vol-a"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -276,7 +276,7 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	}
 
 	// Create
-	if err := c.CreateFilesystem("lifecycle-vol"); err != nil {
+	if err := c.CreateFilesystem(storage.Filesystem{Name: "lifecycle-vol"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -312,7 +312,7 @@ func TestBulkCreateAndRemove(t *testing.T) {
 
 	count := 10
 	for i := 0; i < count; i++ {
-		if err := c.CreateFilesystem(fmt.Sprintf("vol-%d", i)); err != nil {
+		if err := c.CreateFilesystem(storage.Filesystem{Name: fmt.Sprintf("vol-%d", i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -356,7 +356,7 @@ func TestMockClientImplementsClientInterface(t *testing.T) {
 func TestMockClientCreateAndList(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.CreateFilesystem("test"); err != nil {
+	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -377,7 +377,7 @@ func TestMockClientCreateAndList(t *testing.T) {
 func TestMockClientRemove(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.CreateFilesystem("test"); err != nil {
+	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.RemoveFilesystem("test"); err != nil {
@@ -397,7 +397,7 @@ func TestMockClientRemove(t *testing.T) {
 func TestMockClientModify(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.CreateFilesystem("test"); err != nil {
+	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -423,7 +423,7 @@ func TestMockClientListWithPrefix(t *testing.T) {
 	m := InitMockClient()
 
 	for _, name := range []string{"app-web", "app-db", "data-cache"} {
-		if err := m.CreateFilesystem(name); err != nil {
+		if err := m.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -443,7 +443,7 @@ func TestMockClientErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.CreateErr = injected
-	if err := m.CreateFilesystem("test"); err != injected {
+	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
@@ -469,8 +469,8 @@ func TestMockClientErrorInjection(t *testing.T) {
 func TestMockClientCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	m.CreateFilesystem("a")
-	m.CreateFilesystem("b")
+	m.CreateFilesystem(storage.Filesystem{Name: "a"})
+	m.CreateFilesystem(storage.Filesystem{Name: "b"})
 	m.ListFilesystems("")
 	m.RemoveFilesystem("a")
 

@@ -13,10 +13,10 @@ import (
 )
 
 type Client interface {
-	CreateFilesystem(name string) error
-	ModifyFilesystem(name string, fs storage.Filesystem) error
-	RemoveFilesystem(name string) error
-	ListFilesystems(prefix string) ([]storage.Filesystem, error)
+	CreateFilesystem(storage.Filesystem) error
+	ModifyFilesystem(string, storage.Filesystem) error
+	RemoveFilesystem(string) error
+	ListFilesystems(string) ([]storage.Filesystem, error)
 }
 
 type SystemClient struct {
@@ -63,8 +63,8 @@ func (c *SystemClient) postClient(path string, payload []byte) error {
 	return nil
 }
 
-func (c *SystemClient) CreateFilesystem(name string) error {
-	payload, err := json.Marshal(FilesystemName{Name: name})
+func (c *SystemClient) CreateFilesystem(fs storage.Filesystem) error {
+	payload, err := json.Marshal(fs)
 	if err != nil {
 		return err
 	}
