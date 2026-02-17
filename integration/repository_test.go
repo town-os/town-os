@@ -3,12 +3,14 @@ package integration_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/packages"
+	"go.yaml.in/yaml/v4"
 )
 
 var (
@@ -21,10 +23,10 @@ func setupRoot(t *testing.T, repos []packages.Repository) *packages.RepositoryRo
 	dir := t.TempDir()
 	data, err := json.Marshal(repos)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("marshal repos: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write repositories file: %v", err)
 	}
 
 	root, err := packages.RepositoryRootFromBase(dir)
@@ -109,6 +111,23 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 			t.Fatalf("expected package %s", name)
 		}
 	}
+
+	// Verify version counts for known packages.
+	if len(pkgs["nginx"]) != 2 {
+		t.Fatalf("expected 2 nginx versions, got %d", len(pkgs["nginx"]))
+	}
+	if _, ok := pkgs["nginx"]["1.0"]; !ok {
+		t.Fatal("expected nginx version 1.0")
+	}
+	if _, ok := pkgs["nginx"]["2.0"]; !ok {
+		t.Fatal("expected nginx version 2.0")
+	}
+	if len(pkgs["redis"]) != 1 {
+		t.Fatalf("expected 1 redis version, got %d", len(pkgs["redis"]))
+	}
+	if _, ok := pkgs["redis"]["7.0"]; !ok {
+		t.Fatal("expected redis version 7.0")
+	}
 }
 
 func TestRepositoryCompileLoadedPackage(t *testing.T) {
@@ -170,18 +189,11 @@ func TestListPackagesSingleRepo(t *testing.T) {
 	}
 
 	// results are sorted by name
-	if pkgs[0].Name != "nginx" {
-		t.Fatalf("expected first package to be nginx, got %s", pkgs[0].Name)
+	if pkgs[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
 	}
-	if pkgs[0].Version != "2.0" {
-		t.Fatalf("expected nginx latest version 2.0, got %s", pkgs[0].Version)
-	}
-
-	if pkgs[1].Name != "redis" {
-		t.Fatalf("expected second package to be redis, got %s", pkgs[1].Name)
-	}
-	if pkgs[1].Version != "7.0" {
-		t.Fatalf("expected redis latest version 7.0, got %s", pkgs[1].Version)
+	if pkgs[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
 	}
 }
 
@@ -208,30 +220,31 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 	}
 
 	// verify sorted and all expected names present
-	names := make([]string, len(pkgs))
-	for i, p := range pkgs {
-		names[i] = p.Name
+	found := map[string]bool{}
+	for _, p := range pkgs {
+		pi, err := packages.ParsePackageIdentity(p)
+		if err != nil {
+			t.Fatalf("invalid package identity %q: %v", p, err)
+		}
+		found[pi.Name] = true
 	}
 
-	expected := []string{"mosquitto", "nginx", "postgres", "redis"}
-	for i, want := range expected {
-		if names[i] != want {
-			t.Fatalf("expected package %d to be %q, got %q (full list: %v)", i, want, names[i], names)
+	for _, want := range []string{"mosquitto", "nginx", "postgres", "redis"} {
+		if !found[want] {
+			t.Fatalf("expected package %s to be present", want)
 		}
 	}
 
 	// verify core packages still have correct latest versions
+	pkgSet := map[string]bool{}
 	for _, p := range pkgs {
-		switch p.Name {
-		case "nginx":
-			if p.Version != "2.0" {
-				t.Fatalf("expected nginx@2.0, got %s", p.Version)
-			}
-		case "redis":
-			if p.Version != "7.0" {
-				t.Fatalf("expected redis@7.0, got %s", p.Version)
-			}
-		}
+		pkgSet[p] = true
+	}
+	if !pkgSet["nginx@2.0"] {
+		t.Fatal("expected nginx@2.0")
+	}
+	if !pkgSet["redis@7.0"] {
+		t.Fatal("expected redis@7.0")
 	}
 }
 
@@ -259,16 +272,32 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		t.Fatalf("expected 4 packages, got %d", len(pkgs))
 	}
 
-	// verify all expected names present
-	found := map[string]bool{}
+	// verify all expected names and versions present
+	foundNames := map[string]bool{}
 	for _, p := range pkgs {
-		found[p.Name] = true
+		pi, err := packages.ParsePackageIdentity(p)
+		if err != nil {
+			t.Fatalf("invalid package identity %q: %v", p, err)
+		}
+		foundNames[pi.Name] = true
 	}
 
 	for _, name := range []string{"mosquitto", "nginx", "postgres", "redis"} {
-		if !found[name] {
+		if !foundNames[name] {
 			t.Fatalf("expected package %s to be present", name)
 		}
+	}
+
+	// verify correct latest versions
+	pkgSet := map[string]bool{}
+	for _, p := range pkgs {
+		pkgSet[p] = true
+	}
+	if !pkgSet["nginx@2.0"] {
+		t.Fatal("expected nginx@2.0")
+	}
+	if !pkgSet["redis@7.0"] {
+		t.Fatal("expected redis@7.0")
 	}
 }
 
@@ -312,13 +341,13 @@ func TestInstalledListFromRepo(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Install nginx@2.0: %v", err)
 	}
 	if err := mgr.Install("test-packages-core", "redis", "7.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
 	pkgs, err := mgr.ListInstalled()
@@ -331,14 +360,10 @@ func TestInstalledListFromRepo(t *testing.T) {
 	}
 
 	// Sorted: nginx@1.0, nginx@2.0, redis@7.0
-	expected := []struct{ name, version string }{
-		{"nginx", "1.0"},
-		{"nginx", "2.0"},
-		{"redis", "7.0"},
-	}
+	expected := []string{"nginx@1.0", "nginx@2.0", "redis@7.0"}
 	for i, want := range expected {
-		if pkgs[i].Name != want.name || pkgs[i].Version != want.version {
-			t.Fatalf("entry %d: expected %s@%s, got %s@%s", i, want.name, want.version, pkgs[i].Name, pkgs[i].Version)
+		if pkgs[i] != want {
+			t.Fatalf("entry %d: expected %s, got %s", i, want, pkgs[i])
 		}
 	}
 }
@@ -355,10 +380,10 @@ func TestInstalledUninstallFromRepo(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Install nginx@2.0: %v", err)
 	}
 	if err := mgr.Install("test-packages-core", "redis", "7.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
 	if err := mgr.Uninstall("nginx", "2.0"); err != nil {
@@ -367,13 +392,13 @@ func TestInstalledUninstallFromRepo(t *testing.T) {
 
 	pkgs, err := mgr.ListInstalled()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListInstalled after uninstall: %v", err)
 	}
 	if len(pkgs) != 1 {
 		t.Fatalf("expected 1 installed after uninstall, got %d", len(pkgs))
 	}
-	if pkgs[0].Name != "redis" {
-		t.Fatalf("expected redis to remain, got %s", pkgs[0].Name)
+	if pkgs[0] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0 to remain, got %s", pkgs[0])
 	}
 
 	// Uninstalling again should fail.
@@ -403,26 +428,42 @@ func TestInstalledMultipleRepos(t *testing.T) {
 
 	// Install from different repos.
 	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Install nginx@2.0 from core: %v", err)
 	}
-	if err := mgr.Install("test-packages-extras", "postgres", "17.0"); err != nil {
-		t.Fatal(err)
+	if err := mgr.Install("test-packages-extras", "postgres", "16.0"); err != nil {
+		t.Fatalf("Install postgres@16.0 from extras: %v", err)
 	}
 
 	pkgs, err := mgr.ListInstalled()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListInstalled: %v", err)
 	}
 
 	if len(pkgs) != 2 {
 		t.Fatalf("expected 2 installed packages, got %d", len(pkgs))
 	}
 
+	// Verify actual content.
+	pkgSet := map[string]bool{}
+	for _, p := range pkgs {
+		pkgSet[p] = true
+	}
+	if !pkgSet["nginx@2.0"] {
+		t.Fatal("expected nginx@2.0 in installed list")
+	}
+	if !pkgSet["postgres@16.0"] {
+		t.Fatal("expected postgres@16.0 in installed list")
+	}
+
 	// Both symlinks should resolve.
 	for _, p := range pkgs {
-		link := filepath.Join(root.BaseDir, packages.InstalledDir, p.Name, p.Version+".yaml")
+		pi, err := packages.ParsePackageIdentity(p)
+		if err != nil {
+			t.Fatalf("invalid package identity %q: %v", p, err)
+		}
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Name, pi.Version+".yaml")
 		if _, err := os.ReadFile(link); err != nil {
-			t.Fatalf("symlink for %s@%s does not resolve: %v", p.Name, p.Version, err)
+			t.Fatalf("symlink for %s does not resolve: %v", p, err)
 		}
 	}
 }
@@ -441,7 +482,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	// Empty.
 	pkgs, err := mgr.ListInstalled()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListInstalled (initial): %v", err)
 	}
 	if len(pkgs) != 0 {
 		t.Fatalf("expected empty, got %d", len(pkgs))
@@ -449,12 +490,12 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 
 	// Install.
 	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
 	pkgs, err = mgr.ListInstalled()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListInstalled after install: %v", err)
 	}
 	if len(pkgs) != 1 {
 		t.Fatalf("expected 1, got %d", len(pkgs))
@@ -471,12 +512,12 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 
 	// Uninstall.
 	if err := mgr.Uninstall("nginx", "1.0"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Uninstall nginx@1.0: %v", err)
 	}
 
 	pkgs, err = mgr.ListInstalled()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListInstalled after uninstall: %v", err)
 	}
 	if len(pkgs) != 0 {
 		t.Fatalf("expected 0 after uninstall, got %d", len(pkgs))
@@ -489,7 +530,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 
 	pkgs, err = mgr.ListInstalled()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListInstalled after re-install: %v", err)
 	}
 	if len(pkgs) != 1 {
 		t.Fatalf("expected 1 after re-install, got %d", len(pkgs))
@@ -530,5 +571,321 @@ func TestRepositoryAddAndRemovePersistence(t *testing.T) {
 	}
 	if _, ok := reloaded.Get("test-packages-core"); !ok {
 		t.Fatal("expected core repo to remain")
+	}
+}
+
+func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatalf("Install nginx@1.0: %v", err)
+	}
+
+	// Read through symlink.
+	link := filepath.Join(root.BaseDir, packages.InstalledDir, "nginx", "1.0.yaml")
+	symlinkContent, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatalf("read through symlink: %v", err)
+	}
+
+	// Read source directly.
+	source := filepath.Join(root.BaseDir, "test-packages-core", packages.PackagesDir, "nginx", "1.0.yaml")
+	sourceContent, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read source file: %v", err)
+	}
+
+	if string(symlinkContent) != string(sourceContent) {
+		t.Fatalf("symlink content does not match source:\nsymlink: %s\nsource:  %s", symlinkContent, sourceContent)
+	}
+}
+
+func TestInstalledEmptyDirCleanupAfterUninstall(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	// Install two versions of the same package.
+	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatalf("Install nginx@1.0: %v", err)
+	}
+	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+		t.Fatalf("Install nginx@2.0: %v", err)
+	}
+
+	pkgDir := filepath.Join(root.BaseDir, packages.InstalledDir, "nginx")
+
+	// Verify directory exists.
+	if _, err := os.Stat(pkgDir); err != nil {
+		t.Fatalf("expected nginx directory to exist: %v", err)
+	}
+
+	// Uninstall first version — directory should remain.
+	if err := mgr.Uninstall("nginx", "1.0"); err != nil {
+		t.Fatalf("Uninstall nginx@1.0: %v", err)
+	}
+	if _, err := os.Stat(pkgDir); err != nil {
+		t.Fatalf("expected nginx directory to still exist after partial uninstall: %v", err)
+	}
+
+	// Uninstall second version — directory should be cleaned up.
+	if err := mgr.Uninstall("nginx", "2.0"); err != nil {
+		t.Fatalf("Uninstall nginx@2.0: %v", err)
+	}
+	if _, err := os.Stat(pkgDir); !os.IsNotExist(err) {
+		t.Fatalf("expected nginx directory to be removed after full uninstall, got err: %v", err)
+	}
+}
+
+func TestInstalledInstallNonexistentPackage(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	// Nonexistent package name.
+	if err := mgr.Install("test-packages-core", "nonexistent", "1.0"); err == nil {
+		t.Fatal("expected error installing nonexistent package")
+	}
+
+	// Existing package, nonexistent version.
+	if err := mgr.Install("test-packages-core", "nginx", "99.0"); err == nil {
+		t.Fatal("expected error installing nonexistent version")
+	}
+
+	// Nonexistent repo name.
+	if err := mgr.Install("no-such-repo", "nginx", "1.0"); err == nil {
+		t.Fatal("expected error installing from nonexistent repo")
+	}
+
+	// Verify nothing got installed.
+	pkgs, err := mgr.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed after failed installs, got %d", len(pkgs))
+	}
+}
+
+func TestInstalledInstallAllAvailablePackages(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+		{Name: "test-packages-extras", URL: extrasURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+		t.Fatalf("failed to clone extras: %v", err)
+	}
+
+	// Load all packages to know what's available.
+	allPkgs, err := root.LoadAllPackages()
+	if err != nil {
+		t.Fatalf("LoadAllPackages: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	// Install every version of every package.
+	// Track which repo provides each package by loading per-repo.
+	for _, repoName := range []string{"test-packages-core", "test-packages-extras"} {
+		repo, ok := root.Get(repoName)
+		if !ok {
+			t.Fatalf("expected repo %s", repoName)
+		}
+		repoPkgs, err := repo.LoadPackages(root.BaseDir)
+		if err != nil {
+			t.Fatalf("LoadPackages %s: %v", repoName, err)
+		}
+		for name, versions := range repoPkgs {
+			for version := range versions {
+				if err := mgr.Install(repoName, name, version); err != nil {
+					t.Fatalf("Install %s@%s from %s: %v", name, version, repoName, err)
+				}
+			}
+		}
+	}
+
+	installed, err := mgr.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+
+	// Count total expected versions.
+	totalVersions := 0
+	for _, versions := range allPkgs {
+		totalVersions += len(versions)
+	}
+
+	if len(installed) != totalVersions {
+		t.Fatalf("expected %d installed entries, got %d", totalVersions, len(installed))
+	}
+
+	// Verify sorted order: by name, then by version.
+	for i := 1; i < len(installed); i++ {
+		prev, _ := packages.ParsePackageIdentity(installed[i-1])
+		curr, _ := packages.ParsePackageIdentity(installed[i])
+		if prev.Name > curr.Name {
+			t.Fatalf("not sorted by name at index %d: %s > %s", i, prev.Name, curr.Name)
+		}
+		if prev.Name == curr.Name && packages.CompareVersions(prev.Version, curr.Version) >= 0 {
+			t.Fatalf("not sorted by version at index %d: %s >= %s", i, installed[i-1], installed[i])
+		}
+	}
+
+	// Verify all symlinks resolve.
+	for _, p := range installed {
+		pi, err := packages.ParsePackageIdentity(p)
+		if err != nil {
+			t.Fatalf("invalid package identity %q: %v", p, err)
+		}
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Name, fmt.Sprintf("%s.yaml", pi.Version))
+		content, err := os.ReadFile(link)
+		if err != nil {
+			t.Fatalf("symlink for %s does not resolve: %v", p, err)
+		}
+		if len(content) == 0 {
+			t.Fatalf("expected non-empty content for %s", p)
+		}
+	}
+}
+
+func TestInstalledListBeforeAnyInstalls(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	// Do not clone or install anything — the installed dir does not exist.
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	pkgs, err := mgr.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled on missing dir: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed when dir missing, got %d", len(pkgs))
+	}
+}
+
+func TestInstalledSeparateManagersShareState(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+
+	mgr1 := packages.NewInstallManager(root.BaseDir)
+	mgr2 := packages.NewInstallManager(root.BaseDir)
+
+	// Install from mgr1.
+	if err := mgr1.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatalf("mgr1 Install nginx@1.0: %v", err)
+	}
+
+	// List from mgr2 — should see what mgr1 installed.
+	pkgs, err := mgr2.ListInstalled()
+	if err != nil {
+		t.Fatalf("mgr2 ListInstalled: %v", err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected mgr2 to see 1 installed, got %d", len(pkgs))
+	}
+	if pkgs[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", pkgs[0])
+	}
+
+	// Duplicate from mgr2 should fail.
+	err = mgr2.Install("test-packages-core", "nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected duplicate install error from mgr2")
+	}
+	if !errors.Is(err, packages.ErrAlreadyInstalled) {
+		t.Fatalf("expected ErrAlreadyInstalled from mgr2, got %v", err)
+	}
+
+	// Uninstall from mgr2.
+	if err := mgr2.Uninstall("nginx", "1.0"); err != nil {
+		t.Fatalf("mgr2 Uninstall nginx@1.0: %v", err)
+	}
+
+	// mgr1 should see it gone.
+	pkgs, err = mgr1.ListInstalled()
+	if err != nil {
+		t.Fatalf("mgr1 ListInstalled after mgr2 uninstall: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 after mgr2 uninstall, got %d", len(pkgs))
+	}
+}
+
+func TestInstalledCompileThroughSymlink(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	mgr := packages.NewInstallManager(root.BaseDir)
+
+	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+		t.Fatalf("Install nginx@1.0: %v", err)
+	}
+
+	// Read YAML through the installed symlink.
+	link := filepath.Join(root.BaseDir, packages.InstalledDir, "nginx", "1.0.yaml")
+	f, err := os.Open(link)
+	if err != nil {
+		t.Fatalf("open installed symlink: %v", err)
+	}
+	defer f.Close()
+
+	var ip packages.InputPackage
+	if err := yaml.NewDecoder(f).Decode(&ip); err != nil {
+		t.Fatalf("decode YAML through symlink: %v", err)
+	}
+
+	// Compile with responses and verify the result.
+	compiled, err := ip.Compile(packages.Responses{
+		"hostname": "test.example.com",
+		"port":     "9090",
+	})
+	if err != nil {
+		t.Fatalf("Compile through symlink: %v", err)
+	}
+
+	if compiled.Image != "nginx:1.0" {
+		t.Fatalf("expected image nginx:1.0, got %s", compiled.Image)
+	}
+	if compiled.Environment["NGINX_HOST"] != "test.example.com" {
+		t.Fatalf("expected NGINX_HOST=test.example.com, got %s", compiled.Environment["NGINX_HOST"])
+	}
+	if compiled.Network.External[9090] != 80 {
+		t.Fatalf("expected external port 9090->80, got %v", compiled.Network.External)
 	}
 }

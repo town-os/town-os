@@ -15,6 +15,12 @@ var (
 	ErrAlreadyInstalled = fmt.Errorf("package already installed")
 )
 
+type Installer interface {
+	Install(repoName, pkgName, version string) error
+	Uninstall(pkgName, version string) error
+	ListInstalled() ([]string, error)
+}
+
 type InstallManager struct {
 	BaseDir string
 }
@@ -85,7 +91,7 @@ func (m *InstallManager) Uninstall(pkgName, version string) error {
 
 // ListInstalled returns all installed packages independently of the
 // repositories. Results are sorted by name, then by version.
-func (m *InstallManager) ListInstalled() ([]PackageIdentity, error) {
+func (m *InstallManager) ListInstalled() ([]string, error) {
 	installedDir := m.dir()
 
 	names, err := os.ReadDir(installedDir)
@@ -96,7 +102,7 @@ func (m *InstallManager) ListInstalled() ([]PackageIdentity, error) {
 		return nil, err
 	}
 
-	var out []PackageIdentity
+	var items []PackageIdentity
 
 	for _, name := range names {
 		if !name.IsDir() {
@@ -123,19 +129,24 @@ func (m *InstallManager) ListInstalled() ([]PackageIdentity, error) {
 				continue
 			}
 
-			out = append(out, PackageIdentity{
+			items = append(items, PackageIdentity{
 				Name:    name.Name(),
 				Version: strings.TrimSuffix(fn, ".yaml"),
 			})
 		}
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Name != out[j].Name {
-			return out[i].Name < out[j].Name
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Name != items[j].Name {
+			return items[i].Name < items[j].Name
 		}
-		return CompareVersions(out[i].Version, out[j].Version) < 0
+		return CompareVersions(items[i].Version, items[j].Version) < 0
 	})
+
+	out := make([]string, len(items))
+	for i, p := range items {
+		out[i] = p.String()
+	}
 
 	return out, nil
 }

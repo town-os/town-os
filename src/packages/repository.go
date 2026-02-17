@@ -17,6 +17,16 @@ import (
 
 const RepositoriesFile = "repositories.json"
 
+type RepositoryManager interface {
+	Add(repo Repository) error
+	Remove(name string) error
+	Get(name string) (Repository, bool)
+	Refresh() error
+	LoadAllPackages() (PackageTable, error)
+	ListPackages() ([]string, error)
+	LatestPackage(name string) (InputPackage, string, error)
+}
+
 type RepositoryRoot struct {
 	BaseDir string
 	Items   []Repository
@@ -321,7 +331,7 @@ func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, erro
 // ListPackages returns the latest version of every package across all
 // repositories. Repositories are consulted in preferential order; when two
 // repositories carry the same highest version the one listed first wins.
-func (rr *RepositoryRoot) ListPackages() ([]PackageIdentity, error) {
+func (rr *RepositoryRoot) ListPackages() ([]string, error) {
 	best := map[string]string{}
 
 	for _, repo := range rr.Items {
@@ -340,14 +350,12 @@ func (rr *RepositoryRoot) ListPackages() ([]PackageIdentity, error) {
 		}
 	}
 
-	out := make([]PackageIdentity, 0, len(best))
+	out := make([]string, 0, len(best))
 	for name, version := range best {
-		out = append(out, PackageIdentity{Name: name, Version: version})
+		out = append(out, PackageIdentity{Name: name, Version: version}.String())
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Name < out[j].Name
-	})
+	sort.Strings(out)
 
 	return out, nil
 }

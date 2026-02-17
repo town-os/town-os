@@ -183,7 +183,7 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 
 	baseList, err := c.ListFilesystems(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems before create: %v", err)
 	}
 	baseCount := len(baseList)
 
@@ -196,7 +196,7 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	// Verify exists
 	list, err := c.ListFilesystems(testPath)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems to verify creation: %v", err)
 	}
 	if len(list) != 1 {
 		t.Fatalf("expected 1 filesystem, got %d", len(list))
@@ -210,7 +210,7 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	// Verify gone
 	list, err = c.ListFilesystems(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems to verify removal: %v", err)
 	}
 	if len(list) != baseCount {
 		t.Fatalf("expected %d filesystems after remove, got %d", baseCount, len(list))
@@ -225,10 +225,10 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemClient {
 	dir := t.TempDir()
 	data, err := json.Marshal([]packages.Repository{})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
 	rr, err := packages.RepositoryRootFromBase(dir)
@@ -336,13 +336,136 @@ func TestSystemControllerRemoveNonexistentRepository(t *testing.T) {
 	}
 }
 
+// --- ListPackages integration tests ---
+
+func TestSystemControllerListPackagesEmpty(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	pkgs, err := c.ListPackages()
+	if err != nil {
+		t.Fatalf("ListPackages: %v", err)
+	}
+
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 packages, got %d", len(pkgs))
+	}
+}
+
+func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	pkgs, err := c.ListPackages()
+	if err != nil {
+		t.Fatalf("ListPackages: %v", err)
+	}
+
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	}
+
+	// Results are sorted, latest version only.
+	if pkgs[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+	}
+	if pkgs[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+	}
+
+	// Verify round-trip through ParsePackageIdentity.
+	for _, p := range pkgs {
+		pi, err := packages.ParsePackageIdentity(p)
+		if err != nil {
+			t.Fatalf("invalid package identity %q: %v", p, err)
+		}
+		if pi.String() != p {
+			t.Fatalf("round-trip mismatch: %q != %q", pi.String(), p)
+		}
+	}
+}
+
+func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := c.AddRepository(extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	pkgs, err := c.ListPackages()
+	if err != nil {
+		t.Fatalf("ListPackages: %v", err)
+	}
+
+	if len(pkgs) != 4 {
+		t.Fatalf("expected 4 packages, got %d", len(pkgs))
+	}
+
+	// Verify all expected packages present in name@version format.
+	pkgSet := map[string]bool{}
+	for _, p := range pkgs {
+		pkgSet[p] = true
+	}
+
+	for _, want := range []string{"nginx@2.0", "redis@7.0", "mosquitto@2.0", "postgres@16.0"} {
+		if !pkgSet[want] {
+			t.Fatalf("expected %s in package list", want)
+		}
+	}
+
+	// Verify sorted order.
+	for i := 1; i < len(pkgs); i++ {
+		if pkgs[i-1] >= pkgs[i] {
+			t.Fatalf("packages not sorted: %q >= %q at index %d", pkgs[i-1], pkgs[i], i)
+		}
+	}
+}
+
+func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := c.AddRepository(extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	// Remove extras.
+	if err := c.RemoveRepository("test-packages-extras"); err != nil {
+		t.Fatalf("RemoveRepository extras: %v", err)
+	}
+
+	pkgs, err := c.ListPackages()
+	if err != nil {
+		t.Fatalf("ListPackages after remove: %v", err)
+	}
+
+	// Only core packages should remain.
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 packages after removing extras, got %d", len(pkgs))
+	}
+
+	if pkgs[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+	}
+	if pkgs[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+	}
+}
+
 func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
 	// Start empty
 	repos, err := c.ListRepositories()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListRepositories at start: %v", err)
 	}
 	if len(repos) != 0 {
 		t.Fatalf("expected empty list, got %d", len(repos))
@@ -359,7 +482,7 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	// Verify both present
 	repos, err = c.ListRepositories()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListRepositories after adding repos: %v", err)
 	}
 	if len(repos) != 2 {
 		t.Fatalf("expected 2 repositories, got %d", len(repos))
@@ -373,7 +496,7 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	// Verify only extras remains
 	repos, err = c.ListRepositories()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListRepositories after removing core: %v", err)
 	}
 	if len(repos) != 1 {
 		t.Fatalf("expected 1 repository after remove, got %d", len(repos))
@@ -390,7 +513,7 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	// Verify empty
 	repos, err = c.ListRepositories()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListRepositories at end: %v", err)
 	}
 	if len(repos) != 0 {
 		t.Fatalf("expected 0 repositories at end, got %d", len(repos))

@@ -117,7 +117,7 @@ func TestRemoveFilesystem(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	if err := c.CreateFilesystem(storage.Filesystem{Name: "test-vol"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("CreateFilesystem %q: %v", "test-vol", err)
 	}
 
 	if err := c.RemoveFilesystem("test-vol"); err != nil {
@@ -134,14 +134,14 @@ func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	if err := c.CreateFilesystem(storage.Filesystem{Name: "keep"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("CreateFilesystem %q: %v", "keep", err)
 	}
 	if err := c.CreateFilesystem(storage.Filesystem{Name: "remove"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("CreateFilesystem %q: %v", "remove", err)
 	}
 
 	if err := c.RemoveFilesystem("remove"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("RemoveFilesystem %q: %v", "remove", err)
 	}
 
 	fs := controller.GetFilesystems()
@@ -190,7 +190,7 @@ func TestListFilesystemsAll(t *testing.T) {
 
 	for _, name := range []string{"vol-a", "vol-b", "vol-c"} {
 		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
-			t.Fatal(err)
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 
@@ -202,6 +202,16 @@ func TestListFilesystemsAll(t *testing.T) {
 	if len(fs) != 3 {
 		t.Fatalf("expected 3 filesystems, got %d", len(fs))
 	}
+
+	found := map[string]bool{}
+	for _, f := range fs {
+		found[f.Name] = true
+	}
+	for _, want := range []string{"vol-a", "vol-b", "vol-c"} {
+		if !found[want] {
+			t.Fatalf("expected filesystem %q to be present", want)
+		}
+	}
 }
 
 func TestListFilesystemsWithPrefix(t *testing.T) {
@@ -209,7 +219,7 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 
 	for _, name := range []string{"app-web", "app-db", "data-cache"} {
 		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
-			t.Fatal(err)
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 
@@ -222,6 +232,16 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 		t.Fatalf("expected 2 filesystems with prefix 'app-', got %d", len(fs))
 	}
 
+	appNames := map[string]bool{}
+	for _, f := range fs {
+		appNames[f.Name] = true
+	}
+	for _, want := range []string{"app-web", "app-db"} {
+		if !appNames[want] {
+			t.Fatalf("expected filesystem %q in app- results", want)
+		}
+	}
+
 	fs, err = c.ListFilesystems("data-")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -230,13 +250,16 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 	if len(fs) != 1 {
 		t.Fatalf("expected 1 filesystem with prefix 'data-', got %d", len(fs))
 	}
+	if fs[0].Name != "data-cache" {
+		t.Fatalf("expected data-cache, got %s", fs[0].Name)
+	}
 }
 
 func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	if err := c.CreateFilesystem(storage.Filesystem{Name: "vol-a"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("CreateFilesystem %q: %v", "vol-a", err)
 	}
 
 	fs, err := c.ListFilesystems("nope")
@@ -273,7 +296,7 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	// Start empty
 	fs, err := c.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems (initial): %v", err)
 	}
 	if len(fs) != 0 {
 		t.Fatalf("expected empty list, got %d", len(fs))
@@ -281,13 +304,13 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 
 	// Create
 	if err := c.CreateFilesystem(storage.Filesystem{Name: "lifecycle-vol"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("CreateFilesystem %q: %v", "lifecycle-vol", err)
 	}
 
 	// Verify present
 	fs, err = c.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems (after create): %v", err)
 	}
 	if len(fs) != 1 {
 		t.Fatalf("expected 1 filesystem, got %d", len(fs))
@@ -298,13 +321,13 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 
 	// Remove
 	if err := c.RemoveFilesystem("lifecycle-vol"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("RemoveFilesystem %q: %v", "lifecycle-vol", err)
 	}
 
 	// Verify gone
 	fs, err = c.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems (after remove): %v", err)
 	}
 	if len(fs) != 0 {
 		t.Fatalf("expected 0 after removal, got %d", len(fs))
@@ -316,14 +339,15 @@ func TestBulkCreateAndRemove(t *testing.T) {
 
 	count := 10
 	for i := 0; i < count; i++ {
-		if err := c.CreateFilesystem(storage.Filesystem{Name: fmt.Sprintf("vol-%d", i)}); err != nil {
-			t.Fatal(err)
+		name := fmt.Sprintf("vol-%d", i)
+		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 
 	fs, err := c.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems (after bulk create): %v", err)
 	}
 	if len(fs) != count {
 		t.Fatalf("expected %d filesystems, got %d", count, len(fs))
@@ -331,14 +355,15 @@ func TestBulkCreateAndRemove(t *testing.T) {
 
 	// Remove evens
 	for i := 0; i < count; i += 2 {
-		if err := c.RemoveFilesystem(fmt.Sprintf("vol-%d", i)); err != nil {
-			t.Fatal(err)
+		name := fmt.Sprintf("vol-%d", i)
+		if err := c.RemoveFilesystem(name); err != nil {
+			t.Fatalf("RemoveFilesystem %q: %v", name, err)
 		}
 	}
 
 	fs, err = c.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems (after bulk remove): %v", err)
 	}
 	if len(fs) != count/2 {
 		t.Fatalf("expected %d filesystems after removal, got %d", count/2, len(fs))
@@ -361,12 +386,12 @@ func TestMockClientCreateAndList(t *testing.T) {
 	m := InitMockClient()
 
 	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.CreateFilesystem %q: %v", "test", err)
 	}
 
 	fs, err := m.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
 
 	if len(fs) != 1 {
@@ -382,15 +407,15 @@ func TestMockClientRemove(t *testing.T) {
 	m := InitMockClient()
 
 	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.CreateFilesystem %q: %v", "test", err)
 	}
 	if err := m.RemoveFilesystem("test"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.RemoveFilesystem %q: %v", "test", err)
 	}
 
 	fs, err := m.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
 
 	if len(fs) != 0 {
@@ -402,11 +427,11 @@ func TestMockClientModify(t *testing.T) {
 	m := InitMockClient()
 
 	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.CreateFilesystem %q: %v", "test", err)
 	}
 
 	if err := m.ModifyFilesystem("test", storage.Filesystem{Name: "test", Quota: 2048}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ModifyFilesystem %q: %v", "test", err)
 	}
 
 	if m.Filesystems["test"].Quota != 2048 {
@@ -428,17 +453,27 @@ func TestMockClientListWithPrefix(t *testing.T) {
 
 	for _, name := range []string{"app-web", "app-db", "data-cache"} {
 		if err := m.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
-			t.Fatal(err)
+			t.Fatalf("MockClient.CreateFilesystem %q: %v", name, err)
 		}
 	}
 
 	fs, err := m.ListFilesystems("app-")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ListFilesystems %q: %v", "app-", err)
 	}
 
 	if len(fs) != 2 {
 		t.Fatalf("expected 2 filesystems with prefix, got %d", len(fs))
+	}
+
+	names := map[string]bool{}
+	for _, f := range fs {
+		names[f.Name] = true
+	}
+	for _, want := range []string{"app-web", "app-db"} {
+		if !names[want] {
+			t.Fatalf("expected filesystem %q in results", want)
+		}
 	}
 }
 
@@ -473,10 +508,18 @@ func TestMockClientErrorInjection(t *testing.T) {
 func TestMockClientCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	m.CreateFilesystem(storage.Filesystem{Name: "a"})
-	m.CreateFilesystem(storage.Filesystem{Name: "b"})
-	m.ListFilesystems("")
-	m.RemoveFilesystem("a")
+	if err := m.CreateFilesystem(storage.Filesystem{Name: "a"}); err != nil {
+		t.Fatalf("MockClient.CreateFilesystem %q: %v", "a", err)
+	}
+	if err := m.CreateFilesystem(storage.Filesystem{Name: "b"}); err != nil {
+		t.Fatalf("MockClient.CreateFilesystem %q: %v", "b", err)
+	}
+	if _, err := m.ListFilesystems(""); err != nil {
+		t.Fatalf("MockClient.ListFilesystems: %v", err)
+	}
+	if err := m.RemoveFilesystem("a"); err != nil {
+		t.Fatalf("MockClient.RemoveFilesystem %q: %v", "a", err)
+	}
 
 	calls := m.GetCalls()
 	if len(calls) != 4 {
@@ -547,12 +590,12 @@ func TestMockClientAddAndListRepositories(t *testing.T) {
 	m := InitMockClient()
 
 	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
 	repos, err := m.ListRepositories()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
 
 	if len(repos) != 1 {
@@ -568,7 +611,7 @@ func TestMockClientAddDuplicateRepository(t *testing.T) {
 	m := InitMockClient()
 
 	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
 	err := m.AddRepository("https://example.com/repo.git")
@@ -581,16 +624,16 @@ func TestMockClientRemoveRepository(t *testing.T) {
 	m := InitMockClient()
 
 	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
 	if err := m.RemoveRepository("https://example.com/repo.git"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.RemoveRepository: %v", err)
 	}
 
 	repos, err := m.ListRepositories()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
 
 	if len(repos) != 0 {
@@ -632,10 +675,18 @@ func TestMockClientRepositoryErrorInjection(t *testing.T) {
 func TestMockClientRepositoryCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	m.AddRepository("https://example.com/a.git")
-	m.AddRepository("https://example.com/b.git")
-	m.ListRepositories()
-	m.RemoveRepository("https://example.com/a.git")
+	if err := m.AddRepository("https://example.com/a.git"); err != nil {
+		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/a.git", err)
+	}
+	if err := m.AddRepository("https://example.com/b.git"); err != nil {
+		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/b.git", err)
+	}
+	if _, err := m.ListRepositories(); err != nil {
+		t.Fatalf("MockClient.ListRepositories: %v", err)
+	}
+	if err := m.RemoveRepository("https://example.com/a.git"); err != nil {
+		t.Fatalf("MockClient.RemoveRepository %q: %v", "https://example.com/a.git", err)
+	}
 
 	calls := m.GetCalls()
 	if len(calls) != 4 {
@@ -697,7 +748,7 @@ func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
 
 	c, err := ts.Client()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ts.Client: %v", err)
 	}
 
 	err = c.RemoveRepository("nonexistent")
@@ -714,7 +765,7 @@ func TestHTTPListRepositoriesEmpty(t *testing.T) {
 
 	c, err := ts.Client()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ts.Client: %v", err)
 	}
 
 	repos, err := c.ListRepositories()
@@ -730,8 +781,14 @@ func TestHTTPListRepositoriesEmpty(t *testing.T) {
 func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u1, _ := url.Parse("https://example.com/repo-a.git")
-	u2, _ := url.Parse("https://example.com/repo-b.git")
+	u1, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse %q: %v", "https://example.com/repo-a.git", err)
+	}
+	u2, err := url.Parse("https://example.com/repo-b.git")
+	if err != nil {
+		t.Fatalf("url.Parse %q: %v", "https://example.com/repo-b.git", err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo-a", URL: *u1},
 		{Name: "repo-b", URL: *u2},
@@ -742,7 +799,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 
 	c, err := ts.Client()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ts.Client: %v", err)
 	}
 
 	repos, err := c.ListRepositories()
@@ -781,24 +838,28 @@ func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content
 	t.Helper()
 	dir := filepath.Join(baseDir, repoName, packages.PackagesDir, pkgName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		t.Fatal(err)
+		t.Fatalf("os.MkdirAll %q: %v", dir, err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, version+".yaml"), []byte(content), 0644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("os.WriteFile %q/%s.yaml: %v", dir, version, err)
 	}
 }
 
 func TestHTTPListPackagesEmpty(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/repo-a.git")
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo-a", URL: *u},
 	}
 
 	// create empty packages dir
-	if err := os.MkdirAll(filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir), 0755); err != nil {
-		t.Fatal(err)
+	pkgDir := filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir)
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("os.MkdirAll %q: %v", pkgDir, err)
 	}
 
 	ts := InitTestServer(mock, rr)
@@ -806,7 +867,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 
 	c, err := ts.Client()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ts.Client: %v", err)
 	}
 
 	pkgs, err := c.ListPackages()
@@ -822,7 +883,10 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 func TestHTTPListPackagesPopulated(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/repo-a.git")
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo-a", URL: *u},
 	}
@@ -836,7 +900,7 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 
 	c, err := ts.Client()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ts.Client: %v", err)
 	}
 
 	pkgs, err := c.ListPackages()
@@ -849,19 +913,25 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 	}
 
 	// results are sorted by name
-	if pkgs[0].Name != "nginx" || pkgs[0].Version != "2.0" {
-		t.Fatalf("expected nginx@2.0, got %s@%s", pkgs[0].Name, pkgs[0].Version)
+	if pkgs[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
 	}
-	if pkgs[1].Name != "redis" || pkgs[1].Version != "7.0" {
-		t.Fatalf("expected redis@7.0, got %s@%s", pkgs[1].Name, pkgs[1].Version)
+	if pkgs[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
 	}
 }
 
 func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u1, _ := url.Parse("https://example.com/repo-a.git")
-	u2, _ := url.Parse("https://example.com/repo-b.git")
+	u1, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse %q: %v", "https://example.com/repo-a.git", err)
+	}
+	u2, err := url.Parse("https://example.com/repo-b.git")
+	if err != nil {
+		t.Fatalf("url.Parse %q: %v", "https://example.com/repo-b.git", err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo-a", URL: *u1},
 		{Name: "repo-b", URL: *u2},
@@ -876,7 +946,7 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 
 	c, err := ts.Client()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ts.Client: %v", err)
 	}
 
 	pkgs, err := c.ListPackages()
@@ -889,11 +959,11 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 	}
 
 	// nginx should be 3.0 (higher version from repo-b wins)
-	if pkgs[0].Name != "nginx" || pkgs[0].Version != "3.0" {
-		t.Fatalf("expected nginx@3.0, got %s@%s", pkgs[0].Name, pkgs[0].Version)
+	if pkgs[0] != "nginx@3.0" {
+		t.Fatalf("expected nginx@3.0, got %s", pkgs[0])
 	}
-	if pkgs[1].Name != "redis" || pkgs[1].Version != "7.0" {
-		t.Fatalf("expected redis@7.0, got %s@%s", pkgs[1].Name, pkgs[1].Version)
+	if pkgs[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
 	}
 }
 
@@ -918,22 +988,19 @@ func TestHTTPListPackagesWrongMethod(t *testing.T) {
 
 func TestMockClientListPackages(t *testing.T) {
 	m := InitMockClient()
-	m.Packages = []PackageInfo{
-		{Name: "nginx", Version: "2.0"},
-		{Name: "redis", Version: "7.0"},
-	}
+	m.Packages = []string{"nginx@2.0", "redis@7.0"}
 
 	pkgs, err := m.ListPackages()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
 
 	if len(pkgs) != 2 {
 		t.Fatalf("expected 2 packages, got %d", len(pkgs))
 	}
 
-	if pkgs[0].Name != "nginx" || pkgs[0].Version != "2.0" {
-		t.Fatalf("expected nginx@2.0, got %s@%s", pkgs[0].Name, pkgs[0].Version)
+	if pkgs[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
 	}
 }
 
@@ -942,7 +1009,7 @@ func TestMockClientListPackagesEmpty(t *testing.T) {
 
 	pkgs, err := m.ListPackages()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
 
 	if len(pkgs) != 0 {
@@ -962,10 +1029,14 @@ func TestMockClientListPackagesErrorInjection(t *testing.T) {
 
 func TestMockClientListPackagesCallLog(t *testing.T) {
 	m := InitMockClient()
-	m.Packages = []PackageInfo{{Name: "nginx", Version: "1.0"}}
+	m.Packages = []string{"nginx@1.0"}
 
-	m.ListPackages()
-	m.ListPackages()
+	if _, err := m.ListPackages(); err != nil {
+		t.Fatalf("MockClient.ListPackages (first call): %v", err)
+	}
+	if _, err := m.ListPackages(); err != nil {
+		t.Fatalf("MockClient.ListPackages (second call): %v", err)
+	}
 
 	calls := m.GetCalls()
 	if len(calls) != 2 {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type (
@@ -18,8 +19,22 @@ var (
 )
 
 type PackageIdentity struct {
-	Name    string
-	Version string
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+func (p PackageIdentity) String() string {
+	return fmt.Sprintf("%s@%s", p.Name, p.Version)
+}
+
+var ErrInvalidPackageIdentity = errors.New("invalid package identity: expected name@version")
+
+func ParsePackageIdentity(s string) (PackageIdentity, error) {
+	parts := strings.SplitN(s, "@", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return PackageIdentity{}, ErrInvalidPackageIdentity
+	}
+	return PackageIdentity{Name: parts[0], Version: parts[1]}, nil
 }
 
 type PackageVolume struct {

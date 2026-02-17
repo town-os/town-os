@@ -22,7 +22,7 @@ type Client interface {
 	RemoveRepository(string) error
 	ListRepositories() ([]RepositoryInfo, error)
 
-	ListPackages() ([]PackageInfo, error)
+	ListPackages() ([]string, error)
 }
 
 type SystemClient struct {
@@ -159,7 +159,7 @@ func (c *SystemClient) ListRepositories() ([]RepositoryInfo, error) {
 
 // --- Packages ---
 
-func (c *SystemClient) ListPackages() ([]PackageInfo, error) {
+func (c *SystemClient) ListPackages() ([]string, error) {
 	resp, err := c.HTTP.Post(c.route("packages"), "application/json", bytes.NewBuffer([]byte("{}")))
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListPackages: %v", err)
@@ -171,7 +171,7 @@ func (c *SystemClient) ListPackages() ([]PackageInfo, error) {
 	}
 
 	de := json.NewDecoder(resp.Body)
-	var pkgs []PackageInfo
+	var pkgs []string
 
 	return pkgs, de.Decode(&pkgs)
 }

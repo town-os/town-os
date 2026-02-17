@@ -6,6 +6,65 @@ import (
 	"testing"
 )
 
+func TestPackageIdentityString(t *testing.T) {
+	pi := PackageIdentity{Name: "nginx", Version: "2.0"}
+	if got := pi.String(); got != "nginx@2.0" {
+		t.Fatalf("expected %q, got %q", "nginx@2.0", got)
+	}
+}
+
+func TestParsePackageIdentity(t *testing.T) {
+	pi, err := ParsePackageIdentity("nginx@2.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pi.Name != "nginx" || pi.Version != "2.0" {
+		t.Fatalf("expected nginx@2.0, got %s@%s", pi.Name, pi.Version)
+	}
+}
+
+func TestParsePackageIdentityErrors(t *testing.T) {
+	tests := map[string]string{
+		"no @":            "nginx",
+		"empty name":      "@2.0",
+		"empty version":   "nginx@",
+		"completely empty": "",
+	}
+
+	for name, input := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParsePackageIdentity(input)
+			if err == nil {
+				t.Fatalf("expected error for %q", input)
+			}
+			if !errors.Is(err, ErrInvalidPackageIdentity) {
+				t.Fatalf("expected ErrInvalidPackageIdentity, got %v", err)
+			}
+		})
+	}
+}
+
+func TestParsePackageIdentityMultipleAt(t *testing.T) {
+	pi, err := ParsePackageIdentity("name@ver@extra")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pi.Name != "name" || pi.Version != "ver@extra" {
+		t.Fatalf("expected name@ver@extra, got %s@%s", pi.Name, pi.Version)
+	}
+}
+
+func TestPackageIdentityRoundTrip(t *testing.T) {
+	original := PackageIdentity{Name: "redis", Version: "7.0"}
+	parsed, err := ParsePackageIdentity(original.String())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if parsed != original {
+		t.Fatalf("round-trip failed: %v != %v", parsed, original)
+	}
+}
+
 func TestApplyTemplate(t *testing.T) {
 	table := map[string][4]string{
 		"basic":            {"this is a @template@", "template", "replacement", "this is a replacement"},

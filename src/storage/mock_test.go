@@ -5,12 +5,12 @@ import "testing"
 func TestMockBtrFSStorage(t *testing.T) {
 	mock := InitBtrFSMock()
 	if err := mock.CreateFilesystem(Filesystem{Name: "test"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("CreateFilesystem: %v", err)
 	}
 
 	fs, err := mock.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems: %v", err)
 	}
 
 	if len(fs) != 1 {
@@ -18,12 +18,12 @@ func TestMockBtrFSStorage(t *testing.T) {
 	}
 
 	if err := mock.RemoveFilesystem("test"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("RemoveFilesystem: %v", err)
 	}
 
 	fs, err = mock.ListFilesystems("")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListFilesystems after remove: %v", err)
 	}
 
 	if len(fs) != 0 {
@@ -35,11 +35,11 @@ func TestMockBtrFSBasic(t *testing.T) {
 	mock := InitBtrFSMockController()
 
 	if err := mock.SubvolCreate("test"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolCreate test: %v", err)
 	}
 
 	if err := mock.SubvolCreate("test/sub"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolCreate test/sub: %v", err)
 	}
 
 	info := mock.GetFilesystems()
@@ -107,7 +107,7 @@ func TestMockBtrFSBasic(t *testing.T) {
 	}
 
 	if err := mock.SubvolDelete("test/sub"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolDelete test/sub: %v", err)
 	}
 
 	info, err = mock.SubvolList("test/sub")
@@ -120,7 +120,7 @@ func TestMockBtrFSBasic(t *testing.T) {
 	}
 
 	if err := mock.SubvolDelete("test"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolDelete test: %v", err)
 	}
 
 	info, err = mock.SubvolList("test")
@@ -133,11 +133,11 @@ func TestMockBtrFSBasic(t *testing.T) {
 	}
 
 	if err := mock.SubvolCreate("test"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolCreate test (re-create): %v", err)
 	}
 
 	if err := mock.SubvolCreate("test/sub"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolCreate test/sub (re-create): %v", err)
 	}
 
 	info, err = mock.SubvolList("test")
@@ -150,7 +150,7 @@ func TestMockBtrFSBasic(t *testing.T) {
 	}
 
 	if err := mock.SubvolDelete("test"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolDelete test (final): %v", err)
 	}
 
 	info, err = mock.SubvolList("test")
@@ -171,7 +171,7 @@ func TestMockIsSubvolume(t *testing.T) {
 	}
 
 	if err := mock.SubvolCreate("test"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolCreate test: %v", err)
 	}
 
 	if err := mock.IsSubvolume("test"); err != nil {
@@ -187,7 +187,7 @@ func TestMockSubvolSnapshot(t *testing.T) {
 	mock := InitBtrFSMockController()
 
 	if err := mock.SubvolCreate("src"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolCreate src: %v", err)
 	}
 
 	if err := mock.SubvolSnapshot("dst", "src", true); err != nil {
@@ -216,15 +216,15 @@ func TestMockCallLog(t *testing.T) {
 	mock := InitBtrFSMockController()
 
 	if err := mock.SubvolCreate("vol1"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolCreate vol1: %v", err)
 	}
 
 	if _, err := mock.SubvolInfo("vol1"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolInfo vol1: %v", err)
 	}
 
 	if _, err := mock.SubvolList("vol1"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SubvolList vol1: %v", err)
 	}
 
 	log := mock.GetLog()
