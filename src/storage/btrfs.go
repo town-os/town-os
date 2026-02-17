@@ -34,12 +34,17 @@ func findMountPoint(path string) (string, error) {
 
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
+		if len(fields) <= typeIdx {
+			continue // skip malformed lines
+		}
+
 		if fields[typeIdx] != "btrfs" {
 			continue // skip non-btrfs
 		}
 
-		if strings.HasPrefix(path, fields[pathIdx]) {
-			mount = fields[pathIdx]
+		mp := fields[pathIdx]
+		if path == mp || strings.HasPrefix(path, mp+"/") {
+			mount = mp
 		}
 	}
 

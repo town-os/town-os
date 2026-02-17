@@ -2,15 +2,6 @@ package storage
 
 import "testing"
 
-/*
-FIXME
-
-Finish testing mock calls
-	- IsSubvolume
-	- Snapshot stuff
-Test call log
-*/
-
 func TestMockBtrFSStorage(t *testing.T) {
 	mock := InitBtrFSMock()
 	if err := mock.CreateFilesystem(Filesystem{Name: "test"}); err != nil {
@@ -169,5 +160,104 @@ func TestMockBtrFSBasic(t *testing.T) {
 
 	if len(info) != 0 {
 		t.Fatal("Subvol `test` was not deleted after delete call")
+	}
+}
+
+func TestMockIsSubvolume(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.IsSubvolume("nonexistent"); err != ErrNoFilesystem {
+		t.Fatalf("expected ErrNoFilesystem, got %v", err)
+	}
+
+	if err := mock.SubvolCreate("test"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mock.IsSubvolume("test"); err != nil {
+		t.Fatalf("expected nil error for existing subvolume, got %v", err)
+	}
+
+	if err := mock.IsSubvolume("test/sub"); err != ErrNoFilesystem {
+		t.Fatalf("expected ErrNoFilesystem for non-existing sub, got %v", err)
+	}
+}
+
+func TestMockSubvolSnapshot(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolCreate("src"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mock.SubvolSnapshot("dst", "src", true); err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+
+	log := mock.GetLog()
+	found := false
+	for _, c := range log {
+		if c.Operation == "SubvolSnapshot" {
+			found = true
+			if len(c.Arguments) != 3 {
+				t.Fatalf("expected 3 arguments, got %d", len(c.Arguments))
+			}
+			if c.Arguments[0] != "dst" || c.Arguments[1] != "src" || c.Arguments[2] != true {
+				t.Fatalf("unexpected snapshot arguments: %v", c.Arguments)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("SubvolSnapshot not recorded in call log")
+	}
+}
+
+func TestMockCallLog(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolCreate("vol1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mock.SubvolInfo("vol1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mock.SubvolList("vol1"); err != nil {
+		t.Fatal(err)
+	}
+
+	log := mock.GetLog()
+	if len(log) != 3 {
+		t.Fatalf("expected 3 call log entries, got %d", len(log))
+	}
+
+	expected := []string{"SubvolCreate", "SubvolInfo", "SubvolList"}
+	for i, op := range expected {
+		if log[i].Operation != op {
+			t.Fatalf("log entry %d: expected %q, got %q", i, op, log[i].Operation)
+		}
+	}
+}
+
+func TestMockSubvolInfoNotFound(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	_, err := mock.SubvolInfo("nonexistent")
+	if err != ErrNoFilesystem {
+		t.Fatalf("expected ErrNoFilesystem, got %v", err)
+	}
+}
+
+func TestMockSubvolIDNotFound(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	id, err := mock.SubvolID("nonexistent")
+	if err != ErrNoFilesystem {
+		t.Fatalf("expected ErrNoFilesystem, got %v", err)
+	}
+
+	if id != 0 {
+		t.Fatalf("expected id 0 for nonexistent subvol, got %d", id)
 	}
 }

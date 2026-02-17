@@ -151,8 +151,7 @@ func (us *UnixServer) Run() error {
 		return fmt.Errorf("could not listen on unix socket %q: %v", us.Socket, err)
 	}
 
-	server := &http.Server{}
-	server.Handler = us.ConfigureRouter()
+	server := &http.Server{Handler: us.Handler}
 
 	return server.Serve(lis)
 }

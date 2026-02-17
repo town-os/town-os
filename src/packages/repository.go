@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"strings"
 )
 
 const RepositoriesFile = "repositories.json"
@@ -24,6 +26,8 @@ func RepositoryRootFromBase(baseDir string) (*RepositoryRoot, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	defer f.Close()
 
 	items := RepositoryMap{}
 	de := json.NewDecoder(f)
@@ -49,7 +53,8 @@ func runGit(baseDir string, args ...string) error {
 }
 
 func NewRepository(baseDir string, u url.URL) (*Repository, error) {
-	r := &Repository{URL: u}
+	name := strings.TrimSuffix(path.Base(u.Path), ".git")
+	r := &Repository{Name: name, URL: u}
 	return r, r.init(baseDir)
 }
 

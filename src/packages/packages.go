@@ -142,7 +142,7 @@ func strToPort(input string) (uint16, error) {
 		return 0, err
 	}
 
-	if u >= 65535 {
+	if u == 0 || u > 65535 {
 		return 0, ErrInvalidPort
 	}
 

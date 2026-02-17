@@ -45,11 +45,12 @@ func (c *SystemClient) route(path string) string {
 func (c *SystemClient) postClient(path string, payload []byte) error {
 	resp, err := c.HTTP.Post(c.route(path), "application/json", bytes.NewBuffer(payload))
 	if err != nil {
-		return fmt.Errorf("http error in CreateFilesystem: %v", err)
+		return fmt.Errorf("http error in POST %s: %v", path, err)
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("unsuccessful status code in CreateFilesystem: %v", resp.StatusCode)
+		return fmt.Errorf("unsuccessful status code in POST %s: %v", path, resp.StatusCode)
 	}
 
 	return nil
@@ -81,11 +82,12 @@ func (c *SystemClient) ListFilesystems(name string) ([]storage.Filesystem, error
 
 	resp, err := c.HTTP.Post(c.route("storage"), "application/json", bytes.NewBuffer(payload))
 	if err != nil {
-		return nil, fmt.Errorf("HTTP Error in CreateFilesystem: %v", err)
+		return nil, fmt.Errorf("http error in ListFilesystems: %v", err)
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in CreateFilesystem: %v", resp.StatusCode)
+		return nil, fmt.Errorf("unsuccessful status code in ListFilesystems: %v", resp.StatusCode)
 	}
 
 	de := json.NewDecoder(resp.Body)
