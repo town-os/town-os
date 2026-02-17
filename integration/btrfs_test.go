@@ -1,4 +1,4 @@
-package storage
+package integration_test
 
 import (
 	"path/filepath"
@@ -15,30 +15,42 @@ func TestBtrFS(t *testing.T) {
 
 	btr := storage.InitBtrFS()
 
-	if err := btr.CreateFilesystem(storage.Filesystem{Name: filepath.Join(path, "test")}); err != nil {
+	baseList, err := btr.ListFilesystems(path)
+	if err != nil {
+		t.Fatalf("Error while listing filesystems before create: %v", err)
+	}
+	baseCount := len(baseList)
+
+	testPath := filepath.Join(path, "test")
+
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: testPath}); err != nil {
 		t.Fatalf("Could not create filesystem test: %v", err)
 	}
+
+	t.Cleanup(func() {
+		btr.RemoveFilesystem(testPath)
+	})
 
 	list, err := btr.ListFilesystems(path)
 	if err != nil {
 		t.Fatalf("Error while listing filesystems: %v", err)
 	}
 
-	if len(list) != 2 {
-		t.Fatalf("Incorrect number of filesystems: %d", len(list))
+	if len(list) != baseCount+1 {
+		t.Fatalf("Expected %d filesystems after create, got %d", baseCount+1, len(list))
 	}
 
-	list, err = btr.ListFilesystems(filepath.Join(path, "test"))
+	list, err = btr.ListFilesystems(testPath)
 	if err != nil {
 		t.Fatalf("Error while listing filesystems: %v", err)
 	}
 
 	if len(list) != 1 {
-		t.Fatalf("Incorrect number of filesystems: %d", len(list))
+		t.Fatalf("Expected 1 filesystem under test path, got %d", len(list))
 	}
 
-	if err := btr.RemoveFilesystem(filepath.Join(path, "test")); err != nil {
-		t.Fatalf("Could not create filesystem test: %v", err)
+	if err := btr.RemoveFilesystem(testPath); err != nil {
+		t.Fatalf("Could not remove filesystem test: %v", err)
 	}
 
 	list, err = btr.ListFilesystems(path)
@@ -46,7 +58,7 @@ func TestBtrFS(t *testing.T) {
 		t.Fatalf("Error while listing filesystems: %v", err)
 	}
 
-	if len(list) != 1 {
-		t.Fatalf("Incorrect number of filesystems: %d", len(list))
+	if len(list) != baseCount {
+		t.Fatalf("Expected %d filesystems after remove, got %d", baseCount, len(list))
 	}
 }
