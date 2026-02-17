@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v4"
@@ -15,11 +16,9 @@ import (
 
 const RepositoriesFile = "repositories.json"
 
-type RepositoryMap map[string]Repository
-
 type RepositoryRoot struct {
 	BaseDir string
-	Items   RepositoryMap
+	Items   []Repository
 }
 
 func RepositoryRootFromBase(baseDir string) (*RepositoryRoot, error) {
@@ -31,7 +30,7 @@ func RepositoryRootFromBase(baseDir string) (*RepositoryRoot, error) {
 
 	defer f.Close()
 
-	items := RepositoryMap{}
+	var items []Repository
 	de := json.NewDecoder(f)
 	if err := de.Decode(&items); err != nil {
 		return nil, err
@@ -57,22 +56,36 @@ func (rr *RepositoryRoot) save() error {
 	return en.Encode(rr.Items)
 }
 
-func (rr *RepositoryRoot) Add(key string, repo Repository) error {
-	if _, exists := rr.Items[key]; exists {
-		return fmt.Errorf("repository %s already exists", key)
+func (rr *RepositoryRoot) Add(repo Repository) error {
+	for _, r := range rr.Items {
+		if r.Name == repo.Name {
+			return fmt.Errorf("repository %s already exists", repo.Name)
+		}
 	}
 
-	rr.Items[key] = repo
+	rr.Items = append(rr.Items, repo)
 	return rr.save()
 }
 
-func (rr *RepositoryRoot) Remove(key string) error {
-	if _, exists := rr.Items[key]; !exists {
-		return fmt.Errorf("repository %s not found", key)
+func (rr *RepositoryRoot) Remove(name string) error {
+	for i, r := range rr.Items {
+		if r.Name == name {
+			rr.Items = append(rr.Items[:i], rr.Items[i+1:]...)
+			return rr.save()
+		}
 	}
 
-	delete(rr.Items, key)
-	return rr.save()
+	return fmt.Errorf("repository %s not found", name)
+}
+
+func (rr *RepositoryRoot) Get(name string) (Repository, bool) {
+	for _, r := range rr.Items {
+		if r.Name == name {
+			return r, true
+		}
+	}
+
+	return Repository{}, false
 }
 
 type Repository struct {
@@ -205,4 +218,85 @@ func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 	}
 
 	return all, nil
+}
+
+// CompareVersions compares two dot-separated version strings.
+// Each segment is compared numerically when both are valid integers,
+// otherwise lexicographically. Returns -1, 0, or 1.
+func CompareVersions(a, b string) int {
+	partsA := strings.Split(a, ".")
+	partsB := strings.Split(b, ".")
+
+	max := len(partsA)
+	if len(partsB) > max {
+		max = len(partsB)
+	}
+
+	for i := 0; i < max; i++ {
+		var sa, sb string
+		if i < len(partsA) {
+			sa = partsA[i]
+		}
+		if i < len(partsB) {
+			sb = partsB[i]
+		}
+
+		na, errA := strconv.ParseInt(sa, 10, 64)
+		nb, errB := strconv.ParseInt(sb, 10, 64)
+
+		if errA == nil && errB == nil {
+			if na < nb {
+				return -1
+			}
+			if na > nb {
+				return 1
+			}
+		} else {
+			if sa < sb {
+				return -1
+			}
+			if sa > sb {
+				return 1
+			}
+		}
+	}
+
+	return 0
+}
+
+var ErrPackageNotFound = fmt.Errorf("package not found")
+
+// LatestPackage finds the latest version of a named package across all
+// repositories. Repositories are consulted in preferential order; when two
+// repositories carry the same highest version the one listed first wins.
+func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, error) {
+	var bestPkg InputPackage
+	var bestVersion string
+	found := false
+
+	for _, repo := range rr.Items {
+		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		if err != nil {
+			return InputPackage{}, "", fmt.Errorf("repository %s: %v", repo.Name, err)
+		}
+
+		versions, ok := pkgs[name]
+		if !ok {
+			continue
+		}
+
+		for version, pkg := range versions {
+			if !found || CompareVersions(version, bestVersion) > 0 {
+				bestVersion = version
+				bestPkg = pkg
+				found = true
+			}
+		}
+	}
+
+	if !found {
+		return InputPackage{}, "", ErrPackageNotFound
+	}
+
+	return bestPkg, bestVersion, nil
 }

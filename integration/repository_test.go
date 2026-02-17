@@ -15,7 +15,7 @@ var (
 	extrasURL = url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/test-packages-extras.git"}
 )
 
-func setupRoot(t *testing.T, repos packages.RepositoryMap) *packages.RepositoryRoot {
+func setupRoot(t *testing.T, repos []packages.Repository) *packages.RepositoryRoot {
 	t.Helper()
 	dir := t.TempDir()
 	data, err := json.Marshal(repos)
@@ -34,10 +34,10 @@ func setupRoot(t *testing.T, repos packages.RepositoryMap) *packages.RepositoryR
 }
 
 func TestRepositoryCloneAndLoadPackages(t *testing.T) {
-	root := setupRoot(t, packages.RepositoryMap{})
+	root := setupRoot(t, []packages.Repository{})
 
 	repo := packages.Repository{Name: "test-packages-core", URL: coreURL}
-	if err := root.Add("core", repo); err != nil {
+	if err := root.Add(repo); err != nil {
 		t.Fatalf("failed to add core repo: %v", err)
 	}
 
@@ -82,9 +82,9 @@ func TestRepositoryCloneAndLoadPackages(t *testing.T) {
 }
 
 func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
-	root := setupRoot(t, packages.RepositoryMap{
-		"core":   {Name: "test-packages-core", URL: coreURL},
-		"extras": {Name: "test-packages-extras", URL: extrasURL},
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+		{Name: "test-packages-extras", URL: extrasURL},
 	})
 
 	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
@@ -111,8 +111,8 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 }
 
 func TestRepositoryCompileLoadedPackage(t *testing.T) {
-	root := setupRoot(t, packages.RepositoryMap{
-		"core": {Name: "test-packages-core", URL: coreURL},
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
 	})
 
 	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
@@ -151,12 +151,12 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 }
 
 func TestRepositoryAddAndRemovePersistence(t *testing.T) {
-	root := setupRoot(t, packages.RepositoryMap{})
+	root := setupRoot(t, []packages.Repository{})
 
-	if err := root.Add("core", packages.Repository{Name: "test-packages-core", URL: coreURL}); err != nil {
+	if err := root.Add(packages.Repository{Name: "test-packages-core", URL: coreURL}); err != nil {
 		t.Fatalf("failed to add core: %v", err)
 	}
-	if err := root.Add("extras", packages.Repository{Name: "test-packages-extras", URL: extrasURL}); err != nil {
+	if err := root.Add(packages.Repository{Name: "test-packages-extras", URL: extrasURL}); err != nil {
 		t.Fatalf("failed to add extras: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestRepositoryAddAndRemovePersistence(t *testing.T) {
 	}
 
 	// remove one
-	if err := reloaded.Remove("extras"); err != nil {
+	if err := reloaded.Remove("test-packages-extras"); err != nil {
 		t.Fatalf("failed to remove extras: %v", err)
 	}
 
@@ -182,7 +182,7 @@ func TestRepositoryAddAndRemovePersistence(t *testing.T) {
 	if len(reloaded.Items) != 1 {
 		t.Fatalf("expected 1 repo after remove, got %d", len(reloaded.Items))
 	}
-	if _, ok := reloaded.Items["core"]; !ok {
+	if _, ok := reloaded.Get("test-packages-core"); !ok {
 		t.Fatal("expected core repo to remain")
 	}
 }

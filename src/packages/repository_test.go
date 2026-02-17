@@ -53,8 +53,8 @@ func TestNewRepositoryName(t *testing.T) {
 func TestRepositoryRootFromBase(t *testing.T) {
 	t.Run("valid json", func(t *testing.T) {
 		dir := t.TempDir()
-		repos := RepositoryMap{
-			"test": {Name: "test", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}},
+		repos := []Repository{
+			{Name: "test", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}},
 		}
 		data, _ := json.Marshal(repos)
 		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
@@ -96,8 +96,8 @@ func TestRepositoryRootFromBase(t *testing.T) {
 func newTestRoot(t *testing.T) *RepositoryRoot {
 	t.Helper()
 	dir := t.TempDir()
-	repos := RepositoryMap{
-		"existing": {Name: "existing", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/existing.git"}},
+	repos := []Repository{
+		{Name: "existing", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/existing.git"}},
 	}
 	data, _ := json.Marshal(repos)
 	if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
@@ -116,7 +116,7 @@ func TestRepositoryRootAdd(t *testing.T) {
 		root := newTestRoot(t)
 		repo := Repository{Name: "new-repo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/new-repo.git"}}
 
-		if err := root.Add("new", repo); err != nil {
+		if err := root.Add(repo); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -134,12 +134,41 @@ func TestRepositoryRootAdd(t *testing.T) {
 		}
 	})
 
-	t.Run("add duplicate key", func(t *testing.T) {
+	t.Run("add duplicate name", func(t *testing.T) {
 		root := newTestRoot(t)
-		repo := Repository{Name: "other", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/other.git"}}
+		repo := Repository{Name: "existing", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/other.git"}}
 
-		if err := root.Add("existing", repo); err == nil {
-			t.Fatal("expected error for duplicate key")
+		if err := root.Add(repo); err == nil {
+			t.Fatal("expected error for duplicate name")
+		}
+	})
+
+	t.Run("preserves insertion order", func(t *testing.T) {
+		dir := t.TempDir()
+		data, _ := json.Marshal([]Repository{})
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		names := []string{"charlie", "alpha", "bravo"}
+		for _, name := range names {
+			if err := root.Add(Repository{Name: name, URL: url.URL{Scheme: "https", Host: "example.com", Path: "/" + name + ".git"}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		reloaded, err := RepositoryRootFromBase(root.BaseDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, name := range names {
+			if reloaded.Items[i].Name != name {
+				t.Fatalf("expected item %d to be %q, got %q", i, name, reloaded.Items[i].Name)
+			}
 		}
 	})
 }
@@ -166,13 +195,30 @@ func TestRepositoryRootRemove(t *testing.T) {
 		}
 	})
 
-	t.Run("remove nonexistent key", func(t *testing.T) {
+	t.Run("remove nonexistent name", func(t *testing.T) {
 		root := newTestRoot(t)
 
 		if err := root.Remove("nope"); err == nil {
-			t.Fatal("expected error for nonexistent key")
+			t.Fatal("expected error for nonexistent name")
 		}
 	})
+}
+
+func TestRepositoryRootGet(t *testing.T) {
+	root := newTestRoot(t)
+
+	r, ok := root.Get("existing")
+	if !ok {
+		t.Fatal("expected to find existing repo")
+	}
+	if r.Name != "existing" {
+		t.Fatalf("expected name %q, got %q", "existing", r.Name)
+	}
+
+	_, ok = root.Get("nope")
+	if ok {
+		t.Fatal("expected not to find nonexistent repo")
+	}
 }
 
 func TestNewRepositoryBadCredentials(t *testing.T) {
@@ -308,9 +354,9 @@ environment:
 func TestRepositoryRootLoadAllPackages(t *testing.T) {
 	t.Run("merges across repositories", func(t *testing.T) {
 		dir := t.TempDir()
-		repos := RepositoryMap{
-			"repo-a": {Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
-			"repo-b": {Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data, _ := json.Marshal(repos)
 		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
@@ -340,6 +386,148 @@ func TestRepositoryRootLoadAllPackages(t *testing.T) {
 
 		if _, ok := pkgs["redis"]["7.0"]; !ok {
 			t.Fatal("expected redis 7.0")
+		}
+	})
+}
+
+func TestCompareVersions(t *testing.T) {
+	tests := map[string]struct {
+		a, b string
+		want int
+	}{
+		"equal":                   {a: "1.0", b: "1.0", want: 0},
+		"less major":              {a: "1.0", b: "2.0", want: -1},
+		"greater major":           {a: "3.0", b: "2.0", want: 1},
+		"less minor":              {a: "1.0", b: "1.1", want: -1},
+		"greater minor":           {a: "1.2", b: "1.1", want: 1},
+		"three segments":          {a: "1.0.1", b: "1.0.0", want: 1},
+		"different segment count": {a: "1.0", b: "1.0.1", want: -1},
+		"numeric not lexical":     {a: "1.9", b: "1.10", want: -1},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := CompareVersions(tt.a, tt.b)
+			if got != tt.want {
+				t.Fatalf("CompareVersions(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLatestPackage(t *testing.T) {
+	t.Run("single repo multiple versions", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkg, version, err := root.LatestPackage("nginx")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if version != "2.0" {
+			t.Fatalf("expected version 2.0, got %s", version)
+		}
+		if pkg.Image != "nginx:2.0" {
+			t.Fatalf("expected image nginx:2.0, got %s", pkg.Image)
+		}
+	})
+
+	t.Run("latest across multiple repos", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-b", "nginx", "3.0", "image: nginx:3.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkg, version, err := root.LatestPackage("nginx")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if version != "3.0" {
+			t.Fatalf("expected version 3.0, got %s", version)
+		}
+		if pkg.Image != "nginx:3.0" {
+			t.Fatalf("expected image nginx:3.0, got %s", pkg.Image)
+		}
+	})
+
+	t.Run("preferred repo wins on tie", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", "image: nginx:2.0-from-a\n")
+		writePackageYAML(t, dir, "repo-b", "nginx", "2.0", "image: nginx:2.0-from-b\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pkg, version, err := root.LatestPackage("nginx")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if version != "2.0" {
+			t.Fatalf("expected version 2.0, got %s", version)
+		}
+		if pkg.Image != "nginx:2.0-from-a" {
+			t.Fatalf("expected preferred repo (repo-a) image, got %s", pkg.Image)
+		}
+	})
+
+	t.Run("package not found", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, _, err = root.LatestPackage("nonexistent")
+		if err != ErrPackageNotFound {
+			t.Fatalf("expected ErrPackageNotFound, got %v", err)
 		}
 	})
 }
