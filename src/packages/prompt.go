@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-const (
-	HostnameRegexp = "^[a-z][a-z0-9-]*$"
-	VolumeRegexp   = "^[a-z][a-z0-9-_]*$"
+var (
+	HostnameRegexp = regexp.MustCompile("^[a-z][a-z0-9-]*$")
+	VolumeRegexp   = regexp.MustCompile("^[a-zA-Z0-9-_]+$")
 )
 
 type OutputType string
@@ -35,19 +35,19 @@ func (o OutputType) Output(answer string) (any, error) {
 			return nil, err
 		}
 
-		if u >= 65535 {
+		if u == 0 || u > 65535 {
 			return 0, ErrInvalidPort
 		}
 
 		return uint16(u), err
 	case Hostname:
-		if matched, err := regexp.MatchString(HostnameRegexp, strings.ToLower(answer)); err == nil && matched {
-			return answer, nil
+		if HostnameRegexp.MatchString(strings.ToLower(answer)) {
+			return strings.ToLower(answer), nil
 		} else {
 			return "", ErrHostname
 		}
 	case Volume:
-		if matched, err := regexp.MatchString(VolumeRegexp, strings.ToLower(answer)); err == nil && matched {
+		if VolumeRegexp.MatchString(answer) {
 			return answer, nil
 		} else {
 			return "", ErrVolume

@@ -9,53 +9,171 @@ func TestOutput(t *testing.T) {
 		expected any
 		err      bool
 	}{
+		// Port tests
 		"port_good": {
 			output:   Port,
 			input:    "80",
 			expected: uint16(80),
-			err:      false,
+		},
+		"port_max": {
+			output:   Port,
+			input:    "65535",
+			expected: uint16(65535),
+		},
+		"port_min": {
+			output:   Port,
+			input:    "1",
+			expected: uint16(1),
+		},
+		"port_zero": {
+			output: Port,
+			input:  "0",
+			err:    true,
+		},
+		"port_too_high": {
+			output: Port,
+			input:  "65536",
+			err:    true,
 		},
 		"port_bad": {
-			output:   Port,
-			input:    "8675309",
-			expected: 0,
-			err:      true,
+			output: Port,
+			input:  "8675309",
+			err:    true,
 		},
 		"port_signed": {
-			output:   Port,
-			input:    "-80",
-			expected: 0,
-			err:      true,
+			output: Port,
+			input:  "-80",
+			err:    true,
 		},
+		"port_non_numeric": {
+			output: Port,
+			input:  "abc",
+			err:    true,
+		},
+
+		// Hostname tests
 		"hostname_good": {
 			output:   Hostname,
 			input:    "hostname",
 			expected: "hostname",
-			err:      false,
+		},
+		"hostname_with_dash": {
+			output:   Hostname,
+			input:    "my-host",
+			expected: "my-host",
+		},
+		"hostname_with_digits": {
+			output:   Hostname,
+			input:    "a123",
+			expected: "a123",
+		},
+		"hostname_uppercase_lowered": {
+			output:   Hostname,
+			input:    "MyHost",
+			expected: "myhost",
 		},
 		"hostname_integer_first": {
-			output:   Hostname,
-			input:    "9hostname",
-			expected: "",
-			err:      true,
+			output: Hostname,
+			input:  "9hostname",
+			err:    true,
+		},
+		"hostname_empty": {
+			output: Hostname,
+			input:  "",
+			err:    true,
+		},
+		"hostname_dash_first": {
+			output: Hostname,
+			input:  "-bad",
+			err:    true,
+		},
+		"hostname_with_underscore": {
+			output: Hostname,
+			input:  "has_underscore",
+			err:    true,
+		},
+		"hostname_with_space": {
+			output: Hostname,
+			input:  "has space",
+			err:    true,
 		},
 		"domainname (bad)": {
-			output:   Hostname,
-			input:    "hostname.io",
-			expected: "",
-			err:      true,
+			output: Hostname,
+			input:  "hostname.io",
+			err:    true,
+		},
+
+		// Volume tests
+		"volume_good": {
+			output:   Volume,
+			input:    "data",
+			expected: "data",
+		},
+		"volume_with_dash": {
+			output:   Volume,
+			input:    "my-volume",
+			expected: "my-volume",
+		},
+		"volume_with_underscore": {
+			output:   Volume,
+			input:    "my_volume",
+			expected: "my_volume",
+		},
+		"volume_uppercase": {
+			output:   Volume,
+			input:    "Volume1",
+			expected: "Volume1",
+		},
+		"volume_digits_only": {
+			output:   Volume,
+			input:    "123",
+			expected: "123",
+		},
+		"volume_empty": {
+			output: Volume,
+			input:  "",
+			err:    true,
+		},
+		"volume_with_space": {
+			output: Volume,
+			input:  "has space",
+			err:    true,
+		},
+		"volume_special_chars": {
+			output: Volume,
+			input:  "bad!",
+			err:    true,
+		},
+		"volume_with_slash": {
+			output: Volume,
+			input:  "slashes/bad",
+			err:    true,
+		},
+
+		// Invalid output type
+		"invalid_type": {
+			output: OutputType("bogus"),
+			input:  "anything",
+			err:    true,
 		},
 	}
 
 	for name, item := range table {
-		ex, err := item.output.Output(item.input)
+		t.Run(name, func(t *testing.T) {
+			ex, err := item.output.Output(item.input)
 
-		if item.err {
-			if err == nil {
-				t.Fatalf("error expected but not received: %q", name)
+			if item.err {
+				if err == nil {
+					t.Fatal("error expected but not received")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if item.expected != ex {
+					t.Fatalf("expected: %v, actual: %v", item.expected, ex)
+				}
 			}
-		} else if item.expected != ex {
-			t.Fatalf("expected value was not equal: %q: expected: %v, actual: %v", name, item.expected, ex)
-		}
+		})
 	}
 }
