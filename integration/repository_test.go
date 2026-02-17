@@ -537,6 +537,104 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 }
 
+func TestRepositoryList(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{})
+
+	// Empty initially.
+	repos, err := root.List()
+	if err != nil {
+		t.Fatalf("List (initial): %v", err)
+	}
+	if len(repos) != 0 {
+		t.Fatalf("expected 0 repos, got %d", len(repos))
+	}
+
+	// Add repos.
+	if err := root.Add(packages.Repository{Name: "test-packages-core", URL: coreURL}); err != nil {
+		t.Fatalf("Add core: %v", err)
+	}
+	if err := root.Add(packages.Repository{Name: "test-packages-extras", URL: extrasURL}); err != nil {
+		t.Fatalf("Add extras: %v", err)
+	}
+
+	repos, err = root.List()
+	if err != nil {
+		t.Fatalf("List (after add): %v", err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d", len(repos))
+	}
+
+	names := map[string]bool{}
+	for _, r := range repos {
+		names[r.Name] = true
+	}
+	if !names["test-packages-core"] {
+		t.Fatal("expected test-packages-core")
+	}
+	if !names["test-packages-extras"] {
+		t.Fatal("expected test-packages-extras")
+	}
+
+	// Remove one.
+	if err := root.Remove("test-packages-core"); err != nil {
+		t.Fatalf("Remove core: %v", err)
+	}
+
+	repos, err = root.List()
+	if err != nil {
+		t.Fatalf("List (after remove): %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo after remove, got %d", len(repos))
+	}
+	if repos[0].Name != "test-packages-extras" {
+		t.Fatalf("expected test-packages-extras to remain, got %s", repos[0].Name)
+	}
+
+	// Returns a copy.
+	repos[0].Name = "mutated"
+	recheck, err := root.List()
+	if err != nil {
+		t.Fatalf("List (recheck): %v", err)
+	}
+	if recheck[0].Name != "test-packages-extras" {
+		t.Fatal("List should return a copy, not a reference")
+	}
+}
+
+func TestRepositoryListPersistence(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+		{Name: "test-packages-extras", URL: extrasURL},
+	})
+
+	// List from original root.
+	repos, err := root.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d", len(repos))
+	}
+
+	// Reload from disk and verify List() matches.
+	reloaded, err := packages.RepositoryRootFromBase(root.BaseDir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+	reloadedRepos, err := reloaded.List()
+	if err != nil {
+		t.Fatalf("reloaded List: %v", err)
+	}
+	if len(reloadedRepos) != 2 {
+		t.Fatalf("expected 2 repos from reloaded, got %d", len(reloadedRepos))
+	}
+	if reloadedRepos[0].Name != repos[0].Name || reloadedRepos[1].Name != repos[1].Name {
+		t.Fatalf("reloaded repos don't match: got %v", reloadedRepos)
+	}
+}
+
 func TestRepositoryAddAndRemovePersistence(t *testing.T) {
 	root := setupRoot(t, []packages.Repository{})
 

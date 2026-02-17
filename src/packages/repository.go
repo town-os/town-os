@@ -21,6 +21,7 @@ type RepositoryManager interface {
 	Add(repo Repository) error
 	Remove(name string) error
 	Get(name string) (Repository, bool)
+	List() ([]Repository, error)
 	Refresh() error
 	LoadAllPackages() (PackageTable, error)
 	ListPackages() ([]string, error)
@@ -87,6 +88,12 @@ func (rr *RepositoryRoot) Remove(name string) error {
 	}
 
 	return fmt.Errorf("repository %s not found", name)
+}
+
+func (rr *RepositoryRoot) List() ([]Repository, error) {
+	out := make([]Repository, len(rr.Items))
+	copy(out, rr.Items)
+	return out, nil
 }
 
 func (rr *RepositoryRoot) Get(name string) (Repository, bool) {

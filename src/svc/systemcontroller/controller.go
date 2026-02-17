@@ -177,8 +177,13 @@ func (s *SystemControllerHandlers) removeRepository(c *echo.Context) error {
 func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 	rr := s.Controller.GetRepositoryRoot()
 
-	out := make([]RepositoryInfo, len(rr.Items))
-	for i, r := range rr.Items {
+	repos, err := rr.List()
+	if err != nil {
+		return err
+	}
+
+	out := make([]RepositoryInfo, len(repos))
+	for i, r := range repos {
 		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String()}
 	}
 

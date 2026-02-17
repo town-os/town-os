@@ -327,6 +327,51 @@ func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 	}
 }
 
+func TestSystemControllerListRepositoriesEmpty(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	repos, err := c.ListRepositories()
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+
+	if len(repos) != 0 {
+		t.Fatalf("expected 0 repositories, got %d", len(repos))
+	}
+}
+
+func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := c.AddRepository(extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	if err := c.RemoveRepository("test-packages-core"); err != nil {
+		t.Fatalf("RemoveRepository core: %v", err)
+	}
+
+	repos, err := c.ListRepositories()
+	if err != nil {
+		t.Fatalf("ListRepositories after remove: %v", err)
+	}
+
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos))
+	}
+
+	if repos[0].Name != "test-packages-extras" {
+		t.Fatalf("expected test-packages-extras to remain, got %q", repos[0].Name)
+	}
+
+	if repos[0].URL != extrasURL.String() {
+		t.Fatalf("expected URL %q, got %q", extrasURL.String(), repos[0].URL)
+	}
+}
+
 func TestSystemControllerRemoveNonexistentRepository(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 

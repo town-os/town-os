@@ -230,6 +230,104 @@ func TestRepositoryRootGet(t *testing.T) {
 	}
 }
 
+func TestRepositoryRootList(t *testing.T) {
+	t.Run("returns all repositories", func(t *testing.T) {
+		root := newTestRoot(t)
+
+		repos, err := root.List()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(repos) != 1 {
+			t.Fatalf("expected 1 repo, got %d", len(repos))
+		}
+
+		if repos[0].Name != "existing" {
+			t.Fatalf("expected name %q, got %q", "existing", repos[0].Name)
+		}
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		dir := t.TempDir()
+		data := marshalJSON(t, []Repository{})
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		repos, err := root.List()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(repos) != 0 {
+			t.Fatalf("expected 0 repos, got %d", len(repos))
+		}
+	})
+
+	t.Run("returns copy", func(t *testing.T) {
+		root := newTestRoot(t)
+
+		repos, err := root.List()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		repos[0].Name = "mutated"
+
+		if root.Items[0].Name != "existing" {
+			t.Fatal("List should return a copy, not a reference")
+		}
+	})
+
+	t.Run("reflects add and remove", func(t *testing.T) {
+		dir := t.TempDir()
+		data := marshalJSON(t, []Repository{})
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		if err := root.Add(Repository{Name: "alpha", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/alpha.git"}}); err != nil {
+			t.Fatalf("Add alpha: %v", err)
+		}
+		if err := root.Add(Repository{Name: "bravo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/bravo.git"}}); err != nil {
+			t.Fatalf("Add bravo: %v", err)
+		}
+
+		repos, err := root.List()
+		if err != nil {
+			t.Fatalf("List after add: %v", err)
+		}
+		if len(repos) != 2 {
+			t.Fatalf("expected 2 repos, got %d", len(repos))
+		}
+
+		if err := root.Remove("alpha"); err != nil {
+			t.Fatalf("Remove alpha: %v", err)
+		}
+
+		repos, err = root.List()
+		if err != nil {
+			t.Fatalf("List after remove: %v", err)
+		}
+		if len(repos) != 1 {
+			t.Fatalf("expected 1 repo after remove, got %d", len(repos))
+		}
+		if repos[0].Name != "bravo" {
+			t.Fatalf("expected bravo to remain, got %s", repos[0].Name)
+		}
+	})
+}
+
 func TestNewRepositoryBadCredentials(t *testing.T) {
 	dir := t.TempDir()
 	u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
