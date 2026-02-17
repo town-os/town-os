@@ -140,17 +140,17 @@ func convert(p map[string]string) (PortMap, error) {
 	pm := PortMap{}
 
 	for forward, host := range p {
-		out_f, err := strToPort(forward)
+		fwd, err := strToPort(forward)
 		if err != nil {
 			return nil, err
 		}
 
-		out_h, err := strToPort(host)
+		hst, err := strToPort(host)
 		if err != nil {
 			return nil, err
 		}
 
-		pm[out_f] = out_h
+		pm[fwd] = hst
 	}
 
 	return pm, nil

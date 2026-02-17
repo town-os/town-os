@@ -30,7 +30,6 @@ func TestNewRepositoryName(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			dir := t.TempDir()
 			u, err := url.Parse(tt.url)
 			if err != nil {
 				t.Fatalf("bad test url: %v", err)
@@ -45,7 +44,6 @@ func TestNewRepositoryName(t *testing.T) {
 			if r.Name != tt.wantName {
 				t.Fatalf("expected name %q, got %q", tt.wantName, r.Name)
 			}
-			_ = dir
 		})
 	}
 }
