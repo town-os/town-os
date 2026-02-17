@@ -9,6 +9,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"go.yaml.in/yaml/v4"
 )
 
 const RepositoriesFile = "repositories.json"
@@ -81,7 +83,12 @@ type Repository struct {
 func runGit(baseDir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = baseDir
-	return cmd.Run()
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git %s: %v\n%s", args[0], err, out)
+	}
+	return nil
 }
 
 func NewRepository(baseDir string, u url.URL) (*Repository, error) {
@@ -117,4 +124,85 @@ func (r *Repository) init(baseDir string) error {
 	}
 
 	return nil
+}
+
+const PackagesDir = "packages"
+
+type PackageTable map[string]map[string]InputPackage
+
+func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
+	pkgs := PackageTable{}
+
+	packagesDir := filepath.Join(baseDir, r.Name, PackagesDir)
+	names, err := os.ReadDir(packagesDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, name := range names {
+		if !name.IsDir() {
+			continue
+		}
+
+		nameDir := filepath.Join(packagesDir, name.Name())
+		versions, err := os.ReadDir(nameDir)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, version := range versions {
+			if version.IsDir() {
+				continue
+			}
+
+			fn := version.Name()
+			if !strings.HasSuffix(fn, ".yaml") {
+				continue
+			}
+
+			f, err := os.Open(filepath.Join(nameDir, fn))
+			if err != nil {
+				return nil, err
+			}
+
+			var ip InputPackage
+			de := yaml.NewDecoder(f)
+			err = de.Decode(&ip)
+			f.Close()
+			if err != nil {
+				return nil, fmt.Errorf("decoding %s/%s: %v", name.Name(), fn, err)
+			}
+
+			if pkgs[name.Name()] == nil {
+				pkgs[name.Name()] = map[string]InputPackage{}
+			}
+
+			pkgs[name.Name()][strings.TrimSuffix(fn, ".yaml")] = ip
+		}
+	}
+
+	return pkgs, nil
+}
+
+func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
+	all := PackageTable{}
+
+	for _, repo := range rr.Items {
+		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+		}
+
+		for name, versions := range pkgs {
+			if all[name] == nil {
+				all[name] = map[string]InputPackage{}
+			}
+
+			for version, pkg := range versions {
+				all[name][version] = pkg
+			}
+		}
+	}
+
+	return all, nil
 }

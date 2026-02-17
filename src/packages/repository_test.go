@@ -174,3 +174,172 @@ func TestRepositoryRootRemove(t *testing.T) {
 		}
 	})
 }
+
+func TestNewRepositoryBadCredentials(t *testing.T) {
+	dir := t.TempDir()
+	u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
+
+	_, err := NewRepository(dir, u)
+	if err == nil {
+		t.Fatal("expected error for inaccessible repository")
+	}
+}
+
+func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content string) {
+	t.Helper()
+	dir := filepath.Join(baseDir, repoName, PackagesDir, pkgName)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, version+".yaml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRepositoryLoadPackages(t *testing.T) {
+	t.Run("single package", func(t *testing.T) {
+		dir := t.TempDir()
+		r := &Repository{Name: "myrepo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/myrepo.git"}}
+
+		writePackageYAML(t, dir, "myrepo", "nginx", "1.0", `image: nginx:1.0
+environment:
+  FOO: bar
+`)
+
+		pkgs, err := r.LoadPackages(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 1 {
+			t.Fatalf("expected 1 package name, got %d", len(pkgs))
+		}
+
+		versions, ok := pkgs["nginx"]
+		if !ok {
+			t.Fatal("expected nginx package")
+		}
+
+		if len(versions) != 1 {
+			t.Fatalf("expected 1 version, got %d", len(versions))
+		}
+
+		ip, ok := versions["1.0"]
+		if !ok {
+			t.Fatal("expected version 1.0")
+		}
+
+		if ip.Image != "nginx:1.0" {
+			t.Fatalf("expected image %q, got %q", "nginx:1.0", ip.Image)
+		}
+
+		if ip.Environment["FOO"] != "bar" {
+			t.Fatalf("expected env FOO=bar, got %q", ip.Environment["FOO"])
+		}
+	})
+
+	t.Run("multiple versions", func(t *testing.T) {
+		dir := t.TempDir()
+		r := &Repository{Name: "myrepo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/myrepo.git"}}
+
+		writePackageYAML(t, dir, "myrepo", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "myrepo", "nginx", "2.0", "image: nginx:2.0\n")
+
+		pkgs, err := r.LoadPackages(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs["nginx"]) != 2 {
+			t.Fatalf("expected 2 versions, got %d", len(pkgs["nginx"]))
+		}
+	})
+
+	t.Run("skips non-yaml files", func(t *testing.T) {
+		dir := t.TempDir()
+		r := &Repository{Name: "myrepo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/myrepo.git"}}
+
+		writePackageYAML(t, dir, "myrepo", "nginx", "1.0", "image: nginx:1.0\n")
+
+		// write a non-yaml file that should be ignored
+		notesPath := filepath.Join(dir, "myrepo", PackagesDir, "nginx", "README.md")
+		if err := os.WriteFile(notesPath, []byte("hello"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		pkgs, err := r.LoadPackages(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs["nginx"]) != 1 {
+			t.Fatalf("expected 1 version, got %d", len(pkgs["nginx"]))
+		}
+	})
+
+	t.Run("missing packages dir", func(t *testing.T) {
+		dir := t.TempDir()
+		r := &Repository{Name: "myrepo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/myrepo.git"}}
+
+		// create the repo dir but not the packages subdir
+		if err := os.MkdirAll(filepath.Join(dir, "myrepo"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := r.LoadPackages(dir)
+		if err == nil {
+			t.Fatal("expected error for missing packages dir")
+		}
+	})
+
+	t.Run("invalid yaml", func(t *testing.T) {
+		dir := t.TempDir()
+		r := &Repository{Name: "myrepo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/myrepo.git"}}
+
+		writePackageYAML(t, dir, "myrepo", "nginx", "1.0", "image: [bad yaml")
+
+		_, err := r.LoadPackages(dir)
+		if err == nil {
+			t.Fatal("expected error for invalid yaml")
+		}
+	})
+}
+
+func TestRepositoryRootLoadAllPackages(t *testing.T) {
+	t.Run("merges across repositories", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := RepositoryMap{
+			"repo-a": {Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			"repo-b": {Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data, _ := json.Marshal(repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-b", "redis", "7.0", "image: redis:7.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		pkgs, err := root.LoadAllPackages()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pkgs) != 2 {
+			t.Fatalf("expected 2 package names, got %d", len(pkgs))
+		}
+
+		if _, ok := pkgs["nginx"]["1.0"]; !ok {
+			t.Fatal("expected nginx 1.0")
+		}
+
+		if _, ok := pkgs["redis"]["7.0"]; !ok {
+			t.Fatal("expected redis 7.0")
+		}
+	})
+}

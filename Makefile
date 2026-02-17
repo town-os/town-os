@@ -3,7 +3,7 @@ test: lint
 
 test-integration: lint btrfs
 	sudo go clean -testcache
-	sudo go test -tags=integration -v ./integration/...
+	sudo -E go test -tags=integration -v ./integration/...
 	make clean-btrfs
 
 auto-test:
