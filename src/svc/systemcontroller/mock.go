@@ -9,21 +9,27 @@ import (
 )
 
 type MockClient struct {
-	mu           sync.Mutex
-	Filesystems  map[string]storage.Filesystem
-	Repositories []RepositoryInfo
-	Packages     []string
-	Questions    map[string]map[string]packages.Question
-	Calls        []MockCall
-	CreateErr    error
-	ModifyErr    error
-	RemoveErr    error
-	ListErr      error
-	AddRepoErr   error
-	RemRepoErr   error
-	ListRepoErr  error
-	ListPkgErr   error
-	QuestionsErr error
+	mu              sync.Mutex
+	Filesystems     map[string]storage.Filesystem
+	Repositories    []RepositoryInfo
+	Packages        []string
+	Questions       map[string]map[string]packages.Question
+	Installed       []string
+	StoredResponses map[string]packages.Responses
+	Calls           []MockCall
+	CreateErr       error
+	ModifyErr       error
+	RemoveErr       error
+	ListErr         error
+	AddRepoErr      error
+	RemRepoErr      error
+	ListRepoErr     error
+	ListPkgErr      error
+	QuestionsErr    error
+	InstallPkgErr   error
+	UninstallPkgErr error
+	ListInstalledErr error
+	GetResponsesErr error
 }
 
 type MockCall struct {
@@ -33,7 +39,8 @@ type MockCall struct {
 
 func InitMockClient() *MockClient {
 	return &MockClient{
-		Filesystems: map[string]storage.Filesystem{},
+		Filesystems:     map[string]storage.Filesystem{},
+		StoredResponses: map[string]packages.Responses{},
 	}
 }
 
@@ -195,6 +202,80 @@ func (m *MockClient) GetPackageQuestions(name string) (map[string]packages.Quest
 
 	out := make(map[string]packages.Question, len(questions))
 	for k, v := range questions {
+		out[k] = v
+	}
+	return out, nil
+}
+
+// --- Install ---
+
+func (m *MockClient) InstallPackage(name, version string, responses packages.Responses) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "InstallPackage", Args: []any{name, version, responses}})
+
+	if m.InstallPkgErr != nil {
+		return m.InstallPkgErr
+	}
+
+	key := fmt.Sprintf("%s@%s", name, version)
+	m.Installed = append(m.Installed, key)
+	m.StoredResponses[key] = responses
+	return nil
+}
+
+func (m *MockClient) UninstallPackage(name, version string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "UninstallPackage", Args: []any{name, version}})
+
+	if m.UninstallPkgErr != nil {
+		return m.UninstallPkgErr
+	}
+
+	key := fmt.Sprintf("%s@%s", name, version)
+	for i, p := range m.Installed {
+		if p == key {
+			m.Installed = append(m.Installed[:i], m.Installed[i+1:]...)
+			delete(m.StoredResponses, key)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%s: not installed", key)
+}
+
+func (m *MockClient) ListInstalled() ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListInstalled", Args: nil})
+
+	if m.ListInstalledErr != nil {
+		return nil, m.ListInstalledErr
+	}
+
+	out := make([]string, len(m.Installed))
+	copy(out, m.Installed)
+	return out, nil
+}
+
+func (m *MockClient) GetResponses(name, version string) (packages.Responses, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetResponses", Args: []any{name, version}})
+
+	if m.GetResponsesErr != nil {
+		return nil, m.GetResponsesErr
+	}
+
+	key := fmt.Sprintf("%s@%s", name, version)
+	resp, ok := m.StoredResponses[key]
+	if !ok {
+		return nil, fmt.Errorf("%s: not installed", key)
+	}
+
+	out := make(packages.Responses, len(resp))
+	for k, v := range resp {
 		out[k] = v
 	}
 	return out, nil

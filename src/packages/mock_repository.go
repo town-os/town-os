@@ -23,6 +23,7 @@ type MockRepositoryManager struct {
 	ListPackagesErr error
 	LatestErr       error
 	QuestionsErr    error
+	FindRepoErr     error
 }
 
 func InitMockRepositoryManager() *MockRepositoryManager {
@@ -228,4 +229,25 @@ func (m *MockRepositoryManager) GetPackageQuestions(name string) (map[string]Que
 	}
 
 	return bestPkg.Questions, nil
+}
+
+func (m *MockRepositoryManager) FindRepoForPackage(name, version string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockRepositoryCall{Method: "FindRepoForPackage", Args: []any{name, version}})
+
+	if m.FindRepoErr != nil {
+		return "", m.FindRepoErr
+	}
+
+	versions, ok := m.Packages[name]
+	if !ok {
+		return "", ErrPackageNotFound
+	}
+
+	if _, ok := versions[version]; !ok {
+		return "", ErrPackageNotFound
+	}
+
+	return "mock-repo", nil
 }

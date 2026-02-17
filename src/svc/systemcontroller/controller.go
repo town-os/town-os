@@ -19,6 +19,7 @@ type SystemController interface {
 	Run() error
 	GetStorage() storage.Storage
 	GetRepositoryRoot() *packages.RepositoryRoot
+	GetInstaller() packages.Installer
 	Client() (*SystemClient, error)
 }
 
@@ -46,6 +47,22 @@ type RepositoryInfo struct {
 
 type PackageNameRequest struct {
 	Name string `json:"name"`
+}
+
+type InstallRequest struct {
+	Name      string             `json:"name"`
+	Version   string             `json:"version"`
+	Responses packages.Responses `json:"responses"`
+}
+
+type UninstallRequest struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type GetResponsesRequest struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 type SystemControllerHandlers struct {
@@ -225,6 +242,76 @@ func (s *SystemControllerHandlers) getPackageQuestions(c *echo.Context) error {
 	return c.JSON(200, questions)
 }
 
+// --- Install handlers ---
+
+func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := InstallRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+	repoName, err := rr.FindRepoForPackage(req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	if err := inst.Install(repoName, req.Name, req.Version, req.Responses); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := UninstallRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	if err := inst.Uninstall(req.Name, req.Version); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) listInstalled(c *echo.Context) error {
+	inst := s.Controller.GetInstaller()
+
+	pkgs, err := inst.ListInstalled()
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, pkgs)
+}
+
+func (s *SystemControllerHandlers) getResponses(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := GetResponsesRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	resp, err := inst.GetResponses(req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, resp)
+}
+
 // --- Routes ---
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
@@ -239,6 +326,10 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	e.Add("POST", "/packages", s.listPackages)
 	e.Add("POST", "/packages/questions", s.getPackageQuestions)
+	e.Add("POST", "/packages/install", s.installPackage)
+	e.Add("POST", "/packages/uninstall", s.uninstallPackage)
+	e.Add("POST", "/packages/installed", s.listInstalled)
+	e.Add("POST", "/packages/responses", s.getResponses)
 }
 
 // --- TestServer ---
@@ -246,11 +337,12 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 type TestServer struct {
 	Storage        storage.Storage
 	RepositoryRoot *packages.RepositoryRoot
+	Installer      packages.Installer
 	Server         *httptest.Server
 }
 
-func InitTestServer(s storage.Storage, rr *packages.RepositoryRoot) *TestServer {
-	ts := &TestServer{Storage: s, RepositoryRoot: rr}
+func InitTestServer(s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer) *TestServer {
+	ts := &TestServer{Storage: s, RepositoryRoot: rr, Installer: inst}
 	ts.Server = httptest.NewServer(configureTestRouter(ts))
 	return ts
 }
@@ -277,6 +369,10 @@ func (ts *TestServer) GetRepositoryRoot() *packages.RepositoryRoot {
 	return ts.RepositoryRoot
 }
 
+func (ts *TestServer) GetInstaller() packages.Installer {
+	return ts.Installer
+}
+
 func (ts *TestServer) Run() error {
 	ts.Server.Start()
 	return nil
@@ -292,11 +388,12 @@ type UnixServer struct {
 	Socket         string
 	Storage        storage.Storage
 	RepositoryRoot *packages.RepositoryRoot
+	Installer      packages.Installer
 	Handler        http.Handler
 }
 
-func InitUnixServer(sock string, s storage.Storage, rr *packages.RepositoryRoot) *UnixServer {
-	us := &UnixServer{Socket: sock, Storage: s, RepositoryRoot: rr}
+func InitUnixServer(sock string, s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer) *UnixServer {
+	us := &UnixServer{Socket: sock, Storage: s, RepositoryRoot: rr, Installer: inst}
 	us.Handler = configureUnixRouter(us)
 	return us
 }
@@ -332,4 +429,8 @@ func (us *UnixServer) GetStorage() storage.Storage {
 
 func (us *UnixServer) GetRepositoryRoot() *packages.RepositoryRoot {
 	return us.RepositoryRoot
+}
+
+func (us *UnixServer) GetInstaller() packages.Installer {
+	return us.Installer
 }

@@ -20,7 +20,7 @@ func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemClient, str
 	}
 
 	btr := storage.InitBtrFS()
-	ts := systemcontroller.InitTestServer(btr, nil)
+	ts := systemcontroller.InitTestServer(btr, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -44,7 +44,11 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 	if err := c.CreateFilesystem(storage.Filesystem{Name: testPath}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
-	t.Cleanup(func() { c.RemoveFilesystem(testPath) })
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(testPath); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", testPath, err)
+		}
+	})
 
 	list, err := c.ListFilesystems(path)
 	if err != nil {
@@ -78,7 +82,6 @@ func TestSystemControllerRemove(t *testing.T) {
 	if err := c.CreateFilesystem(storage.Filesystem{Name: testPath}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
-	t.Cleanup(func() { c.RemoveFilesystem(testPath) })
 
 	if err := c.RemoveFilesystem(testPath); err != nil {
 		t.Fatalf("error removing filesystem: %v", err)
@@ -109,7 +112,14 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 		if err := c.CreateFilesystem(storage.Filesystem{Name: p}); err != nil {
 			t.Fatalf("error creating %q: %v", name, err)
 		}
-		t.Cleanup(func() { c.RemoveFilesystem(p) })
+		// sc-multi-b is explicitly removed in the test body below.
+		if name != "sc-multi-b" {
+			t.Cleanup(func() {
+				if err := c.RemoveFilesystem(p); err != nil {
+					t.Errorf("cleanup RemoveFilesystem(%q): %v", p, err)
+				}
+			})
+		}
 	}
 
 	list, err := c.ListFilesystems(path)
@@ -145,12 +155,20 @@ func TestSystemControllerListPrefix(t *testing.T) {
 	if err := c.CreateFilesystem(storage.Filesystem{Name: prefixA}); err != nil {
 		t.Fatalf("error creating sc-pfx-a: %v", err)
 	}
-	t.Cleanup(func() { c.RemoveFilesystem(prefixA) })
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(prefixA); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", prefixA, err)
+		}
+	})
 
 	if err := c.CreateFilesystem(storage.Filesystem{Name: prefixB}); err != nil {
 		t.Fatalf("error creating sc-pfx-b: %v", err)
 	}
-	t.Cleanup(func() { c.RemoveFilesystem(prefixB) })
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(prefixB); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", prefixB, err)
+		}
+	})
 
 	list, err := c.ListFilesystems(prefixA)
 	if err != nil {
@@ -169,7 +187,11 @@ func TestSystemControllerModifyUnimplemented(t *testing.T) {
 	if err := c.CreateFilesystem(storage.Filesystem{Name: testPath}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
-	t.Cleanup(func() { c.RemoveFilesystem(testPath) })
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(testPath); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", testPath, err)
+		}
+	})
 
 	err := c.ModifyFilesystem(testPath, storage.Filesystem{Name: testPath, Quota: 1024})
 	if err == nil {
@@ -191,7 +213,6 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	if err := c.CreateFilesystem(storage.Filesystem{Name: testPath}); err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	t.Cleanup(func() { c.RemoveFilesystem(testPath) })
 
 	// Verify exists
 	list, err := c.ListFilesystems(testPath)
@@ -237,7 +258,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemClient {
 	}
 
 	mock := storage.InitBtrFSMock()
-	ts := systemcontroller.InitTestServer(mock, rr)
+	ts := systemcontroller.InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -576,6 +597,192 @@ func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
 	_, err := c.GetPackageQuestions("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent package")
+	}
+}
+
+// --- Install integration tests ---
+
+func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemClient, *packages.RepositoryRoot) {
+	t.Helper()
+
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal empty repository list: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile repositories file: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("failed to load repository root: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+
+	mock := storage.InitBtrFSMock()
+	ts := systemcontroller.InitTestServer(mock, rr, inst)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, rr
+}
+
+func TestSystemControllerInstallAndListInstalled(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage("nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	pkgs, err := c.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	}
+	if pkgs[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", pkgs[0])
+	}
+}
+
+func TestSystemControllerInstallAndGetResponses(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	responses := packages.Responses{"hostname": "example", "port": "8080"}
+	if err := c.InstallPackage("nginx", "1.0", responses); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	got, err := c.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+
+	if got["hostname"] != "example" {
+		t.Fatalf("expected hostname %q, got %q", "example", got["hostname"])
+	}
+	if got["port"] != "8080" {
+		t.Fatalf("expected port %q, got %q", "8080", got["port"])
+	}
+}
+
+func TestSystemControllerInstallFullLifecycle(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Start empty.
+	pkgs, err := c.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled (initial): %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed initially, got %d", len(pkgs))
+	}
+
+	// Install with responses.
+	responses := packages.Responses{"hostname": "webserver", "port": "9090"}
+	if err := c.InstallPackage("nginx", "2.0", responses); err != nil {
+		t.Fatalf("InstallPackage nginx@2.0: %v", err)
+	}
+
+	// Verify installed.
+	pkgs, err = c.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled after install: %v", err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	}
+
+	// Verify responses.
+	got, err := c.GetResponses("nginx", "2.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+	if got["hostname"] != "webserver" {
+		t.Fatalf("expected hostname %q, got %q", "webserver", got["hostname"])
+	}
+
+	// Uninstall.
+	if err := c.UninstallPackage("nginx", "2.0"); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	// Verify uninstalled.
+	pkgs, err = c.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled after uninstall: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs))
+	}
+
+	// Verify responses gone.
+	_, err = c.GetResponses("nginx", "2.0")
+	if err == nil {
+		t.Fatal("expected error getting responses after uninstall")
+	}
+}
+
+func TestSystemControllerInstallMultiplePackages(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := c.AddRepository(extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	if err := c.InstallPackage("nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+	if err := c.InstallPackage("redis", "7.0", packages.Responses{"password": "secret"}); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	pkgs, err := c.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 installed, got %d", len(pkgs))
+	}
+
+	// Each package has its own responses.
+	nginxResp, err := c.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses nginx@1.0: %v", err)
+	}
+	if nginxResp["hostname"] != "alpha" {
+		t.Fatalf("expected nginx hostname %q, got %q", "alpha", nginxResp["hostname"])
+	}
+
+	redisResp, err := c.GetResponses("redis", "7.0")
+	if err != nil {
+		t.Fatalf("GetResponses redis@7.0: %v", err)
+	}
+	if redisResp["password"] != "secret" {
+		t.Fatalf("expected redis password %q, got %q", "secret", redisResp["password"])
 	}
 }
 

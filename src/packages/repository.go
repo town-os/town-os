@@ -27,6 +27,7 @@ type RepositoryManager interface {
 	ListPackages() ([]string, error)
 	LatestPackage(name string) (InputPackage, string, error)
 	GetPackageQuestions(name string) (map[string]Question, error)
+	FindRepoForPackage(name, version string) (string, error)
 }
 
 type RepositoryRoot struct {
@@ -34,14 +35,18 @@ type RepositoryRoot struct {
 	Items   []Repository
 }
 
-func RepositoryRootFromBase(baseDir string) (*RepositoryRoot, error) {
+func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 	fn := filepath.Join(baseDir, RepositoriesFile)
 	f, err := os.Open(fn)
 	if err != nil {
 		return nil, err
 	}
 
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	var items []Repository
 	de := json.NewDecoder(f)
@@ -55,14 +60,18 @@ func RepositoryRootFromBase(baseDir string) (*RepositoryRoot, error) {
 	}, nil
 }
 
-func (rr *RepositoryRoot) save() error {
+func (rr *RepositoryRoot) save() (err error) {
 	fn := filepath.Join(rr.BaseDir, RepositoriesFile)
 	f, err := os.Create(fn)
 	if err != nil {
 		return err
 	}
 
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	en := json.NewEncoder(f)
 	en.SetIndent("", "  ")
@@ -216,7 +225,9 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 			var ip InputPackage
 			de := yaml.NewDecoder(f)
 			err = de.Decode(&ip)
-			f.Close()
+			if cerr := f.Close(); cerr != nil && err == nil {
+				err = cerr
+			}
 			if err != nil {
 				return nil, fmt.Errorf("decoding %s/%s: %v", name.Name(), fn, err)
 			}
@@ -342,6 +353,29 @@ func (rr *RepositoryRoot) GetPackageQuestions(name string) (map[string]Question,
 		return nil, err
 	}
 	return pkg.Questions, nil
+}
+
+// FindRepoForPackage finds the repository that contains the given package
+// name and version. Repositories are checked in preferential order; the first
+// match wins.
+func (rr *RepositoryRoot) FindRepoForPackage(name, version string) (string, error) {
+	for _, repo := range rr.Items {
+		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		if err != nil {
+			return "", fmt.Errorf("repository %s: %v", repo.Name, err)
+		}
+
+		versions, ok := pkgs[name]
+		if !ok {
+			continue
+		}
+
+		if _, ok := versions[version]; ok {
+			return repo.Name, nil
+		}
+	}
+
+	return "", ErrPackageNotFound
 }
 
 // ListPackages returns the latest version of every package across all

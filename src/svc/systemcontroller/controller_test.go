@@ -13,11 +13,20 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 )
 
+func testRoute(t *testing.T, base, path string) string {
+	t.Helper()
+	u, err := url.JoinPath(base, path)
+	if err != nil {
+		t.Fatalf("url.JoinPath(%q, %q): %v", base, path, err)
+	}
+	return u
+}
+
 func initTestClient(t *testing.T) (*SystemClient, *storage.MockBtrFSController) {
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 	controller := mock.Controller.(*storage.MockBtrFSController)
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -65,14 +74,18 @@ func TestCreateFilesystemMultiple(t *testing.T) {
 
 func TestCreateFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/create", "application/json", bytes.NewBufferString("{bad"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
@@ -97,14 +110,18 @@ func TestModifyFilesystem(t *testing.T) {
 
 func TestModifyFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/modify", "application/json", bytes.NewBufferString("{bad"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/modify"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
@@ -156,14 +173,18 @@ func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 
 func TestRemoveFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/remove", "application/json", bytes.NewBufferString("{bad"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/remove"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
@@ -274,14 +295,18 @@ func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 
 func TestListFilesystemsBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage", "application/json", bytes.NewBufferString("{bad"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
@@ -538,14 +563,18 @@ func TestMockClientCallLog(t *testing.T) {
 
 func TestWrongHTTPMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := http.Get(ts.Server.URL + "/storage/create")
+	resp, err := http.Get(testRoute(t, ts.Server.URL, "storage/create"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for GET on POST-only route")
@@ -554,14 +583,18 @@ func TestWrongHTTPMethod(t *testing.T) {
 
 func TestNonexistentRoute(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/nonexistent", "application/json", bytes.NewBufferString("{}"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "nonexistent"), "application/json", bytes.NewBufferString("{}"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for nonexistent route")
@@ -570,14 +603,18 @@ func TestNonexistentRoute(t *testing.T) {
 
 func TestEmptyBody(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil)
+	ts := InitTestServer(mock, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/create", "application/json", bytes.NewBufferString(""))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString(""))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for empty body")
@@ -710,14 +747,18 @@ func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
 
 func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t))
+	ts := InitTestServer(mock, emptyRepoRoot(t), nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/repository/add", "application/json", bytes.NewBufferString("{bad"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/add"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
@@ -726,14 +767,18 @@ func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 
 func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t))
+	ts := InitTestServer(mock, emptyRepoRoot(t), nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/repository/remove", "application/json", bytes.NewBufferString("{bad"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/remove"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
@@ -743,7 +788,7 @@ func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
 func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -760,7 +805,7 @@ func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
 func TestHTTPListRepositoriesEmpty(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -794,7 +839,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 		{Name: "repo-b", URL: *u2},
 	}
 
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -818,14 +863,18 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 
 func TestHTTPRepositoryWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t))
+	ts := InitTestServer(mock, emptyRepoRoot(t), nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := http.Get(ts.Server.URL + "/repository/add")
+	resp, err := http.Get(testRoute(t, ts.Server.URL, "repository/add"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for GET on POST-only route")
@@ -840,8 +889,8 @@ func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("os.MkdirAll %q: %v", dir, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, version+".yaml"), []byte(content), 0644); err != nil {
-		t.Fatalf("os.WriteFile %q/%s.yaml: %v", dir, version, err)
+	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.yaml", version)), []byte(content), 0644); err != nil {
+		t.Fatalf("os.WriteFile %s/%s.yaml: %v", dir, version, err)
 	}
 }
 
@@ -862,7 +911,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 		t.Fatalf("os.MkdirAll %q: %v", pkgDir, err)
 	}
 
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -895,7 +944,7 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
 	writeTestPackage(t, rr.BaseDir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
 
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -941,7 +990,7 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 	writeTestPackage(t, rr.BaseDir, "repo-b", "redis", "7.0", "image: redis:7.0\n")
 	writeTestPackage(t, rr.BaseDir, "repo-b", "nginx", "3.0", "image: nginx:3.0\n")
 
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -970,14 +1019,18 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 func TestHTTPListPackagesWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := http.Get(ts.Server.URL + "/packages")
+	resp, err := http.Get(testRoute(t, ts.Server.URL, "packages"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for GET on POST-only route")
@@ -1007,7 +1060,7 @@ questions:
     type: port
 `)
 
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -1054,7 +1107,7 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 		t.Fatalf("os.MkdirAll: %v", err)
 	}
 
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -1071,14 +1124,18 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := ts.Server.Client().Post(ts.Server.URL+"/packages/questions", "application/json", bytes.NewBufferString("{bad"))
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/questions"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
@@ -1088,14 +1145,18 @@ func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
 func TestHTTPGetPackageQuestionsWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
-	resp, err := http.Get(ts.Server.URL + "/packages/questions")
+	resp, err := http.Get(testRoute(t, ts.Server.URL, "packages/questions"))
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for GET on POST-only route")
@@ -1128,7 +1189,7 @@ questions:
     type: port
 `)
 
-	ts := InitTestServer(mock, rr)
+	ts := InitTestServer(mock, rr, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -1315,5 +1376,443 @@ func TestMockClientGetPackageQuestionsReturnsCopy(t *testing.T) {
 
 	if m.Questions["nginx"]["hostname"].Query != "What hostname?" {
 		t.Fatal("GetPackageQuestions should return a copy, not a reference")
+	}
+}
+
+// --- Install HTTP endpoint tests ---
+
+func initInstallTestClient(t *testing.T) (*SystemClient, *packages.MockInstallManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(mock, rr, inst)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst
+}
+
+func TestHTTPInstallPackage(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	responses := packages.Responses{"hostname": "example"}
+	if err := c.InstallPackage("nginx", "1.0", responses); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	calls := inst.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "Install" {
+		t.Fatalf("expected Install call, got %q", calls[0].Method)
+	}
+	if calls[0].Args[0].(string) != "repo-a" {
+		t.Fatalf("expected repoName %q, got %v", "repo-a", calls[0].Args[0])
+	}
+	if calls[0].Args[1].(string) != "nginx" {
+		t.Fatalf("expected pkgName %q, got %v", "nginx", calls[0].Args[1])
+	}
+	if calls[0].Args[2].(string) != "1.0" {
+		t.Fatalf("expected version %q, got %v", "1.0", calls[0].Args[2])
+	}
+}
+
+func TestHTTPInstallPackageNotFound(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	err := c.InstallPackage("nonexistent", "1.0", packages.Responses{})
+	if err == nil {
+		t.Fatal("expected error installing nonexistent package")
+	}
+}
+
+func TestHTTPInstallPackageBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(mock, emptyRepoRoot(t), nil)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/install"), "application/json", bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+func TestHTTPUninstallPackage(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	// Install first so uninstall can succeed.
+	if err := c.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	if err := c.UninstallPackage("nginx", "1.0"); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	calls := inst.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+	if calls[1].Method != "Uninstall" {
+		t.Fatalf("expected Uninstall call, got %q", calls[1].Method)
+	}
+}
+
+func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	err := c.UninstallPackage("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error uninstalling package that is not installed")
+	}
+}
+
+func TestHTTPUninstallPackageBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(mock, emptyRepoRoot(t), nil)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/uninstall"), "application/json", bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+func TestHTTPListInstalled(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	if err := c.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+	if err := c.InstallPackage("nginx", "2.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage nginx@2.0: %v", err)
+	}
+
+	pkgs, err := c.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 installed, got %d", len(pkgs))
+	}
+}
+
+func TestHTTPListInstalledEmpty(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	pkgs, err := c.ListInstalled()
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed, got %d", len(pkgs))
+	}
+}
+
+func TestHTTPGetResponses(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	responses := packages.Responses{"hostname": "example", "port": "8080"}
+	if err := c.InstallPackage("nginx", "1.0", responses); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	got, err := c.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+
+	if got["hostname"] != "example" {
+		t.Fatalf("expected hostname %q, got %q", "example", got["hostname"])
+	}
+	if got["port"] != "8080" {
+		t.Fatalf("expected port %q, got %q", "8080", got["port"])
+	}
+}
+
+func TestHTTPGetResponsesNotInstalled(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	_, err := c.GetResponses("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error getting responses for uninstalled package")
+	}
+}
+
+func TestHTTPGetResponsesBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(mock, emptyRepoRoot(t), nil)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/responses"), "application/json", bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+// --- MockClient InstallPackage tests ---
+
+func TestMockClientInstallPackage(t *testing.T) {
+	m := InitMockClient()
+
+	responses := packages.Responses{"hostname": "example"}
+	if err := m.InstallPackage("nginx", "1.0", responses); err != nil {
+		t.Fatalf("MockClient.InstallPackage: %v", err)
+	}
+
+	if len(m.Installed) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(m.Installed))
+	}
+	if m.Installed[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", m.Installed[0])
+	}
+	if m.StoredResponses["nginx@1.0"]["hostname"] != "example" {
+		t.Fatalf("expected stored response hostname=example.com, got %v", m.StoredResponses["nginx@1.0"])
+	}
+}
+
+func TestMockClientInstallPackageErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.InstallPkgErr = injected
+	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockClientInstallPackageCallLog(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.InstallPackage("nginx", "1.0", packages.Responses{"k": "v"}); err != nil {
+		t.Fatalf("MockClient.InstallPackage: %v", err)
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "InstallPackage" {
+		t.Fatalf("expected method InstallPackage, got %q", calls[0].Method)
+	}
+	if len(calls[0].Args) != 3 {
+		t.Fatalf("expected 3 args, got %d", len(calls[0].Args))
+	}
+	if calls[0].Args[0].(string) != "nginx" {
+		t.Fatalf("expected arg 0 %q, got %v", "nginx", calls[0].Args[0])
+	}
+	if calls[0].Args[1].(string) != "1.0" {
+		t.Fatalf("expected arg 1 %q, got %v", "1.0", calls[0].Args[1])
+	}
+}
+
+// --- MockClient UninstallPackage tests ---
+
+func TestMockClientUninstallPackage(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	if err := m.UninstallPackage("nginx", "1.0"); err != nil {
+		t.Fatalf("MockClient.UninstallPackage: %v", err)
+	}
+
+	if len(m.Installed) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(m.Installed))
+	}
+}
+
+func TestMockClientUninstallPackageNotInstalled(t *testing.T) {
+	m := InitMockClient()
+
+	err := m.UninstallPackage("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error uninstalling non-installed package")
+	}
+}
+
+func TestMockClientUninstallPackageErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.UninstallPkgErr = injected
+	if err := m.UninstallPackage("nginx", "1.0"); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockClientUninstallPackageCallLog(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	if err := m.UninstallPackage("nginx", "1.0"); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+	if calls[1].Method != "UninstallPackage" {
+		t.Fatalf("expected method UninstallPackage, got %q", calls[1].Method)
+	}
+	if len(calls[1].Args) != 2 {
+		t.Fatalf("expected 2 args, got %d", len(calls[1].Args))
+	}
+}
+
+// --- MockClient ListInstalled tests ---
+
+func TestMockClientListInstalled(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+	if err := m.InstallPackage("redis", "7.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	pkgs, err := m.ListInstalled()
+	if err != nil {
+		t.Fatalf("MockClient.ListInstalled: %v", err)
+	}
+
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 installed, got %d", len(pkgs))
+	}
+}
+
+func TestMockClientListInstalledEmpty(t *testing.T) {
+	m := InitMockClient()
+
+	pkgs, err := m.ListInstalled()
+	if err != nil {
+		t.Fatalf("MockClient.ListInstalled: %v", err)
+	}
+
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed, got %d", len(pkgs))
+	}
+}
+
+func TestMockClientListInstalledErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.ListInstalledErr = injected
+	if _, err := m.ListInstalled(); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+// --- MockClient GetResponses tests ---
+
+func TestMockClientGetResponses(t *testing.T) {
+	m := InitMockClient()
+
+	responses := packages.Responses{"hostname": "example", "port": "8080"}
+	if err := m.InstallPackage("nginx", "1.0", responses); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	got, err := m.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("MockClient.GetResponses: %v", err)
+	}
+
+	if got["hostname"] != "example" {
+		t.Fatalf("expected hostname %q, got %q", "example", got["hostname"])
+	}
+	if got["port"] != "8080" {
+		t.Fatalf("expected port %q, got %q", "8080", got["port"])
+	}
+}
+
+func TestMockClientGetResponsesNotInstalled(t *testing.T) {
+	m := InitMockClient()
+
+	_, err := m.GetResponses("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error for non-installed package")
+	}
+}
+
+func TestMockClientGetResponsesErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.GetResponsesErr = injected
+	if _, err := m.GetResponses("nginx", "1.0"); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockClientGetResponsesReturnsCopy(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.InstallPackage("nginx", "1.0", packages.Responses{"hostname": "example"}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	got, err := m.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+
+	got["hostname"] = "mutated"
+
+	if m.StoredResponses["nginx@1.0"]["hostname"] != "example" {
+		t.Fatal("GetResponses should return a copy, not a reference")
 	}
 }

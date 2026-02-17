@@ -3,6 +3,8 @@ package packages
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -21,7 +23,7 @@ func TestMockInstallManagerImplementsInstaller(t *testing.T) {
 func TestMockInstallManagerInstall(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -37,13 +39,13 @@ func TestMockInstallManagerInstall(t *testing.T) {
 func TestMockInstallManagerInstallMultiple(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := m.Install("repo-a", "nginx", "2.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "2.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	if err := m.Install("repo-b", "redis", "7.0"); err != nil {
+	if err := m.Install("repo-b", "redis", "7.0", Responses{}); err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
@@ -55,11 +57,11 @@ func TestMockInstallManagerInstallMultiple(t *testing.T) {
 func TestMockInstallManagerInstallDuplicate(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
-	err := m.Install("repo-a", "nginx", "1.0")
+	err := m.Install("repo-a", "nginx", "1.0", Responses{})
 	if err == nil {
 		t.Fatal("expected error for duplicate install")
 	}
@@ -73,7 +75,7 @@ func TestMockInstallManagerInstallErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.InstallErr = injected
-	if err := m.Install("repo-a", "nginx", "1.0"); err != injected {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
@@ -88,7 +90,7 @@ func TestMockInstallManagerInstallErrorInjection(t *testing.T) {
 func TestMockInstallManagerUninstall(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -104,10 +106,10 @@ func TestMockInstallManagerUninstall(t *testing.T) {
 func TestMockInstallManagerUninstallPreservesOthers(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := m.Install("repo-a", "redis", "7.0"); err != nil {
+	if err := m.Install("repo-a", "redis", "7.0", Responses{}); err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
@@ -139,7 +141,7 @@ func TestMockInstallManagerUninstallErrorInjection(t *testing.T) {
 	m := InitMockInstallManager()
 	injected := fmt.Errorf("injected error")
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -172,10 +174,10 @@ func TestMockInstallManagerListEmpty(t *testing.T) {
 func TestMockInstallManagerList(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "2.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "2.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	if err := m.Install("repo-a", "redis", "7.0"); err != nil {
+	if err := m.Install("repo-a", "redis", "7.0", Responses{}); err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
@@ -204,7 +206,7 @@ func TestMockInstallManagerList(t *testing.T) {
 func TestMockInstallManagerListReturnsCopy(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -234,10 +236,10 @@ func TestMockInstallManagerListErrorInjection(t *testing.T) {
 func TestMockInstallManagerCallLog(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := m.Install("repo-a", "redis", "7.0"); err != nil {
+	if err := m.Install("repo-a", "redis", "7.0", Responses{}); err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 	if _, err := m.ListInstalled(); err != nil {
@@ -263,7 +265,7 @@ func TestMockInstallManagerCallLog(t *testing.T) {
 func TestMockInstallManagerCallLogArgs(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "2.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "2.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
 
@@ -273,8 +275,8 @@ func TestMockInstallManagerCallLogArgs(t *testing.T) {
 	}
 
 	args := calls[0].Args
-	if len(args) != 3 {
-		t.Fatalf("expected 3 args, got %d", len(args))
+	if len(args) != 4 {
+		t.Fatalf("expected 4 args, got %d", len(args))
 	}
 	if args[0] != "repo-a" || args[1] != "nginx" || args[2] != "2.0" {
 		t.Fatalf("unexpected args: %v", args)
@@ -284,7 +286,7 @@ func TestMockInstallManagerCallLogArgs(t *testing.T) {
 func TestMockInstallManagerCallLogReturnsCopy(t *testing.T) {
 	m := InitMockInstallManager()
 
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -311,10 +313,10 @@ func TestMockInstallManagerLifecycle(t *testing.T) {
 	}
 
 	// Install.
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := m.Install("repo-a", "redis", "7.0"); err != nil {
+	if err := m.Install("repo-a", "redis", "7.0", Responses{}); err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
@@ -343,7 +345,7 @@ func TestMockInstallManagerLifecycle(t *testing.T) {
 	}
 
 	// Re-install after uninstall.
-	if err := m.Install("repo-a", "nginx", "1.0"); err != nil {
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0 (re-install): %v", err)
 	}
 
@@ -353,5 +355,173 @@ func TestMockInstallManagerLifecycle(t *testing.T) {
 	}
 	if len(pkgs) != 2 {
 		t.Fatalf("expected 2 after re-install, got %d", len(pkgs))
+	}
+}
+
+// --- MockInstallManager Responses tests ---
+
+func TestMockInstallManagerInstallStoresResponses(t *testing.T) {
+	m := InitMockInstallManager()
+	resp := Responses{"port": "8080", "hostname": "myhost"}
+
+	if err := m.Install("repo-a", "nginx", "1.0", resp); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	got, err := m.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+
+	if got["port"] != "8080" || got["hostname"] != "myhost" {
+		t.Fatalf("expected port=8080 hostname=myhost, got %v", got)
+	}
+}
+
+func TestMockInstallManagerUninstallDeletesResponses(t *testing.T) {
+	m := InitMockInstallManager()
+
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{"port": "80"}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if err := m.Uninstall("nginx", "1.0"); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	_, err := m.GetResponses("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error after uninstall")
+	}
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("expected ErrNotInstalled, got %v", err)
+	}
+}
+
+func TestMockInstallManagerGetResponsesNotInstalled(t *testing.T) {
+	m := InitMockInstallManager()
+
+	_, err := m.GetResponses("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error for not-installed package")
+	}
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("expected ErrNotInstalled, got %v", err)
+	}
+}
+
+func TestMockInstallManagerGetResponsesErrorInjection(t *testing.T) {
+	m := InitMockInstallManager()
+	injected := fmt.Errorf("injected error")
+
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{"port": "80"}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	m.GetResponsesErr = injected
+	_, err := m.GetResponses("nginx", "1.0")
+	if err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockInstallManagerGetResponsesReturnsCopy(t *testing.T) {
+	m := InitMockInstallManager()
+
+	if err := m.Install("repo-a", "nginx", "1.0", Responses{"port": "80"}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	got, err := m.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+
+	got["port"] = "mutated"
+
+	original := m.StoredResponses["nginx@1.0"]
+	if original["port"] != "80" {
+		t.Fatal("GetResponses should return a copy, not a reference")
+	}
+}
+
+// --- InstallManager response persistence tests ---
+
+func TestInstallManagerResponsesPersistence(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a fake repo package so Install succeeds.
+	pkgDir := filepath.Join(dir, "repo-a", PackagesDir, "nginx")
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mgr := NewInstallManager(dir)
+	resp := Responses{"port": "8080", "hostname": "myhost"}
+
+	if err := mgr.Install("repo-a", "nginx", "1.0", resp); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	got, err := mgr.GetResponses("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+
+	if got["port"] != "8080" || got["hostname"] != "myhost" {
+		t.Fatalf("expected port=8080 hostname=myhost, got %v", got)
+	}
+}
+
+func TestInstallManagerGetResponsesNotInstalled(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewInstallManager(dir)
+
+	_, err := mgr.GetResponses("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error for not-installed package")
+	}
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("expected ErrNotInstalled, got %v", err)
+	}
+}
+
+func TestInstallManagerUninstallRemovesResponses(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a fake repo package.
+	pkgDir := filepath.Join(dir, "repo-a", PackagesDir, "nginx")
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mgr := NewInstallManager(dir)
+
+	if err := mgr.Install("repo-a", "nginx", "1.0", Responses{"port": "80"}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if err := mgr.Uninstall("nginx", "1.0"); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	_, err := mgr.GetResponses("nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error after uninstall")
+	}
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("expected ErrNotInstalled, got %v", err)
+	}
+
+	// Verify response directory was cleaned up.
+	respDir := filepath.Join(dir, ResponsesDir, "nginx")
+	if _, err := os.Stat(respDir); !os.IsNotExist(err) {
+		t.Fatalf("expected response directory to be cleaned up, got err: %v", err)
 	}
 }

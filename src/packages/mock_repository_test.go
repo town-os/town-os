@@ -19,10 +19,15 @@ func TestMockRepositoryManagerImplementsRepositoryManager(t *testing.T) {
 
 // --- helpers ---
 
-func testRepo(name string) Repository {
+func testRepo(t *testing.T, name string) Repository {
+	t.Helper()
+	p, err := url.JoinPath("/", fmt.Sprintf("%s.git", name))
+	if err != nil {
+		t.Fatalf("url.JoinPath for %q: %v", name, err)
+	}
 	return Repository{
 		Name: name,
-		URL:  url.URL{Scheme: "https", Host: "example.com", Path: "/" + name + ".git"},
+		URL:  url.URL{Scheme: "https", Host: "example.com", Path: p},
 	}
 }
 
@@ -31,7 +36,7 @@ func testRepo(name string) Repository {
 func TestMockRepositoryManagerAdd(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -47,11 +52,11 @@ func TestMockRepositoryManagerAdd(t *testing.T) {
 func TestMockRepositoryManagerAddDuplicate(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := m.Add(testRepo("core")); err == nil {
+	if err := m.Add(testRepo(t, "core")); err == nil {
 		t.Fatal("expected error for duplicate add")
 	}
 }
@@ -61,7 +66,7 @@ func TestMockRepositoryManagerAddErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.AddErr = injected
-	if err := m.Add(testRepo("core")); err != injected {
+	if err := m.Add(testRepo(t, "core")); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
@@ -75,7 +80,7 @@ func TestMockRepositoryManagerAddErrorInjection(t *testing.T) {
 func TestMockRepositoryManagerRemove(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -91,10 +96,10 @@ func TestMockRepositoryManagerRemove(t *testing.T) {
 func TestMockRepositoryManagerRemovePreservesOthers(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := m.Add(testRepo("extras")); err != nil {
+	if err := m.Add(testRepo(t, "extras")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -122,7 +127,7 @@ func TestMockRepositoryManagerRemoveErrorInjection(t *testing.T) {
 	m := InitMockRepositoryManager()
 	injected := fmt.Errorf("injected error")
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -141,7 +146,7 @@ func TestMockRepositoryManagerRemoveErrorInjection(t *testing.T) {
 func TestMockRepositoryManagerGet(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -168,10 +173,10 @@ func TestMockRepositoryManagerGetNotFound(t *testing.T) {
 func TestMockRepositoryManagerList(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := m.Add(testRepo("extras")); err != nil {
+	if err := m.Add(testRepo(t, "extras")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -208,7 +213,7 @@ func TestMockRepositoryManagerListEmpty(t *testing.T) {
 func TestMockRepositoryManagerListReturnsCopy(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -493,12 +498,75 @@ func TestMockRepositoryManagerGetPackageQuestionsErrorInjection(t *testing.T) {
 	}
 }
 
+// --- FindRepoForPackage tests ---
+
+func TestMockRepositoryManagerFindRepoForPackage(t *testing.T) {
+	m := InitMockRepositoryManager()
+	m.Packages["nginx"] = map[string]InputPackage{
+		"1.0": {Image: "nginx:1.0"},
+		"2.0": {Image: "nginx:2.0"},
+	}
+
+	repoName, err := m.FindRepoForPackage("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repoName != "mock-repo" {
+		t.Fatalf("expected mock-repo, got %s", repoName)
+	}
+}
+
+func TestMockRepositoryManagerFindRepoForPackageNotFound(t *testing.T) {
+	m := InitMockRepositoryManager()
+
+	_, err := m.FindRepoForPackage("nonexistent", "1.0")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+	if !errors.Is(err, ErrPackageNotFound) {
+		t.Fatalf("expected ErrPackageNotFound, got %v", err)
+	}
+}
+
+func TestMockRepositoryManagerFindRepoForPackageVersionNotFound(t *testing.T) {
+	m := InitMockRepositoryManager()
+	m.Packages["nginx"] = map[string]InputPackage{
+		"1.0": {Image: "nginx:1.0"},
+	}
+
+	_, err := m.FindRepoForPackage("nginx", "99.0")
+	if err == nil {
+		t.Fatal("expected error for nonexistent version")
+	}
+	if !errors.Is(err, ErrPackageNotFound) {
+		t.Fatalf("expected ErrPackageNotFound, got %v", err)
+	}
+}
+
+func TestMockRepositoryManagerFindRepoForPackageErrorInjection(t *testing.T) {
+	m := InitMockRepositoryManager()
+	injected := fmt.Errorf("injected error")
+
+	m.Packages["nginx"] = map[string]InputPackage{
+		"1.0": {Image: "nginx:1.0"},
+	}
+
+	m.FindRepoErr = injected
+	_, err := m.FindRepoForPackage("nginx", "1.0")
+	if err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
 // --- Call log tests ---
 
 func TestMockRepositoryManagerCallLog(t *testing.T) {
 	m := InitMockRepositoryManager()
+	m.Packages["nginx"] = map[string]InputPackage{
+		"1.0": {Image: "nginx:1.0"},
+	}
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	m.Get("core")
@@ -520,16 +588,19 @@ func TestMockRepositoryManagerCallLog(t *testing.T) {
 	if _, err := m.GetPackageQuestions("nginx"); err != nil && !errors.Is(err, ErrPackageNotFound) {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if _, err := m.FindRepoForPackage("nginx", "1.0"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if err := m.Remove("core"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	calls := m.GetCalls()
-	if len(calls) != 9 {
-		t.Fatalf("expected 9 calls, got %d", len(calls))
+	if len(calls) != 10 {
+		t.Fatalf("expected 10 calls, got %d", len(calls))
 	}
 
-	expected := []string{"Add", "Get", "List", "Refresh", "LoadAllPackages", "ListPackages", "LatestPackage", "GetPackageQuestions", "Remove"}
+	expected := []string{"Add", "Get", "List", "Refresh", "LoadAllPackages", "ListPackages", "LatestPackage", "GetPackageQuestions", "FindRepoForPackage", "Remove"}
 	for i, want := range expected {
 		if calls[i].Method != want {
 			t.Fatalf("call %d: expected method %q, got %q", i, want, calls[i].Method)
@@ -540,7 +611,7 @@ func TestMockRepositoryManagerCallLog(t *testing.T) {
 func TestMockRepositoryManagerCallLogArgs(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	repo := testRepo("core")
+	repo := testRepo(t, "core")
 	if err := m.Add(repo); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -567,7 +638,7 @@ func TestMockRepositoryManagerCallLogArgs(t *testing.T) {
 func TestMockRepositoryManagerCallLogReturnsCopy(t *testing.T) {
 	m := InitMockRepositoryManager()
 
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -599,10 +670,10 @@ func TestMockRepositoryManagerLifecycle(t *testing.T) {
 	}
 
 	// Add repositories.
-	if err := m.Add(testRepo("core")); err != nil {
+	if err := m.Add(testRepo(t, "core")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := m.Add(testRepo("extras")); err != nil {
+	if err := m.Add(testRepo(t, "extras")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

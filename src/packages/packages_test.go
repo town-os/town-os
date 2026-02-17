@@ -358,3 +358,104 @@ func TestPackageCompileAdditional(t *testing.T) {
 		}
 	})
 }
+
+func TestPackageCompileTypeValidation(t *testing.T) {
+	t.Run("valid port type", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]PackageVolume{},
+			Questions:   map[string]Question{"port": {Query: "What port?", Type: Port}},
+		}
+		_, err := input.Compile(Responses{"port": "8080"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("valid hostname type", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{"HOST": "@hostname@"},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]PackageVolume{},
+			Questions:   map[string]Question{"hostname": {Query: "What hostname?", Type: Hostname}},
+		}
+		p, err := input.Compile(Responses{"hostname": "myhost"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Environment["HOST"] != "myhost" {
+			t.Fatalf("expected HOST=myhost, got %s", p.Environment["HOST"])
+		}
+	})
+
+	t.Run("valid volume type", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]PackageVolume{"data": {Mountpoint: "/mnt/@vol@"}},
+			Questions:   map[string]Question{"vol": {Query: "Volume name?", Type: Volume}},
+		}
+		p, err := input.Compile(Responses{"vol": "my-data"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Mountpoint != "/mnt/my-data" {
+			t.Fatalf("expected /mnt/my-data, got %s", p.Volumes["data"].Mountpoint)
+		}
+	})
+
+	t.Run("invalid port type", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]PackageVolume{},
+			Questions:   map[string]Question{"port": {Query: "What port?", Type: Port}},
+		}
+		_, err := input.Compile(Responses{"port": "abc"})
+		if err == nil {
+			t.Fatal("expected error for invalid port")
+		}
+		if !errors.Is(err, ErrInvalidResponseType) {
+			t.Fatalf("expected ErrInvalidResponseType, got %v", err)
+		}
+	})
+
+	t.Run("invalid hostname type", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]PackageVolume{},
+			Questions:   map[string]Question{"hostname": {Query: "What hostname?", Type: Hostname}},
+		}
+		_, err := input.Compile(Responses{"hostname": "9bad"})
+		if err == nil {
+			t.Fatal("expected error for invalid hostname")
+		}
+		if !errors.Is(err, ErrInvalidResponseType) {
+			t.Fatalf("expected ErrInvalidResponseType, got %v", err)
+		}
+	})
+
+	t.Run("untyped question accepts any string", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{"NAME": "@name@"},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]PackageVolume{},
+			Questions:   map[string]Question{"name": {Query: "What is your name?"}},
+		}
+		p, err := input.Compile(Responses{"name": "anything at all 123!@#"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Environment["NAME"] != "anything at all 123!@#" {
+			t.Fatalf("expected untyped question to accept any string, got %s", p.Environment["NAME"])
+		}
+	})
+}

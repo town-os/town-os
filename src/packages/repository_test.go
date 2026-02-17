@@ -2,6 +2,7 @@ package packages
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -163,7 +164,11 @@ func TestRepositoryRootAdd(t *testing.T) {
 
 		names := []string{"charlie", "alpha", "bravo"}
 		for _, name := range names {
-			if err := root.Add(Repository{Name: name, URL: url.URL{Scheme: "https", Host: "example.com", Path: "/" + name + ".git"}}); err != nil {
+			p, err := url.JoinPath("/", fmt.Sprintf("%s.git", name))
+			if err != nil {
+				t.Fatalf("url.JoinPath for %q: %v", name, err)
+			}
+			if err := root.Add(Repository{Name: name, URL: url.URL{Scheme: "https", Host: "example.com", Path: p}}); err != nil {
 				t.Fatalf("Add(%q): %v", name, err)
 			}
 		}
@@ -342,7 +347,7 @@ func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, version+".yaml"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.yaml", version)), []byte(content), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }
@@ -846,8 +851,14 @@ func TestListPackages(t *testing.T) {
 			t.Fatalf("expected 2 packages, got %d", len(pkgs))
 		}
 
-		p0, _ := ParsePackageIdentity(pkgs[0])
-		p1, _ := ParsePackageIdentity(pkgs[1])
+		p0, err := ParsePackageIdentity(pkgs[0])
+		if err != nil {
+			t.Fatalf("ParsePackageIdentity(%q): %v", pkgs[0], err)
+		}
+		p1, err := ParsePackageIdentity(pkgs[1])
+		if err != nil {
+			t.Fatalf("ParsePackageIdentity(%q): %v", pkgs[1], err)
+		}
 		if p0.Name != "nginx" || p1.Name != "redis" {
 			t.Fatalf("expected nginx and redis, got %s and %s", p0.Name, p1.Name)
 		}
@@ -977,11 +988,145 @@ func TestListPackages(t *testing.T) {
 		}
 
 		for i, pkg := range pkgs {
-			p, _ := ParsePackageIdentity(pkg)
+			p, err := ParsePackageIdentity(pkg)
+			if err != nil {
+				t.Fatalf("ParsePackageIdentity(%q): %v", pkg, err)
+			}
 			expected := []string{"alpine", "nginx", "zookeeper"}
 			if p.Name != expected[i] {
 				t.Fatalf("expected package %d to be %q, got %q", i, expected[i], p.Name)
 			}
+		}
+	})
+}
+
+func TestFindRepoForPackage(t *testing.T) {
+	t.Run("found in single repo", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		repoName, err := root.FindRepoForPackage("nginx", "1.0")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if repoName != "repo-a" {
+			t.Fatalf("expected repo-a, got %s", repoName)
+		}
+	})
+
+	t.Run("found in second repo", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+		writePackageYAML(t, dir, "repo-b", "redis", "7.0", "image: redis:7.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		repoName, err := root.FindRepoForPackage("redis", "7.0")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if repoName != "repo-b" {
+			t.Fatalf("expected repo-b, got %s", repoName)
+		}
+	})
+
+	t.Run("preferred repo wins on duplicate", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", "image: nginx:2.0-from-a\n")
+		writePackageYAML(t, dir, "repo-b", "nginx", "2.0", "image: nginx:2.0-from-b\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		repoName, err := root.FindRepoForPackage("nginx", "2.0")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if repoName != "repo-a" {
+			t.Fatalf("expected preferred repo repo-a, got %s", repoName)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		_, err = root.FindRepoForPackage("nonexistent", "1.0")
+		if err != ErrPackageNotFound {
+			t.Fatalf("expected ErrPackageNotFound, got %v", err)
+		}
+	})
+
+	t.Run("version not found", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		_, err = root.FindRepoForPackage("nginx", "99.0")
+		if err != ErrPackageNotFound {
+			t.Fatalf("expected ErrPackageNotFound, got %v", err)
 		}
 	})
 }

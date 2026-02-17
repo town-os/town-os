@@ -150,7 +150,7 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 	}
 
 	compiled, err := nginx.Compile(packages.Responses{
-		"hostname": "example.com",
+		"hostname": "example",
 		"port":     "8080",
 	})
 	if err != nil {
@@ -161,8 +161,8 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 		t.Fatalf("expected image nginx:1.0, got %s", compiled.Image)
 	}
 
-	if compiled.Environment["NGINX_HOST"] != "example.com" {
-		t.Fatalf("expected NGINX_HOST=example.com, got %s", compiled.Environment["NGINX_HOST"])
+	if compiled.Environment["NGINX_HOST"] != "example" {
+		t.Fatalf("expected NGINX_HOST=example, got %s", compiled.Environment["NGINX_HOST"])
 	}
 
 	if compiled.Network.External[8080] != 80 {
@@ -396,7 +396,7 @@ func TestInstalledInstallFromRepo(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("failed to install nginx 1.0: %v", err)
 	}
 
@@ -422,13 +422,13 @@ func TestInstalledListFromRepo(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "2.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	if err := mgr.Install("test-packages-core", "redis", "7.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "redis", "7.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
@@ -461,10 +461,10 @@ func TestInstalledUninstallFromRepo(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "2.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	if err := mgr.Install("test-packages-core", "redis", "7.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "redis", "7.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
@@ -509,10 +509,10 @@ func TestInstalledMultipleRepos(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Install from different repos.
-	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "2.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@2.0 from core: %v", err)
 	}
-	if err := mgr.Install("test-packages-extras", "postgres", "16.0"); err != nil {
+	if err := mgr.Install("test-packages-extras", "postgres", "16.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install postgres@16.0 from extras: %v", err)
 	}
 
@@ -543,7 +543,7 @@ func TestInstalledMultipleRepos(t *testing.T) {
 		if err != nil {
 			t.Fatalf("invalid package identity %q: %v", p, err)
 		}
-		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Name, pi.Version+".yaml")
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Name, fmt.Sprintf("%s.yaml", pi.Version))
 		if _, err := os.ReadFile(link); err != nil {
 			t.Fatalf("symlink for %s does not resolve: %v", p, err)
 		}
@@ -571,7 +571,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Install.
-	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -584,7 +584,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Duplicate should fail.
-	err = mgr.Install("test-packages-core", "nginx", "1.0")
+	err = mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected error for duplicate install")
 	}
@@ -606,7 +606,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Can re-install after uninstall.
-	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("re-install failed: %v", err)
 	}
 
@@ -765,7 +765,7 @@ func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -800,10 +800,10 @@ func TestInstalledEmptyDirCleanupAfterUninstall(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Install two versions of the same package.
-	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := mgr.Install("test-packages-core", "nginx", "2.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "2.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
 
@@ -843,17 +843,17 @@ func TestInstalledInstallNonexistentPackage(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Nonexistent package name.
-	if err := mgr.Install("test-packages-core", "nonexistent", "1.0"); err == nil {
+	if err := mgr.Install("test-packages-core", "nonexistent", "1.0", packages.Responses{}); err == nil {
 		t.Fatal("expected error installing nonexistent package")
 	}
 
 	// Existing package, nonexistent version.
-	if err := mgr.Install("test-packages-core", "nginx", "99.0"); err == nil {
+	if err := mgr.Install("test-packages-core", "nginx", "99.0", packages.Responses{}); err == nil {
 		t.Fatal("expected error installing nonexistent version")
 	}
 
 	// Nonexistent repo name.
-	if err := mgr.Install("no-such-repo", "nginx", "1.0"); err == nil {
+	if err := mgr.Install("no-such-repo", "nginx", "1.0", packages.Responses{}); err == nil {
 		t.Fatal("expected error installing from nonexistent repo")
 	}
 
@@ -901,7 +901,7 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 		}
 		for name, versions := range repoPkgs {
 			for version := range versions {
-				if err := mgr.Install(repoName, name, version); err != nil {
+				if err := mgr.Install(repoName, name, version, packages.Responses{}); err != nil {
 					t.Fatalf("Install %s@%s from %s: %v", name, version, repoName, err)
 				}
 			}
@@ -925,8 +925,14 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 
 	// Verify sorted order: by name, then by version.
 	for i := 1; i < len(installed); i++ {
-		prev, _ := packages.ParsePackageIdentity(installed[i-1])
-		curr, _ := packages.ParsePackageIdentity(installed[i])
+		prev, err := packages.ParsePackageIdentity(installed[i-1])
+		if err != nil {
+			t.Fatalf("ParsePackageIdentity(%q): %v", installed[i-1], err)
+		}
+		curr, err := packages.ParsePackageIdentity(installed[i])
+		if err != nil {
+			t.Fatalf("ParsePackageIdentity(%q): %v", installed[i], err)
+		}
 		if prev.Name > curr.Name {
 			t.Fatalf("not sorted by name at index %d: %s > %s", i, prev.Name, curr.Name)
 		}
@@ -982,7 +988,7 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 	mgr2 := packages.NewInstallManager(root.BaseDir)
 
 	// Install from mgr1.
-	if err := mgr1.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr1.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("mgr1 Install nginx@1.0: %v", err)
 	}
 
@@ -999,7 +1005,7 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 	}
 
 	// Duplicate from mgr2 should fail.
-	err = mgr2.Install("test-packages-core", "nginx", "1.0")
+	err = mgr2.Install("test-packages-core", "nginx", "1.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected duplicate install error from mgr2")
 	}
@@ -1022,6 +1028,88 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 	}
 }
 
+// --- FindRepoForPackage integration tests ---
+
+func TestFindRepoForPackageSingleRepo(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	repoName, err := root.FindRepoForPackage("nginx", "1.0")
+	if err != nil {
+		t.Fatalf("FindRepoForPackage nginx@1.0: %v", err)
+	}
+	if repoName != "test-packages-core" {
+		t.Fatalf("expected test-packages-core, got %s", repoName)
+	}
+}
+
+func TestFindRepoForPackageMultipleRepos(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+		{Name: "test-packages-extras", URL: extrasURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+		t.Fatalf("failed to clone extras: %v", err)
+	}
+
+	// nginx is in core
+	repoName, err := root.FindRepoForPackage("nginx", "2.0")
+	if err != nil {
+		t.Fatalf("FindRepoForPackage nginx@2.0: %v", err)
+	}
+	if repoName != "test-packages-core" {
+		t.Fatalf("expected test-packages-core for nginx, got %s", repoName)
+	}
+
+	// postgres is in extras
+	repoName, err = root.FindRepoForPackage("postgres", "16.0")
+	if err != nil {
+		t.Fatalf("FindRepoForPackage postgres@16.0: %v", err)
+	}
+	if repoName != "test-packages-extras" {
+		t.Fatalf("expected test-packages-extras for postgres, got %s", repoName)
+	}
+}
+
+func TestFindRepoForPackageNotFound(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+
+	_, err := root.FindRepoForPackage("nonexistent", "1.0")
+	if !errors.Is(err, packages.ErrPackageNotFound) {
+		t.Fatalf("expected ErrPackageNotFound, got %v", err)
+	}
+}
+
+func TestFindRepoForPackageVersionNotFound(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+
+	_, err := root.FindRepoForPackage("nginx", "99.0")
+	if !errors.Is(err, packages.ErrPackageNotFound) {
+		t.Fatalf("expected ErrPackageNotFound, got %v", err)
+	}
+}
+
 func TestInstalledCompileThroughSymlink(t *testing.T) {
 	root := setupRoot(t, []packages.Repository{
 		{Name: "test-packages-core", URL: coreURL},
@@ -1033,7 +1121,7 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("test-packages-core", "nginx", "1.0"); err != nil {
+	if err := mgr.Install("test-packages-core", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -1043,7 +1131,11 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open installed symlink: %v", err)
 	}
-	defer f.Close()
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("close installed symlink: %v", err)
+		}
+	})
 
 	var ip packages.InputPackage
 	if err := yaml.NewDecoder(f).Decode(&ip); err != nil {
@@ -1052,7 +1144,7 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 
 	// Compile with responses and verify the result.
 	compiled, err := ip.Compile(packages.Responses{
-		"hostname": "test.example.com",
+		"hostname": "webserver",
 		"port":     "9090",
 	})
 	if err != nil {
@@ -1062,8 +1154,8 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 	if compiled.Image != "nginx:1.0" {
 		t.Fatalf("expected image nginx:1.0, got %s", compiled.Image)
 	}
-	if compiled.Environment["NGINX_HOST"] != "test.example.com" {
-		t.Fatalf("expected NGINX_HOST=test.example.com, got %s", compiled.Environment["NGINX_HOST"])
+	if compiled.Environment["NGINX_HOST"] != "webserver" {
+		t.Fatalf("expected NGINX_HOST=webserver, got %s", compiled.Environment["NGINX_HOST"])
 	}
 	if compiled.Network.External[9090] != 80 {
 		t.Fatalf("expected external port 9090->80, got %v", compiled.Network.External)

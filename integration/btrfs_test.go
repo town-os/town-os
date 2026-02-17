@@ -27,10 +27,6 @@ func TestBtrFS(t *testing.T) {
 		t.Fatalf("Could not create filesystem test: %v", err)
 	}
 
-	t.Cleanup(func() {
-		btr.RemoveFilesystem(testPath)
-	})
-
 	list, err := btr.ListFilesystems(path)
 	if err != nil {
 		t.Fatalf("Error while listing filesystems: %v", err)

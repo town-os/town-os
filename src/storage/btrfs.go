@@ -13,12 +13,16 @@ import (
 
 var ErrMountNotFound = errors.New("mount point not found")
 
-func findMountPoint(path string) (string, error) {
+func findMountPoint(path string) (_ string, err error) {
 	fp, err := os.Open("/proc/self/mounts")
 	if err != nil {
 		return "", err
 	}
-	defer fp.Close()
+	defer func() {
+		if cerr := fp.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	const (
 		deviceIdx = 0

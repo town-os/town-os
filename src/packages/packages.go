@@ -15,7 +15,8 @@ type (
 const TemplateChar = '@'
 
 var (
-	ErrInvalidResponse = errors.New("response does not match a question")
+	ErrInvalidResponse     = errors.New("response does not match a question")
+	ErrInvalidResponseType = errors.New("response does not match the expected type")
 )
 
 type PackageIdentity struct {
@@ -171,8 +172,15 @@ func strToPort(input string) (uint16, error) {
 
 func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	for prompt, resp := range response {
-		if _, ok := i.Questions[prompt]; !ok {
+		q, ok := i.Questions[prompt]
+		if !ok {
 			return nil, fmt.Errorf("%q: %v", prompt, ErrInvalidResponse)
+		}
+
+		if q.Type != "" {
+			if _, err := q.Type.Output(resp); err != nil {
+				return nil, fmt.Errorf("%q: %w: %v", prompt, ErrInvalidResponseType, err)
+			}
 		}
 
 		i.iterateFields(prompt, resp)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -25,6 +26,11 @@ type Client interface {
 
 	ListPackages() ([]string, error)
 	GetPackageQuestions(string) (map[string]packages.Question, error)
+
+	InstallPackage(name, version string, responses packages.Responses) error
+	UninstallPackage(name, version string) error
+	ListInstalled() ([]string, error)
+	GetResponses(name, version string) (packages.Responses, error)
 }
 
 type SystemClient struct {
@@ -54,15 +60,23 @@ func FromClient(client *http.Client, baseURL string) (*SystemClient, error) {
 }
 
 func (c *SystemClient) route(path string) string {
-	return fmt.Sprintf("%s/%s", c.BaseURL, path)
+	result, err := url.JoinPath(c.BaseURL, path)
+	if err != nil {
+		return fmt.Sprintf("%s/%s", c.BaseURL, path)
+	}
+	return result
 }
 
-func (c *SystemClient) postClient(path string, payload []byte) error {
+func (c *SystemClient) postClient(path string, payload []byte) (err error) {
 	resp, err := c.HTTP.Post(c.route(path), "application/json", bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("http error in POST %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("unsuccessful status code in POST %s: %v", path, resp.StatusCode)
@@ -100,7 +114,7 @@ func (c *SystemClient) RemoveFilesystem(name string) error {
 	return c.postClient("storage/remove", payload)
 }
 
-func (c *SystemClient) ListFilesystems(prefix string) ([]storage.Filesystem, error) {
+func (c *SystemClient) ListFilesystems(prefix string) (_ []storage.Filesystem, err error) {
 	payload, err := json.Marshal(FilesystemName{Name: prefix})
 	if err != nil {
 		return nil, err
@@ -110,7 +124,11 @@ func (c *SystemClient) ListFilesystems(prefix string) ([]storage.Filesystem, err
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListFilesystems: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("unsuccessful status code in ListFilesystems: %v", resp.StatusCode)
@@ -142,12 +160,16 @@ func (c *SystemClient) RemoveRepository(name string) error {
 	return c.postClient("repository/remove", payload)
 }
 
-func (c *SystemClient) ListRepositories() ([]RepositoryInfo, error) {
+func (c *SystemClient) ListRepositories() (_ []RepositoryInfo, err error) {
 	resp, err := c.HTTP.Post(c.route("repository"), "application/json", bytes.NewBuffer([]byte("{}")))
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListRepositories: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("unsuccessful status code in ListRepositories: %v", resp.StatusCode)
@@ -161,12 +183,16 @@ func (c *SystemClient) ListRepositories() ([]RepositoryInfo, error) {
 
 // --- Packages ---
 
-func (c *SystemClient) ListPackages() ([]string, error) {
+func (c *SystemClient) ListPackages() (_ []string, err error) {
 	resp, err := c.HTTP.Post(c.route("packages"), "application/json", bytes.NewBuffer([]byte("{}")))
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListPackages: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("unsuccessful status code in ListPackages: %v", resp.StatusCode)
@@ -178,7 +204,7 @@ func (c *SystemClient) ListPackages() ([]string, error) {
 	return pkgs, de.Decode(&pkgs)
 }
 
-func (c *SystemClient) GetPackageQuestions(name string) (map[string]packages.Question, error) {
+func (c *SystemClient) GetPackageQuestions(name string) (_ map[string]packages.Question, err error) {
 	payload, err := json.Marshal(PackageNameRequest{Name: name})
 	if err != nil {
 		return nil, err
@@ -188,7 +214,11 @@ func (c *SystemClient) GetPackageQuestions(name string) (map[string]packages.Que
 	if err != nil {
 		return nil, fmt.Errorf("http error in GetPackageQuestions: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("unsuccessful status code in GetPackageQuestions: %v", resp.StatusCode)
@@ -198,4 +228,71 @@ func (c *SystemClient) GetPackageQuestions(name string) (map[string]packages.Que
 	var questions map[string]packages.Question
 
 	return questions, de.Decode(&questions)
+}
+
+// --- Install ---
+
+func (c *SystemClient) InstallPackage(name, version string, responses packages.Responses) error {
+	payload, err := json.Marshal(InstallRequest{Name: name, Version: version, Responses: responses})
+	if err != nil {
+		return err
+	}
+
+	return c.postClient("packages/install", payload)
+}
+
+func (c *SystemClient) UninstallPackage(name, version string) error {
+	payload, err := json.Marshal(UninstallRequest{Name: name, Version: version})
+	if err != nil {
+		return err
+	}
+
+	return c.postClient("packages/uninstall", payload)
+}
+
+func (c *SystemClient) ListInstalled() (_ []string, err error) {
+	resp, err := c.HTTP.Post(c.route("packages/installed"), "application/json", bytes.NewBuffer([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("http error in ListInstalled: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in ListInstalled: %v", resp.StatusCode)
+	}
+
+	de := json.NewDecoder(resp.Body)
+	var pkgs []string
+
+	return pkgs, de.Decode(&pkgs)
+}
+
+func (c *SystemClient) GetResponses(name, version string) (_ packages.Responses, err error) {
+	payload, err := json.Marshal(GetResponsesRequest{Name: name, Version: version})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTP.Post(c.route("packages/responses"), "application/json", bytes.NewBuffer(payload))
+	if err != nil {
+		return nil, fmt.Errorf("http error in GetResponses: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in GetResponses: %v", resp.StatusCode)
+	}
+
+	de := json.NewDecoder(resp.Body)
+	var responses packages.Responses
+
+	return responses, de.Decode(&responses)
 }

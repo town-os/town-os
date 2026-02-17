@@ -1,6 +1,7 @@
 package packages
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,10 +16,13 @@ var (
 	ErrAlreadyInstalled = fmt.Errorf("package already installed")
 )
 
+const ResponsesDir = "responses"
+
 type Installer interface {
-	Install(repoName, pkgName, version string) error
+	Install(repoName, pkgName, version string, responses Responses) error
 	Uninstall(pkgName, version string) error
 	ListInstalled() ([]string, error)
+	GetResponses(pkgName, version string) (Responses, error)
 }
 
 type InstallManager struct {
@@ -33,9 +37,14 @@ func (m *InstallManager) dir() string {
 	return filepath.Join(m.BaseDir, InstalledDir)
 }
 
+func (m *InstallManager) responsesDir() string {
+	return filepath.Join(m.BaseDir, ResponsesDir)
+}
+
 // Install creates a symlink at installed/<pkgName>/<version>.yaml pointing to
 // the repository package file at <repoName>/packages/<pkgName>/<version>.yaml.
-func (m *InstallManager) Install(repoName, pkgName, version string) error {
+// It also persists the responses to responses/<pkgName>/<version>.json.
+func (m *InstallManager) Install(repoName, pkgName, version string, responses Responses) (err error) {
 	pkgDir := filepath.Join(m.dir(), pkgName)
 	if err := os.MkdirAll(pkgDir, 0755); err != nil {
 		return err
@@ -55,7 +64,30 @@ func (m *InstallManager) Install(repoName, pkgName, version string) error {
 	// Relative symlink so the tree stays relocatable.
 	target := filepath.Join("..", "..", repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version))
 
-	return os.Symlink(target, link)
+	if err := os.Symlink(target, link); err != nil {
+		return err
+	}
+
+	// Persist responses.
+	respDir := filepath.Join(m.responsesDir(), pkgName)
+	if err := os.MkdirAll(respDir, 0755); err != nil {
+		return err
+	}
+
+	respFile := filepath.Join(respDir, fmt.Sprintf("%s.json", version))
+	f, err := os.Create(respFile)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	en := json.NewEncoder(f)
+	en.SetIndent("", "  ")
+	return en.Encode(responses)
 }
 
 // Uninstall removes the symlink for the given package version. If the package
@@ -83,7 +115,24 @@ func (m *InstallManager) Uninstall(pkgName, version string) error {
 	pkgDir := filepath.Join(m.dir(), pkgName)
 	entries, err := os.ReadDir(pkgDir)
 	if err == nil && len(entries) == 0 {
-		os.Remove(pkgDir)
+		if err := os.Remove(pkgDir); err != nil {
+			return err
+		}
+	}
+
+	// Remove response file.
+	respFile := filepath.Join(m.responsesDir(), pkgName, fmt.Sprintf("%s.json", version))
+	if err := os.Remove(respFile); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Clean up empty response directory.
+	respDir := filepath.Join(m.responsesDir(), pkgName)
+	respEntries, err := os.ReadDir(respDir)
+	if err == nil && len(respEntries) == 0 {
+		if err := os.Remove(respDir); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -149,4 +198,29 @@ func (m *InstallManager) ListInstalled() ([]string, error) {
 	}
 
 	return out, nil
+}
+
+// GetResponses reads the persisted responses for a given package version.
+func (m *InstallManager) GetResponses(pkgName, version string) (_ Responses, err error) {
+	respFile := filepath.Join(m.responsesDir(), pkgName, fmt.Sprintf("%s.json", version))
+
+	f, err := os.Open(respFile)
+	if os.IsNotExist(err) {
+		return nil, fmt.Errorf("%s@%s: %w", pkgName, version, ErrNotInstalled)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	var resp Responses
+	if err := json.NewDecoder(f).Decode(&resp); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }

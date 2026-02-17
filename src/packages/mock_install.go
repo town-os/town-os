@@ -11,16 +11,20 @@ type MockInstallCall struct {
 }
 
 type MockInstallManager struct {
-	mu           sync.Mutex
-	Installed    []PackageIdentity
-	Calls        []MockInstallCall
-	InstallErr   error
-	UninstallErr error
-	ListErr      error
+	mu              sync.Mutex
+	Installed       []PackageIdentity
+	StoredResponses map[string]Responses
+	Calls           []MockInstallCall
+	InstallErr      error
+	UninstallErr    error
+	ListErr         error
+	GetResponsesErr error
 }
 
 func InitMockInstallManager() *MockInstallManager {
-	return &MockInstallManager{}
+	return &MockInstallManager{
+		StoredResponses: map[string]Responses{},
+	}
 }
 
 func (m *MockInstallManager) GetCalls() []MockInstallCall {
@@ -31,10 +35,10 @@ func (m *MockInstallManager) GetCalls() []MockInstallCall {
 	return out
 }
 
-func (m *MockInstallManager) Install(repoName, pkgName, version string) error {
+func (m *MockInstallManager) Install(repoName, pkgName, version string, responses Responses) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockInstallCall{Method: "Install", Args: []any{repoName, pkgName, version}})
+	m.Calls = append(m.Calls, MockInstallCall{Method: "Install", Args: []any{repoName, pkgName, version, responses}})
 
 	if m.InstallErr != nil {
 		return m.InstallErr
@@ -47,6 +51,8 @@ func (m *MockInstallManager) Install(repoName, pkgName, version string) error {
 	}
 
 	m.Installed = append(m.Installed, PackageIdentity{Name: pkgName, Version: version})
+	key := fmt.Sprintf("%s@%s", pkgName, version)
+	m.StoredResponses[key] = responses
 	return nil
 }
 
@@ -62,6 +68,8 @@ func (m *MockInstallManager) Uninstall(pkgName, version string) error {
 	for i, p := range m.Installed {
 		if p.Name == pkgName && p.Version == version {
 			m.Installed = append(m.Installed[:i], m.Installed[i+1:]...)
+			key := fmt.Sprintf("%s@%s", pkgName, version)
+			delete(m.StoredResponses, key)
 			return nil
 		}
 	}
@@ -81,6 +89,28 @@ func (m *MockInstallManager) ListInstalled() ([]string, error) {
 	out := make([]string, len(m.Installed))
 	for i, p := range m.Installed {
 		out[i] = p.String()
+	}
+	return out, nil
+}
+
+func (m *MockInstallManager) GetResponses(pkgName, version string) (Responses, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "GetResponses", Args: []any{pkgName, version}})
+
+	if m.GetResponsesErr != nil {
+		return nil, m.GetResponsesErr
+	}
+
+	key := fmt.Sprintf("%s@%s", pkgName, version)
+	resp, ok := m.StoredResponses[key]
+	if !ok {
+		return nil, fmt.Errorf("%s@%s: %w", pkgName, version, ErrNotInstalled)
+	}
+
+	out := make(Responses, len(resp))
+	for k, v := range resp {
+		out[k] = v
 	}
 	return out, nil
 }
