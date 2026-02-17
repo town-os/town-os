@@ -3,11 +3,11 @@ test: lint
 
 test-integration: lint btrfs
 	sudo go clean -testcache
-	cp $$HOME/.gitconfig .gitconfig.tmp
-	cp $$HOME/.git-credentials .git-credentials.tmp
-	git config --file .gitconfig.tmp credential.helper "store --file $$(pwd)/.git-credentials.tmp"
+	sudo -E cp $$HOME/.gitconfig .gitconfig.tmp
+	sudo -E cp $$HOME/.git-credentials .git-credentials.tmp
+	sudo -E git config --file .gitconfig.tmp credential.helper "store --file $$(pwd)/.git-credentials.tmp"
 	sudo -E GIT_CONFIG_GLOBAL=$$(pwd)/.gitconfig.tmp go test -tags=integration -v ./integration/...
-	rm -f .gitconfig.tmp .git-credentials.tmp
+	sudo rm -f .gitconfig.tmp .git-credentials.tmp
 	make clean-btrfs
 
 test-full: test test-integration

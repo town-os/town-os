@@ -6,8 +6,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -16,6 +18,7 @@ import (
 type SystemController interface {
 	Run() error
 	GetStorage() storage.Storage
+	GetRepositoryRoot() *packages.RepositoryRoot
 	Client() (*SystemClient, error)
 }
 
@@ -28,6 +31,19 @@ type ModifyFilesystemRequest struct {
 	Filesystem storage.Filesystem `json:"filesystem"`
 }
 
+type AddRepositoryRequest struct {
+	URL string `json:"url"`
+}
+
+type RepositoryNameRequest struct {
+	Name string `json:"name"`
+}
+
+type RepositoryInfo struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
 type SystemControllerHandlers struct {
 	Controller SystemController
 }
@@ -35,6 +51,8 @@ type SystemControllerHandlers struct {
 func getHandler(sc SystemController) *SystemControllerHandlers {
 	return &SystemControllerHandlers{Controller: sc}
 }
+
+// --- Storage handlers ---
 
 func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
@@ -100,20 +118,96 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 	return c.JSON(200, list)
 }
 
+// --- Repository handlers ---
+
+func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := AddRepositoryRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	u, err := url.Parse(req.URL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %v", err)
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+
+	repo, err := packages.NewRepository(rr.BaseDir, *u)
+	if err != nil {
+		return err
+	}
+
+	if err := rr.Add(*repo); err != nil {
+		return err
+	}
+
+	if err := rr.Refresh(); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) removeRepository(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := RepositoryNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+
+	if err := rr.Remove(req.Name); err != nil {
+		return err
+	}
+
+	if err := rr.Refresh(); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
+	rr := s.Controller.GetRepositoryRoot()
+
+	out := make([]RepositoryInfo, len(rr.Items))
+	for i, r := range rr.Items {
+		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String()}
+	}
+
+	return c.JSON(200, out)
+}
+
+// --- Routes ---
+
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/storage/create", s.createFilesystem)
 	e.Add("POST", "/storage/modify", s.modifyFilesystem)
 	e.Add("POST", "/storage/remove", s.removeFilesystem)
 	e.Add("POST", "/storage", s.listFilesystems)
+
+	e.Add("POST", "/repository/add", s.addRepository)
+	e.Add("POST", "/repository/remove", s.removeRepository)
+	e.Add("POST", "/repository", s.listRepositories)
 }
+
+// --- TestServer ---
 
 type TestServer struct {
-	Storage storage.Storage
-	Server  *httptest.Server
+	Storage        storage.Storage
+	RepositoryRoot *packages.RepositoryRoot
+	Server         *httptest.Server
 }
 
-func InitTestServer(s storage.Storage) *TestServer {
-	ts := &TestServer{Storage: s}
+func InitTestServer(s storage.Storage, rr *packages.RepositoryRoot) *TestServer {
+	ts := &TestServer{Storage: s, RepositoryRoot: rr}
 	ts.Server = httptest.NewServer(configureTestRouter(ts))
 	return ts
 }
@@ -136,6 +230,10 @@ func (ts *TestServer) GetStorage() storage.Storage {
 	return ts.Storage
 }
 
+func (ts *TestServer) GetRepositoryRoot() *packages.RepositoryRoot {
+	return ts.RepositoryRoot
+}
+
 func (ts *TestServer) Run() error {
 	ts.Server.Start()
 	return nil
@@ -145,14 +243,17 @@ func (ts *TestServer) Client() (*SystemClient, error) {
 	return FromClient(ts.Server.Client(), ts.Server.URL)
 }
 
+// --- UnixServer ---
+
 type UnixServer struct {
-	Socket  string
-	Storage storage.Storage
-	Handler http.Handler
+	Socket         string
+	Storage        storage.Storage
+	RepositoryRoot *packages.RepositoryRoot
+	Handler        http.Handler
 }
 
-func InitUnixServer(sock string, s storage.Storage) *UnixServer {
-	us := &UnixServer{Socket: sock, Storage: s}
+func InitUnixServer(sock string, s storage.Storage, rr *packages.RepositoryRoot) *UnixServer {
+	us := &UnixServer{Socket: sock, Storage: s, RepositoryRoot: rr}
 	us.Handler = configureUnixRouter(us)
 	return us
 }
@@ -186,12 +287,6 @@ func (us *UnixServer) GetStorage() storage.Storage {
 	return us.Storage
 }
 
-func (us *UnixServer) ConfigureRouter() http.Handler {
-	handlers := getHandler(us)
-
-	e := echo.New()
-	e.Use(middleware.RequestLogger())
-	handlers.configureRoutes(e)
-
-	return e
+func (us *UnixServer) GetRepositoryRoot() *packages.RepositoryRoot {
+	return us.RepositoryRoot
 }

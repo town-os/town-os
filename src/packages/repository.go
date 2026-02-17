@@ -88,6 +88,16 @@ func (rr *RepositoryRoot) Get(name string) (Repository, bool) {
 	return Repository{}, false
 }
 
+func (rr *RepositoryRoot) Refresh() error {
+	for _, repo := range rr.Items {
+		if _, err := NewRepository(rr.BaseDir, repo.URL); err != nil {
+			return fmt.Errorf("repository %s: %v", repo.Name, err)
+		}
+	}
+
+	return nil
+}
+
 type Repository struct {
 	Name string
 	URL  url.URL
@@ -123,16 +133,22 @@ func (r *Repository) init(baseDir string) error {
 	} else if !s.IsDir() {
 		return fmt.Errorf("sub-path %s is not a directory", target)
 	} else {
-		if err := runGit(target, "stash"); err != nil {
-			return err
+		needsStash := runGit(target, "diff", "--quiet", "HEAD") != nil
+
+		if needsStash {
+			if err := runGit(target, "stash"); err != nil {
+				return err
+			}
 		}
 
 		if err := runGit(target, "pull", "--rebase"); err != nil {
 			return err
 		}
 
-		if err := runGit(target, "stash", "apply"); err != nil {
-			return err
+		if needsStash {
+			if err := runGit(target, "stash", "apply"); err != nil {
+				return err
+			}
 		}
 	}
 

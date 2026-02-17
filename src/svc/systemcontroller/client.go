@@ -17,6 +17,10 @@ type Client interface {
 	ModifyFilesystem(string, storage.Filesystem) error
 	RemoveFilesystem(string) error
 	ListFilesystems(string) ([]storage.Filesystem, error)
+
+	AddRepository(string) error
+	RemoveRepository(string) error
+	ListRepositories() ([]RepositoryInfo, error)
 }
 
 type SystemClient struct {
@@ -62,6 +66,8 @@ func (c *SystemClient) postClient(path string, payload []byte) error {
 
 	return nil
 }
+
+// --- Storage ---
 
 func (c *SystemClient) CreateFilesystem(fs storage.Filesystem) error {
 	payload, err := json.Marshal(fs)
@@ -110,4 +116,41 @@ func (c *SystemClient) ListFilesystems(prefix string) ([]storage.Filesystem, err
 	fs := []storage.Filesystem{}
 
 	return fs, de.Decode(&fs)
+}
+
+// --- Repository ---
+
+func (c *SystemClient) AddRepository(rawURL string) error {
+	payload, err := json.Marshal(AddRepositoryRequest{URL: rawURL})
+	if err != nil {
+		return err
+	}
+
+	return c.postClient("repository/add", payload)
+}
+
+func (c *SystemClient) RemoveRepository(name string) error {
+	payload, err := json.Marshal(RepositoryNameRequest{Name: name})
+	if err != nil {
+		return err
+	}
+
+	return c.postClient("repository/remove", payload)
+}
+
+func (c *SystemClient) ListRepositories() ([]RepositoryInfo, error) {
+	resp, err := c.HTTP.Post(c.route("repository"), "application/json", bytes.NewBuffer([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("http error in ListRepositories: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in ListRepositories: %v", resp.StatusCode)
+	}
+
+	de := json.NewDecoder(resp.Body)
+	var repos []RepositoryInfo
+
+	return repos, de.Decode(&repos)
 }

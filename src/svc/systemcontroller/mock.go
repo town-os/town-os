@@ -8,13 +8,17 @@ import (
 )
 
 type MockClient struct {
-	mu          sync.Mutex
-	Filesystems map[string]storage.Filesystem
-	Calls       []MockCall
-	CreateErr   error
-	ModifyErr   error
-	RemoveErr   error
-	ListErr     error
+	mu           sync.Mutex
+	Filesystems  map[string]storage.Filesystem
+	Repositories []RepositoryInfo
+	Calls        []MockCall
+	CreateErr    error
+	ModifyErr    error
+	RemoveErr    error
+	ListErr      error
+	AddRepoErr   error
+	RemRepoErr   error
+	ListRepoErr  error
 }
 
 type MockCall struct {
@@ -35,6 +39,8 @@ func (m *MockClient) GetCalls() []MockCall {
 	copy(out, m.Calls)
 	return out
 }
+
+// --- Storage ---
 
 func (m *MockClient) CreateFilesystem(fs storage.Filesystem) error {
 	m.mu.Lock()
@@ -95,5 +101,59 @@ func (m *MockClient) ListFilesystems(prefix string) ([]storage.Filesystem, error
 		}
 	}
 
+	return out, nil
+}
+
+// --- Repository ---
+
+func (m *MockClient) AddRepository(rawURL string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "AddRepository", Args: []any{rawURL}})
+
+	if m.AddRepoErr != nil {
+		return m.AddRepoErr
+	}
+
+	for _, r := range m.Repositories {
+		if r.URL == rawURL {
+			return fmt.Errorf("repository %s already exists", rawURL)
+		}
+	}
+
+	m.Repositories = append(m.Repositories, RepositoryInfo{Name: rawURL, URL: rawURL})
+	return nil
+}
+
+func (m *MockClient) RemoveRepository(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "RemoveRepository", Args: []any{name}})
+
+	if m.RemRepoErr != nil {
+		return m.RemRepoErr
+	}
+
+	for i, r := range m.Repositories {
+		if r.Name == name {
+			m.Repositories = append(m.Repositories[:i], m.Repositories[i+1:]...)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("repository %s not found", name)
+}
+
+func (m *MockClient) ListRepositories() ([]RepositoryInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListRepositories", Args: nil})
+
+	if m.ListRepoErr != nil {
+		return nil, m.ListRepoErr
+	}
+
+	out := make([]RepositoryInfo, len(m.Repositories))
+	copy(out, m.Repositories)
 	return out, nil
 }

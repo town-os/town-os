@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 )
 
@@ -13,7 +15,7 @@ func initTestClient(t *testing.T) (*SystemClient, *storage.MockBtrFSController) 
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 	controller := mock.Controller.(*storage.MockBtrFSController)
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -61,7 +63,7 @@ func TestCreateFilesystemMultiple(t *testing.T) {
 
 func TestCreateFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/create", "application/json", bytes.NewBufferString("{bad"))
@@ -93,7 +95,7 @@ func TestModifyFilesystem(t *testing.T) {
 
 func TestModifyFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/modify", "application/json", bytes.NewBufferString("{bad"))
@@ -152,7 +154,7 @@ func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 
 func TestRemoveFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/remove", "application/json", bytes.NewBufferString("{bad"))
@@ -247,7 +249,7 @@ func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 
 func TestListFilesystemsBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage", "application/json", bytes.NewBufferString("{bad"))
@@ -491,7 +493,7 @@ func TestMockClientCallLog(t *testing.T) {
 
 func TestWrongHTTPMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	resp, err := http.Get(ts.Server.URL + "/storage/create")
@@ -507,7 +509,7 @@ func TestWrongHTTPMethod(t *testing.T) {
 
 func TestNonexistentRoute(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	resp, err := ts.Server.Client().Post(ts.Server.URL+"/nonexistent", "application/json", bytes.NewBufferString("{}"))
@@ -523,7 +525,7 @@ func TestNonexistentRoute(t *testing.T) {
 
 func TestEmptyBody(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock)
+	ts := InitTestServer(mock, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	resp, err := ts.Server.Client().Post(ts.Server.URL+"/storage/create", "application/json", bytes.NewBufferString(""))
@@ -534,5 +536,239 @@ func TestEmptyBody(t *testing.T) {
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for empty body")
+	}
+}
+
+// --- MockClient repository tests ---
+
+func TestMockClientAddAndListRepositories(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
+		t.Fatal(err)
+	}
+
+	repos, err := m.ListRepositories()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos))
+	}
+
+	if repos[0].URL != "https://example.com/repo.git" {
+		t.Fatalf("expected URL %q, got %q", "https://example.com/repo.git", repos[0].URL)
+	}
+}
+
+func TestMockClientAddDuplicateRepository(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := m.AddRepository("https://example.com/repo.git")
+	if err == nil {
+		t.Fatal("expected error adding duplicate repository")
+	}
+}
+
+func TestMockClientRemoveRepository(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.RemoveRepository("https://example.com/repo.git"); err != nil {
+		t.Fatal(err)
+	}
+
+	repos, err := m.ListRepositories()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(repos) != 0 {
+		t.Fatalf("expected 0 repositories, got %d", len(repos))
+	}
+}
+
+func TestMockClientRemoveRepositoryNotFound(t *testing.T) {
+	m := InitMockClient()
+
+	err := m.RemoveRepository("nonexistent")
+	if err == nil {
+		t.Fatal("expected error removing nonexistent repository")
+	}
+}
+
+func TestMockClientRepositoryErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.AddRepoErr = injected
+	if err := m.AddRepository("https://example.com/repo.git"); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+
+	m.AddRepoErr = nil
+	m.RemRepoErr = injected
+	if err := m.RemoveRepository("test"); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+
+	m.RemRepoErr = nil
+	m.ListRepoErr = injected
+	if _, err := m.ListRepositories(); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockClientRepositoryCallLog(t *testing.T) {
+	m := InitMockClient()
+
+	m.AddRepository("https://example.com/a.git")
+	m.AddRepository("https://example.com/b.git")
+	m.ListRepositories()
+	m.RemoveRepository("https://example.com/a.git")
+
+	calls := m.GetCalls()
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 calls, got %d", len(calls))
+	}
+
+	expected := []string{"AddRepository", "AddRepository", "ListRepositories", "RemoveRepository"}
+	for i, want := range expected {
+		if calls[i].Method != want {
+			t.Fatalf("call %d: expected method %q, got %q", i, want, calls[i].Method)
+		}
+	}
+}
+
+// --- Repository HTTP endpoint tests ---
+
+func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
+	t.Helper()
+	return &packages.RepositoryRoot{BaseDir: t.TempDir()}
+}
+
+func TestHTTPAddRepositoryBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(mock, emptyRepoRoot(t))
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := ts.Server.Client().Post(ts.Server.URL+"/repository/add", "application/json", bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(mock, emptyRepoRoot(t))
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := ts.Server.Client().Post(ts.Server.URL+"/repository/remove", "application/json", bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = c.RemoveRepository("nonexistent")
+	if err == nil {
+		t.Fatal("expected error removing nonexistent repository")
+	}
+}
+
+func TestHTTPListRepositoriesEmpty(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repos, err := c.ListRepositories()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(repos) != 0 {
+		t.Fatalf("expected empty list, got %d", len(repos))
+	}
+}
+
+func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u1, _ := url.Parse("https://example.com/repo-a.git")
+	u2, _ := url.Parse("https://example.com/repo-b.git")
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u1},
+		{Name: "repo-b", URL: *u2},
+	}
+
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repos, err := c.ListRepositories()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repositories, got %d", len(repos))
+	}
+
+	if repos[0].Name != "repo-a" || repos[1].Name != "repo-b" {
+		t.Fatalf("unexpected repo names: %v", repos)
+	}
+}
+
+func TestHTTPRepositoryWrongMethod(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(mock, emptyRepoRoot(t))
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := http.Get(ts.Server.URL + "/repository/add")
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 for GET on POST-only route")
 	}
 }
