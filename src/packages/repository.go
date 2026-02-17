@@ -41,6 +41,38 @@ func RepositoryRootFromBase(baseDir string) (*RepositoryRoot, error) {
 	}, nil
 }
 
+func (rr *RepositoryRoot) save() error {
+	fn := filepath.Join(rr.BaseDir, RepositoriesFile)
+	f, err := os.Create(fn)
+	if err != nil {
+		return err
+	}
+
+	defer f.Close()
+
+	en := json.NewEncoder(f)
+	en.SetIndent("", "  ")
+	return en.Encode(rr.Items)
+}
+
+func (rr *RepositoryRoot) Add(key string, repo Repository) error {
+	if _, exists := rr.Items[key]; exists {
+		return fmt.Errorf("repository %s already exists", key)
+	}
+
+	rr.Items[key] = repo
+	return rr.save()
+}
+
+func (rr *RepositoryRoot) Remove(key string) error {
+	if _, exists := rr.Items[key]; !exists {
+		return fmt.Errorf("repository %s not found", key)
+	}
+
+	delete(rr.Items, key)
+	return rr.save()
+}
+
 type Repository struct {
 	Name string
 	URL  url.URL
