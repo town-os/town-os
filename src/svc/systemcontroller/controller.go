@@ -23,6 +23,11 @@ type FilesystemName struct {
 	Name string `json:"name"`
 }
 
+type ModifyFilesystemRequest struct {
+	Name       string             `json:"name"`
+	Filesystem storage.Filesystem `json:"filesystem"`
+}
+
 type SystemControllerHandlers struct {
 	Controller SystemController
 }
@@ -63,6 +68,22 @@ func (s *SystemControllerHandlers) removeFilesystem(c *echo.Context) error {
 	return nil
 }
 
+func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := ModifyFilesystemRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if err := s.Controller.GetStorage().ModifyFilesystem(req.Name, req.Filesystem); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
 func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	fs := FilesystemName{}
@@ -81,6 +102,7 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/storage/create", s.createFilesystem)
+	e.Add("POST", "/storage/modify", s.modifyFilesystem)
 	e.Add("POST", "/storage/remove", s.removeFilesystem)
 	e.Add("POST", "/storage", s.listFilesystems)
 }

@@ -12,6 +12,13 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 )
 
+type Client interface {
+	CreateFilesystem(name string) error
+	ModifyFilesystem(name string, fs storage.Filesystem) error
+	RemoveFilesystem(name string) error
+	ListFilesystems(prefix string) ([]storage.Filesystem, error)
+}
+
 type SystemClient struct {
 	HTTP    *http.Client
 	BaseURL string
@@ -65,6 +72,15 @@ func (c *SystemClient) CreateFilesystem(name string) error {
 	return c.postClient("storage/create", payload)
 }
 
+func (c *SystemClient) ModifyFilesystem(name string, fs storage.Filesystem) error {
+	payload, err := json.Marshal(ModifyFilesystemRequest{Name: name, Filesystem: fs})
+	if err != nil {
+		return err
+	}
+
+	return c.postClient("storage/modify", payload)
+}
+
 func (c *SystemClient) RemoveFilesystem(name string) error {
 	payload, err := json.Marshal(FilesystemName{Name: name})
 	if err != nil {
@@ -74,8 +90,8 @@ func (c *SystemClient) RemoveFilesystem(name string) error {
 	return c.postClient("storage/remove", payload)
 }
 
-func (c *SystemClient) ListFilesystems(name string) ([]storage.Filesystem, error) {
-	payload, err := json.Marshal(FilesystemName{Name: name})
+func (c *SystemClient) ListFilesystems(prefix string) ([]storage.Filesystem, error) {
+	payload, err := json.Marshal(FilesystemName{Name: prefix})
 	if err != nil {
 		return nil, err
 	}
