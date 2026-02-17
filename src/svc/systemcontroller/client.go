@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 )
 
@@ -23,6 +24,7 @@ type Client interface {
 	ListRepositories() ([]RepositoryInfo, error)
 
 	ListPackages() ([]string, error)
+	GetPackageQuestions(string) (map[string]packages.Question, error)
 }
 
 type SystemClient struct {
@@ -174,4 +176,26 @@ func (c *SystemClient) ListPackages() ([]string, error) {
 	var pkgs []string
 
 	return pkgs, de.Decode(&pkgs)
+}
+
+func (c *SystemClient) GetPackageQuestions(name string) (map[string]packages.Question, error) {
+	payload, err := json.Marshal(PackageNameRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTP.Post(c.route("packages/questions"), "application/json", bytes.NewBuffer(payload))
+	if err != nil {
+		return nil, fmt.Errorf("http error in GetPackageQuestions: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in GetPackageQuestions: %v", resp.StatusCode)
+	}
+
+	de := json.NewDecoder(resp.Body)
+	var questions map[string]packages.Question
+
+	return questions, de.Decode(&questions)
 }

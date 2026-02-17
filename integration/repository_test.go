@@ -170,6 +170,88 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 	}
 }
 
+func TestGetPackageQuestionsFromRepo(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	questions, err := root.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("GetPackageQuestions: %v", err)
+	}
+
+	// nginx 2.0 is the latest version and should have hostname and port questions
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions, got %d", len(questions))
+	}
+
+	hostname, ok := questions["hostname"]
+	if !ok {
+		t.Fatal("expected hostname question")
+	}
+	if hostname.Query == "" {
+		t.Fatal("expected non-empty hostname query")
+	}
+	if hostname.Type != packages.Hostname {
+		t.Fatalf("expected hostname type %q, got %q", packages.Hostname, hostname.Type)
+	}
+
+	port, ok := questions["port"]
+	if !ok {
+		t.Fatal("expected port question")
+	}
+	if port.Query == "" {
+		t.Fatal("expected non-empty port query")
+	}
+	if port.Type != packages.Port {
+		t.Fatalf("expected port type %q, got %q", packages.Port, port.Type)
+	}
+}
+
+func TestGetPackageQuestionsFromMultipleRepos(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+		{Name: "test-packages-extras", URL: extrasURL},
+	})
+
+	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core: %v", err)
+	}
+	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+		t.Fatalf("failed to clone extras: %v", err)
+	}
+
+	// redis from core
+	redisQ, err := root.GetPackageQuestions("redis")
+	if err != nil {
+		t.Fatalf("GetPackageQuestions redis: %v", err)
+	}
+	if _, ok := redisQ["password"]; !ok {
+		t.Fatal("expected redis password question")
+	}
+
+	// postgres from extras
+	pgQ, err := root.GetPackageQuestions("postgres")
+	if err != nil {
+		t.Fatalf("GetPackageQuestions postgres: %v", err)
+	}
+	for _, key := range []string{"user", "password", "dbname"} {
+		if _, ok := pgQ[key]; !ok {
+			t.Fatalf("expected postgres %s question", key)
+		}
+	}
+
+	// nonexistent
+	_, err = root.GetPackageQuestions("nonexistent")
+	if err != packages.ErrPackageNotFound {
+		t.Fatalf("expected ErrPackageNotFound, got %v", err)
+	}
+}
+
 func TestListPackagesSingleRepo(t *testing.T) {
 	root := setupRoot(t, []packages.Repository{
 		{Name: "test-packages-core", URL: coreURL},

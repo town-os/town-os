@@ -639,6 +639,149 @@ func TestLatestPackage(t *testing.T) {
 	})
 }
 
+func TestGetPackageQuestions(t *testing.T) {
+	t.Run("single repo", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", `image: nginx:1.0
+questions:
+  hostname:
+    query: "What hostname?"
+    type: hostname
+  port:
+    query: "What port?"
+    type: port
+`)
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		questions, err := root.GetPackageQuestions("nginx")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(questions) != 2 {
+			t.Fatalf("expected 2 questions, got %d", len(questions))
+		}
+
+		if questions["hostname"].Query != "What hostname?" {
+			t.Fatalf("expected hostname query %q, got %q", "What hostname?", questions["hostname"].Query)
+		}
+		if questions["hostname"].Type != Hostname {
+			t.Fatalf("expected hostname type %q, got %q", Hostname, questions["hostname"].Type)
+		}
+		if questions["port"].Query != "What port?" {
+			t.Fatalf("expected port query %q, got %q", "What port?", questions["port"].Query)
+		}
+		if questions["port"].Type != Port {
+			t.Fatalf("expected port type %q, got %q", Port, questions["port"].Type)
+		}
+	})
+
+	t.Run("picks latest version questions", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", `image: nginx:1.0
+questions:
+  hostname:
+    query: "Old hostname question"
+`)
+		writePackageYAML(t, dir, "repo-a", "nginx", "2.0", `image: nginx:2.0
+questions:
+  hostname:
+    query: "New hostname question"
+    type: hostname
+  port:
+    query: "What port?"
+    type: port
+`)
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		questions, err := root.GetPackageQuestions("nginx")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(questions) != 2 {
+			t.Fatalf("expected 2 questions (from version 2.0), got %d", len(questions))
+		}
+		if questions["hostname"].Query != "New hostname question" {
+			t.Fatalf("expected new hostname question, got %q", questions["hostname"].Query)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		_, err = root.GetPackageQuestions("nonexistent")
+		if err != ErrPackageNotFound {
+			t.Fatalf("expected ErrPackageNotFound, got %v", err)
+		}
+	})
+
+	t.Run("no questions returns empty map", func(t *testing.T) {
+		dir := t.TempDir()
+		repos := []Repository{
+			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
+		}
+		data := marshalJSON(t, repos)
+		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		writePackageYAML(t, dir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
+
+		root, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("RepositoryRootFromBase: %v", err)
+		}
+
+		questions, err := root.GetPackageQuestions("redis")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(questions) != 0 {
+			t.Fatalf("expected nil or empty questions, got %v", questions)
+		}
+	})
+}
+
 func TestListPackages(t *testing.T) {
 	t.Run("single repo picks latest of each package", func(t *testing.T) {
 		dir := t.TempDir()

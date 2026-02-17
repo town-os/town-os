@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 )
 
@@ -12,6 +13,7 @@ type MockClient struct {
 	Filesystems  map[string]storage.Filesystem
 	Repositories []RepositoryInfo
 	Packages     []string
+	Questions    map[string]map[string]packages.Question
 	Calls        []MockCall
 	CreateErr    error
 	ModifyErr    error
@@ -21,6 +23,7 @@ type MockClient struct {
 	RemRepoErr   error
 	ListRepoErr  error
 	ListPkgErr   error
+	QuestionsErr error
 }
 
 type MockCall struct {
@@ -173,5 +176,26 @@ func (m *MockClient) ListPackages() ([]string, error) {
 
 	out := make([]string, len(m.Packages))
 	copy(out, m.Packages)
+	return out, nil
+}
+
+func (m *MockClient) GetPackageQuestions(name string) (map[string]packages.Question, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetPackageQuestions", Args: []any{name}})
+
+	if m.QuestionsErr != nil {
+		return nil, m.QuestionsErr
+	}
+
+	questions, ok := m.Questions[name]
+	if !ok {
+		return nil, fmt.Errorf("package %s not found", name)
+	}
+
+	out := make(map[string]packages.Question, len(questions))
+	for k, v := range questions {
+		out[k] = v
+	}
 	return out, nil
 }

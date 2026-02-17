@@ -984,6 +984,171 @@ func TestHTTPListPackagesWrongMethod(t *testing.T) {
 	}
 }
 
+// --- GetPackageQuestions HTTP endpoint tests ---
+
+func TestHTTPGetPackageQuestionsPopulated(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", `image: nginx:1.0
+questions:
+  hostname:
+    query: "What hostname?"
+    type: hostname
+  port:
+    query: "What port?"
+    type: port
+`)
+
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	questions, err := c.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions, got %d", len(questions))
+	}
+	if questions["hostname"].Query != "What hostname?" {
+		t.Fatalf("expected hostname query %q, got %q", "What hostname?", questions["hostname"].Query)
+	}
+	if questions["hostname"].Type != packages.Hostname {
+		t.Fatalf("expected hostname type %q, got %q", packages.Hostname, questions["hostname"].Type)
+	}
+	if questions["port"].Query != "What port?" {
+		t.Fatalf("expected port query %q, got %q", "What port?", questions["port"].Query)
+	}
+	if questions["port"].Type != packages.Port {
+		t.Fatalf("expected port type %q, got %q", packages.Port, questions["port"].Type)
+	}
+}
+
+func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	// create empty packages dir
+	pkgDir := filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir)
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("os.MkdirAll: %v", err)
+	}
+
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	_, err = c.GetPackageQuestions("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+}
+
+func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := ts.Server.Client().Post(ts.Server.URL+"/packages/questions", "application/json", bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+func TestHTTPGetPackageQuestionsWrongMethod(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	resp, err := http.Get(ts.Server.URL + "/packages/questions")
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 for GET on POST-only route")
+	}
+}
+
+func TestHTTPGetPackageQuestionsLatestVersion(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", `image: nginx:1.0
+questions:
+  hostname:
+    query: "Old question"
+`)
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", `image: nginx:2.0
+questions:
+  hostname:
+    query: "New question"
+    type: hostname
+  port:
+    query: "What port?"
+    type: port
+`)
+
+	ts := InitTestServer(mock, rr)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	questions, err := c.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions from latest version, got %d", len(questions))
+	}
+	if questions["hostname"].Query != "New question" {
+		t.Fatalf("expected latest version question, got %q", questions["hostname"].Query)
+	}
+}
+
 // --- MockClient ListPackages tests ---
 
 func TestMockClientListPackages(t *testing.T) {
@@ -1047,5 +1212,108 @@ func TestMockClientListPackagesCallLog(t *testing.T) {
 		if c.Method != "ListPackages" {
 			t.Fatalf("expected method ListPackages, got %q", c.Method)
 		}
+	}
+}
+
+// --- MockClient GetPackageQuestions tests ---
+
+func TestMockClientGetPackageQuestions(t *testing.T) {
+	m := InitMockClient()
+	m.Questions = map[string]map[string]packages.Question{
+		"nginx": {
+			"hostname": {Query: "What hostname?", Type: packages.Hostname},
+			"port":     {Query: "What port?", Type: packages.Port},
+		},
+	}
+
+	questions, err := m.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("MockClient.GetPackageQuestions: %v", err)
+	}
+
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions, got %d", len(questions))
+	}
+
+	if questions["hostname"].Query != "What hostname?" {
+		t.Fatalf("expected %q, got %q", "What hostname?", questions["hostname"].Query)
+	}
+	if questions["port"].Type != packages.Port {
+		t.Fatalf("expected port type, got %q", questions["port"].Type)
+	}
+}
+
+func TestMockClientGetPackageQuestionsNotFound(t *testing.T) {
+	m := InitMockClient()
+
+	_, err := m.GetPackageQuestions("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+}
+
+func TestMockClientGetPackageQuestionsErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.Questions = map[string]map[string]packages.Question{
+		"nginx": {
+			"hostname": {Query: "What hostname?"},
+		},
+	}
+
+	m.QuestionsErr = injected
+	if _, err := m.GetPackageQuestions("nginx"); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockClientGetPackageQuestionsCallLog(t *testing.T) {
+	m := InitMockClient()
+	m.Questions = map[string]map[string]packages.Question{
+		"nginx": {
+			"hostname": {Query: "What hostname?"},
+		},
+	}
+
+	if _, err := m.GetPackageQuestions("nginx"); err != nil {
+		t.Fatalf("MockClient.GetPackageQuestions: %v", err)
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+
+	if calls[0].Method != "GetPackageQuestions" {
+		t.Fatalf("expected method GetPackageQuestions, got %q", calls[0].Method)
+	}
+
+	args := calls[0].Args
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
+	}
+	if args[0].(string) != "nginx" {
+		t.Fatalf("expected arg %q, got %v", "nginx", args[0])
+	}
+}
+
+func TestMockClientGetPackageQuestionsReturnsCopy(t *testing.T) {
+	m := InitMockClient()
+	m.Questions = map[string]map[string]packages.Question{
+		"nginx": {
+			"hostname": {Query: "What hostname?"},
+		},
+	}
+
+	questions, err := m.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("MockClient.GetPackageQuestions: %v", err)
+	}
+
+	questions["hostname"] = packages.Question{Query: "mutated"}
+
+	if m.Questions["nginx"]["hostname"].Query != "What hostname?" {
+		t.Fatal("GetPackageQuestions should return a copy, not a reference")
 	}
 }

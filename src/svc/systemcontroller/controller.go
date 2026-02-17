@@ -44,6 +44,10 @@ type RepositoryInfo struct {
 	URL  string `json:"url"`
 }
 
+type PackageNameRequest struct {
+	Name string `json:"name"`
+}
+
 type SystemControllerHandlers struct {
 	Controller SystemController
 }
@@ -203,6 +207,24 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 	return c.JSON(200, pkgs)
 }
 
+func (s *SystemControllerHandlers) getPackageQuestions(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+
+	questions, err := rr.GetPackageQuestions(req.Name)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, questions)
+}
+
 // --- Routes ---
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
@@ -216,6 +238,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/repository", s.listRepositories)
 
 	e.Add("POST", "/packages", s.listPackages)
+	e.Add("POST", "/packages/questions", s.getPackageQuestions)
 }
 
 // --- TestServer ---

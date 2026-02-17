@@ -26,6 +26,7 @@ type RepositoryManager interface {
 	LoadAllPackages() (PackageTable, error)
 	ListPackages() ([]string, error)
 	LatestPackage(name string) (InputPackage, string, error)
+	GetPackageQuestions(name string) (map[string]Question, error)
 }
 
 type RepositoryRoot struct {
@@ -333,6 +334,14 @@ func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, erro
 	}
 
 	return bestPkg, bestVersion, nil
+}
+
+func (rr *RepositoryRoot) GetPackageQuestions(name string) (map[string]Question, error) {
+	pkg, _, err := rr.LatestPackage(name)
+	if err != nil {
+		return nil, err
+	}
+	return pkg.Questions, nil
 }
 
 // ListPackages returns the latest version of every package across all

@@ -504,6 +504,81 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 	}
 }
 
+// --- GetPackageQuestions integration tests ---
+
+func TestSystemControllerGetPackageQuestions(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	questions, err := c.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("GetPackageQuestions nginx: %v", err)
+	}
+
+	// nginx 2.0 (latest) should have hostname and port questions
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions, got %d", len(questions))
+	}
+
+	hostname, ok := questions["hostname"]
+	if !ok {
+		t.Fatal("expected hostname question")
+	}
+	if hostname.Query == "" {
+		t.Fatal("expected non-empty hostname query")
+	}
+	if hostname.Type != packages.Hostname {
+		t.Fatalf("expected hostname type %q, got %q", packages.Hostname, hostname.Type)
+	}
+
+	port, ok := questions["port"]
+	if !ok {
+		t.Fatal("expected port question")
+	}
+	if port.Type != packages.Port {
+		t.Fatalf("expected port type %q, got %q", packages.Port, port.Type)
+	}
+}
+
+func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := c.AddRepository(extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	// postgres from extras
+	pgQ, err := c.GetPackageQuestions("postgres")
+	if err != nil {
+		t.Fatalf("GetPackageQuestions postgres: %v", err)
+	}
+
+	for _, key := range []string{"user", "password", "dbname"} {
+		if _, ok := pgQ[key]; !ok {
+			t.Fatalf("expected postgres %s question", key)
+		}
+	}
+}
+
+func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	_, err := c.GetPackageQuestions("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+}
+
 func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 

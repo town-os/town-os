@@ -15,7 +15,7 @@ type (
 const TemplateChar = '@'
 
 var (
-	ErrInvalidResponse = errors.New("response does not match a prompt question")
+	ErrInvalidResponse = errors.New("response does not match a question")
 )
 
 type PackageIdentity struct {
@@ -59,12 +59,17 @@ type InputPackageNetwork struct {
 	// TODO: hostname (with validation)
 }
 
+type Question struct {
+	Query string     `yaml:"query" json:"query"`
+	Type  OutputType `yaml:"type,omitempty" json:"type,omitempty"`
+}
+
 type InputPackage struct {
 	Image       string                   `yaml:"image"`
 	Environment map[string]string        `yaml:"environment"`
 	Network     InputPackageNetwork      `yaml:"network"`
 	Volumes     map[string]PackageVolume `yaml:"volumes"`
-	Questions   map[string]string        `yaml:"questions"`
+	Questions   map[string]Question      `yaml:"questions"`
 }
 
 func applyTemplate(input string, v string, repl string) string {

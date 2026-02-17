@@ -207,7 +207,7 @@ func TestPackageCompile(t *testing.T) {
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     InputPackageNetwork{External: map[string]string{"80": "80"}, Internal: map[string]string{"128": "128"}},
 				Volumes:     map[string]PackageVolume{},
-				Questions:   map[string]string{},
+				Questions:   map[string]Question{},
 			},
 			output: Package{
 				// FIXME: this should expand to a full image url
@@ -225,11 +225,11 @@ func TestPackageCompile(t *testing.T) {
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
 				Volumes:     map[string]PackageVolume{},
-				Questions: map[string]string{
-					"tag":      "What tag should I use?",
-					"name":     "Who should I say hello to?",
-					"external": "What port to forward?",
-					"internal": "What port to use internally?",
+				Questions: map[string]Question{
+					"tag":      {Query: "What tag should I use?"},
+					"name":     {Query: "Who should I say hello to?"},
+					"external": {Query: "What port to forward?", Type: Port},
+					"internal": {Query: "What port to use internally?", Type: Port},
 				},
 			},
 			output: Package{
@@ -253,11 +253,11 @@ func TestPackageCompile(t *testing.T) {
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
 				Volumes:     map[string]PackageVolume{},
-				Questions: map[string]string{
-					"tag":      "What tag should I use?",
-					"name":     "Who should I say hello to?",
-					"external": "What port to forward?",
-					"internal": "What port to use internally?",
+				Questions: map[string]Question{
+					"tag":      {Query: "What tag should I use?"},
+					"name":     {Query: "Who should I say hello to?"},
+					"external": {Query: "What port to forward?", Type: Port},
+					"internal": {Query: "What port to use internally?", Type: Port},
 				},
 			},
 			output: Package{
@@ -302,7 +302,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]PackageVolume{},
-			Questions:   map[string]string{"name": "What is your name?"},
+			Questions:   map[string]Question{"name": {Query: "What is your name?"}},
 		}
 		_, err := input.Compile(Responses{"bogus": "value"})
 		if err == nil {
@@ -316,7 +316,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]PackageVolume{"data": {Mountpoint: "/mnt/@path@"}},
-			Questions:   map[string]string{"path": "Mount path?"},
+			Questions:   map[string]Question{"path": {Query: "Mount path?"}},
 		}
 		p, err := input.Compile(Responses{"path": "mydata"})
 		if err != nil {
@@ -333,7 +333,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{External: map[string]string{"65535": "65535"}},
 			Volumes:     map[string]PackageVolume{},
-			Questions:   map[string]string{},
+			Questions:   map[string]Question{},
 		}
 		p, err := input.Compile(Responses{})
 		if err != nil {
@@ -350,7 +350,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{External: map[string]string{"0": "80"}},
 			Volumes:     map[string]PackageVolume{},
-			Questions:   map[string]string{},
+			Questions:   map[string]Question{},
 		}
 		_, err := input.Compile(Responses{})
 		if err == nil {

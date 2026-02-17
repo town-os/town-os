@@ -434,6 +434,65 @@ func TestMockRepositoryManagerLatestPackageErrorInjection(t *testing.T) {
 	}
 }
 
+// --- GetPackageQuestions tests ---
+
+func TestMockRepositoryManagerGetPackageQuestions(t *testing.T) {
+	m := InitMockRepositoryManager()
+	m.Packages["nginx"] = map[string]InputPackage{
+		"1.0": {Image: "nginx:1.0", Questions: map[string]Question{
+			"hostname": {Query: "Old hostname?"},
+		}},
+		"2.0": {Image: "nginx:2.0", Questions: map[string]Question{
+			"hostname": {Query: "What hostname?", Type: Hostname},
+			"port":     {Query: "What port?", Type: Port},
+		}},
+	}
+
+	questions, err := m.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions, got %d", len(questions))
+	}
+	if questions["hostname"].Query != "What hostname?" {
+		t.Fatalf("expected latest version question, got %q", questions["hostname"].Query)
+	}
+	if questions["port"].Type != Port {
+		t.Fatalf("expected port type, got %q", questions["port"].Type)
+	}
+}
+
+func TestMockRepositoryManagerGetPackageQuestionsNotFound(t *testing.T) {
+	m := InitMockRepositoryManager()
+
+	_, err := m.GetPackageQuestions("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+	if !errors.Is(err, ErrPackageNotFound) {
+		t.Fatalf("expected ErrPackageNotFound, got %v", err)
+	}
+}
+
+func TestMockRepositoryManagerGetPackageQuestionsErrorInjection(t *testing.T) {
+	m := InitMockRepositoryManager()
+	injected := fmt.Errorf("injected error")
+
+	m.Packages["nginx"] = map[string]InputPackage{
+		"1.0": {Image: "nginx:1.0", Questions: map[string]Question{
+			"hostname": {Query: "What hostname?"},
+		}},
+	}
+
+	m.QuestionsErr = injected
+	_, err := m.GetPackageQuestions("nginx")
+	if err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
 // --- Call log tests ---
 
 func TestMockRepositoryManagerCallLog(t *testing.T) {
@@ -458,16 +517,19 @@ func TestMockRepositoryManagerCallLog(t *testing.T) {
 	if _, _, err := m.LatestPackage("nginx"); err != nil && !errors.Is(err, ErrPackageNotFound) {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if _, err := m.GetPackageQuestions("nginx"); err != nil && !errors.Is(err, ErrPackageNotFound) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if err := m.Remove("core"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	calls := m.GetCalls()
-	if len(calls) != 8 {
-		t.Fatalf("expected 8 calls, got %d", len(calls))
+	if len(calls) != 9 {
+		t.Fatalf("expected 9 calls, got %d", len(calls))
 	}
 
-	expected := []string{"Add", "Get", "List", "Refresh", "LoadAllPackages", "ListPackages", "LatestPackage", "Remove"}
+	expected := []string{"Add", "Get", "List", "Refresh", "LoadAllPackages", "ListPackages", "LatestPackage", "GetPackageQuestions", "Remove"}
 	for i, want := range expected {
 		if calls[i].Method != want {
 			t.Fatalf("call %d: expected method %q, got %q", i, want, calls[i].Method)
@@ -563,8 +625,13 @@ func TestMockRepositoryManagerLifecycle(t *testing.T) {
 
 	// Set up packages and list them.
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
-		"2.0": {Image: "nginx:2.0"},
+		"1.0": {Image: "nginx:1.0", Questions: map[string]Question{
+			"hostname": {Query: "What hostname?"},
+		}},
+		"2.0": {Image: "nginx:2.0", Questions: map[string]Question{
+			"hostname": {Query: "What hostname?", Type: Hostname},
+			"port":     {Query: "What port?", Type: Port},
+		}},
 	}
 
 	pkgs, err := m.ListPackages()
@@ -588,6 +655,18 @@ func TestMockRepositoryManagerLifecycle(t *testing.T) {
 	}
 	if pkg.Image != "nginx:2.0" {
 		t.Fatalf("expected image nginx:2.0, got %s", pkg.Image)
+	}
+
+	// Get package questions.
+	questions, err := m.GetPackageQuestions("nginx")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions (from version 2.0), got %d", len(questions))
+	}
+	if questions["hostname"].Type != Hostname {
+		t.Fatalf("expected hostname type, got %q", questions["hostname"].Type)
 	}
 
 	// Remove one repository.
