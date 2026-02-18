@@ -15,7 +15,7 @@ type (
 const TemplateChar = '@'
 
 var (
-	ErrInvalidResponse     = errors.New("response does not match a question")
+	ErrInvalidResponse     = errors.New("response does not match a prompt question")
 	ErrInvalidResponseType = errors.New("response does not match the expected type")
 )
 
@@ -61,8 +61,8 @@ type InputPackageNetwork struct {
 }
 
 type Question struct {
-	Query string     `yaml:"query" json:"query"`
-	Type  OutputType `yaml:"type,omitempty" json:"type,omitempty"`
+	Query string     `json:"query" yaml:"query"`
+	Type  OutputType `json:"type,omitempty" yaml:"type,omitempty"`
 }
 
 type InputPackage struct {
@@ -141,17 +141,17 @@ func convert(p map[string]string) (PortMap, error) {
 	pm := PortMap{}
 
 	for forward, host := range p {
-		fwd, err := strToPort(forward)
+		out_f, err := strToPort(forward)
 		if err != nil {
 			return nil, err
 		}
 
-		hst, err := strToPort(host)
+		out_h, err := strToPort(host)
 		if err != nil {
 			return nil, err
 		}
 
-		pm[fwd] = hst
+		pm[out_f] = out_h
 	}
 
 	return pm, nil
@@ -171,6 +171,7 @@ func strToPort(input string) (uint16, error) {
 }
 
 func (i *InputPackage) Compile(response Responses) (*Package, error) {
+	var err error
 	for prompt, resp := range response {
 		q, ok := i.Questions[prompt]
 		if !ok {
@@ -178,8 +179,9 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 
 		if q.Type != "" {
-			if _, err := q.Type.Output(resp); err != nil {
-				return nil, fmt.Errorf("%q: %w: %v", prompt, ErrInvalidResponseType, err)
+			resp, err = q.Type.Output(resp)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", prompt, ErrInvalidResponseType)
 			}
 		}
 

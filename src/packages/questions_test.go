@@ -6,24 +6,24 @@ func TestOutput(t *testing.T) {
 	table := map[string]struct {
 		output   OutputType
 		input    string
-		expected any
+		expected string
 		err      bool
 	}{
 		// Port tests
 		"port_good": {
 			output:   Port,
 			input:    "80",
-			expected: uint16(80),
+			expected: "80",
 		},
 		"port_max": {
 			output:   Port,
 			input:    "65535",
-			expected: uint16(65535),
+			expected: "65535",
 		},
 		"port_min": {
 			output:   Port,
 			input:    "1",
-			expected: uint16(1),
+			expected: "1",
 		},
 		"port_zero": {
 			output: Port,

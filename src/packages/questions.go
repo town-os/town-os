@@ -27,19 +27,19 @@ const (
 	Volume   OutputType = "volume"
 )
 
-func (o OutputType) Output(answer string) (any, error) {
+func (o OutputType) Output(answer string) (string, error) {
 	switch o {
 	case Port:
 		u, err := strconv.ParseUint(answer, 10, 64)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 
 		if u == 0 || u > 65535 {
-			return 0, ErrInvalidPort
+			return "", ErrInvalidPort
 		}
 
-		return uint16(u), err
+		return answer, nil
 	case Hostname:
 		if HostnameRegexp.MatchString(strings.ToLower(answer)) {
 			return strings.ToLower(answer), nil
