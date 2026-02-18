@@ -1,0 +1,12 @@
+.git
+.claude
+.gitignore
+.golangci.yml
+.git*.tmp
+btrfs.*
+local-mount
+town-os.disk
+.cache
+nspawn-root
+LICENSE
+Makefile

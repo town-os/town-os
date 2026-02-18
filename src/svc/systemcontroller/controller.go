@@ -1,6 +1,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"time"
 
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
@@ -362,23 +364,39 @@ func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 	c.Response().WriteHeader(200)
 
 	flusher, ok := c.Response().(http.Flusher)
+	ctx := c.Request().Context()
+	heartbeat := time.NewTicker(time.Second)
+	defer heartbeat.Stop()
 
-	for entry := range ch {
-		if _, err := fmt.Fprint(c.Response(), "data: "); err != nil {
-			return err
-		}
-		if err := json.NewEncoder(c.Response()).Encode(entry); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprint(c.Response(), "\n"); err != nil {
-			return err
-		}
-		if ok {
-			flusher.Flush()
+	for {
+		select {
+		case entry, open := <-ch:
+			if !open {
+				return nil
+			}
+			if _, err := fmt.Fprint(c.Response(), "data: "); err != nil {
+				return err
+			}
+			if err := json.NewEncoder(c.Response()).Encode(entry); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprint(c.Response(), "\n"); err != nil {
+				return err
+			}
+			if ok {
+				flusher.Flush()
+			}
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(c.Response(), ":\n"); err != nil {
+				return err
+			}
+			if ok {
+				flusher.Flush()
+			}
+		case <-ctx.Done():
+			return nil
 		}
 	}
-
-	return nil
 }
 
 // --- Routes ---
@@ -407,18 +425,37 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 // --- TestServer ---
 
+type contextHandler struct {
+	ctx     context.Context
+	handler http.Handler
+}
+
+func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithCancel(h.ctx)
+	defer cancel()
+	h.handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type TestServer struct {
 	Storage        storage.Storage
 	RepositoryRoot *packages.RepositoryRoot
 	Installer      packages.Installer
 	Systemd        systemd.Manager
 	Server         *httptest.Server
+	cancel         context.CancelFunc
 }
 
 func InitTestServer(s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer, sd systemd.Manager) *TestServer {
 	ts := &TestServer{Storage: s, RepositoryRoot: rr, Installer: inst, Systemd: sd}
-	ts.Server = httptest.NewServer(configureTestRouter(ts))
+	ctx, cancel := context.WithCancel(context.Background())
+	ts.cancel = cancel
+	ts.Server = httptest.NewServer(&contextHandler{ctx: ctx, handler: configureTestRouter(ts)})
 	return ts
+}
+
+func (ts *TestServer) Close() {
+	ts.cancel()
+	ts.Server.Close()
 }
 
 func configureTestRouter(sc SystemController) http.Handler {

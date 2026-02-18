@@ -2,3 +2,4 @@
 /local-mount
 /town-os.disk
 /.git*.tmp
+/.cache

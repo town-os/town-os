@@ -1,0 +1,10 @@
+[Unit]
+Description=Town OS Test Service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/echo town-os-test-message
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

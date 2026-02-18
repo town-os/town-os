@@ -27,7 +27,7 @@ func initTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController)
 	mock := storage.InitBtrFSMock()
 	controller := mock.Controller.(*storage.MockBtrFSController)
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -75,7 +75,7 @@ func TestCreateFilesystemMultiple(t *testing.T) {
 func TestCreateFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -111,7 +111,7 @@ func TestModifyFilesystem(t *testing.T) {
 func TestModifyFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/modify"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -174,7 +174,7 @@ func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 func TestRemoveFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/remove"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -296,7 +296,7 @@ func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 func TestListFilesystemsBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -564,7 +564,7 @@ func TestMockClientCallLog(t *testing.T) {
 func TestWrongHTTPMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := http.Get(testRoute(t, ts.Server.URL, "storage/create"))
 	if err != nil {
@@ -584,7 +584,7 @@ func TestWrongHTTPMethod(t *testing.T) {
 func TestNonexistentRoute(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "nonexistent"), "application/json", bytes.NewBufferString("{}"))
 	if err != nil {
@@ -604,7 +604,7 @@ func TestNonexistentRoute(t *testing.T) {
 func TestEmptyBody(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, nil, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString(""))
 	if err != nil {
@@ -748,7 +748,7 @@ func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
 func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/add"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -768,7 +768,7 @@ func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/remove"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -789,7 +789,7 @@ func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -806,7 +806,7 @@ func TestHTTPListRepositoriesEmpty(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -840,7 +840,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 	}
 
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -864,7 +864,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 func TestHTTPRepositoryWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := http.Get(testRoute(t, ts.Server.URL, "repository/add"))
 	if err != nil {
@@ -912,7 +912,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 	}
 
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -945,7 +945,7 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 	writeTestPackage(t, rr.BaseDir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
 
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -991,7 +991,7 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 	writeTestPackage(t, rr.BaseDir, "repo-b", "nginx", "3.0", "image: nginx:3.0\n")
 
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -1020,7 +1020,7 @@ func TestHTTPListPackagesWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages"), "application/json", nil)
 	if err != nil {
@@ -1061,7 +1061,7 @@ questions:
 `)
 
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -1108,7 +1108,7 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 	}
 
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -1125,7 +1125,7 @@ func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/questions"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -1146,7 +1146,7 @@ func TestHTTPGetPackageQuestionsWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := http.Get(testRoute(t, ts.Server.URL, "packages/questions"))
 	if err != nil {
@@ -1190,7 +1190,7 @@ questions:
 `)
 
 	ts := InitTestServer(mock, rr, nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -1397,7 +1397,7 @@ func initInstallTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallM
 
 	inst := packages.InitMockInstallManager()
 	ts := InitTestServer(mock, rr, inst, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
 	if err != nil {
@@ -1445,7 +1445,7 @@ func TestHTTPInstallPackageNotFound(t *testing.T) {
 func TestHTTPInstallPackageBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/install"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -1495,7 +1495,7 @@ func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
 func TestHTTPUninstallPackageBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/uninstall"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
@@ -1578,7 +1578,7 @@ func TestHTTPGetResponsesNotInstalled(t *testing.T) {
 func TestHTTPGetResponsesBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
-	t.Cleanup(func() { ts.Server.Close() })
+	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/responses"), "application/json", bytes.NewBufferString("{bad"))
 	if err != nil {
