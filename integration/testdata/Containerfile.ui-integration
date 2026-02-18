@@ -1,0 +1,18 @@
+FROM golang:1.25-bookworm AS builder
+
+COPY go.mod go.sum /src/
+WORKDIR /src
+
+RUN go mod download
+
+COPY . /src
+
+RUN go build -o /testserver ./src/svc/systemcontroller/cmd/testserver
+
+FROM debian:bookworm-slim
+
+COPY --from=builder /testserver /testserver
+
+EXPOSE 8080
+
+CMD ["/testserver"]

@@ -20,8 +20,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 )
 
-type SystemController interface {
-	Run() error
+type systemControllerBackend interface {
 	GetStorage() storage.Storage
 	GetRepositoryRoot() *packages.RepositoryRoot
 	GetInstaller() packages.Installer
@@ -29,6 +28,11 @@ type SystemController interface {
 	GetAccountManager() account.Manager
 	GetSessionManager() account.SessionManager
 	GetAuditManager() account.AuditManager
+}
+
+type SystemController interface {
+	systemControllerBackend
+	Run() error
 	Client() (*SystemdClient, error)
 }
 
@@ -136,10 +140,10 @@ type UnitCounts struct {
 }
 
 type SystemControllerHandlers struct {
-	Controller SystemController
+	Controller systemControllerBackend
 }
 
-func getHandler(sc SystemController) *SystemControllerHandlers {
+func getHandler(sc systemControllerBackend) *SystemControllerHandlers {
 	return &SystemControllerHandlers{Controller: sc}
 }
 
@@ -926,7 +930,7 @@ func (s *serverBase) GetAccountManager() account.Manager          { return s.Acc
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
 
-func configureRouter(sc SystemController) http.Handler {
+func configureRouter(sc systemControllerBackend) http.Handler {
 	handlers := getHandler(sc)
 	e := echo.New()
 	if os.Getenv("DEBUG") != "" {
@@ -950,6 +954,12 @@ func configureRouter(sc SystemController) http.Handler {
 	e.Use(handlers.auditMiddleware)
 	handlers.configureRoutes(e)
 	return e
+}
+
+// NewHandler creates an http.Handler for the given ServerConfig.
+func NewHandler(cfg ServerConfig) http.Handler {
+	sb := &serverBase{ServerConfig: cfg}
+	return configureRouter(sb)
 }
 
 // --- TestServer ---

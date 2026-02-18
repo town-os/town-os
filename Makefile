@@ -2,11 +2,42 @@ PODMAN_BASE_IMAGE := town-os-systemd-base
 PODMAN_IMAGE := town-os-systemd-test
 PODMAN_CONTAINER := town-os-systemd-test
 PODMAN_BASE_CONTAINERFILE := integration/testdata/Containerfile.systemd-base
+PODMAN_PROD_IMAGE := town-os
 
 test: lint
 	go test -v ./src/...
+	cd ui && bun run test
 
-test-integration: lint btrfs podman-image
+PODMAN_UI_IMAGE := town-os-ui-integration
+PODMAN_UI_CONTAINER := town-os-ui-integration
+
+ui-integration-image:
+	podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true
+	podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true
+	mkdir -p .cache/go-mod .cache/go-build
+	podman build \
+		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
+		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
+		-t $(PODMAN_UI_IMAGE) -f integration/testdata/Containerfile.ui-integration .
+
+production-image:
+	mkdir -p .cache/go-mod .cache/go-build
+	podman build \
+		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
+		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
+		-t $(PODMAN_PROD_IMAGE) -f Containerfile .
+
+test-ui-integration: ui-integration-image
+	podman run -d -p 8080 --name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE)
+	@sleep 2
+	@INTEGRATION_URL="http://$$(podman port $(PODMAN_UI_CONTAINER) 8080 | head -1)"; \
+		cd ui && INTEGRATION_URL="$$INTEGRATION_URL" bun run test:integration; \
+		EXIT=$$?; \
+		podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true; \
+		podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true; \
+		exit $$EXIT
+
+test-integration: lint test-ui-integration btrfs podman-image
 	sudo go clean -testcache
 	sudo -E cp $$HOME/.gitconfig .gitconfig.tmp
 	sudo -E cp $$HOME/.git-credentials .git-credentials.tmp
@@ -24,13 +55,29 @@ test-integration: lint btrfs podman-image
 
 test-full: test test-integration
 
+PODMAN_DEV_CONTAINER := town-os-dev
+
+dev: production-image
+	@podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	podman run -d -p 8080:8080 --name $(PODMAN_DEV_CONTAINER) $(PODMAN_PROD_IMAGE)
+	@sleep 2
+	@echo "API server: http://localhost:8080"
+	cd ui && VITE_API_URL=http://localhost:8080 bun run dev; \
+		podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true; \
+		podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+
+dev-stop:
+	@podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+
 auto-test:
 	go get github.com/cespare/reflex@latest
-	reflex -r '\.go$$' make test
+	reflex -r '\.(js|go)$$' make test
 
 auto-test-full:
 	go get github.com/cespare/reflex@latest
-	sudo -E $(shell go env GOPATH)/bin/reflex -r '\.go$$' make test-full
+	sudo -E $(shell go env GOPATH)/bin/reflex -r '\.(go|js)$$' make test-full
 
 lint:
 	go vet ./...
@@ -76,6 +123,12 @@ clean-podman:
 	@podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
 	@podman rmi $(PODMAN_IMAGE) 2>/dev/null || true
 	@podman rmi $(PODMAN_BASE_IMAGE) 2>/dev/null || true
+	@podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true
+	@podman rmi $(PODMAN_UI_IMAGE) 2>/dev/null || true
+	@podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@podman rmi $(PODMAN_PROD_IMAGE) 2>/dev/null || true
 	rm -f .cache/podman-base-hash
 
 test-systemd: podman-image
