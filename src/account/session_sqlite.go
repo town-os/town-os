@@ -37,6 +37,10 @@ func InitSessionManager(db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSess
 }
 
 func (s *SQLiteSessionManager) Create(username string) (token string, err error) {
+	if err := s.Cleanup(); err != nil {
+		return "", fmt.Errorf("cleanup expired sessions: %w", err)
+	}
+
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)

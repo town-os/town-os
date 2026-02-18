@@ -316,6 +316,47 @@ func TestSessionCleanupPreservesActive(t *testing.T) {
 
 // --- Expiry behavior ---
 
+func TestSessionCreateCleansExpired(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+	createTestUser(t, acctMgr, "bob")
+
+	// Create sessions for both users.
+	if _, err := sessMgr.Create("alice"); err != nil {
+		t.Fatalf("Create alice: %v", err)
+	}
+	if _, err := sessMgr.Create("bob"); err != nil {
+		t.Fatalf("Create bob: %v", err)
+	}
+
+	// Expire both sessions by setting last_used to the past.
+	cutoff := time.Now().UTC().Add(-SessionMaxAge - time.Hour).Format(time.RFC3339)
+	if _, err := sessMgr.db.Exec("UPDATE sessions SET last_used = ?", cutoff); err != nil {
+		t.Fatalf("manual update last_used: %v", err)
+	}
+
+	// Creating a new session should clean up the expired ones.
+	if _, err := sessMgr.Create("alice"); err != nil {
+		t.Fatalf("Create after expiry: %v", err)
+	}
+
+	aliceSessions, err := sessMgr.List("alice")
+	if err != nil {
+		t.Fatalf("List alice: %v", err)
+	}
+	if len(aliceSessions) != 1 {
+		t.Fatalf("expected 1 alice session (the new one), got %d", len(aliceSessions))
+	}
+
+	bobSessions, err := sessMgr.List("bob")
+	if err != nil {
+		t.Fatalf("List bob: %v", err)
+	}
+	if len(bobSessions) != 0 {
+		t.Fatalf("expected 0 bob sessions (expired should be cleaned), got %d", len(bobSessions))
+	}
+}
+
 func TestSessionExpired(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
