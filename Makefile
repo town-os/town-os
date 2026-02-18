@@ -6,7 +6,7 @@ test-integration: lint btrfs
 	sudo -E cp $$HOME/.gitconfig .gitconfig.tmp
 	sudo -E cp $$HOME/.git-credentials .git-credentials.tmp
 	sudo -E git config --file .gitconfig.tmp credential.helper "store --file $$(pwd)/.git-credentials.tmp"
-	sudo -E GIT_CONFIG_GLOBAL=$$(pwd)/.gitconfig.tmp go test -tags=integration -v ./integration/...
+	sudo -E GIT_CONFIG_GLOBAL=$$(pwd)/.gitconfig.tmp go test -v ./integration/...
 	sudo rm -f .gitconfig.tmp .git-credentials.tmp
 	make clean-btrfs
 

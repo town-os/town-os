@@ -5,13 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
-func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemClient, string) {
+func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemdClient, string) {
 	t.Helper()
 
 	path, err := filepath.Abs("../local-mount")
@@ -20,7 +22,7 @@ func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemClient, str
 	}
 
 	btr := storage.InitBtrFS()
-	ts := systemcontroller.InitTestServer(btr, nil, nil)
+	ts := systemcontroller.InitTestServer(btr, nil, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -240,7 +242,7 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 
 // --- Repository integration tests ---
 
-func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemClient {
+func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -258,7 +260,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemClient {
 	}
 
 	mock := storage.InitBtrFSMock()
-	ts := systemcontroller.InitTestServer(mock, rr, nil)
+	ts := systemcontroller.InitTestServer(mock, rr, nil, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -602,7 +604,7 @@ func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
 
 // --- Install integration tests ---
 
-func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemClient, *packages.RepositoryRoot) {
+func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemdClient, *packages.RepositoryRoot) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -622,7 +624,7 @@ func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemClie
 	inst := packages.NewInstallManager(dir)
 
 	mock := storage.InitBtrFSMock()
-	ts := systemcontroller.InitTestServer(mock, rr, inst)
+	ts := systemcontroller.InitTestServer(mock, rr, inst, nil)
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -844,5 +846,521 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 	if len(repos) != 0 {
 		t.Fatalf("expected 0 repositories at end, got %d", len(repos))
+	}
+}
+
+// --- Systemd integration tests ---
+
+func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager) *systemcontroller.SystemdClient {
+	t.Helper()
+
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal empty repository list: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile repositories file: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("failed to load repository root: %v", err)
+	}
+
+	btr := storage.InitBtrFS()
+	inst := packages.NewInstallManager(dir)
+	ts := systemcontroller.InitTestServer(btr, rr, inst, sd)
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c
+}
+
+func TestSystemControllerSystemdListUnitsEmpty(t *testing.T) {
+	sd := systemd.InitMockManager()
+	c := initSystemControllerSystemdTest(t, sd)
+
+	units, err := c.ListUnits()
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units) != 0 {
+		t.Fatalf("expected 0 units, got %d", len(units))
+	}
+}
+
+func TestSystemControllerSystemdListUnitsPopulated(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "nginx.service", Description: "The NGINX HTTP Server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "redis.service", Description: "Redis", LoadState: "loaded", ActiveState: "inactive", SubState: "dead"},
+		{Name: "postgres.service", Description: "PostgreSQL", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	units, err := c.ListUnits()
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units) != 3 {
+		t.Fatalf("expected 3 units, got %d", len(units))
+	}
+
+	if units[0].Name != "nginx.service" {
+		t.Fatalf("expected first unit nginx.service, got %q", units[0].Name)
+	}
+	if units[0].Description != "The NGINX HTTP Server" {
+		t.Fatalf("expected description %q, got %q", "The NGINX HTTP Server", units[0].Description)
+	}
+	if units[0].ActiveState != "active" {
+		t.Fatalf("expected active state %q, got %q", "active", units[0].ActiveState)
+	}
+	if units[0].SubState != "running" {
+		t.Fatalf("expected sub state %q, got %q", "running", units[0].SubState)
+	}
+
+	if units[1].Name != "redis.service" {
+		t.Fatalf("expected second unit redis.service, got %q", units[1].Name)
+	}
+	if units[1].ActiveState != "inactive" {
+		t.Fatalf("expected inactive state for redis, got %q", units[1].ActiveState)
+	}
+
+	if units[2].Name != "postgres.service" {
+		t.Fatalf("expected third unit postgres.service, got %q", units[2].Name)
+	}
+}
+
+func TestSystemControllerSystemdListUnitsPreservesAllFields(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "test.service", Description: "Test Unit", LoadState: "loaded", ActiveState: "activating", SubState: "start-pre"},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	units, err := c.ListUnits()
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units))
+	}
+
+	u := units[0]
+	if u.Name != "test.service" {
+		t.Fatalf("Name: expected %q, got %q", "test.service", u.Name)
+	}
+	if u.Description != "Test Unit" {
+		t.Fatalf("Description: expected %q, got %q", "Test Unit", u.Description)
+	}
+	if u.LoadState != "loaded" {
+		t.Fatalf("LoadState: expected %q, got %q", "loaded", u.LoadState)
+	}
+	if u.ActiveState != "activating" {
+		t.Fatalf("ActiveState: expected %q, got %q", "activating", u.ActiveState)
+	}
+	if u.SubState != "start-pre" {
+		t.Fatalf("SubState: expected %q, got %q", "start-pre", u.SubState)
+	}
+}
+
+func TestSystemControllerSystemdSetUnitStatusAllActions(t *testing.T) {
+	for _, action := range []systemd.StatusAction{systemd.Start, systemd.Stop, systemd.Restart, systemd.Enable, systemd.Disable} {
+		t.Run(string(action), func(t *testing.T) {
+			sd := systemd.InitMockManager()
+			c := initSystemControllerSystemdTest(t, sd)
+
+			if err := c.SetUnitStatus("nginx.service", action); err != nil {
+				t.Fatalf("SetUnitStatus(%q, %q): %v", "nginx.service", action, err)
+			}
+
+			calls := sd.GetCalls()
+			if len(calls) != 1 {
+				t.Fatalf("expected 1 call, got %d", len(calls))
+			}
+			if calls[0].Method != "SetStatus" {
+				t.Fatalf("expected SetStatus call, got %q", calls[0].Method)
+			}
+
+			unit, ok := calls[0].Args[0].(string)
+			if !ok {
+				t.Fatalf("expected string arg, got %T", calls[0].Args[0])
+			}
+			if unit != "nginx.service" {
+				t.Fatalf("expected unit %q, got %q", "nginx.service", unit)
+			}
+
+			gotAction, ok := calls[0].Args[1].(systemd.StatusAction)
+			if !ok {
+				t.Fatalf("expected StatusAction arg, got %T", calls[0].Args[1])
+			}
+			if gotAction != action {
+				t.Fatalf("expected action %q, got %q", action, gotAction)
+			}
+		})
+	}
+}
+
+func TestSystemControllerSystemdSetUnitStatusInvalidAction(t *testing.T) {
+	sd := systemd.InitMockManager()
+	c := initSystemControllerSystemdTest(t, sd)
+
+	err := c.SetUnitStatus("nginx.service", systemd.StatusAction("bogus"))
+	if err == nil {
+		t.Fatal("expected error for invalid action")
+	}
+}
+
+func TestSystemControllerSystemdLogReplay(t *testing.T) {
+	ts := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	sd := systemd.InitMockManager()
+	sd.Entries = []systemd.JournalEntry{
+		{Message: "Starting nginx...", RealtimeTimestamp: ts, SystemdUnit: "nginx.service", Priority: "6"},
+		{Message: "Started nginx.", RealtimeTimestamp: ts.Add(time.Second), SystemdUnit: "nginx.service", Priority: "6"},
+		{Message: "Listening on :80", RealtimeTimestamp: ts.Add(2 * time.Second), SystemdUnit: "nginx.service", Priority: "6"},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	ch, err := c.LogReplay("nginx.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+
+	var entries []systemd.JournalEntry
+	for e := range ch {
+		entries = append(entries, e)
+	}
+
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+
+	if entries[0].Message != "Starting nginx..." {
+		t.Fatalf("expected first message %q, got %q", "Starting nginx...", entries[0].Message)
+	}
+	if entries[1].Message != "Started nginx." {
+		t.Fatalf("expected second message %q, got %q", "Started nginx.", entries[1].Message)
+	}
+	if entries[2].Message != "Listening on :80" {
+		t.Fatalf("expected third message %q, got %q", "Listening on :80", entries[2].Message)
+	}
+}
+
+func TestSystemControllerSystemdLogReplayPreservesFields(t *testing.T) {
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	sd := systemd.InitMockManager()
+	sd.Entries = []systemd.JournalEntry{
+		{
+			Message:            "test message",
+			RealtimeTimestamp:  ts,
+			Priority:           "4",
+			SystemdUnit:        "test.service",
+			Hostname:           "testhost",
+			PID:                "1234",
+			UID:                "1000",
+			Comm:               "nginx",
+			SyslogIdentifier:   "nginx",
+			Transport:          "journal",
+		},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	ch, err := c.LogReplay("test.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+
+	entry := <-ch
+	// Drain the channel.
+	for range ch {
+	}
+
+	if entry.Message != "test message" {
+		t.Fatalf("Message: expected %q, got %q", "test message", entry.Message)
+	}
+	if !entry.RealtimeTimestamp.Equal(ts) {
+		t.Fatalf("RealtimeTimestamp: expected %v, got %v", ts, entry.RealtimeTimestamp)
+	}
+	if entry.Priority != "4" {
+		t.Fatalf("Priority: expected %q, got %q", "4", entry.Priority)
+	}
+	if entry.SystemdUnit != "test.service" {
+		t.Fatalf("SystemdUnit: expected %q, got %q", "test.service", entry.SystemdUnit)
+	}
+	if entry.Hostname != "testhost" {
+		t.Fatalf("Hostname: expected %q, got %q", "testhost", entry.Hostname)
+	}
+	if entry.PID != "1234" {
+		t.Fatalf("PID: expected %q, got %q", "1234", entry.PID)
+	}
+	if entry.UID != "1000" {
+		t.Fatalf("UID: expected %q, got %q", "1000", entry.UID)
+	}
+	if entry.Comm != "nginx" {
+		t.Fatalf("Comm: expected %q, got %q", "nginx", entry.Comm)
+	}
+	if entry.SyslogIdentifier != "nginx" {
+		t.Fatalf("SyslogIdentifier: expected %q, got %q", "nginx", entry.SyslogIdentifier)
+	}
+	if entry.Transport != "journal" {
+		t.Fatalf("Transport: expected %q, got %q", "journal", entry.Transport)
+	}
+}
+
+func TestSystemControllerSystemdLogReplayEmpty(t *testing.T) {
+	sd := systemd.InitMockManager()
+	c := initSystemControllerSystemdTest(t, sd)
+
+	ch, err := c.LogReplay("nginx.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+
+	var entries []systemd.JournalEntry
+	for e := range ch {
+		entries = append(entries, e)
+	}
+
+	if len(entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(entries))
+	}
+}
+
+func TestSystemControllerSystemdLogReplayManyEntries(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Entries = make([]systemd.JournalEntry, 100)
+	for i := range sd.Entries {
+		sd.Entries[i] = systemd.JournalEntry{
+			Message:     time.Now().Format(time.RFC3339Nano),
+			SystemdUnit: "bulk.service",
+			Priority:    "6",
+		}
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	ch, err := c.LogReplay("bulk.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+
+	count := 0
+	for range ch {
+		count++
+	}
+
+	if count != 100 {
+		t.Fatalf("expected 100 entries, got %d", count)
+	}
+}
+
+func TestSystemControllerSystemdLogReplayCallLog(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Entries = []systemd.JournalEntry{
+		{Message: "hello"},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	ch, err := c.LogReplay("nginx.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+	for range ch {
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "LogReplay" {
+		t.Fatalf("expected LogReplay call, got %q", calls[0].Method)
+	}
+	if len(calls[0].Args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(calls[0].Args))
+	}
+	unit, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatalf("expected string arg, got %T", calls[0].Args[0])
+	}
+	if unit != "nginx.service" {
+		t.Fatalf("expected unit %q, got %q", "nginx.service", unit)
+	}
+}
+
+func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
+	sd := systemd.InitMockManager()
+	c := initSystemControllerSystemdTest(t, sd)
+
+	// Start with no units.
+	units, err := c.ListUnits()
+	if err != nil {
+		t.Fatalf("ListUnits (initial): %v", err)
+	}
+	if len(units) != 0 {
+		t.Fatalf("expected 0 units initially, got %d", len(units))
+	}
+
+	// Populate units.
+	sd.Units = []systemd.UnitStatus{
+		{Name: "nginx.service", LoadState: "loaded", ActiveState: "inactive", SubState: "dead"},
+	}
+
+	units, err = c.ListUnits()
+	if err != nil {
+		t.Fatalf("ListUnits (after populate): %v", err)
+	}
+	if len(units) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units))
+	}
+	if units[0].ActiveState != "inactive" {
+		t.Fatalf("expected inactive, got %q", units[0].ActiveState)
+	}
+
+	// Enable and start.
+	if err := c.SetUnitStatus("nginx.service", systemd.Enable); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	if err := c.SetUnitStatus("nginx.service", systemd.Start); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Populate log entries and replay.
+	ts := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	sd.Entries = []systemd.JournalEntry{
+		{Message: "Starting nginx...", RealtimeTimestamp: ts, SystemdUnit: "nginx.service", Priority: "6"},
+		{Message: "Started nginx.", RealtimeTimestamp: ts.Add(time.Second), SystemdUnit: "nginx.service", Priority: "6"},
+	}
+
+	ch, err := c.LogReplay("nginx.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+
+	var entries []systemd.JournalEntry
+	for e := range ch {
+		entries = append(entries, e)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 log entries, got %d", len(entries))
+	}
+	if entries[0].Message != "Starting nginx..." {
+		t.Fatalf("expected first message %q, got %q", "Starting nginx...", entries[0].Message)
+	}
+
+	// Stop and disable.
+	if err := c.SetUnitStatus("nginx.service", systemd.Stop); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := c.SetUnitStatus("nginx.service", systemd.Disable); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+
+	// Verify full call log.
+	calls := sd.GetCalls()
+	if len(calls) != 7 {
+		t.Fatalf("expected 7 calls, got %d", len(calls))
+	}
+
+	expected := []string{"ListUnits", "ListUnits", "SetStatus", "SetStatus", "LogReplay", "SetStatus", "SetStatus"}
+	for i, want := range expected {
+		if calls[i].Method != want {
+			t.Fatalf("call %d: expected method %q, got %q", i, want, calls[i].Method)
+		}
+	}
+}
+
+func TestSystemControllerSystemdListUnitsCallLog(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "nginx.service"},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	if _, err := c.ListUnits(); err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+	if _, err := c.ListUnits(); err != nil {
+		t.Fatalf("ListUnits (second): %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+	for _, call := range calls {
+		if call.Method != "ListUnits" {
+			t.Fatalf("expected ListUnits call, got %q", call.Method)
+		}
+	}
+}
+
+func TestSystemControllerSystemdSetUnitStatusCallLog(t *testing.T) {
+	sd := systemd.InitMockManager()
+	c := initSystemControllerSystemdTest(t, sd)
+
+	if err := c.SetUnitStatus("nginx.service", systemd.Restart); err != nil {
+		t.Fatalf("SetUnitStatus: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "SetStatus" {
+		t.Fatalf("expected SetStatus, got %q", calls[0].Method)
+	}
+	if len(calls[0].Args) != 2 {
+		t.Fatalf("expected 2 args, got %d", len(calls[0].Args))
+	}
+	if calls[0].Args[0].(string) != "nginx.service" {
+		t.Fatalf("expected unit %q, got %v", "nginx.service", calls[0].Args[0])
+	}
+	if calls[0].Args[1].(systemd.StatusAction) != systemd.Restart {
+		t.Fatalf("expected action %q, got %v", systemd.Restart, calls[0].Args[1])
+	}
+}
+
+func TestSystemControllerSystemdSetUnitStatusMultipleUnits(t *testing.T) {
+	sd := systemd.InitMockManager()
+	c := initSystemControllerSystemdTest(t, sd)
+
+	if err := c.SetUnitStatus("nginx.service", systemd.Start); err != nil {
+		t.Fatalf("Start nginx: %v", err)
+	}
+	if err := c.SetUnitStatus("redis.service", systemd.Stop); err != nil {
+		t.Fatalf("Stop redis: %v", err)
+	}
+	if err := c.SetUnitStatus("postgres.service", systemd.Restart); err != nil {
+		t.Fatalf("Restart postgres: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(calls))
+	}
+
+	type expectedCall struct {
+		unit   string
+		action systemd.StatusAction
+	}
+	want := []expectedCall{
+		{"nginx.service", systemd.Start},
+		{"redis.service", systemd.Stop},
+		{"postgres.service", systemd.Restart},
+	}
+	for i, w := range want {
+		if calls[i].Args[0].(string) != w.unit {
+			t.Fatalf("call %d: expected unit %q, got %v", i, w.unit, calls[i].Args[0])
+		}
+		if calls[i].Args[1].(systemd.StatusAction) != w.action {
+			t.Fatalf("call %d: expected action %q, got %v", i, w.action, calls[i].Args[1])
+		}
 	}
 }

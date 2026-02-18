@@ -14,13 +14,13 @@ func TestSystemdManagerImplementsManager(t *testing.T) {
 	var _ Manager = (*SystemdManager)(nil)
 }
 
-func TestMockManagerImplementsManager(t *testing.T) {
+func TestSystemdMockManagerImplementsManager(t *testing.T) {
 	var _ Manager = (*MockManager)(nil)
 }
 
 // --- ListUnits tests ---
 
-func TestMockManagerListUnits(t *testing.T) {
+func TestSystemdMockManagerListUnits(t *testing.T) {
 	m := InitMockManager()
 	m.Units = []UnitStatus{
 		{Name: "nginx.service", Description: "nginx", LoadState: "loaded", ActiveState: "active", SubState: "running"},
@@ -45,7 +45,7 @@ func TestMockManagerListUnits(t *testing.T) {
 	}
 }
 
-func TestMockManagerListUnitsEmpty(t *testing.T) {
+func TestSystemdMockManagerListUnitsEmpty(t *testing.T) {
 	m := InitMockManager()
 
 	units, err := m.ListUnits(context.Background())
@@ -58,7 +58,7 @@ func TestMockManagerListUnitsEmpty(t *testing.T) {
 	}
 }
 
-func TestMockManagerListUnitsReturnsCopy(t *testing.T) {
+func TestSystemdMockManagerListUnitsReturnsCopy(t *testing.T) {
 	m := InitMockManager()
 	m.Units = []UnitStatus{
 		{Name: "nginx.service"},
@@ -76,7 +76,7 @@ func TestMockManagerListUnitsReturnsCopy(t *testing.T) {
 	}
 }
 
-func TestMockManagerListUnitsErrorInjection(t *testing.T) {
+func TestSystemdMockManagerListUnitsErrorInjection(t *testing.T) {
 	m := InitMockManager()
 	injected := fmt.Errorf("injected error")
 
@@ -89,7 +89,7 @@ func TestMockManagerListUnitsErrorInjection(t *testing.T) {
 
 // --- SetStatus tests ---
 
-func TestMockManagerSetStatusAllActions(t *testing.T) {
+func TestSystemdMockManagerSetStatusAllActions(t *testing.T) {
 	for _, action := range []StatusAction{Start, Stop, Restart, Enable, Disable} {
 		t.Run(string(action), func(t *testing.T) {
 			m := InitMockManager()
@@ -102,7 +102,7 @@ func TestMockManagerSetStatusAllActions(t *testing.T) {
 	}
 }
 
-func TestMockManagerSetStatusInvalidAction(t *testing.T) {
+func TestSystemdMockManagerSetStatusInvalidAction(t *testing.T) {
 	m := InitMockManager()
 
 	err := m.SetStatus(context.Background(), "nginx.service", StatusAction("bogus"))
@@ -114,7 +114,7 @@ func TestMockManagerSetStatusInvalidAction(t *testing.T) {
 	}
 }
 
-func TestMockManagerSetStatusErrorInjection(t *testing.T) {
+func TestSystemdMockManagerSetStatusErrorInjection(t *testing.T) {
 	m := InitMockManager()
 	injected := fmt.Errorf("injected error")
 
@@ -125,7 +125,7 @@ func TestMockManagerSetStatusErrorInjection(t *testing.T) {
 	}
 }
 
-func TestMockManagerSetStatusErrorInjectionTakesPrecedence(t *testing.T) {
+func TestSystemdMockManagerSetStatusErrorInjectionTakesPrecedence(t *testing.T) {
 	m := InitMockManager()
 	injected := fmt.Errorf("injected error")
 
@@ -136,7 +136,7 @@ func TestMockManagerSetStatusErrorInjectionTakesPrecedence(t *testing.T) {
 	}
 }
 
-func TestMockManagerSetStatusCallArgs(t *testing.T) {
+func TestSystemdMockManagerSetStatusCallArgs(t *testing.T) {
 	m := InitMockManager()
 
 	if err := m.SetStatus(context.Background(), "nginx.service", Restart); err != nil {
@@ -175,7 +175,7 @@ func TestMockManagerSetStatusCallArgs(t *testing.T) {
 
 // --- LogReplay tests ---
 
-func TestMockManagerLogReplay(t *testing.T) {
+func TestSystemdMockManagerLogReplay(t *testing.T) {
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	m := InitMockManager()
 	m.Entries = []JournalEntry{
@@ -206,7 +206,7 @@ func TestMockManagerLogReplay(t *testing.T) {
 	}
 }
 
-func TestMockManagerLogReplayEmpty(t *testing.T) {
+func TestSystemdMockManagerLogReplayEmpty(t *testing.T) {
 	m := InitMockManager()
 
 	ch, err := m.LogReplay(context.Background(), "nginx.service")
@@ -224,7 +224,7 @@ func TestMockManagerLogReplayEmpty(t *testing.T) {
 	}
 }
 
-func TestMockManagerLogReplayContextCancellation(t *testing.T) {
+func TestSystemdMockManagerLogReplayContextCancellation(t *testing.T) {
 	m := InitMockManager()
 	m.Entries = make([]JournalEntry, 1000)
 	for i := range m.Entries {
@@ -254,7 +254,7 @@ func TestMockManagerLogReplayContextCancellation(t *testing.T) {
 	}
 }
 
-func TestMockManagerLogReplayErrorInjection(t *testing.T) {
+func TestSystemdMockManagerLogReplayErrorInjection(t *testing.T) {
 	m := InitMockManager()
 	injected := fmt.Errorf("injected error")
 
@@ -265,7 +265,7 @@ func TestMockManagerLogReplayErrorInjection(t *testing.T) {
 	}
 }
 
-func TestMockManagerLogReplayReturnsCopy(t *testing.T) {
+func TestSystemdMockManagerLogReplayReturnsCopy(t *testing.T) {
 	m := InitMockManager()
 	m.Entries = []JournalEntry{
 		{Message: "original"},
@@ -286,7 +286,7 @@ func TestMockManagerLogReplayReturnsCopy(t *testing.T) {
 
 // --- Call log tests ---
 
-func TestMockManagerCallLog(t *testing.T) {
+func TestSystemdMockManagerCallLog(t *testing.T) {
 	m := InitMockManager()
 	m.Units = []UnitStatus{{Name: "nginx.service"}}
 	m.Entries = []JournalEntry{{Message: "hello"}}
@@ -317,7 +317,7 @@ func TestMockManagerCallLog(t *testing.T) {
 	}
 }
 
-func TestMockManagerCallLogReturnsCopy(t *testing.T) {
+func TestSystemdMockManagerCallLogReturnsCopy(t *testing.T) {
 	m := InitMockManager()
 
 	if _, err := m.ListUnits(context.Background()); err != nil {
@@ -332,7 +332,7 @@ func TestMockManagerCallLogReturnsCopy(t *testing.T) {
 	}
 }
 
-func TestMockManagerListUnitsCallLogNilArgs(t *testing.T) {
+func TestSystemdMockManagerListUnitsCallLogNilArgs(t *testing.T) {
 	m := InitMockManager()
 
 	if _, err := m.ListUnits(context.Background()); err != nil {
@@ -345,7 +345,7 @@ func TestMockManagerListUnitsCallLogNilArgs(t *testing.T) {
 	}
 }
 
-func TestMockManagerLogReplayCallLogArgs(t *testing.T) {
+func TestSystemdMockManagerLogReplayCallLogArgs(t *testing.T) {
 	m := InitMockManager()
 
 	ch, err := m.LogReplay(context.Background(), "redis.service")
@@ -371,7 +371,7 @@ func TestMockManagerLogReplayCallLogArgs(t *testing.T) {
 
 // --- Lifecycle ---
 
-func TestMockManagerLifecycle(t *testing.T) {
+func TestSystemdMockManagerLifecycle(t *testing.T) {
 	m := InitMockManager()
 
 	// Start with no units.

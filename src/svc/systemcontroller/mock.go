@@ -6,6 +6,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 type MockClient struct {
@@ -16,6 +17,8 @@ type MockClient struct {
 	Questions       map[string]map[string]packages.Question
 	Installed       []string
 	StoredResponses map[string]packages.Responses
+	Units           []systemd.UnitStatus
+	JournalEntries  []systemd.JournalEntry
 	Calls           []MockCall
 	CreateErr       error
 	ModifyErr       error
@@ -30,6 +33,9 @@ type MockClient struct {
 	UninstallPkgErr error
 	ListInstalledErr error
 	GetResponsesErr error
+	ListUnitsErr    error
+	SetStatusErr    error
+	LogReplayErr    error
 }
 
 type MockCall struct {
@@ -279,4 +285,60 @@ func (m *MockClient) GetResponses(name, version string) (packages.Responses, err
 		out[k] = v
 	}
 	return out, nil
+}
+
+// --- Systemd ---
+
+func (m *MockClient) ListUnits() ([]systemd.UnitStatus, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListUnits", Args: nil})
+
+	if m.ListUnitsErr != nil {
+		return nil, m.ListUnitsErr
+	}
+
+	out := make([]systemd.UnitStatus, len(m.Units))
+	copy(out, m.Units)
+	return out, nil
+}
+
+func (m *MockClient) SetUnitStatus(name string, action systemd.StatusAction) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "SetUnitStatus", Args: []any{name, action}})
+
+	if m.SetStatusErr != nil {
+		return m.SetStatusErr
+	}
+
+	switch action {
+	case systemd.Start, systemd.Stop, systemd.Restart, systemd.Enable, systemd.Disable:
+		return nil
+	default:
+		return fmt.Errorf("%q: %w", action, systemd.ErrInvalidAction)
+	}
+}
+
+func (m *MockClient) LogReplay(name string) (<-chan systemd.JournalEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "LogReplay", Args: []any{name}})
+
+	if m.LogReplayErr != nil {
+		return nil, m.LogReplayErr
+	}
+
+	entries := make([]systemd.JournalEntry, len(m.JournalEntries))
+	copy(entries, m.JournalEntries)
+
+	ch := make(chan systemd.JournalEntry)
+	go func() {
+		defer close(ch)
+		for _, e := range entries {
+			ch <- e
+		}
+	}()
+
+	return ch, nil
 }

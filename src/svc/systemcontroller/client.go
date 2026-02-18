@@ -1,17 +1,20 @@
 package systemcontroller
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 type Client interface {
@@ -31,14 +34,18 @@ type Client interface {
 	UninstallPackage(name, version string) error
 	ListInstalled() ([]string, error)
 	GetResponses(name, version string) (packages.Responses, error)
+
+	ListUnits() ([]systemd.UnitStatus, error)
+	SetUnitStatus(name string, action systemd.StatusAction) error
+	LogReplay(name string) (<-chan systemd.JournalEntry, error)
 }
 
-type SystemClient struct {
+type SystemdClient struct {
 	HTTP    *http.Client
 	BaseURL string
 }
 
-func InitClient(sock string) (*SystemClient, error) {
+func InitClient(sock string) (*SystemdClient, error) {
 	client := &http.Client{
 		Transport: &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			select {
@@ -55,11 +62,11 @@ func InitClient(sock string) (*SystemClient, error) {
 	return FromClient(client, "http://localhost")
 }
 
-func FromClient(client *http.Client, baseURL string) (*SystemClient, error) {
-	return &SystemClient{HTTP: client, BaseURL: baseURL}, nil
+func FromClient(client *http.Client, baseURL string) (*SystemdClient, error) {
+	return &SystemdClient{HTTP: client, BaseURL: baseURL}, nil
 }
 
-func (c *SystemClient) route(path string) string {
+func (c *SystemdClient) route(path string) string {
 	result, err := url.JoinPath(c.BaseURL, path)
 	if err != nil {
 		return fmt.Sprintf("%s/%s", c.BaseURL, path)
@@ -67,8 +74,12 @@ func (c *SystemClient) route(path string) string {
 	return result
 }
 
-func (c *SystemClient) postClient(path string, payload []byte) (err error) {
-	resp, err := c.HTTP.Post(c.route(path), "application/json", bytes.NewBuffer(payload))
+func pipeEncode(pw *io.PipeWriter, v any) {
+	pw.CloseWithError(json.NewEncoder(pw).Encode(v))
+}
+
+func (c *SystemdClient) postClient(path string, body io.Reader) (err error) {
+	resp, err := c.HTTP.Post(c.route(path), "application/json", body)
 	if err != nil {
 		return fmt.Errorf("http error in POST %s: %v", path, err)
 	}
@@ -87,40 +98,32 @@ func (c *SystemClient) postClient(path string, payload []byte) (err error) {
 
 // --- Storage ---
 
-func (c *SystemClient) CreateFilesystem(fs storage.Filesystem) error {
-	payload, err := json.Marshal(fs)
-	if err != nil {
-		return err
-	}
+func (c *SystemdClient) CreateFilesystem(fs storage.Filesystem) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, fs)
 
-	return c.postClient("storage/create", payload)
+	return c.postClient("storage/create", pr)
 }
 
-func (c *SystemClient) ModifyFilesystem(name string, fs storage.Filesystem) error {
-	payload, err := json.Marshal(ModifyFilesystemRequest{Name: name, Filesystem: fs})
-	if err != nil {
-		return err
-	}
+func (c *SystemdClient) ModifyFilesystem(name string, fs storage.Filesystem) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, ModifyFilesystemRequest{Name: name, Filesystem: fs})
 
-	return c.postClient("storage/modify", payload)
+	return c.postClient("storage/modify", pr)
 }
 
-func (c *SystemClient) RemoveFilesystem(name string) error {
-	payload, err := json.Marshal(FilesystemName{Name: name})
-	if err != nil {
-		return err
-	}
+func (c *SystemdClient) RemoveFilesystem(name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, FilesystemName{Name: name})
 
-	return c.postClient("storage/remove", payload)
+	return c.postClient("storage/remove", pr)
 }
 
-func (c *SystemClient) ListFilesystems(prefix string) (_ []storage.Filesystem, err error) {
-	payload, err := json.Marshal(FilesystemName{Name: prefix})
-	if err != nil {
-		return nil, err
-	}
+func (c *SystemdClient) ListFilesystems(prefix string) (_ []storage.Filesystem, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, FilesystemName{Name: prefix})
 
-	resp, err := c.HTTP.Post(c.route("storage"), "application/json", bytes.NewBuffer(payload))
+	resp, err := c.HTTP.Post(c.route("storage"), "application/json", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListFilesystems: %v", err)
 	}
@@ -142,26 +145,22 @@ func (c *SystemClient) ListFilesystems(prefix string) (_ []storage.Filesystem, e
 
 // --- Repository ---
 
-func (c *SystemClient) AddRepository(rawURL string) error {
-	payload, err := json.Marshal(AddRepositoryRequest{URL: rawURL})
-	if err != nil {
-		return err
-	}
+func (c *SystemdClient) AddRepository(rawURL string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, AddRepositoryRequest{URL: rawURL})
 
-	return c.postClient("repository/add", payload)
+	return c.postClient("repository/add", pr)
 }
 
-func (c *SystemClient) RemoveRepository(name string) error {
-	payload, err := json.Marshal(RepositoryNameRequest{Name: name})
-	if err != nil {
-		return err
-	}
+func (c *SystemdClient) RemoveRepository(name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, RepositoryNameRequest{Name: name})
 
-	return c.postClient("repository/remove", payload)
+	return c.postClient("repository/remove", pr)
 }
 
-func (c *SystemClient) ListRepositories() (_ []RepositoryInfo, err error) {
-	resp, err := c.HTTP.Post(c.route("repository"), "application/json", bytes.NewBuffer([]byte("{}")))
+func (c *SystemdClient) ListRepositories() (_ []RepositoryInfo, err error) {
+	resp, err := c.HTTP.Get(c.route("repository"))
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListRepositories: %v", err)
 	}
@@ -183,8 +182,8 @@ func (c *SystemClient) ListRepositories() (_ []RepositoryInfo, err error) {
 
 // --- Packages ---
 
-func (c *SystemClient) ListPackages() (_ []string, err error) {
-	resp, err := c.HTTP.Post(c.route("packages"), "application/json", bytes.NewBuffer([]byte("{}")))
+func (c *SystemdClient) ListPackages() (_ []string, err error) {
+	resp, err := c.HTTP.Get(c.route("packages"))
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListPackages: %v", err)
 	}
@@ -204,13 +203,11 @@ func (c *SystemClient) ListPackages() (_ []string, err error) {
 	return pkgs, de.Decode(&pkgs)
 }
 
-func (c *SystemClient) GetPackageQuestions(name string) (_ map[string]packages.Question, err error) {
-	payload, err := json.Marshal(PackageNameRequest{Name: name})
-	if err != nil {
-		return nil, err
-	}
+func (c *SystemdClient) GetPackageQuestions(name string) (_ map[string]packages.Question, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageNameRequest{Name: name})
 
-	resp, err := c.HTTP.Post(c.route("packages/questions"), "application/json", bytes.NewBuffer(payload))
+	resp, err := c.HTTP.Post(c.route("packages/questions"), "application/json", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in GetPackageQuestions: %v", err)
 	}
@@ -232,26 +229,22 @@ func (c *SystemClient) GetPackageQuestions(name string) (_ map[string]packages.Q
 
 // --- Install ---
 
-func (c *SystemClient) InstallPackage(name, version string, responses packages.Responses) error {
-	payload, err := json.Marshal(InstallRequest{Name: name, Version: version, Responses: responses})
-	if err != nil {
-		return err
-	}
+func (c *SystemdClient) InstallPackage(name, version string, responses packages.Responses) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, InstallRequest{Name: name, Version: version, Responses: responses})
 
-	return c.postClient("packages/install", payload)
+	return c.postClient("packages/install", pr)
 }
 
-func (c *SystemClient) UninstallPackage(name, version string) error {
-	payload, err := json.Marshal(UninstallRequest{Name: name, Version: version})
-	if err != nil {
-		return err
-	}
+func (c *SystemdClient) UninstallPackage(name, version string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, UninstallRequest{Name: name, Version: version})
 
-	return c.postClient("packages/uninstall", payload)
+	return c.postClient("packages/uninstall", pr)
 }
 
-func (c *SystemClient) ListInstalled() (_ []string, err error) {
-	resp, err := c.HTTP.Post(c.route("packages/installed"), "application/json", bytes.NewBuffer([]byte("{}")))
+func (c *SystemdClient) ListInstalled() (_ []string, err error) {
+	resp, err := c.HTTP.Get(c.route("packages/installed"))
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListInstalled: %v", err)
 	}
@@ -271,13 +264,11 @@ func (c *SystemClient) ListInstalled() (_ []string, err error) {
 	return pkgs, de.Decode(&pkgs)
 }
 
-func (c *SystemClient) GetResponses(name, version string) (_ packages.Responses, err error) {
-	payload, err := json.Marshal(GetResponsesRequest{Name: name, Version: version})
-	if err != nil {
-		return nil, err
-	}
+func (c *SystemdClient) GetResponses(name, version string) (_ packages.Responses, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, GetResponsesRequest{Name: name, Version: version})
 
-	resp, err := c.HTTP.Post(c.route("packages/responses"), "application/json", bytes.NewBuffer(payload))
+	resp, err := c.HTTP.Post(c.route("packages/responses"), "application/json", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in GetResponses: %v", err)
 	}
@@ -295,4 +286,74 @@ func (c *SystemClient) GetResponses(name, version string) (_ packages.Responses,
 	var responses packages.Responses
 
 	return responses, de.Decode(&responses)
+}
+
+// --- Systemd ---
+
+func (c *SystemdClient) ListUnits() (_ []systemd.UnitStatus, err error) {
+	resp, err := c.HTTP.Get(c.route("systemd/units"))
+	if err != nil {
+		return nil, fmt.Errorf("http error in ListUnits: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in ListUnits: %v", resp.StatusCode)
+	}
+
+	de := json.NewDecoder(resp.Body)
+	var units []systemd.UnitStatus
+
+	return units, de.Decode(&units)
+}
+
+func (c *SystemdClient) SetUnitStatus(name string, action systemd.StatusAction) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, SetStatusRequest{Name: name, Action: action})
+
+	return c.postClient("systemd/status", pr)
+}
+
+func (c *SystemdClient) LogReplay(name string) (_ <-chan systemd.JournalEntry, err error) {
+	resp, err := c.HTTP.Get(c.route("systemd/logs") + "?unit=" + url.QueryEscape(name))
+	if err != nil {
+		return nil, fmt.Errorf("http error in LogReplay: %v", err)
+	}
+
+	if resp.StatusCode != 200 {
+		if cerr := resp.Body.Close(); cerr != nil {
+			return nil, fmt.Errorf("unsuccessful status code in LogReplay: %v (close: %v)", resp.StatusCode, cerr)
+		}
+		return nil, fmt.Errorf("unsuccessful status code in LogReplay: %v", resp.StatusCode)
+	}
+
+	ch := make(chan systemd.JournalEntry)
+	go func() {
+		defer close(ch)
+		defer func() {
+			if cerr := resp.Body.Close(); cerr != nil && err == nil {
+				err = cerr
+			}
+		}()
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+
+			var entry systemd.JournalEntry
+			if err := json.NewDecoder(strings.NewReader(strings.TrimPrefix(line, "data: "))).Decode(&entry); err != nil {
+				return
+			}
+			ch <- entry
+		}
+	}()
+
+	return ch, nil
 }

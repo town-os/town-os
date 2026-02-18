@@ -11,6 +11,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 )
@@ -20,7 +21,8 @@ type SystemController interface {
 	GetStorage() storage.Storage
 	GetRepositoryRoot() *packages.RepositoryRoot
 	GetInstaller() packages.Installer
-	Client() (*SystemClient, error)
+	GetSystemdManager() systemd.Manager
+	Client() (*SystemdClient, error)
 }
 
 type FilesystemName struct {
@@ -63,6 +65,11 @@ type UninstallRequest struct {
 type GetResponsesRequest struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+}
+
+type SetStatusRequest struct {
+	Name   string               `json:"name"`
+	Action systemd.StatusAction `json:"action"`
 }
 
 type SystemControllerHandlers struct {
@@ -312,6 +319,68 @@ func (s *SystemControllerHandlers) getResponses(c *echo.Context) error {
 	return c.JSON(200, resp)
 }
 
+// --- Systemd handlers ---
+
+func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
+	units, err := s.Controller.GetSystemdManager().ListUnits(c.Request().Context())
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, units)
+}
+
+func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := SetStatusRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if err := s.Controller.GetSystemdManager().SetStatus(c.Request().Context(), req.Name, req.Action); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
+	unit := c.QueryParam("unit")
+	if unit == "" {
+		return fmt.Errorf("missing unit query parameter")
+	}
+
+	ch, err := s.Controller.GetSystemdManager().LogReplay(c.Request().Context(), unit)
+	if err != nil {
+		return err
+	}
+
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().WriteHeader(200)
+
+	flusher, ok := c.Response().(http.Flusher)
+
+	for entry := range ch {
+		if _, err := fmt.Fprint(c.Response(), "data: "); err != nil {
+			return err
+		}
+		if err := json.NewEncoder(c.Response()).Encode(entry); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprint(c.Response(), "\n"); err != nil {
+			return err
+		}
+		if ok {
+			flusher.Flush()
+		}
+	}
+
+	return nil
+}
+
 // --- Routes ---
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
@@ -322,14 +391,18 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	e.Add("POST", "/repository/add", s.addRepository)
 	e.Add("POST", "/repository/remove", s.removeRepository)
-	e.Add("POST", "/repository", s.listRepositories)
+	e.Add("GET", "/repository", s.listRepositories)
 
-	e.Add("POST", "/packages", s.listPackages)
+	e.Add("GET", "/packages", s.listPackages)
 	e.Add("POST", "/packages/questions", s.getPackageQuestions)
 	e.Add("POST", "/packages/install", s.installPackage)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage)
-	e.Add("POST", "/packages/installed", s.listInstalled)
+	e.Add("GET", "/packages/installed", s.listInstalled)
 	e.Add("POST", "/packages/responses", s.getResponses)
+
+	e.Add("GET", "/systemd/units", s.listUnits)
+	e.Add("POST", "/systemd/status", s.setUnitStatus)
+	e.Add("GET", "/systemd/logs", s.logReplay)
 }
 
 // --- TestServer ---
@@ -338,11 +411,12 @@ type TestServer struct {
 	Storage        storage.Storage
 	RepositoryRoot *packages.RepositoryRoot
 	Installer      packages.Installer
+	Systemd        systemd.Manager
 	Server         *httptest.Server
 }
 
-func InitTestServer(s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer) *TestServer {
-	ts := &TestServer{Storage: s, RepositoryRoot: rr, Installer: inst}
+func InitTestServer(s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer, sd systemd.Manager) *TestServer {
+	ts := &TestServer{Storage: s, RepositoryRoot: rr, Installer: inst, Systemd: sd}
 	ts.Server = httptest.NewServer(configureTestRouter(ts))
 	return ts
 }
@@ -373,12 +447,16 @@ func (ts *TestServer) GetInstaller() packages.Installer {
 	return ts.Installer
 }
 
+func (ts *TestServer) GetSystemdManager() systemd.Manager {
+	return ts.Systemd
+}
+
 func (ts *TestServer) Run() error {
 	ts.Server.Start()
 	return nil
 }
 
-func (ts *TestServer) Client() (*SystemClient, error) {
+func (ts *TestServer) Client() (*SystemdClient, error) {
 	return FromClient(ts.Server.Client(), ts.Server.URL)
 }
 
@@ -389,11 +467,12 @@ type UnixServer struct {
 	Storage        storage.Storage
 	RepositoryRoot *packages.RepositoryRoot
 	Installer      packages.Installer
+	Systemd        systemd.Manager
 	Handler        http.Handler
 }
 
-func InitUnixServer(sock string, s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer) *UnixServer {
-	us := &UnixServer{Socket: sock, Storage: s, RepositoryRoot: rr, Installer: inst}
+func InitUnixServer(sock string, s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer, sd systemd.Manager) *UnixServer {
+	us := &UnixServer{Socket: sock, Storage: s, RepositoryRoot: rr, Installer: inst, Systemd: sd}
 	us.Handler = configureUnixRouter(us)
 	return us
 }
@@ -419,7 +498,7 @@ func (us *UnixServer) Run() error {
 	return server.Serve(lis)
 }
 
-func (us *UnixServer) Client() (*SystemClient, error) {
+func (us *UnixServer) Client() (*SystemdClient, error) {
 	return InitClient(us.Socket)
 }
 
@@ -433,4 +512,8 @@ func (us *UnixServer) GetRepositoryRoot() *packages.RepositoryRoot {
 
 func (us *UnixServer) GetInstaller() packages.Installer {
 	return us.Installer
+}
+
+func (us *UnixServer) GetSystemdManager() systemd.Manager {
+	return us.Systemd
 }
