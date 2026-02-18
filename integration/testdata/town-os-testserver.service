@@ -1,0 +1,9 @@
+[Unit]
+Description=Town OS Test Server
+
+[Service]
+Type=simple
+ExecStart=/testserver -db /data/dev.db
+
+[Install]
+WantedBy=multi-user.target

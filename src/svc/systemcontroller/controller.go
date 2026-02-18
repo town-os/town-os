@@ -28,6 +28,7 @@ type systemControllerBackend interface {
 	GetAccountManager() account.Manager
 	GetSessionManager() account.SessionManager
 	GetAuditManager() account.AuditManager
+	GetAllowedHosts() []string
 }
 
 type SystemController interface {
@@ -904,6 +905,7 @@ type ServerConfig struct {
 	AccountMgr     account.Manager
 	SessionMgr     account.SessionManager
 	AuditMgr       account.AuditManager
+	AllowedHosts   []string
 }
 
 type contextHandler struct {
@@ -929,6 +931,7 @@ func (s *serverBase) GetSystemdManager() systemd.Manager          { return s.Sys
 func (s *serverBase) GetAccountManager() account.Manager          { return s.AccountMgr }
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
+func (s *serverBase) GetAllowedHosts() []string                   { return s.AllowedHosts }
 
 func configureRouter(sc systemControllerBackend) http.Handler {
 	handlers := getHandler(sc)
@@ -936,12 +939,29 @@ func configureRouter(sc systemControllerBackend) http.Handler {
 	if os.Getenv("DEBUG") != "" {
 		e.Use(middleware.RequestLogger())
 	}
+	allowedHosts := sc.GetAllowedHosts()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins:  []string{"*"},
-		AllowMethods:  []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:  []string{"Content-Type", "Authorization", "Accept"},
-		ExposeHeaders: []string{"Content-Type"},
-		MaxAge:        3600,
+		UnsafeAllowOriginFunc: func(_ *echo.Context, origin string) (string, bool, error) {
+			if os.Getenv("DEBUG") != "" {
+				return origin, true, nil
+			}
+			u, err := url.Parse(origin)
+			if err != nil {
+				return "", false, nil
+			}
+			host := u.Hostname()
+			for _, h := range allowedHosts {
+				if strings.EqualFold(host, h) {
+					return origin, true, nil
+				}
+			}
+			return "", false, nil
+		},
+		AllowMethods:     []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "Authorization", "Accept"},
+		ExposeHeaders:    []string{"Content-Type"},
+		AllowCredentials: true,
+		MaxAge:           3600,
 	}))
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -957,7 +977,12 @@ func configureRouter(sc systemControllerBackend) http.Handler {
 }
 
 // NewHandler creates an http.Handler for the given ServerConfig.
+// The system hostname is automatically added to AllowedHosts.
 func NewHandler(cfg ServerConfig) http.Handler {
+	cfg.AllowedHosts = append(cfg.AllowedHosts, "localhost")
+	if hostname, err := os.Hostname(); err == nil {
+		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname)
+	}
 	sb := &serverBase{ServerConfig: cfg}
 	return configureRouter(sb)
 }

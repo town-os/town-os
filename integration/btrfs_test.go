@@ -8,10 +8,7 @@ import (
 )
 
 func TestBtrFS(t *testing.T) {
-	path, err := filepath.Abs("../local-mount")
-	if err != nil {
-		t.Fatalf("Could not find absolute path: %v", err)
-	}
+	path := "/data/btrfs"
 
 	btr := storage.InitBtrFS()
 

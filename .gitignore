@@ -1,5 +1,9 @@
 /btrfs.*
-/local-mount
 /town-os.disk
+/town-os.loop
 /.git*.tmp
 /.cache
+/dev.db
+/dev.db-shm
+/dev.db-wal
+/dev.btrfs

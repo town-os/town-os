@@ -17,10 +17,7 @@ import (
 func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemdClient, string) {
 	t.Helper()
 
-	path, err := filepath.Abs("../local-mount")
-	if err != nil {
-		t.Fatalf("could not find absolute path: %v", err)
-	}
+	path := "/data/btrfs"
 
 	btr := storage.InitBtrFS()
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr})

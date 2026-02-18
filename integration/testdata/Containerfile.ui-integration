@@ -1,18 +1,8 @@
-FROM golang:1.25-bookworm AS builder
+FROM oven/bun:latest
 
-COPY go.mod go.sum /src/
-WORKDIR /src
+COPY ui/package.json ui/bun.lock /ui/
+WORKDIR /ui
 
-RUN go mod download
+RUN bun install --frozen-lockfile
 
-COPY . /src
-
-RUN go build -o /testserver ./src/svc/systemcontroller/cmd/testserver
-
-FROM debian:bookworm-slim
-
-COPY --from=builder /testserver /testserver
-
-EXPOSE 8080
-
-CMD ["/testserver"]
+COPY ui/ /ui/

@@ -9,8 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
@@ -19,32 +17,8 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-func withStaticFiles(api http.Handler, dir string) http.Handler {
-	fileServer := http.FileServer(http.Dir(dir))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			// Serve index.html for root
-			if r.URL.Path == "/" {
-				http.ServeFile(w, r, filepath.Join(dir, "index.html"))
-				return
-			}
-			// Serve static file if it exists
-			clean := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
-			if !strings.Contains(clean, "..") {
-				if _, err := os.Stat(filepath.Join(dir, clean)); err == nil {
-					fileServer.ServeHTTP(w, r)
-					return
-				}
-			}
-		}
-		// Fall through to API handler
-		api.ServeHTTP(w, r)
-	})
-}
-
 func run() (err error) {
-	var staticDir string
-	flag.StringVar(&staticDir, "static", "", "serve static files from directory")
+	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
 	flag.Parse()
 
 	dir, err := os.MkdirTemp("", "testserver-*")
@@ -57,7 +31,12 @@ func run() (err error) {
 		}
 	}()
 
-	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	dbFile := filepath.Join(dir, "test.db")
+	if *dbPath != "" {
+		dbFile = *dbPath
+	}
+
+	db, err := account.OpenDB(dbFile)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -97,29 +76,15 @@ func run() (err error) {
 
 	inst := packages.NewInstallManager(dir)
 
-	sd := systemd.InitMockManager()
-	sd.Units = []systemd.UnitStatus{
-		{Name: "nginx.service", Description: "The NGINX HTTP Server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
-		{Name: "redis.service", Description: "Redis", LoadState: "loaded", ActiveState: "inactive", SubState: "dead"},
-	}
-	sd.Entries = []systemd.JournalEntry{
-		{Message: "Starting nginx...", RealtimeTimestamp: time.Now().Add(-2 * time.Second), SystemdUnit: "nginx.service", Priority: "6"},
-		{Message: "Started nginx.", RealtimeTimestamp: time.Now().Add(-time.Second), SystemdUnit: "nginx.service", Priority: "6"},
-	}
-
-	var handler http.Handler = systemcontroller.NewHandler(systemcontroller.ServerConfig{
-		Storage:        storage.InitBtrFSMock(),
+	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
+		Storage:        storage.InitBtrFS(),
 		RepositoryRoot: rr,
 		Installer:      inst,
-		Systemd:        sd,
+		Systemd:        systemd.NewManager(),
 		AccountMgr:     acctMgr,
 		SessionMgr:     sessMgr,
 		AuditMgr:       auditMgr,
 	})
-
-	if staticDir != "" {
-		handler = withStaticFiles(handler, staticDir)
-	}
 
 	srv := &http.Server{
 		Addr:    ":8080",

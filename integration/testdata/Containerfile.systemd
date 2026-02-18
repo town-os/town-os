@@ -9,10 +9,20 @@ RUN go mod download
 
 COPY . /src
 
-RUN CGO_ENABLED=1 go test -c -tags podman -o /podman-test ./integration/...
+RUN CGO_ENABLED=1 go test -c -tags podman -o /integration-test ./integration/...
 
-FROM town-os-systemd-base
+FROM town-os
 
-COPY --from=builder /podman-test /podman-test
+RUN apt-get update && apt-get install -y \
+    systemd systemd-sysv dbus curl git \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /integration-test /integration-test
+COPY integration/testdata/town-os-testserver.service /etc/systemd/system/
 COPY integration/testdata/town-os-test.service /etc/systemd/system/
-RUN systemctl enable town-os-test.service
+RUN systemctl enable town-os-testserver.service town-os-test.service
+RUN mkdir -p /test /data/btrfs
+
+EXPOSE 8080
+
+CMD ["/lib/systemd/systemd"]

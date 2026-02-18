@@ -1,8 +1,6 @@
-PODMAN_BASE_IMAGE := town-os-systemd-base
-PODMAN_IMAGE := town-os-systemd-test
-PODMAN_CONTAINER := town-os-systemd-test
-PODMAN_BASE_CONTAINERFILE := integration/testdata/Containerfile.systemd-base
-PODMAN_PROD_IMAGE := town-os
+PODMAN_IMAGE := town-os
+PODMAN_TEST_IMAGE := town-os-test
+PODMAN_CONTAINER := town-os-test
 
 test: lint
 	go test -v ./src/...
@@ -10,64 +8,103 @@ test: lint
 
 PODMAN_UI_IMAGE := town-os-ui-integration
 PODMAN_UI_CONTAINER := town-os-ui-integration
+PODMAN_UI_BACKEND := town-os-ui-backend
 
-ui-integration-image:
-	podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true
-	podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true
-	mkdir -p .cache/go-mod .cache/go-build
-	podman build \
-		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
-		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
+.cache/.images-pulled:
+	podman pull golang:1.25-bookworm
+	podman pull oven/bun:latest
+	podman pull debian:bookworm-slim
+	@mkdir -p .cache
+	@touch .cache/.images-pulled
+
+pull-images:
+	podman pull golang:1.25-bookworm
+	podman pull oven/bun:latest
+	podman pull debian:bookworm-slim
+	@mkdir -p .cache
+	@touch .cache/.images-pulled
+
+ui-integration-image: .cache/.images-pulled
+	podman build --pull=never \
 		-t $(PODMAN_UI_IMAGE) -f integration/testdata/Containerfile.ui-integration .
 
-production-image:
+production-image: .cache/.images-pulled
 	mkdir -p .cache/go-mod .cache/go-build
-	podman build \
+	podman build --pull=never \
 		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
 		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
-		-t $(PODMAN_PROD_IMAGE) -f Containerfile .
+		-t $(PODMAN_IMAGE) -f Containerfile .
 
-test-ui-integration: ui-integration-image
-	podman run -d -p 8080 --name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE)
-	@sleep 2
-	@INTEGRATION_URL="http://$$(podman port $(PODMAN_UI_CONTAINER) 8080 | head -1)"; \
-		cd ui && INTEGRATION_URL="$$INTEGRATION_URL" bun run test:integration; \
-		EXIT=$$?; \
-		podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true; \
-		podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true; \
-		exit $$EXIT
-
-test-integration: lint test-ui-integration btrfs podman-image
-	sudo go clean -testcache
-	sudo -E cp $$HOME/.gitconfig .gitconfig.tmp
-	sudo -E cp $$HOME/.git-credentials .git-credentials.tmp
-	sudo -E git config --file .gitconfig.tmp credential.helper "store --file $$(pwd)/.git-credentials.tmp"
-	sudo -E DEBUG=${DEBUG} GIT_CONFIG_GLOBAL=$$(pwd)/.gitconfig.tmp go test -v ./integration/...
-	sudo rm -f .gitconfig.tmp .git-credentials.tmp
-	make clean-btrfs
-	podman run -e DEBUG=${DEBUG} -d --systemd=true --privileged --name=$(PODMAN_CONTAINER) $(PODMAN_IMAGE)
+test-ui-integration: test-image ui-integration-image btrfs
+	@podman stop $(PODMAN_UI_BACKEND) 2>/dev/null || true
+	@podman rm $(PODMAN_UI_BACKEND) 2>/dev/null || true
+	@podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true
+	podman run -d -e DEBUG=1 --systemd=true --privileged \
+		--device $$(cat town-os.loop) \
+		--name $(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
 	@sleep 5
-	podman exec $(PODMAN_CONTAINER) /podman-test -test.v -test.run TestPodman; \
+	podman exec $(PODMAN_UI_BACKEND) mount -t btrfs /dev/loop0 /data/btrfs
+	echo "Waiting for backend availability"
+	@podman run --rm -it --network container:$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE) sh -c 'while ! curl -sSL $(PODMAN_UI_BACKEND):8080; do sleep 1; done'
+	podman run \
+		--network container:$(PODMAN_UI_BACKEND) \
+		-e INTEGRATION_URL=http://$(PODMAN_UI_BACKEND):8080 \
+		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
+		bun run test:integration
+
+test-integration: lint test-image btrfs
+	@podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
+	@cp $$HOME/.gitconfig .gitconfig.tmp
+	@cp $$HOME/.git-credentials .git-credentials.tmp
+	@git config --file .gitconfig.tmp credential.helper "store --file /root/.git-credentials"
+	podman run -e DEBUG=${DEBUG} -d --systemd=true --security-opt=label=disable --security-opt=apparmor=unconfined --security-opt=seccomp=unconfined --privileged \
+		--device /dev/loop-control:/dev/loop-control:rwm \
+		-v $$(pwd)/.gitconfig.tmp:/root/.gitconfig:ro,z \
+		-v $$(pwd)/.git-credentials.tmp:/root/.git-credentials:ro,z \
+		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE) 
+	podman exec --privileged -it $(PODMAN_CONTAINER) truncate -s 50G /town-os.disk
+	podman exec --privileged -it $(PODMAN_CONTAINER) mkfs.btrfs -f /town-os.disk
+	podman exec --privileged -it $(PODMAN_CONTAINER) losetup -f /town-os.disk
+	podman exec --privileged -it $(PODMAN_CONTAINER) mount -t btrfs /dev/loop0 /data/btrfs
+	@podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v; \
 		EXIT=$$?; \
-		podman stop $(PODMAN_CONTAINER) 2>/dev/null || true; \
-		podman rm $(PODMAN_CONTAINER) 2>/dev/null || true; \
+		rm -f .gitconfig.tmp .git-credentials.tmp; \
 		exit $$EXIT
 
 test-full: test test-integration
 
+test-image: production-image
+	mkdir -p .cache/go-mod .cache/go-build
+	podman build --pull=never \
+		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
+		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
+		-t $(PODMAN_TEST_IMAGE) -f integration/testdata/Containerfile.systemd .
+
 PODMAN_DEV_CONTAINER := town-os-dev
 
-dev: production-image
+dev: test-image btrfs
 	@podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
 	@podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
-	podman run -d -p 8080:8080 --name $(PODMAN_DEV_CONTAINER) $(PODMAN_PROD_IMAGE)
-	@sleep 2
-	@echo "API server: http://localhost:8080"
-	cd ui && VITE_API_URL=http://localhost:8080 bun run dev; \
+	@touch dev.db
+	podman run -d -p 8080:8080 -e DEBUG=1 --systemd=true --privileged \
+		--device $$(cat town-os.loop) \
+		-v $$(pwd)/dev.db:/data/dev.db:z \
+		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
+	@sleep 5
+	podman exec $(PODMAN_DEV_CONTAINER) mount -t btrfs /dev/loop0 /data/btrfs
+	@echo "API server: http://$$(hostname):8080"
+	cd ui && VITE_API_URL=http://$$(hostname):8080 bun run dev -- --host; \
 		podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true; \
 		podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
 
-dev-stop:
+dev-clean: clean-btrfs
+	@podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	rm -f dev.db dev.db-shm dev.db-wal
+
+dev-stop: clean-btrfs
 	@podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
 	@podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
 
@@ -84,58 +121,45 @@ lint:
 	go vet -tags=podman ./...
 	$(shell go env GOPATH)/bin/golangci-lint run
 
+BTRFS_IMAGE ?= $(shell mktemp btrfs.XXXXXX)
+
 btrfs: clean-btrfs
-	echo $$(mktemp btrfs.XXXXXX) >town-os.disk
+	echo $(BTRFS_IMAGE) >town-os.disk
 	truncate -s 50G $$(cat town-os.disk)
-	mkfs.btrfs -L town-os-test $$(cat town-os.disk)
-	sudo losetup -f --partscan $$(cat town-os.disk)
-	sudo mkdir -p local-mount
-	sudo mount -t btrfs $$(sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }') local-mount
+	mkfs.btrfs -f $$(cat town-os.disk)
+	sudo losetup -f $$(cat town-os.disk)
+	sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }' > town-os.loop
 
 clean-btrfs:
-	sudo umount -Rf local-mount || :
-	sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }' | xargs -I{} sudo losetup -d {}
-	rm -f btrfs.* town-os.disk
-
-podman-base:
-	@mkdir -p .cache
-	@HASH=$$(sha256sum $(PODMAN_BASE_CONTAINERFILE) | awk '{print $$1}'); \
-	if [ -f .cache/podman-base-hash ] && [ "$$(cat .cache/podman-base-hash)" = "$$HASH" ] && \
-	   podman image exists $(PODMAN_BASE_IMAGE) 2>/dev/null; then \
-		echo "Base image $(PODMAN_BASE_IMAGE) is up to date"; \
-	else \
-		echo "Building base image $(PODMAN_BASE_IMAGE)..."; \
-		podman build -t $(PODMAN_BASE_IMAGE) -f $(PODMAN_BASE_CONTAINERFILE) . && \
-		echo "$$HASH" > .cache/podman-base-hash; \
+	@if [ -f town-os.disk ]; then \
+		sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }' | xargs -I{} sudo losetup -d {} 2>/dev/null || true; \
 	fi
+	rm -f btrfs.* town-os.disk town-os.loop
 
-podman-image: podman-base
-	podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
-	podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
-	mkdir -p .cache/go-mod .cache/go-build
-	podman build \
-		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
-		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
-		-t $(PODMAN_IMAGE) -f integration/testdata/Containerfile.systemd .
+clean: clean-podman
+	rm -f dev.db dev.db-shm dev.db-wal
+	rm -rf .cache
+	rm -f .gitconfig.tmp .git-credentials.tmp
 
-clean-podman:
+clean-podman: clean-btrfs
 	@podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
 	@podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
-	@podman rmi $(PODMAN_IMAGE) 2>/dev/null || true
-	@podman rmi $(PODMAN_BASE_IMAGE) 2>/dev/null || true
+	@podman rmi $(PODMAN_TEST_IMAGE) 2>/dev/null || true
+	@podman stop $(PODMAN_UI_BACKEND) 2>/dev/null || true
+	@podman rm $(PODMAN_UI_BACKEND) 2>/dev/null || true
 	@podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true
 	@podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true
 	@podman rmi $(PODMAN_UI_IMAGE) 2>/dev/null || true
 	@podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
 	@podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
-	@podman rmi $(PODMAN_PROD_IMAGE) 2>/dev/null || true
-	rm -f .cache/podman-base-hash
+	@podman rmi $(PODMAN_IMAGE) 2>/dev/null || true
 
-test-systemd: podman-image
-	podman run -d --systemd=true --privileged --name=$(PODMAN_CONTAINER) $(PODMAN_IMAGE)
+test-systemd: test-image btrfs
+	@podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
+	podman run -e DEBUG=1 -d --systemd=true --privileged \
+		--device $$(cat town-os.loop) \
+		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@sleep 5
-	podman exec $(PODMAN_CONTAINER) /podman-test -test.v -test.run TestPodman; \
-		EXIT=$$?; \
-		podman stop $(PODMAN_CONTAINER) 2>/dev/null || true; \
-		podman rm $(PODMAN_CONTAINER) 2>/dev/null || true; \
-		exit $$EXIT
+	podman exec $(PODMAN_CONTAINER) mount -t btrfs /dev/loop0 /data/btrfs
+	podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.run TestPodman

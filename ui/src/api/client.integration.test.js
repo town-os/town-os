@@ -27,11 +27,11 @@ describe('SystemControllerClient integration', () => {
       expect(typeof resp.accounts).toBe('number')
     })
 
-    it('includes unit counts from mock systemd', async () => {
+    it('includes unit counts from systemd', async () => {
       const resp = await client.ping()
       expect(resp.units).toBeDefined()
-      expect(resp.units.total).toBe(2)
-      expect(resp.units.active).toBe(1)
+      expect(resp.units.total).toBeGreaterThan(0)
+      expect(resp.units.active).toBeGreaterThan(0)
     })
   })
 
@@ -140,27 +140,30 @@ describe('SystemControllerClient integration', () => {
       client.setToken(resp.token)
     })
 
-    it('lists units from mock', async () => {
+    it('lists units from real systemd', async () => {
       const units = await client.listUnits()
-      expect(units.length).toBe(2)
-      expect(units[0].Name).toBe('nginx.service')
-      expect(units[0].ActiveState).toBe('active')
-      expect(units[1].Name).toBe('redis.service')
+      expect(units.length).toBeGreaterThan(0)
+      const testserver = units.find(
+        (u) => u.Name === 'town-os-testserver.service',
+      )
+      expect(testserver).toBeDefined()
+      expect(testserver.ActiveState).toBe('active')
     })
 
     it('sets unit status', async () => {
-      await client.setUnitStatus('nginx.service', 'restart')
+      await client.setUnitStatus('town-os-testserver.service', 'restart')
     })
 
     it('replays logs via SSE', async () => {
       const entries = []
-      for await (const entry of client.logReplay('nginx.service')) {
+      for await (const entry of client.logReplay(
+        'town-os-testserver.service',
+      )) {
         entries.push(entry)
-        if (entries.length >= 2) break
+        if (entries.length >= 1) break
       }
-      expect(entries.length).toBe(2)
-      expect(entries[0].Message).toBe('Starting nginx...')
-      expect(entries[1].Message).toBe('Started nginx.')
+      expect(entries.length).toBeGreaterThanOrEqual(1)
+      expect(entries[0].Message).toBeTruthy()
     })
   })
 
