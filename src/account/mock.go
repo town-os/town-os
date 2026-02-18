@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -363,7 +364,7 @@ func (m *MockSessionManager) StartCleanup(ctx context.Context, interval time.Dur
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := m.Cleanup(); err != nil {
+				if err := m.Cleanup(); err != nil && os.Getenv("DEBUG") != "" {
 					log.Printf("mock session cleanup error: %v", err)
 				}
 			}

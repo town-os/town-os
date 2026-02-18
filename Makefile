@@ -31,7 +31,7 @@ auto-test-full:
 	sudo -E $(shell go env GOPATH)/bin/reflex -r '\.go$$' make test-full
 
 lint:
-	go vet -v ./...
+	go vet ./...
 	$(shell go env GOPATH)/bin/golangci-lint run
 
 btrfs: clean-btrfs

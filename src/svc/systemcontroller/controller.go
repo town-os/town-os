@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -773,7 +774,9 @@ func (s *serverBase) GetSessionManager() account.SessionManager   { return s.Ses
 func configureRouter(sc SystemController) http.Handler {
 	handlers := getHandler(sc)
 	e := echo.New()
-	e.Use(middleware.RequestLogger())
+	if os.Getenv("DEBUG") != "" {
+		e.Use(middleware.RequestLogger())
+	}
 	handlers.configureRoutes(e)
 	return e
 }
