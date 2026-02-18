@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 )
@@ -26,7 +27,7 @@ func initTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController)
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 	controller := mock.Controller.(*storage.MockBtrFSController)
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -74,7 +75,7 @@ func TestCreateFilesystemMultiple(t *testing.T) {
 
 func TestCreateFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString("{bad"))
@@ -110,7 +111,7 @@ func TestModifyFilesystem(t *testing.T) {
 
 func TestModifyFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/modify"), "application/json", bytes.NewBufferString("{bad"))
@@ -173,7 +174,7 @@ func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 
 func TestRemoveFilesystemBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/remove"), "application/json", bytes.NewBufferString("{bad"))
@@ -295,7 +296,7 @@ func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 
 func TestListFilesystemsBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage"), "application/json", bytes.NewBufferString("{bad"))
@@ -563,7 +564,7 @@ func TestMockClientCallLog(t *testing.T) {
 
 func TestWrongHTTPMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	resp, err := http.Get(testRoute(t, ts.Server.URL, "storage/create"))
@@ -583,7 +584,7 @@ func TestWrongHTTPMethod(t *testing.T) {
 
 func TestNonexistentRoute(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "nonexistent"), "application/json", bytes.NewBufferString("{}"))
@@ -603,7 +604,7 @@ func TestNonexistentRoute(t *testing.T) {
 
 func TestEmptyBody(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, nil, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString(""))
@@ -747,7 +748,7 @@ func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
 
 func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/add"), "application/json", bytes.NewBufferString("{bad"))
@@ -767,7 +768,7 @@ func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 
 func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/remove"), "application/json", bytes.NewBufferString("{bad"))
@@ -788,7 +789,7 @@ func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
 func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -805,7 +806,7 @@ func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
 func TestHTTPListRepositoriesEmpty(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -839,7 +840,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 		{Name: "repo-b", URL: *u2},
 	}
 
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -863,7 +864,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 
 func TestHTTPRepositoryWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
 	resp, err := http.Get(testRoute(t, ts.Server.URL, "repository/add"))
@@ -911,7 +912,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 		t.Fatalf("os.MkdirAll %q: %v", pkgDir, err)
 	}
 
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -944,7 +945,7 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
 	writeTestPackage(t, rr.BaseDir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
 
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -990,7 +991,7 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 	writeTestPackage(t, rr.BaseDir, "repo-b", "redis", "7.0", "image: redis:7.0\n")
 	writeTestPackage(t, rr.BaseDir, "repo-b", "nginx", "3.0", "image: nginx:3.0\n")
 
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -1019,7 +1020,7 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 func TestHTTPListPackagesWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages"), "application/json", nil)
@@ -1060,7 +1061,7 @@ questions:
     type: port
 `)
 
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -1107,7 +1108,7 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 		t.Fatalf("os.MkdirAll: %v", err)
 	}
 
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -1124,7 +1125,7 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/questions"), "application/json", bytes.NewBufferString("{bad"))
@@ -1145,7 +1146,7 @@ func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
 func TestHTTPGetPackageQuestionsWrongMethod(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	resp, err := http.Get(testRoute(t, ts.Server.URL, "packages/questions"))
@@ -1189,7 +1190,7 @@ questions:
     type: port
 `)
 
-	ts := InitTestServer(mock, rr, nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -1396,7 +1397,7 @@ func initInstallTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallM
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
 
 	inst := packages.InitMockInstallManager()
-	ts := InitTestServer(mock, rr, inst, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -1444,7 +1445,7 @@ func TestHTTPInstallPackageNotFound(t *testing.T) {
 
 func TestHTTPInstallPackageBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/install"), "application/json", bytes.NewBufferString("{bad"))
@@ -1494,7 +1495,7 @@ func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
 
 func TestHTTPUninstallPackageBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/uninstall"), "application/json", bytes.NewBufferString("{bad"))
@@ -1577,7 +1578,7 @@ func TestHTTPGetResponsesNotInstalled(t *testing.T) {
 
 func TestHTTPGetResponsesBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(mock, emptyRepoRoot(t), nil, nil)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
 	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/responses"), "application/json", bytes.NewBufferString("{bad"))
@@ -1814,5 +1815,387 @@ func TestMockClientGetResponsesReturnsCopy(t *testing.T) {
 
 	if m.StoredResponses["nginx@1.0"]["hostname"] != "example" {
 		t.Fatal("GetResponses should return a copy, not a reference")
+	}
+}
+
+// --- Account HTTP endpoint tests ---
+
+func initAccountTestClient(t *testing.T) (*SystemdClient, account.Manager, account.SessionManager) {
+	t.Helper()
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, mgr, sessMgr
+}
+
+func TestHTTPCreateAccount(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	acct, err := c.CreateAccount("alice", "password123", "alice@test.com", "555-1234", "Alice Smith", false)
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if acct.Username != "alice" {
+		t.Fatalf("expected username %q, got %q", "alice", acct.Username)
+	}
+	if acct.Email != "alice@test.com" {
+		t.Fatalf("expected email %q, got %q", "alice@test.com", acct.Email)
+	}
+}
+
+func TestHTTPCreateAccountDuplicate(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("first CreateAccount: %v", err)
+	}
+
+	_, err := c.CreateAccount("alice", "pass2", "c@d.com", "666", "Alice2", false)
+	if err == nil {
+		t.Fatal("expected error creating duplicate account")
+	}
+}
+
+func TestHTTPGetAccount(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	acct, err := c.GetAccount("alice")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+
+	if acct.Username != "alice" {
+		t.Fatalf("expected username %q, got %q", "alice", acct.Username)
+	}
+}
+
+func TestHTTPGetAccountNotFound(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	_, err := c.GetAccount("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent account")
+	}
+}
+
+func TestHTTPUpdateAccount(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	newEmail := "new@example.com"
+	acct, err := c.UpdateAccount("alice", account.UpdateFields{Email: &newEmail})
+	if err != nil {
+		t.Fatalf("UpdateAccount: %v", err)
+	}
+
+	if acct.Email != "new@example.com" {
+		t.Fatalf("expected email %q, got %q", "new@example.com", acct.Email)
+	}
+}
+
+func TestHTTPDeleteAccount(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if err := c.DeleteAccount("alice"); err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+
+	_, err := c.GetAccount("alice")
+	if err == nil {
+		t.Fatal("expected error after delete")
+	}
+}
+
+func TestHTTPListAccounts(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount alice: %v", err)
+	}
+	if _, err := c.CreateAccount("bob", "pass", "b@b.com", "666", "Bob", false); err != nil {
+		t.Fatalf("CreateAccount bob: %v", err)
+	}
+
+	accounts, err := c.ListAccounts()
+	if err != nil {
+		t.Fatalf("ListAccounts: %v", err)
+	}
+
+	if len(accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(accounts))
+	}
+}
+
+func TestHTTPAuthenticate(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "password123", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate("alice", "password123")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	if resp.Token == "" {
+		t.Fatal("expected non-empty token")
+	}
+	if resp.Account.Username != "alice" {
+		t.Fatalf("expected username %q, got %q", "alice", resp.Account.Username)
+	}
+}
+
+func TestHTTPAuthenticateWrongPassword(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "password123", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	_, err := c.Authenticate("alice", "wrongpass")
+	if err == nil {
+		t.Fatal("expected error for wrong password")
+	}
+}
+
+func TestHTTPSessionLifecycle(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate("alice", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// list sessions using the token
+	sessions, err := c.ListSessions(resp.Token)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	// get username
+	username, err := c.SessionUsername(resp.Token)
+	if err != nil {
+		t.Fatalf("SessionUsername: %v", err)
+	}
+	if username != "alice" {
+		t.Fatalf("expected username %q, got %q", "alice", username)
+	}
+
+	// revoke session
+	if err := c.RevokeSession(sessions[0].ID); err != nil {
+		t.Fatalf("RevokeSession: %v", err)
+	}
+
+	// token should no longer work for listing sessions
+	_, err = c.ListSessions(resp.Token)
+	if err == nil {
+		t.Fatal("expected error after session revoke")
+	}
+}
+
+// --- Admin middleware tests ---
+
+func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	// create non-admin user
+	if _, err := c.CreateAccount("user", "pass", "u@b.com", "555", "User", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate("user", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// try to install a package (admin-only)
+	req, err := http.NewRequest("POST", c.route("packages/install"), bytes.NewBufferString(`{"name":"test","version":"1.0"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 403 {
+		t.Fatalf("expected 403 for non-admin, got %d", httpResp.StatusCode)
+	}
+}
+
+func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{{Name: "repo-a", URL: *u}}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{
+		Storage:        mock,
+		RepositoryRoot: rr,
+		Installer:      inst,
+		AccountMgr:     mgr,
+		SessionMgr:     sessMgr,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// create admin user
+	if _, err := c.CreateAccount("admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate("admin", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// admin should be able to install
+	req, err := http.NewRequest("POST", c.route("packages/install"), bytes.NewBufferString(`{"name":"nginx","version":"1.0","responses":{}}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 200 {
+		t.Fatalf("expected 200 for admin, got %d", httpResp.StatusCode)
+	}
+}
+
+func TestAdminMiddlewareNoToken(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	// try without any token
+	req, err := http.NewRequest("POST", c.route("packages/install"), bytes.NewBufferString(`{"name":"test","version":"1.0"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 401 {
+		t.Fatalf("expected 401 for missing token, got %d", httpResp.StatusCode)
+	}
+}
+
+func TestHTTPPingIncludesAccountCount(t *testing.T) {
+	c, _, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	ping, err := c.Ping()
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.Accounts != 1 {
+		t.Fatalf("expected 1 account in ping, got %d", ping.Accounts)
 	}
 }

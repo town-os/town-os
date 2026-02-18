@@ -3,7 +3,9 @@ package systemcontroller
 import (
 	"fmt"
 	"sync"
+	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -19,6 +21,8 @@ type MockClient struct {
 	StoredResponses map[string]packages.Responses
 	Units           []systemd.UnitStatus
 	JournalEntries  []systemd.JournalEntry
+	Accounts        map[string]*account.Account
+	Sessions        map[string]*account.Session
 	Calls           []MockCall
 	CreateErr       error
 	ModifyErr       error
@@ -36,6 +40,18 @@ type MockClient struct {
 	ListUnitsErr    error
 	SetStatusErr    error
 	LogReplayErr    error
+	PingErr         error
+	PingResponse    *PingResponse
+	CreateAcctErr      error
+	GetAcctErr         error
+	UpdateAcctErr      error
+	DeleteAcctErr      error
+	ListAcctErr        error
+	AuthenticateErr    error
+	RevokeSessionErr   error
+	ListSessionsErr    error
+	SessionUsernameErr error
+	AuthToken          string
 }
 
 type MockCall struct {
@@ -47,6 +63,8 @@ func InitMockClient() *MockClient {
 	return &MockClient{
 		Filesystems:     map[string]storage.Filesystem{},
 		StoredResponses: map[string]packages.Responses{},
+		Accounts:        map[string]*account.Account{},
+		Sessions:        map[string]*account.Session{},
 	}
 }
 
@@ -341,4 +359,188 @@ func (m *MockClient) LogReplay(name string) (<-chan systemd.JournalEntry, error)
 	}()
 
 	return ch, nil
+}
+
+// --- Account ---
+
+func (m *MockClient) CreateAccount(username, password, email, phone, realName string, admin bool) (*account.Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "CreateAccount", Args: []any{username, password, email, phone, realName, admin}})
+
+	if m.CreateAcctErr != nil {
+		return nil, m.CreateAcctErr
+	}
+
+	now := time.Now()
+	acct := &account.Account{
+		Username:  username,
+		Email:     email,
+		Phone:     phone,
+		RealName:  realName,
+		Admin:     admin,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.Accounts[username] = acct
+	out := *acct
+	return &out, nil
+}
+
+func (m *MockClient) GetAccount(username string) (*account.Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetAccount", Args: []any{username}})
+
+	if m.GetAcctErr != nil {
+		return nil, m.GetAcctErr
+	}
+
+	acct, ok := m.Accounts[username]
+	if !ok {
+		return nil, fmt.Errorf("account %s not found", username)
+	}
+	out := *acct
+	return &out, nil
+}
+
+func (m *MockClient) UpdateAccount(username string, fields account.UpdateFields) (*account.Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "UpdateAccount", Args: []any{username, fields}})
+
+	if m.UpdateAcctErr != nil {
+		return nil, m.UpdateAcctErr
+	}
+
+	acct, ok := m.Accounts[username]
+	if !ok {
+		return nil, fmt.Errorf("account %s not found", username)
+	}
+
+	if fields.Email != nil {
+		acct.Email = *fields.Email
+	}
+	if fields.Phone != nil {
+		acct.Phone = *fields.Phone
+	}
+	if fields.RealName != nil {
+		acct.RealName = *fields.RealName
+	}
+	if fields.Admin != nil {
+		acct.Admin = *fields.Admin
+	}
+	acct.UpdatedAt = time.Now()
+
+	out := *acct
+	return &out, nil
+}
+
+func (m *MockClient) DeleteAccount(username string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "DeleteAccount", Args: []any{username}})
+
+	if m.DeleteAcctErr != nil {
+		return m.DeleteAcctErr
+	}
+
+	delete(m.Accounts, username)
+	return nil
+}
+
+func (m *MockClient) ListAccounts() ([]account.Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListAccounts", Args: nil})
+
+	if m.ListAcctErr != nil {
+		return nil, m.ListAcctErr
+	}
+
+	var out []account.Account
+	for _, acct := range m.Accounts {
+		out = append(out, *acct)
+	}
+	return out, nil
+}
+
+func (m *MockClient) Authenticate(username, password string) (*AuthenticateResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Authenticate", Args: []any{username, password}})
+
+	if m.AuthenticateErr != nil {
+		return nil, m.AuthenticateErr
+	}
+
+	acct, ok := m.Accounts[username]
+	if !ok {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	out := *acct
+	return &AuthenticateResponse{Token: m.AuthToken, Account: &out}, nil
+}
+
+func (m *MockClient) RevokeSession(sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "RevokeSession", Args: []any{sessionID}})
+
+	if m.RevokeSessionErr != nil {
+		return m.RevokeSessionErr
+	}
+
+	delete(m.Sessions, sessionID)
+	return nil
+}
+
+func (m *MockClient) ListSessions(token string) ([]account.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListSessions", Args: []any{token}})
+
+	if m.ListSessionsErr != nil {
+		return nil, m.ListSessionsErr
+	}
+
+	var out []account.Session
+	for _, sess := range m.Sessions {
+		out = append(out, *sess)
+	}
+	return out, nil
+}
+
+func (m *MockClient) SessionUsername(token string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "SessionUsername", Args: []any{token}})
+
+	if m.SessionUsernameErr != nil {
+		return "", m.SessionUsernameErr
+	}
+
+	for _, sess := range m.Sessions {
+		return sess.Username, nil
+	}
+	return "", fmt.Errorf("no sessions")
+}
+
+// --- Status ---
+
+func (m *MockClient) Ping() (*PingResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Ping", Args: nil})
+
+	if m.PingErr != nil {
+		return nil, m.PingErr
+	}
+
+	if m.PingResponse != nil {
+		return m.PingResponse, nil
+	}
+
+	return &PingResponse{Status: "ok"}, nil
 }

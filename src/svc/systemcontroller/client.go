@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -38,6 +39,18 @@ type Client interface {
 	ListUnits() ([]systemd.UnitStatus, error)
 	SetUnitStatus(name string, action systemd.StatusAction) error
 	LogReplay(name string) (<-chan systemd.JournalEntry, error)
+
+	CreateAccount(username, password, email, phone, realName string, admin bool) (*account.Account, error)
+	GetAccount(username string) (*account.Account, error)
+	UpdateAccount(username string, fields account.UpdateFields) (*account.Account, error)
+	DeleteAccount(username string) error
+	ListAccounts() ([]account.Account, error)
+	Authenticate(username, password string) (*AuthenticateResponse, error)
+	RevokeSession(sessionID string) error
+	ListSessions(token string) ([]account.Session, error)
+	SessionUsername(token string) (string, error)
+
+	Ping() (*PingResponse, error)
 }
 
 type SystemdClient struct {
@@ -356,4 +369,204 @@ func (c *SystemdClient) LogReplay(name string) (_ <-chan systemd.JournalEntry, e
 	}()
 
 	return ch, nil
+}
+
+// --- Account ---
+
+func (c *SystemdClient) CreateAccount(username, password, email, phone, realName string, admin bool) (_ *account.Account, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, CreateAccountRequest{
+		Username: username, Password: password,
+		Email: email, Phone: phone, RealName: realName, Admin: admin,
+	})
+
+	resp, err := c.HTTP.Post(c.route("account/create"), "application/json", pr)
+	if err != nil {
+		return nil, fmt.Errorf("http error in CreateAccount: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in CreateAccount: %v", resp.StatusCode)
+	}
+
+	var acct account.Account
+	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
+}
+
+func (c *SystemdClient) GetAccount(username string) (_ *account.Account, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, GetAccountRequest{Username: username})
+
+	resp, err := c.HTTP.Post(c.route("account"), "application/json", pr)
+	if err != nil {
+		return nil, fmt.Errorf("http error in GetAccount: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in GetAccount: %v", resp.StatusCode)
+	}
+
+	var acct account.Account
+	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
+}
+
+func (c *SystemdClient) UpdateAccount(username string, fields account.UpdateFields) (_ *account.Account, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, UpdateAccountRequest{Username: username, Fields: fields})
+
+	resp, err := c.HTTP.Post(c.route("account/update"), "application/json", pr)
+	if err != nil {
+		return nil, fmt.Errorf("http error in UpdateAccount: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in UpdateAccount: %v", resp.StatusCode)
+	}
+
+	var acct account.Account
+	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
+}
+
+func (c *SystemdClient) DeleteAccount(username string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, DeleteAccountRequest{Username: username})
+
+	return c.postClient("account/delete", pr)
+}
+
+func (c *SystemdClient) ListAccounts() (_ []account.Account, err error) {
+	resp, err := c.HTTP.Get(c.route("account"))
+	if err != nil {
+		return nil, fmt.Errorf("http error in ListAccounts: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in ListAccounts: %v", resp.StatusCode)
+	}
+
+	var accounts []account.Account
+	return accounts, json.NewDecoder(resp.Body).Decode(&accounts)
+}
+
+func (c *SystemdClient) Authenticate(username, password string) (_ *AuthenticateResponse, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, AuthenticateRequest{Username: username, Password: password})
+
+	resp, err := c.HTTP.Post(c.route("account/authenticate"), "application/json", pr)
+	if err != nil {
+		return nil, fmt.Errorf("http error in Authenticate: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in Authenticate: %v", resp.StatusCode)
+	}
+
+	var authResp AuthenticateResponse
+	return &authResp, json.NewDecoder(resp.Body).Decode(&authResp)
+}
+
+func (c *SystemdClient) RevokeSession(sessionID string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, RevokeSessionRequest{SessionID: sessionID})
+
+	return c.postClient("account/session/revoke", pr)
+}
+
+func (c *SystemdClient) ListSessions(token string) (_ []account.Session, err error) {
+	req, err := http.NewRequest("GET", c.route("account/sessions"), nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request in ListSessions: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http error in ListSessions: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in ListSessions: %v", resp.StatusCode)
+	}
+
+	var sessions []account.Session
+	return sessions, json.NewDecoder(resp.Body).Decode(&sessions)
+}
+
+func (c *SystemdClient) SessionUsername(token string) (_ string, err error) {
+	req, err := http.NewRequest("GET", c.route("account/session/username"), nil)
+	if err != nil {
+		return "", fmt.Errorf("new request in SessionUsername: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http error in SessionUsername: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("unsuccessful status code in SessionUsername: %v", resp.StatusCode)
+	}
+
+	var result SessionUsernameResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.Username, nil
+}
+
+// --- Status ---
+
+func (c *SystemdClient) Ping() (_ *PingResponse, err error) {
+	resp, err := c.HTTP.Get(c.route("status/ping"))
+	if err != nil {
+		return nil, fmt.Errorf("http error in Ping: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in Ping: %v", resp.StatusCode)
+	}
+
+	var ping PingResponse
+	return &ping, json.NewDecoder(resp.Body).Decode(&ping)
 }

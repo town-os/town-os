@@ -16,7 +16,7 @@ func initPodmanSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
 
 	sd := systemd.NewManager()
 	mock := storage.InitBtrFSMock()
-	ts := systemcontroller.InitTestServer(mock, nil, nil, sd)
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, Systemd: sd})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()

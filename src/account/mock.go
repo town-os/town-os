@@ -1,0 +1,372 @@
+package account
+
+import (
+	"context"
+	"log"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type MockCall struct {
+	Method string
+	Args   []any
+}
+
+// --- MockManager ---
+
+type MockManager struct {
+	mu       sync.Mutex
+	accounts map[string]*Account
+	Calls    []MockCall
+
+	CreateErr       error
+	GetErr          error
+	UpdateErr       error
+	DeleteErr       error
+	ListErr         error
+	AuthenticateErr error
+}
+
+func InitMockManager() *MockManager {
+	return &MockManager{
+		accounts: map[string]*Account{},
+	}
+}
+
+func (m *MockManager) GetCalls() []MockCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]MockCall, len(m.Calls))
+	copy(out, m.Calls)
+	return out
+}
+
+func (m *MockManager) Create(username, password, email, phone, realName string, admin bool) (*Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{username, password, email, phone, realName, admin}})
+
+	if m.CreateErr != nil {
+		return nil, m.CreateErr
+	}
+
+	if err := validateContactInfo(email, phone, realName); err != nil {
+		return nil, err
+	}
+
+	if _, exists := m.accounts[username]; exists {
+		return nil, ErrDuplicateUsername
+	}
+
+	now := time.Now()
+	acct := &Account{
+		Username:     username,
+		PasswordHash: password,
+		Email:        email,
+		Phone:        phone,
+		RealName:     realName,
+		Admin:        admin,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	m.accounts[username] = acct
+
+	out := *acct
+	return &out, nil
+}
+
+func (m *MockManager) Get(username string) (*Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Get", Args: []any{username}})
+
+	if m.GetErr != nil {
+		return nil, m.GetErr
+	}
+
+	acct, ok := m.accounts[username]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	out := *acct
+	return &out, nil
+}
+
+func (m *MockManager) Update(username string, fields UpdateFields) (*Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Update", Args: []any{username, fields}})
+
+	if m.UpdateErr != nil {
+		return nil, m.UpdateErr
+	}
+
+	acct, ok := m.accounts[username]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if fields.Password != nil {
+		acct.PasswordHash = *fields.Password
+	}
+	if fields.Email != nil {
+		acct.Email = *fields.Email
+	}
+	if fields.Phone != nil {
+		acct.Phone = *fields.Phone
+	}
+	if fields.RealName != nil {
+		acct.RealName = *fields.RealName
+	}
+	if fields.Admin != nil {
+		acct.Admin = *fields.Admin
+	}
+	acct.UpdatedAt = time.Now()
+
+	out := *acct
+	return &out, nil
+}
+
+func (m *MockManager) Delete(username string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Delete", Args: []any{username}})
+
+	if m.DeleteErr != nil {
+		return m.DeleteErr
+	}
+
+	if _, ok := m.accounts[username]; !ok {
+		return ErrNotFound
+	}
+
+	delete(m.accounts, username)
+	return nil
+}
+
+func (m *MockManager) List() ([]Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "List", Args: nil})
+
+	if m.ListErr != nil {
+		return nil, m.ListErr
+	}
+
+	out := make([]Account, 0, len(m.accounts))
+	for _, acct := range m.accounts {
+		out = append(out, *acct)
+	}
+	return out, nil
+}
+
+func (m *MockManager) Authenticate(username, password string) (*Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Authenticate", Args: []any{username, password}})
+
+	if m.AuthenticateErr != nil {
+		return nil, m.AuthenticateErr
+	}
+
+	acct, ok := m.accounts[username]
+	if !ok {
+		return nil, ErrInvalidCredentials
+	}
+
+	if acct.PasswordHash != password {
+		return nil, ErrInvalidCredentials
+	}
+
+	out := *acct
+	return &out, nil
+}
+
+// --- MockSessionManager ---
+
+type MockSessionManager struct {
+	mu         sync.Mutex
+	sessions   map[string]*Session
+	accountMgr Manager
+	Calls      []MockCall
+
+	CreateErr          error
+	ValidateErr        error
+	RevokeErr          error
+	RevokeAllErr       error
+	CleanupErr         error
+	ListErr            error
+	GetUsernameErr     error
+}
+
+func InitMockSessionManager(mgr Manager) *MockSessionManager {
+	return &MockSessionManager{
+		sessions:   map[string]*Session{},
+		accountMgr: mgr,
+	}
+}
+
+func (m *MockSessionManager) GetCalls() []MockCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]MockCall, len(m.Calls))
+	copy(out, m.Calls)
+	return out
+}
+
+func (m *MockSessionManager) Create(username string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{username}})
+
+	if m.CreateErr != nil {
+		return "", m.CreateErr
+	}
+
+	now := time.Now()
+	id := uuid.New().String()
+	sess := &Session{
+		ID:        id,
+		Username:  username,
+		CreatedAt: now,
+		LastUsed:  now,
+	}
+	m.sessions[id] = sess
+
+	return id, nil
+}
+
+func (m *MockSessionManager) Validate(token string) (*Session, *Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Validate", Args: []any{token}})
+
+	if m.ValidateErr != nil {
+		return nil, nil, m.ValidateErr
+	}
+
+	sess, ok := m.sessions[token]
+	if !ok {
+		return nil, nil, ErrSessionNotFound
+	}
+
+	if time.Since(sess.LastUsed) > SessionMaxAge {
+		delete(m.sessions, token)
+		return nil, nil, ErrSessionExpired
+	}
+
+	sess.LastUsed = time.Now()
+
+	acct, err := m.accountMgr.Get(sess.Username)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outSess := *sess
+	return &outSess, acct, nil
+}
+
+func (m *MockSessionManager) Revoke(sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Revoke", Args: []any{sessionID}})
+
+	if m.RevokeErr != nil {
+		return m.RevokeErr
+	}
+
+	if _, ok := m.sessions[sessionID]; !ok {
+		return ErrSessionNotFound
+	}
+
+	delete(m.sessions, sessionID)
+	return nil
+}
+
+func (m *MockSessionManager) RevokeAllForUser(username string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "RevokeAllForUser", Args: []any{username}})
+
+	if m.RevokeAllErr != nil {
+		return m.RevokeAllErr
+	}
+
+	for id, sess := range m.sessions {
+		if sess.Username == username {
+			delete(m.sessions, id)
+		}
+	}
+	return nil
+}
+
+func (m *MockSessionManager) Cleanup() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Cleanup", Args: nil})
+
+	if m.CleanupErr != nil {
+		return m.CleanupErr
+	}
+
+	for id, sess := range m.sessions {
+		if time.Since(sess.LastUsed) > SessionMaxAge {
+			delete(m.sessions, id)
+		}
+	}
+	return nil
+}
+
+func (m *MockSessionManager) List(username string) ([]Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "List", Args: []any{username}})
+
+	if m.ListErr != nil {
+		return nil, m.ListErr
+	}
+
+	var out []Session
+	for _, sess := range m.sessions {
+		if sess.Username == username {
+			out = append(out, *sess)
+		}
+	}
+	return out, nil
+}
+
+func (m *MockSessionManager) GetUsername(sessionID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetUsername", Args: []any{sessionID}})
+
+	if m.GetUsernameErr != nil {
+		return "", m.GetUsernameErr
+	}
+
+	sess, ok := m.sessions[sessionID]
+	if !ok {
+		return "", ErrSessionNotFound
+	}
+	return sess.Username, nil
+}
+
+func (m *MockSessionManager) StartCleanup(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := m.Cleanup(); err != nil {
+					log.Printf("mock session cleanup error: %v", err)
+				}
+			}
+		}
+	}()
+}

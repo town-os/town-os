@@ -22,7 +22,7 @@ func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemdClient, st
 	}
 
 	btr := storage.InitBtrFS()
-	ts := systemcontroller.InitTestServer(btr, nil, nil, nil)
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr})
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -260,7 +260,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemdClient 
 	}
 
 	mock := storage.InitBtrFSMock()
-	ts := systemcontroller.InitTestServer(mock, rr, nil, nil)
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -624,7 +624,7 @@ func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemdCli
 	inst := packages.NewInstallManager(dir)
 
 	mock := storage.InitBtrFSMock()
-	ts := systemcontroller.InitTestServer(mock, rr, inst, nil)
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -870,7 +870,7 @@ func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager) *sys
 
 	btr := storage.InitBtrFS()
 	inst := packages.NewInstallManager(dir)
-	ts := systemcontroller.InitTestServer(btr, rr, inst, sd)
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr, RepositoryRoot: rr, Installer: inst, Systemd: sd})
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()

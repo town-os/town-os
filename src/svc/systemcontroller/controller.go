@@ -8,9 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
+	"strings"
 	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -24,6 +25,8 @@ type SystemController interface {
 	GetRepositoryRoot() *packages.RepositoryRoot
 	GetInstaller() packages.Installer
 	GetSystemdManager() systemd.Manager
+	GetAccountManager() account.Manager
+	GetSessionManager() account.SessionManager
 	Client() (*SystemdClient, error)
 }
 
@@ -72,6 +75,62 @@ type GetResponsesRequest struct {
 type SetStatusRequest struct {
 	Name   string               `json:"name"`
 	Action systemd.StatusAction `json:"action"`
+}
+
+type CreateAccountRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	RealName string `json:"real_name"`
+	Admin    bool   `json:"admin"`
+}
+
+type GetAccountRequest struct {
+	Username string `json:"username"`
+}
+
+type UpdateAccountRequest struct {
+	Username string              `json:"username"`
+	Fields   account.UpdateFields `json:"fields"`
+}
+
+type DeleteAccountRequest struct {
+	Username string `json:"username"`
+}
+
+type AuthenticateRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type AuthenticateResponse struct {
+	Token   string           `json:"token"`
+	Account *account.Account `json:"account"`
+}
+
+type RevokeSessionRequest struct {
+	SessionID string `json:"session_id"`
+}
+
+type SessionUsernameResponse struct {
+	Username string `json:"username"`
+}
+
+type PingResponse struct {
+	Status       string      `json:"status"`
+	Filesystems  int         `json:"filesystems"`
+	Repositories int         `json:"repositories"`
+	Packages     int         `json:"packages"`
+	Installed    int         `json:"installed"`
+	Accounts     int         `json:"accounts"`
+	Units        *UnitCounts `json:"units,omitempty"`
+}
+
+type UnitCounts struct {
+	Total  int `json:"total"`
+	Active int `json:"active"`
+	Failed int `json:"failed"`
 }
 
 type SystemControllerHandlers struct {
@@ -399,9 +458,253 @@ func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 	}
 }
 
+// --- Account handlers ---
+
+func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := CreateAccountRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	acct, err := s.Controller.GetAccountManager().Create(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Admin)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, acct)
+}
+
+func (s *SystemControllerHandlers) getAccount(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := GetAccountRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	acct, err := s.Controller.GetAccountManager().Get(req.Username)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, acct)
+}
+
+func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := UpdateAccountRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	acct, err := s.Controller.GetAccountManager().Update(req.Username, req.Fields)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, acct)
+}
+
+func (s *SystemControllerHandlers) deleteAccount(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := DeleteAccountRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if err := s.Controller.GetAccountManager().Delete(req.Username); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) listAccounts(c *echo.Context) error {
+	accounts, err := s.Controller.GetAccountManager().List()
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, accounts)
+}
+
+func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := AuthenticateRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	acct, err := s.Controller.GetAccountManager().Authenticate(req.Username, req.Password)
+	if err != nil {
+		return err
+	}
+
+	token, err := s.Controller.GetSessionManager().Create(req.Username)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, AuthenticateResponse{Token: token, Account: acct})
+}
+
+func (s *SystemControllerHandlers) revokeSession(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := RevokeSessionRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if err := s.Controller.GetSessionManager().Revoke(req.SessionID); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) listSessions(c *echo.Context) error {
+	token := extractBearerToken(c.Request())
+	if token == "" {
+		return echo.NewHTTPError(401, "missing authorization token")
+	}
+
+	sess, _, err := s.Controller.GetSessionManager().Validate(token)
+	if err != nil {
+		return echo.NewHTTPError(401, "invalid session")
+	}
+
+	sessions, err := s.Controller.GetSessionManager().List(sess.Username)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, sessions)
+}
+
+func (s *SystemControllerHandlers) sessionUsername(c *echo.Context) error {
+	token := extractBearerToken(c.Request())
+	if token == "" {
+		return echo.NewHTTPError(401, "missing authorization token")
+	}
+
+	sess, _, err := s.Controller.GetSessionManager().Validate(token)
+	if err != nil {
+		return echo.NewHTTPError(401, "invalid session")
+	}
+
+	return c.JSON(200, SessionUsernameResponse{Username: sess.Username})
+}
+
+// --- Admin middleware ---
+
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return ""
+	}
+	return strings.TrimPrefix(auth, "Bearer ")
+}
+
+func (s *SystemControllerHandlers) requireAdmin(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		if s.Controller.GetSessionManager() == nil {
+			return next(c)
+		}
+
+		token := extractBearerToken(c.Request())
+		if token == "" {
+			return echo.NewHTTPError(401, "missing authorization token")
+		}
+
+		_, acct, err := s.Controller.GetSessionManager().Validate(token)
+		if err != nil {
+			return echo.NewHTTPError(401, "invalid session")
+		}
+
+		if !acct.Admin {
+			return echo.NewHTTPError(403, "admin access required")
+		}
+
+		return next(c)
+	}
+}
+
+// --- Status handlers ---
+
+func (s *SystemControllerHandlers) ping(c *echo.Context) error {
+	resp := PingResponse{Status: "ok"}
+
+	if st := s.Controller.GetStorage(); st != nil {
+		fs, err := st.ListFilesystems("")
+		if err != nil {
+			return err
+		}
+		resp.Filesystems = len(fs)
+	}
+
+	if rr := s.Controller.GetRepositoryRoot(); rr != nil {
+		repos, err := rr.List()
+		if err != nil {
+			return err
+		}
+		resp.Repositories = len(repos)
+
+		pkgs, err := rr.ListPackages()
+		if err != nil {
+			return err
+		}
+		resp.Packages = len(pkgs)
+	}
+
+	if inst := s.Controller.GetInstaller(); inst != nil {
+		installed, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
+		resp.Installed = len(installed)
+	}
+
+	if am := s.Controller.GetAccountManager(); am != nil {
+		accounts, err := am.List()
+		if err != nil {
+			return err
+		}
+		resp.Accounts = len(accounts)
+	}
+
+	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		units, err := sd.ListUnits(c.Request().Context())
+		if err != nil {
+			return err
+		}
+		counts := &UnitCounts{Total: len(units)}
+		for _, u := range units {
+			switch u.ActiveState {
+			case "active":
+				counts.Active++
+			case "failed":
+				counts.Failed++
+			}
+		}
+		resp.Units = counts
+	}
+
+	return c.JSON(200, resp)
+}
+
 // --- Routes ---
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
+	e.Add("GET", "/status/ping", s.ping)
+
 	e.Add("POST", "/storage/create", s.createFilesystem)
 	e.Add("POST", "/storage/modify", s.modifyFilesystem)
 	e.Add("POST", "/storage/remove", s.removeFilesystem)
@@ -412,18 +715,37 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/repository", s.listRepositories)
 
 	e.Add("GET", "/packages", s.listPackages)
-	e.Add("POST", "/packages/questions", s.getPackageQuestions)
-	e.Add("POST", "/packages/install", s.installPackage)
-	e.Add("POST", "/packages/uninstall", s.uninstallPackage)
+	e.Add("POST", "/packages/questions", s.getPackageQuestions, s.requireAdmin)
+	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
+	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
 	e.Add("GET", "/packages/installed", s.listInstalled)
 	e.Add("POST", "/packages/responses", s.getResponses)
 
 	e.Add("GET", "/systemd/units", s.listUnits)
-	e.Add("POST", "/systemd/status", s.setUnitStatus)
+	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)
 	e.Add("GET", "/systemd/logs", s.logReplay)
+
+	e.Add("POST", "/account/create", s.createAccount)
+	e.Add("POST", "/account", s.getAccount)
+	e.Add("POST", "/account/update", s.updateAccount)
+	e.Add("POST", "/account/delete", s.deleteAccount)
+	e.Add("GET", "/account", s.listAccounts)
+	e.Add("POST", "/account/authenticate", s.authenticateAccount)
+	e.Add("POST", "/account/session/revoke", s.revokeSession)
+	e.Add("GET", "/account/sessions", s.listSessions)
+	e.Add("GET", "/account/session/username", s.sessionUsername)
 }
 
-// --- TestServer ---
+// --- Server infrastructure ---
+
+type ServerConfig struct {
+	Storage        storage.Storage
+	RepositoryRoot *packages.RepositoryRoot
+	Installer      packages.Installer
+	Systemd        systemd.Manager
+	AccountMgr     account.Manager
+	SessionMgr     account.SessionManager
+}
 
 type contextHandler struct {
 	ctx     context.Context
@@ -436,56 +758,45 @@ func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-type TestServer struct {
-	Storage        storage.Storage
-	RepositoryRoot *packages.RepositoryRoot
-	Installer      packages.Installer
-	Systemd        systemd.Manager
-	Server         *httptest.Server
-	cancel         context.CancelFunc
+type serverBase struct {
+	ServerConfig
+	cancel context.CancelFunc
 }
 
-func InitTestServer(s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer, sd systemd.Manager) *TestServer {
-	ts := &TestServer{Storage: s, RepositoryRoot: rr, Installer: inst, Systemd: sd}
+func (s *serverBase) GetStorage() storage.Storage                 { return s.Storage }
+func (s *serverBase) GetRepositoryRoot() *packages.RepositoryRoot { return s.RepositoryRoot }
+func (s *serverBase) GetInstaller() packages.Installer            { return s.Installer }
+func (s *serverBase) GetSystemdManager() systemd.Manager          { return s.Systemd }
+func (s *serverBase) GetAccountManager() account.Manager          { return s.AccountMgr }
+func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
+
+func configureRouter(sc SystemController) http.Handler {
+	handlers := getHandler(sc)
+	e := echo.New()
+	e.Use(middleware.RequestLogger())
+	handlers.configureRoutes(e)
+	return e
+}
+
+// --- TestServer ---
+
+type TestServer struct {
+	serverBase
+	Server *httptest.Server
+}
+
+func InitTestServer(cfg ServerConfig) *TestServer {
+	ts := &TestServer{}
+	ts.ServerConfig = cfg
 	ctx, cancel := context.WithCancel(context.Background())
 	ts.cancel = cancel
-	ts.Server = httptest.NewServer(&contextHandler{ctx: ctx, handler: configureTestRouter(ts)})
+	ts.Server = httptest.NewServer(&contextHandler{ctx: ctx, handler: configureRouter(ts)})
 	return ts
 }
 
 func (ts *TestServer) Close() {
 	ts.cancel()
 	ts.Server.Close()
-}
-
-func configureTestRouter(sc SystemController) http.Handler {
-	handlers := getHandler(sc)
-
-	e := echo.New()
-
-	if os.Getenv("DEBUG") != "" {
-		e.Use(middleware.RequestLogger())
-	}
-
-	handlers.configureRoutes(e)
-
-	return e
-}
-
-func (ts *TestServer) GetStorage() storage.Storage {
-	return ts.Storage
-}
-
-func (ts *TestServer) GetRepositoryRoot() *packages.RepositoryRoot {
-	return ts.RepositoryRoot
-}
-
-func (ts *TestServer) GetInstaller() packages.Installer {
-	return ts.Installer
-}
-
-func (ts *TestServer) GetSystemdManager() systemd.Manager {
-	return ts.Systemd
 }
 
 func (ts *TestServer) Run() error {
@@ -500,28 +811,23 @@ func (ts *TestServer) Client() (*SystemdClient, error) {
 // --- UnixServer ---
 
 type UnixServer struct {
-	Socket         string
-	Storage        storage.Storage
-	RepositoryRoot *packages.RepositoryRoot
-	Installer      packages.Installer
-	Systemd        systemd.Manager
-	Handler        http.Handler
+	serverBase
+	Socket string
+	server *http.Server
 }
 
-func InitUnixServer(sock string, s storage.Storage, rr *packages.RepositoryRoot, inst packages.Installer, sd systemd.Manager) *UnixServer {
-	us := &UnixServer{Socket: sock, Storage: s, RepositoryRoot: rr, Installer: inst, Systemd: sd}
-	us.Handler = configureUnixRouter(us)
+func InitUnixServer(sock string, cfg ServerConfig) *UnixServer {
+	us := &UnixServer{Socket: sock}
+	us.ServerConfig = cfg
+	ctx, cancel := context.WithCancel(context.Background())
+	us.cancel = cancel
+	us.server = &http.Server{Handler: &contextHandler{ctx: ctx, handler: configureRouter(us)}}
 	return us
 }
 
-func configureUnixRouter(sc SystemController) http.Handler {
-	handlers := getHandler(sc)
-
-	e := echo.New()
-	e.Use(middleware.RequestLogger())
-	handlers.configureRoutes(e)
-
-	return e
+func (us *UnixServer) Close() error {
+	us.cancel()
+	return us.server.Close()
 }
 
 func (us *UnixServer) Run() error {
@@ -529,28 +835,9 @@ func (us *UnixServer) Run() error {
 	if err != nil {
 		return fmt.Errorf("could not listen on unix socket %q: %v", us.Socket, err)
 	}
-
-	server := &http.Server{Handler: us.Handler}
-
-	return server.Serve(lis)
+	return us.server.Serve(lis)
 }
 
 func (us *UnixServer) Client() (*SystemdClient, error) {
 	return InitClient(us.Socket)
-}
-
-func (us *UnixServer) GetStorage() storage.Storage {
-	return us.Storage
-}
-
-func (us *UnixServer) GetRepositoryRoot() *packages.RepositoryRoot {
-	return us.RepositoryRoot
-}
-
-func (us *UnixServer) GetInstaller() packages.Installer {
-	return us.Installer
-}
-
-func (us *UnixServer) GetSystemdManager() systemd.Manager {
-	return us.Systemd
 }
