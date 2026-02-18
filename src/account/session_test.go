@@ -369,9 +369,9 @@ func TestMultipleSessionsPerUser(t *testing.T) {
 	}
 }
 
-// --- Cascade delete ---
+// --- Cascade disable ---
 
-func TestSessionCascadeDeleteOnAccountDelete(t *testing.T) {
+func TestSessionCascadeDisableOnAccountDisable(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
@@ -379,16 +379,17 @@ func TestSessionCascadeDeleteOnAccountDelete(t *testing.T) {
 		t.Fatalf("Create session: %v", err)
 	}
 
-	if err := acctMgr.Delete("alice"); err != nil {
-		t.Fatalf("Delete account: %v", err)
+	if err := acctMgr.Disable("alice"); err != nil {
+		t.Fatalf("Disable account: %v", err)
 	}
 
+	// sessions still exist but account is disabled
 	sessions, err := sessMgr.List("alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(sessions) != 0 {
-		t.Fatalf("expected 0 sessions after account delete, got %d", len(sessions))
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session after account disable, got %d", len(sessions))
 	}
 }
 

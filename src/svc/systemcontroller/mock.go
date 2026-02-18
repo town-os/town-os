@@ -1,6 +1,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -45,13 +46,15 @@ type MockClient struct {
 	CreateAcctErr      error
 	GetAcctErr         error
 	UpdateAcctErr      error
-	DeleteAcctErr      error
+	DisableAcctErr     error
 	ListAcctErr        error
 	AuthenticateErr    error
 	RevokeSessionErr   error
 	ListSessionsErr    error
 	SessionUsernameErr error
 	AuthToken          string
+	AuditEntries       []account.AuditEntry
+	ListAuditErr       error
 }
 
 type MockCall struct {
@@ -78,7 +81,7 @@ func (m *MockClient) GetCalls() []MockCall {
 
 // --- Storage ---
 
-func (m *MockClient) CreateFilesystem(fs storage.Filesystem) error {
+func (m *MockClient) CreateFilesystem(_ context.Context, fs storage.Filesystem) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "CreateFilesystem", Args: []any{fs}})
@@ -91,7 +94,7 @@ func (m *MockClient) CreateFilesystem(fs storage.Filesystem) error {
 	return nil
 }
 
-func (m *MockClient) ModifyFilesystem(name string, fs storage.Filesystem) error {
+func (m *MockClient) ModifyFilesystem(_ context.Context, name string, fs storage.Filesystem) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ModifyFilesystem", Args: []any{name, fs}})
@@ -108,7 +111,7 @@ func (m *MockClient) ModifyFilesystem(name string, fs storage.Filesystem) error 
 	return nil
 }
 
-func (m *MockClient) RemoveFilesystem(name string) error {
+func (m *MockClient) RemoveFilesystem(_ context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RemoveFilesystem", Args: []any{name}})
@@ -121,7 +124,7 @@ func (m *MockClient) RemoveFilesystem(name string) error {
 	return nil
 }
 
-func (m *MockClient) ListFilesystems(prefix string) ([]storage.Filesystem, error) {
+func (m *MockClient) ListFilesystems(_ context.Context, prefix string) ([]storage.Filesystem, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListFilesystems", Args: []any{prefix}})
@@ -142,7 +145,7 @@ func (m *MockClient) ListFilesystems(prefix string) ([]storage.Filesystem, error
 
 // --- Repository ---
 
-func (m *MockClient) AddRepository(rawURL string) error {
+func (m *MockClient) AddRepository(_ context.Context, rawURL string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "AddRepository", Args: []any{rawURL}})
@@ -161,7 +164,7 @@ func (m *MockClient) AddRepository(rawURL string) error {
 	return nil
 }
 
-func (m *MockClient) RemoveRepository(name string) error {
+func (m *MockClient) RemoveRepository(_ context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RemoveRepository", Args: []any{name}})
@@ -180,7 +183,7 @@ func (m *MockClient) RemoveRepository(name string) error {
 	return fmt.Errorf("repository %s not found", name)
 }
 
-func (m *MockClient) ListRepositories() ([]RepositoryInfo, error) {
+func (m *MockClient) ListRepositories(_ context.Context) ([]RepositoryInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListRepositories", Args: nil})
@@ -196,7 +199,7 @@ func (m *MockClient) ListRepositories() ([]RepositoryInfo, error) {
 
 // --- Packages ---
 
-func (m *MockClient) ListPackages() ([]string, error) {
+func (m *MockClient) ListPackages(_ context.Context) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListPackages", Args: nil})
@@ -210,7 +213,7 @@ func (m *MockClient) ListPackages() ([]string, error) {
 	return out, nil
 }
 
-func (m *MockClient) GetPackageQuestions(name string) (map[string]packages.Question, error) {
+func (m *MockClient) GetPackageQuestions(_ context.Context, name string) (map[string]packages.Question, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "GetPackageQuestions", Args: []any{name}})
@@ -233,7 +236,7 @@ func (m *MockClient) GetPackageQuestions(name string) (map[string]packages.Quest
 
 // --- Install ---
 
-func (m *MockClient) InstallPackage(name, version string, responses packages.Responses) error {
+func (m *MockClient) InstallPackage(_ context.Context, name, version string, responses packages.Responses) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "InstallPackage", Args: []any{name, version, responses}})
@@ -248,7 +251,7 @@ func (m *MockClient) InstallPackage(name, version string, responses packages.Res
 	return nil
 }
 
-func (m *MockClient) UninstallPackage(name, version string) error {
+func (m *MockClient) UninstallPackage(_ context.Context, name, version string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "UninstallPackage", Args: []any{name, version}})
@@ -269,7 +272,7 @@ func (m *MockClient) UninstallPackage(name, version string) error {
 	return fmt.Errorf("%s: not installed", key)
 }
 
-func (m *MockClient) ListInstalled() ([]string, error) {
+func (m *MockClient) ListInstalled(_ context.Context) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListInstalled", Args: nil})
@@ -283,7 +286,7 @@ func (m *MockClient) ListInstalled() ([]string, error) {
 	return out, nil
 }
 
-func (m *MockClient) GetResponses(name, version string) (packages.Responses, error) {
+func (m *MockClient) GetResponses(_ context.Context, name, version string) (packages.Responses, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "GetResponses", Args: []any{name, version}})
@@ -307,7 +310,7 @@ func (m *MockClient) GetResponses(name, version string) (packages.Responses, err
 
 // --- Systemd ---
 
-func (m *MockClient) ListUnits() ([]systemd.UnitStatus, error) {
+func (m *MockClient) ListUnits(_ context.Context) ([]systemd.UnitStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListUnits", Args: nil})
@@ -321,7 +324,7 @@ func (m *MockClient) ListUnits() ([]systemd.UnitStatus, error) {
 	return out, nil
 }
 
-func (m *MockClient) SetUnitStatus(name string, action systemd.StatusAction) error {
+func (m *MockClient) SetUnitStatus(_ context.Context, name string, action systemd.StatusAction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "SetUnitStatus", Args: []any{name, action}})
@@ -338,7 +341,7 @@ func (m *MockClient) SetUnitStatus(name string, action systemd.StatusAction) err
 	}
 }
 
-func (m *MockClient) LogReplay(name string) (<-chan systemd.JournalEntry, error) {
+func (m *MockClient) LogReplay(_ context.Context, name string) (<-chan systemd.JournalEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "LogReplay", Args: []any{name}})
@@ -363,7 +366,7 @@ func (m *MockClient) LogReplay(name string) (<-chan systemd.JournalEntry, error)
 
 // --- Account ---
 
-func (m *MockClient) CreateAccount(username, password, email, phone, realName string, admin bool) (*account.Account, error) {
+func (m *MockClient) CreateAccount(_ context.Context, username, password, email, phone, realName string, admin bool) (*account.Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "CreateAccount", Args: []any{username, password, email, phone, realName, admin}})
@@ -387,7 +390,7 @@ func (m *MockClient) CreateAccount(username, password, email, phone, realName st
 	return &out, nil
 }
 
-func (m *MockClient) GetAccount(username string) (*account.Account, error) {
+func (m *MockClient) GetAccount(_ context.Context, username string) (*account.Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "GetAccount", Args: []any{username}})
@@ -404,7 +407,7 @@ func (m *MockClient) GetAccount(username string) (*account.Account, error) {
 	return &out, nil
 }
 
-func (m *MockClient) UpdateAccount(username string, fields account.UpdateFields) (*account.Account, error) {
+func (m *MockClient) UpdateAccount(_ context.Context, username string, fields account.UpdateFields) (*account.Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "UpdateAccount", Args: []any{username, fields}})
@@ -436,20 +439,24 @@ func (m *MockClient) UpdateAccount(username string, fields account.UpdateFields)
 	return &out, nil
 }
 
-func (m *MockClient) DeleteAccount(username string) error {
+func (m *MockClient) DisableAccount(_ context.Context, username string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "DeleteAccount", Args: []any{username}})
+	m.Calls = append(m.Calls, MockCall{Method: "DisableAccount", Args: []any{username}})
 
-	if m.DeleteAcctErr != nil {
-		return m.DeleteAcctErr
+	if m.DisableAcctErr != nil {
+		return m.DisableAcctErr
 	}
 
-	delete(m.Accounts, username)
+	acct, ok := m.Accounts[username]
+	if !ok {
+		return fmt.Errorf("account %s not found", username)
+	}
+	acct.Disabled = true
 	return nil
 }
 
-func (m *MockClient) ListAccounts() ([]account.Account, error) {
+func (m *MockClient) ListAccounts(_ context.Context) ([]account.Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListAccounts", Args: nil})
@@ -465,7 +472,7 @@ func (m *MockClient) ListAccounts() ([]account.Account, error) {
 	return out, nil
 }
 
-func (m *MockClient) Authenticate(username, password string) (*AuthenticateResponse, error) {
+func (m *MockClient) Authenticate(_ context.Context, username, password string) (*AuthenticateResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Authenticate", Args: []any{username, password}})
@@ -483,7 +490,7 @@ func (m *MockClient) Authenticate(username, password string) (*AuthenticateRespo
 	return &AuthenticateResponse{Token: m.AuthToken, Account: &out}, nil
 }
 
-func (m *MockClient) RevokeSession(sessionID string) error {
+func (m *MockClient) RevokeSession(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RevokeSession", Args: []any{sessionID}})
@@ -496,7 +503,7 @@ func (m *MockClient) RevokeSession(sessionID string) error {
 	return nil
 }
 
-func (m *MockClient) ListSessions(token string) ([]account.Session, error) {
+func (m *MockClient) ListSessions(_ context.Context, token string) ([]account.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListSessions", Args: []any{token}})
@@ -512,7 +519,7 @@ func (m *MockClient) ListSessions(token string) ([]account.Session, error) {
 	return out, nil
 }
 
-func (m *MockClient) SessionUsername(token string) (string, error) {
+func (m *MockClient) SessionUsername(_ context.Context, token string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "SessionUsername", Args: []any{token}})
@@ -527,9 +534,25 @@ func (m *MockClient) SessionUsername(token string) (string, error) {
 	return "", fmt.Errorf("no sessions")
 }
 
+// --- Audit ---
+
+func (m *MockClient) ListAuditLog(_ context.Context, opts account.AuditListOptions, token string) (*account.AuditPage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListAuditLog", Args: []any{opts, token}})
+
+	if m.ListAuditErr != nil {
+		return nil, m.ListAuditErr
+	}
+
+	entries := make([]account.AuditEntry, len(m.AuditEntries))
+	copy(entries, m.AuditEntries)
+	return &account.AuditPage{Entries: entries}, nil
+}
+
 // --- Status ---
 
-func (m *MockClient) Ping() (*PingResponse, error) {
+func (m *MockClient) Ping(_ context.Context) (*PingResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Ping", Args: nil})

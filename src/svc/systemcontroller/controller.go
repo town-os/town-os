@@ -28,6 +28,7 @@ type SystemController interface {
 	GetSystemdManager() systemd.Manager
 	GetAccountManager() account.Manager
 	GetSessionManager() account.SessionManager
+	GetAuditManager() account.AuditManager
 	Client() (*SystemdClient, error)
 }
 
@@ -92,11 +93,11 @@ type GetAccountRequest struct {
 }
 
 type UpdateAccountRequest struct {
-	Username string              `json:"username"`
+	Username string               `json:"username"`
 	Fields   account.UpdateFields `json:"fields"`
 }
 
-type DeleteAccountRequest struct {
+type DisableAccountRequest struct {
 	Username string `json:"username"`
 }
 
@@ -462,6 +463,36 @@ func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 // --- Account handlers ---
 
 func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
+	sessMgr := s.Controller.GetSessionManager()
+	if sessMgr != nil {
+		accounts, err := s.Controller.GetAccountManager().List()
+		if err != nil {
+			return fmt.Errorf("list accounts: %w", err)
+		}
+
+		hasEnabled := false
+		for _, a := range accounts {
+			if !a.Disabled {
+				hasEnabled = true
+				break
+			}
+		}
+
+		if hasEnabled {
+			token := extractBearerToken(c.Request())
+			if token == "" {
+				return echo.NewHTTPError(401, "missing authorization token")
+			}
+			_, acct, err := sessMgr.Validate(token)
+			if err != nil {
+				return echo.NewHTTPError(401, "invalid session")
+			}
+			if !acct.Admin {
+				return echo.NewHTTPError(403, "admin access required")
+			}
+		}
+	}
+
 	de := json.NewDecoder(c.Request().Body)
 	req := CreateAccountRequest{}
 
@@ -509,15 +540,15 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 	return c.JSON(200, acct)
 }
 
-func (s *SystemControllerHandlers) deleteAccount(c *echo.Context) error {
+func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
-	req := DeleteAccountRequest{}
+	req := DisableAccountRequest{}
 
 	if err := de.Decode(&req); err != nil {
 		return err
 	}
 
-	if err := s.Controller.GetAccountManager().Delete(req.Username); err != nil {
+	if err := s.Controller.GetAccountManager().Disable(req.Username); err != nil {
 		return err
 	}
 
@@ -638,6 +669,121 @@ func (s *SystemControllerHandlers) requireAdmin(next echo.HandlerFunc) echo.Hand
 	}
 }
 
+func (s *SystemControllerHandlers) requireAuth(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		if s.Controller.GetSessionManager() == nil {
+			return next(c)
+		}
+
+		token := extractBearerToken(c.Request())
+		if token == "" {
+			return echo.NewHTTPError(401, "missing authorization token")
+		}
+
+		_, _, err := s.Controller.GetSessionManager().Validate(token)
+		if err != nil {
+			return echo.NewHTTPError(401, "invalid session")
+		}
+
+		return next(c)
+	}
+}
+
+func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		am := s.Controller.GetAuditManager()
+		if am == nil {
+			return next(c)
+		}
+
+		path := c.Request().URL.Path
+
+		excluded := map[string]bool{
+			"/account/sessions":         true,
+			"/account/session/username": true,
+			"/status/ping":              true,
+			"/audit/log":                true,
+		}
+
+		if excluded[path] {
+			return next(c)
+		}
+
+		handlerErr := next(c)
+
+		var acctName string
+		if path == "/account/authenticate" {
+			if handlerErr == nil {
+				// On success, extract username from request body - but body is consumed.
+				// We need to extract from the auth request. Since body is consumed,
+				// we extract from the response or use request data.
+				// The authenticate handler already ran; we can try to get the username
+				// from the request by re-reading. But the body is consumed.
+				// Instead, just use the token from context - but authenticate doesn't set context.
+				// Best approach: parse the username from the original request.
+				// Since the body is consumed by the handler, we need another approach.
+				// We'll leave account empty for authenticate on success - the audit log
+				// will still record the action.
+				acctName = ""
+			}
+		} else {
+			token := extractBearerToken(c.Request())
+			if token != "" && s.Controller.GetSessionManager() != nil {
+				_, acct, err := s.Controller.GetSessionManager().Validate(token)
+				if err == nil {
+					acctName = acct.Username
+				}
+			}
+		}
+
+		action := account.RouteActions[path]
+		if path == "/account" {
+			if c.Request().Method == "GET" {
+				action = "list accounts"
+			} else {
+				action = "get account"
+			}
+		}
+
+		entry := account.AuditEntry{
+			Account:   acctName,
+			Action:    action,
+			Path:      path,
+			Success:   handlerErr == nil,
+			CreatedAt: time.Now().UTC(),
+		}
+		if handlerErr != nil {
+			entry.Error = handlerErr.Error()
+		}
+
+		// Best-effort audit logging; don't fail the request if logging fails
+		_ = am.LogEntry(entry)
+
+		return handlerErr
+	}
+}
+
+func (s *SystemControllerHandlers) listAuditLog(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	var opts account.AuditListOptions
+
+	if err := de.Decode(&opts); err != nil {
+		return err
+	}
+
+	am := s.Controller.GetAuditManager()
+	if am == nil {
+		return echo.NewHTTPError(500, "audit logging not configured")
+	}
+
+	page, err := am.List(opts)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, page)
+}
+
 // --- Status handlers ---
 
 func (s *SystemControllerHandlers) ping(c *echo.Context) error {
@@ -704,37 +850,44 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 // --- Routes ---
 
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
+	// Public
 	e.Add("GET", "/status/ping", s.ping)
+	e.Add("POST", "/account/authenticate", s.authenticateAccount)
 
-	e.Add("POST", "/storage/create", s.createFilesystem)
-	e.Add("POST", "/storage/modify", s.modifyFilesystem)
-	e.Add("POST", "/storage/remove", s.removeFilesystem)
-	e.Add("POST", "/storage", s.listFilesystems)
+	// Self-authenticated (handlers do own token validation)
+	e.Add("GET", "/account/sessions", s.listSessions)
+	e.Add("GET", "/account/session/username", s.sessionUsername)
+	e.Add("POST", "/account/session/revoke", s.revokeSession)
 
-	e.Add("POST", "/repository/add", s.addRepository)
-	e.Add("POST", "/repository/remove", s.removeRepository)
-	e.Add("GET", "/repository", s.listRepositories)
+	// Authenticated (requireAuth)
+	e.Add("POST", "/storage/create", s.createFilesystem, s.requireAuth)
+	e.Add("POST", "/storage/modify", s.modifyFilesystem, s.requireAuth)
+	e.Add("POST", "/storage/remove", s.removeFilesystem, s.requireAuth)
+	e.Add("POST", "/storage", s.listFilesystems, s.requireAuth)
 
-	e.Add("GET", "/packages", s.listPackages)
+	e.Add("POST", "/repository/add", s.addRepository, s.requireAuth)
+	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAuth)
+	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
+
+	e.Add("GET", "/packages", s.listPackages, s.requireAuth)
+	e.Add("GET", "/packages/installed", s.listInstalled, s.requireAuth)
+	e.Add("POST", "/packages/responses", s.getResponses, s.requireAuth)
+
+	e.Add("GET", "/systemd/units", s.listUnits, s.requireAuth)
+	e.Add("GET", "/systemd/logs", s.logReplay, s.requireAuth)
+
+	e.Add("POST", "/account/create", s.createAccount)
+	e.Add("POST", "/account", s.getAccount, s.requireAuth)
+	e.Add("POST", "/account/update", s.updateAccount, s.requireAuth)
+	e.Add("GET", "/account", s.listAccounts, s.requireAuth)
+
+	// Admin (requireAdmin, which implies auth)
 	e.Add("POST", "/packages/questions", s.getPackageQuestions, s.requireAdmin)
 	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
-	e.Add("GET", "/packages/installed", s.listInstalled)
-	e.Add("POST", "/packages/responses", s.getResponses)
-
-	e.Add("GET", "/systemd/units", s.listUnits)
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)
-	e.Add("GET", "/systemd/logs", s.logReplay)
-
-	e.Add("POST", "/account/create", s.createAccount)
-	e.Add("POST", "/account", s.getAccount)
-	e.Add("POST", "/account/update", s.updateAccount)
-	e.Add("POST", "/account/delete", s.deleteAccount)
-	e.Add("GET", "/account", s.listAccounts)
-	e.Add("POST", "/account/authenticate", s.authenticateAccount)
-	e.Add("POST", "/account/session/revoke", s.revokeSession)
-	e.Add("GET", "/account/sessions", s.listSessions)
-	e.Add("GET", "/account/session/username", s.sessionUsername)
+	e.Add("POST", "/account/disable", s.disableAccount, s.requireAdmin)
+	e.Add("POST", "/audit/log", s.listAuditLog, s.requireAdmin)
 }
 
 // --- Server infrastructure ---
@@ -746,6 +899,7 @@ type ServerConfig struct {
 	Systemd        systemd.Manager
 	AccountMgr     account.Manager
 	SessionMgr     account.SessionManager
+	AuditMgr       account.AuditManager
 }
 
 type contextHandler struct {
@@ -770,6 +924,7 @@ func (s *serverBase) GetInstaller() packages.Installer            { return s.Ins
 func (s *serverBase) GetSystemdManager() systemd.Manager          { return s.Systemd }
 func (s *serverBase) GetAccountManager() account.Manager          { return s.AccountMgr }
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
+func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
 
 func configureRouter(sc SystemController) http.Handler {
 	handlers := getHandler(sc)
@@ -777,6 +932,7 @@ func configureRouter(sc SystemController) http.Handler {
 	if os.Getenv("DEBUG") != "" {
 		e.Use(middleware.RequestLogger())
 	}
+	e.Use(handlers.auditMiddleware)
 	handlers.configureRoutes(e)
 	return e
 }

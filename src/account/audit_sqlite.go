@@ -1,0 +1,124 @@
+package account
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+)
+
+const (
+	auditDefaultLimit = 50
+	auditMaxLimit     = 200
+)
+
+type SQLiteAuditManager struct {
+	db *sql.DB
+}
+
+func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS audit_log (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		account    TEXT NOT NULL DEFAULT '',
+		action     TEXT NOT NULL,
+		path       TEXT NOT NULL,
+		success    INTEGER NOT NULL DEFAULT 1,
+		error      TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL
+	)`)
+	if err != nil {
+		return nil, fmt.Errorf("create audit_log table: %w", err)
+	}
+
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(id DESC)`); err != nil {
+		return nil, fmt.Errorf("create idx_audit_created: %w", err)
+	}
+
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_account ON audit_log(account, id DESC)`); err != nil {
+		return nil, fmt.Errorf("create idx_audit_account: %w", err)
+	}
+
+	return &SQLiteAuditManager{db: db}, nil
+}
+
+func (m *SQLiteAuditManager) LogEntry(entry AuditEntry) error {
+	_, err := m.db.Exec(
+		`INSERT INTO audit_log (account, action, path, success, error, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		entry.Account, entry.Action, entry.Path, entry.Success, entry.Error,
+		entry.CreatedAt.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("insert audit entry: %w", err)
+	}
+	return nil
+}
+
+func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err error) {
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = auditDefaultLimit
+	}
+	if limit > auditMaxLimit {
+		limit = auditMaxLimit
+	}
+
+	var args []any
+	query := "SELECT id, account, action, path, success, error, created_at FROM audit_log"
+
+	var where []string
+	if opts.BeforeID > 0 {
+		where = append(where, "id < ?")
+		args = append(args, opts.BeforeID)
+	}
+	if opts.Account != "" {
+		where = append(where, "account = ?")
+		args = append(args, opts.Account)
+	}
+
+	if len(where) > 0 {
+		query += " WHERE " + where[0]
+		for _, w := range where[1:] {
+			query += " AND " + w
+		}
+	}
+
+	query += " ORDER BY id DESC LIMIT ?"
+	args = append(args, limit+1)
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query audit log: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	var entries []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		var createdStr string
+
+		if err := rows.Scan(&e.ID, &e.Account, &e.Action, &e.Path, &e.Success, &e.Error, &createdStr); err != nil {
+			return nil, fmt.Errorf("scan audit entry: %w", err)
+		}
+
+		e.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse created_at: %w", err)
+		}
+
+		entries = append(entries, e)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+
+	hasMore := len(entries) > limit
+	if hasMore {
+		entries = entries[:limit]
+	}
+
+	return &AuditPage{Entries: entries, HasMore: hasMore}, nil
+}

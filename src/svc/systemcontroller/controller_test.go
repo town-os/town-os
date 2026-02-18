@@ -2,6 +2,7 @@ package systemcontroller
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -43,7 +44,7 @@ func initTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController)
 func TestCreateFilesystem(t *testing.T) {
 	c, controller := initTestClient(t)
 
-	if err := c.CreateFilesystem(storage.Filesystem{Name: "test-vol"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test-vol"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -62,7 +63,7 @@ func TestCreateFilesystemMultiple(t *testing.T) {
 
 	names := []string{"vol-a", "vol-b", "vol-c"}
 	for _, name := range names {
-		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("unexpected error creating %q: %v", name, err)
 		}
 	}
@@ -98,12 +99,12 @@ func TestCreateFilesystemBadJSON(t *testing.T) {
 func TestModifyFilesystem(t *testing.T) {
 	c, _ := initTestClient(t)
 
-	if err := c.CreateFilesystem(storage.Filesystem{Name: "test-vol"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test-vol"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// ModifyFilesystem is unimplemented in BtrFS backend, so expect an error
-	err := c.ModifyFilesystem("test-vol", storage.Filesystem{Name: "test-vol", Quota: 1024})
+	err := c.ModifyFilesystem(context.TODO(), "test-vol", storage.Filesystem{Name: "test-vol", Quota: 1024})
 	if err == nil {
 		t.Fatal("expected error from unimplemented ModifyFilesystem")
 	}
@@ -134,11 +135,11 @@ func TestModifyFilesystemBadJSON(t *testing.T) {
 func TestRemoveFilesystem(t *testing.T) {
 	c, controller := initTestClient(t)
 
-	if err := c.CreateFilesystem(storage.Filesystem{Name: "test-vol"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test-vol"}); err != nil {
 		t.Fatalf("CreateFilesystem %q: %v", "test-vol", err)
 	}
 
-	if err := c.RemoveFilesystem("test-vol"); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), "test-vol"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -151,14 +152,14 @@ func TestRemoveFilesystem(t *testing.T) {
 func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 	c, controller := initTestClient(t)
 
-	if err := c.CreateFilesystem(storage.Filesystem{Name: "keep"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "keep"}); err != nil {
 		t.Fatalf("CreateFilesystem %q: %v", "keep", err)
 	}
-	if err := c.CreateFilesystem(storage.Filesystem{Name: "remove"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "remove"}); err != nil {
 		t.Fatalf("CreateFilesystem %q: %v", "remove", err)
 	}
 
-	if err := c.RemoveFilesystem("remove"); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), "remove"); err != nil {
 		t.Fatalf("RemoveFilesystem %q: %v", "remove", err)
 	}
 
@@ -197,7 +198,7 @@ func TestRemoveFilesystemBadJSON(t *testing.T) {
 func TestListFilesystemsEmpty(t *testing.T) {
 	c, _ := initTestClient(t)
 
-	fs, err := c.ListFilesystems("")
+	fs, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -211,12 +212,12 @@ func TestListFilesystemsAll(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	for _, name := range []string{"vol-a", "vol-b", "vol-c"} {
-		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 
-	fs, err := c.ListFilesystems("")
+	fs, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -240,12 +241,12 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	for _, name := range []string{"app-web", "app-db", "data-cache"} {
-		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 
-	fs, err := c.ListFilesystems("app-")
+	fs, err := c.ListFilesystems(context.TODO(), "app-")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 		}
 	}
 
-	fs, err = c.ListFilesystems("data-")
+	fs, err = c.ListFilesystems(context.TODO(), "data-")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -280,11 +281,11 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 	c, _ := initTestClient(t)
 
-	if err := c.CreateFilesystem(storage.Filesystem{Name: "vol-a"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "vol-a"}); err != nil {
 		t.Fatalf("CreateFilesystem %q: %v", "vol-a", err)
 	}
 
-	fs, err := c.ListFilesystems("nope")
+	fs, err := c.ListFilesystems(context.TODO(), "nope")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	// Start empty
-	fs, err := c.ListFilesystems("")
+	fs, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("ListFilesystems (initial): %v", err)
 	}
@@ -329,12 +330,12 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	}
 
 	// Create
-	if err := c.CreateFilesystem(storage.Filesystem{Name: "lifecycle-vol"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "lifecycle-vol"}); err != nil {
 		t.Fatalf("CreateFilesystem %q: %v", "lifecycle-vol", err)
 	}
 
 	// Verify present
-	fs, err = c.ListFilesystems("")
+	fs, err = c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("ListFilesystems (after create): %v", err)
 	}
@@ -346,12 +347,12 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	}
 
 	// Remove
-	if err := c.RemoveFilesystem("lifecycle-vol"); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), "lifecycle-vol"); err != nil {
 		t.Fatalf("RemoveFilesystem %q: %v", "lifecycle-vol", err)
 	}
 
 	// Verify gone
-	fs, err = c.ListFilesystems("")
+	fs, err = c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("ListFilesystems (after remove): %v", err)
 	}
@@ -366,12 +367,12 @@ func TestBulkCreateAndRemove(t *testing.T) {
 	count := 10
 	for i := 0; i < count; i++ {
 		name := fmt.Sprintf("vol-%d", i)
-		if err := c.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 
-	fs, err := c.ListFilesystems("")
+	fs, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("ListFilesystems (after bulk create): %v", err)
 	}
@@ -382,12 +383,12 @@ func TestBulkCreateAndRemove(t *testing.T) {
 	// Remove evens
 	for i := 0; i < count; i += 2 {
 		name := fmt.Sprintf("vol-%d", i)
-		if err := c.RemoveFilesystem(name); err != nil {
+		if err := c.RemoveFilesystem(context.TODO(), name); err != nil {
 			t.Fatalf("RemoveFilesystem %q: %v", name, err)
 		}
 	}
 
-	fs, err = c.ListFilesystems("")
+	fs, err = c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("ListFilesystems (after bulk remove): %v", err)
 	}
@@ -411,11 +412,11 @@ func TestMockClientImplementsClientInterface(t *testing.T) {
 func TestMockClientCreateAndList(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
+	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test"}); err != nil {
 		t.Fatalf("MockClient.CreateFilesystem %q: %v", "test", err)
 	}
 
-	fs, err := m.ListFilesystems("")
+	fs, err := m.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
@@ -432,14 +433,14 @@ func TestMockClientCreateAndList(t *testing.T) {
 func TestMockClientRemove(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
+	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test"}); err != nil {
 		t.Fatalf("MockClient.CreateFilesystem %q: %v", "test", err)
 	}
-	if err := m.RemoveFilesystem("test"); err != nil {
+	if err := m.RemoveFilesystem(context.TODO(), "test"); err != nil {
 		t.Fatalf("MockClient.RemoveFilesystem %q: %v", "test", err)
 	}
 
-	fs, err := m.ListFilesystems("")
+	fs, err := m.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
@@ -452,11 +453,11 @@ func TestMockClientRemove(t *testing.T) {
 func TestMockClientModify(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
+	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test"}); err != nil {
 		t.Fatalf("MockClient.CreateFilesystem %q: %v", "test", err)
 	}
 
-	if err := m.ModifyFilesystem("test", storage.Filesystem{Name: "test", Quota: 2048}); err != nil {
+	if err := m.ModifyFilesystem(context.TODO(), "test", storage.Filesystem{Name: "test", Quota: 2048}); err != nil {
 		t.Fatalf("MockClient.ModifyFilesystem %q: %v", "test", err)
 	}
 
@@ -468,7 +469,7 @@ func TestMockClientModify(t *testing.T) {
 func TestMockClientModifyNotFound(t *testing.T) {
 	m := InitMockClient()
 
-	err := m.ModifyFilesystem("nope", storage.Filesystem{Name: "nope"})
+	err := m.ModifyFilesystem(context.TODO(), "nope", storage.Filesystem{Name: "nope"})
 	if err == nil {
 		t.Fatal("expected error modifying nonexistent filesystem")
 	}
@@ -478,12 +479,12 @@ func TestMockClientListWithPrefix(t *testing.T) {
 	m := InitMockClient()
 
 	for _, name := range []string{"app-web", "app-db", "data-cache"} {
-		if err := m.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
+		if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("MockClient.CreateFilesystem %q: %v", name, err)
 		}
 	}
 
-	fs, err := m.ListFilesystems("app-")
+	fs, err := m.ListFilesystems(context.TODO(), "app-")
 	if err != nil {
 		t.Fatalf("MockClient.ListFilesystems %q: %v", "app-", err)
 	}
@@ -508,25 +509,25 @@ func TestMockClientErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.CreateErr = injected
-	if err := m.CreateFilesystem(storage.Filesystem{Name: "test"}); err != injected {
+	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test"}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.CreateErr = nil
 	m.ListErr = injected
-	if _, err := m.ListFilesystems(""); err != injected {
+	if _, err := m.ListFilesystems(context.TODO(), ""); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.ListErr = nil
 	m.RemoveErr = injected
-	if err := m.RemoveFilesystem("test"); err != injected {
+	if err := m.RemoveFilesystem(context.TODO(), "test"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.RemoveErr = nil
 	m.ModifyErr = injected
-	if err := m.ModifyFilesystem("test", storage.Filesystem{}); err != injected {
+	if err := m.ModifyFilesystem(context.TODO(), "test", storage.Filesystem{}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -534,16 +535,16 @@ func TestMockClientErrorInjection(t *testing.T) {
 func TestMockClientCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.CreateFilesystem(storage.Filesystem{Name: "a"}); err != nil {
+	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "a"}); err != nil {
 		t.Fatalf("MockClient.CreateFilesystem %q: %v", "a", err)
 	}
-	if err := m.CreateFilesystem(storage.Filesystem{Name: "b"}); err != nil {
+	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "b"}); err != nil {
 		t.Fatalf("MockClient.CreateFilesystem %q: %v", "b", err)
 	}
-	if _, err := m.ListFilesystems(""); err != nil {
+	if _, err := m.ListFilesystems(context.TODO(), ""); err != nil {
 		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
-	if err := m.RemoveFilesystem("a"); err != nil {
+	if err := m.RemoveFilesystem(context.TODO(), "a"); err != nil {
 		t.Fatalf("MockClient.RemoveFilesystem %q: %v", "a", err)
 	}
 
@@ -627,11 +628,11 @@ func TestEmptyBody(t *testing.T) {
 func TestMockClientAddAndListRepositories(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != nil {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
-	repos, err := m.ListRepositories()
+	repos, err := m.ListRepositories(context.TODO())
 	if err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
@@ -648,11 +649,11 @@ func TestMockClientAddAndListRepositories(t *testing.T) {
 func TestMockClientAddDuplicateRepository(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != nil {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
-	err := m.AddRepository("https://example.com/repo.git")
+	err := m.AddRepository(context.TODO(), "https://example.com/repo.git")
 	if err == nil {
 		t.Fatal("expected error adding duplicate repository")
 	}
@@ -661,15 +662,15 @@ func TestMockClientAddDuplicateRepository(t *testing.T) {
 func TestMockClientRemoveRepository(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository("https://example.com/repo.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != nil {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
-	if err := m.RemoveRepository("https://example.com/repo.git"); err != nil {
+	if err := m.RemoveRepository(context.TODO(), "https://example.com/repo.git"); err != nil {
 		t.Fatalf("MockClient.RemoveRepository: %v", err)
 	}
 
-	repos, err := m.ListRepositories()
+	repos, err := m.ListRepositories(context.TODO())
 	if err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
@@ -682,7 +683,7 @@ func TestMockClientRemoveRepository(t *testing.T) {
 func TestMockClientRemoveRepositoryNotFound(t *testing.T) {
 	m := InitMockClient()
 
-	err := m.RemoveRepository("nonexistent")
+	err := m.RemoveRepository(context.TODO(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error removing nonexistent repository")
 	}
@@ -693,19 +694,19 @@ func TestMockClientRepositoryErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.AddRepoErr = injected
-	if err := m.AddRepository("https://example.com/repo.git"); err != injected {
+	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.AddRepoErr = nil
 	m.RemRepoErr = injected
-	if err := m.RemoveRepository("test"); err != injected {
+	if err := m.RemoveRepository(context.TODO(), "test"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.RemRepoErr = nil
 	m.ListRepoErr = injected
-	if _, err := m.ListRepositories(); err != injected {
+	if _, err := m.ListRepositories(context.TODO()); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -713,16 +714,16 @@ func TestMockClientRepositoryErrorInjection(t *testing.T) {
 func TestMockClientRepositoryCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository("https://example.com/a.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "https://example.com/a.git"); err != nil {
 		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/a.git", err)
 	}
-	if err := m.AddRepository("https://example.com/b.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "https://example.com/b.git"); err != nil {
 		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/b.git", err)
 	}
-	if _, err := m.ListRepositories(); err != nil {
+	if _, err := m.ListRepositories(context.TODO()); err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
-	if err := m.RemoveRepository("https://example.com/a.git"); err != nil {
+	if err := m.RemoveRepository(context.TODO(), "https://example.com/a.git"); err != nil {
 		t.Fatalf("MockClient.RemoveRepository %q: %v", "https://example.com/a.git", err)
 	}
 
@@ -797,7 +798,7 @@ func TestHTTPRemoveRepositoryNotFound(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	err = c.RemoveRepository("nonexistent")
+	err = c.RemoveRepository(context.TODO(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error removing nonexistent repository")
 	}
@@ -814,7 +815,7 @@ func TestHTTPListRepositoriesEmpty(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	repos, err := c.ListRepositories()
+	repos, err := c.ListRepositories(context.TODO())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -848,7 +849,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	repos, err := c.ListRepositories()
+	repos, err := c.ListRepositories(context.TODO())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -920,7 +921,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages()
+	pkgs, err := c.ListPackages(context.TODO())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -953,7 +954,7 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages()
+	pkgs, err := c.ListPackages(context.TODO())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -999,7 +1000,7 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages()
+	pkgs, err := c.ListPackages(context.TODO())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1069,7 +1070,7 @@ questions:
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	questions, err := c.GetPackageQuestions("nginx")
+	questions, err := c.GetPackageQuestions(context.TODO(), "nginx")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1116,7 +1117,7 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	_, err = c.GetPackageQuestions("nonexistent")
+	_, err = c.GetPackageQuestions(context.TODO(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent package")
 	}
@@ -1198,7 +1199,7 @@ questions:
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	questions, err := c.GetPackageQuestions("nginx")
+	questions, err := c.GetPackageQuestions(context.TODO(), "nginx")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1217,7 +1218,7 @@ func TestMockClientListPackages(t *testing.T) {
 	m := InitMockClient()
 	m.Packages = []string{"nginx@2.0", "redis@7.0"}
 
-	pkgs, err := m.ListPackages()
+	pkgs, err := m.ListPackages(context.TODO())
 	if err != nil {
 		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
@@ -1234,7 +1235,7 @@ func TestMockClientListPackages(t *testing.T) {
 func TestMockClientListPackagesEmpty(t *testing.T) {
 	m := InitMockClient()
 
-	pkgs, err := m.ListPackages()
+	pkgs, err := m.ListPackages(context.TODO())
 	if err != nil {
 		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
@@ -1249,7 +1250,7 @@ func TestMockClientListPackagesErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.ListPkgErr = injected
-	if _, err := m.ListPackages(); err != injected {
+	if _, err := m.ListPackages(context.TODO()); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1258,10 +1259,10 @@ func TestMockClientListPackagesCallLog(t *testing.T) {
 	m := InitMockClient()
 	m.Packages = []string{"nginx@1.0"}
 
-	if _, err := m.ListPackages(); err != nil {
+	if _, err := m.ListPackages(context.TODO()); err != nil {
 		t.Fatalf("MockClient.ListPackages (first call): %v", err)
 	}
-	if _, err := m.ListPackages(); err != nil {
+	if _, err := m.ListPackages(context.TODO()); err != nil {
 		t.Fatalf("MockClient.ListPackages (second call): %v", err)
 	}
 
@@ -1288,7 +1289,7 @@ func TestMockClientGetPackageQuestions(t *testing.T) {
 		},
 	}
 
-	questions, err := m.GetPackageQuestions("nginx")
+	questions, err := m.GetPackageQuestions(context.TODO(), "nginx")
 	if err != nil {
 		t.Fatalf("MockClient.GetPackageQuestions: %v", err)
 	}
@@ -1308,7 +1309,7 @@ func TestMockClientGetPackageQuestions(t *testing.T) {
 func TestMockClientGetPackageQuestionsNotFound(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.GetPackageQuestions("nonexistent")
+	_, err := m.GetPackageQuestions(context.TODO(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent package")
 	}
@@ -1325,7 +1326,7 @@ func TestMockClientGetPackageQuestionsErrorInjection(t *testing.T) {
 	}
 
 	m.QuestionsErr = injected
-	if _, err := m.GetPackageQuestions("nginx"); err != injected {
+	if _, err := m.GetPackageQuestions(context.TODO(), "nginx"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1338,7 +1339,7 @@ func TestMockClientGetPackageQuestionsCallLog(t *testing.T) {
 		},
 	}
 
-	if _, err := m.GetPackageQuestions("nginx"); err != nil {
+	if _, err := m.GetPackageQuestions(context.TODO(), "nginx"); err != nil {
 		t.Fatalf("MockClient.GetPackageQuestions: %v", err)
 	}
 
@@ -1368,7 +1369,7 @@ func TestMockClientGetPackageQuestionsReturnsCopy(t *testing.T) {
 		},
 	}
 
-	questions, err := m.GetPackageQuestions("nginx")
+	questions, err := m.GetPackageQuestions(context.TODO(), "nginx")
 	if err != nil {
 		t.Fatalf("MockClient.GetPackageQuestions: %v", err)
 	}
@@ -1412,7 +1413,7 @@ func TestHTTPInstallPackage(t *testing.T) {
 	c, inst := initInstallTestClient(t)
 
 	responses := packages.Responses{"hostname": "example"}
-	if err := c.InstallPackage("nginx", "1.0", responses); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -1437,7 +1438,7 @@ func TestHTTPInstallPackage(t *testing.T) {
 func TestHTTPInstallPackageNotFound(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	err := c.InstallPackage("nonexistent", "1.0", packages.Responses{})
+	err := c.InstallPackage(context.TODO(), "nonexistent", "1.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected error installing nonexistent package")
 	}
@@ -1467,11 +1468,11 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	c, inst := initInstallTestClient(t)
 
 	// Install first so uninstall can succeed.
-	if err := c.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := c.UninstallPackage("nginx", "1.0"); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -1487,7 +1488,7 @@ func TestHTTPUninstallPackage(t *testing.T) {
 func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	err := c.UninstallPackage("nginx", "1.0")
+	err := c.UninstallPackage(context.TODO(), "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error uninstalling package that is not installed")
 	}
@@ -1516,14 +1517,14 @@ func TestHTTPUninstallPackageBadJSON(t *testing.T) {
 func TestHTTPListInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	if err := c.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage("nginx", "2.0", packages.Responses{}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}); err != nil {
 		t.Fatalf("InstallPackage nginx@2.0: %v", err)
 	}
 
-	pkgs, err := c.ListInstalled()
+	pkgs, err := c.ListInstalled(context.TODO())
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
@@ -1536,7 +1537,7 @@ func TestHTTPListInstalled(t *testing.T) {
 func TestHTTPListInstalledEmpty(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	pkgs, err := c.ListInstalled()
+	pkgs, err := c.ListInstalled(context.TODO())
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
@@ -1550,11 +1551,11 @@ func TestHTTPGetResponses(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := c.InstallPackage("nginx", "1.0", responses); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	got, err := c.GetResponses("nginx", "1.0")
+	got, err := c.GetResponses(context.TODO(), "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetResponses: %v", err)
 	}
@@ -1570,7 +1571,7 @@ func TestHTTPGetResponses(t *testing.T) {
 func TestHTTPGetResponsesNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	_, err := c.GetResponses("nginx", "1.0")
+	_, err := c.GetResponses(context.TODO(), "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error getting responses for uninstalled package")
 	}
@@ -1602,7 +1603,7 @@ func TestMockClientInstallPackage(t *testing.T) {
 	m := InitMockClient()
 
 	responses := packages.Responses{"hostname": "example"}
-	if err := m.InstallPackage("nginx", "1.0", responses); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
 		t.Fatalf("MockClient.InstallPackage: %v", err)
 	}
 
@@ -1622,7 +1623,7 @@ func TestMockClientInstallPackageErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.InstallPkgErr = injected
-	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != injected {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1630,7 +1631,7 @@ func TestMockClientInstallPackageErrorInjection(t *testing.T) {
 func TestMockClientInstallPackageCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage("nginx", "1.0", packages.Responses{"k": "v"}); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"k": "v"}); err != nil {
 		t.Fatalf("MockClient.InstallPackage: %v", err)
 	}
 
@@ -1657,11 +1658,11 @@ func TestMockClientInstallPackageCallLog(t *testing.T) {
 func TestMockClientUninstallPackage(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := m.UninstallPackage("nginx", "1.0"); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
 		t.Fatalf("MockClient.UninstallPackage: %v", err)
 	}
 
@@ -1673,7 +1674,7 @@ func TestMockClientUninstallPackage(t *testing.T) {
 func TestMockClientUninstallPackageNotInstalled(t *testing.T) {
 	m := InitMockClient()
 
-	err := m.UninstallPackage("nginx", "1.0")
+	err := m.UninstallPackage(context.TODO(), "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error uninstalling non-installed package")
 	}
@@ -1684,7 +1685,7 @@ func TestMockClientUninstallPackageErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.UninstallPkgErr = injected
-	if err := m.UninstallPackage("nginx", "1.0"); err != injected {
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1692,11 +1693,11 @@ func TestMockClientUninstallPackageErrorInjection(t *testing.T) {
 func TestMockClientUninstallPackageCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := m.UninstallPackage("nginx", "1.0"); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -1717,14 +1718,14 @@ func TestMockClientUninstallPackageCallLog(t *testing.T) {
 func TestMockClientListInstalled(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage("nginx", "1.0", packages.Responses{}); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
-	if err := m.InstallPackage("redis", "7.0", packages.Responses{}); err != nil {
+	if err := m.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	pkgs, err := m.ListInstalled()
+	pkgs, err := m.ListInstalled(context.TODO())
 	if err != nil {
 		t.Fatalf("MockClient.ListInstalled: %v", err)
 	}
@@ -1737,7 +1738,7 @@ func TestMockClientListInstalled(t *testing.T) {
 func TestMockClientListInstalledEmpty(t *testing.T) {
 	m := InitMockClient()
 
-	pkgs, err := m.ListInstalled()
+	pkgs, err := m.ListInstalled(context.TODO())
 	if err != nil {
 		t.Fatalf("MockClient.ListInstalled: %v", err)
 	}
@@ -1752,7 +1753,7 @@ func TestMockClientListInstalledErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.ListInstalledErr = injected
-	if _, err := m.ListInstalled(); err != injected {
+	if _, err := m.ListInstalled(context.TODO()); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1763,11 +1764,11 @@ func TestMockClientGetResponses(t *testing.T) {
 	m := InitMockClient()
 
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := m.InstallPackage("nginx", "1.0", responses); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	got, err := m.GetResponses("nginx", "1.0")
+	got, err := m.GetResponses(context.TODO(), "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("MockClient.GetResponses: %v", err)
 	}
@@ -1783,7 +1784,7 @@ func TestMockClientGetResponses(t *testing.T) {
 func TestMockClientGetResponsesNotInstalled(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.GetResponses("nginx", "1.0")
+	_, err := m.GetResponses(context.TODO(), "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error for non-installed package")
 	}
@@ -1794,7 +1795,7 @@ func TestMockClientGetResponsesErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.GetResponsesErr = injected
-	if _, err := m.GetResponses("nginx", "1.0"); err != injected {
+	if _, err := m.GetResponses(context.TODO(), "nginx", "1.0"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1802,11 +1803,11 @@ func TestMockClientGetResponsesErrorInjection(t *testing.T) {
 func TestMockClientGetResponsesReturnsCopy(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage("nginx", "1.0", packages.Responses{"hostname": "example"}); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example"}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	got, err := m.GetResponses("nginx", "1.0")
+	got, err := m.GetResponses(context.TODO(), "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetResponses: %v", err)
 	}
@@ -1820,7 +1821,7 @@ func TestMockClientGetResponsesReturnsCopy(t *testing.T) {
 
 // --- Account HTTP endpoint tests ---
 
-func initAccountTestClient(t *testing.T) (*SystemdClient, account.Manager, account.SessionManager) {
+func initAccountTestClient(t *testing.T) (*SystemdClient, account.AuditManager) {
 	t.Helper()
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -1843,8 +1844,13 @@ func initAccountTestClient(t *testing.T) (*SystemdClient, account.Manager, accou
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr, AuditMgr: auditMgr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -1852,13 +1858,23 @@ func initAccountTestClient(t *testing.T) (*SystemdClient, account.Manager, accou
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	return c, mgr, sessMgr
+	// Bootstrap: create admin account (no auth required on empty DB) and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "testadmin", "adminpass", "admin@test.com", "555-0000", "Test Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "testadmin", "adminpass")
+	if err != nil {
+		t.Fatalf("bootstrap Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	return c, auditMgr
 }
 
 func TestHTTPCreateAccount(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	acct, err := c.CreateAccount("alice", "password123", "alice@test.com", "555-1234", "Alice Smith", false)
+	acct, err := c.CreateAccount(context.TODO(), "alice", "password123", "alice@test.com", "555-1234", "Alice Smith", false)
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
@@ -1872,26 +1888,26 @@ func TestHTTPCreateAccount(t *testing.T) {
 }
 
 func TestHTTPCreateAccountDuplicate(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("first CreateAccount: %v", err)
 	}
 
-	_, err := c.CreateAccount("alice", "pass2", "c@d.com", "666", "Alice2", false)
+	_, err := c.CreateAccount(context.TODO(), "alice", "pass2", "c@d.com", "666", "Alice2", false)
 	if err == nil {
 		t.Fatal("expected error creating duplicate account")
 	}
 }
 
 func TestHTTPGetAccount(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	acct, err := c.GetAccount("alice")
+	acct, err := c.GetAccount(context.TODO(), "alice")
 	if err != nil {
 		t.Fatalf("GetAccount: %v", err)
 	}
@@ -1902,23 +1918,23 @@ func TestHTTPGetAccount(t *testing.T) {
 }
 
 func TestHTTPGetAccountNotFound(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	_, err := c.GetAccount("nonexistent")
+	_, err := c.GetAccount(context.TODO(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent account")
 	}
 }
 
 func TestHTTPUpdateAccount(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
 	newEmail := "new@example.com"
-	acct, err := c.UpdateAccount("alice", account.UpdateFields{Email: &newEmail})
+	acct, err := c.UpdateAccount(context.TODO(), "alice", account.UpdateFields{Email: &newEmail})
 	if err != nil {
 		t.Fatalf("UpdateAccount: %v", err)
 	}
@@ -1928,51 +1944,89 @@ func TestHTTPUpdateAccount(t *testing.T) {
 	}
 }
 
-func TestHTTPDeleteAccount(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+func TestHTTPDisableAccount(t *testing.T) {
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
-		t.Fatalf("CreateAccount: %v", err)
+	// create admin to perform the disable
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "admin@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount admin: %v", err)
+	}
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
 	}
 
-	if err := c.DeleteAccount("alice"); err != nil {
-		t.Fatalf("DeleteAccount: %v", err)
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount alice: %v", err)
 	}
 
-	_, err := c.GetAccount("alice")
+	// disable alice using admin token
+	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"alice"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+adminResp.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// verify alice is disabled (can still be fetched)
+	acct, err := c.GetAccount(context.TODO(), "alice")
+	if err != nil {
+		t.Fatalf("GetAccount after disable: %v", err)
+	}
+	if !acct.Disabled {
+		t.Fatal("expected account to be disabled")
+	}
+
+	// verify disabled account cannot authenticate
+	_, err = c.Authenticate(context.TODO(), "alice", "pass")
 	if err == nil {
-		t.Fatal("expected error after delete")
+		t.Fatal("expected error authenticating disabled account")
 	}
 }
 
 func TestHTTPListAccounts(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount alice: %v", err)
 	}
-	if _, err := c.CreateAccount("bob", "pass", "b@b.com", "666", "Bob", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "bob", "pass", "b@b.com", "666", "Bob", false); err != nil {
 		t.Fatalf("CreateAccount bob: %v", err)
 	}
 
-	accounts, err := c.ListAccounts()
+	accounts, err := c.ListAccounts(context.TODO())
 	if err != nil {
 		t.Fatalf("ListAccounts: %v", err)
 	}
 
-	if len(accounts) != 2 {
-		t.Fatalf("expected 2 accounts, got %d", len(accounts))
+	// 3 = testadmin (bootstrap) + alice + bob
+	if len(accounts) != 3 {
+		t.Fatalf("expected 3 accounts, got %d", len(accounts))
 	}
 }
 
 func TestHTTPAuthenticate(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "password123", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password123", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate("alice", "password123")
+	resp, err := c.Authenticate(context.TODO(), "alice", "password123")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -1986,32 +2040,32 @@ func TestHTTPAuthenticate(t *testing.T) {
 }
 
 func TestHTTPAuthenticateWrongPassword(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "password123", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password123", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	_, err := c.Authenticate("alice", "wrongpass")
+	_, err := c.Authenticate(context.TODO(), "alice", "wrongpass")
 	if err == nil {
 		t.Fatal("expected error for wrong password")
 	}
 }
 
 func TestHTTPSessionLifecycle(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate("alice", "pass")
+	resp, err := c.Authenticate(context.TODO(), "alice", "pass")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
 	// list sessions using the token
-	sessions, err := c.ListSessions(resp.Token)
+	sessions, err := c.ListSessions(context.TODO(), resp.Token)
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
@@ -2020,7 +2074,7 @@ func TestHTTPSessionLifecycle(t *testing.T) {
 	}
 
 	// get username
-	username, err := c.SessionUsername(resp.Token)
+	username, err := c.SessionUsername(context.TODO(), resp.Token)
 	if err != nil {
 		t.Fatalf("SessionUsername: %v", err)
 	}
@@ -2029,12 +2083,12 @@ func TestHTTPSessionLifecycle(t *testing.T) {
 	}
 
 	// revoke session
-	if err := c.RevokeSession(sessions[0].ID); err != nil {
+	if err := c.RevokeSession(context.TODO(), sessions[0].ID); err != nil {
 		t.Fatalf("RevokeSession: %v", err)
 	}
 
 	// token should no longer work for listing sessions
-	_, err = c.ListSessions(resp.Token)
+	_, err = c.ListSessions(context.TODO(), resp.Token)
 	if err == nil {
 		t.Fatal("expected error after session revoke")
 	}
@@ -2043,14 +2097,14 @@ func TestHTTPSessionLifecycle(t *testing.T) {
 // --- Admin middleware tests ---
 
 func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
 	// create non-admin user
-	if _, err := c.CreateAccount("user", "pass", "u@b.com", "555", "User", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate("user", "pass")
+	resp, err := c.Authenticate(context.TODO(), "user", "pass")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2126,11 +2180,11 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 	}
 
 	// create admin user
-	if _, err := c.CreateAccount("admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate("admin", "pass")
+	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2159,7 +2213,7 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 }
 
 func TestAdminMiddlewareNoToken(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
 	// try without any token
 	req, err := http.NewRequest("POST", c.route("packages/install"), bytes.NewBufferString(`{"name":"test","version":"1.0"}`))
@@ -2184,18 +2238,436 @@ func TestAdminMiddlewareNoToken(t *testing.T) {
 }
 
 func TestHTTPPingIncludesAccountCount(t *testing.T) {
-	c, _, _ := initAccountTestClient(t)
+	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	ping, err := c.Ping()
+	ping, err := c.Ping(context.TODO())
 	if err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
 
-	if ping.Accounts != 1 {
-		t.Fatalf("expected 1 account in ping, got %d", ping.Accounts)
+	// 2 = testadmin (bootstrap) + alice
+	if ping.Accounts != 2 {
+		t.Fatalf("expected 2 accounts in ping, got %d", ping.Accounts)
+	}
+}
+
+// --- Audit log tests ---
+
+func TestHTTPAuditLogLifecycle(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create admin and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// perform an action (create another account) using admin token
+	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"alice","password":"pass","email":"a@b.com","phone":"555","real_name":"Alice","admin":false}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	if err := httpResp.Body.Close(); err != nil {
+		t.Errorf("resp.Body.Close: %v", err)
+	}
+	if httpResp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", httpResp.StatusCode)
+	}
+
+	// query audit log
+	page, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{}, resp.Token)
+	if err != nil {
+		t.Fatalf("ListAuditLog: %v", err)
+	}
+
+	if len(page.Entries) == 0 {
+		t.Fatal("expected at least one audit entry")
+	}
+
+	// find the create account entry
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "create account" && e.Path == "/account/create" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			if e.Account != "admin" {
+				t.Fatalf("expected account %q, got %q", "admin", e.Account)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'create account' audit entry")
+	}
+}
+
+func TestHTTPAuditLogRequiresAdmin(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create non-admin user
+	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "user", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// try to access audit log
+	_, err = c.ListAuditLog(context.TODO(), account.AuditListOptions{}, resp.Token)
+	if err == nil {
+		t.Fatal("expected error for non-admin accessing audit log")
+	}
+}
+
+func TestHTTPAuditLogPagination(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create admin
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// perform multiple actions via authenticated requests
+	for i := 0; i < 5; i++ {
+		username := fmt.Sprintf("user%d", i)
+		body := fmt.Sprintf(`{"username":"%s","password":"pass","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
+		req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		req.Header.Set("Content-Type", "application/json")
+
+		httpResp, err := c.HTTP.Do(req)
+		if err != nil {
+			t.Fatalf("HTTP Do: %v", err)
+		}
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}
+
+	// get first page of 2
+	page, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{Limit: 2}, resp.Token)
+	if err != nil {
+		t.Fatalf("ListAuditLog page 1: %v", err)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected HasMore to be true")
+	}
+
+	// get second page using cursor
+	cursor := page.Entries[len(page.Entries)-1].ID
+	page2, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{BeforeID: cursor, Limit: 2}, resp.Token)
+	if err != nil {
+		t.Fatalf("ListAuditLog page 2: %v", err)
+	}
+	if len(page2.Entries) < 1 {
+		t.Fatal("expected at least 1 entry in page 2")
+	}
+
+	// entries should not overlap
+	for _, e1 := range page.Entries {
+		for _, e2 := range page2.Entries {
+			if e1.ID == e2.ID {
+				t.Fatalf("found duplicate ID %d across pages", e1.ID)
+			}
+		}
+	}
+}
+
+func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create user and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "alice", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// call session routes
+	if _, err := c.ListSessions(context.TODO(), resp.Token); err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if _, err := c.SessionUsername(context.TODO(), resp.Token); err != nil {
+		t.Fatalf("SessionUsername: %v", err)
+	}
+
+	// call ping
+	if _, err := c.Ping(context.TODO()); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	// check audit log - session routes and ping should not be logged
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		switch e.Path {
+		case "/account/sessions", "/account/session/username", "/status/ping":
+			t.Fatalf("expected path %q to be excluded from audit log", e.Path)
+		}
+	}
+}
+
+func TestHTTPAuditLogIncludesAuthRoutes(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create user and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if _, err := c.Authenticate(context.TODO(), "alice", "pass"); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// check audit log for authenticate entry
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	foundAuth := false
+	for _, e := range page.Entries {
+		if e.Path == "/account/authenticate" {
+			foundAuth = true
+			break
+		}
+	}
+	if !foundAuth {
+		t.Fatal("expected authenticate route to be in audit log")
+	}
+}
+
+// --- requireAuth middleware tests ---
+
+func TestHTTPRequireAuthBlocksUnauthenticated(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// try accessing a protected route without a token
+	req, err := http.NewRequest("POST", c.route("storage/create"), bytes.NewBufferString(`{"name":"test"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 401 {
+		t.Fatalf("expected 401 for unauthenticated request, got %d", httpResp.StatusCode)
+	}
+}
+
+func TestHTTPRequireAuthAllowsAuthenticated(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create non-admin user and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "user", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// access a non-admin protected route (list accounts)
+	req, err := http.NewRequest("GET", c.route("account"), nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 200 {
+		t.Fatalf("expected 200 for authenticated non-admin, got %d", httpResp.StatusCode)
+	}
+}
+
+// --- CreateAccount auth tests ---
+
+func TestHTTPCreateAccountBootstrap(t *testing.T) {
+	// Fresh DB with no accounts — createAccount should succeed without auth
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// No token set — bootstrap should allow account creation
+	acct, err := c.CreateAccount(context.TODO(), "first", "pass", "f@b.com", "555", "First", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	if acct.Username != "first" {
+		t.Fatalf("expected username %q, got %q", "first", acct.Username)
+	}
+}
+
+func TestHTTPCreateAccountRequiresAuthWhenAccountsExist(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// Clear the token — unauthenticated request
+	c.Token = ""
+
+	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"pass","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 401 {
+		t.Fatalf("expected 401 for unauthenticated create, got %d", httpResp.StatusCode)
+	}
+}
+
+func TestHTTPCreateAccountNonAdminForbidden(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create non-admin user
+	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "user", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// try to create account with non-admin token
+	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"pass","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 403 {
+		t.Fatalf("expected 403 for non-admin create, got %d", httpResp.StatusCode)
+	}
+}
+
+func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// disable the bootstrap admin
+	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	if err := httpResp.Body.Close(); err != nil {
+		t.Errorf("resp.Body.Close: %v", err)
+	}
+	if httpResp.StatusCode != 200 {
+		t.Fatalf("expected 200 for disable, got %d", httpResp.StatusCode)
+	}
+
+	// all accounts disabled — bootstrap should allow unauthenticated create
+	c.Token = ""
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "pass", "n@b.com", "555", "New Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount after all disabled: %v", err)
+	}
+	if acct.Username != "newadmin" {
+		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
 	}
 }

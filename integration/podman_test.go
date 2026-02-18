@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func initPodmanSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
 func TestPodmanSystemdListUnits(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
-	units, err := c.ListUnits()
+	units, err := c.ListUnits(context.TODO())
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
@@ -58,14 +59,14 @@ func TestPodmanSystemdStartStop(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
 	// Ensure stopped first.
-	_ = c.SetUnitStatus("town-os-test.service", systemd.Stop)
+	_ = c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Stop)
 
 	// Start.
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Start); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	units, err := c.ListUnits()
+	units, err := c.ListUnits(context.TODO())
 	if err != nil {
 		t.Fatalf("ListUnits after start: %v", err)
 	}
@@ -85,11 +86,11 @@ func TestPodmanSystemdStartStop(t *testing.T) {
 	}
 
 	// Stop.
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Stop); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Stop); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	units, err = c.ListUnits()
+	units, err = c.ListUnits(context.TODO())
 	if err != nil {
 		t.Fatalf("ListUnits after stop: %v", err)
 	}
@@ -109,15 +110,15 @@ func TestPodmanSystemdRestart(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
 	// Ensure started.
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Start); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Restart); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Restart); err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
 
-	units, err := c.ListUnits()
+	units, err := c.ListUnits(context.TODO())
 	if err != nil {
 		t.Fatalf("ListUnits after restart: %v", err)
 	}
@@ -136,12 +137,12 @@ func TestPodmanSystemdRestart(t *testing.T) {
 func TestPodmanSystemdEnableDisable(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Disable); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Disable); err != nil {
 		t.Fatalf("Disable: %v", err)
 	}
 
 	// Re-enable so subsequent tests are unaffected.
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Enable); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Enable); err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
 }
@@ -150,12 +151,12 @@ func TestPodmanSystemdLogReplay(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
 	// Ensure the service has been started at least once.
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Start); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	time.Sleep(time.Second)
 
-	ch, err := c.LogReplay("town-os-test.service")
+	ch, err := c.LogReplay(context.TODO(), "town-os-test.service")
 	if err != nil {
 		t.Fatalf("LogReplay: %v", err)
 	}
@@ -207,12 +208,12 @@ func TestPodmanSystemdLogReplayFields(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
 	// Ensure the service has been started at least once.
-	if err := c.SetUnitStatus("town-os-test.service", systemd.Start); err != nil {
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	time.Sleep(time.Second)
 
-	ch, err := c.LogReplay("town-os-test.service")
+	ch, err := c.LogReplay(context.TODO(), "town-os-test.service")
 	if err != nil {
 		t.Fatalf("LogReplay: %v", err)
 	}

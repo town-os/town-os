@@ -55,6 +55,7 @@ func InitManager(db *sql.DB) (*SQLiteManager, error) {
 		phone         TEXT NOT NULL,
 		real_name     TEXT NOT NULL,
 		admin         INTEGER NOT NULL DEFAULT 0,
+		disabled      INTEGER NOT NULL DEFAULT 0,
 		created_at    TEXT NOT NULL,
 		updated_at    TEXT NOT NULL
 	)`)
@@ -131,15 +132,10 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	adminInt := 0
-	if admin {
-		adminInt = 1
-	}
-
 	_, err = m.db.Exec(
-		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		username, hash, email, phone, realName, adminInt, nowStr, nowStr,
+		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+		username, hash, email, phone, realName, admin, nowStr, nowStr,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "PRIMARY KEY") {
@@ -161,7 +157,7 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 
 func (m *SQLiteManager) Get(username string) (*Account, error) {
 	row := m.db.QueryRow(
-		`SELECT username, password_hash, email, phone, real_name, admin, created_at, updated_at
+		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
 		 FROM accounts WHERE username = ?`, username,
 	)
 	return scanAccount(row)
@@ -169,18 +165,15 @@ func (m *SQLiteManager) Get(username string) (*Account, error) {
 
 func scanAccount(row *sql.Row) (*Account, error) {
 	var acct Account
-	var adminInt int
 	var createdStr, updatedStr string
 
-	err := row.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &adminInt, &createdStr, &updatedStr)
+	err := row.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &acct.Admin, &acct.Disabled, &createdStr, &updatedStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan account: %w", err)
 	}
-
-	acct.Admin = adminInt != 0
 
 	var parseErr error
 	acct.CreatedAt, parseErr = time.Parse(time.RFC3339, createdStr)
@@ -196,6 +189,10 @@ func scanAccount(row *sql.Row) (*Account, error) {
 }
 
 func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account, err error) {
+	if err := validateUpdateFields(fields); err != nil {
+		return nil, err
+	}
+
 	var sets []string
 	var args []any
 
@@ -220,12 +217,8 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 		args = append(args, *fields.RealName)
 	}
 	if fields.Admin != nil {
-		adminInt := 0
-		if *fields.Admin {
-			adminInt = 1
-		}
 		sets = append(sets, "admin = ?")
-		args = append(args, adminInt)
+		args = append(args, *fields.Admin)
 	}
 
 	if len(sets) == 0 {
@@ -256,10 +249,11 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 	return m.Get(username)
 }
 
-func (m *SQLiteManager) Delete(username string) error {
-	res, err := m.db.Exec("DELETE FROM accounts WHERE username = ?", username)
+func (m *SQLiteManager) Disable(username string) error {
+	nowStr := time.Now().UTC().Format(time.RFC3339)
+	res, err := m.db.Exec("UPDATE accounts SET disabled = 1, updated_at = ? WHERE username = ?", nowStr, username)
 	if err != nil {
-		return fmt.Errorf("delete account: %w", err)
+		return fmt.Errorf("disable account: %w", err)
 	}
 
 	n, err := res.RowsAffected()
@@ -275,7 +269,7 @@ func (m *SQLiteManager) Delete(username string) error {
 
 func (m *SQLiteManager) List() ([]Account, error) {
 	rows, err := m.db.Query(
-		`SELECT username, password_hash, email, phone, real_name, admin, created_at, updated_at
+		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
 		 FROM accounts ORDER BY username`,
 	)
 	if err != nil {
@@ -290,14 +284,11 @@ func (m *SQLiteManager) List() ([]Account, error) {
 	var out []Account
 	for rows.Next() {
 		var acct Account
-		var adminInt int
 		var createdStr, updatedStr string
 
-		if err := rows.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &adminInt, &createdStr, &updatedStr); err != nil {
+		if err := rows.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &acct.Admin, &acct.Disabled, &createdStr, &updatedStr); err != nil {
 			return nil, fmt.Errorf("scan account row: %w", err)
 		}
-
-		acct.Admin = adminInt != 0
 
 		acct.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
 		if err != nil {
@@ -322,6 +313,10 @@ func (m *SQLiteManager) Authenticate(username, password string) (*Account, error
 	acct, err := m.Get(username)
 	if err != nil {
 		return nil, ErrInvalidCredentials
+	}
+
+	if acct.Disabled {
+		return nil, ErrAccountDisabled
 	}
 
 	if !verifyPassword(acct.PasswordHash, password) {

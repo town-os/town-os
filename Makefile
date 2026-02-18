@@ -32,6 +32,7 @@ auto-test-full:
 
 lint:
 	go vet ./...
+	go vet -tags=podman ./...
 	$(shell go env GOPATH)/bin/golangci-lint run
 
 btrfs: clean-btrfs

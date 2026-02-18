@@ -25,7 +25,7 @@ type MockManager struct {
 	CreateErr       error
 	GetErr          error
 	UpdateErr       error
-	DeleteErr       error
+	DisableErr      error
 	ListErr         error
 	AuthenticateErr error
 }
@@ -105,6 +105,10 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 		return nil, m.UpdateErr
 	}
 
+	if err := validateUpdateFields(fields); err != nil {
+		return nil, err
+	}
+
 	acct, ok := m.accounts[username]
 	if !ok {
 		return nil, ErrNotFound
@@ -131,20 +135,21 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 	return &out, nil
 }
 
-func (m *MockManager) Delete(username string) error {
+func (m *MockManager) Disable(username string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "Delete", Args: []any{username}})
+	m.Calls = append(m.Calls, MockCall{Method: "Disable", Args: []any{username}})
 
-	if m.DeleteErr != nil {
-		return m.DeleteErr
+	if m.DisableErr != nil {
+		return m.DisableErr
 	}
 
-	if _, ok := m.accounts[username]; !ok {
+	acct, ok := m.accounts[username]
+	if !ok {
 		return ErrNotFound
 	}
 
-	delete(m.accounts, username)
+	acct.Disabled = true
 	return nil
 }
 
@@ -176,6 +181,10 @@ func (m *MockManager) Authenticate(username, password string) (*Account, error) 
 	acct, ok := m.accounts[username]
 	if !ok {
 		return nil, ErrInvalidCredentials
+	}
+
+	if acct.Disabled {
+		return nil, ErrAccountDisabled
 	}
 
 	if acct.PasswordHash != password {

@@ -19,43 +19,46 @@ import (
 )
 
 type Client interface {
-	CreateFilesystem(storage.Filesystem) error
-	ModifyFilesystem(string, storage.Filesystem) error
-	RemoveFilesystem(string) error
-	ListFilesystems(string) ([]storage.Filesystem, error)
+	CreateFilesystem(ctx context.Context, fs storage.Filesystem) error
+	ModifyFilesystem(ctx context.Context, name string, fs storage.Filesystem) error
+	RemoveFilesystem(ctx context.Context, name string) error
+	ListFilesystems(ctx context.Context, prefix string) ([]storage.Filesystem, error)
 
-	AddRepository(string) error
-	RemoveRepository(string) error
-	ListRepositories() ([]RepositoryInfo, error)
+	AddRepository(ctx context.Context, rawURL string) error
+	RemoveRepository(ctx context.Context, name string) error
+	ListRepositories(ctx context.Context) ([]RepositoryInfo, error)
 
-	ListPackages() ([]string, error)
-	GetPackageQuestions(string) (map[string]packages.Question, error)
+	ListPackages(ctx context.Context) ([]string, error)
+	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
 
-	InstallPackage(name, version string, responses packages.Responses) error
-	UninstallPackage(name, version string) error
-	ListInstalled() ([]string, error)
-	GetResponses(name, version string) (packages.Responses, error)
+	InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error
+	UninstallPackage(ctx context.Context, name, version string) error
+	ListInstalled(ctx context.Context) ([]string, error)
+	GetResponses(ctx context.Context, name, version string) (packages.Responses, error)
 
-	ListUnits() ([]systemd.UnitStatus, error)
-	SetUnitStatus(name string, action systemd.StatusAction) error
-	LogReplay(name string) (<-chan systemd.JournalEntry, error)
+	ListUnits(ctx context.Context) ([]systemd.UnitStatus, error)
+	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
+	LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error)
 
-	CreateAccount(username, password, email, phone, realName string, admin bool) (*account.Account, error)
-	GetAccount(username string) (*account.Account, error)
-	UpdateAccount(username string, fields account.UpdateFields) (*account.Account, error)
-	DeleteAccount(username string) error
-	ListAccounts() ([]account.Account, error)
-	Authenticate(username, password string) (*AuthenticateResponse, error)
-	RevokeSession(sessionID string) error
-	ListSessions(token string) ([]account.Session, error)
-	SessionUsername(token string) (string, error)
+	CreateAccount(ctx context.Context, username, password, email, phone, realName string, admin bool) (*account.Account, error)
+	GetAccount(ctx context.Context, username string) (*account.Account, error)
+	UpdateAccount(ctx context.Context, username string, fields account.UpdateFields) (*account.Account, error)
+	DisableAccount(ctx context.Context, username string) error
+	ListAccounts(ctx context.Context) ([]account.Account, error)
+	Authenticate(ctx context.Context, username, password string) (*AuthenticateResponse, error)
+	RevokeSession(ctx context.Context, sessionID string) error
+	ListSessions(ctx context.Context, token string) ([]account.Session, error)
+	SessionUsername(ctx context.Context, token string) (string, error)
 
-	Ping() (*PingResponse, error)
+	ListAuditLog(ctx context.Context, opts account.AuditListOptions, token string) (*account.AuditPage, error)
+
+	Ping(ctx context.Context) (*PingResponse, error)
 }
 
 type SystemdClient struct {
 	HTTP    *http.Client
 	BaseURL string
+	Token   string
 }
 
 func InitClient(sock string) (*SystemdClient, error) {
@@ -80,9 +83,13 @@ func FromClient(client *http.Client, baseURL string) (*SystemdClient, error) {
 }
 
 func (c *SystemdClient) route(path string) string {
-	result, err := url.JoinPath(c.BaseURL, path)
+	pathPart, query, hasQuery := strings.Cut(path, "?")
+	result, err := url.JoinPath(c.BaseURL, pathPart)
 	if err != nil {
-		return fmt.Sprintf("%s/%s", c.BaseURL, path)
+		result = fmt.Sprintf("%s/%s", c.BaseURL, pathPart)
+	}
+	if hasQuery {
+		result = fmt.Sprintf("%s?%s", result, query)
 	}
 	return result
 }
@@ -91,8 +98,17 @@ func pipeEncode(pw *io.PipeWriter, v any) {
 	pw.CloseWithError(json.NewEncoder(pw).Encode(v))
 }
 
-func (c *SystemdClient) postClient(path string, body io.Reader) (err error) {
-	resp, err := c.HTTP.Post(c.route(path), "application/json", body)
+func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Reader) (err error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.route(path), body)
+	if err != nil {
+		return fmt.Errorf("new request in POST %s: %v", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("http error in POST %s: %v", path, err)
 	}
@@ -109,34 +125,57 @@ func (c *SystemdClient) postClient(path string, body io.Reader) (err error) {
 	return nil
 }
 
+func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Response, err error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.route(path), nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request in GET %s: %v", path, err)
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	return c.HTTP.Do(req)
+}
+
+func (c *SystemdClient) postJSON(ctx context.Context, path string, body io.Reader) (_ *http.Response, err error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.route(path), body)
+	if err != nil {
+		return nil, fmt.Errorf("new request in POST %s: %v", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	return c.HTTP.Do(req)
+}
+
 // --- Storage ---
 
-func (c *SystemdClient) CreateFilesystem(fs storage.Filesystem) error {
+func (c *SystemdClient) CreateFilesystem(ctx context.Context, fs storage.Filesystem) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, fs)
 
-	return c.postClient("storage/create", pr)
+	return c.postClient(ctx, "storage/create", pr)
 }
 
-func (c *SystemdClient) ModifyFilesystem(name string, fs storage.Filesystem) error {
+func (c *SystemdClient) ModifyFilesystem(ctx context.Context, name string, fs storage.Filesystem) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, ModifyFilesystemRequest{Name: name, Filesystem: fs})
 
-	return c.postClient("storage/modify", pr)
+	return c.postClient(ctx, "storage/modify", pr)
 }
 
-func (c *SystemdClient) RemoveFilesystem(name string) error {
+func (c *SystemdClient) RemoveFilesystem(ctx context.Context, name string) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, FilesystemName{Name: name})
 
-	return c.postClient("storage/remove", pr)
+	return c.postClient(ctx, "storage/remove", pr)
 }
 
-func (c *SystemdClient) ListFilesystems(prefix string) (_ []storage.Filesystem, err error) {
+func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string) (_ []storage.Filesystem, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, FilesystemName{Name: prefix})
 
-	resp, err := c.HTTP.Post(c.route("storage"), "application/json", pr)
+	resp, err := c.postJSON(ctx, "storage", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListFilesystems: %v", err)
 	}
@@ -150,30 +189,28 @@ func (c *SystemdClient) ListFilesystems(prefix string) (_ []storage.Filesystem, 
 		return nil, fmt.Errorf("unsuccessful status code in ListFilesystems: %v", resp.StatusCode)
 	}
 
-	de := json.NewDecoder(resp.Body)
 	fs := []storage.Filesystem{}
-
-	return fs, de.Decode(&fs)
+	return fs, json.NewDecoder(resp.Body).Decode(&fs)
 }
 
 // --- Repository ---
 
-func (c *SystemdClient) AddRepository(rawURL string) error {
+func (c *SystemdClient) AddRepository(ctx context.Context, rawURL string) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, AddRepositoryRequest{URL: rawURL})
 
-	return c.postClient("repository/add", pr)
+	return c.postClient(ctx, "repository/add", pr)
 }
 
-func (c *SystemdClient) RemoveRepository(name string) error {
+func (c *SystemdClient) RemoveRepository(ctx context.Context, name string) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, RepositoryNameRequest{Name: name})
 
-	return c.postClient("repository/remove", pr)
+	return c.postClient(ctx, "repository/remove", pr)
 }
 
-func (c *SystemdClient) ListRepositories() (_ []RepositoryInfo, err error) {
-	resp, err := c.HTTP.Get(c.route("repository"))
+func (c *SystemdClient) ListRepositories(ctx context.Context) (_ []RepositoryInfo, err error) {
+	resp, err := c.getClient(ctx, "repository")
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListRepositories: %v", err)
 	}
@@ -187,16 +224,14 @@ func (c *SystemdClient) ListRepositories() (_ []RepositoryInfo, err error) {
 		return nil, fmt.Errorf("unsuccessful status code in ListRepositories: %v", resp.StatusCode)
 	}
 
-	de := json.NewDecoder(resp.Body)
 	var repos []RepositoryInfo
-
-	return repos, de.Decode(&repos)
+	return repos, json.NewDecoder(resp.Body).Decode(&repos)
 }
 
 // --- Packages ---
 
-func (c *SystemdClient) ListPackages() (_ []string, err error) {
-	resp, err := c.HTTP.Get(c.route("packages"))
+func (c *SystemdClient) ListPackages(ctx context.Context) (_ []string, err error) {
+	resp, err := c.getClient(ctx, "packages")
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListPackages: %v", err)
 	}
@@ -210,17 +245,15 @@ func (c *SystemdClient) ListPackages() (_ []string, err error) {
 		return nil, fmt.Errorf("unsuccessful status code in ListPackages: %v", resp.StatusCode)
 	}
 
-	de := json.NewDecoder(resp.Body)
 	var pkgs []string
-
-	return pkgs, de.Decode(&pkgs)
+	return pkgs, json.NewDecoder(resp.Body).Decode(&pkgs)
 }
 
-func (c *SystemdClient) GetPackageQuestions(name string) (_ map[string]packages.Question, err error) {
+func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_ map[string]packages.Question, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, PackageNameRequest{Name: name})
 
-	resp, err := c.HTTP.Post(c.route("packages/questions"), "application/json", pr)
+	resp, err := c.postJSON(ctx, "packages/questions", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in GetPackageQuestions: %v", err)
 	}
@@ -234,30 +267,28 @@ func (c *SystemdClient) GetPackageQuestions(name string) (_ map[string]packages.
 		return nil, fmt.Errorf("unsuccessful status code in GetPackageQuestions: %v", resp.StatusCode)
 	}
 
-	de := json.NewDecoder(resp.Body)
 	var questions map[string]packages.Question
-
-	return questions, de.Decode(&questions)
+	return questions, json.NewDecoder(resp.Body).Decode(&questions)
 }
 
 // --- Install ---
 
-func (c *SystemdClient) InstallPackage(name, version string, responses packages.Responses) error {
+func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, InstallRequest{Name: name, Version: version, Responses: responses})
 
-	return c.postClient("packages/install", pr)
+	return c.postClient(ctx, "packages/install", pr)
 }
 
-func (c *SystemdClient) UninstallPackage(name, version string) error {
+func (c *SystemdClient) UninstallPackage(ctx context.Context, name, version string) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, UninstallRequest{Name: name, Version: version})
 
-	return c.postClient("packages/uninstall", pr)
+	return c.postClient(ctx, "packages/uninstall", pr)
 }
 
-func (c *SystemdClient) ListInstalled() (_ []string, err error) {
-	resp, err := c.HTTP.Get(c.route("packages/installed"))
+func (c *SystemdClient) ListInstalled(ctx context.Context) (_ []string, err error) {
+	resp, err := c.getClient(ctx, "packages/installed")
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListInstalled: %v", err)
 	}
@@ -271,17 +302,15 @@ func (c *SystemdClient) ListInstalled() (_ []string, err error) {
 		return nil, fmt.Errorf("unsuccessful status code in ListInstalled: %v", resp.StatusCode)
 	}
 
-	de := json.NewDecoder(resp.Body)
 	var pkgs []string
-
-	return pkgs, de.Decode(&pkgs)
+	return pkgs, json.NewDecoder(resp.Body).Decode(&pkgs)
 }
 
-func (c *SystemdClient) GetResponses(name, version string) (_ packages.Responses, err error) {
+func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) (_ packages.Responses, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, GetResponsesRequest{Name: name, Version: version})
 
-	resp, err := c.HTTP.Post(c.route("packages/responses"), "application/json", pr)
+	resp, err := c.postJSON(ctx, "packages/responses", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in GetResponses: %v", err)
 	}
@@ -295,16 +324,14 @@ func (c *SystemdClient) GetResponses(name, version string) (_ packages.Responses
 		return nil, fmt.Errorf("unsuccessful status code in GetResponses: %v", resp.StatusCode)
 	}
 
-	de := json.NewDecoder(resp.Body)
 	var responses packages.Responses
-
-	return responses, de.Decode(&responses)
+	return responses, json.NewDecoder(resp.Body).Decode(&responses)
 }
 
 // --- Systemd ---
 
-func (c *SystemdClient) ListUnits() (_ []systemd.UnitStatus, err error) {
-	resp, err := c.HTTP.Get(c.route("systemd/units"))
+func (c *SystemdClient) ListUnits(ctx context.Context) (_ []systemd.UnitStatus, err error) {
+	resp, err := c.getClient(ctx, "systemd/units")
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListUnits: %v", err)
 	}
@@ -318,21 +345,19 @@ func (c *SystemdClient) ListUnits() (_ []systemd.UnitStatus, err error) {
 		return nil, fmt.Errorf("unsuccessful status code in ListUnits: %v", resp.StatusCode)
 	}
 
-	de := json.NewDecoder(resp.Body)
 	var units []systemd.UnitStatus
-
-	return units, de.Decode(&units)
+	return units, json.NewDecoder(resp.Body).Decode(&units)
 }
 
-func (c *SystemdClient) SetUnitStatus(name string, action systemd.StatusAction) error {
+func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, SetStatusRequest{Name: name, Action: action})
 
-	return c.postClient("systemd/status", pr)
+	return c.postClient(ctx, "systemd/status", pr)
 }
 
-func (c *SystemdClient) LogReplay(name string) (_ <-chan systemd.JournalEntry, err error) {
-	resp, err := c.HTTP.Get(c.route("systemd/logs") + "?unit=" + url.QueryEscape(name))
+func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {
+	resp, err := c.getClient(ctx, "systemd/logs?unit="+url.QueryEscape(name))
 	if err != nil {
 		return nil, fmt.Errorf("http error in LogReplay: %v", err)
 	}
@@ -373,14 +398,14 @@ func (c *SystemdClient) LogReplay(name string) (_ <-chan systemd.JournalEntry, e
 
 // --- Account ---
 
-func (c *SystemdClient) CreateAccount(username, password, email, phone, realName string, admin bool) (_ *account.Account, err error) {
+func (c *SystemdClient) CreateAccount(ctx context.Context, username, password, email, phone, realName string, admin bool) (_ *account.Account, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, CreateAccountRequest{
 		Username: username, Password: password,
 		Email: email, Phone: phone, RealName: realName, Admin: admin,
 	})
 
-	resp, err := c.HTTP.Post(c.route("account/create"), "application/json", pr)
+	resp, err := c.postJSON(ctx, "account/create", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in CreateAccount: %v", err)
 	}
@@ -398,11 +423,11 @@ func (c *SystemdClient) CreateAccount(username, password, email, phone, realName
 	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
 }
 
-func (c *SystemdClient) GetAccount(username string) (_ *account.Account, err error) {
+func (c *SystemdClient) GetAccount(ctx context.Context, username string) (_ *account.Account, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, GetAccountRequest{Username: username})
 
-	resp, err := c.HTTP.Post(c.route("account"), "application/json", pr)
+	resp, err := c.postJSON(ctx, "account", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in GetAccount: %v", err)
 	}
@@ -420,11 +445,11 @@ func (c *SystemdClient) GetAccount(username string) (_ *account.Account, err err
 	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
 }
 
-func (c *SystemdClient) UpdateAccount(username string, fields account.UpdateFields) (_ *account.Account, err error) {
+func (c *SystemdClient) UpdateAccount(ctx context.Context, username string, fields account.UpdateFields) (_ *account.Account, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, UpdateAccountRequest{Username: username, Fields: fields})
 
-	resp, err := c.HTTP.Post(c.route("account/update"), "application/json", pr)
+	resp, err := c.postJSON(ctx, "account/update", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in UpdateAccount: %v", err)
 	}
@@ -442,15 +467,15 @@ func (c *SystemdClient) UpdateAccount(username string, fields account.UpdateFiel
 	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
 }
 
-func (c *SystemdClient) DeleteAccount(username string) error {
+func (c *SystemdClient) DisableAccount(ctx context.Context, username string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, DeleteAccountRequest{Username: username})
+	go pipeEncode(pw, DisableAccountRequest{Username: username})
 
-	return c.postClient("account/delete", pr)
+	return c.postClient(ctx, "account/disable", pr)
 }
 
-func (c *SystemdClient) ListAccounts() (_ []account.Account, err error) {
-	resp, err := c.HTTP.Get(c.route("account"))
+func (c *SystemdClient) ListAccounts(ctx context.Context) (_ []account.Account, err error) {
+	resp, err := c.getClient(ctx, "account")
 	if err != nil {
 		return nil, fmt.Errorf("http error in ListAccounts: %v", err)
 	}
@@ -468,11 +493,11 @@ func (c *SystemdClient) ListAccounts() (_ []account.Account, err error) {
 	return accounts, json.NewDecoder(resp.Body).Decode(&accounts)
 }
 
-func (c *SystemdClient) Authenticate(username, password string) (_ *AuthenticateResponse, err error) {
+func (c *SystemdClient) Authenticate(ctx context.Context, username, password string) (_ *AuthenticateResponse, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, AuthenticateRequest{Username: username, Password: password})
 
-	resp, err := c.HTTP.Post(c.route("account/authenticate"), "application/json", pr)
+	resp, err := c.postJSON(ctx, "account/authenticate", pr)
 	if err != nil {
 		return nil, fmt.Errorf("http error in Authenticate: %v", err)
 	}
@@ -490,15 +515,15 @@ func (c *SystemdClient) Authenticate(username, password string) (_ *Authenticate
 	return &authResp, json.NewDecoder(resp.Body).Decode(&authResp)
 }
 
-func (c *SystemdClient) RevokeSession(sessionID string) error {
+func (c *SystemdClient) RevokeSession(ctx context.Context, sessionID string) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, RevokeSessionRequest{SessionID: sessionID})
 
-	return c.postClient("account/session/revoke", pr)
+	return c.postClient(ctx, "account/session/revoke", pr)
 }
 
-func (c *SystemdClient) ListSessions(token string) (_ []account.Session, err error) {
-	req, err := http.NewRequest("GET", c.route("account/sessions"), nil)
+func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []account.Session, err error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.route("account/sessions"), nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request in ListSessions: %v", err)
 	}
@@ -522,8 +547,8 @@ func (c *SystemdClient) ListSessions(token string) (_ []account.Session, err err
 	return sessions, json.NewDecoder(resp.Body).Decode(&sessions)
 }
 
-func (c *SystemdClient) SessionUsername(token string) (_ string, err error) {
-	req, err := http.NewRequest("GET", c.route("account/session/username"), nil)
+func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ string, err error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.route("account/session/username"), nil)
 	if err != nil {
 		return "", fmt.Errorf("new request in SessionUsername: %v", err)
 	}
@@ -550,10 +575,41 @@ func (c *SystemdClient) SessionUsername(token string) (_ string, err error) {
 	return result.Username, nil
 }
 
+// --- Audit ---
+
+func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditListOptions, token string) (_ *account.AuditPage, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, opts)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.route("audit/log"), pr)
+	if err != nil {
+		return nil, fmt.Errorf("new request in ListAuditLog: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http error in ListAuditLog: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unsuccessful status code in ListAuditLog: %v", resp.StatusCode)
+	}
+
+	var page account.AuditPage
+	return &page, json.NewDecoder(resp.Body).Decode(&page)
+}
+
 // --- Status ---
 
-func (c *SystemdClient) Ping() (_ *PingResponse, err error) {
-	resp, err := c.HTTP.Get(c.route("status/ping"))
+func (c *SystemdClient) Ping(ctx context.Context) (_ *PingResponse, err error) {
+	resp, err := c.getClient(ctx, "status/ping")
 	if err != nil {
 		return nil, fmt.Errorf("http error in Ping: %v", err)
 	}

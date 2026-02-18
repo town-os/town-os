@@ -115,6 +115,98 @@ func TestCreateAccountMissingContactInfo(t *testing.T) {
 	}
 }
 
+func TestCreateAccountInvalidEmail(t *testing.T) {
+	mgr := initTestDB(t)
+
+	tests := []struct {
+		name  string
+		email string
+	}{
+		{"no at sign", "invalid"},
+		{"no domain", "user@"},
+		{"no local part", "@domain.com"},
+		{"no tld", "user@domain"},
+		{"spaces in email", "user @domain.com"},
+	}
+
+	for _, tt := range tests {
+		_, err := mgr.Create("user-"+tt.name, "pass", tt.email, "555-1234", "Test", false)
+		if err != ErrInvalidEmail {
+			t.Fatalf("%s: expected ErrInvalidEmail, got %v", tt.name, err)
+		}
+	}
+}
+
+func TestCreateAccountInvalidPhone(t *testing.T) {
+	mgr := initTestDB(t)
+
+	tests := []struct {
+		name  string
+		phone string
+	}{
+		{"letters", "abc"},
+		{"special chars", "555#1234"},
+		{"at sign", "555@1234"},
+	}
+
+	for _, tt := range tests {
+		_, err := mgr.Create("user-"+tt.name, "pass", "a@b.com", tt.phone, "Test", false)
+		if err != ErrInvalidPhone {
+			t.Fatalf("%s: expected ErrInvalidPhone, got %v", tt.name, err)
+		}
+	}
+}
+
+func TestCreateAccountValidPhoneFormats(t *testing.T) {
+	mgr := initTestDB(t)
+
+	tests := []struct {
+		name  string
+		phone string
+	}{
+		{"digits only", "5551234"},
+		{"with dashes", "555-123-4567"},
+		{"with parens", "(555) 123-4567"},
+		{"international", "+1-555-123-4567"},
+		{"with dots", "555.123.4567"},
+	}
+
+	for _, tt := range tests {
+		_, err := mgr.Create("user-"+tt.name, "pass", "a@b.com", tt.phone, "Test", false)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tt.name, err)
+		}
+	}
+}
+
+func TestUpdateAccountInvalidEmail(t *testing.T) {
+	mgr := initTestDB(t)
+
+	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	badEmail := "not-an-email"
+	_, err := mgr.Update("alice", UpdateFields{Email: &badEmail})
+	if err != ErrInvalidEmail {
+		t.Fatalf("expected ErrInvalidEmail, got %v", err)
+	}
+}
+
+func TestUpdateAccountInvalidPhone(t *testing.T) {
+	mgr := initTestDB(t)
+
+	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	badPhone := "abc"
+	_, err := mgr.Update("alice", UpdateFields{Phone: &badPhone})
+	if err != ErrInvalidPhone {
+		t.Fatalf("expected ErrInvalidPhone, got %v", err)
+	}
+}
+
 // --- Get tests ---
 
 func TestGetAccount(t *testing.T) {
@@ -226,31 +318,51 @@ func TestUpdateAccountNoFields(t *testing.T) {
 	}
 }
 
-// --- Delete tests ---
+// --- Disable tests ---
 
-func TestDeleteAccount(t *testing.T) {
+func TestDisableAccount(t *testing.T) {
 	mgr := initTestDB(t)
 
 	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := mgr.Delete("alice"); err != nil {
-		t.Fatalf("Delete: %v", err)
+	if err := mgr.Disable("alice"); err != nil {
+		t.Fatalf("Disable: %v", err)
 	}
 
-	_, err := mgr.Get("alice")
-	if err != ErrNotFound {
-		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	acct, err := mgr.Get("alice")
+	if err != nil {
+		t.Fatalf("Get after disable: %v", err)
+	}
+	if !acct.Disabled {
+		t.Fatal("expected account to be disabled")
 	}
 }
 
-func TestDeleteAccountNotFound(t *testing.T) {
+func TestDisableAccountNotFound(t *testing.T) {
 	mgr := initTestDB(t)
 
-	err := mgr.Delete("nonexistent")
+	err := mgr.Disable("nonexistent")
 	if err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDisabledAccountCannotAuthenticate(t *testing.T) {
+	mgr := initTestDB(t)
+
+	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := mgr.Disable("alice"); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+
+	_, err := mgr.Authenticate("alice", "pass")
+	if err != ErrAccountDisabled {
+		t.Fatalf("expected ErrAccountDisabled, got %v", err)
 	}
 }
 
@@ -412,17 +524,23 @@ func TestAccountLifecycle(t *testing.T) {
 		t.Fatalf("expected 1 account, got %d", len(accounts))
 	}
 
-	// Delete
-	if err := mgr.Delete("alice"); err != nil {
-		t.Fatalf("Delete: %v", err)
+	// Disable
+	if err := mgr.Disable("alice"); err != nil {
+		t.Fatalf("Disable: %v", err)
 	}
 
-	// Verify gone
-	accounts, err = mgr.List()
+	// Verify disabled
+	acct, err = mgr.Get("alice")
 	if err != nil {
-		t.Fatalf("List after delete: %v", err)
+		t.Fatalf("Get after disable: %v", err)
 	}
-	if len(accounts) != 0 {
-		t.Fatalf("expected 0 accounts after delete, got %d", len(accounts))
+	if !acct.Disabled {
+		t.Fatal("expected account to be disabled")
+	}
+
+	// Verify cannot authenticate
+	_, err = mgr.Authenticate("alice", "pass123")
+	if err != ErrAccountDisabled {
+		t.Fatalf("expected ErrAccountDisabled, got %v", err)
 	}
 }
