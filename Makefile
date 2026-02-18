@@ -1,5 +1,7 @@
+PODMAN_BASE_IMAGE := town-os-systemd-base
 PODMAN_IMAGE := town-os-systemd-test
 PODMAN_CONTAINER := town-os-systemd-test
+PODMAN_BASE_CONTAINERFILE := integration/testdata/Containerfile.systemd-base
 
 test: lint
 	go test -v ./src/...
@@ -9,10 +11,10 @@ test-integration: lint btrfs podman-image
 	sudo -E cp $$HOME/.gitconfig .gitconfig.tmp
 	sudo -E cp $$HOME/.git-credentials .git-credentials.tmp
 	sudo -E git config --file .gitconfig.tmp credential.helper "store --file $$(pwd)/.git-credentials.tmp"
-	sudo -E GIT_CONFIG_GLOBAL=$$(pwd)/.gitconfig.tmp go test -v ./integration/...
+	sudo -E DEBUG=${DEBUG} GIT_CONFIG_GLOBAL=$$(pwd)/.gitconfig.tmp go test -v ./integration/...
 	sudo rm -f .gitconfig.tmp .git-credentials.tmp
 	make clean-btrfs
-	podman run -d --systemd=true --privileged --name=$(PODMAN_CONTAINER) $(PODMAN_IMAGE)
+	podman run -e DEBUG=${DEBUG} -d --systemd=true --privileged --name=$(PODMAN_CONTAINER) $(PODMAN_IMAGE)
 	@sleep 5
 	podman exec $(PODMAN_CONTAINER) /podman-test -test.v -test.run TestPodman; \
 		EXIT=$$?; \
@@ -48,7 +50,21 @@ clean-btrfs:
 	sudo losetup -j $$(cat town-os.disk) | awk -F: '{ print $$1 }' | xargs -I{} sudo losetup -d {}
 	rm -f btrfs.* town-os.disk
 
-podman-image: clean-podman
+podman-base:
+	@mkdir -p .cache
+	@HASH=$$(sha256sum $(PODMAN_BASE_CONTAINERFILE) | awk '{print $$1}'); \
+	if [ -f .cache/podman-base-hash ] && [ "$$(cat .cache/podman-base-hash)" = "$$HASH" ] && \
+	   podman image exists $(PODMAN_BASE_IMAGE) 2>/dev/null; then \
+		echo "Base image $(PODMAN_BASE_IMAGE) is up to date"; \
+	else \
+		echo "Building base image $(PODMAN_BASE_IMAGE)..."; \
+		podman build -t $(PODMAN_BASE_IMAGE) -f $(PODMAN_BASE_CONTAINERFILE) . && \
+		echo "$$HASH" > .cache/podman-base-hash; \
+	fi
+
+podman-image: podman-base
+	podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
+	podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
 	mkdir -p .cache/go-mod .cache/go-build
 	podman build \
 		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
@@ -56,9 +72,11 @@ podman-image: clean-podman
 		-t $(PODMAN_IMAGE) -f integration/testdata/Containerfile.systemd .
 
 clean-podman:
-	podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
-	podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
-	podman rmi $(PODMAN_IMAGE) 2>/dev/null || true
+	@podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
+	@podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
+	@podman rmi $(PODMAN_IMAGE) 2>/dev/null || true
+	@podman rmi $(PODMAN_BASE_IMAGE) 2>/dev/null || true
+	rm -f .cache/podman-base-hash
 
 test-systemd: podman-image
 	podman run -d --systemd=true --privileged --name=$(PODMAN_CONTAINER) $(PODMAN_IMAGE)

@@ -11,14 +11,8 @@ COPY . /src
 
 RUN CGO_ENABLED=1 go test -c -tags podman -o /podman-test ./integration/...
 
-FROM debian:bookworm
-
-RUN apt-get update && apt-get install -y \
-    systemd systemd-sysv dbus \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+FROM town-os-systemd-base
 
 COPY --from=builder /podman-test /podman-test
 COPY integration/testdata/town-os-test.service /etc/systemd/system/
 RUN systemctl enable town-os-test.service
-
-CMD ["/lib/systemd/systemd"]

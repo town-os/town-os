@@ -932,6 +932,21 @@ func configureRouter(sc SystemController) http.Handler {
 	if os.Getenv("DEBUG") != "" {
 		e.Use(middleware.RequestLogger())
 	}
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins:  []string{"*"},
+		AllowMethods:  []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Content-Type", "Authorization", "Accept"},
+		ExposeHeaders: []string{"Content-Type"},
+		MaxAge:        3600,
+	}))
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if c.Request().Header.Get("Access-Control-Request-Private-Network") == "true" {
+				c.Response().Header().Set("Access-Control-Allow-Private-Network", "true")
+			}
+			return next(c)
+		}
+	})
 	e.Use(handlers.auditMiddleware)
 	handlers.configureRoutes(e)
 	return e
