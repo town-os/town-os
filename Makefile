@@ -36,10 +36,7 @@ production-image: .cache/.images-pulled
 		-t $(PODMAN_IMAGE) -f Containerfile .
 
 test-ui-integration: test-image ui-integration-image btrfs
-	@sudo podman stop $(PODMAN_UI_BACKEND) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_UI_BACKEND) 2>/dev/null || true
-	@sudo podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true
+	@sudo podman rm -f $(PODMAN_UI_CONTAINER) $(PODMAN_UI_BACKEND)
 	sudo podman run -d -e DEBUG=1 --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
@@ -53,8 +50,7 @@ test-ui-integration: test-image ui-integration-image btrfs
 		bun run test:integration
 
 test-integration: lint test-image btrfs
-	@sudo podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
+	@sudo podman rm -f $(PODMAN_CONTAINER)
 	@cp $$HOME/.gitconfig .gitconfig.tmp
 	@cp $$HOME/.git-credentials .git-credentials.tmp
 	@git config --file .gitconfig.tmp credential.helper "store --file /root/.git-credentials"
@@ -83,8 +79,7 @@ test-image: production-image
 PODMAN_DEV_CONTAINER := town-os-dev
 
 dev: test-image btrfs
-	@sudo podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@sudo podman rm -f $(PODMAN_DEV_CONTAINER)
 	@touch dev.db
 	sudo podman run -d -p 8080:8080 -e DEBUG=1 --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
@@ -93,17 +88,14 @@ dev: test-image btrfs
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "API server: http://$$(hostname):8080"
 	cd ui && VITE_API_URL=http://$$(hostname):8080 bun run dev -- --host; \
-		sudo podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true; \
-		sudo podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+		sudo podman rm -f $(PODMAN_DEV_CONTAINER)
 
 dev-clean: clean-btrfs
-	@sudo podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@sudo podman rm -f $(PODMAN_DEV_CONTAINER)
 	rm -f dev.db dev.db-shm dev.db-wal
 
 dev-stop: clean-btrfs
-	@sudo podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+	@sudo podman rm -f $(PODMAN_DEV_CONTAINER)
 
 auto-test:
 	go get github.com/cespare/reflex@latest
@@ -145,21 +137,13 @@ clean: clean-podman
 	rm -f .gitconfig.tmp .git-credentials.tmp
 
 clean-podman: clean-btrfs
-	@sudo podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
-	@sudo podman rmi $(PODMAN_TEST_IMAGE) 2>/dev/null || true
-	@sudo podman stop $(PODMAN_UI_BACKEND) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_UI_BACKEND) 2>/dev/null || true
-	@sudo podman stop $(PODMAN_UI_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_UI_CONTAINER) 2>/dev/null || true
-	@sudo podman rmi $(PODMAN_UI_IMAGE) 2>/dev/null || true
-	@sudo podman stop $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
-	@sudo podman rmi $(PODMAN_IMAGE) 2>/dev/null || true
+	@sudo podman rm -f $(PODMAN_CONTAINER)
+	@sudo podman rm -f $(PODMAN_UI_BACKEND)
+	@sudo podman rm -f $(PODMAN_UI_CONTAINER)
+	@sudo podman rm -f $(PODMAN_DEV_CONTAINER)
 
 test-systemd: test-image btrfs
-	@sudo podman stop $(PODMAN_CONTAINER) 2>/dev/null || true
-	@sudo podman rm $(PODMAN_CONTAINER) 2>/dev/null || true
+	@sudo podman rm -f $(PODMAN_CONTAINER)
 	sudo podman run -e DEBUG=1 -d --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
