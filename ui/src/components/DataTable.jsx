@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Table,
   TableBody,
@@ -25,6 +25,7 @@ import { ChevronUp, ChevronDown, Search, RotateCcw } from 'lucide-react'
  *   sortDirection?: string,
  *   onSortChange?: (key: string, direction: string) => void,
  *   onReset?: () => void,
+ *   onSearchChange?: (search: string) => void,
  * }} props
  */
 export default function DataTable({
@@ -40,8 +41,10 @@ export default function DataTable({
   sortDirection,
   onSortChange,
   onReset,
+  onSearchChange,
 }) {
   const [filter, setFilter] = useState('')
+  const debounceRef = useRef(null)
 
   const searchableKeys = useMemo(
     () => columns.filter((c) => c.sortable !== false).map((c) => c.key),
@@ -50,7 +53,9 @@ export default function DataTable({
 
   const serverSide = hasMore !== undefined
 
+  // In server-side mode with onSearchChange, skip client-side filtering.
   const filtered = useMemo(() => {
+    if (serverSide && onSearchChange) return data
     if (!filter) return data
     const term = filter.toLowerCase()
     return data.filter((row) =>
@@ -59,7 +64,7 @@ export default function DataTable({
         return val != null && String(val).toLowerCase().includes(term)
       }),
     )
-  }, [data, filter, searchableKeys])
+  }, [data, filter, searchableKeys, serverSide, onSearchChange])
 
   const currentPage = page ?? 0
   const displayed = serverSide
@@ -87,14 +92,35 @@ export default function DataTable({
 
   function toggleSort(key) {
     if (!onSortChange) return
+    const col = columns.find((c) => c.key === key)
+    if (col && col.sortValues) {
+      // Cycle through the defined values for this column.
+      const values = col.sortValues
+      const idx = values.indexOf(sortDirection)
+      const next = idx >= 0 && idx < values.length - 1 ? values[idx + 1] : values[0]
+      onSortChange(key, next)
+      return
+    }
     const newDirection =
       sortKey === key && sortDirection === 'asc' ? 'desc' : 'asc'
     onSortChange(key, newDirection)
   }
 
+  // Debounce server-side search.
+  useEffect(() => {
+    if (!onSearchChange) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      onSearchChange(filter)
+    }, 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [filter, onSearchChange])
+
   function handleFilterChange(e) {
     setFilter(e.target.value)
-    if (setPage) setPage(0)
+    if (!onSearchChange && setPage) setPage(0)
   }
 
   return (
@@ -106,6 +132,7 @@ export default function DataTable({
           className="h-9 w-9 shrink-0"
           onClick={() => {
             setFilter('')
+            if (onSearchChange) onSearchChange('')
             if (onReset) onReset()
             if (setPage) setPage(0)
           }}
@@ -147,12 +174,13 @@ export default function DataTable({
                 >
                   <div className="flex items-center gap-1">
                     {col.label}
-                    {sortKey === col.key &&
-                      (sortDirection === 'asc' ? (
-                        <ChevronUp className="h-3 w-3" />
-                      ) : (
-                        <ChevronDown className="h-3 w-3" />
-                      ))}
+                    {sortKey === col.key && (
+                      col.sortValues
+                        ? <span className="text-xs font-normal text-muted-foreground ml-1">({sortDirection})</span>
+                        : sortDirection === 'asc'
+                          ? <ChevronUp className="h-3 w-3" />
+                          : <ChevronDown className="h-3 w-3" />
+                    )}
                   </div>
                 </TableHead>
               ))}

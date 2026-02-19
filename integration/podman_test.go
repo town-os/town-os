@@ -31,7 +31,7 @@ func initPodmanSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
 func TestPodmanSystemdListUnits(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-test"})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestPodmanSystemdStartStop(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-test"})
 	if err != nil {
 		t.Fatalf("ListUnits after start: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestPodmanSystemdStartStop(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	units, err = c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	units, err = c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-test"})
 	if err != nil {
 		t.Fatalf("ListUnits after stop: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestPodmanSystemdRestart(t *testing.T) {
 		t.Fatalf("Restart: %v", err)
 	}
 
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-test"})
 	if err != nil {
 		t.Fatalf("ListUnits after restart: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -4163,5 +4164,218 @@ func TestListParamsQueryString(t *testing.T) {
 	qs = p.QueryString()
 	if qs == "" {
 		t.Fatal("expected non-empty query string")
+	}
+
+	// With search
+	p = ListParams{Search: "nginx"}
+	qs = p.QueryString()
+	if qs == "" {
+		t.Fatal("expected non-empty query string for search")
+	}
+	if !strings.Contains(qs, "search=nginx") {
+		t.Fatalf("expected search=nginx in query string, got %q", qs)
+	}
+}
+
+func TestFilterSearchStrings(t *testing.T) {
+	items := []string{"nginx@1.0", "redis@7.0", "postgres@16.0", "nginx@2.0"}
+
+	// Match
+	result := filterSearch(items, "nginx")
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+
+	// Case insensitive
+	result = filterSearch(items, "REDIS")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result))
+	}
+
+	// No match
+	result = filterSearch(items, "mysql")
+	if len(result) != 0 {
+		t.Fatalf("expected 0 results, got %d", len(result))
+	}
+
+	// Empty search returns all
+	result = filterSearch(items, "")
+	if len(result) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(result))
+	}
+}
+
+func TestFilterSearchStructs(t *testing.T) {
+	units := []systemd.UnitStatus{
+		{Name: "nginx.service", Description: "NGINX web server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "redis.service", Description: "Redis cache", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "postgres.service", Description: "PostgreSQL database", LoadState: "loaded", ActiveState: "failed", SubState: "dead"},
+	}
+
+	// Match by name
+	result := filterSearch(units, "nginx")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for 'nginx', got %d", len(result))
+	}
+	if result[0].Name != "nginx.service" {
+		t.Fatalf("expected nginx.service, got %s", result[0].Name)
+	}
+
+	// Match by description
+	result = filterSearch(units, "database")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for 'database', got %d", len(result))
+	}
+	if result[0].Name != "postgres.service" {
+		t.Fatalf("expected postgres.service, got %s", result[0].Name)
+	}
+
+	// Match by state
+	result = filterSearch(units, "failed")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for 'failed', got %d", len(result))
+	}
+
+	// Case insensitive
+	result = filterSearch(units, "REDIS")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for 'REDIS', got %d", len(result))
+	}
+
+	// Partial match across multiple results
+	result = filterSearch(units, "service")
+	if len(result) != 3 {
+		t.Fatalf("expected 3 results for 'service', got %d", len(result))
+	}
+
+	// No match
+	result = filterSearch(units, "mysql")
+	if len(result) != 0 {
+		t.Fatalf("expected 0 results for 'mysql', got %d", len(result))
+	}
+}
+
+func TestHTTPListUnitsSearch(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "nginx.service", Description: "NGINX web server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "redis.service", Description: "Redis cache", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "postgres.service", Description: "PostgreSQL database", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+	}
+
+	// Search for "nginx"
+	page, err := c.ListUnits(context.TODO(), ListParams{Search: "nginx"})
+	if err != nil {
+		t.Fatalf("ListUnits search: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if page.Entries[0].Name != "nginx.service" {
+		t.Fatalf("expected nginx.service, got %s", page.Entries[0].Name)
+	}
+
+	// Search with pagination
+	page, err = c.ListUnits(context.TODO(), ListParams{Search: "service", Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListUnits search+page: %v", err)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+
+	// No match
+	page, err = c.ListUnits(context.TODO(), ListParams{Search: "mysql"})
+	if err != nil {
+		t.Fatalf("ListUnits search no match: %v", err)
+	}
+	if len(page.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(page.Entries))
+	}
+}
+
+func TestHTTPListPackagesSearch(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo", URL: *u},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo", "redis", "7.0", "image: redis:7.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo", "postgres", "16.0", "image: postgres:16.0\n")
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Search for "nginx"
+	page, err := c.ListPackages(context.TODO(), ListParams{Search: "nginx"})
+	if err != nil {
+		t.Fatalf("ListPackages search: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+
+	// No match
+	page, err = c.ListPackages(context.TODO(), ListParams{Search: "mysql"})
+	if err != nil {
+		t.Fatalf("ListPackages search no match: %v", err)
+	}
+	if len(page.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(page.Entries))
+	}
+}
+
+func TestHTTPListRepositoriesSearch(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u1, _ := url.Parse("https://example.com/core.git")
+	u2, _ := url.Parse("https://example.com/extras.git")
+	rr.Items = []packages.Repository{
+		{Name: "core", URL: *u1},
+		{Name: "extras", URL: *u2},
+	}
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Search by name
+	page, err := c.ListRepositories(context.TODO(), ListParams{Search: "core"})
+	if err != nil {
+		t.Fatalf("ListRepositories search: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if page.Entries[0].Name != "core" {
+		t.Fatalf("expected core, got %s", page.Entries[0].Name)
+	}
+
+	// Search by URL
+	page, err = c.ListRepositories(context.TODO(), ListParams{Search: "extras"})
+	if err != nil {
+		t.Fatalf("ListRepositories search by URL: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
 	}
 }

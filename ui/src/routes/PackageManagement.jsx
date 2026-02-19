@@ -56,25 +56,27 @@ export default function PackageManagement() {
 
   const [pkgPage, setPkgPage] = useState(0)
   const [repoPage, setRepoPage] = useState(0)
+  const [pkgSearch, setPkgSearch] = useState('')
+  const [repoSearch, setRepoSearch] = useState('')
 
   const [pkgData] = usePolling(
-    () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE),
+    () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined),
     { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage],
+    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch],
   )
   const packages = pkgData.entries || []
 
   const [installedData] = usePolling(
-    () => getClient().listInstalled(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE),
+    () => getClient().listInstalled(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined),
     { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage],
+    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch],
   )
   const installed = installedData.entries || []
 
   const [repoData] = usePolling(
-    () => getClient().listRepositories(repoSortKey, repoSortDirection, PAGE_SIZE, repoPage * PAGE_SIZE),
+    () => getClient().listRepositories(repoSortKey, repoSortDirection, PAGE_SIZE, repoPage * PAGE_SIZE, repoSearch || undefined),
     { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, repoSortKey, repoSortDirection, repoPage],
+    [refreshKey, repoSortKey, repoSortDirection, repoPage, repoSearch],
   )
   const repositories = repoData.entries || []
 
@@ -355,6 +357,11 @@ export default function PackageManagement() {
             onReset={() => {
               setPkgSortKey('name')
               setPkgSortDirection('asc')
+              setPkgSearch('')
+              setPkgPage(0)
+            }}
+            onSearchChange={(s) => {
+              setPkgSearch(s)
               setPkgPage(0)
             }}
           />
@@ -388,6 +395,11 @@ export default function PackageManagement() {
             onReset={() => {
               setRepoSortKey('name')
               setRepoSortDirection('asc')
+              setRepoSearch('')
+              setRepoPage(0)
+            }}
+            onSearchChange={(s) => {
+              setRepoSearch(s)
               setRepoPage(0)
             }}
           />

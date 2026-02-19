@@ -326,6 +326,7 @@ func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 	}
 
 	p := readListParams(c)
+	out = filterSearch(out, p.Search)
 	sortSlice(out, p.SortBy, p.SortOrder)
 
 	return c.JSON(200, paginate(out, p.Limit, p.Offset))
@@ -342,6 +343,7 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 	}
 
 	p := readListParams(c)
+	pkgs = filterSearch(pkgs, p.Search)
 	sort.Strings(pkgs)
 	if strings.EqualFold(p.SortOrder, "desc") {
 		sort.Sort(sort.Reverse(sort.StringSlice(pkgs)))
@@ -448,6 +450,7 @@ func (s *SystemControllerHandlers) listInstalled(c *echo.Context) error {
 	}
 
 	p := readListParams(c)
+	pkgs = filterSearch(pkgs, p.Search)
 	sort.Strings(pkgs)
 	if strings.EqualFold(p.SortOrder, "desc") {
 		sort.Sort(sort.Reverse(sort.StringSlice(pkgs)))
@@ -482,6 +485,7 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 	}
 
 	p := readListParams(c)
+	units = filterSearch(units, p.Search)
 	sortSlice(units, p.SortBy, p.SortOrder)
 
 	return c.JSON(200, paginate(units, p.Limit, p.Offset))

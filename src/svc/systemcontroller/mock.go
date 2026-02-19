@@ -204,6 +204,7 @@ func (m *MockClient) ListRepositories(_ context.Context, params ListParams) (*Pa
 
 	out := make([]RepositoryInfo, len(m.Repositories))
 	copy(out, m.Repositories)
+	out = filterSearch(out, params.Search)
 	result := paginate(out, params.Limit, params.Offset)
 	return &result, nil
 }
@@ -221,6 +222,7 @@ func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageRe
 
 	out := make([]string, len(m.Packages))
 	copy(out, m.Packages)
+	out = filterSearch(out, params.Search)
 	result := paginate(out, params.Limit, params.Offset)
 	return &result, nil
 }
@@ -295,6 +297,7 @@ func (m *MockClient) ListInstalled(_ context.Context, params ListParams) (*PageR
 
 	out := make([]string, len(m.Installed))
 	copy(out, m.Installed)
+	out = filterSearch(out, params.Search)
 	result := paginate(out, params.Limit, params.Offset)
 	return &result, nil
 }
@@ -334,6 +337,7 @@ func (m *MockClient) ListUnits(_ context.Context, params ListParams) (*PageResul
 
 	out := make([]systemd.UnitStatus, len(m.Units))
 	copy(out, m.Units)
+	out = filterSearch(out, params.Search)
 	result := paginate(out, params.Limit, params.Offset)
 	return &result, nil
 }

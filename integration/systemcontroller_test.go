@@ -1242,7 +1242,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	}
 
 	// Verify the unit is active via ListUnits.
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-nginx"})
 	if err != nil {
 		t.Fatalf("ListUnits after install: %v", err)
 	}

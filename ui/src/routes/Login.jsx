@@ -30,6 +30,13 @@ export default function Login() {
         .then(() => navigate('/dashboard'))
         .catch(() => {})
     }
+
+    getClient()
+      .ping()
+      .then((resp) => {
+        if (resp.accounts === 0) navigate('/register')
+      })
+      .catch(() => {})
   }, [navigate])
 
   async function handleSubmit(e) {

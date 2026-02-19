@@ -3,17 +3,20 @@ package systemcontroller
 import (
 	"fmt"
 	"net/url"
+	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
 
-// ListParams holds sorting and pagination parameters for list endpoints.
+// ListParams holds sorting, pagination, and search parameters for list endpoints.
 type ListParams struct {
 	SortBy    string `json:"sort_by"`
 	SortOrder string `json:"sort_order"`
 	Limit     int    `json:"limit"`
 	Offset    int    `json:"offset"`
+	Search    string `json:"search"`
 }
 
 // PageResult wraps a paginated slice of entries with metadata.
@@ -63,7 +66,7 @@ func paginate[T any](items []T, limit, offset int) PageResult[T] {
 	}
 }
 
-// readListParams extracts sort and pagination parameters from GET query parameters.
+// readListParams extracts sort, pagination, and search parameters from GET query parameters.
 func readListParams(c *echo.Context) ListParams {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	offset, _ := strconv.Atoi(c.QueryParam("offset"))
@@ -72,6 +75,7 @@ func readListParams(c *echo.Context) ListParams {
 		SortOrder: c.QueryParam("sort_order"),
 		Limit:     limit,
 		Offset:    offset,
+		Search:    c.QueryParam("search"),
 	}
 }
 
@@ -91,8 +95,57 @@ func (p ListParams) QueryString() string {
 	if p.Offset > 0 {
 		params.Set("offset", fmt.Sprintf("%d", p.Offset))
 	}
+	if p.Search != "" {
+		params.Set("search", p.Search)
+	}
 	if len(params) == 0 {
 		return ""
 	}
 	return fmt.Sprintf("?%s", params.Encode())
+}
+
+// filterSearch returns items matching the search term by doing a case-insensitive
+// substring match across all string fields of each item. For string slices, the
+// match is against the string value itself.
+func filterSearch[T any](items []T, search string) []T {
+	if search == "" {
+		return items
+	}
+
+	term := strings.ToLower(search)
+	var out []T
+
+	for _, item := range items {
+		if matchesSearch(item, term) {
+			out = append(out, item)
+		}
+	}
+
+	if out == nil {
+		return []T{}
+	}
+	return out
+}
+
+func matchesSearch[T any](item T, term string) bool {
+	v := reflect.ValueOf(item)
+
+	if v.Kind() == reflect.String {
+		return strings.Contains(strings.ToLower(v.String()), term)
+	}
+
+	if v.Kind() != reflect.Struct {
+		return strings.Contains(strings.ToLower(fmt.Sprint(item)), term)
+	}
+
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.Kind() == reflect.String {
+			if strings.Contains(strings.ToLower(f.String()), term) {
+				return true
+			}
+		}
+	}
+
+	return false
 }

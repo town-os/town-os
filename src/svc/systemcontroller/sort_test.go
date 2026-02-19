@@ -252,3 +252,39 @@ func TestSortSliceStable(t *testing.T) {
 		}
 	}
 }
+
+func TestSortSlicePinnedValue(t *testing.T) {
+	data := []sortTestStruct{
+		{Name: "charlie", Count: 3},
+		{Name: "alice", Count: 1},
+		{Name: "bob", Count: 2},
+		{Name: "alice", Count: 4},
+	}
+
+	// Pin "bob" to the top, rest sorted alphabetically
+	sortSlice(data, "name", "bob")
+
+	if data[0].Name != "bob" {
+		t.Fatalf("expected pinned value 'bob' first, got %q", data[0].Name)
+	}
+	// Rest should be sorted alphabetically
+	if data[1].Name != "alice" || data[2].Name != "alice" || data[3].Name != "charlie" {
+		t.Fatalf("expected rest sorted alphabetically, got %q %q %q", data[1].Name, data[2].Name, data[3].Name)
+	}
+}
+
+func TestSortSlicePinnedValueCaseInsensitive(t *testing.T) {
+	data := []sortTestStruct{
+		{Name: "active", Count: 1},
+		{Name: "failed", Count: 2},
+		{Name: "inactive", Count: 3},
+		{Name: "active", Count: 4},
+	}
+
+	// Pin "Failed" (case insensitive) to the top
+	sortSlice(data, "name", "Failed")
+
+	if data[0].Name != "failed" {
+		t.Fatalf("expected pinned value 'failed' first, got %q", data[0].Name)
+	}
+}

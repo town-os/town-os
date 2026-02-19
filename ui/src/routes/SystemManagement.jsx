@@ -37,11 +37,11 @@ import {
 /** Render parsed field segments as styled JSX spans. */
 function renderFields(text, keyPrefix) {
   const fields = parseFields(text)
-  if (fields.length === 0) return text
-  if (fields.length === 1 && fields[0].type === 'text') return text
+  if (fields.length === 0) return <span style={{ color: '#444' }}>{text}</span>
+  if (fields.length === 1 && fields[0].type === 'text') return <span style={{ color: '#444' }}>{text}</span>
   return fields.map((f, i) => {
     if (f.type === 'text') {
-      return <span key={`${keyPrefix}-t${i}`}>{f.value}</span>
+      return <span key={`${keyPrefix}-t${i}`} style={{ color: '#444' }}>{f.value}</span>
     }
     return [
       <span key={`${keyPrefix}-k${i}`} style={{ color: '#666', fontWeight: 'bold' }}>{f.name}</span>,
@@ -119,11 +119,12 @@ export default function SystemManagement() {
   }
 
   const PAGE_SIZE = 20
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [unitData] = usePolling(
-    () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE),
+    () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, searchTerm || undefined),
     { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, sortKey, sortDirection, page],
+    [refreshKey, sortKey, sortDirection, page, searchTerm],
   )
   const units = unitData.entries || []
 
@@ -312,6 +313,7 @@ export default function SystemManagement() {
     {
       key: 'UnitFileState',
       label: 'Enabled',
+      sortValues: ['enabled', 'disabled', 'static', 'masked'],
       transform: (v) => {
         const variant =
           v === 'enabled'
@@ -325,6 +327,7 @@ export default function SystemManagement() {
     {
       key: 'ActiveState',
       label: 'Status',
+      sortValues: ['active', 'inactive', 'failed'],
       transform: (v) => {
         const variant =
           v === 'active'
@@ -433,6 +436,11 @@ export default function SystemManagement() {
         onReset={() => {
           setSortKey('Name')
           setSortDirection('asc')
+          setSearchTerm('')
+          setPage(0)
+        }}
+        onSearchChange={(s) => {
+          setSearchTerm(s)
           setPage(0)
         }}
       />

@@ -197,6 +197,17 @@ describe('SystemControllerClient', () => {
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
+
+    it('sends search query param', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1 })
+      client.setToken('tok')
+
+      await client.listUnits('Name', 'asc', 20, 0, 'nginx')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('search=nginx'),
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
   })
 
   describe('setUnitStatus', () => {

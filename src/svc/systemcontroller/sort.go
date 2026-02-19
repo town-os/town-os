@@ -22,6 +22,26 @@ func sortSlice[T any](slice []T, sortBy, sortOrder string) []T {
 		return slice
 	}
 
+	// If sortOrder is not "asc" or "desc", treat it as a pinned value:
+	// items whose field matches the value come first, rest sorted alphabetically.
+	if sortOrder != "" && !strings.EqualFold(sortOrder, "asc") && !strings.EqualFold(sortOrder, "desc") {
+		pinned := strings.ToLower(sortOrder)
+		sort.SliceStable(slice, func(i, j int) bool {
+			av := strings.ToLower(fmt.Sprint(reflect.ValueOf(slice[i]).Field(idx).Interface()))
+			bv := strings.ToLower(fmt.Sprint(reflect.ValueOf(slice[j]).Field(idx).Interface()))
+			aMatch := av == pinned
+			bMatch := bv == pinned
+			if aMatch != bMatch {
+				return aMatch
+			}
+			return compareValues(
+				reflect.ValueOf(slice[i]).Field(idx),
+				reflect.ValueOf(slice[j]).Field(idx),
+			) < 0
+		})
+		return slice
+	}
+
 	desc := strings.EqualFold(sortOrder, "desc")
 
 	sort.SliceStable(slice, func(i, j int) bool {

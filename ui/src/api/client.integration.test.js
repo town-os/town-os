@@ -157,9 +157,15 @@ describe('SystemControllerClient integration', () => {
     it('lists units from real systemd', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const units = await client.listUnits()
-      expect(units.length).toBeGreaterThan(0)
-      const testserver = units.find(
+      const result = await client.listUnits(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'town-os-testserver',
+      )
+      expect(result.entries.length).toBeGreaterThan(0)
+      const testserver = result.entries.find(
         (u) => u.Name === 'town-os-testserver.service',
       )
       expect(testserver).toBeDefined()
@@ -257,25 +263,25 @@ describe('SystemControllerClient integration', () => {
     it('starts with default repositories', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const repos = await client.listRepositories()
-      expect(repos.length).toBe(2)
-      expect(repos.some((r) => r.name === 'core')).toBe(true)
-      expect(repos.some((r) => r.name === 'extras')).toBe(true)
+      const result = await client.listRepositories()
+      expect(result.entries.length).toBe(2)
+      expect(result.entries.some((r) => r.name === 'core')).toBe(true)
+      expect(result.entries.some((r) => r.name === 'extras')).toBe(true)
     })
 
     it('lists packages from default repositories', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const pkgs = await client.listPackages()
-      expect(pkgs.length).toBeGreaterThan(0)
+      const result = await client.listPackages()
+      expect(result.entries.length).toBeGreaterThan(0)
     })
 
     it('refreshes repositories', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.refreshRepositories()
-      const repos = await client.listRepositories()
-      expect(repos.length).toBe(2)
+      const result = await client.listRepositories()
+      expect(result.entries.length).toBe(2)
     })
 
     it('adds a repository without credentials', async () => {
@@ -288,9 +294,9 @@ describe('SystemControllerClient integration', () => {
         'extra-core',
         'https://gitea.com/town-os/test-packages-core.git',
       )
-      const repos = await client.listRepositories()
-      expect(repos.length).toBe(3)
-      expect(repos.some((r) => r.name === 'extra-core')).toBe(true)
+      const result = await client.listRepositories()
+      expect(result.entries.length).toBe(3)
+      expect(result.entries.some((r) => r.name === 'extra-core')).toBe(true)
       await client.removeRepository('extra-core')
     })
 
@@ -306,9 +312,9 @@ describe('SystemControllerClient integration', () => {
         repoUser,
         repoPass,
       )
-      const repos = await client.listRepositories()
-      expect(repos.length).toBe(3)
-      expect(repos.find((r) => r.name === 'extra-core').username).toBe(
+      const result = await client.listRepositories()
+      expect(result.entries.length).toBe(3)
+      expect(result.entries.find((r) => r.name === 'extra-core').username).toBe(
         repoUser,
       )
       await client.removeRepository('extra-core')
@@ -349,8 +355,8 @@ describe('SystemControllerClient integration', () => {
           'https://gitea.com/town-os/does-not-exist.git',
         ),
       ).rejects.toThrow()
-      const repos = await client.listRepositories()
-      expect(repos.length).toBe(2)
+      const result = await client.listRepositories()
+      expect(result.entries.length).toBe(2)
     })
 
     it('fails to remove nonexistent repository', async () => {
@@ -411,8 +417,16 @@ describe('SystemControllerClient integration', () => {
       // give the unit time to start
       await new Promise((r) => setTimeout(r, 2000))
 
-      const units = await client.listUnits()
-      const unit = units.find((u) => u.Name === 'town-os-nginx.service')
+      const result = await client.listUnits(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'town-os-nginx',
+      )
+      const unit = result.entries.find(
+        (u) => u.Name === 'town-os-nginx.service',
+      )
       expect(unit).toBeDefined()
       expect(unit.ActiveState).toBe('active')
     })
@@ -425,8 +439,16 @@ describe('SystemControllerClient integration', () => {
       // give time to restart
       await new Promise((r) => setTimeout(r, 2000))
 
-      const units = await client.listUnits()
-      const unit = units.find((u) => u.Name === 'town-os-nginx.service')
+      const result = await client.listUnits(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'town-os-nginx',
+      )
+      const unit = result.entries.find(
+        (u) => u.Name === 'town-os-nginx.service',
+      )
       expect(unit).toBeDefined()
       expect(unit.ActiveState).toBe('active')
     })
@@ -438,8 +460,16 @@ describe('SystemControllerClient integration', () => {
 
       await new Promise((r) => setTimeout(r, 2000))
 
-      const units = await client.listUnits()
-      const unit = units.find((u) => u.Name === 'town-os-nginx.service')
+      const result = await client.listUnits(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'town-os-nginx',
+      )
+      const unit = result.entries.find(
+        (u) => u.Name === 'town-os-nginx.service',
+      )
       expect(unit).toBeDefined()
       expect(unit.ActiveState).not.toBe('active')
     })
@@ -451,8 +481,16 @@ describe('SystemControllerClient integration', () => {
 
       await new Promise((r) => setTimeout(r, 2000))
 
-      const units = await client.listUnits()
-      const unit = units.find((u) => u.Name === 'town-os-nginx.service')
+      const result = await client.listUnits(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'town-os-nginx',
+      )
+      const unit = result.entries.find(
+        (u) => u.Name === 'town-os-nginx.service',
+      )
       expect(unit).toBeDefined()
       expect(unit.ActiveState).toBe('active')
     })
@@ -489,8 +527,16 @@ describe('SystemControllerClient integration', () => {
       client.setToken(resp.token)
       await client.uninstallPackage('nginx', '1.0')
 
-      const units = await client.listUnits()
-      const unit = units.find((u) => u.Name === 'town-os-nginx.service')
+      const result = await client.listUnits(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'town-os-nginx',
+      )
+      const unit = result.entries.find(
+        (u) => u.Name === 'town-os-nginx.service',
+      )
       expect(
         unit === undefined || unit.ActiveState !== 'active',
       ).toBe(true)
