@@ -1,0 +1,98 @@
+package systemcontroller
+
+import (
+	"fmt"
+	"net/url"
+	"strconv"
+
+	"github.com/labstack/echo/v5"
+)
+
+// ListParams holds sorting and pagination parameters for list endpoints.
+type ListParams struct {
+	SortBy    string `json:"sort_by"`
+	SortOrder string `json:"sort_order"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+}
+
+// PageResult wraps a paginated slice of entries with metadata.
+type PageResult[T any] struct {
+	Entries    []T  `json:"entries"`
+	HasMore    bool `json:"has_more"`
+	TotalPages int  `json:"total_pages"`
+}
+
+const defaultPageLimit = 20
+
+// paginate returns a PageResult for the given slice, limit, and offset.
+// A limit of 0 means use the default (defaultPageLimit).
+func paginate[T any](items []T, limit, offset int) PageResult[T] {
+	total := len(items)
+
+	if limit <= 0 {
+		limit = defaultPageLimit
+	}
+
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	totalPages := (total + limit - 1) / limit
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	entries := items[offset:end]
+	if entries == nil {
+		entries = []T{}
+	}
+
+	return PageResult[T]{
+		Entries:    entries,
+		HasMore:    end < total,
+		TotalPages: totalPages,
+	}
+}
+
+// readListParams extracts sort and pagination parameters from GET query parameters.
+func readListParams(c *echo.Context) ListParams {
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	offset, _ := strconv.Atoi(c.QueryParam("offset"))
+	return ListParams{
+		SortBy:    c.QueryParam("sort_by"),
+		SortOrder: c.QueryParam("sort_order"),
+		Limit:     limit,
+		Offset:    offset,
+	}
+}
+
+// QueryString encodes the ListParams as a URL query string (including leading "?").
+// Returns empty string if all fields are zero values.
+func (p ListParams) QueryString() string {
+	params := url.Values{}
+	if p.SortBy != "" {
+		params.Set("sort_by", p.SortBy)
+	}
+	if p.SortOrder != "" {
+		params.Set("sort_order", p.SortOrder)
+	}
+	if p.Limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", p.Limit))
+	}
+	if p.Offset > 0 {
+		params.Set("offset", fmt.Sprintf("%d", p.Offset))
+	}
+	if len(params) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("?%s", params.Encode())
+}

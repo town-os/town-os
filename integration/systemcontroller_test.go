@@ -277,21 +277,21 @@ func TestSystemControllerAddAndListRepository(t *testing.T) {
 		t.Fatalf("error adding repository: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing repositories: %v", err)
 	}
 
-	if len(repos) != 1 {
-		t.Fatalf("expected 1 repository, got %d", len(repos))
+	if len(repos.Entries) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
 	}
 
-	if repos[0].Name != "test-packages-core" {
-		t.Fatalf("expected name %q, got %q", "test-packages-core", repos[0].Name)
+	if repos.Entries[0].Name != "test-packages-core" {
+		t.Fatalf("expected name %q, got %q", "test-packages-core", repos.Entries[0].Name)
 	}
 
-	if repos[0].URL != coreURL.String() {
-		t.Fatalf("expected URL %q, got %q", coreURL.String(), repos[0].URL)
+	if repos.Entries[0].URL != coreURL.String() {
+		t.Fatalf("expected URL %q, got %q", coreURL.String(), repos.Entries[0].URL)
 	}
 }
 
@@ -306,13 +306,13 @@ func TestSystemControllerRemoveRepository(t *testing.T) {
 		t.Fatalf("error removing repository: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after remove: %v", err)
 	}
 
-	if len(repos) != 0 {
-		t.Fatalf("expected 0 repositories after remove, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected 0 repositories after remove, got %d", len(repos.Entries))
 	}
 }
 
@@ -327,17 +327,17 @@ func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 		t.Fatalf("error adding extras: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing repositories: %v", err)
 	}
 
-	if len(repos) != 2 {
-		t.Fatalf("expected 2 repositories, got %d", len(repos))
+	if len(repos.Entries) != 2 {
+		t.Fatalf("expected 2 repositories, got %d", len(repos.Entries))
 	}
 
 	names := map[string]bool{}
-	for _, r := range repos {
+	for _, r := range repos.Entries {
 		names[r.Name] = true
 	}
 
@@ -352,13 +352,13 @@ func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 func TestSystemControllerListRepositoriesEmpty(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
 
-	if len(repos) != 0 {
-		t.Fatalf("expected 0 repositories, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected 0 repositories, got %d", len(repos.Entries))
 	}
 }
 
@@ -376,21 +376,21 @@ func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
 		t.Fatalf("RemoveRepository core: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories after remove: %v", err)
 	}
 
-	if len(repos) != 1 {
-		t.Fatalf("expected 1 repository, got %d", len(repos))
+	if len(repos.Entries) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
 	}
 
-	if repos[0].Name != "test-packages-extras" {
-		t.Fatalf("expected test-packages-extras to remain, got %q", repos[0].Name)
+	if repos.Entries[0].Name != "test-packages-extras" {
+		t.Fatalf("expected test-packages-extras to remain, got %q", repos.Entries[0].Name)
 	}
 
-	if repos[0].URL != extrasURL.String() {
-		t.Fatalf("expected URL %q, got %q", extrasURL.String(), repos[0].URL)
+	if repos.Entries[0].URL != extrasURL.String() {
+		t.Fatalf("expected URL %q, got %q", extrasURL.String(), repos.Entries[0].URL)
 	}
 }
 
@@ -411,13 +411,13 @@ func TestSystemControllerAddRepositoryBadClone(t *testing.T) {
 		t.Fatal("expected error for inaccessible repository")
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
 
-	if len(repos) != 0 {
-		t.Fatalf("expected 0 repositories after failed add, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected 0 repositories after failed add, got %d", len(repos.Entries))
 	}
 }
 
@@ -453,17 +453,17 @@ func TestSystemControllerAddRepositoryWithCredentials(t *testing.T) {
 		t.Fatalf("AddRepository with credentials: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
 
-	if len(repos) != 1 {
-		t.Fatalf("expected 1 repository, got %d", len(repos))
+	if len(repos.Entries) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
 	}
 
-	if repos[0].Username != user {
-		t.Fatalf("expected username %q, got %q", user, repos[0].Username)
+	if repos.Entries[0].Username != user {
+		t.Fatalf("expected username %q, got %q", user, repos.Entries[0].Username)
 	}
 }
 
@@ -479,17 +479,17 @@ func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
 		t.Fatalf("AddRepository without credentials: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
 
-	if len(repos) != 1 {
-		t.Fatalf("expected 1 repository, got %d", len(repos))
+	if len(repos.Entries) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
 	}
 
-	if repos[0].Username != "" {
-		t.Fatalf("expected empty username, got %q", repos[0].Username)
+	if repos.Entries[0].Username != "" {
+		t.Fatalf("expected empty username, got %q", repos.Entries[0].Username)
 	}
 }
 
@@ -498,13 +498,13 @@ func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
 func TestSystemControllerListPackagesEmpty(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	pkgs, err := c.ListPackages(context.TODO(), "", "")
+	pkgs, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 packages, got %d", len(pkgs.Entries))
 	}
 }
 
@@ -515,25 +515,25 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO(), "", "")
+	pkgs, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
 	}
 
 	// Results are sorted, latest version only.
-	if pkgs[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+	if pkgs.Entries[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
 	}
 
 	// Verify round-trip through ParsePackageIdentity.
-	for _, p := range pkgs {
+	for _, p := range pkgs.Entries {
 		pi, err := packages.ParsePackageIdentity(p)
 		if err != nil {
 			t.Fatalf("invalid package identity %q: %v", p, err)
@@ -554,18 +554,18 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO(), "", "")
+	pkgs, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs) != 4 {
-		t.Fatalf("expected 4 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 4 {
+		t.Fatalf("expected 4 packages, got %d", len(pkgs.Entries))
 	}
 
 	// Verify all expected packages present in name@version format.
 	pkgSet := map[string]bool{}
-	for _, p := range pkgs {
+	for _, p := range pkgs.Entries {
 		pkgSet[p] = true
 	}
 
@@ -576,9 +576,9 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 	}
 
 	// Verify sorted order.
-	for i := 1; i < len(pkgs); i++ {
-		if pkgs[i-1] >= pkgs[i] {
-			t.Fatalf("packages not sorted: %q >= %q at index %d", pkgs[i-1], pkgs[i], i)
+	for i := 1; i < len(pkgs.Entries); i++ {
+		if pkgs.Entries[i-1] >= pkgs.Entries[i] {
+			t.Fatalf("packages not sorted: %q >= %q at index %d", pkgs.Entries[i-1], pkgs.Entries[i], i)
 		}
 	}
 }
@@ -598,21 +598,21 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 		t.Fatalf("RemoveRepository extras: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO(), "", "")
+	pkgs, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListPackages after remove: %v", err)
 	}
 
 	// Only core packages should remain.
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages after removing extras, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 packages after removing extras, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+	if pkgs.Entries[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
 	}
 }
 
@@ -766,16 +766,16 @@ func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	pkgs, err := c.ListInstalled(context.TODO(), "", "")
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
 
-	if len(pkgs) != 1 {
-		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
 	}
-	if pkgs[0] != "nginx@1.0" {
-		t.Fatalf("expected nginx@1.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
 	}
 }
 
@@ -812,12 +812,12 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	}
 
 	// Start empty.
-	pkgs, err := c.ListInstalled(context.TODO(), "", "")
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled (initial): %v", err)
 	}
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 installed initially, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 installed initially, got %d", len(pkgs.Entries))
 	}
 
 	// Install with responses.
@@ -827,12 +827,12 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	}
 
 	// Verify installed.
-	pkgs, err = c.ListInstalled(context.TODO(), "", "")
+	pkgs, err = c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled after install: %v", err)
 	}
-	if len(pkgs) != 1 {
-		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
 	}
 
 	// Verify responses.
@@ -850,12 +850,12 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	}
 
 	// Verify uninstalled.
-	pkgs, err = c.ListInstalled(context.TODO(), "", "")
+	pkgs, err = c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled after uninstall: %v", err)
 	}
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
 	// Verify responses gone.
@@ -882,12 +882,12 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
-	pkgs, err := c.ListInstalled(context.TODO(), "", "")
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 installed, got %d", len(pkgs.Entries))
 	}
 
 	// Each package has its own responses.
@@ -912,12 +912,12 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
 	// Start empty
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories at start: %v", err)
 	}
-	if len(repos) != 0 {
-		t.Fatalf("expected empty list, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected empty list, got %d", len(repos.Entries))
 	}
 
 	// Add two repos
@@ -929,12 +929,12 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 
 	// Verify both present
-	repos, err = c.ListRepositories(context.TODO(), "", "")
+	repos, err = c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories after adding repos: %v", err)
 	}
-	if len(repos) != 2 {
-		t.Fatalf("expected 2 repositories, got %d", len(repos))
+	if len(repos.Entries) != 2 {
+		t.Fatalf("expected 2 repositories, got %d", len(repos.Entries))
 	}
 
 	// Remove one
@@ -943,15 +943,15 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 
 	// Verify only extras remains
-	repos, err = c.ListRepositories(context.TODO(), "", "")
+	repos, err = c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories after removing core: %v", err)
 	}
-	if len(repos) != 1 {
-		t.Fatalf("expected 1 repository after remove, got %d", len(repos))
+	if len(repos.Entries) != 1 {
+		t.Fatalf("expected 1 repository after remove, got %d", len(repos.Entries))
 	}
-	if repos[0].Name != "test-packages-extras" {
-		t.Fatalf("expected test-packages-extras to remain, got %q", repos[0].Name)
+	if repos.Entries[0].Name != "test-packages-extras" {
+		t.Fatalf("expected test-packages-extras to remain, got %q", repos.Entries[0].Name)
 	}
 
 	// Remove the last one
@@ -960,12 +960,12 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 
 	// Verify empty
-	repos, err = c.ListRepositories(context.TODO(), "", "")
+	repos, err = c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories at end: %v", err)
 	}
-	if len(repos) != 0 {
-		t.Fatalf("expected 0 repositories at end, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected 0 repositories at end, got %d", len(repos.Entries))
 	}
 }
 
@@ -1076,15 +1076,15 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	}
 
 	// Verify listed as installed
-	pkgs, err := c.ListInstalled(context.TODO(), "", "")
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled after install: %v", err)
 	}
-	if len(pkgs) != 1 {
-		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
 	}
-	if pkgs[0] != "nginx@1.0" {
-		t.Fatalf("expected nginx@1.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
 	// Verify 3 systemd calls from install
@@ -1099,12 +1099,12 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	}
 
 	// Verify uninstalled
-	pkgs, err = c.ListInstalled(context.TODO(), "", "")
+	pkgs, err = c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled after uninstall: %v", err)
 	}
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
 	// Verify all 6 systemd calls with correct unit name
@@ -1230,25 +1230,25 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	}
 
 	// Verify listed as installed.
-	pkgs, err := c.ListInstalled(context.TODO(), "", "")
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled after install: %v", err)
 	}
-	if len(pkgs) != 1 {
-		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
 	}
-	if pkgs[0] != "nginx@1.0" {
-		t.Fatalf("expected nginx@1.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
 	// Verify the unit is active via ListUnits.
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits after install: %v", err)
 	}
 
 	var found bool
-	for _, u := range units {
+	for _, u := range units.Entries {
 		if u.Name == unitName {
 			found = true
 			if u.ActiveState != "active" {
@@ -1267,12 +1267,12 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	}
 
 	// Verify no longer installed.
-	pkgs, err = c.ListInstalled(context.TODO(), "", "")
+	pkgs, err = c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled after uninstall: %v", err)
 	}
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
 	// Verify unit file no longer exists on disk.
@@ -1317,13 +1317,13 @@ func TestSystemControllerSystemdListUnitsEmpty(t *testing.T) {
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd)
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
 
-	if len(units) != 0 {
-		t.Fatalf("expected 0 units, got %d", len(units))
+	if len(units.Entries) != 0 {
+		t.Fatalf("expected 0 units, got %d", len(units.Entries))
 	}
 }
 
@@ -1336,37 +1336,37 @@ func TestSystemControllerSystemdListUnitsPopulated(t *testing.T) {
 	}
 	c := initSystemControllerSystemdTest(t, sd)
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
 
-	if len(units) != 3 {
-		t.Fatalf("expected 3 units, got %d", len(units))
+	if len(units.Entries) != 3 {
+		t.Fatalf("expected 3 units, got %d", len(units.Entries))
 	}
 
-	if units[0].Name != "nginx.service" {
-		t.Fatalf("expected first unit nginx.service, got %q", units[0].Name)
+	if units.Entries[0].Name != "nginx.service" {
+		t.Fatalf("expected first unit nginx.service, got %q", units.Entries[0].Name)
 	}
-	if units[0].Description != "The NGINX HTTP Server" {
-		t.Fatalf("expected description %q, got %q", "The NGINX HTTP Server", units[0].Description)
+	if units.Entries[0].Description != "The NGINX HTTP Server" {
+		t.Fatalf("expected description %q, got %q", "The NGINX HTTP Server", units.Entries[0].Description)
 	}
-	if units[0].ActiveState != "active" {
-		t.Fatalf("expected active state %q, got %q", "active", units[0].ActiveState)
+	if units.Entries[0].ActiveState != "active" {
+		t.Fatalf("expected active state %q, got %q", "active", units.Entries[0].ActiveState)
 	}
-	if units[0].SubState != "running" {
-		t.Fatalf("expected sub state %q, got %q", "running", units[0].SubState)
-	}
-
-	if units[1].Name != "redis.service" {
-		t.Fatalf("expected second unit redis.service, got %q", units[1].Name)
-	}
-	if units[1].ActiveState != "inactive" {
-		t.Fatalf("expected inactive state for redis, got %q", units[1].ActiveState)
+	if units.Entries[0].SubState != "running" {
+		t.Fatalf("expected sub state %q, got %q", "running", units.Entries[0].SubState)
 	}
 
-	if units[2].Name != "postgres.service" {
-		t.Fatalf("expected third unit postgres.service, got %q", units[2].Name)
+	if units.Entries[1].Name != "redis.service" {
+		t.Fatalf("expected second unit redis.service, got %q", units.Entries[1].Name)
+	}
+	if units.Entries[1].ActiveState != "inactive" {
+		t.Fatalf("expected inactive state for redis, got %q", units.Entries[1].ActiveState)
+	}
+
+	if units.Entries[2].Name != "postgres.service" {
+		t.Fatalf("expected third unit postgres.service, got %q", units.Entries[2].Name)
 	}
 }
 
@@ -1377,16 +1377,16 @@ func TestSystemControllerSystemdListUnitsPreservesAllFields(t *testing.T) {
 	}
 	c := initSystemControllerSystemdTest(t, sd)
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
 
-	if len(units) != 1 {
-		t.Fatalf("expected 1 unit, got %d", len(units))
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
 	}
 
-	u := units[0]
+	u := units.Entries[0]
 	if u.Name != "test.service" {
 		t.Fatalf("Name: expected %q, got %q", "test.service", u.Name)
 	}
@@ -1631,12 +1631,12 @@ func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
 	c := initSystemControllerSystemdTest(t, sd)
 
 	// Start with no units.
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits (initial): %v", err)
 	}
-	if len(units) != 0 {
-		t.Fatalf("expected 0 units initially, got %d", len(units))
+	if len(units.Entries) != 0 {
+		t.Fatalf("expected 0 units initially, got %d", len(units.Entries))
 	}
 
 	// Populate units.
@@ -1644,15 +1644,15 @@ func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
 		{Name: "nginx.service", LoadState: "loaded", ActiveState: "inactive", SubState: "dead"},
 	}
 
-	units, err = c.ListUnits(context.TODO(), "", "")
+	units, err = c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits (after populate): %v", err)
 	}
-	if len(units) != 1 {
-		t.Fatalf("expected 1 unit, got %d", len(units))
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
 	}
-	if units[0].ActiveState != "inactive" {
-		t.Fatalf("expected inactive, got %q", units[0].ActiveState)
+	if units.Entries[0].ActiveState != "inactive" {
+		t.Fatalf("expected inactive, got %q", units.Entries[0].ActiveState)
 	}
 
 	// Enable and start.
@@ -1715,10 +1715,10 @@ func TestSystemControllerSystemdListUnitsCallLog(t *testing.T) {
 	}
 	c := initSystemControllerSystemdTest(t, sd)
 
-	if _, err := c.ListUnits(context.TODO(), "", ""); err != nil {
+	if _, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{}); err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
-	if _, err := c.ListUnits(context.TODO(), "", ""); err != nil {
+	if _, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{}); err != nil {
 		t.Fatalf("ListUnits (second): %v", err)
 	}
 

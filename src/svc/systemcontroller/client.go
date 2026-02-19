@@ -28,17 +28,17 @@ type Client interface {
 	AddRepository(ctx context.Context, name, rawURL, username, password string) error
 	RemoveRepository(ctx context.Context, name string) error
 	RefreshRepositories(ctx context.Context) (map[string]string, error)
-	ListRepositories(ctx context.Context, sortBy, sortOrder string) ([]RepositoryInfo, error)
+	ListRepositories(ctx context.Context, params ListParams) (*PageResult[RepositoryInfo], error)
 
-	ListPackages(ctx context.Context, sortBy, sortOrder string) ([]string, error)
+	ListPackages(ctx context.Context, params ListParams) (*PageResult[string], error)
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
 
 	InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error
 	UninstallPackage(ctx context.Context, name, version string) error
-	ListInstalled(ctx context.Context, sortBy, sortOrder string) ([]string, error)
+	ListInstalled(ctx context.Context, params ListParams) (*PageResult[string], error)
 	GetResponses(ctx context.Context, name, version string) (packages.Responses, error)
 
-	ListUnits(ctx context.Context, sortBy, sortOrder string) ([]systemd.UnitStatus, error)
+	ListUnits(ctx context.Context, params ListParams) (*PageResult[systemd.UnitStatus], error)
 	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
 	LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error)
 	LogTail(ctx context.Context, params systemd.LogTailParams) (systemd.LogTailResult, error)
@@ -249,8 +249,8 @@ func (c *SystemdClient) RefreshRepositories(ctx context.Context) (_ map[string]s
 	return errs, nil
 }
 
-func (c *SystemdClient) ListRepositories(ctx context.Context, sortBy, sortOrder string) (_ []RepositoryInfo, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("repository%s", sortQueryString(sortBy, sortOrder)))
+func (c *SystemdClient) ListRepositories(ctx context.Context, params ListParams) (_ *PageResult[RepositoryInfo], err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("repository%s", params.QueryString()))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListRepositories: %w", ErrHTTPRequest, err)
 	}
@@ -262,14 +262,14 @@ func (c *SystemdClient) ListRepositories(ctx context.Context, sortBy, sortOrder 
 		return nil, fmt.Errorf("%w: ListRepositories: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
-	var repos []RepositoryInfo
-	return repos, json.NewDecoder(resp.Body).Decode(&repos)
+	var page PageResult[RepositoryInfo]
+	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
 // --- Packages ---
 
-func (c *SystemdClient) ListPackages(ctx context.Context, sortBy, sortOrder string) (_ []string, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", sortQueryString(sortBy, sortOrder)))
+func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ *PageResult[string], err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", params.QueryString()))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPackages: %w", ErrHTTPRequest, err)
 	}
@@ -281,8 +281,8 @@ func (c *SystemdClient) ListPackages(ctx context.Context, sortBy, sortOrder stri
 		return nil, fmt.Errorf("%w: ListPackages: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
-	var pkgs []string
-	return pkgs, json.NewDecoder(resp.Body).Decode(&pkgs)
+	var page PageResult[string]
+	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
 func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_ map[string]packages.Question, err error) {
@@ -321,8 +321,8 @@ func (c *SystemdClient) UninstallPackage(ctx context.Context, name, version stri
 	return c.postClient(ctx, "packages/uninstall", pr)
 }
 
-func (c *SystemdClient) ListInstalled(ctx context.Context, sortBy, sortOrder string) (_ []string, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages/installed%s", sortQueryString(sortBy, sortOrder)))
+func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_ *PageResult[string], err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages/installed%s", params.QueryString()))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListInstalled: %w", ErrHTTPRequest, err)
 	}
@@ -334,8 +334,8 @@ func (c *SystemdClient) ListInstalled(ctx context.Context, sortBy, sortOrder str
 		return nil, fmt.Errorf("%w: ListInstalled: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
-	var pkgs []string
-	return pkgs, json.NewDecoder(resp.Body).Decode(&pkgs)
+	var page PageResult[string]
+	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
 func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) (_ packages.Responses, err error) {
@@ -360,8 +360,8 @@ func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) 
 
 // --- Systemd ---
 
-func (c *SystemdClient) ListUnits(ctx context.Context, sortBy, sortOrder string) (_ []systemd.UnitStatus, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/units%s", sortQueryString(sortBy, sortOrder)))
+func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *PageResult[systemd.UnitStatus], err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/units%s", params.QueryString()))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListUnits: %w", ErrHTTPRequest, err)
 	}
@@ -373,8 +373,8 @@ func (c *SystemdClient) ListUnits(ctx context.Context, sortBy, sortOrder string)
 		return nil, fmt.Errorf("%w: ListUnits: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
-	var units []systemd.UnitStatus
-	return units, json.NewDecoder(resp.Body).Decode(&units)
+	var page PageResult[systemd.UnitStatus]
+	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
 func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error {

@@ -325,10 +325,10 @@ func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String(), Username: r.Username, Error: errs[r.Name]}
 	}
 
-	sortBy, sortOrder := readSortParams(c)
-	sortSlice(out, sortBy, sortOrder)
+	p := readListParams(c)
+	sortSlice(out, p.SortBy, p.SortOrder)
 
-	return c.JSON(200, out)
+	return c.JSON(200, paginate(out, p.Limit, p.Offset))
 }
 
 // --- Package handlers ---
@@ -341,13 +341,13 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 		return err
 	}
 
-	_, sortOrder := readSortParams(c)
+	p := readListParams(c)
 	sort.Strings(pkgs)
-	if strings.EqualFold(sortOrder, "desc") {
+	if strings.EqualFold(p.SortOrder, "desc") {
 		sort.Sort(sort.Reverse(sort.StringSlice(pkgs)))
 	}
 
-	return c.JSON(200, pkgs)
+	return c.JSON(200, paginate(pkgs, p.Limit, p.Offset))
 }
 
 func (s *SystemControllerHandlers) getPackageQuestions(c *echo.Context) error {
@@ -447,13 +447,13 @@ func (s *SystemControllerHandlers) listInstalled(c *echo.Context) error {
 		return err
 	}
 
-	_, sortOrder := readSortParams(c)
+	p := readListParams(c)
 	sort.Strings(pkgs)
-	if strings.EqualFold(sortOrder, "desc") {
+	if strings.EqualFold(p.SortOrder, "desc") {
 		sort.Sort(sort.Reverse(sort.StringSlice(pkgs)))
 	}
 
-	return c.JSON(200, pkgs)
+	return c.JSON(200, paginate(pkgs, p.Limit, p.Offset))
 }
 
 func (s *SystemControllerHandlers) getResponses(c *echo.Context) error {
@@ -481,10 +481,10 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 		return err
 	}
 
-	sortBy, sortOrder := readSortParams(c)
-	sortSlice(units, sortBy, sortOrder)
+	p := readListParams(c)
+	sortSlice(units, p.SortBy, p.SortOrder)
 
-	return c.JSON(200, units)
+	return c.JSON(200, paginate(units, p.Limit, p.Offset))
 }
 
 func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
@@ -839,6 +839,16 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/account/me":               true,
 			"/status/ping":              true,
 			"/audit/log":                true,
+			"/storage":                  true,
+			"/repository":               true,
+			"/packages":                 true,
+			"/packages/installed":       true,
+			"/packages/responses":       true,
+			"/packages/questions":       true,
+			"/systemd/units":            true,
+			"/systemd/logs":             true,
+			"/systemd/logs/tail":        true,
+			"/account":                  true,
 		}
 
 		if excluded[path] {
@@ -873,13 +883,6 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		}
 
 		action := account.RouteActions[path]
-		if path == "/account" {
-			if c.Request().Method == "GET" {
-				action = "list accounts"
-			} else {
-				action = "get account"
-			}
-		}
 
 		entry := account.AuditEntry{
 			Account:   acctName,

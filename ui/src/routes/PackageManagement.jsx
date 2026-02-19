@@ -52,30 +52,35 @@ export default function PackageManagement() {
   const [repoSortKey, setRepoSortKey] = useState('name')
   const [repoSortDirection, setRepoSortDirection] = useState('asc')
 
-  const [packages] = usePolling(
-    () => getClient().listPackages(pkgSortKey, pkgSortDirection),
-    [],
-    [refreshKey, pkgSortKey, pkgSortDirection],
-  )
+  const PAGE_SIZE = 20
 
-  const [installed] = usePolling(
-    () => getClient().listInstalled(pkgSortKey, pkgSortDirection),
-    [],
-    [refreshKey, pkgSortKey, pkgSortDirection],
-  )
+  const [pkgPage, setPkgPage] = useState(0)
+  const [repoPage, setRepoPage] = useState(0)
 
-  const [repositories] = usePolling(
-    () => getClient().listRepositories(repoSortKey, repoSortDirection),
-    [],
-    [refreshKey, repoSortKey, repoSortDirection],
+  const [pkgData] = usePolling(
+    () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE),
+    { entries: [], has_more: false, total_pages: 1 },
+    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage],
   )
+  const packages = pkgData.entries || []
+
+  const [installedData] = usePolling(
+    () => getClient().listInstalled(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE),
+    { entries: [], has_more: false, total_pages: 1 },
+    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage],
+  )
+  const installed = installedData.entries || []
+
+  const [repoData] = usePolling(
+    () => getClient().listRepositories(repoSortKey, repoSortDirection, PAGE_SIZE, repoPage * PAGE_SIZE),
+    { entries: [], has_more: false, total_pages: 1 },
+    [refreshKey, repoSortKey, repoSortDirection, repoPage],
+  )
+  const repositories = repoData.entries || []
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
   }
-
-  const [pkgPage, setPkgPage] = useState(0)
-  const [repoPage, setRepoPage] = useState(0)
 
   function isInstalled(name) {
     return (installed || []).some(
@@ -338,15 +343,19 @@ export default function PackageManagement() {
             entryKey="name"
             page={pkgPage}
             setPage={setPkgPage}
+            hasMore={pkgData.has_more}
+            totalPages={pkgData.total_pages}
             sortKey={pkgSortKey}
             sortDirection={pkgSortDirection}
             onSortChange={(key, dir) => {
               setPkgSortKey(key)
               setPkgSortDirection(dir)
+              setPkgPage(0)
             }}
             onReset={() => {
               setPkgSortKey('name')
               setPkgSortDirection('asc')
+              setPkgPage(0)
             }}
           />
         </TabsContent>
@@ -367,15 +376,19 @@ export default function PackageManagement() {
             entryKey="name"
             page={repoPage}
             setPage={setRepoPage}
+            hasMore={repoData.has_more}
+            totalPages={repoData.total_pages}
             sortKey={repoSortKey}
             sortDirection={repoSortDirection}
             onSortChange={(key, dir) => {
               setRepoSortKey(key)
               setRepoSortDirection(dir)
+              setRepoPage(0)
             }}
             onReset={() => {
               setRepoSortKey('name')
               setRepoSortDirection('asc')
+              setRepoPage(0)
             }}
           />
         </TabsContent>

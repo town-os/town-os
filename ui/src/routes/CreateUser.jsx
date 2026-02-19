@@ -108,7 +108,7 @@ export default function CreateUser() {
               <Label htmlFor="admin">Admin privileges</Label>
             </div>
           </CardContent>
-          <CardFooter className="flex gap-3">
+          <CardFooter className="flex gap-3 pt-6">
             <Button
               variant="outline"
               type="button"

@@ -675,17 +675,17 @@ func TestMockClientAddAndListRepositories(t *testing.T) {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
-	repos, err := m.ListRepositories(context.TODO(), "", "")
+	repos, err := m.ListRepositories(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
 
-	if len(repos) != 1 {
-		t.Fatalf("expected 1 repository, got %d", len(repos))
+	if len(repos.Entries) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
 	}
 
-	if repos[0].URL != "https://example.com/repo.git" {
-		t.Fatalf("expected URL %q, got %q", "https://example.com/repo.git", repos[0].URL)
+	if repos.Entries[0].URL != "https://example.com/repo.git" {
+		t.Fatalf("expected URL %q, got %q", "https://example.com/repo.git", repos.Entries[0].URL)
 	}
 }
 
@@ -713,13 +713,13 @@ func TestMockClientRemoveRepository(t *testing.T) {
 		t.Fatalf("MockClient.RemoveRepository: %v", err)
 	}
 
-	repos, err := m.ListRepositories(context.TODO(), "", "")
+	repos, err := m.ListRepositories(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
 
-	if len(repos) != 0 {
-		t.Fatalf("expected 0 repositories, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected 0 repositories, got %d", len(repos.Entries))
 	}
 }
 
@@ -749,7 +749,7 @@ func TestMockClientRepositoryErrorInjection(t *testing.T) {
 
 	m.RemRepoErr = nil
 	m.ListRepoErr = injected
-	if _, err := m.ListRepositories(context.TODO(), "", ""); err != injected {
+	if _, err := m.ListRepositories(context.TODO(), ListParams{}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -763,7 +763,7 @@ func TestMockClientRepositoryCallLog(t *testing.T) {
 	if err := m.AddRepository(context.TODO(), "", "https://example.com/b.git", "", ""); err != nil {
 		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/b.git", err)
 	}
-	if _, err := m.ListRepositories(context.TODO(), "", ""); err != nil {
+	if _, err := m.ListRepositories(context.TODO(), ListParams{}); err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
 	if err := m.RemoveRepository(context.TODO(), "https://example.com/a.git"); err != nil {
@@ -858,13 +858,13 @@ func TestHTTPListRepositoriesEmpty(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(repos) != 0 {
-		t.Fatalf("expected empty list, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected empty list, got %d", len(repos.Entries))
 	}
 }
 
@@ -892,17 +892,17 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(repos) != 2 {
-		t.Fatalf("expected 2 repositories, got %d", len(repos))
+	if len(repos.Entries) != 2 {
+		t.Fatalf("expected 2 repositories, got %d", len(repos.Entries))
 	}
 
-	if repos[0].Name != "repo-a" || repos[1].Name != "repo-b" {
-		t.Fatalf("unexpected repo names: %v", repos)
+	if repos.Entries[0].Name != "repo-a" || repos.Entries[1].Name != "repo-b" {
+		t.Fatalf("unexpected repo names: %v", repos.Entries)
 	}
 }
 
@@ -958,13 +958,13 @@ func TestHTTPAddRepositoryBadClone(t *testing.T) {
 		t.Fatal("expected error for inaccessible repository")
 	}
 
-	repos, err := c.ListRepositories(context.TODO(), "", "")
+	repos, err := c.ListRepositories(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
 
-	if len(repos) != 0 {
-		t.Fatalf("expected 0 repositories after failed add, got %d", len(repos))
+	if len(repos.Entries) != 0 {
+		t.Fatalf("expected 0 repositories after failed add, got %d", len(repos.Entries))
 	}
 }
 
@@ -1042,13 +1042,13 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO(), "", "")
+	pkgs, err := c.ListPackages(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 packages, got %d", len(pkgs.Entries))
 	}
 }
 
@@ -1075,21 +1075,21 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO(), "", "")
+	pkgs, err := c.ListPackages(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
 	}
 
 	// results are sorted by name
-	if pkgs[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+	if pkgs.Entries[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
 	}
 }
 
@@ -1121,21 +1121,21 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO(), "", "")
+	pkgs, err := c.ListPackages(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
 	}
 
 	// nginx should be 3.0 (higher version from repo-b wins)
-	if pkgs[0] != "nginx@3.0" {
-		t.Fatalf("expected nginx@3.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@3.0" {
+		t.Fatalf("expected nginx@3.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+	if pkgs.Entries[1] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
 	}
 }
 
@@ -1339,30 +1339,30 @@ func TestMockClientListPackages(t *testing.T) {
 	m := InitMockClient()
 	m.Packages = []string{"nginx@2.0", "redis@7.0"}
 
-	pkgs, err := m.ListPackages(context.TODO(), "", "")
+	pkgs, err := m.ListPackages(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+	if pkgs.Entries[0] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
 	}
 }
 
 func TestMockClientListPackagesEmpty(t *testing.T) {
 	m := InitMockClient()
 
-	pkgs, err := m.ListPackages(context.TODO(), "", "")
+	pkgs, err := m.ListPackages(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
 
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 packages, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 packages, got %d", len(pkgs.Entries))
 	}
 }
 
@@ -1371,7 +1371,7 @@ func TestMockClientListPackagesErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.ListPkgErr = injected
-	if _, err := m.ListPackages(context.TODO(), "", ""); err != injected {
+	if _, err := m.ListPackages(context.TODO(), ListParams{}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1380,10 +1380,10 @@ func TestMockClientListPackagesCallLog(t *testing.T) {
 	m := InitMockClient()
 	m.Packages = []string{"nginx@1.0"}
 
-	if _, err := m.ListPackages(context.TODO(), "", ""); err != nil {
+	if _, err := m.ListPackages(context.TODO(), ListParams{}); err != nil {
 		t.Fatalf("MockClient.ListPackages (first call): %v", err)
 	}
-	if _, err := m.ListPackages(context.TODO(), "", ""); err != nil {
+	if _, err := m.ListPackages(context.TODO(), ListParams{}); err != nil {
 		t.Fatalf("MockClient.ListPackages (second call): %v", err)
 	}
 
@@ -1758,26 +1758,26 @@ func TestHTTPListInstalled(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@2.0: %v", err)
 	}
 
-	pkgs, err := c.ListInstalled(context.TODO(), "", "")
+	pkgs, err := c.ListInstalled(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 installed, got %d", len(pkgs.Entries))
 	}
 }
 
 func TestHTTPListInstalledEmpty(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	pkgs, err := c.ListInstalled(context.TODO(), "", "")
+	pkgs, err := c.ListInstalled(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
 
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 installed, got %d", len(pkgs.Entries))
 	}
 }
 
@@ -1959,26 +1959,26 @@ func TestMockClientListInstalled(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	pkgs, err := m.ListInstalled(context.TODO(), "", "")
+	pkgs, err := m.ListInstalled(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListInstalled: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 installed, got %d", len(pkgs.Entries))
 	}
 }
 
 func TestMockClientListInstalledEmpty(t *testing.T) {
 	m := InitMockClient()
 
-	pkgs, err := m.ListInstalled(context.TODO(), "", "")
+	pkgs, err := m.ListInstalled(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListInstalled: %v", err)
 	}
 
-	if len(pkgs) != 0 {
-		t.Fatalf("expected 0 installed, got %d", len(pkgs))
+	if len(pkgs.Entries) != 0 {
+		t.Fatalf("expected 0 installed, got %d", len(pkgs.Entries))
 	}
 }
 
@@ -1987,7 +1987,7 @@ func TestMockClientListInstalledErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.ListInstalledErr = injected
-	if _, err := m.ListInstalled(context.TODO(), "", ""); err != injected {
+	if _, err := m.ListInstalled(context.TODO(), ListParams{}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -3269,39 +3269,39 @@ func TestHTTPListUnits(t *testing.T) {
 		{Name: "bar.service", Description: "Bar", LoadState: "loaded", ActiveState: "inactive", SubState: "dead", UnitFileState: "disabled"},
 	}
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
 
-	if len(units) != 2 {
-		t.Fatalf("expected 2 units, got %d", len(units))
+	if len(units.Entries) != 2 {
+		t.Fatalf("expected 2 units, got %d", len(units.Entries))
 	}
 
-	if units[0].Name != "foo.service" {
-		t.Fatalf("expected first unit %q, got %q", "foo.service", units[0].Name)
+	if units.Entries[0].Name != "foo.service" {
+		t.Fatalf("expected first unit %q, got %q", "foo.service", units.Entries[0].Name)
 	}
-	if units[0].UnitFileState != "enabled" {
-		t.Fatalf("expected first unit UnitFileState %q, got %q", "enabled", units[0].UnitFileState)
+	if units.Entries[0].UnitFileState != "enabled" {
+		t.Fatalf("expected first unit UnitFileState %q, got %q", "enabled", units.Entries[0].UnitFileState)
 	}
-	if units[1].Name != "bar.service" {
-		t.Fatalf("expected second unit %q, got %q", "bar.service", units[1].Name)
+	if units.Entries[1].Name != "bar.service" {
+		t.Fatalf("expected second unit %q, got %q", "bar.service", units.Entries[1].Name)
 	}
-	if units[1].UnitFileState != "disabled" {
-		t.Fatalf("expected second unit UnitFileState %q, got %q", "disabled", units[1].UnitFileState)
+	if units.Entries[1].UnitFileState != "disabled" {
+		t.Fatalf("expected second unit UnitFileState %q, got %q", "disabled", units.Entries[1].UnitFileState)
 	}
 }
 
 func TestHTTPListUnitsEmpty(t *testing.T) {
 	c, _ := initSystemdTestClient(t)
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
 
-	if len(units) != 0 {
-		t.Fatalf("expected 0 units, got %d", len(units))
+	if len(units.Entries) != 0 {
+		t.Fatalf("expected 0 units, got %d", len(units.Entries))
 	}
 }
 
@@ -3892,5 +3892,276 @@ func TestHTTPLogTailSinceWithLimit(t *testing.T) {
 	}
 	if result.Entries[1].Message != "b" {
 		t.Fatalf("expected second entry %q, got %q", "b", result.Entries[1].Message)
+	}
+}
+
+// --- Pagination tests ---
+
+func TestHTTPListUnitsPagination(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "a.service", Description: "A", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "b.service", Description: "B", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "c.service", Description: "C", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+	}
+
+	// First page: limit=2, offset=0
+	page, err := c.ListUnits(context.TODO(), ListParams{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListUnits page 0: %v", err)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+	if page.TotalPages != 2 {
+		t.Fatalf("expected 2 total pages, got %d", page.TotalPages)
+	}
+
+	// Second page: limit=2, offset=2
+	page, err = c.ListUnits(context.TODO(), ListParams{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListUnits page 1: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if page.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+}
+
+func TestHTTPListPackagesPagination(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "alpha", "1.0", "image: alpha:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "bravo", "1.0", "image: bravo:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "charlie", "1.0", "image: charlie:1.0\n")
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// First page
+	page, err := c.ListPackages(context.TODO(), ListParams{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListPackages page 0: %v", err)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+
+	// Second page
+	page, err = c.ListPackages(context.TODO(), ListParams{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListPackages page 1: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if page.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+}
+
+func TestHTTPListInstalledPagination(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage nginx@2.0: %v", err)
+	}
+
+	// Limit 1
+	page, err := c.ListInstalled(context.TODO(), ListParams{Limit: 1, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListInstalled page 0: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+	if page.TotalPages != 2 {
+		t.Fatalf("expected 2 total pages, got %d", page.TotalPages)
+	}
+
+	// Second page
+	page, err = c.ListInstalled(context.TODO(), ListParams{Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("ListInstalled page 1: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if page.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+}
+
+func TestHTTPListRepositoriesPagination(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u1, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	u2, err := url.Parse("https://example.com/repo-b.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	u3, err := url.Parse("https://example.com/repo-c.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u1},
+		{Name: "repo-b", URL: *u2},
+		{Name: "repo-c", URL: *u3},
+	}
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// First page
+	page, err := c.ListRepositories(context.TODO(), ListParams{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListRepositories page 0: %v", err)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+	if page.TotalPages != 2 {
+		t.Fatalf("expected 2 total pages, got %d", page.TotalPages)
+	}
+
+	// Second page
+	page, err = c.ListRepositories(context.TODO(), ListParams{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListRepositories page 1: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if page.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+}
+
+func TestPaginateHelper(t *testing.T) {
+	items := []string{"a", "b", "c", "d", "e"}
+
+	// Default limit (20) returns all
+	p := paginate(items, 0, 0)
+	if len(p.Entries) != 5 {
+		t.Fatalf("expected 5 entries, got %d", len(p.Entries))
+	}
+	if p.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+	if p.TotalPages != 1 {
+		t.Fatalf("expected 1 total page, got %d", p.TotalPages)
+	}
+
+	// Limit=2, offset=0
+	p = paginate(items, 2, 0)
+	if len(p.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(p.Entries))
+	}
+	if !p.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+	if p.TotalPages != 3 {
+		t.Fatalf("expected 3 total pages, got %d", p.TotalPages)
+	}
+	if p.Entries[0] != "a" || p.Entries[1] != "b" {
+		t.Fatalf("unexpected entries: %v", p.Entries)
+	}
+
+	// Limit=2, offset=4
+	p = paginate(items, 2, 4)
+	if len(p.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(p.Entries))
+	}
+	if p.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+
+	// Offset beyond end
+	p = paginate(items, 2, 100)
+	if len(p.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(p.Entries))
+	}
+	if p.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+
+	// Negative offset clamped to 0
+	p = paginate(items, 2, -5)
+	if len(p.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(p.Entries))
+	}
+
+	// Empty slice
+	p = paginate([]string{}, 10, 0)
+	if len(p.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(p.Entries))
+	}
+	if p.HasMore {
+		t.Fatal("expected has_more=false for empty")
+	}
+	if p.TotalPages != 1 {
+		t.Fatalf("expected 1 total page for empty, got %d", p.TotalPages)
+	}
+}
+
+func TestListParamsQueryString(t *testing.T) {
+	// Empty
+	p := ListParams{}
+	if qs := p.QueryString(); qs != "" {
+		t.Fatalf("expected empty query string, got %q", qs)
+	}
+
+	// Sort only
+	p = ListParams{SortBy: "name", SortOrder: "desc"}
+	qs := p.QueryString()
+	if qs == "" {
+		t.Fatal("expected non-empty query string")
+	}
+
+	// Full params
+	p = ListParams{SortBy: "name", SortOrder: "asc", Limit: 10, Offset: 20}
+	qs = p.QueryString()
+	if qs == "" {
+		t.Fatal("expected non-empty query string")
 	}
 }

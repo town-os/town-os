@@ -118,11 +118,14 @@ export default function SystemManagement() {
     })
   }
 
-  const [units] = usePolling(
-    () => getClient().listUnits(sortKey, sortDirection),
-    [],
-    [refreshKey, sortKey, sortDirection],
+  const PAGE_SIZE = 20
+
+  const [unitData] = usePolling(
+    () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE),
+    { entries: [], has_more: false, total_pages: 1 },
+    [refreshKey, sortKey, sortDirection, page],
   )
+  const units = unitData.entries || []
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
@@ -418,15 +421,19 @@ export default function SystemManagement() {
         entryKey="Name"
         page={page}
         setPage={setPage}
+        hasMore={unitData.has_more}
+        totalPages={unitData.total_pages}
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSortChange={(key, dir) => {
           setSortKey(key)
           setSortDirection(dir)
+          setPage(0)
         }}
         onReset={() => {
           setSortKey('Name')
           setSortDirection('asc')
+          setPage(0)
         }}
       />
 

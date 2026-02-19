@@ -31,17 +31,17 @@ func initPodmanSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
 func TestPodmanSystemdListUnits(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
 
-	if len(units) == 0 {
+	if len(units.Entries) == 0 {
 		t.Fatal("expected at least 1 unit from real systemd")
 	}
 
 	found := false
-	for _, u := range units {
+	for _, u := range units.Entries {
 		if u.Name == "town-os-test.service" {
 			found = true
 			if u.LoadState != "loaded" {
@@ -66,13 +66,13 @@ func TestPodmanSystemdStartStop(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits after start: %v", err)
 	}
 
 	found := false
-	for _, u := range units {
+	for _, u := range units.Entries {
 		if u.Name == "town-os-test.service" {
 			found = true
 			if u.ActiveState != "active" {
@@ -90,12 +90,12 @@ func TestPodmanSystemdStartStop(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	units, err = c.ListUnits(context.TODO(), "", "")
+	units, err = c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits after stop: %v", err)
 	}
 
-	for _, u := range units {
+	for _, u := range units.Entries {
 		if u.Name == "town-os-test.service" {
 			if u.ActiveState != "inactive" {
 				t.Fatalf("expected inactive after stop, got %q", u.ActiveState)
@@ -118,12 +118,12 @@ func TestPodmanSystemdRestart(t *testing.T) {
 		t.Fatalf("Restart: %v", err)
 	}
 
-	units, err := c.ListUnits(context.TODO(), "", "")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListUnits after restart: %v", err)
 	}
 
-	for _, u := range units {
+	for _, u := range units.Entries {
 		if u.Name == "town-os-test.service" {
 			if u.ActiveState != "active" {
 				t.Fatalf("expected active after restart, got %q", u.ActiveState)

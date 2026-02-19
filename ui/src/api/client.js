@@ -214,12 +214,16 @@ export class SystemControllerClient {
   /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
-   * @returns {Promise<RepositoryInfo[]>}
+   * @param {number} [limit]
+   * @param {number} [offset]
+   * @returns {Promise<{entries: RepositoryInfo[], has_more: boolean, total_pages: number}>}
    */
-  async listRepositories(sortBy, sortOrder) {
+  async listRepositories(sortBy, sortOrder, limit, offset) {
     const params = new URLSearchParams()
     if (sortBy) params.set('sort_by', sortBy)
     if (sortOrder) params.set('sort_order', sortOrder)
+    if (limit) params.set('limit', String(limit))
+    if (offset) params.set('offset', String(offset))
     const qs = params.toString()
     return this.getJSON(`/repository${qs ? `?${qs}` : ''}`)
   }
@@ -227,12 +231,16 @@ export class SystemControllerClient {
   /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
-   * @returns {Promise<string[]>}
+   * @param {number} [limit]
+   * @param {number} [offset]
+   * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number}>}
    */
-  async listPackages(sortBy, sortOrder) {
+  async listPackages(sortBy, sortOrder, limit, offset) {
     const params = new URLSearchParams()
     if (sortBy) params.set('sort_by', sortBy)
     if (sortOrder) params.set('sort_order', sortOrder)
+    if (limit) params.set('limit', String(limit))
+    if (offset) params.set('offset', String(offset))
     const qs = params.toString()
     return this.getJSON(`/packages${qs ? `?${qs}` : ''}`)
   }
@@ -240,12 +248,16 @@ export class SystemControllerClient {
   /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
-   * @returns {Promise<string[]>}
+   * @param {number} [limit]
+   * @param {number} [offset]
+   * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number}>}
    */
-  async listInstalled(sortBy, sortOrder) {
+  async listInstalled(sortBy, sortOrder, limit, offset) {
     const params = new URLSearchParams()
     if (sortBy) params.set('sort_by', sortBy)
     if (sortOrder) params.set('sort_order', sortOrder)
+    if (limit) params.set('limit', String(limit))
+    if (offset) params.set('offset', String(offset))
     const qs = params.toString()
     return this.getJSON(`/packages/installed${qs ? `?${qs}` : ''}`)
   }
@@ -262,12 +274,16 @@ export class SystemControllerClient {
   /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
-   * @returns {Promise<UnitStatus[]>}
+   * @param {number} [limit]
+   * @param {number} [offset]
+   * @returns {Promise<{entries: UnitStatus[], has_more: boolean, total_pages: number}>}
    */
-  async listUnits(sortBy, sortOrder) {
+  async listUnits(sortBy, sortOrder, limit, offset) {
     const params = new URLSearchParams()
     if (sortBy) params.set('sort_by', sortBy)
     if (sortOrder) params.set('sort_order', sortOrder)
+    if (limit) params.set('limit', String(limit))
+    if (offset) params.set('offset', String(offset))
     const qs = params.toString()
     return this.getJSON(`/systemd/units${qs ? `?${qs}` : ''}`)
   }

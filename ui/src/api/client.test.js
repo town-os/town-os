@@ -166,21 +166,36 @@ describe('SystemControllerClient', () => {
   })
 
   describe('listUnits', () => {
-    it('returns parsed array', async () => {
-      const units = [
-        {
-          Name: 'nginx.service',
-          Description: 'nginx',
-          LoadState: 'loaded',
-          ActiveState: 'active',
-          SubState: 'running',
-        },
-      ]
-      mockFetch(units)
+    it('returns paginated response', async () => {
+      const page = {
+        entries: [
+          {
+            Name: 'nginx.service',
+            Description: 'nginx',
+            LoadState: 'loaded',
+            ActiveState: 'active',
+            SubState: 'running',
+          },
+        ],
+        has_more: false,
+        total_pages: 1,
+      }
+      mockFetch(page)
       client.setToken('tok')
 
       const result = await client.listUnits()
-      expect(result).toEqual(units)
+      expect(result).toEqual(page)
+    })
+
+    it('sends limit and offset query params', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1 })
+      client.setToken('tok')
+
+      await client.listUnits('Name', 'asc', 20, 40)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/units?sort_by=Name&sort_order=asc&limit=20&offset=40',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
     })
   })
 

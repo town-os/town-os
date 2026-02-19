@@ -193,10 +193,10 @@ func (m *MockClient) RefreshRepositories(_ context.Context) (map[string]string, 
 	return nil, nil
 }
 
-func (m *MockClient) ListRepositories(_ context.Context, _, _ string) ([]RepositoryInfo, error) {
+func (m *MockClient) ListRepositories(_ context.Context, params ListParams) (*PageResult[RepositoryInfo], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListRepositories", Args: nil})
+	m.Calls = append(m.Calls, MockCall{Method: "ListRepositories", Args: []any{params}})
 
 	if m.ListRepoErr != nil {
 		return nil, m.ListRepoErr
@@ -204,15 +204,16 @@ func (m *MockClient) ListRepositories(_ context.Context, _, _ string) ([]Reposit
 
 	out := make([]RepositoryInfo, len(m.Repositories))
 	copy(out, m.Repositories)
-	return out, nil
+	result := paginate(out, params.Limit, params.Offset)
+	return &result, nil
 }
 
 // --- Packages ---
 
-func (m *MockClient) ListPackages(_ context.Context, _, _ string) ([]string, error) {
+func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageResult[string], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListPackages", Args: nil})
+	m.Calls = append(m.Calls, MockCall{Method: "ListPackages", Args: []any{params}})
 
 	if m.ListPkgErr != nil {
 		return nil, m.ListPkgErr
@@ -220,7 +221,8 @@ func (m *MockClient) ListPackages(_ context.Context, _, _ string) ([]string, err
 
 	out := make([]string, len(m.Packages))
 	copy(out, m.Packages)
-	return out, nil
+	result := paginate(out, params.Limit, params.Offset)
+	return &result, nil
 }
 
 func (m *MockClient) GetPackageQuestions(_ context.Context, name string) (map[string]packages.Question, error) {
@@ -282,10 +284,10 @@ func (m *MockClient) UninstallPackage(_ context.Context, name, version string) e
 	return fmt.Errorf("%s: not installed", key)
 }
 
-func (m *MockClient) ListInstalled(_ context.Context, _, _ string) ([]string, error) {
+func (m *MockClient) ListInstalled(_ context.Context, params ListParams) (*PageResult[string], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListInstalled", Args: nil})
+	m.Calls = append(m.Calls, MockCall{Method: "ListInstalled", Args: []any{params}})
 
 	if m.ListInstalledErr != nil {
 		return nil, m.ListInstalledErr
@@ -293,7 +295,8 @@ func (m *MockClient) ListInstalled(_ context.Context, _, _ string) ([]string, er
 
 	out := make([]string, len(m.Installed))
 	copy(out, m.Installed)
-	return out, nil
+	result := paginate(out, params.Limit, params.Offset)
+	return &result, nil
 }
 
 func (m *MockClient) GetResponses(_ context.Context, name, version string) (packages.Responses, error) {
@@ -320,10 +323,10 @@ func (m *MockClient) GetResponses(_ context.Context, name, version string) (pack
 
 // --- Systemd ---
 
-func (m *MockClient) ListUnits(_ context.Context, _, _ string) ([]systemd.UnitStatus, error) {
+func (m *MockClient) ListUnits(_ context.Context, params ListParams) (*PageResult[systemd.UnitStatus], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListUnits", Args: nil})
+	m.Calls = append(m.Calls, MockCall{Method: "ListUnits", Args: []any{params}})
 
 	if m.ListUnitsErr != nil {
 		return nil, m.ListUnitsErr
@@ -331,7 +334,8 @@ func (m *MockClient) ListUnits(_ context.Context, _, _ string) ([]systemd.UnitSt
 
 	out := make([]systemd.UnitStatus, len(m.Units))
 	copy(out, m.Units)
-	return out, nil
+	result := paginate(out, params.Limit, params.Offset)
+	return &result, nil
 }
 
 func (m *MockClient) SetUnitStatus(_ context.Context, name string, action systemd.StatusAction) error {
