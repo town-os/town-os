@@ -67,8 +67,6 @@ test-integration: lint test-image btrfs
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
-	@echo "Waiting for mount"
-	@until sudo -E podman exec -it $(PODMAN_CONTAINER) btrfs filesystem sync /data/btrfs &>/dev/null; do sleep 1; done
 	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v
 
 test-full: test test-integration test-ui-integration
