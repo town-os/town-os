@@ -6,6 +6,7 @@
 btrfs.*
 town-os.disk
 town-os.loop
+town-os.mount
 .cache
 nspawn-root
 LICENSE
