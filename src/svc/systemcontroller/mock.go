@@ -374,10 +374,10 @@ func (m *MockClient) LogReplay(_ context.Context, name string) (<-chan systemd.J
 	return ch, nil
 }
 
-func (m *MockClient) LogTail(_ context.Context, unit string, lines int, beforeCursor string, grep string) (systemd.LogTailResult, error) {
+func (m *MockClient) LogTail(_ context.Context, p systemd.LogTailParams) (systemd.LogTailResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "LogTail", Args: []any{unit, lines, beforeCursor, grep}})
+	m.Calls = append(m.Calls, MockCall{Method: "LogTail", Args: []any{p}})
 
 	if m.LogReplayErr != nil {
 		return systemd.LogTailResult{}, m.LogReplayErr
@@ -387,16 +387,16 @@ func (m *MockClient) LogTail(_ context.Context, unit string, lines int, beforeCu
 	copy(entries, m.JournalEntries)
 
 	endIdx := len(entries)
-	if beforeCursor != "" {
+	if p.BeforeCursor != "" {
 		for i, e := range entries {
-			if e.Cursor == beforeCursor {
+			if e.Cursor == p.BeforeCursor {
 				endIdx = i
 				break
 			}
 		}
 	}
 
-	startIdx := endIdx - lines
+	startIdx := endIdx - p.Lines
 	if startIdx < 0 {
 		startIdx = 0
 	}

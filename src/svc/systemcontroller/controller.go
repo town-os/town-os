@@ -569,10 +569,23 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 		lines = n
 	}
 
-	beforeCursor := c.QueryParam("before")
-	grep := c.QueryParam("grep")
+	params := systemd.LogTailParams{
+		Unit:         unit,
+		Lines:        lines,
+		BeforeCursor: c.QueryParam("before"),
+		AfterCursor:  c.QueryParam("after"),
+		Grep:         c.QueryParam("grep"),
+	}
 
-	result, err := s.Controller.GetSystemdManager().LogTail(c.Request().Context(), unit, lines, beforeCursor, grep)
+	if v := c.QueryParam("since"); v != "" {
+		sinceUnix, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid since parameter: %w", err)
+		}
+		params.Since = time.Unix(sinceUnix, 0)
+	}
+
+	result, err := s.Controller.GetSystemdManager().LogTail(c.Request().Context(), params)
 	if err != nil {
 		return err
 	}

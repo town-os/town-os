@@ -319,13 +319,17 @@ export class SystemControllerClient {
    * @param {string} unit
    * @param {number} [lines=100]
    * @param {string} [beforeCursor]
+   * @param {string} [afterCursor]
    * @param {string} [grep]
-   * @returns {Promise<{entries: JournalEntry[], cursor: string}>}
+   * @param {number} [since] - Unix timestamp in seconds
+   * @returns {Promise<{entries: JournalEntry[], cursor: string, end_cursor: string}>}
    */
-  async logTail(unit, lines = 100, beforeCursor, grep) {
+  async logTail(unit, lines = 100, beforeCursor, afterCursor, grep, since) {
     const params = new URLSearchParams({ unit, lines: String(lines) })
     if (beforeCursor) params.set('before', beforeCursor)
+    if (afterCursor) params.set('after', afterCursor)
     if (grep) params.set('grep', grep)
+    if (since) params.set('since', String(since))
     return this.getJSON(`/systemd/logs/tail?${params.toString()}`)
   }
 

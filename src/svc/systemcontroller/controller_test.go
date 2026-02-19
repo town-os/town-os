@@ -3496,7 +3496,7 @@ func TestHTTPLogTail(t *testing.T) {
 		{Cursor: "c5", Message: "fifth", RealtimeTimestamp: now},
 	}
 
-	result, err := c.LogTail(context.TODO(), "test.service", 3, "", "")
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 3})
 	if err != nil {
 		t.Fatalf("LogTail: %v", err)
 	}
@@ -3515,6 +3515,9 @@ func TestHTTPLogTail(t *testing.T) {
 	if result.Cursor != "c3" {
 		t.Fatalf("expected cursor %q, got %q", "c3", result.Cursor)
 	}
+	if result.EndCursor != "c5" {
+		t.Fatalf("expected end_cursor %q, got %q", "c5", result.EndCursor)
+	}
 }
 
 func TestHTTPLogTailWithCursor(t *testing.T) {
@@ -3530,7 +3533,7 @@ func TestHTTPLogTailWithCursor(t *testing.T) {
 	}
 
 	// Get entries before cursor c3 (should get c1, c2)
-	result, err := c.LogTail(context.TODO(), "test.service", 100, "c3", "")
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, BeforeCursor: "c3"})
 	if err != nil {
 		t.Fatalf("LogTail with cursor: %v", err)
 	}
@@ -3550,7 +3553,7 @@ func TestHTTPLogTailWithCursor(t *testing.T) {
 func TestHTTPLogTailEmpty(t *testing.T) {
 	c, _ := initSystemdTestClient(t)
 
-	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "")
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100})
 	if err != nil {
 		t.Fatalf("LogTail: %v", err)
 	}
@@ -3565,7 +3568,7 @@ func TestHTTPLogTailError(t *testing.T) {
 
 	sd.LogErr = fmt.Errorf("injected log error")
 
-	_, err := c.LogTail(context.TODO(), "test.service", 100, "", "")
+	_, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100})
 	if err == nil {
 		t.Fatal("expected error from LogTail with injected error")
 	}
@@ -3604,7 +3607,7 @@ func TestHTTPLogTailGrep(t *testing.T) {
 		{Cursor: "c5", Message: "stopping nginx", RealtimeTimestamp: now},
 	}
 
-	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "connection")
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Grep: "connection"})
 	if err != nil {
 		t.Fatalf("LogTail with grep: %v", err)
 	}
@@ -3631,7 +3634,7 @@ func TestHTTPLogTailGrepCaseInsensitive(t *testing.T) {
 		{Cursor: "c3", Message: "error: another failure", RealtimeTimestamp: now},
 	}
 
-	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "error")
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Grep: "error"})
 	if err != nil {
 		t.Fatalf("LogTail with grep: %v", err)
 	}
@@ -3649,12 +3652,245 @@ func TestHTTPLogTailGrepNoMatch(t *testing.T) {
 		{Cursor: "c1", Message: "hello world", RealtimeTimestamp: now},
 	}
 
-	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "nonexistent")
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Grep: "nonexistent"})
 	if err != nil {
 		t.Fatalf("LogTail with grep: %v", err)
 	}
 
 	if len(result.Entries) != 0 {
 		t.Fatalf("expected 0 entries for non-matching grep, got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailAfterCursor(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "first", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "second", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "third", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "fourth", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "fifth", RealtimeTimestamp: now},
+	}
+
+	// Get entries after cursor c2 (should get c3, c4, c5)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, AfterCursor: "c2"})
+	if err != nil {
+		t.Fatalf("LogTail after cursor: %v", err)
+	}
+
+	if len(result.Entries) != 3 {
+		t.Fatalf("expected 3 entries after c2, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "third" {
+		t.Fatalf("expected first entry %q, got %q", "third", result.Entries[0].Message)
+	}
+	if result.Entries[2].Message != "fifth" {
+		t.Fatalf("expected last entry %q, got %q", "fifth", result.Entries[2].Message)
+	}
+
+	if result.Cursor != "c3" {
+		t.Fatalf("expected cursor %q, got %q", "c3", result.Cursor)
+	}
+	if result.EndCursor != "c5" {
+		t.Fatalf("expected end_cursor %q, got %q", "c5", result.EndCursor)
+	}
+}
+
+func TestHTTPLogTailAfterCursorEmpty(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "first", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c2", Message: "second", RealtimeTimestamp: now},
+	}
+
+	// Get entries after last cursor (should be empty)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, AfterCursor: "c2"})
+	if err != nil {
+		t.Fatalf("LogTail after cursor: %v", err)
+	}
+
+	if len(result.Entries) != 0 {
+		t.Fatalf("expected 0 entries after last cursor, got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailAfterCursorWithLimit(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "first", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "second", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "third", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "fourth", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "fifth", RealtimeTimestamp: now},
+	}
+
+	// Get at most 2 entries after cursor c1
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 2, AfterCursor: "c1"})
+	if err != nil {
+		t.Fatalf("LogTail after cursor with limit: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "second" {
+		t.Fatalf("expected first entry %q, got %q", "second", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "third" {
+		t.Fatalf("expected second entry %q, got %q", "third", result.Entries[1].Message)
+	}
+
+	if result.EndCursor != "c3" {
+		t.Fatalf("expected end_cursor %q, got %q", "c3", result.EndCursor)
+	}
+}
+
+func TestHTTPLogTailAfterCursorWithGrep(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "start", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "error: disk full", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "info: ok", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "error: timeout", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "done", RealtimeTimestamp: now},
+	}
+
+	// Get entries after c1 matching "error"
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, AfterCursor: "c1", Grep: "error"})
+	if err != nil {
+		t.Fatalf("LogTail after cursor with grep: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries matching grep, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "error: disk full" {
+		t.Fatalf("expected first entry %q, got %q", "error: disk full", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "error: timeout" {
+		t.Fatalf("expected second entry %q, got %q", "error: timeout", result.Entries[1].Message)
+	}
+}
+
+func TestHTTPLogTailSince(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "old entry", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "also old", RealtimeTimestamp: now.Add(-8 * time.Second)},
+		{Cursor: "c3", Message: "recent one", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c4", Message: "newer one", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "newest", RealtimeTimestamp: now},
+	}
+
+	// Get entries since 5 seconds ago (should get c3, c4, c5)
+	since := now.Add(-5 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Since: since})
+	if err != nil {
+		t.Fatalf("LogTail since: %v", err)
+	}
+
+	if len(result.Entries) != 3 {
+		t.Fatalf("expected 3 entries since cutoff, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "recent one" {
+		t.Fatalf("expected first entry %q, got %q", "recent one", result.Entries[0].Message)
+	}
+	if result.Entries[2].Message != "newest" {
+		t.Fatalf("expected last entry %q, got %q", "newest", result.Entries[2].Message)
+	}
+
+	if result.EndCursor != "c5" {
+		t.Fatalf("expected end_cursor %q, got %q", "c5", result.EndCursor)
+	}
+}
+
+func TestHTTPLogTailSinceWithGrep(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "error: old", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "info: recent", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "error: recent", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "info: newest", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+
+	// Get entries since 5 seconds ago matching "error" (should get only c3)
+	since := now.Add(-5 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Since: since, Grep: "error"})
+	if err != nil {
+		t.Fatalf("LogTail since with grep: %v", err)
+	}
+
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "error: recent" {
+		t.Fatalf("expected entry %q, got %q", "error: recent", result.Entries[0].Message)
+	}
+}
+
+func TestHTTPLogTailSinceEmpty(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "old", RealtimeTimestamp: now.Add(-10 * time.Second)},
+	}
+
+	// All entries are before 'since', should return empty
+	since := now.Add(-5 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Since: since})
+	if err != nil {
+		t.Fatalf("LogTail since: %v", err)
+	}
+
+	if len(result.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailSinceWithLimit(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "old", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "a", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "b", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "c", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+
+	// Get at most 2 entries since 5 seconds ago
+	since := now.Add(-5 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 2, Since: since})
+	if err != nil {
+		t.Fatalf("LogTail since with limit: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "a" {
+		t.Fatalf("expected first entry %q, got %q", "a", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "b" {
+		t.Fatalf("expected second entry %q, got %q", "b", result.Entries[1].Message)
 	}
 }

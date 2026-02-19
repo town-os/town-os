@@ -69,11 +69,11 @@ func (m *MockManager) SetStatus(ctx context.Context, unit string, action StatusA
 	}
 }
 
-func (m *MockManager) LogTail(_ context.Context, unit string, lines int, beforeCursor string, grep string) (LogTailResult, error) {
+func (m *MockManager) LogTail(_ context.Context, p LogTailParams) (LogTailResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.Calls = append(m.Calls, MockCall{Method: "LogTail", Args: []any{unit, lines, beforeCursor, grep}})
+	m.Calls = append(m.Calls, MockCall{Method: "LogTail", Args: []any{p}})
 
 	if m.LogErr != nil {
 		return LogTailResult{}, m.LogErr
@@ -82,42 +82,92 @@ func (m *MockManager) LogTail(_ context.Context, unit string, lines int, beforeC
 	entries := make([]JournalEntry, len(m.Entries))
 	copy(entries, m.Entries)
 
-	// Filter by grep if set.
-	if grep != "" {
-		grepLower := strings.ToLower(grep)
-		filtered := make([]JournalEntry, 0, len(entries))
-		for _, e := range entries {
-			if strings.Contains(strings.ToLower(e.Message), grepLower) {
-				filtered = append(filtered, e)
-			}
+	grepLower := strings.ToLower(p.Grep)
+	matchesGrep := func(e JournalEntry) bool {
+		if p.Grep == "" {
+			return true
 		}
-		entries = filtered
+		return strings.Contains(strings.ToLower(e.Message), grepLower)
 	}
 
-	// If beforeCursor is set, find the entry and take entries before it.
-	endIdx := len(entries)
-	if beforeCursor != "" {
+	// Timestamp seek mode: entries from 'since' time forward.
+	if !p.Since.IsZero() && p.AfterCursor == "" && p.BeforeCursor == "" {
+		page := make([]JournalEntry, 0, p.Lines)
+		for _, e := range entries {
+			if e.RealtimeTimestamp.Before(p.Since) {
+				continue
+			}
+			if !matchesGrep(e) {
+				continue
+			}
+			page = append(page, e)
+			if len(page) >= p.Lines {
+				break
+			}
+		}
+		var cursor, endCursor string
+		if len(page) > 0 {
+			cursor = page[0].Cursor
+			endCursor = page[len(page)-1].Cursor
+		}
+		return LogTailResult{Entries: page, Cursor: cursor, EndCursor: endCursor}, nil
+	}
+
+	// Forward mode: entries after cursor (grep applied during iteration).
+	if p.AfterCursor != "" {
+		startIdx := len(entries)
 		for i, e := range entries {
-			if e.Cursor == beforeCursor {
+			if e.Cursor == p.AfterCursor {
+				startIdx = i + 1
+				break
+			}
+		}
+		page := make([]JournalEntry, 0, p.Lines)
+		for i := startIdx; i < len(entries) && len(page) < p.Lines; i++ {
+			if !matchesGrep(entries[i]) {
+				continue
+			}
+			page = append(page, entries[i])
+		}
+		var cursor, endCursor string
+		if len(page) > 0 {
+			cursor = page[0].Cursor
+			endCursor = page[len(page)-1].Cursor
+		}
+		return LogTailResult{Entries: page, Cursor: cursor, EndCursor: endCursor}, nil
+	}
+
+	// Backward mode: entries before cursor (or from end), grep during iteration.
+	endIdx := len(entries)
+	if p.BeforeCursor != "" {
+		for i, e := range entries {
+			if e.Cursor == p.BeforeCursor {
 				endIdx = i
 				break
 			}
 		}
 	}
 
-	startIdx := endIdx - lines
-	if startIdx < 0 {
-		startIdx = 0
+	page := make([]JournalEntry, 0, p.Lines)
+	for i := endIdx - 1; i >= 0 && len(page) < p.Lines; i-- {
+		if !matchesGrep(entries[i]) {
+			continue
+		}
+		page = append(page, entries[i])
 	}
 
-	page := entries[startIdx:endIdx]
+	// Reverse to chronological order.
+	for i, k := 0, len(page)-1; i < k; i, k = i+1, k-1 {
+		page[i], page[k] = page[k], page[i]
+	}
 
-	var cursor string
+	var cursor, endCursor string
 	if len(page) > 0 {
 		cursor = page[0].Cursor
+		endCursor = page[len(page)-1].Cursor
 	}
 
-	return LogTailResult{Entries: page, Cursor: cursor}, nil
+	return LogTailResult{Entries: page, Cursor: cursor, EndCursor: endCursor}, nil
 }
 
 func (m *MockManager) LogReplay(ctx context.Context, unit string) (<-chan JournalEntry, error) {

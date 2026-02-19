@@ -405,9 +405,20 @@ describe('SystemControllerClient', () => {
       mockFetch({ entries: [], cursor: '' })
       client.setToken('tok')
 
-      await client.logTail('nginx.service', 50, undefined, 'error')
+      await client.logTail('nginx.service', 50, undefined, undefined, 'error')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=50&grep=error',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('includes after cursor when provided', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 100, undefined, 'cursor-xyz')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&after=cursor-xyz',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -416,9 +427,31 @@ describe('SystemControllerClient', () => {
       mockFetch({ entries: [], cursor: '' })
       client.setToken('tok')
 
-      await client.logTail('nginx.service', 100, 'cursor-abc', 'warning')
+      await client.logTail('nginx.service', 100, 'cursor-abc', undefined, 'warning')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&before=cursor-abc&grep=warning',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('includes since parameter when provided', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 200, undefined, undefined, undefined, 1700000000)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=200&since=1700000000',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('includes since with grep when both provided', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 100, undefined, undefined, 'error', 1700000000)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&grep=error&since=1700000000',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })

@@ -88,7 +88,12 @@ export default function SystemManagement() {
   const [expandedGroups, setExpandedGroups] = useState({})
   const [flatMode, setFlatMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [followMode, setFollowMode] = useState(true)
+  const [journalEndCursor, setJournalEndCursor] = useState(null)
+  const [sinceTime, setSinceTime] = useState('')
   const scrollRef = useRef(null)
+  const followAppendRef = useRef(false)
+  const wasAtBottomRef = useRef(true)
 
   const minuteGroups = useMemo(() => groupByMinute(journalEntries), [journalEntries])
 
@@ -98,6 +103,19 @@ export default function SystemManagement() {
 
   function toggleFlatMode() {
     setFlatMode((v) => !v)
+  }
+
+  function toggleFollow() {
+    setFollowMode((v) => {
+      if (!v && scrollRef.current) {
+        requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+          }
+        })
+      }
+      return !v
+    })
   }
 
   const [units] = usePolling(
@@ -120,6 +138,11 @@ export default function SystemManagement() {
     setExpandedGroups({})
     setFlatMode(false)
     setSearchQuery('')
+    setFollowMode(true)
+    setJournalEndCursor(null)
+    setSinceTime('')
+    followAppendRef.current = false
+    wasAtBottomRef.current = true
   }
 
   function copyJournal() {
@@ -160,18 +183,21 @@ export default function SystemManagement() {
     }
   }
 
-  const loadEntries = useCallback(async (unitName, beforeCursor, grep) => {
+  const loadEntries = useCallback(async (unitName, beforeCursor, grep, since) => {
     setJournalLoading(true)
     try {
-      const result = await getClient().logTail(unitName, 100, beforeCursor, grep || undefined)
+      const result = await getClient().logTail(unitName, 200, beforeCursor, undefined, grep || undefined, since || undefined)
       const entries = result.entries || []
       if (beforeCursor) {
         setJournalEntries((prev) => [...entries, ...prev])
       } else {
         setJournalEntries(entries)
+        if (result.end_cursor) {
+          setJournalEndCursor(result.end_cursor)
+        }
       }
       setJournalCursor(result.cursor || null)
-      setJournalHasMore(entries.length >= 100 && !!result.cursor)
+      setJournalHasMore(entries.length >= 200 && !!result.cursor)
     } catch {
       // ignore errors on load
     } finally {
@@ -216,7 +242,7 @@ export default function SystemManagement() {
     }
   }
 
-  // Re-fetch when search query changes (debounced).
+  // Re-fetch when search query or since time changes (debounced).
   const searchInitRef = useRef(true)
   useEffect(() => {
     if (!journalUnit) {
@@ -227,16 +253,45 @@ export default function SystemManagement() {
       searchInitRef.current = false
       return
     }
+    const sinceUnix = sinceTime ? Math.floor(new Date(sinceTime).getTime() / 1000) : undefined
     const timer = setTimeout(() => {
-      loadEntries(journalUnit, undefined, searchQuery)
+      loadEntries(journalUnit, undefined, searchQuery, sinceUnix)
     }, 300)
     return () => clearTimeout(timer)
-  }, [searchQuery, journalUnit, loadEntries])
+  }, [searchQuery, sinceTime, journalUnit, loadEntries])
+
+  // Follow mode: poll for new entries.
+  useEffect(() => {
+    if (!journalUnit || !followMode || !journalEndCursor) return
+    const timer = setInterval(async () => {
+      try {
+        const result = await getClient().logTail(journalUnit, 200, undefined, journalEndCursor, searchQuery || undefined)
+        const entries = result.entries || []
+        if (entries.length > 0) {
+          const el = scrollRef.current
+          if (el) {
+            wasAtBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 20
+          }
+          followAppendRef.current = true
+          setJournalEntries((prev) => [...prev, ...entries])
+          setJournalEndCursor(result.end_cursor || null)
+        }
+      } catch {
+        // ignore follow errors
+      }
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [journalUnit, followMode, journalEndCursor, searchQuery])
 
   useEffect(() => {
     if (journalUnit && scrollRef.current && !journalLoading && journalInitial) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
       setJournalInitial(false)
+    } else if (followAppendRef.current && scrollRef.current) {
+      if (wasAtBottomRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      }
+      followAppendRef.current = false
     }
   }, [journalUnit, journalEntries.length, journalLoading, journalInitial])
 
@@ -411,9 +466,9 @@ export default function SystemManagement() {
               })()}
             </DialogTitle>
           </DialogHeader>
-          {(journalEntries.length > 0 || searchQuery) && (
-            <div className="flex items-center gap-2 -mt-2">
-              <div className="relative flex-1">
+          {(journalEntries.length > 0 || searchQuery || sinceTime) && (
+            <div className="flex items-center gap-2 -mt-2 flex-wrap">
+              <div className="relative flex-1 min-w-[120px]">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                 <Input
                   placeholder="Search logs..."
@@ -422,6 +477,20 @@ export default function SystemManagement() {
                   className="h-8 pl-7 text-xs"
                 />
               </div>
+              <Input
+                type="datetime-local"
+                value={sinceTime}
+                onChange={(e) => setSinceTime(e.target.value)}
+                className="h-8 text-xs w-[180px]"
+                title="Show logs since this time"
+              />
+              <Button
+                variant={followMode ? 'default' : 'outline'}
+                size="sm"
+                onClick={toggleFollow}
+              >
+                {followMode ? 'Following' : 'Follow'}
+              </Button>
               <Button
                 variant="default"
                 size="sm"
@@ -478,7 +547,7 @@ export default function SystemManagement() {
                             ? <Triangle className="h-4 w-4 inline-block mr-1 align-middle" fill="currentColor" style={{ transform: 'rotate(180deg)' }} />
                             : <Play className="h-4 w-4 inline-block mr-1 align-middle" fill="currentColor" />}
                           <span style={{ color: '#000', fontWeight: 'bold' }}>{group.label}</span>
-                          <span style={{ color: '#666', marginLeft: '0.5em' }}>({group.entries.length})</span>
+                          <span style={{ color: '#333', marginLeft: '0.5em' }}>(count: {group.entries.length})</span>
                           {!expanded && group.entries.length > 0 && (
                             <>{' '}{formatMessage(group.entries[0].Message)}</>
                           )}

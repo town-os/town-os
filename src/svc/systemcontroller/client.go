@@ -41,7 +41,7 @@ type Client interface {
 	ListUnits(ctx context.Context, sortBy, sortOrder string) ([]systemd.UnitStatus, error)
 	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
 	LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error)
-	LogTail(ctx context.Context, unit string, lines int, beforeCursor string, grep string) (systemd.LogTailResult, error)
+	LogTail(ctx context.Context, params systemd.LogTailParams) (systemd.LogTailResult, error)
 
 	CreateAccount(ctx context.Context, username, password, email, phone, realName string, admin bool) (*account.Account, error)
 	GetAccount(ctx context.Context, username string) (*account.Account, error)
@@ -422,13 +422,19 @@ func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan sy
 	return ch, nil
 }
 
-func (c *SystemdClient) LogTail(ctx context.Context, unit string, lines int, beforeCursor string, grep string) (_ systemd.LogTailResult, err error) {
-	q := fmt.Sprintf("systemd/logs/tail?unit=%s&lines=%d", url.QueryEscape(unit), lines)
-	if beforeCursor != "" {
-		q = fmt.Sprintf("%s&before=%s", q, url.QueryEscape(beforeCursor))
+func (c *SystemdClient) LogTail(ctx context.Context, p systemd.LogTailParams) (_ systemd.LogTailResult, err error) {
+	q := fmt.Sprintf("systemd/logs/tail?unit=%s&lines=%d", url.QueryEscape(p.Unit), p.Lines)
+	if p.BeforeCursor != "" {
+		q = fmt.Sprintf("%s&before=%s", q, url.QueryEscape(p.BeforeCursor))
 	}
-	if grep != "" {
-		q = fmt.Sprintf("%s&grep=%s", q, url.QueryEscape(grep))
+	if p.AfterCursor != "" {
+		q = fmt.Sprintf("%s&after=%s", q, url.QueryEscape(p.AfterCursor))
+	}
+	if p.Grep != "" {
+		q = fmt.Sprintf("%s&grep=%s", q, url.QueryEscape(p.Grep))
+	}
+	if !p.Since.IsZero() {
+		q = fmt.Sprintf("%s&since=%d", q, p.Since.Unix())
 	}
 
 	resp, err := c.getClient(ctx, q)

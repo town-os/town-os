@@ -197,7 +197,7 @@ func journalEntryFromSD(entry *sdjournal.JournalEntry) JournalEntry {
 	}
 }
 
-func (m *SystemdManager) LogTail(ctx context.Context, unit string, lines int, beforeCursor string, grep string) (_ LogTailResult, err error) {
+func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTailResult, err error) {
 	j, err := sdjournal.NewJournal()
 	if err != nil {
 		return LogTailResult{}, err
@@ -206,12 +206,71 @@ func (m *SystemdManager) LogTail(ctx context.Context, unit string, lines int, be
 		err = errors.Join(err, j.Close())
 	}()
 
-	if err := j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", unit)); err != nil {
+	if err := j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", p.Unit)); err != nil {
 		return LogTailResult{}, err
 	}
 
-	if beforeCursor != "" {
-		if err := j.SeekCursor(beforeCursor); err != nil {
+	grepLower := strings.ToLower(p.Grep)
+
+	matchesGrep := func(je JournalEntry) bool {
+		if p.Grep == "" {
+			return true
+		}
+		return strings.Contains(strings.ToLower(je.Message), grepLower)
+	}
+
+	collectForward := func() (LogTailResult, error) {
+		entries := make([]JournalEntry, 0, p.Lines)
+		for len(entries) < p.Lines {
+			n, err := j.Next()
+			if err != nil {
+				return LogTailResult{}, err
+			}
+			if n == 0 {
+				break
+			}
+			entry, err := j.GetEntry()
+			if err != nil {
+				return LogTailResult{}, err
+			}
+			je := journalEntryFromSD(entry)
+			if !matchesGrep(je) {
+				continue
+			}
+			entries = append(entries, je)
+		}
+
+		var cursor, endCursor string
+		if len(entries) > 0 {
+			cursor = entries[0].Cursor
+			endCursor = entries[len(entries)-1].Cursor
+		}
+		return LogTailResult{Entries: entries, Cursor: cursor, EndCursor: endCursor}, nil
+	}
+
+	// Timestamp seek mode: get entries from a specific time forward.
+	if !p.Since.IsZero() && p.AfterCursor == "" && p.BeforeCursor == "" {
+		if err := j.SeekRealtimeUsec(uint64(p.Since.UnixMicro())); err != nil {
+			return LogTailResult{}, err
+		}
+		return collectForward()
+	}
+
+	// Forward mode: get entries after a given cursor.
+	if p.AfterCursor != "" {
+		if err := j.SeekCursor(p.AfterCursor); err != nil {
+			return LogTailResult{}, err
+		}
+		// SeekCursor lands on the cursor entry; advance past it.
+		if _, err := j.Next(); err != nil {
+			return LogTailResult{}, err
+		}
+		return collectForward()
+	}
+
+	// Backward mode: get entries before a given cursor (or from tail).
+	if p.BeforeCursor != "" {
+		if err := j.SeekCursor(p.BeforeCursor); err != nil {
 			return LogTailResult{}, err
 		}
 		// SeekCursor lands on the cursor entry; move back one so we don't include it.
@@ -224,9 +283,8 @@ func (m *SystemdManager) LogTail(ctx context.Context, unit string, lines int, be
 		}
 	}
 
-	grepLower := strings.ToLower(grep)
-	entries := make([]JournalEntry, 0, lines)
-	for len(entries) < lines {
+	entries := make([]JournalEntry, 0, p.Lines)
+	for len(entries) < p.Lines {
 		n, err := j.Previous()
 		if err != nil {
 			return LogTailResult{}, err
@@ -239,7 +297,7 @@ func (m *SystemdManager) LogTail(ctx context.Context, unit string, lines int, be
 			return LogTailResult{}, err
 		}
 		je := journalEntryFromSD(entry)
-		if grep != "" && !strings.Contains(strings.ToLower(je.Message), grepLower) {
+		if !matchesGrep(je) {
 			continue
 		}
 		entries = append(entries, je)
@@ -250,12 +308,13 @@ func (m *SystemdManager) LogTail(ctx context.Context, unit string, lines int, be
 		entries[i], entries[k] = entries[k], entries[i]
 	}
 
-	var cursor string
+	var cursor, endCursor string
 	if len(entries) > 0 {
 		cursor = entries[0].Cursor
+		endCursor = entries[len(entries)-1].Cursor
 	}
 
-	return LogTailResult{Entries: entries, Cursor: cursor}, nil
+	return LogTailResult{Entries: entries, Cursor: cursor, EndCursor: endCursor}, nil
 }
 
 func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan JournalEntry, err error) {
