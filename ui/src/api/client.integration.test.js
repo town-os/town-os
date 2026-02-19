@@ -391,6 +391,19 @@ describe('SystemControllerClient integration', () => {
         expect(entry.account).toBe('admin')
       }
     })
+
+    it('includes detail field with request parameters', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.listAuditLog({ limit: 100 })
+      const createEntry = page.entries.find(
+        (e) => e.action === 'create account' && e.detail,
+      )
+      expect(createEntry).toBeDefined()
+      expect(createEntry.detail).toContain('admin')
+      // Password must be redacted from detail.
+      expect(createEntry.detail).not.toContain('adminpass')
+    })
   })
 
   // --- Package install creates systemd unit ---

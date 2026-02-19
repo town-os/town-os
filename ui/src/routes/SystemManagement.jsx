@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { parseAnsi, parseFields, stripAnsi, groupByMinute } from '@/lib/log-format.js'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
+import { useJournalSearch } from '@/lib/use-journal-search.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
@@ -90,7 +91,18 @@ export default function SystemManagement() {
   const [searchQuery, setSearchQuery] = useState('')
   const [followMode, setFollowMode] = useState(true)
   const [journalEndCursor, setJournalEndCursor] = useState(null)
-  const [sinceTime, setSinceTime] = useState('')
+  const [sinceDate, setSinceDate] = useState('')
+  const [sinceHour, setSinceHour] = useState('')
+  const [untilDate, setUntilDate] = useState('')
+  const [untilHour, setUntilHour] = useState('')
+  const sinceTime = useMemo(() => {
+    if (!sinceDate || sinceHour === '') return ''
+    return `${sinceDate}T${String(sinceHour).padStart(2, '0')}:00`
+  }, [sinceDate, sinceHour])
+  const untilTime = useMemo(() => {
+    if (!untilDate || untilHour === '') return ''
+    return `${untilDate}T${String(untilHour).padStart(2, '0')}:00`
+  }, [untilDate, untilHour])
   const scrollRef = useRef(null)
   const followAppendRef = useRef(false)
   const wasAtBottomRef = useRef(true)
@@ -144,7 +156,10 @@ export default function SystemManagement() {
     setSearchQuery('')
     setFollowMode(true)
     setJournalEndCursor(null)
-    setSinceTime('')
+    setSinceDate('')
+    setSinceHour('')
+    setUntilDate('')
+    setUntilHour('')
     followAppendRef.current = false
     wasAtBottomRef.current = true
   }
@@ -187,10 +202,10 @@ export default function SystemManagement() {
     }
   }
 
-  const loadEntries = useCallback(async (unitName, beforeCursor, grep, since) => {
+  const loadEntries = useCallback(async (unitName, beforeCursor, grep, since, until) => {
     setJournalLoading(true)
     try {
-      const result = await getClient().logTail(unitName, 200, beforeCursor, undefined, grep || undefined, since || undefined)
+      const result = await getClient().logTail(unitName, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined)
       const entries = result.entries || []
       if (beforeCursor) {
         setJournalEntries((prev) => [...entries, ...prev])
@@ -247,22 +262,7 @@ export default function SystemManagement() {
   }
 
   // Re-fetch when search query or since time changes (debounced).
-  const searchInitRef = useRef(true)
-  useEffect(() => {
-    if (!journalUnit) {
-      searchInitRef.current = true
-      return
-    }
-    if (searchInitRef.current) {
-      searchInitRef.current = false
-      return
-    }
-    const sinceUnix = sinceTime ? Math.floor(new Date(sinceTime).getTime() / 1000) : undefined
-    const timer = setTimeout(() => {
-      loadEntries(journalUnit, undefined, searchQuery, sinceUnix)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery, sinceTime, journalUnit, loadEntries])
+  useJournalSearch(journalUnit, searchQuery, sinceTime, untilTime, loadEntries)
 
   // Follow mode: poll for new entries.
   useEffect(() => {
@@ -481,7 +481,7 @@ export default function SystemManagement() {
               })()}
             </DialogTitle>
           </DialogHeader>
-          {(journalEntries.length > 0 || searchQuery || sinceTime) && (
+          {(journalEntries.length > 0 || searchQuery || sinceTime || untilTime) && (
             <div className="flex items-center gap-2 -mt-2 flex-wrap">
               <div className="relative flex-1 min-w-[120px]">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
@@ -492,13 +492,64 @@ export default function SystemManagement() {
                   className="h-8 pl-7 text-xs"
                 />
               </div>
+              <span className="text-xs text-muted-foreground">From</span>
               <Input
-                type="datetime-local"
-                value={sinceTime}
-                onChange={(e) => setSinceTime(e.target.value)}
-                className="h-8 text-xs w-[180px]"
-                title="Show logs since this time"
+                type="date"
+                value={sinceDate}
+                onChange={(e) => setSinceDate(e.target.value)}
+                className="h-8 text-xs w-[140px]"
+                title="Start date"
               />
+              <select
+                value={sinceHour}
+                onChange={(e) => setSinceHour(e.target.value)}
+                className="h-8 text-xs rounded-md border border-input bg-background px-2"
+                title="Start hour"
+              >
+                <option value="">HH</option>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>
+                    {String(i).padStart(2, '0')}:00
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">To</span>
+              <Input
+                type="date"
+                value={untilDate}
+                onChange={(e) => setUntilDate(e.target.value)}
+                className="h-8 text-xs w-[140px]"
+                title="End date"
+              />
+              <select
+                value={untilHour}
+                onChange={(e) => setUntilHour(e.target.value)}
+                className="h-8 text-xs rounded-md border border-input bg-background px-2"
+                title="End hour"
+              >
+                <option value="">HH</option>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>
+                    {String(i).padStart(2, '0')}:00
+                  </option>
+                ))}
+              </select>
+              {(searchQuery || sinceDate || sinceHour !== '' || untilDate || untilHour !== '') && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSearchQuery('')
+                    setSinceDate('')
+                    setSinceHour('')
+                    setUntilDate('')
+                    setUntilHour('')
+                  }}
+                  title="Clear search filters"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
               <Button
                 variant={followMode ? 'default' : 'outline'}
                 size="sm"

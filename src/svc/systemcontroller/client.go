@@ -436,6 +436,9 @@ func (c *SystemdClient) LogTail(ctx context.Context, p systemd.LogTailParams) (_
 	if !p.Since.IsZero() {
 		q = fmt.Sprintf("%s&since=%d", q, p.Since.Unix())
 	}
+	if !p.Until.IsZero() {
+		q = fmt.Sprintf("%s&until=%d", q, p.Until.Unix())
+	}
 
 	resp, err := c.getClient(ctx, q)
 	if err != nil {

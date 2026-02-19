@@ -3896,6 +3896,139 @@ func TestHTTPLogTailSinceWithLimit(t *testing.T) {
 	}
 }
 
+func TestHTTPLogTailSinceUntil(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "before window", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "in window", RealtimeTimestamp: now.Add(-5 * time.Second)},
+		{Cursor: "c3", Message: "also in window", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c4", Message: "after window", RealtimeTimestamp: now.Add(-1 * time.Second)},
+		{Cursor: "c5", Message: "latest", RealtimeTimestamp: now},
+	}
+
+	// Window from -7s to -2s: should get c2 and c3
+	since := now.Add(-7 * time.Second)
+	until := now.Add(-2 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Since: since, Until: until})
+	if err != nil {
+		t.Fatalf("LogTail since+until: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries in window, got %d", len(result.Entries))
+	}
+	if result.Entries[0].Message != "in window" {
+		t.Fatalf("expected first entry %q, got %q", "in window", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "also in window" {
+		t.Fatalf("expected second entry %q, got %q", "also in window", result.Entries[1].Message)
+	}
+}
+
+func TestHTTPLogTailSinceUntilEmpty(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "old entry", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "newer entry", RealtimeTimestamp: now.Add(-1 * time.Second)},
+	}
+
+	// Window that contains no entries: -8s to -5s
+	since := now.Add(-8 * time.Second)
+	until := now.Add(-5 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Since: since, Until: until})
+	if err != nil {
+		t.Fatalf("LogTail since+until empty: %v", err)
+	}
+
+	if len(result.Entries) != 0 {
+		t.Fatalf("expected 0 entries in window, got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailSinceUntilWithGrep(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "error: old", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "info: in window", RealtimeTimestamp: now.Add(-5 * time.Second)},
+		{Cursor: "c3", Message: "error: in window", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c4", Message: "error: after window", RealtimeTimestamp: now.Add(-1 * time.Second)},
+	}
+
+	// Window from -7s to -2s matching "error": should get only c3
+	since := now.Add(-7 * time.Second)
+	until := now.Add(-2 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Since: since, Until: until, Grep: "error"})
+	if err != nil {
+		t.Fatalf("LogTail since+until+grep: %v", err)
+	}
+
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
+	}
+	if result.Entries[0].Message != "error: in window" {
+		t.Fatalf("expected entry %q, got %q", "error: in window", result.Entries[0].Message)
+	}
+}
+
+func TestHTTPLogTailUntilBeforeAllEntries(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "entry 1", RealtimeTimestamp: now.Add(-5 * time.Second)},
+		{Cursor: "c2", Message: "entry 2", RealtimeTimestamp: now.Add(-3 * time.Second)},
+	}
+
+	// Since before all entries, until also before all entries
+	since := now.Add(-20 * time.Second)
+	until := now.Add(-10 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Since: since, Until: until})
+	if err != nil {
+		t.Fatalf("LogTail until before all: %v", err)
+	}
+
+	if len(result.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailSinceUntilWithLimit(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "old", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "a", RealtimeTimestamp: now.Add(-5 * time.Second)},
+		{Cursor: "c3", Message: "b", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c4", Message: "c", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c5", Message: "after", RealtimeTimestamp: now.Add(-1 * time.Second)},
+	}
+
+	// Window from -7s to -2s with limit 2: should get c2 and c3
+	since := now.Add(-7 * time.Second)
+	until := now.Add(-2 * time.Second)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 2, Since: since, Until: until})
+	if err != nil {
+		t.Fatalf("LogTail since+until+limit: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result.Entries))
+	}
+	if result.Entries[0].Message != "a" {
+		t.Fatalf("expected first %q, got %q", "a", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "b" {
+		t.Fatalf("expected second %q, got %q", "b", result.Entries[1].Message)
+	}
+}
+
 // --- Pagination tests ---
 
 func TestHTTPListUnitsPagination(t *testing.T) {
@@ -4378,4 +4511,131 @@ func TestHTTPListRepositoriesSearch(t *testing.T) {
 	if len(page.Entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
 	}
+}
+
+func TestSanitizeAuditDetail(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "removes password from top level",
+			body: `{"username":"admin","password":"secret"}`,
+			want: `{"username":"admin"}`,
+		},
+		{
+			name: "removes password from nested fields",
+			body: `{"username":"admin","fields":{"password":"new","real_name":"Bob"}}`,
+			want: `{"fields":{"real_name":"Bob"},"username":"admin"}`,
+		},
+		{
+			name: "preserves body without password",
+			body: `{"name":"nginx","version":"1.0"}`,
+			want: `{"name":"nginx","version":"1.0"}`,
+		},
+		{
+			name: "returns empty for invalid JSON",
+			body: `not json`,
+			want: "",
+		},
+		{
+			name: "returns empty for empty body",
+			body: ``,
+			want: "",
+		},
+		{
+			name: "preserves nested objects",
+			body: `{"name":"nginx","responses":{"port":"8080"}}`,
+			want: `{"name":"nginx","responses":{"port":"8080"}}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeAuditDetail([]byte(tc.body))
+			if got != tc.want {
+				t.Fatalf("sanitizeAuditDetail(%q) = %q, want %q", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHTTPAuditDetailCaptured(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create admin
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Disable a user - this should capture detail
+	_, _ = c.CreateAccount(context.TODO(), "user1", "pw", "u@b.com", "555", "User", false)
+
+	// The disable call has a simple body: {"username":"user1"}
+	body := `{"username":"user1"}`
+	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+	req.Header.Set("Content-Type", "application/json")
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	if err := httpResp.Body.Close(); err != nil {
+		t.Errorf("resp.Body.Close: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "disable account" && e.Detail != "" {
+			found = true
+			if !strings.Contains(e.Detail, "user1") {
+				t.Fatalf("expected detail to contain 'user1', got %q", e.Detail)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find audit entry with detail for disable account")
+	}
+}
+
+func TestHTTPAuditDetailRedactsPassword(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create admin
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		if e.Action == "create account" {
+			if strings.Contains(e.Detail, "pass") {
+				t.Fatalf("expected detail to NOT contain password, got %q", e.Detail)
+			}
+			if !strings.Contains(e.Detail, "admin") {
+				t.Fatalf("expected detail to contain username 'admin', got %q", e.Detail)
+			}
+			return
+		}
+	}
+	t.Fatal("expected to find create account audit entry")
 }

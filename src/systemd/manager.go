@@ -234,6 +234,9 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 				return LogTailResult{}, err
 			}
 			je := journalEntryFromSD(entry)
+			if !p.Until.IsZero() && !je.RealtimeTimestamp.Before(p.Until) {
+				break
+			}
 			if !matchesGrep(je) {
 				continue
 			}

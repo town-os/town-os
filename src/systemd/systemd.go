@@ -79,6 +79,7 @@ type LogTailParams struct {
 	AfterCursor  string
 	Grep         string
 	Since        time.Time
+	Until        time.Time
 }
 
 type LogTailResult struct {

@@ -13,6 +13,7 @@ var auditAllowedSortColumns = map[string]bool{
 	"account":    true,
 	"action":     true,
 	"path":       true,
+	"detail":     true,
 	"success":    true,
 	"error":      true,
 	"created_at": true,
@@ -33,6 +34,7 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 		account    TEXT NOT NULL DEFAULT '',
 		action     TEXT NOT NULL,
 		path       TEXT NOT NULL,
+		detail     TEXT NOT NULL DEFAULT '',
 		success    INTEGER NOT NULL DEFAULT 1,
 		error      TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL
@@ -40,6 +42,9 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create audit_log table: %w", err)
 	}
+
+	// Migrate: add detail column if it does not exist (for existing databases).
+	_, _ = db.Exec(`ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`)
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(id DESC)`); err != nil {
 		return nil, fmt.Errorf("create idx_audit_created: %w", err)
@@ -54,8 +59,8 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 
 func (m *SQLiteAuditManager) LogEntry(entry AuditEntry) error {
 	_, err := m.db.Exec(
-		`INSERT INTO audit_log (account, action, path, success, error, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		entry.Account, entry.Action, entry.Path, entry.Success, entry.Error,
+		`INSERT INTO audit_log (account, action, path, detail, success, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		entry.Account, entry.Action, entry.Path, entry.Detail, entry.Success, entry.Error,
 		entry.CreatedAt.UTC().Format(time.RFC3339),
 	)
 	if err != nil {
@@ -74,7 +79,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	}
 
 	var args []any
-	query := "SELECT id, account, action, path, success, error, created_at FROM audit_log"
+	query := "SELECT id, account, action, path, detail, success, error, created_at FROM audit_log"
 
 	var where []string
 	if opts.BeforeID > 0 {
@@ -123,7 +128,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		var e AuditEntry
 		var createdStr string
 
-		if err := rows.Scan(&e.ID, &e.Account, &e.Action, &e.Path, &e.Success, &e.Error, &createdStr); err != nil {
+		if err := rows.Scan(&e.ID, &e.Account, &e.Action, &e.Path, &e.Detail, &e.Success, &e.Error, &createdStr); err != nil {
 			return nil, fmt.Errorf("scan audit entry: %w", err)
 		}
 

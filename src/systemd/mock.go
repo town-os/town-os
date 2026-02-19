@@ -90,12 +90,15 @@ func (m *MockManager) LogTail(_ context.Context, p LogTailParams) (LogTailResult
 		return strings.Contains(strings.ToLower(e.Message), grepLower)
 	}
 
-	// Timestamp seek mode: entries from 'since' time forward.
+	// Timestamp seek mode: entries from 'since' time forward, up to 'until'.
 	if !p.Since.IsZero() && p.AfterCursor == "" && p.BeforeCursor == "" {
 		page := make([]JournalEntry, 0, p.Lines)
 		for _, e := range entries {
 			if e.RealtimeTimestamp.Before(p.Since) {
 				continue
+			}
+			if !p.Until.IsZero() && !e.RealtimeTimestamp.Before(p.Until) {
+				break
 			}
 			if !matchesGrep(e) {
 				continue

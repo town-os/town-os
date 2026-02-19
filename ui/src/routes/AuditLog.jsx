@@ -1,8 +1,22 @@
 import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
+import { JsonTree } from '@/lib/json-tree.jsx'
 import DataTable from '@/components/DataTable.jsx'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Check, CircleAlert, FileText } from 'lucide-react'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const PAGE_SIZE = 20
 
@@ -17,6 +31,9 @@ export default function AuditLog() {
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailData, setDetailData] = useState('')
+  const [detailAction, setDetailAction] = useState('')
 
   const [auditData] = usePolling(
     () =>
@@ -43,6 +60,12 @@ export default function AuditLog() {
     setSortDirection('desc')
   }
 
+  function openDetail(row) {
+    setDetailData(row.detail || '')
+    setDetailAction(row.action || row.path || '')
+    setDetailOpen(true)
+  }
+
   const columns = [
     {
       key: 'id',
@@ -64,27 +87,41 @@ export default function AuditLog() {
     },
     { key: 'account', label: 'User', transform: (v) => v || '-' },
     {
+      key: 'detail',
+      label: 'Detail',
+      sortable: false,
+      transform: (v, row) =>
+        v ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onClick={() => openDetail(row)}
+            title="View request parameters"
+          >
+            <FileText className="h-3.5 w-3.5" />
+          </Button>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        ),
+    },
+    {
       key: 'success',
       label: 'Status',
       transform: (v, row) =>
         v ? (
-          <Badge variant="outline">Success</Badge>
+          <Check className="h-4 w-4 text-green-600" />
         ) : (
-          <Badge variant="destructive" title={row.error}>
-            Error
-          </Badge>
-        ),
-    },
-    {
-      key: 'error',
-      label: 'Detail',
-      transform: (v) =>
-        v ? (
-          <span className="text-sm text-destructive truncate max-w-[200px] block">
-            {v}
-          </span>
-        ) : (
-          '-'
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <CircleAlert className="h-4 w-4 text-destructive cursor-pointer" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="max-w-[300px] break-words">{row.error || 'Unknown error'}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         ),
     },
   ]
@@ -110,6 +147,17 @@ export default function AuditLog() {
         onSortChange={handleSortChange}
         onReset={handleReset}
       />
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="sm:max-w-md max-h-[70vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Request Parameters: {detailAction}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-auto flex-1 min-h-0 rounded border bg-muted p-3">
+            <JsonTree data={detailData} />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

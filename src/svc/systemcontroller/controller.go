@@ -1,9 +1,11 @@
 package systemcontroller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -589,6 +591,14 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 		params.Since = time.Unix(sinceUnix, 0)
 	}
 
+	if v := c.QueryParam("until"); v != "" {
+		untilUnix, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid until parameter: %w", err)
+		}
+		params.Until = time.Unix(untilUnix, 0)
+	}
+
 	result, err := s.Controller.GetSystemdManager().LogTail(c.Request().Context(), params)
 	if err != nil {
 		return err
@@ -859,23 +869,25 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			return next(c)
 		}
 
+		// Buffer the request body so we can capture it for audit detail
+		// while still allowing the handler to read it.
+		var detail string
+		if c.Request().Body != nil {
+			bodyBytes, err := io.ReadAll(c.Request().Body)
+			if closeErr := c.Request().Body.Close(); closeErr != nil && err == nil {
+				err = closeErr
+			}
+			if err == nil && len(bodyBytes) > 0 {
+				detail = sanitizeAuditDetail(bodyBytes)
+				c.Request().Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+		}
+
 		handlerErr := next(c)
 
 		var acctName string
 		if path == "/account/authenticate" {
-			if handlerErr == nil {
-				// On success, extract username from request body - but body is consumed.
-				// We need to extract from the auth request. Since body is consumed,
-				// we extract from the response or use request data.
-				// The authenticate handler already ran; we can try to get the username
-				// from the request by re-reading. But the body is consumed.
-				// Instead, just use the token from context - but authenticate doesn't set context.
-				// Best approach: parse the username from the original request.
-				// Since the body is consumed by the handler, we need another approach.
-				// We'll leave account empty for authenticate on success - the audit log
-				// will still record the action.
-				acctName = ""
-			}
+			acctName = ""
 		} else {
 			token := extractBearerToken(c.Request())
 			if token != "" && s.Controller.GetSessionManager() != nil {
@@ -892,6 +904,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			Account:   acctName,
 			Action:    action,
 			Path:      path,
+			Detail:    detail,
 			Success:   handlerErr == nil,
 			CreatedAt: time.Now().UTC(),
 		}
@@ -904,6 +917,26 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 
 		return handlerErr
 	}
+}
+
+// sanitizeAuditDetail parses a JSON request body, redacts sensitive fields,
+// and returns a compact JSON string for audit logging.
+func sanitizeAuditDetail(body []byte) string {
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return ""
+	}
+
+	delete(m, "password")
+	if fields, ok := m["fields"].(map[string]any); ok {
+		delete(fields, "password")
+	}
+
+	out, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 func (s *SystemControllerHandlers) listAuditLog(c *echo.Context) error {

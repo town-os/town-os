@@ -7,6 +7,7 @@ type AuditEntry struct {
 	Account   string    `json:"account"`
 	Action    string    `json:"action"`
 	Path      string    `json:"path"`
+	Detail    string    `json:"detail"`
 	Success   bool      `json:"success"`
 	Error     string    `json:"error"`
 	CreatedAt time.Time `json:"created_at"`

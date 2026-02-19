@@ -88,6 +88,7 @@
  * @property {string} account
  * @property {string} action
  * @property {string} path
+ * @property {string} detail
  * @property {boolean} success
  * @property {string} error
  * @property {string} created_at

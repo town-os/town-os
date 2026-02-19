@@ -1,0 +1,294 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { renderHook } from '@testing-library/react'
+import { useJournalSearch } from './use-journal-search.js'
+
+describe('useJournalSearch', () => {
+  /** @type {ReturnType<typeof vi.fn>} */
+  let loadEntries
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    loadEntries = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('skips the initial render and does not call loadEntries', () => {
+    renderHook(() => useJournalSearch('nginx.service', '', '', '', loadEntries))
+    vi.advanceTimersByTime(2000)
+    expect(loadEntries).not.toHaveBeenCalled()
+  })
+
+  it('does not call loadEntries when journalUnit is null', () => {
+    renderHook(() => useJournalSearch(null, 'query', '', '', loadEntries))
+    vi.advanceTimersByTime(2000)
+    expect(loadEntries).not.toHaveBeenCalled()
+  })
+
+  it('calls loadEntries after 300ms when searchQuery changes', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: 'error', since: '', until: '' })
+
+    vi.advanceTimersByTime(299)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'error', undefined, undefined)
+  })
+
+  it('calls loadEntries after 1000ms when sinceTime changes', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '2026-02-19T14:00', until: '' })
+
+    vi.advanceTimersByTime(999)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    const sinceUnix = Math.floor(new Date('2026-02-19T14:00').getTime() / 1000)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, undefined)
+  })
+
+  it('calls loadEntries after 1000ms when untilTime changes', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '2026-02-19T15:00' })
+
+    vi.advanceTimersByTime(999)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    const untilUnix = Math.floor(new Date('2026-02-19T15:00').getTime() / 1000)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, untilUnix)
+  })
+
+  it('passes both sinceUnix and untilUnix when both are set', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '2026-02-19T10:00', until: '2026-02-19T14:00' })
+
+    vi.advanceTimersByTime(1000)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    const sinceUnix = Math.floor(new Date('2026-02-19T10:00').getTime() / 1000)
+    const untilUnix = Math.floor(new Date('2026-02-19T14:00').getTime() / 1000)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, untilUnix)
+  })
+
+  it('does not fire at 300ms when sinceTime changes', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '2026-02-19T14:00', until: '' })
+
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).not.toHaveBeenCalled()
+  })
+
+  it('debounces rapid sinceTime changes and only fires once', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '2026-02-19T13:00', until: '' })
+    vi.advanceTimersByTime(500)
+    rerender({ unit: 'nginx.service', query: '', since: '2026-02-19T14:00', until: '' })
+    vi.advanceTimersByTime(500)
+    rerender({ unit: 'nginx.service', query: '', since: '2026-02-19T15:00', until: '' })
+    vi.advanceTimersByTime(1000)
+
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    const sinceUnix = Math.floor(new Date('2026-02-19T15:00').getTime() / 1000)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, undefined)
+  })
+
+  it('converts sinceTime to unix seconds using the journal RealtimeTimestamp epoch', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '2026-01-15T08:00', until: '' })
+    vi.advanceTimersByTime(1000)
+
+    const expected = Math.floor(new Date('2026-01-15T08:00').getTime() / 1000)
+    expect(loadEntries.mock.calls[0][3]).toBe(expected)
+    expect(expected).toBeGreaterThan(0)
+  })
+
+  it('passes undefined for since and until when both are empty', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: 'test', since: '', until: '' })
+    vi.advanceTimersByTime(300)
+
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'test', undefined, undefined)
+  })
+
+  it('resets on journalUnit change to null and skips next initial render', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    // Switch to null (close journal).
+    rerender({ unit: null, query: '', since: '', until: '' })
+    vi.advanceTimersByTime(2000)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    // Re-open: first render after null should be skipped (init guard).
+    rerender({ unit: 'redis.service', query: '', since: '', until: '' })
+    vi.advanceTimersByTime(2000)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    // Now a real change should work.
+    rerender({ unit: 'redis.service', query: 'started', since: '', until: '' })
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    expect(loadEntries).toHaveBeenCalledWith('redis.service', undefined, 'started', undefined, undefined)
+  })
+
+  it('uses 300ms debounce when only searchQuery changes and sinceTime stays the same', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '2026-02-19T10:00', until: '' } },
+    )
+
+    // Change only searchQuery, sinceTime unchanged.
+    rerender({ unit: 'nginx.service', query: 'warn', since: '2026-02-19T10:00', until: '' })
+
+    vi.advanceTimersByTime(299)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses 1000ms debounce when both searchQuery and sinceTime change', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: 'err', since: '2026-02-19T12:00', until: '' })
+
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(700)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses 1000ms debounce when untilTime changes', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '2026-02-19T16:00' })
+
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(700)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears sinceTime by setting it back to empty and triggers search with 1s debounce', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    // Set since time.
+    rerender({ unit: 'nginx.service', query: '', since: '2026-02-19T14:00', until: '' })
+    vi.advanceTimersByTime(1000)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    loadEntries.mockClear()
+
+    // Clear since time.
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '' })
+    vi.advanceTimersByTime(1000)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined)
+  })
+
+  it('clears searchQuery and triggers search with 300ms debounce', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    // Set search query.
+    rerender({ unit: 'nginx.service', query: 'error', since: '', until: '' })
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    loadEntries.mockClear()
+
+    // Clear search query.
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '' })
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined)
+  })
+
+  it('clears untilTime by setting it back to empty and triggers search with 1s debounce', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    // Set until time.
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '2026-02-19T16:00' })
+    vi.advanceTimersByTime(1000)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    loadEntries.mockClear()
+
+    // Clear until time.
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '' })
+    vi.advanceTimersByTime(1000)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined)
+  })
+
+  it('debounces rapid untilTime changes and only fires once', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until }) => useJournalSearch(unit, query, since, until, loadEntries),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '' } },
+    )
+
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '2026-02-19T13:00' })
+    vi.advanceTimersByTime(500)
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '2026-02-19T14:00' })
+    vi.advanceTimersByTime(500)
+    rerender({ unit: 'nginx.service', query: '', since: '', until: '2026-02-19T15:00' })
+    vi.advanceTimersByTime(1000)
+
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    const untilUnix = Math.floor(new Date('2026-02-19T15:00').getTime() / 1000)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, untilUnix)
+  })
+})
