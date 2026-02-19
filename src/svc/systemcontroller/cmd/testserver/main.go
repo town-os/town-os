@@ -19,6 +19,7 @@ import (
 
 func run() (err error) {
 	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
+	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
 	flag.Parse()
 
 	dir, err := os.MkdirTemp("", "testserver-*")
@@ -77,7 +78,7 @@ func run() (err error) {
 	inst := packages.NewInstallManager(dir)
 
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
-		Storage:        storage.InitBtrFS(),
+		Storage:        storage.InitBtrFS(*btrfsPath),
 		RepositoryRoot: rr,
 		Installer:      inst,
 		Systemd:        systemd.NewManager(),

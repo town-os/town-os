@@ -117,9 +117,18 @@ describe('SystemControllerClient integration', () => {
       expect(sessions[0].username).toBe('admin')
     })
 
-    it('gets session username', async () => {
-      const username = await client.sessionUsername(token)
-      expect(username).toBe('admin')
+    it('rejects session username without auth', async () => {
+      const resp = await fetch(`${baseURL}/`)
+      expect(resp.status).toBe(401)
+    })
+
+    it('returns username as json when authenticated', async () => {
+      const resp = await fetch(`${baseURL}/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      expect(resp.status).toBe(200)
+      const body = await resp.json()
+      expect(body).toEqual({ username: 'admin' })
     })
 
     it('creates and revokes a session', async () => {

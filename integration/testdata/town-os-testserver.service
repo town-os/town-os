@@ -3,7 +3,8 @@ Description=Town OS Test Server
 
 [Service]
 Type=simple
-ExecStart=/testserver -db /data/dev.db
+PassEnvironment=LOG_LEVEL DEBUG
+ExecStart=/testserver -db /data/dev.db -btrfs /data/btrfs
 
 [Install]
 WantedBy=multi-user.target

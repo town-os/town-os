@@ -2094,6 +2094,45 @@ func TestHTTPSessionLifecycle(t *testing.T) {
 	}
 }
 
+func TestHTTPSessionUsernameUnauthenticated(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	resp, err := c.HTTP.Get(c.BaseURL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("body close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected status 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestHTTPSessionUsernameAuthenticated(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	authResp, err := c.Authenticate(context.TODO(), "alice", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	username, err := c.SessionUsername(context.TODO(), authResp.Token)
+	if err != nil {
+		t.Fatalf("SessionUsername: %v", err)
+	}
+	if username != "alice" {
+		t.Fatalf("expected username %q, got %q", "alice", username)
+	}
+}
+
 // --- Admin middleware tests ---
 
 func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
@@ -2435,7 +2474,7 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 
 	for _, e := range page.Entries {
 		switch e.Path {
-		case "/account/sessions", "/account/session/username", "/status/ping":
+		case "/account/sessions", "/", "/status/ping":
 			t.Fatalf("expected path %q to be excluded from audit log", e.Path)
 		}
 	}

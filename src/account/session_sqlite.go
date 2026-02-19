@@ -4,8 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
-	"os"
+	"log/slog"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -237,8 +236,8 @@ func (s *SQLiteSessionManager) StartCleanup(ctx context.Context, interval time.D
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := s.Cleanup(); err != nil && os.Getenv("DEBUG") != "" {
-					log.Printf("session cleanup error: %v", err)
+				if err := s.Cleanup(); err != nil {
+					slog.Error("session cleanup error", "error", err)
 				}
 			}
 		}

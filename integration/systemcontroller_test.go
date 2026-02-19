@@ -14,12 +14,10 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemdClient, string) {
+func initSystemControllerTest(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
 
-	path := "/data/btrfs"
-
-	btr := storage.InitBtrFS()
+	btr := storage.InitBtrFS("/data/btrfs")
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -28,29 +26,28 @@ func initSystemControllerTest(t *testing.T) (*systemcontroller.SystemdClient, st
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return c, path
+	return c
 }
 
 func TestSystemControllerCreateAndList(t *testing.T) {
-	c, path := initSystemControllerTest(t)
-	testPath := filepath.Join(path, "sc-create-list")
+	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), path)
+	baseList, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
 	baseCount := len(baseList)
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: testPath}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-create-list"}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := c.RemoveFilesystem(context.TODO(), testPath); err != nil {
-			t.Errorf("cleanup RemoveFilesystem(%q): %v", testPath, err)
+		if err := c.RemoveFilesystem(context.TODO(), "sc-create-list"); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", "sc-create-list", err)
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), path)
+	list, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("error listing after create: %v", err)
 	}
@@ -59,7 +56,7 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 		t.Fatalf("expected %d filesystems after create, got %d", baseCount+1, len(list))
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), testPath)
+	list, err = c.ListFilesystems(context.TODO(), "sc-create-list")
 	if err != nil {
 		t.Fatalf("error listing with exact prefix: %v", err)
 	}
@@ -70,24 +67,23 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 }
 
 func TestSystemControllerRemove(t *testing.T) {
-	c, path := initSystemControllerTest(t)
-	testPath := filepath.Join(path, "sc-remove")
+	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), path)
+	baseList, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
 	baseCount := len(baseList)
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: testPath}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-remove"}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
 
-	if err := c.RemoveFilesystem(context.TODO(), testPath); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), "sc-remove"); err != nil {
 		t.Fatalf("error removing filesystem: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), path)
+	list, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("error listing after remove: %v", err)
 	}
@@ -98,9 +94,9 @@ func TestSystemControllerRemove(t *testing.T) {
 }
 
 func TestSystemControllerMultipleFilesystems(t *testing.T) {
-	c, path := initSystemControllerTest(t)
+	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), path)
+	baseList, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
@@ -108,21 +104,21 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 
 	names := []string{"sc-multi-a", "sc-multi-b", "sc-multi-c"}
 	for _, name := range names {
-		p := filepath.Join(path, name)
-		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: p}); err != nil {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("error creating %q: %v", name, err)
 		}
 		// sc-multi-b is explicitly removed in the test body below.
 		if name != "sc-multi-b" {
+			name := name
 			t.Cleanup(func() {
-				if err := c.RemoveFilesystem(context.TODO(), p); err != nil {
-					t.Errorf("cleanup RemoveFilesystem(%q): %v", p, err)
+				if err := c.RemoveFilesystem(context.TODO(), name); err != nil {
+					t.Errorf("cleanup RemoveFilesystem(%q): %v", name, err)
 				}
 			})
 		}
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), path)
+	list, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("error listing after creates: %v", err)
 	}
@@ -132,11 +128,11 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 	}
 
 	// Remove one and verify count
-	if err := c.RemoveFilesystem(context.TODO(), filepath.Join(path, "sc-multi-b")); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), "sc-multi-b"); err != nil {
 		t.Fatalf("error removing sc-multi-b: %v", err)
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), path)
+	list, err = c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("error listing after partial remove: %v", err)
 	}
@@ -147,30 +143,27 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 }
 
 func TestSystemControllerListPrefix(t *testing.T) {
-	c, path := initSystemControllerTest(t)
+	c := initSystemControllerTest(t)
 
-	prefixA := filepath.Join(path, "sc-pfx-a")
-	prefixB := filepath.Join(path, "sc-pfx-b")
-
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: prefixA}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-pfx-a"}); err != nil {
 		t.Fatalf("error creating sc-pfx-a: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := c.RemoveFilesystem(context.TODO(), prefixA); err != nil {
-			t.Errorf("cleanup RemoveFilesystem(%q): %v", prefixA, err)
+		if err := c.RemoveFilesystem(context.TODO(), "sc-pfx-a"); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", "sc-pfx-a", err)
 		}
 	})
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: prefixB}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-pfx-b"}); err != nil {
 		t.Fatalf("error creating sc-pfx-b: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := c.RemoveFilesystem(context.TODO(), prefixB); err != nil {
-			t.Errorf("cleanup RemoveFilesystem(%q): %v", prefixB, err)
+		if err := c.RemoveFilesystem(context.TODO(), "sc-pfx-b"); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", "sc-pfx-b", err)
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), prefixA)
+	list, err := c.ListFilesystems(context.TODO(), "sc-pfx-a")
 	if err != nil {
 		t.Fatalf("error listing with prefix: %v", err)
 	}
@@ -181,41 +174,39 @@ func TestSystemControllerListPrefix(t *testing.T) {
 }
 
 func TestSystemControllerModifyUnimplemented(t *testing.T) {
-	c, path := initSystemControllerTest(t)
-	testPath := filepath.Join(path, "sc-modify")
+	c := initSystemControllerTest(t)
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: testPath}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-modify"}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := c.RemoveFilesystem(context.TODO(), testPath); err != nil {
-			t.Errorf("cleanup RemoveFilesystem(%q): %v", testPath, err)
+		if err := c.RemoveFilesystem(context.TODO(), "sc-modify"); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", "sc-modify", err)
 		}
 	})
 
-	err := c.ModifyFilesystem(context.TODO(), testPath, storage.Filesystem{Name: testPath, Quota: 1024})
+	err := c.ModifyFilesystem(context.TODO(), "sc-modify", storage.Filesystem{Name: "sc-modify", Quota: 1024})
 	if err == nil {
 		t.Fatal("expected error from unimplemented ModifyFilesystem")
 	}
 }
 
 func TestSystemControllerFullLifecycle(t *testing.T) {
-	c, path := initSystemControllerTest(t)
-	testPath := filepath.Join(path, "sc-lifecycle")
+	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), path)
+	baseList, err := c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("ListFilesystems before create: %v", err)
 	}
 	baseCount := len(baseList)
 
 	// Create
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: testPath}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-lifecycle"}); err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
 
 	// Verify exists
-	list, err := c.ListFilesystems(context.TODO(), testPath)
+	list, err := c.ListFilesystems(context.TODO(), "sc-lifecycle")
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify creation: %v", err)
 	}
@@ -224,12 +215,12 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	}
 
 	// Remove
-	if err := c.RemoveFilesystem(context.TODO(), testPath); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), "sc-lifecycle"); err != nil {
 		t.Fatalf("remove failed: %v", err)
 	}
 
 	// Verify gone
-	list, err = c.ListFilesystems(context.TODO(), path)
+	list, err = c.ListFilesystems(context.TODO(), "")
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify removal: %v", err)
 	}
@@ -866,7 +857,7 @@ func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager) *sys
 		t.Fatalf("failed to load repository root: %v", err)
 	}
 
-	btr := storage.InitBtrFS()
+	btr := storage.InitBtrFS("/data/btrfs")
 	inst := packages.NewInstallManager(dir)
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr, RepositoryRoot: rr, Installer: inst, Systemd: sd})
 	t.Cleanup(func() { ts.Server.Close() })

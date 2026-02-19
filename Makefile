@@ -40,18 +40,18 @@ test-ui-integration: test-image ui-integration-image btrfs
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	@cp $$HOME/.gitconfig .gitconfig.tmp
 	@cp $$HOME/.git-credentials .git-credentials.tmp
-	sudo -E podman run -e DEBUG=${DEBUG} -d --systemd=true --privileged \
+	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 -d --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		-v $$(pwd)/.gitconfig.tmp:/root/.gitconfig:ro,z \
 		-v $$(pwd)/.git-credentials.tmp:/root/.git-credentials:ro,z \
 		--name=$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
 	echo "Waiting for backend availability"
-	@sudo -E podman run --rm -it --network container:$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE) sh -c 'while ! curl -sSL $(PODMAN_UI_BACKEND):8080; do sleep 1; done'
+	@sudo -E podman run --rm -it --network container:$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE) sh -c 'while ! curl -sSL localhost:8080; do sleep 1; done'
 	sudo -E podman run \
 		--network container:$(PODMAN_UI_BACKEND) \
-		-e INTEGRATION_URL=http://$(PODMAN_UI_BACKEND):8080 \
-		-e VITE_API_URL=http://$(PODMAN_UI_BACKEND):8080 \
+		-e INTEGRATION_URL=http://localhost:8080 \
+		-e VITE_API_URL=http://localhost:8080 \
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
 		bun run test:integration
 
@@ -60,7 +60,7 @@ test-integration: lint test-image btrfs
 	@cp $$HOME/.gitconfig .gitconfig.tmp
 	@cp $$HOME/.git-credentials .git-credentials.tmp
 	@git config --file .gitconfig.tmp credential.helper "store --file /root/.git-credentials"
-	sudo -E podman run -e DEBUG=${DEBUG} -d --systemd=true --privileged \
+	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} -d --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		-v $$(pwd)/.gitconfig.tmp:/root/.gitconfig:ro,z \
@@ -87,7 +87,7 @@ PODMAN_DEV_CONTAINER := town-os-dev
 dev: test-image btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@touch dev.db
-	sudo -E podman run -d -p 8080:8080 -e DEBUG=1 --systemd=true --privileged \
+	sudo -E podman run -d -p 8080:8080 -e LOG_LEVEL=debug -e DEBUG=1 --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		-v $$(pwd)/dev.db:/data/dev.db:z \
@@ -150,7 +150,7 @@ clean-podman: clean-btrfs
 
 test-systemd: test-image btrfs
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
-	sudo -E podman run -e DEBUG=1 -d --systemd=true --privileged \
+	sudo -E podman run -e LOG_LEVEL=debug -d --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)

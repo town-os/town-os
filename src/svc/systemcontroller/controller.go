@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -705,7 +706,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 
 		excluded := map[string]bool{
 			"/account/sessions":         true,
-			"/account/session/username": true,
+			"/": true,
 			"/status/ping":              true,
 			"/audit/log":                true,
 		}
@@ -861,7 +862,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	// Self-authenticated (handlers do own token validation)
 	e.Add("GET", "/account/sessions", s.listSessions)
-	e.Add("GET", "/account/session/username", s.sessionUsername)
+	e.Add("GET", "/", s.sessionUsername)
 	e.Add("POST", "/account/session/revoke", s.revokeSession)
 
 	// Authenticated (requireAuth)
@@ -933,12 +934,28 @@ func (s *serverBase) GetSessionManager() account.SessionManager   { return s.Ses
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
 func (s *serverBase) GetAllowedHosts() []string                   { return s.AllowedHosts }
 
+func parseLogLevel() slog.Level {
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelError
+	}
+}
+
 func configureRouter(sc systemControllerBackend) http.Handler {
 	handlers := getHandler(sc)
 	e := echo.New()
-	if os.Getenv("DEBUG") != "" {
-		e.Use(middleware.RequestLogger())
-	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel()}))
+	e.Logger = logger
+	slog.SetDefault(logger)
+	e.Use(middleware.RequestLogger())
 	allowedHosts := sc.GetAllowedHosts()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		UnsafeAllowOriginFunc: func(_ *echo.Context, origin string) (string, bool, error) {

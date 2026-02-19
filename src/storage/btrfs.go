@@ -122,27 +122,29 @@ func (BtrFSController) SubvolList(name string) ([]btrfs.Info, error) {
 }
 
 type BtrFS struct {
+	BasePath   string
 	BinPath    string
 	Controller Controller
 }
 
-func InitBtrFS() *BtrFS {
-	return InitBtrFSFromController(BtrFSController{})
+func InitBtrFS(basePath string) *BtrFS {
+	return InitBtrFSFromController(basePath, BtrFSController{})
 }
 
 func InitBtrFSMock() *BtrFS {
-	return InitBtrFSFromController(InitBtrFSMockController())
+	return InitBtrFSFromController("", InitBtrFSMockController())
 }
 
-func InitBtrFSFromController(c Controller) *BtrFS {
+func InitBtrFSFromController(basePath string, c Controller) *BtrFS {
 	return &BtrFS{
+		BasePath:   basePath,
 		BinPath:    "btrfs",
 		Controller: c,
 	}
 }
 
 func (b *BtrFS) CreateFilesystem(f Filesystem) error {
-	return b.Controller.SubvolCreate(f.Name)
+	return b.Controller.SubvolCreate(filepath.Join(b.BasePath, f.Name))
 }
 
 func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
@@ -150,11 +152,11 @@ func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
 }
 
 func (b *BtrFS) RemoveFilesystem(name string) error {
-	return b.Controller.SubvolDelete(name)
+	return b.Controller.SubvolDelete(filepath.Join(b.BasePath, name))
 }
 
 func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
-	info, err := b.Controller.SubvolList(prefix)
+	info, err := b.Controller.SubvolList(filepath.Join(b.BasePath, prefix))
 	if err != nil {
 		return nil, err
 	}

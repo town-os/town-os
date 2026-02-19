@@ -1,30 +1,25 @@
 package integration_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/storage"
 )
 
 func TestBtrFS(t *testing.T) {
-	path := "/data/btrfs"
+	btr := storage.InitBtrFS("/data/btrfs")
 
-	btr := storage.InitBtrFS()
-
-	baseList, err := btr.ListFilesystems(path)
+	baseList, err := btr.ListFilesystems("")
 	if err != nil {
 		t.Fatalf("Error while listing filesystems before create: %v", err)
 	}
 	baseCount := len(baseList)
 
-	testPath := filepath.Join(path, "test")
-
-	if err := btr.CreateFilesystem(storage.Filesystem{Name: testPath}); err != nil {
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
 		t.Fatalf("Could not create filesystem test: %v", err)
 	}
 
-	list, err := btr.ListFilesystems(path)
+	list, err := btr.ListFilesystems("")
 	if err != nil {
 		t.Fatalf("Error while listing filesystems: %v", err)
 	}
@@ -33,7 +28,7 @@ func TestBtrFS(t *testing.T) {
 		t.Fatalf("Expected %d filesystems after create, got %d", baseCount+1, len(list))
 	}
 
-	list, err = btr.ListFilesystems(testPath)
+	list, err = btr.ListFilesystems("test")
 	if err != nil {
 		t.Fatalf("Error while listing filesystems: %v", err)
 	}
@@ -42,11 +37,11 @@ func TestBtrFS(t *testing.T) {
 		t.Fatalf("Expected 1 filesystem under test path, got %d", len(list))
 	}
 
-	if err := btr.RemoveFilesystem(testPath); err != nil {
+	if err := btr.RemoveFilesystem("test"); err != nil {
 		t.Fatalf("Could not remove filesystem test: %v", err)
 	}
 
-	list, err = btr.ListFilesystems(path)
+	list, err = btr.ListFilesystems("")
 	if err != nil {
 		t.Fatalf("Error while listing filesystems: %v", err)
 	}

@@ -315,6 +315,12 @@ describe('SystemControllerClient', () => {
       expect(result).toBe('admin')
     })
 
+    it('sessionUsername rejects without token', async () => {
+      mockFetch(null, 401)
+
+      await expect(client.sessionUsername('')).rejects.toThrow('status 401')
+    })
+
     it('revokeSession sends session_id', async () => {
       mockFetchEmpty()
 
