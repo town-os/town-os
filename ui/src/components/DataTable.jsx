@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Table,
   TableBody,
@@ -8,7 +8,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { ChevronUp, ChevronDown } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { ChevronUp, ChevronDown, Search, RotateCcw } from 'lucide-react'
 
 /**
  * @param {{
@@ -18,6 +19,11 @@ import { ChevronUp, ChevronDown } from 'lucide-react'
  *   page?: number,
  *   setPage?: (n: number) => void,
  *   pageSize?: number,
+ *   hasMore?: boolean,
+ *   sortKey?: string,
+ *   sortDirection?: string,
+ *   onSortChange?: (key: string, direction: string) => void,
+ *   onReset?: () => void,
  * }} props
  */
 export default function DataTable({
@@ -27,37 +33,94 @@ export default function DataTable({
   page,
   setPage,
   pageSize = 20,
+  hasMore,
+  sortKey,
+  sortDirection,
+  onSortChange,
+  onReset,
 }) {
-  const [sortConfig, setSortConfig] = useState({
-    key: columns[0]?.key,
-    direction: 'asc',
-  })
+  const [filter, setFilter] = useState('')
 
-  const sorted = [...data].sort((a, b) => {
-    const aVal = a[sortConfig.key]
-    const bVal = b[sortConfig.key]
-    if (aVal == null || bVal == null) return 0
-    const cmp =
-      typeof aVal === 'string'
-        ? aVal.localeCompare(bVal, undefined, { sensitivity: 'base' })
-        : aVal > bVal
-          ? 1
-          : aVal < bVal
-            ? -1
-            : 0
-    return sortConfig.direction === 'asc' ? cmp : -cmp
-  })
+  const searchableKeys = useMemo(
+    () => columns.filter((c) => c.sortable !== false).map((c) => c.key),
+    [columns],
+  )
+
+  const serverSide = hasMore !== undefined
+
+  const filtered = useMemo(() => {
+    if (!filter) return data
+    const term = filter.toLowerCase()
+    return data.filter((row) =>
+      searchableKeys.some((key) => {
+        const val = row[key]
+        return val != null && String(val).toLowerCase().includes(term)
+      }),
+    )
+  }, [data, filter, searchableKeys])
+
+  const currentPage = page ?? 0
+  const displayed = serverSide
+    ? filtered
+    : filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+
+  const totalFiltered = filtered.length
+  const totalAll = data.length
+  const nextDisabled = serverSide
+    ? !hasMore
+    : (currentPage + 1) * pageSize >= totalFiltered
+
+  // Always show exactly 10 page numbers, current page in the middle (index 4)
+  function getPageNumbers() {
+    const start = Math.max(0, currentPage - 4)
+    return Array.from({ length: 10 }, (_, i) => start + i)
+  }
+
+  const pageNumbers = getPageNumbers()
 
   function toggleSort(key) {
-    setSortConfig((prev) =>
-      prev.key === key
-        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' },
-    )
+    if (!onSortChange) return
+    const newDirection =
+      sortKey === key && sortDirection === 'asc' ? 'desc' : 'asc'
+    onSortChange(key, newDirection)
+    if (setPage) setPage(0)
+  }
+
+  function handleFilterChange(e) {
+    setFilter(e.target.value)
+    if (setPage) setPage(0)
   }
 
   return (
     <div>
+      <div className="flex items-center gap-2 pb-4">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={() => {
+            setFilter('')
+            if (onReset) onReset()
+            if (setPage) setPage(0)
+          }}
+        >
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search..."
+            value={filter}
+            onChange={handleFilterChange}
+            className="pl-8"
+          />
+        </div>
+        <span className="text-sm text-muted-foreground ml-auto">
+          {filter && totalFiltered !== totalAll
+            ? `${totalFiltered} of ${totalAll} results`
+            : `${totalAll} results`}
+        </span>
+      </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -66,14 +129,20 @@ export default function DataTable({
                 <TableHead
                   key={col.key}
                   className={
-                    col.sortable !== false ? 'cursor-pointer select-none' : ''
+                    col.sortable !== false && onSortChange
+                      ? 'cursor-pointer select-none'
+                      : ''
                   }
-                  onClick={() => col.sortable !== false && toggleSort(col.key)}
+                  onClick={() =>
+                    col.sortable !== false &&
+                    onSortChange &&
+                    toggleSort(col.key)
+                  }
                 >
                   <div className="flex items-center gap-1">
                     {col.label}
-                    {sortConfig.key === col.key &&
-                      (sortConfig.direction === 'asc' ? (
+                    {sortKey === col.key &&
+                      (sortDirection === 'asc' ? (
                         <ChevronUp className="h-3 w-3" />
                       ) : (
                         <ChevronDown className="h-3 w-3" />
@@ -84,7 +153,7 @@ export default function DataTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.length === 0 ? (
+            {displayed.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
@@ -94,7 +163,7 @@ export default function DataTable({
                 </TableCell>
               </TableRow>
             ) : (
-              sorted.map((row, i) => (
+              displayed.map((row, i) => (
                 <TableRow key={row[entryKey] ?? i}>
                   {columns.map((col) => (
                     <TableCell key={col.key}>
@@ -109,24 +178,32 @@ export default function DataTable({
           </TableBody>
         </Table>
       </div>
-      {page !== undefined && setPage && (
-        <div className="flex items-center justify-between py-4">
+      {setPage && (
+        <div className="flex items-center justify-center gap-1 py-4">
           <Button
             variant="outline"
             size="sm"
-            disabled={page === 0}
-            onClick={() => setPage(Math.max(0, page - 1))}
+            disabled={currentPage === 0}
+            onClick={() => setPage(Math.max(0, currentPage - 1))}
           >
             Previous
           </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {page + 1}
-          </span>
+          {pageNumbers.map((n) => (
+            <Button
+              key={n}
+              variant="ghost"
+              size="sm"
+              className={`min-w-[2rem] px-2 ${n === currentPage ? 'font-bold' : 'text-muted-foreground'}`}
+              onClick={() => setPage(n)}
+            >
+              {n + 1}
+            </Button>
+          ))}
           <Button
             variant="outline"
             size="sm"
-            disabled={data.length < pageSize}
-            onClick={() => setPage(page + 1)}
+            disabled={nextDisabled}
+            onClick={() => setPage(currentPage + 1)}
           >
             Next
           </Button>

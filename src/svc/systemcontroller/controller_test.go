@@ -3,7 +3,9 @@ package systemcontroller
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -633,7 +635,7 @@ func TestMockClientAddAndListRepositories(t *testing.T) {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
-	repos, err := m.ListRepositories(context.TODO())
+	repos, err := m.ListRepositories(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
@@ -671,7 +673,7 @@ func TestMockClientRemoveRepository(t *testing.T) {
 		t.Fatalf("MockClient.RemoveRepository: %v", err)
 	}
 
-	repos, err := m.ListRepositories(context.TODO())
+	repos, err := m.ListRepositories(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
@@ -707,7 +709,7 @@ func TestMockClientRepositoryErrorInjection(t *testing.T) {
 
 	m.RemRepoErr = nil
 	m.ListRepoErr = injected
-	if _, err := m.ListRepositories(context.TODO()); err != injected {
+	if _, err := m.ListRepositories(context.TODO(), "", ""); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -721,7 +723,7 @@ func TestMockClientRepositoryCallLog(t *testing.T) {
 	if err := m.AddRepository(context.TODO(), "", "https://example.com/b.git", "", ""); err != nil {
 		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/b.git", err)
 	}
-	if _, err := m.ListRepositories(context.TODO()); err != nil {
+	if _, err := m.ListRepositories(context.TODO(), "", ""); err != nil {
 		t.Fatalf("MockClient.ListRepositories: %v", err)
 	}
 	if err := m.RemoveRepository(context.TODO(), "https://example.com/a.git"); err != nil {
@@ -816,7 +818,7 @@ func TestHTTPListRepositoriesEmpty(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO())
+	repos, err := c.ListRepositories(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -850,7 +852,7 @@ func TestHTTPListRepositoriesPrePopulated(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	repos, err := c.ListRepositories(context.TODO())
+	repos, err := c.ListRepositories(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -900,7 +902,7 @@ func TestHTTPAddRepositoryBadClone(t *testing.T) {
 		t.Fatal("expected error for inaccessible repository")
 	}
 
-	repos, err := c.ListRepositories(context.TODO())
+	repos, err := c.ListRepositories(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
@@ -984,7 +986,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO())
+	pkgs, err := c.ListPackages(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1017,7 +1019,7 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO())
+	pkgs, err := c.ListPackages(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1063,7 +1065,7 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	pkgs, err := c.ListPackages(context.TODO())
+	pkgs, err := c.ListPackages(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1281,7 +1283,7 @@ func TestMockClientListPackages(t *testing.T) {
 	m := InitMockClient()
 	m.Packages = []string{"nginx@2.0", "redis@7.0"}
 
-	pkgs, err := m.ListPackages(context.TODO())
+	pkgs, err := m.ListPackages(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
@@ -1298,7 +1300,7 @@ func TestMockClientListPackages(t *testing.T) {
 func TestMockClientListPackagesEmpty(t *testing.T) {
 	m := InitMockClient()
 
-	pkgs, err := m.ListPackages(context.TODO())
+	pkgs, err := m.ListPackages(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("MockClient.ListPackages: %v", err)
 	}
@@ -1313,7 +1315,7 @@ func TestMockClientListPackagesErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.ListPkgErr = injected
-	if _, err := m.ListPackages(context.TODO()); err != injected {
+	if _, err := m.ListPackages(context.TODO(), "", ""); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1322,10 +1324,10 @@ func TestMockClientListPackagesCallLog(t *testing.T) {
 	m := InitMockClient()
 	m.Packages = []string{"nginx@1.0"}
 
-	if _, err := m.ListPackages(context.TODO()); err != nil {
+	if _, err := m.ListPackages(context.TODO(), "", ""); err != nil {
 		t.Fatalf("MockClient.ListPackages (first call): %v", err)
 	}
-	if _, err := m.ListPackages(context.TODO()); err != nil {
+	if _, err := m.ListPackages(context.TODO(), "", ""); err != nil {
 		t.Fatalf("MockClient.ListPackages (second call): %v", err)
 	}
 
@@ -1700,7 +1702,7 @@ func TestHTTPListInstalled(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@2.0: %v", err)
 	}
 
-	pkgs, err := c.ListInstalled(context.TODO())
+	pkgs, err := c.ListInstalled(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
@@ -1713,7 +1715,7 @@ func TestHTTPListInstalled(t *testing.T) {
 func TestHTTPListInstalledEmpty(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	pkgs, err := c.ListInstalled(context.TODO())
+	pkgs, err := c.ListInstalled(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
@@ -1901,7 +1903,7 @@ func TestMockClientListInstalled(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	pkgs, err := m.ListInstalled(context.TODO())
+	pkgs, err := m.ListInstalled(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("MockClient.ListInstalled: %v", err)
 	}
@@ -1914,7 +1916,7 @@ func TestMockClientListInstalled(t *testing.T) {
 func TestMockClientListInstalledEmpty(t *testing.T) {
 	m := InitMockClient()
 
-	pkgs, err := m.ListInstalled(context.TODO())
+	pkgs, err := m.ListInstalled(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("MockClient.ListInstalled: %v", err)
 	}
@@ -1929,7 +1931,7 @@ func TestMockClientListInstalledErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.ListInstalledErr = injected
-	if _, err := m.ListInstalled(context.TODO()); err != injected {
+	if _, err := m.ListInstalled(context.TODO(), "", ""); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -2184,7 +2186,7 @@ func TestHTTPListAccounts(t *testing.T) {
 		t.Fatalf("CreateAccount bob: %v", err)
 	}
 
-	accounts, err := c.ListAccounts(context.TODO())
+	accounts, err := c.ListAccounts(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("ListAccounts: %v", err)
 	}
@@ -2884,5 +2886,304 @@ func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
 	}
 	if acct.Username != "newadmin" {
 		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+	}
+}
+
+// --- Sort integration tests ---
+
+func TestHTTPListAccountsSortByUsername(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// Create accounts in non-alphabetical order
+	for _, name := range []string{"charlie", "alice", "bob"} {
+		if _, err := c.CreateAccount(context.TODO(), name, "pass", fmt.Sprintf("%s@test.com", name), "555", name, false); err != nil {
+			t.Fatalf("CreateAccount %q: %v", name, err)
+		}
+	}
+
+	// Sort ascending by username
+	accounts, err := c.ListAccounts(context.TODO(), "username", "asc")
+	if err != nil {
+		t.Fatalf("ListAccounts sort asc: %v", err)
+	}
+
+	// testadmin (bootstrap) + alice + bob + charlie = 4
+	if len(accounts) != 4 {
+		t.Fatalf("expected 4 accounts, got %d", len(accounts))
+	}
+
+	// First should be alice (alphabetically after testadmin? No, 'a' < 't')
+	if accounts[0].Username != "alice" {
+		t.Fatalf("expected first account %q, got %q", "alice", accounts[0].Username)
+	}
+	if accounts[1].Username != "bob" {
+		t.Fatalf("expected second account %q, got %q", "bob", accounts[1].Username)
+	}
+
+	// Sort descending by username
+	accountsDesc, err := c.ListAccounts(context.TODO(), "username", "desc")
+	if err != nil {
+		t.Fatalf("ListAccounts sort desc: %v", err)
+	}
+
+	if accountsDesc[0].Username != "testadmin" {
+		t.Fatalf("expected first desc account %q, got %q", "testadmin", accountsDesc[0].Username)
+	}
+}
+
+func TestHTTPListAccountsSortByAdmin(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount(context.TODO(), "user1", "pass", "u1@test.com", "555", "User1", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "admin2", "pass", "a2@test.com", "555", "Admin2", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Sort ascending by admin (false < true)
+	accounts, err := c.ListAccounts(context.TODO(), "admin", "asc")
+	if err != nil {
+		t.Fatalf("ListAccounts: %v", err)
+	}
+
+	// Non-admins should come first
+	if accounts[0].Admin {
+		t.Fatal("expected first account to be non-admin when sorted asc by admin")
+	}
+}
+
+func TestHTTPListAccountsNoSort(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@test.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// No sort params should still work
+	accounts, err := c.ListAccounts(context.TODO(), "", "")
+	if err != nil {
+		t.Fatalf("ListAccounts: %v", err)
+	}
+
+	if len(accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(accounts))
+	}
+}
+
+func TestHTTPListFilesystemsSorted(t *testing.T) {
+	c, _ := initTestClient(t)
+
+	for _, name := range []string{"zeta", "alpha", "middle"} {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	// ListFilesystems sort params go in the POST body; use raw HTTP to pass them
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, FilesystemName{Name: "", SortBy: "name", SortOrder: "asc"})
+
+	resp, err := c.postJSON(context.TODO(), "storage", pr)
+	if err != nil {
+		t.Fatalf("ListFilesystems sorted: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var fs []storage.Filesystem
+	if err := json.NewDecoder(resp.Body).Decode(&fs); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(fs) != 3 {
+		t.Fatalf("expected 3 filesystems, got %d", len(fs))
+	}
+
+	if fs[0].Name != "alpha" {
+		t.Fatalf("expected first filesystem %q, got %q", "alpha", fs[0].Name)
+	}
+	if fs[1].Name != "middle" {
+		t.Fatalf("expected second filesystem %q, got %q", "middle", fs[1].Name)
+	}
+	if fs[2].Name != "zeta" {
+		t.Fatalf("expected third filesystem %q, got %q", "zeta", fs[2].Name)
+	}
+}
+
+func TestHTTPListFilesystemsSortedDesc(t *testing.T) {
+	c, _ := initTestClient(t)
+
+	for _, name := range []string{"zeta", "alpha", "middle"} {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, FilesystemName{Name: "", SortBy: "name", SortOrder: "desc"})
+
+	resp, err := c.postJSON(context.TODO(), "storage", pr)
+	if err != nil {
+		t.Fatalf("ListFilesystems sorted desc: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var fs []storage.Filesystem
+	if err := json.NewDecoder(resp.Body).Decode(&fs); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(fs) != 3 {
+		t.Fatalf("expected 3 filesystems, got %d", len(fs))
+	}
+
+	if fs[0].Name != "zeta" {
+		t.Fatalf("expected first filesystem %q, got %q", "zeta", fs[0].Name)
+	}
+	if fs[2].Name != "alpha" {
+		t.Fatalf("expected third filesystem %q, got %q", "alpha", fs[2].Name)
+	}
+}
+
+func TestHTTPAuditLogSortByAccount(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create admin and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Directly insert audit entries with different accounts to test sort
+	for _, user := range []string{"charlie", "alice", "bob"} {
+		if err := auditMgr.LogEntry(account.AuditEntry{
+			Account:   user,
+			Action:    "test",
+			Path:      "/test",
+			Success:   true,
+		}); err != nil {
+			t.Fatalf("LogEntry: %v", err)
+		}
+	}
+
+	// Sort ascending by account
+	page, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{
+		SortBy:    "account",
+		SortOrder: "asc",
+	}, resp.Token)
+	if err != nil {
+		t.Fatalf("ListAuditLog sorted: %v", err)
+	}
+
+	// Find the test entries (skip audit entries from the create/auth operations)
+	var testEntries []account.AuditEntry
+	for _, e := range page.Entries {
+		if e.Action == "test" {
+			testEntries = append(testEntries, e)
+		}
+	}
+
+	if len(testEntries) < 3 {
+		t.Fatalf("expected at least 3 test entries, got %d", len(testEntries))
+	}
+
+	if testEntries[0].Account != "alice" {
+		t.Fatalf("expected first test entry account %q, got %q", "alice", testEntries[0].Account)
+	}
+	if testEntries[1].Account != "bob" {
+		t.Fatalf("expected second test entry account %q, got %q", "bob", testEntries[1].Account)
+	}
+	if testEntries[2].Account != "charlie" {
+		t.Fatalf("expected third test entry account %q, got %q", "charlie", testEntries[2].Account)
+	}
+}
+
+func TestHTTPAuditLogSortByIDASc(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create admin and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Perform a few actions to create audit entries
+	for i := 0; i < 3; i++ {
+		username := fmt.Sprintf("sortuser%d", i)
+		body := fmt.Sprintf(`{"username":"%s","password":"pass","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
+		req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+		req.Header.Set("Content-Type", "application/json")
+
+		httpResp, err := c.HTTP.Do(req)
+		if err != nil {
+			t.Fatalf("HTTP Do: %v", err)
+		}
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}
+
+	// Sort ascending by ID
+	page, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{
+		SortBy:    "id",
+		SortOrder: "asc",
+	}, resp.Token)
+	if err != nil {
+		t.Fatalf("ListAuditLog sorted asc: %v", err)
+	}
+
+	if len(page.Entries) < 2 {
+		t.Fatalf("expected at least 2 entries, got %d", len(page.Entries))
+	}
+
+	// Ascending: IDs should increase
+	for i := 1; i < len(page.Entries); i++ {
+		if page.Entries[i].ID < page.Entries[i-1].ID {
+			t.Fatalf("entry %d ID (%d) < entry %d ID (%d) in asc sort", i, page.Entries[i].ID, i-1, page.Entries[i-1].ID)
+		}
+	}
+
+	// Sort descending by ID (default behavior)
+	pageDesc, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{
+		SortBy:    "id",
+		SortOrder: "desc",
+	}, resp.Token)
+	if err != nil {
+		t.Fatalf("ListAuditLog sorted desc: %v", err)
+	}
+
+	// Descending: IDs should decrease
+	for i := 1; i < len(pageDesc.Entries); i++ {
+		if pageDesc.Entries[i].ID > pageDesc.Entries[i-1].ID {
+			t.Fatalf("entry %d ID (%d) > entry %d ID (%d) in desc sort", i, pageDesc.Entries[i].ID, i-1, pageDesc.Entries[i-1].ID)
+		}
 	}
 }

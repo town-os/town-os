@@ -4,8 +4,19 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
+
+var auditAllowedSortColumns = map[string]bool{
+	"id":         true,
+	"account":    true,
+	"action":     true,
+	"path":       true,
+	"success":    true,
+	"error":      true,
+	"created_at": true,
+}
 
 const (
 	auditDefaultLimit = 50
@@ -82,7 +93,16 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		}
 	}
 
-	query += " ORDER BY id DESC LIMIT ?"
+	sortCol := "id"
+	if opts.SortBy != "" && auditAllowedSortColumns[opts.SortBy] {
+		sortCol = opts.SortBy
+	}
+	sortDir := "DESC"
+	if strings.EqualFold(opts.SortOrder, "asc") {
+		sortDir = "ASC"
+	}
+
+	query += fmt.Sprintf(" ORDER BY %s %s LIMIT ?", sortCol, sortDir)
 	args = append(args, limit+1)
 
 	rows, err := m.db.Query(query, args...)

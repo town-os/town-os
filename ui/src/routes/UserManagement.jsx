@@ -24,11 +24,14 @@ export default function UserManagement() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [page, setPage] = useState(0)
+  const [sortKey, setSortKey] = useState('username')
+  const [sortDirection, setSortDirection] = useState('asc')
 
   const [accounts, refresh] = usePolling(
-    () => getClient().listAccounts(),
+    () => getClient().listAccounts(sortKey, sortDirection),
     [],
-    [refreshKey],
+    [refreshKey, sortKey, sortDirection],
   )
 
   function doRefresh() {
@@ -157,7 +160,23 @@ export default function UserManagement() {
         </Alert>
       )}
 
-      <DataTable data={accounts} columns={columns} entryKey="username" />
+      <DataTable
+        data={accounts}
+        columns={columns}
+        entryKey="username"
+        page={page}
+        setPage={setPage}
+        sortKey={sortKey}
+        sortDirection={sortDirection}
+        onSortChange={(key, dir) => {
+          setSortKey(key)
+          setSortDirection(dir)
+        }}
+        onReset={() => {
+          setSortKey('username')
+          setSortDirection('asc')
+        }}
+      />
 
       <Dialog
         open={editDialog.open}

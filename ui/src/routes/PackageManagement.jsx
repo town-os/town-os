@@ -43,30 +43,43 @@ export default function PackageManagement() {
   const [repoDialog, setRepoDialog] = useState(false)
   const [deleteRepoConfirm, setDeleteRepoConfirm] = useState(null)
 
+  // Sort state for packages tab
+  const [pkgSortKey, setPkgSortKey] = useState('name')
+  const [pkgSortDirection, setPkgSortDirection] = useState('asc')
+
+  // Sort state for repositories tab
+  const [repoSortKey, setRepoSortKey] = useState('name')
+  const [repoSortDirection, setRepoSortDirection] = useState('asc')
+
   const [packages] = usePolling(
-    () => getClient().listPackages(),
+    () => getClient().listPackages(pkgSortKey, pkgSortDirection),
     [],
-    [refreshKey],
+    [refreshKey, pkgSortKey, pkgSortDirection],
   )
 
   const [installed] = usePolling(
-    () => getClient().listInstalled(),
+    () => getClient().listInstalled(pkgSortKey, pkgSortDirection),
     [],
-    [refreshKey],
+    [refreshKey, pkgSortKey, pkgSortDirection],
   )
 
   const [repositories] = usePolling(
-    () => getClient().listRepositories(),
+    () => getClient().listRepositories(repoSortKey, repoSortDirection),
     [],
-    [refreshKey],
+    [refreshKey, repoSortKey, repoSortDirection],
   )
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
   }
 
+  const [pkgPage, setPkgPage] = useState(0)
+  const [repoPage, setRepoPage] = useState(0)
+
   function isInstalled(name) {
-    return installed.some((pkg) => pkg === name || pkg.startsWith(name + '@'))
+    return (installed || []).some(
+      (pkg) => pkg === name || pkg.startsWith(name + '@'),
+    )
   }
 
   async function handleInstall(name, version) {
@@ -276,6 +289,18 @@ export default function PackageManagement() {
             data={normalizedPackages}
             columns={packageColumns}
             entryKey="name"
+            page={pkgPage}
+            setPage={setPkgPage}
+            sortKey={pkgSortKey}
+            sortDirection={pkgSortDirection}
+            onSortChange={(key, dir) => {
+              setPkgSortKey(key)
+              setPkgSortDirection(dir)
+            }}
+            onReset={() => {
+              setPkgSortKey('name')
+              setPkgSortDirection('asc')
+            }}
           />
         </TabsContent>
         <TabsContent value="repositories" className="mt-4 space-y-4">
@@ -289,6 +314,18 @@ export default function PackageManagement() {
             data={repositories}
             columns={repoColumns}
             entryKey="name"
+            page={repoPage}
+            setPage={setRepoPage}
+            sortKey={repoSortKey}
+            sortDirection={repoSortDirection}
+            onSortChange={(key, dir) => {
+              setRepoSortKey(key)
+              setRepoSortDirection(dir)
+            }}
+            onReset={() => {
+              setRepoSortKey('name')
+              setRepoSortDirection('asc')
+            }}
           />
         </TabsContent>
       </Tabs>

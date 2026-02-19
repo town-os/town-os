@@ -89,13 +89,15 @@ func run() (err error) {
 	inst := packages.NewInstallManager(repoBase)
 
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
-		Storage:        storage.InitBtrFS(*btrfsPath),
-		RepositoryRoot: rr,
-		Installer:      inst,
-		Systemd:        systemd.NewManager(),
-		AccountMgr:     acctMgr,
-		SessionMgr:     sessMgr,
-		AuditMgr:       auditMgr,
+		Storage:         storage.InitBtrFS(*btrfsPath),
+		RepositoryRoot:  rr,
+		Installer:       inst,
+		Systemd:         systemd.NewManager(),
+		AccountMgr:      acctMgr,
+		SessionMgr:      sessMgr,
+		AuditMgr:        auditMgr,
+		DefaultRepoUser: os.Getenv(packages.EnvRepoUsername),
+		DefaultRepoPass: os.Getenv(packages.EnvRepoPassword),
 	})
 
 	srv := &http.Server{

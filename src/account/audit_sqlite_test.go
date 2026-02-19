@@ -277,6 +277,161 @@ func TestAuditListMaxLimitClamping(t *testing.T) {
 	}
 }
 
+// --- Sort by column ---
+
+func TestAuditListSortByAccountAsc(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for _, user := range []string{"charlie", "alice", "bob"} {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   user,
+			Action:    "test",
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry: %v", err)
+		}
+	}
+
+	page, err := mgr.List(AuditListOptions{SortBy: "account", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(page.Entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(page.Entries))
+	}
+
+	expected := []string{"alice", "bob", "charlie"}
+	for i, want := range expected {
+		if page.Entries[i].Account != want {
+			t.Fatalf("index %d: expected account %q, got %q", i, want, page.Entries[i].Account)
+		}
+	}
+}
+
+func TestAuditListSortByAccountDesc(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for _, user := range []string{"charlie", "alice", "bob"} {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   user,
+			Action:    "test",
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry: %v", err)
+		}
+	}
+
+	page, err := mgr.List(AuditListOptions{SortBy: "account", SortOrder: "desc"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(page.Entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(page.Entries))
+	}
+
+	expected := []string{"charlie", "bob", "alice"}
+	for i, want := range expected {
+		if page.Entries[i].Account != want {
+			t.Fatalf("index %d: expected account %q, got %q", i, want, page.Entries[i].Account)
+		}
+	}
+}
+
+func TestAuditListSortByIDAsc(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for i := 0; i < 3; i++ {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "alice",
+			Action:    fmt.Sprintf("action-%d", i),
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry %d: %v", i, err)
+		}
+	}
+
+	page, err := mgr.List(AuditListOptions{SortBy: "id", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(page.Entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(page.Entries))
+	}
+
+	// Ascending by ID = oldest first
+	if page.Entries[0].Action != "action-0" {
+		t.Fatalf("expected action-0 first, got %s", page.Entries[0].Action)
+	}
+	if page.Entries[2].Action != "action-2" {
+		t.Fatalf("expected action-2 last, got %s", page.Entries[2].Action)
+	}
+}
+
+func TestAuditListSortByInvalidColumn(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	if err := mgr.LogEntry(AuditEntry{
+		Account:   "alice",
+		Action:    "test",
+		Path:      "/test",
+		Success:   true,
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("LogEntry: %v", err)
+	}
+
+	// Invalid column should fall back to "id" default
+	page, err := mgr.List(AuditListOptions{SortBy: "DROP TABLE audit_log", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+}
+
+func TestAuditListSortByAction(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for _, action := range []string{"create filesystem", "add repository", "disable account"} {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "alice",
+			Action:    action,
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry: %v", err)
+		}
+	}
+
+	page, err := mgr.List(AuditListOptions{SortBy: "action", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(page.Entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(page.Entries))
+	}
+
+	expected := []string{"add repository", "create filesystem", "disable account"}
+	for i, want := range expected {
+		if page.Entries[i].Action != want {
+			t.Fatalf("index %d: expected action %q, got %q", i, want, page.Entries[i].Action)
+		}
+	}
+}
+
 // --- Empty results ---
 
 func TestAuditListEmpty(t *testing.T) {

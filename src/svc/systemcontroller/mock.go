@@ -186,7 +186,7 @@ func (m *MockClient) RemoveRepository(_ context.Context, name string) error {
 	return fmt.Errorf("repository %s not found", name)
 }
 
-func (m *MockClient) ListRepositories(_ context.Context) ([]RepositoryInfo, error) {
+func (m *MockClient) ListRepositories(_ context.Context, _, _ string) ([]RepositoryInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListRepositories", Args: nil})
@@ -202,7 +202,7 @@ func (m *MockClient) ListRepositories(_ context.Context) ([]RepositoryInfo, erro
 
 // --- Packages ---
 
-func (m *MockClient) ListPackages(_ context.Context) ([]string, error) {
+func (m *MockClient) ListPackages(_ context.Context, _, _ string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListPackages", Args: nil})
@@ -275,7 +275,7 @@ func (m *MockClient) UninstallPackage(_ context.Context, name, version string) e
 	return fmt.Errorf("%s: not installed", key)
 }
 
-func (m *MockClient) ListInstalled(_ context.Context) ([]string, error) {
+func (m *MockClient) ListInstalled(_ context.Context, _, _ string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListInstalled", Args: nil})
@@ -313,7 +313,7 @@ func (m *MockClient) GetResponses(_ context.Context, name, version string) (pack
 
 // --- Systemd ---
 
-func (m *MockClient) ListUnits(_ context.Context) ([]systemd.UnitStatus, error) {
+func (m *MockClient) ListUnits(_ context.Context, _, _ string) ([]systemd.UnitStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListUnits", Args: nil})
@@ -459,7 +459,7 @@ func (m *MockClient) DisableAccount(_ context.Context, username string) error {
 	return nil
 }
 
-func (m *MockClient) ListAccounts(_ context.Context) ([]account.Account, error) {
+func (m *MockClient) ListAccounts(_ context.Context, _, _ string) ([]account.Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListAccounts", Args: nil})

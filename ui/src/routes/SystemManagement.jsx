@@ -19,11 +19,14 @@ export default function SystemManagement() {
   const [success, setSuccess] = useState(null)
   const [actionConfirm, setActionConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [page, setPage] = useState(0)
+  const [sortKey, setSortKey] = useState('Name')
+  const [sortDirection, setSortDirection] = useState('asc')
 
   const [units] = usePolling(
-    () => getClient().listUnits(),
+    () => getClient().listUnits(sortKey, sortDirection),
     [],
-    [refreshKey],
+    [refreshKey, sortKey, sortDirection],
   )
 
   function doRefresh() {
@@ -161,7 +164,23 @@ export default function SystemManagement() {
         </Alert>
       )}
 
-      <DataTable data={units} columns={columns} entryKey="Name" />
+      <DataTable
+        data={units}
+        columns={columns}
+        entryKey="Name"
+        page={page}
+        setPage={setPage}
+        sortKey={sortKey}
+        sortDirection={sortDirection}
+        onSortChange={(key, dir) => {
+          setSortKey(key)
+          setSortDirection(dir)
+        }}
+        onReset={() => {
+          setSortKey('Name')
+          setSortDirection('asc')
+        }}
+      />
 
       <ConfirmDialog
         open={!!actionConfirm}

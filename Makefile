@@ -56,7 +56,7 @@ test-ui-integration: test-image ui-integration-image btrfs
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
-		bun run test:integration
+		bun run test:integration -- --reporter=verbose
 
 test-integration: lint test-image btrfs
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
@@ -81,6 +81,9 @@ test-image: production-image
 		-t $(PODMAN_TEST_IMAGE) -f integration/testdata/Containerfile.systemd .
 
 PODMAN_DEV_CONTAINER := town-os-dev
+
+dev-logs:
+	sudo podman exec -it $(PODMAN_DEV_CONTAINER) journalctl -f
 
 dev-btrfs:
 	@if [ ! -f town-os.mount ] || ! mountpoint -q $$(cat town-os.mount) 2>/dev/null; then \

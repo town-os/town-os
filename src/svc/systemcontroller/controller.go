@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ type systemControllerBackend interface {
 	GetSessionManager() account.SessionManager
 	GetAuditManager() account.AuditManager
 	GetAllowedHosts() []string
+	GetDefaultRepoCredentials() (string, string)
 }
 
 type SystemController interface {
@@ -39,7 +41,9 @@ type SystemController interface {
 }
 
 type FilesystemName struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	SortBy    string `json:"sort_by"`
+	SortOrder string `json:"sort_order"`
 }
 
 type ModifyFilesystemRequest struct {
@@ -153,6 +157,11 @@ func getHandler(sc systemControllerBackend) *SystemControllerHandlers {
 	return &SystemControllerHandlers{Controller: sc}
 }
 
+// readSortParams extracts sort_by and sort_order from GET query parameters.
+func readSortParams(c *echo.Context) (string, string) {
+	return c.QueryParam("sort_by"), c.QueryParam("sort_order")
+}
+
 // --- Storage handlers ---
 
 func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
@@ -216,6 +225,8 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 		return err
 	}
 
+	sortSlice(list, fs.SortBy, fs.SortOrder)
+
 	return c.JSON(200, list)
 }
 
@@ -232,6 +243,10 @@ func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
 	u, err := url.Parse(req.URL)
 	if err != nil {
 		return fmt.Errorf("invalid url: %v", err)
+	}
+
+	if req.Username == "" && req.Password == "" {
+		req.Username, req.Password = s.Controller.GetDefaultRepoCredentials()
 	}
 
 	rr := s.Controller.GetRepositoryRoot()
@@ -288,6 +303,9 @@ func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String(), Username: r.Username}
 	}
 
+	sortBy, sortOrder := readSortParams(c)
+	sortSlice(out, sortBy, sortOrder)
+
 	return c.JSON(200, out)
 }
 
@@ -299,6 +317,12 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 	pkgs, err := rr.ListPackages()
 	if err != nil {
 		return err
+	}
+
+	_, sortOrder := readSortParams(c)
+	sort.Strings(pkgs)
+	if strings.EqualFold(sortOrder, "desc") {
+		sort.Sort(sort.Reverse(sort.StringSlice(pkgs)))
 	}
 
 	return c.JSON(200, pkgs)
@@ -401,6 +425,12 @@ func (s *SystemControllerHandlers) listInstalled(c *echo.Context) error {
 		return err
 	}
 
+	_, sortOrder := readSortParams(c)
+	sort.Strings(pkgs)
+	if strings.EqualFold(sortOrder, "desc") {
+		sort.Sort(sort.Reverse(sort.StringSlice(pkgs)))
+	}
+
 	return c.JSON(200, pkgs)
 }
 
@@ -428,6 +458,9 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+
+	sortBy, sortOrder := readSortParams(c)
+	sortSlice(units, sortBy, sortOrder)
 
 	return c.JSON(200, units)
 }
@@ -600,6 +633,9 @@ func (s *SystemControllerHandlers) listAccounts(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+
+	sortBy, sortOrder := readSortParams(c)
+	sortSlice(accounts, sortBy, sortOrder)
 
 	return c.JSON(200, accounts)
 }
@@ -932,14 +968,16 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 // --- Server infrastructure ---
 
 type ServerConfig struct {
-	Storage        storage.Storage
-	RepositoryRoot *packages.RepositoryRoot
-	Installer      packages.Installer
-	Systemd        systemd.Manager
-	AccountMgr     account.Manager
-	SessionMgr     account.SessionManager
-	AuditMgr       account.AuditManager
-	AllowedHosts   []string
+	Storage            storage.Storage
+	RepositoryRoot     *packages.RepositoryRoot
+	Installer          packages.Installer
+	Systemd            systemd.Manager
+	AccountMgr         account.Manager
+	SessionMgr         account.SessionManager
+	AuditMgr           account.AuditManager
+	AllowedHosts       []string
+	DefaultRepoUser    string
+	DefaultRepoPass    string
 }
 
 type contextHandler struct {
@@ -966,6 +1004,9 @@ func (s *serverBase) GetAccountManager() account.Manager          { return s.Acc
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
 func (s *serverBase) GetAllowedHosts() []string                   { return s.AllowedHosts }
+func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
+	return s.DefaultRepoUser, s.DefaultRepoPass
+}
 
 func parseLogLevel() slog.Level {
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {

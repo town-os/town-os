@@ -27,17 +27,17 @@ type Client interface {
 
 	AddRepository(ctx context.Context, name, rawURL, username, password string) error
 	RemoveRepository(ctx context.Context, name string) error
-	ListRepositories(ctx context.Context) ([]RepositoryInfo, error)
+	ListRepositories(ctx context.Context, sortBy, sortOrder string) ([]RepositoryInfo, error)
 
-	ListPackages(ctx context.Context) ([]string, error)
+	ListPackages(ctx context.Context, sortBy, sortOrder string) ([]string, error)
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
 
 	InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error
 	UninstallPackage(ctx context.Context, name, version string) error
-	ListInstalled(ctx context.Context) ([]string, error)
+	ListInstalled(ctx context.Context, sortBy, sortOrder string) ([]string, error)
 	GetResponses(ctx context.Context, name, version string) (packages.Responses, error)
 
-	ListUnits(ctx context.Context) ([]systemd.UnitStatus, error)
+	ListUnits(ctx context.Context, sortBy, sortOrder string) ([]systemd.UnitStatus, error)
 	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
 	LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error)
 
@@ -45,7 +45,7 @@ type Client interface {
 	GetAccount(ctx context.Context, username string) (*account.Account, error)
 	UpdateAccount(ctx context.Context, username string, fields account.UpdateFields) (*account.Account, error)
 	DisableAccount(ctx context.Context, username string) error
-	ListAccounts(ctx context.Context) ([]account.Account, error)
+	ListAccounts(ctx context.Context, sortBy, sortOrder string) ([]account.Account, error)
 	Authenticate(ctx context.Context, username, password string) (*AuthenticateResponse, error)
 	RevokeSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context, token string) ([]account.Session, error)
@@ -87,6 +87,20 @@ func InitClient(sock string) (*SystemdClient, error) {
 
 func FromClient(client *http.Client, baseURL string) (*SystemdClient, error) {
 	return &SystemdClient{HTTP: client, BaseURL: baseURL}, nil
+}
+
+func sortQueryString(sortBy, sortOrder string) string {
+	params := url.Values{}
+	if sortBy != "" {
+		params.Set("sort_by", sortBy)
+	}
+	if sortOrder != "" {
+		params.Set("sort_order", sortOrder)
+	}
+	if len(params) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("?%s", params.Encode())
 }
 
 func (c *SystemdClient) route(path string) string {
@@ -212,8 +226,8 @@ func (c *SystemdClient) RemoveRepository(ctx context.Context, name string) error
 	return c.postClient(ctx, "repository/remove", pr)
 }
 
-func (c *SystemdClient) ListRepositories(ctx context.Context) (_ []RepositoryInfo, err error) {
-	resp, err := c.getClient(ctx, "repository")
+func (c *SystemdClient) ListRepositories(ctx context.Context, sortBy, sortOrder string) (_ []RepositoryInfo, err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("repository%s", sortQueryString(sortBy, sortOrder)))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListRepositories: %w", ErrHTTPRequest, err)
 	}
@@ -231,8 +245,8 @@ func (c *SystemdClient) ListRepositories(ctx context.Context) (_ []RepositoryInf
 
 // --- Packages ---
 
-func (c *SystemdClient) ListPackages(ctx context.Context) (_ []string, err error) {
-	resp, err := c.getClient(ctx, "packages")
+func (c *SystemdClient) ListPackages(ctx context.Context, sortBy, sortOrder string) (_ []string, err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", sortQueryString(sortBy, sortOrder)))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPackages: %w", ErrHTTPRequest, err)
 	}
@@ -284,8 +298,8 @@ func (c *SystemdClient) UninstallPackage(ctx context.Context, name, version stri
 	return c.postClient(ctx, "packages/uninstall", pr)
 }
 
-func (c *SystemdClient) ListInstalled(ctx context.Context) (_ []string, err error) {
-	resp, err := c.getClient(ctx, "packages/installed")
+func (c *SystemdClient) ListInstalled(ctx context.Context, sortBy, sortOrder string) (_ []string, err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages/installed%s", sortQueryString(sortBy, sortOrder)))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListInstalled: %w", ErrHTTPRequest, err)
 	}
@@ -323,8 +337,8 @@ func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) 
 
 // --- Systemd ---
 
-func (c *SystemdClient) ListUnits(ctx context.Context) (_ []systemd.UnitStatus, err error) {
-	resp, err := c.getClient(ctx, "systemd/units")
+func (c *SystemdClient) ListUnits(ctx context.Context, sortBy, sortOrder string) (_ []systemd.UnitStatus, err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/units%s", sortQueryString(sortBy, sortOrder)))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListUnits: %w", ErrHTTPRequest, err)
 	}
@@ -457,8 +471,8 @@ func (c *SystemdClient) DisableAccount(ctx context.Context, username string) err
 	return c.postClient(ctx, "account/disable", pr)
 }
 
-func (c *SystemdClient) ListAccounts(ctx context.Context) (_ []account.Account, err error) {
-	resp, err := c.getClient(ctx, "account")
+func (c *SystemdClient) ListAccounts(ctx context.Context, sortBy, sortOrder string) (_ []account.Account, err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("account%s", sortQueryString(sortBy, sortOrder)))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListAccounts: %w", ErrHTTPRequest, err)
 	}

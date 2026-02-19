@@ -33,11 +33,14 @@ export default function StorageManagement() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [page, setPage] = useState(0)
+  const [sortKey, setSortKey] = useState('name')
+  const [sortDirection, setSortDirection] = useState('asc')
 
   const [filesystems, refresh] = usePolling(
-    () => getClient().listFilesystems(''),
+    () => getClient().listFilesystems('', sortKey, sortDirection),
     [],
-    [refreshKey],
+    [refreshKey, sortKey, sortDirection],
   )
 
   function doRefresh() {
@@ -171,7 +174,23 @@ export default function StorageManagement() {
         </Alert>
       )}
 
-      <DataTable data={filesystems} columns={columns} entryKey="name" />
+      <DataTable
+        data={filesystems}
+        columns={columns}
+        entryKey="name"
+        page={page}
+        setPage={setPage}
+        sortKey={sortKey}
+        sortDirection={sortDirection}
+        onSortChange={(key, dir) => {
+          setSortKey(key)
+          setSortDirection(dir)
+        }}
+        onReset={() => {
+          setSortKey('name')
+          setSortDirection('asc')
+        }}
+      />
 
       <Dialog
         open={editDialog.open}

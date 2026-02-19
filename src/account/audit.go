@@ -13,9 +13,11 @@ type AuditEntry struct {
 }
 
 type AuditListOptions struct {
-	BeforeID int64  `json:"before_id"`
-	Limit    int    `json:"limit"`
-	Account  string `json:"account"`
+	BeforeID  int64  `json:"before_id"`
+	Limit     int    `json:"limit"`
+	Account   string `json:"account"`
+	SortBy    string `json:"sort_by"`
+	SortOrder string `json:"sort_order"`
 }
 
 type AuditPage struct {

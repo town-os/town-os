@@ -169,10 +169,15 @@ export class SystemControllerClient {
 
   /**
    * @param {string} prefix
+   * @param {string} [sortBy]
+   * @param {string} [sortOrder]
    * @returns {Promise<Filesystem[]>}
    */
-  async listFilesystems(prefix) {
-    return this.postJSON('/storage', { name: prefix })
+  async listFilesystems(prefix, sortBy, sortOrder) {
+    const body = { name: prefix }
+    if (sortBy) body.sort_by = sortBy
+    if (sortOrder) body.sort_order = sortOrder
+    return this.postJSON('/storage', body)
   }
 
   /**
@@ -194,19 +199,43 @@ export class SystemControllerClient {
     await this.post('/repository/remove', { name })
   }
 
-  /** @returns {Promise<RepositoryInfo[]>} */
-  async listRepositories() {
-    return this.getJSON('/repository')
+  /**
+   * @param {string} [sortBy]
+   * @param {string} [sortOrder]
+   * @returns {Promise<RepositoryInfo[]>}
+   */
+  async listRepositories(sortBy, sortOrder) {
+    const params = new URLSearchParams()
+    if (sortBy) params.set('sort_by', sortBy)
+    if (sortOrder) params.set('sort_order', sortOrder)
+    const qs = params.toString()
+    return this.getJSON(`/repository${qs ? `?${qs}` : ''}`)
   }
 
-  /** @returns {Promise<string[]>} */
-  async listPackages() {
-    return this.getJSON('/packages')
+  /**
+   * @param {string} [sortBy]
+   * @param {string} [sortOrder]
+   * @returns {Promise<string[]>}
+   */
+  async listPackages(sortBy, sortOrder) {
+    const params = new URLSearchParams()
+    if (sortBy) params.set('sort_by', sortBy)
+    if (sortOrder) params.set('sort_order', sortOrder)
+    const qs = params.toString()
+    return this.getJSON(`/packages${qs ? `?${qs}` : ''}`)
   }
 
-  /** @returns {Promise<string[]>} */
-  async listInstalled() {
-    return this.getJSON('/packages/installed')
+  /**
+   * @param {string} [sortBy]
+   * @param {string} [sortOrder]
+   * @returns {Promise<string[]>}
+   */
+  async listInstalled(sortBy, sortOrder) {
+    const params = new URLSearchParams()
+    if (sortBy) params.set('sort_by', sortBy)
+    if (sortOrder) params.set('sort_order', sortOrder)
+    const qs = params.toString()
+    return this.getJSON(`/packages/installed${qs ? `?${qs}` : ''}`)
   }
 
   /**
@@ -218,9 +247,17 @@ export class SystemControllerClient {
     return this.postJSON('/packages/responses', { name, version })
   }
 
-  /** @returns {Promise<UnitStatus[]>} */
-  async listUnits() {
-    return this.getJSON('/systemd/units')
+  /**
+   * @param {string} [sortBy]
+   * @param {string} [sortOrder]
+   * @returns {Promise<UnitStatus[]>}
+   */
+  async listUnits(sortBy, sortOrder) {
+    const params = new URLSearchParams()
+    if (sortBy) params.set('sort_by', sortBy)
+    if (sortOrder) params.set('sort_order', sortOrder)
+    const qs = params.toString()
+    return this.getJSON(`/systemd/units${qs ? `?${qs}` : ''}`)
   }
 
   /**
@@ -303,9 +340,17 @@ export class SystemControllerClient {
     return this.postJSON('/account/update', { username, fields })
   }
 
-  /** @returns {Promise<Account[]>} */
-  async listAccounts() {
-    return this.getJSON('/account')
+  /**
+   * @param {string} [sortBy]
+   * @param {string} [sortOrder]
+   * @returns {Promise<Account[]>}
+   */
+  async listAccounts(sortBy, sortOrder) {
+    const params = new URLSearchParams()
+    if (sortBy) params.set('sort_by', sortBy)
+    if (sortOrder) params.set('sort_order', sortOrder)
+    const qs = params.toString()
+    return this.getJSON(`/account${qs ? `?${qs}` : ''}`)
   }
 
   // --- Admin (uses this.token, requires admin) ---
