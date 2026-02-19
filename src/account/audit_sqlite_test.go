@@ -115,6 +115,109 @@ func TestAuditLogEntryWithError(t *testing.T) {
 	}
 }
 
+// --- Offset pagination ---
+
+func TestAuditListOffsetPagination(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for i := 0; i < 5; i++ {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "alice",
+			Action:    fmt.Sprintf("action-%d", i),
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry %d: %v", i, err)
+		}
+	}
+
+	// First page (offset 0, limit 2) — default desc order
+	page, err := mgr.List(AuditListOptions{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("List page 1: %v", err)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected HasMore to be true")
+	}
+	if page.Entries[0].Action != "action-4" {
+		t.Fatalf("expected action-4, got %s", page.Entries[0].Action)
+	}
+
+	// Second page (offset 2, limit 2)
+	page2, err := mgr.List(AuditListOptions{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("List page 2: %v", err)
+	}
+	if len(page2.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(page2.Entries))
+	}
+	if !page2.HasMore {
+		t.Fatal("expected HasMore to be true")
+	}
+	if page2.Entries[0].Action != "action-2" {
+		t.Fatalf("expected action-2, got %s", page2.Entries[0].Action)
+	}
+
+	// Last page (offset 4, limit 2)
+	page3, err := mgr.List(AuditListOptions{Limit: 2, Offset: 4})
+	if err != nil {
+		t.Fatalf("List page 3: %v", err)
+	}
+	if len(page3.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page3.Entries))
+	}
+	if page3.HasMore {
+		t.Fatal("expected HasMore to be false")
+	}
+	if page3.Entries[0].Action != "action-0" {
+		t.Fatalf("expected action-0, got %s", page3.Entries[0].Action)
+	}
+}
+
+func TestAuditListOffsetWithSort(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for _, user := range []string{"charlie", "alice", "bob", "dave", "eve"} {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   user,
+			Action:    "test",
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry: %v", err)
+		}
+	}
+
+	// Page 1 sorted by account asc
+	page, err := mgr.List(AuditListOptions{Limit: 2, Offset: 0, SortBy: "account", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if page.Entries[0].Account != "alice" {
+		t.Fatalf("expected alice first, got %s", page.Entries[0].Account)
+	}
+	if page.Entries[1].Account != "bob" {
+		t.Fatalf("expected bob second, got %s", page.Entries[1].Account)
+	}
+
+	// Page 2 sorted by account asc
+	page2, err := mgr.List(AuditListOptions{Limit: 2, Offset: 2, SortBy: "account", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if page2.Entries[0].Account != "charlie" {
+		t.Fatalf("expected charlie first on page 2, got %s", page2.Entries[0].Account)
+	}
+	if page2.Entries[1].Account != "dave" {
+		t.Fatalf("expected dave second on page 2, got %s", page2.Entries[1].Account)
+	}
+}
+
 // --- Cursor pagination ---
 
 func TestAuditListCursorPagination(t *testing.T) {

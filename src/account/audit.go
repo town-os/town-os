@@ -14,6 +14,7 @@ type AuditEntry struct {
 
 type AuditListOptions struct {
 	BeforeID  int64  `json:"before_id"`
+	Offset    int    `json:"offset"`
 	Limit     int    `json:"limit"`
 	Account   string `json:"account"`
 	SortBy    string `json:"sort_by"`

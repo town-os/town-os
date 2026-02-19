@@ -83,7 +83,6 @@ export default function DataTable({
     const newDirection =
       sortKey === key && sortDirection === 'asc' ? 'desc' : 'asc'
     onSortChange(key, newDirection)
-    if (setPage) setPage(0)
   }
 
   function handleFilterChange(e) {

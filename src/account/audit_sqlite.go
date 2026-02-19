@@ -105,6 +105,11 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	query += fmt.Sprintf(" ORDER BY %s %s LIMIT ?", sortCol, sortDir)
 	args = append(args, limit+1)
 
+	if opts.Offset > 0 {
+		query += " OFFSET ?"
+		args = append(args, opts.Offset)
+	}
+
 	rows, err := m.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query audit log: %w", err)

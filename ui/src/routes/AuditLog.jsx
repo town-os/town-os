@@ -1,8 +1,10 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import DataTable from '@/components/DataTable.jsx'
 import { Badge } from '@/components/ui/badge'
+
+const PAGE_SIZE = 20
 
 function formatTime(ts) {
   if (!ts) return '-'
@@ -12,15 +14,14 @@ function formatTime(ts) {
 
 export default function AuditLog() {
   const [page, setPage] = useState(0)
-  const cursors = useRef([0])
   const [sortKey, setSortKey] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
 
   const [auditData] = usePolling(
     () =>
       getClient().listAuditLog({
-        limit: 20,
-        before_id: cursors.current[page] ?? 0,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
         sort_by: sortKey,
         sort_order: sortDirection,
       }),
@@ -31,31 +32,14 @@ export default function AuditLog() {
 
   const entries = auditData.entries || []
 
-  // Store cursor for next page from last entry
-  if (entries.length > 0 && auditData.has_more) {
-    cursors.current[page + 1] = entries[entries.length - 1].id
-  }
-
-  function handleSetPage(n) {
-    if (n < page) {
-      // Going backward — cursors already stored
-      setPage(n)
-    } else if (n > page && cursors.current[n] !== undefined) {
-      setPage(n)
-    }
-  }
-
   function handleSortChange(key, direction) {
     setSortKey(key)
     setSortDirection(direction)
-    cursors.current = [0]
-    setPage(0)
   }
 
   function handleReset() {
     setSortKey('id')
     setSortDirection('desc')
-    cursors.current = [0]
   }
 
   const columns = [
@@ -116,8 +100,8 @@ export default function AuditLog() {
         columns={columns}
         entryKey="id"
         page={page}
-        setPage={handleSetPage}
-        pageSize={20}
+        setPage={setPage}
+        pageSize={PAGE_SIZE}
         hasMore={auditData.has_more}
         sortKey={sortKey}
         sortDirection={sortDirection}
