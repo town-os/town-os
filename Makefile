@@ -89,21 +89,21 @@ dev-btrfs:
 
 dev: test-image dev-btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
-	@touch dev.db
+	@mkdir -p dev-data
 	sudo -E podman run -d -p 8080:8080 -e LOG_LEVEL=debug -e DEBUG=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
-		-v $$(pwd)/dev.db:/data/dev.db:z \
+		-v $$(pwd)/dev-data:/data/db:z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "API server: http://$$(hostname):8080"
 	cd ui && VITE_API_URL=http://$$(hostname):8080 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
 dev-clean: dev-stop clean-btrfs
-	rm -f dev.db dev.db-shm dev.db-wal
+	rm -rf dev-data
 
 dev-stop:
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
@@ -143,7 +143,7 @@ clean-btrfs:
 	rm -f btrfs.* town-os.disk town-os.loop town-os.mount
 
 clean: clean-podman
-	rm -f dev.db dev.db-shm dev.db-wal
+	rm -rf dev-data
 	rm -rf .cache
 
 clean-podman: clean-btrfs

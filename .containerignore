@@ -13,7 +13,5 @@ LICENSE
 Makefile
 ui/node_modules
 ui/dist
-dev.db
-dev.db-shm
-dev.db-wal
+dev-data
 dev.btrfs

@@ -4,7 +4,7 @@ Description=Town OS Test Server
 [Service]
 Type=simple
 PassEnvironment=LOG_LEVEL DEBUG TOWN_OS_REPO_USERNAME TOWN_OS_REPO_PASSWORD
-ExecStart=/testserver -db /data/dev.db -btrfs /data/btrfs -repo-dir /data/repos
+ExecStart=/testserver -db /data/db/dev.db -btrfs /data/btrfs -repo-dir /data/repos
 
 [Install]
 WantedBy=multi-user.target
