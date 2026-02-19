@@ -122,7 +122,7 @@ describe('SystemControllerClient integration', () => {
     })
 
     it('rejects session username without auth', async () => {
-      const resp = await fetch(`${baseURL}/`)
+      const resp = await fetch(`${baseURL}/account/me`)
       expect(resp.status).toBe(401)
     })
 
@@ -130,7 +130,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       token = resp.token
       client.setToken(token)
-      const fetchResp = await fetch(`${baseURL}/`, {
+      const fetchResp = await fetch(`${baseURL}/account/me`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       expect(fetchResp.status).toBe(200)
@@ -563,7 +563,7 @@ describe('SystemControllerClient integration', () => {
     it('sessionUsername requires auth', async () => {
       await expect(
         noAuth.sessionUsername(''),
-      ).rejects.toThrow(/GET \/:.*status 401/)
+      ).rejects.toThrow(/GET \/account\/me:.*status 401/)
     })
 
   })

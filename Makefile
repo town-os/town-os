@@ -82,7 +82,12 @@ test-image: production-image
 
 PODMAN_DEV_CONTAINER := town-os-dev
 
-dev: test-image btrfs
+dev-btrfs:
+	@if [ ! -f town-os.mount ] || ! mountpoint -q $$(cat town-os.mount) 2>/dev/null; then \
+		$(MAKE) btrfs; \
+	fi
+
+dev: test-image dev-btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@touch dev.db
 	sudo -E podman run -d -p 8080:8080 -e LOG_LEVEL=debug -e DEBUG=1 \
@@ -97,11 +102,10 @@ dev: test-image btrfs
 	cd ui && VITE_API_URL=http://$$(hostname):8080 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
-dev-clean: clean-btrfs
-	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
+dev-clean: dev-stop clean-btrfs
 	rm -f dev.db dev.db-shm dev.db-wal
 
-dev-stop: clean-btrfs
+dev-stop:
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
 auto-test:

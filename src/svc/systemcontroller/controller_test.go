@@ -2273,9 +2273,9 @@ func TestHTTPSessionLifecycle(t *testing.T) {
 func TestHTTPSessionUsernameUnauthenticated(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	resp, err := c.HTTP.Get(c.BaseURL + "/")
+	resp, err := c.HTTP.Get(fmt.Sprintf("%s/account/me", c.BaseURL))
 	if err != nil {
-		t.Fatalf("GET /: %v", err)
+		t.Fatalf("GET /account/me: %v", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -2650,7 +2650,7 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 
 	for _, e := range page.Entries {
 		switch e.Path {
-		case "/account/sessions", "/", "/status/ping":
+		case "/account/sessions", "/account/me", "/status/ping":
 			t.Fatalf("expected path %q to be excluded from audit log", e.Path)
 		}
 	}

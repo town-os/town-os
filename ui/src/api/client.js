@@ -110,7 +110,7 @@ export class SystemControllerClient {
    */
   async sessionUsername(token) {
     /** @type {{ username: string }} */
-    const result = await this.getJSON('/', {
+    const result = await this.getJSON('/account/me', {
       Authorization: `Bearer ${token}`,
     })
     return result.username

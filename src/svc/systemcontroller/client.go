@@ -548,7 +548,7 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 }
 
 func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ string, err error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.route(""), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.route("/account/me"), nil)
 	if err != nil {
 		return "", fmt.Errorf("new request in SessionUsername: %v", err)
 	}

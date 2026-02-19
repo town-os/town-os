@@ -739,7 +739,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 
 		excluded := map[string]bool{
 			"/account/sessions":         true,
-			"/": true,
+			"/account/me":               true,
 			"/status/ping":              true,
 			"/audit/log":                true,
 		}
@@ -895,7 +895,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	// Self-authenticated (handlers do own token validation)
 	e.Add("GET", "/account/sessions", s.listSessions)
-	e.Add("GET", "/", s.sessionUsername)
+	e.Add("GET", "/account/me", s.sessionUsername)
 	e.Add("POST", "/account/session/revoke", s.revokeSession)
 
 	// Authenticated (requireAuth)
