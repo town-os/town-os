@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import getClient from './client-instance.js'
 import { getToken, clearToken, getAccount } from './auth.js'
+import { ApiError } from '../api/client.js'
 
 /**
  * Hook to poll an API call periodically and maintain state.
@@ -46,9 +47,11 @@ export function useRequireAuth() {
     const check = () => {
       getClient()
         .sessionUsername(token)
-        .catch(() => {
-          clearToken()
-          navigate('/')
+        .catch((err) => {
+          if (err instanceof ApiError && err.status === 401) {
+            clearToken()
+            navigate('/')
+          }
         })
     }
 

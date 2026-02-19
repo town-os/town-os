@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { SystemControllerClient } from './client.js'
+import { SystemControllerClient, ApiError } from './client.js'
 
 describe('SystemControllerClient', () => {
   /** @type {SystemControllerClient} */
@@ -301,10 +301,40 @@ describe('SystemControllerClient', () => {
   })
 
   describe('error handling', () => {
-    it('throws on non-200 status', async () => {
+    it('throws ApiError on non-200 status', async () => {
       mockFetchEmpty(500)
 
       await expect(client.ping()).rejects.toThrow('status 500')
+      try {
+        await client.ping()
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.status).toBe(500)
+        expect(err.path).toBe('/status/ping')
+      }
+    })
+
+    it('throws ApiError with status 401 for unauthorized', async () => {
+      mockFetchEmpty(401)
+
+      try {
+        await client.listUnits()
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.status).toBe(401)
+      }
+    })
+
+    it('throws ApiError on POST failure', async () => {
+      mockFetchEmpty(403)
+
+      try {
+        await client.disableAccount('bob')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.status).toBe(403)
+        expect(err.path).toBe('/account/disable')
+      }
     })
   })
 

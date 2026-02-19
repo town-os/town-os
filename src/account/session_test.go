@@ -1,7 +1,10 @@
 package account
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -431,6 +434,266 @@ func TestSessionCascadeDisableOnAccountDisable(t *testing.T) {
 	}
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session after account disable, got %d", len(sessions))
+	}
+}
+
+// --- Repeated validation (session must survive) ---
+
+func TestSessionRepeatedValidation(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+
+	token, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	for i := range 100 {
+		sess, acct, err := sessMgr.Validate(token)
+		if err != nil {
+			t.Fatalf("Validate iteration %d: %v", i, err)
+		}
+		if sess.Username != "alice" {
+			t.Fatalf("iteration %d: expected username %q, got %q", i, "alice", sess.Username)
+		}
+		if acct.Username != "alice" {
+			t.Fatalf("iteration %d: expected account %q, got %q", i, "alice", acct.Username)
+		}
+	}
+}
+
+// --- Concurrent validation ---
+
+func TestSessionConcurrentValidation(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+
+	token, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	const goroutines = 20
+	const iterations = 50
+	var wg sync.WaitGroup
+	errs := make(chan error, goroutines*iterations)
+
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				_, _, err := sessMgr.Validate(token)
+				if err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	var allErrs []error
+	for err := range errs {
+		allErrs = append(allErrs, err)
+	}
+	if len(allErrs) > 0 {
+		t.Fatalf("concurrent validation produced %d errors; first: %v", len(allErrs), allErrs[0])
+	}
+}
+
+// --- Validate updates last_used ---
+
+func TestSessionValidateUpdatesLastUsed(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+
+	token, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	sess1, _, err := sessMgr.Validate(token)
+	if err != nil {
+		t.Fatalf("Validate 1: %v", err)
+	}
+
+	time.Sleep(time.Second)
+
+	sess2, _, err := sessMgr.Validate(token)
+	if err != nil {
+		t.Fatalf("Validate 2: %v", err)
+	}
+
+	if !sess2.LastUsed.After(sess1.LastUsed) {
+		t.Fatalf("expected last_used to advance: first=%v second=%v", sess1.LastUsed, sess2.LastUsed)
+	}
+}
+
+// --- Session does not expire prematurely ---
+
+func TestSessionNotExpiredPrematurely(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+
+	token, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Set last_used to 6 days ago (just under the 7-day max age).
+	sixDaysAgo := time.Now().UTC().Add(-6 * 24 * time.Hour).Format(time.RFC3339)
+	if _, err := sessMgr.db.Exec("UPDATE sessions SET last_used = ?", sixDaysAgo); err != nil {
+		t.Fatalf("manual update last_used: %v", err)
+	}
+
+	sess, _, err := sessMgr.Validate(token)
+	if err != nil {
+		t.Fatalf("session should still be valid at 6 days, got: %v", err)
+	}
+	if sess.Username != "alice" {
+		t.Fatalf("expected username %q, got %q", "alice", sess.Username)
+	}
+}
+
+// --- Concurrent validation with mixed operations ---
+
+func TestSessionConcurrentMixedOperations(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+	createTestUser(t, acctMgr, "bob")
+
+	aliceToken, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create alice: %v", err)
+	}
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+	errs := make(chan error, goroutines*100)
+
+	// Concurrent validates on alice's token.
+	for range goroutines / 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				_, _, err := sessMgr.Validate(aliceToken)
+				if err != nil {
+					errs <- fmt.Errorf("validate alice: %w", err)
+				}
+			}
+		}()
+	}
+
+	// Concurrent creates for bob (triggers Cleanup).
+	for range goroutines / 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 10 {
+				if _, err := sessMgr.Create("bob"); err != nil {
+					errs <- fmt.Errorf("create bob: %w", err)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	var allErrs []error
+	for err := range errs {
+		allErrs = append(allErrs, err)
+	}
+	if len(allErrs) > 0 {
+		t.Fatalf("concurrent mixed ops produced %d errors; first: %v", len(allErrs), allErrs[0])
+	}
+
+	// Alice's session should still be valid.
+	sess, _, err := sessMgr.Validate(aliceToken)
+	if err != nil {
+		t.Fatalf("alice session should survive concurrent ops: %v", err)
+	}
+	if sess.Username != "alice" {
+		t.Fatalf("expected username %q, got %q", "alice", sess.Username)
+	}
+}
+
+// --- Cleanup does not remove active sessions ---
+
+func TestSessionCleanupDoesNotRemoveRecentSessions(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+	createTestUser(t, acctMgr, "bob")
+
+	aliceToken, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create alice: %v", err)
+	}
+	bobToken, err := sessMgr.Create("bob")
+	if err != nil {
+		t.Fatalf("Create bob: %v", err)
+	}
+
+	// Run cleanup multiple times.
+	for range 10 {
+		if err := sessMgr.Cleanup(); err != nil {
+			t.Fatalf("Cleanup: %v", err)
+		}
+	}
+
+	// Both sessions should still be valid.
+	if _, _, err := sessMgr.Validate(aliceToken); err != nil {
+		t.Fatalf("alice session should survive cleanup: %v", err)
+	}
+	if _, _, err := sessMgr.Validate(bobToken); err != nil {
+		t.Fatalf("bob session should survive cleanup: %v", err)
+	}
+}
+
+// --- Validate with errors.Is ---
+
+func TestSessionErrorsIs(t *testing.T) {
+	sessMgr, acctMgr := initTestSessionDB(t)
+	createTestUser(t, acctMgr, "alice")
+
+	// Invalid token
+	_, _, err := sessMgr.Validate("garbage")
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("expected errors.Is(err, ErrInvalidToken), got %v", err)
+	}
+
+	// Expired session
+	token, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	expired := time.Now().UTC().Add(-SessionMaxAge - time.Hour).Format(time.RFC3339)
+	if _, err := sessMgr.db.Exec("UPDATE sessions SET last_used = ?", expired); err != nil {
+		t.Fatalf("manual update: %v", err)
+	}
+	_, _, err = sessMgr.Validate(token)
+	if !errors.Is(err, ErrSessionExpired) {
+		t.Fatalf("expected errors.Is(err, ErrSessionExpired), got %v", err)
+	}
+
+	// Revoked session
+	token2, err := sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create 2: %v", err)
+	}
+	sess, _, err := sessMgr.Validate(token2)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if err := sessMgr.Revoke(sess.ID); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	_, _, err = sessMgr.Validate(token2)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("expected errors.Is(err, ErrSessionNotFound), got %v", err)
 	}
 }
 

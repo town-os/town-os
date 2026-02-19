@@ -1,5 +1,21 @@
 /** @import { Filesystem, UnitStatus, JournalEntry, StatusAction, Account, UpdateFields, Session, AuditListOptions, AuditPage, Question, Responses, RepositoryInfo, PingResponse, AuthenticateResponse } from './types.js' */
 
+export class ApiError extends Error {
+  /**
+   * @param {string} method
+   * @param {string} path
+   * @param {number} status
+   * @param {string} body
+   */
+  constructor(method, path, status, body) {
+    super(`${method} ${path}: status ${status}: ${body}`)
+    this.name = 'ApiError'
+    this.status = status
+    this.path = path
+    this.body = body
+  }
+}
+
 export class SystemControllerClient {
   /** @param {string} baseURL */
   constructor(baseURL) {
@@ -30,7 +46,7 @@ export class SystemControllerClient {
     })
     if (resp.status !== 200) {
       const text = await resp.text().catch(() => '')
-      throw new Error(`POST ${path}: status ${resp.status}: ${text}`)
+      throw new ApiError('POST', path, resp.status, text)
     }
     return resp
   }
@@ -49,7 +65,7 @@ export class SystemControllerClient {
     const resp = await fetch(`${this.baseURL}${path}`, { headers })
     if (resp.status !== 200) {
       const text = await resp.text().catch(() => '')
-      throw new Error(`GET ${path}: status ${resp.status}: ${text}`)
+      throw new ApiError('GET', path, resp.status, text)
     }
     return resp
   }
@@ -223,7 +239,7 @@ export class SystemControllerClient {
     )
     if (resp.status !== 200) {
       const text = await resp.text().catch(() => '')
-      throw new Error(`GET /systemd/logs: status ${resp.status}: ${text}`)
+      throw new ApiError('GET', '/systemd/logs', resp.status, text)
     }
 
     const reader = resp.body.getReader()

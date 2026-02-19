@@ -37,6 +37,11 @@ func OpenDB(path string) (db *sql.DB, err error) {
 		}
 	}()
 
+	// SQLite only allows one writer at a time. Limiting to a single
+	// connection ensures all PRAGMAs apply consistently and eliminates
+	// SQLITE_BUSY errors from connection pool contention.
+	db.SetMaxOpenConns(1)
+
 	if _, err = db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return db, fmt.Errorf("pragma WAL: %w", err)
 	}
