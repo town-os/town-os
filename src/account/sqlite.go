@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -29,19 +30,23 @@ func OpenDB(path string) (db *sql.DB, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
 	}
-
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		if cerr := db.Close(); cerr != nil {
-			return nil, fmt.Errorf("pragma WAL: %w (close: %v)", err, cerr)
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, db.Close())
+			db = nil
 		}
-		return nil, fmt.Errorf("pragma WAL: %w", err)
+	}()
+
+	if _, err = db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return db, fmt.Errorf("pragma WAL: %w", err)
 	}
 
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		if cerr := db.Close(); cerr != nil {
-			return nil, fmt.Errorf("pragma foreign_keys: %w (close: %v)", err, cerr)
-		}
-		return nil, fmt.Errorf("pragma foreign_keys: %w", err)
+	if _, err = db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return db, fmt.Errorf("pragma busy_timeout: %w", err)
+	}
+
+	if _, err = db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		return db, fmt.Errorf("pragma foreign_keys: %w", err)
 	}
 
 	return db, nil
@@ -276,9 +281,7 @@ func (m *SQLiteManager) List() ([]Account, error) {
 		return nil, fmt.Errorf("list accounts: %w", err)
 	}
 	defer func() {
-		if cerr := rows.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, rows.Close())
 	}()
 
 	var out []Account

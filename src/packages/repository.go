@@ -2,6 +2,7 @@ package packages
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -44,9 +45,7 @@ func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 	}
 
 	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, f.Close())
 	}()
 
 	var items []Repository
@@ -69,9 +68,7 @@ func (rr *RepositoryRoot) save() (err error) {
 	}
 
 	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, f.Close())
 	}()
 
 	en := json.NewEncoder(f)
@@ -249,10 +246,7 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 
 			var ip InputPackage
 			de := yaml.NewDecoder(f)
-			err = de.Decode(&ip)
-			if cerr := f.Close(); cerr != nil && err == nil {
-				err = cerr
-			}
+			err = errors.Join(de.Decode(&ip), f.Close())
 			if err != nil {
 				return nil, fmt.Errorf("decoding %s/%s: %v", name.Name(), fn, err)
 			}

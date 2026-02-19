@@ -2,6 +2,7 @@ package account
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -89,9 +90,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		return nil, fmt.Errorf("query audit log: %w", err)
 	}
 	defer func() {
-		if cerr := rows.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, rows.Close())
 	}()
 
 	var entries []AuditEntry

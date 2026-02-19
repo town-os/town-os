@@ -101,9 +101,7 @@ func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content s
 		return err
 	}
 	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, f.Close())
 	}()
 
 	n, err := io.Copy(f, strings.NewReader(content))
@@ -201,9 +199,7 @@ func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan J
 	go func() {
 		defer close(ch)
 		defer func() {
-			if cerr := j.Close(); cerr != nil && err == nil {
-				err = cerr
-			}
+			err = errors.Join(err, j.Close())
 		}()
 
 		for {

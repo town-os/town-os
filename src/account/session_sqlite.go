@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -182,9 +183,7 @@ func (s *SQLiteSessionManager) List(username string) (_ []Session, err error) {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 	defer func() {
-		if cerr := rows.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, rows.Close())
 	}()
 
 	var out []Session

@@ -2,6 +2,7 @@ package packages
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -80,9 +81,7 @@ func (m *InstallManager) Install(repoName, pkgName, version string, responses Re
 		return err
 	}
 	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, f.Close())
 	}()
 
 	en := json.NewEncoder(f)
@@ -212,9 +211,7 @@ func (m *InstallManager) GetResponses(pkgName, version string) (_ Responses, err
 		return nil, err
 	}
 	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, f.Close())
 	}()
 
 	var resp Responses

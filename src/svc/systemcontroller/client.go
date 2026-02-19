@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -55,6 +56,12 @@ type Client interface {
 	Ping(ctx context.Context) (*PingResponse, error)
 }
 
+var (
+	ErrNewRequest         = errors.New("new request")
+	ErrHTTPRequest        = errors.New("http request")
+	ErrUnsuccessfulStatus = errors.New("unsuccessful status code")
+)
+
 type SystemdClient struct {
 	HTTP    *http.Client
 	BaseURL string
@@ -101,7 +108,7 @@ func pipeEncode(pw *io.PipeWriter, v any) {
 func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Reader) (err error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", c.route(path), body)
 	if err != nil {
-		return fmt.Errorf("new request in POST %s: %v", path, err)
+		return fmt.Errorf("%w: POST %s: %w", ErrNewRequest, path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
@@ -110,16 +117,14 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("http error in POST %s: %v", path, err)
+		return fmt.Errorf("%w: POST %s: %w", ErrHTTPRequest, path, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("unsuccessful status code in POST %s: %v", path, resp.StatusCode)
+		return fmt.Errorf("%w: POST %s: status %d", ErrUnsuccessfulStatus, path, resp.StatusCode)
 	}
 
 	return nil
@@ -128,7 +133,7 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Response, err error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.route(path), nil)
 	if err != nil {
-		return nil, fmt.Errorf("new request in GET %s: %v", path, err)
+		return nil, fmt.Errorf("%w: GET %s: %w", ErrNewRequest, path, err)
 	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
@@ -139,7 +144,7 @@ func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Res
 func (c *SystemdClient) postJSON(ctx context.Context, path string, body io.Reader) (_ *http.Response, err error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", c.route(path), body)
 	if err != nil {
-		return nil, fmt.Errorf("new request in POST %s: %v", path, err)
+		return nil, fmt.Errorf("%w: POST %s: %w", ErrNewRequest, path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
@@ -177,16 +182,14 @@ func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string) (_ [
 
 	resp, err := c.postJSON(ctx, "storage", pr)
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListFilesystems: %v", err)
+		return nil, fmt.Errorf("%w: ListFilesystems: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListFilesystems: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListFilesystems: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	fs := []storage.Filesystem{}
@@ -212,16 +215,14 @@ func (c *SystemdClient) RemoveRepository(ctx context.Context, name string) error
 func (c *SystemdClient) ListRepositories(ctx context.Context) (_ []RepositoryInfo, err error) {
 	resp, err := c.getClient(ctx, "repository")
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListRepositories: %v", err)
+		return nil, fmt.Errorf("%w: ListRepositories: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListRepositories: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListRepositories: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var repos []RepositoryInfo
@@ -233,16 +234,14 @@ func (c *SystemdClient) ListRepositories(ctx context.Context) (_ []RepositoryInf
 func (c *SystemdClient) ListPackages(ctx context.Context) (_ []string, err error) {
 	resp, err := c.getClient(ctx, "packages")
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListPackages: %v", err)
+		return nil, fmt.Errorf("%w: ListPackages: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListPackages: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListPackages: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var pkgs []string
@@ -255,16 +254,14 @@ func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_
 
 	resp, err := c.postJSON(ctx, "packages/questions", pr)
 	if err != nil {
-		return nil, fmt.Errorf("http error in GetPackageQuestions: %v", err)
+		return nil, fmt.Errorf("%w: GetPackageQuestions: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in GetPackageQuestions: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: GetPackageQuestions: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var questions map[string]packages.Question
@@ -290,16 +287,14 @@ func (c *SystemdClient) UninstallPackage(ctx context.Context, name, version stri
 func (c *SystemdClient) ListInstalled(ctx context.Context) (_ []string, err error) {
 	resp, err := c.getClient(ctx, "packages/installed")
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListInstalled: %v", err)
+		return nil, fmt.Errorf("%w: ListInstalled: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListInstalled: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListInstalled: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var pkgs []string
@@ -312,16 +307,14 @@ func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) 
 
 	resp, err := c.postJSON(ctx, "packages/responses", pr)
 	if err != nil {
-		return nil, fmt.Errorf("http error in GetResponses: %v", err)
+		return nil, fmt.Errorf("%w: GetResponses: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in GetResponses: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: GetResponses: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var responses packages.Responses
@@ -333,16 +326,14 @@ func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) 
 func (c *SystemdClient) ListUnits(ctx context.Context) (_ []systemd.UnitStatus, err error) {
 	resp, err := c.getClient(ctx, "systemd/units")
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListUnits: %v", err)
+		return nil, fmt.Errorf("%w: ListUnits: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListUnits: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListUnits: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var units []systemd.UnitStatus
@@ -359,23 +350,21 @@ func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action s
 func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {
 	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/logs?unit=%s", url.QueryEscape(name)))
 	if err != nil {
-		return nil, fmt.Errorf("http error in LogReplay: %v", err)
+		return nil, fmt.Errorf("%w: LogReplay: %w", ErrHTTPRequest, err)
 	}
 
 	if resp.StatusCode != 200 {
-		if cerr := resp.Body.Close(); cerr != nil {
-			return nil, fmt.Errorf("unsuccessful status code in LogReplay: %v (close: %v)", resp.StatusCode, cerr)
-		}
-		return nil, fmt.Errorf("unsuccessful status code in LogReplay: %v", resp.StatusCode)
+		return nil, errors.Join(
+			fmt.Errorf("%w: LogReplay: status %d", ErrUnsuccessfulStatus, resp.StatusCode),
+			resp.Body.Close(),
+		)
 	}
 
 	ch := make(chan systemd.JournalEntry)
 	go func() {
 		defer close(ch)
 		defer func() {
-			if cerr := resp.Body.Close(); cerr != nil && err == nil {
-				err = cerr
-			}
+			err = errors.Join(err, resp.Body.Close())
 		}()
 
 		scanner := bufio.NewScanner(resp.Body)
@@ -407,16 +396,14 @@ func (c *SystemdClient) CreateAccount(ctx context.Context, username, password, e
 
 	resp, err := c.postJSON(ctx, "account/create", pr)
 	if err != nil {
-		return nil, fmt.Errorf("http error in CreateAccount: %v", err)
+		return nil, fmt.Errorf("%w: CreateAccount: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in CreateAccount: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: CreateAccount: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var acct account.Account
@@ -429,16 +416,14 @@ func (c *SystemdClient) GetAccount(ctx context.Context, username string) (_ *acc
 
 	resp, err := c.postJSON(ctx, "account", pr)
 	if err != nil {
-		return nil, fmt.Errorf("http error in GetAccount: %v", err)
+		return nil, fmt.Errorf("%w: GetAccount: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in GetAccount: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: GetAccount: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var acct account.Account
@@ -451,16 +436,14 @@ func (c *SystemdClient) UpdateAccount(ctx context.Context, username string, fiel
 
 	resp, err := c.postJSON(ctx, "account/update", pr)
 	if err != nil {
-		return nil, fmt.Errorf("http error in UpdateAccount: %v", err)
+		return nil, fmt.Errorf("%w: UpdateAccount: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in UpdateAccount: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: UpdateAccount: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var acct account.Account
@@ -477,16 +460,14 @@ func (c *SystemdClient) DisableAccount(ctx context.Context, username string) err
 func (c *SystemdClient) ListAccounts(ctx context.Context) (_ []account.Account, err error) {
 	resp, err := c.getClient(ctx, "account")
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListAccounts: %v", err)
+		return nil, fmt.Errorf("%w: ListAccounts: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListAccounts: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListAccounts: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var accounts []account.Account
@@ -499,16 +480,14 @@ func (c *SystemdClient) Authenticate(ctx context.Context, username, password str
 
 	resp, err := c.postJSON(ctx, "account/authenticate", pr)
 	if err != nil {
-		return nil, fmt.Errorf("http error in Authenticate: %v", err)
+		return nil, fmt.Errorf("%w: Authenticate: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in Authenticate: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: Authenticate: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var authResp AuthenticateResponse
@@ -525,22 +504,20 @@ func (c *SystemdClient) RevokeSession(ctx context.Context, sessionID string) err
 func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []account.Session, err error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.route("account/sessions"), nil)
 	if err != nil {
-		return nil, fmt.Errorf("new request in ListSessions: %v", err)
+		return nil, fmt.Errorf("%w: ListSessions: %w", ErrNewRequest, err)
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListSessions: %v", err)
+		return nil, fmt.Errorf("%w: ListSessions: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListSessions: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListSessions: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var sessions []account.Session
@@ -550,22 +527,20 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ string, err error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.route("/account/me"), nil)
 	if err != nil {
-		return "", fmt.Errorf("new request in SessionUsername: %v", err)
+		return "", fmt.Errorf("%w: SessionUsername: %w", ErrNewRequest, err)
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("http error in SessionUsername: %v", err)
+		return "", fmt.Errorf("%w: SessionUsername: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("unsuccessful status code in SessionUsername: %v", resp.StatusCode)
+		return "", fmt.Errorf("%w: SessionUsername: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var result SessionUsernameResponse
@@ -583,23 +558,21 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.route("audit/log"), pr)
 	if err != nil {
-		return nil, fmt.Errorf("new request in ListAuditLog: %v", err)
+		return nil, fmt.Errorf("%w: ListAuditLog: %w", ErrNewRequest, err)
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http error in ListAuditLog: %v", err)
+		return nil, fmt.Errorf("%w: ListAuditLog: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in ListAuditLog: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: ListAuditLog: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var page account.AuditPage
@@ -611,16 +584,14 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 func (c *SystemdClient) Ping(ctx context.Context) (_ *PingResponse, err error) {
 	resp, err := c.getClient(ctx, "status/ping")
 	if err != nil {
-		return nil, fmt.Errorf("http error in Ping: %v", err)
+		return nil, fmt.Errorf("%w: Ping: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, resp.Body.Close())
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unsuccessful status code in Ping: %v", resp.StatusCode)
+		return nil, fmt.Errorf("%w: Ping: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
 	}
 
 	var ping PingResponse

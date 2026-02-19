@@ -19,9 +19,7 @@ func findMountPoint(path string) (_ string, err error) {
 		return "", err
 	}
 	defer func() {
-		if cerr := fp.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, fp.Close())
 	}()
 
 	const (

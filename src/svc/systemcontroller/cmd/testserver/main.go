@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -43,9 +44,7 @@ func run() (err error) {
 		return fmt.Errorf("open db: %w", err)
 	}
 	defer func() {
-		if cerr := db.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, db.Close())
 	}()
 
 	acctMgr, err := account.InitManager(db)
