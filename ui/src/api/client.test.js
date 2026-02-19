@@ -20,6 +20,7 @@ describe('SystemControllerClient', () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       status,
       json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
     })
   }
 
@@ -27,6 +28,7 @@ describe('SystemControllerClient', () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       status,
       json: () => Promise.resolve(null),
+      text: () => Promise.resolve(''),
     })
   }
 
@@ -112,6 +114,54 @@ describe('SystemControllerClient', () => {
 
       const result = await client.listFilesystems('')
       expect(result).toEqual(fsList)
+    })
+  })
+
+  describe('addRepository', () => {
+    it('sends name, url, and credentials', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.addRepository('my-repo', 'https://example.com/repo.git', 'user', 'pass')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/repository/add',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({
+            name: 'my-repo',
+            url: 'https://example.com/repo.git',
+            username: 'user',
+            password: 'pass',
+          }),
+        },
+      )
+    })
+
+    it('defaults username and password to empty strings', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.addRepository('my-repo', 'https://example.com/repo.git')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/repository/add',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({
+            name: 'my-repo',
+            url: 'https://example.com/repo.git',
+            username: '',
+            password: '',
+          }),
+        },
+      )
     })
   })
 
@@ -280,6 +330,7 @@ describe('SystemControllerClient', () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         status: 200,
         body: { getReader: () => mockReader },
+        text: () => Promise.resolve(''),
       })
       client.setToken('tok')
 

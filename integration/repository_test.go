@@ -18,6 +18,15 @@ var (
 	extrasURL = url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/test-packages-extras.git"}
 )
 
+func repoCredentials() (string, string) {
+	return os.Getenv(packages.EnvRepoUsername), os.Getenv(packages.EnvRepoPassword)
+}
+
+func newRepoWithCreds(baseDir string, u url.URL) (*packages.Repository, error) {
+	user, pass := repoCredentials()
+	return packages.NewRepository(baseDir, "", u, user, pass)
+}
+
 func setupRoot(t *testing.T, repos []packages.Repository) *packages.RepositoryRoot {
 	t.Helper()
 	dir := t.TempDir()
@@ -44,7 +53,7 @@ func TestRepositoryCloneAndLoadPackages(t *testing.T) {
 		t.Fatalf("failed to add core repo: %v", err)
 	}
 
-	_, err := packages.NewRepository(root.BaseDir, coreURL)
+	_, err := newRepoWithCreds(root.BaseDir, coreURL)
 	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
@@ -90,10 +99,10 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 		{Name: "test-packages-extras", URL: extrasURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
-	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, extrasURL); err != nil {
 		t.Fatalf("failed to clone extras repo: %v", err)
 	}
 
@@ -135,7 +144,7 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -175,7 +184,7 @@ func TestGetPackageQuestionsFromRepo(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -218,10 +227,10 @@ func TestGetPackageQuestionsFromMultipleRepos(t *testing.T) {
 		{Name: "test-packages-extras", URL: extrasURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, extrasURL); err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
@@ -257,7 +266,7 @@ func TestListPackagesSingleRepo(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -285,10 +294,10 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 		{Name: "test-packages-extras", URL: extrasURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
-	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, extrasURL); err != nil {
 		t.Fatalf("failed to clone extras repo: %v", err)
 	}
 
@@ -337,10 +346,10 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, extrasURL); err != nil {
 		t.Fatalf("failed to clone extras repo: %v", err)
 	}
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -390,7 +399,7 @@ func TestInstalledInstallFromRepo(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -416,7 +425,7 @@ func TestInstalledListFromRepo(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -455,7 +464,7 @@ func TestInstalledUninstallFromRepo(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -499,10 +508,10 @@ func TestInstalledMultipleRepos(t *testing.T) {
 		{Name: "test-packages-extras", URL: extrasURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, extrasURL); err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
@@ -555,7 +564,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
@@ -759,7 +768,7 @@ func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -793,7 +802,7 @@ func TestInstalledEmptyDirCleanupAfterUninstall(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -836,7 +845,7 @@ func TestInstalledInstallNonexistentPackage(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -873,10 +882,10 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 		{Name: "test-packages-extras", URL: extrasURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, extrasURL); err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
@@ -980,7 +989,7 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
@@ -1035,7 +1044,7 @@ func TestFindRepoForPackageSingleRepo(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -1054,10 +1063,10 @@ func TestFindRepoForPackageMultipleRepos(t *testing.T) {
 		{Name: "test-packages-extras", URL: extrasURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := packages.NewRepository(root.BaseDir, extrasURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, extrasURL); err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
@@ -1085,7 +1094,7 @@ func TestFindRepoForPackageNotFound(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
@@ -1100,7 +1109,7 @@ func TestFindRepoForPackageVersionNotFound(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
@@ -1115,7 +1124,7 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 		{Name: "test-packages-core", URL: coreURL},
 	})
 
-	if _, err := packages.NewRepository(root.BaseDir, coreURL); err != nil {
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 

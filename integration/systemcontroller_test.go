@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,15 @@ import (
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
 )
+
+func scRepoCredentials() (string, string) {
+	return os.Getenv(packages.EnvRepoUsername), os.Getenv(packages.EnvRepoPassword)
+}
+
+func addRepoWithCreds(c *systemcontroller.SystemdClient, rawURL string) error {
+	user, pass := scRepoCredentials()
+	return c.AddRepository(context.TODO(), "", rawURL, user, pass)
+}
 
 func initSystemControllerTest(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
@@ -263,7 +273,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemdClient 
 func TestSystemControllerAddAndListRepository(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("error adding repository: %v", err)
 	}
 
@@ -288,7 +298,7 @@ func TestSystemControllerAddAndListRepository(t *testing.T) {
 func TestSystemControllerRemoveRepository(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("error adding repository: %v", err)
 	}
 
@@ -309,11 +319,11 @@ func TestSystemControllerRemoveRepository(t *testing.T) {
 func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("error adding core: %v", err)
 	}
 
-	if err := c.AddRepository(context.TODO(), extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
 		t.Fatalf("error adding extras: %v", err)
 	}
 
@@ -355,10 +365,10 @@ func TestSystemControllerListRepositoriesEmpty(t *testing.T) {
 func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := c.AddRepository(context.TODO(), extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -393,6 +403,96 @@ func TestSystemControllerRemoveNonexistentRepository(t *testing.T) {
 	}
 }
 
+func TestSystemControllerAddRepositoryBadClone(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	err := c.AddRepository(context.TODO(), "", "https://gitea.com/town-os/does-not-exist.git", "", "")
+	if err == nil {
+		t.Fatal("expected error for inaccessible repository")
+	}
+
+	repos, err := c.ListRepositories(context.TODO())
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+
+	if len(repos) != 0 {
+		t.Fatalf("expected 0 repositories after failed add, got %d", len(repos))
+	}
+}
+
+func TestSystemControllerAddRepositoryPartialCredentials(t *testing.T) {
+	t.Run("username without password", func(t *testing.T) {
+		c := initSystemControllerRepoTest(t)
+
+		err := c.AddRepository(context.TODO(), "", coreURL.String(), "user", "")
+		if err == nil {
+			t.Fatal("expected error for username without password")
+		}
+	})
+
+	t.Run("password without username", func(t *testing.T) {
+		c := initSystemControllerRepoTest(t)
+
+		err := c.AddRepository(context.TODO(), "", coreURL.String(), "", "pass")
+		if err == nil {
+			t.Fatal("expected error for password without username")
+		}
+	})
+}
+
+func TestSystemControllerAddRepositoryWithCredentials(t *testing.T) {
+	user, pass := scRepoCredentials()
+	if user == "" {
+		t.Skip("skipping: TOWN_OS_REPO_USERNAME not set")
+	}
+
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(context.TODO(), "", coreURL.String(), user, pass); err != nil {
+		t.Fatalf("AddRepository with credentials: %v", err)
+	}
+
+	repos, err := c.ListRepositories(context.TODO())
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos))
+	}
+
+	if repos[0].Username != user {
+		t.Fatalf("expected username %q, got %q", user, repos[0].Username)
+	}
+}
+
+func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
+	user, _ := scRepoCredentials()
+	if user != "" {
+		t.Skip("skipping: TOWN_OS_REPO_USERNAME is set")
+	}
+
+	c := initSystemControllerRepoTest(t)
+
+	if err := c.AddRepository(context.TODO(), "", coreURL.String(), "", ""); err != nil {
+		t.Fatalf("AddRepository without credentials: %v", err)
+	}
+
+	repos, err := c.ListRepositories(context.TODO())
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repos))
+	}
+
+	if repos[0].Username != "" {
+		t.Fatalf("expected empty username, got %q", repos[0].Username)
+	}
+}
+
 // --- ListPackages integration tests ---
 
 func TestSystemControllerListPackagesEmpty(t *testing.T) {
@@ -411,7 +511,7 @@ func TestSystemControllerListPackagesEmpty(t *testing.T) {
 func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -447,10 +547,10 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := c.AddRepository(context.TODO(), extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -486,10 +586,10 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := c.AddRepository(context.TODO(), extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -521,7 +621,7 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 func TestSystemControllerGetPackageQuestions(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -558,10 +658,10 @@ func TestSystemControllerGetPackageQuestions(t *testing.T) {
 func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := c.AddRepository(context.TODO(), extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -581,7 +681,7 @@ func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
 func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -624,10 +724,41 @@ func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemdCli
 	return c, rr
 }
 
+func initSystemControllerInstallSystemdTest(t *testing.T) (*systemcontroller.SystemdClient, *systemd.MockManager) {
+	t.Helper()
+
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal empty repository list: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile repositories file: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("failed to load repository root: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, sd
+}
+
 func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -651,7 +782,7 @@ func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -676,7 +807,7 @@ func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -737,10 +868,10 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := c.AddRepository(context.TODO(), extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -790,10 +921,10 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 
 	// Add two repos
-	if err := c.AddRepository(context.TODO(), coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
 		t.Fatalf("add core failed: %v", err)
 	}
-	if err := c.AddRepository(context.TODO(), extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
 		t.Fatalf("add extras failed: %v", err)
 	}
 
@@ -835,6 +966,318 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 	if len(repos) != 0 {
 		t.Fatalf("expected 0 repositories at end, got %d", len(repos))
+	}
+}
+
+// --- Install + Systemd integration tests ---
+
+func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 systemd calls, got %d", len(calls))
+	}
+
+	if calls[0].Method != "InstallUnit" {
+		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
+	}
+	if calls[0].Args[0].(string) != "town-os-nginx.service" {
+		t.Fatalf("call 0: expected unit %q, got %v", "town-os-nginx.service", calls[0].Args[0])
+	}
+
+	if calls[1].Method != "SetStatus" {
+		t.Fatalf("call 1: expected SetStatus, got %q", calls[1].Method)
+	}
+	if calls[1].Args[1].(systemd.StatusAction) != systemd.Enable {
+		t.Fatalf("call 1: expected Enable, got %v", calls[1].Args[1])
+	}
+
+	if calls[2].Method != "SetStatus" {
+		t.Fatalf("call 2: expected SetStatus, got %q", calls[2].Method)
+	}
+	if calls[2].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 2: expected Start, got %v", calls[2].Args[1])
+	}
+}
+
+func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls, got %d", len(calls))
+	}
+
+	// Install phase: InstallUnit, Enable, Start
+	if calls[0].Method != "InstallUnit" {
+		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
+	}
+	if calls[1].Args[1].(systemd.StatusAction) != systemd.Enable {
+		t.Fatalf("call 1: expected Enable, got %v", calls[1].Args[1])
+	}
+	if calls[2].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 2: expected Start, got %v", calls[2].Args[1])
+	}
+
+	// Uninstall phase: Stop, Disable, UninstallUnit
+	if calls[3].Method != "SetStatus" {
+		t.Fatalf("call 3: expected SetStatus, got %q", calls[3].Method)
+	}
+	if calls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
+		t.Fatalf("call 3: expected Stop, got %v", calls[3].Args[1])
+	}
+
+	if calls[4].Method != "SetStatus" {
+		t.Fatalf("call 4: expected SetStatus, got %q", calls[4].Method)
+	}
+	if calls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("call 4: expected Disable, got %v", calls[4].Args[1])
+	}
+
+	if calls[5].Method != "UninstallUnit" {
+		t.Fatalf("call 5: expected UninstallUnit, got %q", calls[5].Method)
+	}
+	if calls[5].Args[0].(string) != "town-os-nginx.service" {
+		t.Fatalf("call 5: expected unit %q, got %v", "town-os-nginx.service", calls[5].Args[0])
+	}
+}
+
+func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install nginx@1.0
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// Verify listed as installed
+	pkgs, err := c.ListInstalled(context.TODO())
+	if err != nil {
+		t.Fatalf("ListInstalled after install: %v", err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	}
+	if pkgs[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", pkgs[0])
+	}
+
+	// Verify 3 systemd calls from install
+	calls := sd.GetCalls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 systemd calls after install, got %d", len(calls))
+	}
+
+	// Uninstall
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
+	}
+
+	// Verify uninstalled
+	pkgs, err = c.ListInstalled(context.TODO())
+	if err != nil {
+		t.Fatalf("ListInstalled after uninstall: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs))
+	}
+
+	// Verify all 6 systemd calls with correct unit name
+	calls = sd.GetCalls()
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls total, got %d", len(calls))
+	}
+
+	for _, call := range calls {
+		unit := call.Args[0].(string)
+		if unit != "town-os-nginx.service" {
+			t.Fatalf("expected unit %q in call %q, got %q", "town-os-nginx.service", call.Method, unit)
+		}
+	}
+}
+
+func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls (3 per package), got %d", len(calls))
+	}
+
+	// First 3 calls for nginx
+	for i := 0; i < 3; i++ {
+		unit := calls[i].Args[0].(string)
+		if unit != "town-os-nginx.service" {
+			t.Fatalf("call %d: expected unit %q, got %q", i, "town-os-nginx.service", unit)
+		}
+	}
+
+	// Next 3 calls for redis
+	for i := 3; i < 6; i++ {
+		unit := calls[i].Args[0].(string)
+		if unit != "town-os-redis.service" {
+			t.Fatalf("call %d: expected unit %q, got %q", i, "town-os-redis.service", unit)
+		}
+	}
+
+	// Verify call sequence for each package: InstallUnit, Enable, Start
+	for _, offset := range []int{0, 3} {
+		if calls[offset].Method != "InstallUnit" {
+			t.Fatalf("call %d: expected InstallUnit, got %q", offset, calls[offset].Method)
+		}
+		if calls[offset+1].Method != "SetStatus" || calls[offset+1].Args[1].(systemd.StatusAction) != systemd.Enable {
+			t.Fatalf("call %d: expected SetStatus/Enable, got %q/%v", offset+1, calls[offset+1].Method, calls[offset+1].Args[1])
+		}
+		if calls[offset+2].Method != "SetStatus" || calls[offset+2].Args[1].(systemd.StatusAction) != systemd.Start {
+			t.Fatalf("call %d: expected SetStatus/Start, got %q/%v", offset+2, calls[offset+2].Method, calls[offset+2].Args[1])
+		}
+	}
+}
+
+// --- Install + Real Systemd integration tests ---
+
+func initSystemControllerInstallRealSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
+	t.Helper()
+
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal empty repository list: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile repositories file: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("failed to load repository root: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	mock := storage.InitBtrFSMock()
+	sd := systemd.NewManager()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c
+}
+
+func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
+	c := initSystemControllerInstallRealSystemdTest(t)
+
+	unitName := systemd.UnitName("nginx")
+	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName)
+
+	// Cleanup: unconditionally stop/disable/remove the unit to prevent leaks.
+	t.Cleanup(func() {
+		cleanup := systemd.NewManager()
+		ctx := context.Background()
+		_ = cleanup.SetStatus(ctx, unitName, systemd.Stop)
+		_ = cleanup.SetStatus(ctx, unitName, systemd.Disable)
+		_ = cleanup.UninstallUnit(ctx, unitName)
+	})
+
+	// Add core repo.
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install nginx@1.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// Verify listed as installed.
+	pkgs, err := c.ListInstalled(context.TODO())
+	if err != nil {
+		t.Fatalf("ListInstalled after install: %v", err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs))
+	}
+	if pkgs[0] != "nginx@1.0" {
+		t.Fatalf("expected nginx@1.0, got %s", pkgs[0])
+	}
+
+	// Verify the unit is active via ListUnits.
+	units, err := c.ListUnits(context.TODO())
+	if err != nil {
+		t.Fatalf("ListUnits after install: %v", err)
+	}
+
+	var found bool
+	for _, u := range units {
+		if u.Name == unitName {
+			found = true
+			if u.ActiveState != "active" {
+				t.Fatalf("expected unit %q ActiveState %q, got %q", unitName, "active", u.ActiveState)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected unit %q in ListUnits output", unitName)
+	}
+
+	// Uninstall nginx@1.0.
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
+	}
+
+	// Verify no longer installed.
+	pkgs, err = c.ListInstalled(context.TODO())
+	if err != nil {
+		t.Fatalf("ListInstalled after uninstall: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs))
+	}
+
+	// Verify unit file no longer exists on disk.
+	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
+		t.Fatalf("expected unit file %q to be removed, got err: %v", unitPath, err)
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 func run() (err error) {
 	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
 	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
+	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
 	flag.Parse()
 
 	dir, err := os.MkdirTemp("", "testserver-*")
@@ -63,19 +64,30 @@ func run() (err error) {
 		return fmt.Errorf("init audit manager: %w", err)
 	}
 
-	repoData, err := json.Marshal([]packages.Repository{})
-	if err != nil {
-		return fmt.Errorf("marshal empty repo list: %w", err)
+	repoBase := dir
+	if *repoDir != "" {
+		repoBase = *repoDir
+		if err := os.MkdirAll(repoBase, 0755); err != nil {
+			return fmt.Errorf("create repo dir: %w", err)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil {
-		return fmt.Errorf("write repositories file: %w", err)
+
+	repoFile := filepath.Join(repoBase, packages.RepositoriesFile)
+	if _, err := os.Stat(repoFile); os.IsNotExist(err) {
+		repoData, err := json.Marshal([]packages.Repository{})
+		if err != nil {
+			return fmt.Errorf("marshal empty repo list: %w", err)
+		}
+		if err := os.WriteFile(repoFile, repoData, 0644); err != nil {
+			return fmt.Errorf("write repositories file: %w", err)
+		}
 	}
-	rr, err := packages.RepositoryRootFromBase(dir)
+	rr, err := packages.RepositoryRootFromBase(repoBase)
 	if err != nil {
 		return fmt.Errorf("init repository root: %w", err)
 	}
 
-	inst := packages.NewInstallManager(dir)
+	inst := packages.NewInstallManager(repoBase)
 
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
 		Storage:        storage.InitBtrFS(*btrfsPath),

@@ -12,13 +12,15 @@ type MockCall struct {
 }
 
 type MockManager struct {
-	mu        sync.Mutex
-	Units     []UnitStatus
-	Entries   []JournalEntry
-	Calls     []MockCall
-	ListErr   error
-	StatusErr error
-	LogErr    error
+	mu              sync.Mutex
+	Units           []UnitStatus
+	Entries         []JournalEntry
+	Calls           []MockCall
+	ListErr         error
+	StatusErr       error
+	LogErr          error
+	InstallUnitErr  error
+	UninstallUnitErr error
 }
 
 func InitMockManager() *MockManager {
@@ -92,4 +94,30 @@ func (m *MockManager) LogReplay(ctx context.Context, unit string) (<-chan Journa
 	}()
 
 	return ch, nil
+}
+
+func (m *MockManager) InstallUnit(ctx context.Context, name string, content string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.Calls = append(m.Calls, MockCall{Method: "InstallUnit", Args: []any{name, content}})
+
+	if m.InstallUnitErr != nil {
+		return m.InstallUnitErr
+	}
+
+	return nil
+}
+
+func (m *MockManager) UninstallUnit(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.Calls = append(m.Calls, MockCall{Method: "UninstallUnit", Args: []any{name}})
+
+	if m.UninstallUnitErr != nil {
+		return m.UninstallUnitErr
+	}
+
+	return nil
 }

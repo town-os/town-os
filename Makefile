@@ -1,3 +1,7 @@
+-include .env
+export TOWN_OS_REPO_USERNAME
+export TOWN_OS_REPO_PASSWORD
+
 PODMAN_IMAGE := town-os
 PODMAN_TEST_IMAGE := town-os-test
 PODMAN_CONTAINER := town-os-test
@@ -38,40 +42,34 @@ production-image: .cache/.images-pulled
 test-ui-integration: test-image ui-integration-image btrfs
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
-	@cp $$HOME/.gitconfig .gitconfig.tmp
-	@cp $$HOME/.git-credentials .git-credentials.tmp
-	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 -d --systemd=true --privileged \
+	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 \
+		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
+		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-d --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
-		-v $$(pwd)/.gitconfig.tmp:/root/.gitconfig:ro,z \
-		-v $$(pwd)/.git-credentials.tmp:/root/.git-credentials:ro,z \
 		--name=$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
-	echo "Waiting for backend availability"
-	@sudo -E podman run --rm -it --network container:$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE) sh -c 'while ! curl -sSL localhost:8080; do sleep 1; done'
 	sudo -E podman run \
 		--network container:$(PODMAN_UI_BACKEND) \
 		-e INTEGRATION_URL=http://localhost:8080 \
 		-e VITE_API_URL=http://localhost:8080 \
+		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
+		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
 		bun run test:integration
 
 test-integration: lint test-image btrfs
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
-	@cp $$HOME/.gitconfig .gitconfig.tmp
-	@cp $$HOME/.git-credentials .git-credentials.tmp
-	@git config --file .gitconfig.tmp credential.helper "store --file /root/.git-credentials"
-	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} -d --systemd=true --privileged \
+	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} \
+		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
+		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-d --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
-		-v $$(pwd)/.gitconfig.tmp:/root/.gitconfig:ro,z \
-		-v $$(pwd)/.git-credentials.tmp:/root/.git-credentials:ro,z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "Waiting for mount"
 	@until sudo -E podman exec -it $(PODMAN_CONTAINER) btrfs filesystem sync /data/btrfs &>/dev/null; do sleep 1; done
-	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v; \
-		EXIT=$$?; \
-		rm -f .gitconfig.tmp .git-credentials.tmp; \
-		exit $$EXIT
+	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v
 
 test-full: test test-integration test-ui-integration
 
@@ -87,7 +85,10 @@ PODMAN_DEV_CONTAINER := town-os-dev
 dev: test-image btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@touch dev.db
-	sudo -E podman run -d -p 8080:8080 -e LOG_LEVEL=debug -e DEBUG=1 --systemd=true --privileged \
+	sudo -E podman run -d -p 8080:8080 -e LOG_LEVEL=debug -e DEBUG=1 \
+		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
+		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		--systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		-v $$(pwd)/dev.db:/data/dev.db:z \
@@ -140,7 +141,6 @@ clean-btrfs:
 clean: clean-podman
 	rm -f dev.db dev.db-shm dev.db-wal
 	rm -rf .cache
-	rm -f .gitconfig.tmp .git-credentials.tmp
 
 clean-podman: clean-btrfs
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
@@ -150,7 +150,10 @@ clean-podman: clean-btrfs
 
 test-systemd: test-image btrfs
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
-	sudo -E podman run -e LOG_LEVEL=debug -d --systemd=true --privileged \
+	sudo -E podman run -e LOG_LEVEL=debug \
+		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
+		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-d --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)

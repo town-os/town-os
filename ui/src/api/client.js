@@ -29,7 +29,8 @@ export class SystemControllerClient {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
     if (resp.status !== 200) {
-      throw new Error(`POST ${path}: status ${resp.status}`)
+      const text = await resp.text().catch(() => '')
+      throw new Error(`POST ${path}: status ${resp.status}: ${text}`)
     }
     return resp
   }
@@ -47,7 +48,8 @@ export class SystemControllerClient {
     }
     const resp = await fetch(`${this.baseURL}${path}`, { headers })
     if (resp.status !== 200) {
-      throw new Error(`GET ${path}: status ${resp.status}`)
+      const text = await resp.text().catch(() => '')
+      throw new Error(`GET ${path}: status ${resp.status}: ${text}`)
     }
     return resp
   }
@@ -158,11 +160,14 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} name
    * @param {string} url
+   * @param {string} [username]
+   * @param {string} [password]
    * @returns {Promise<void>}
    */
-  async addRepository(url) {
-    await this.post('/repository/add', { url })
+  async addRepository(name, url, username = '', password = '') {
+    await this.post('/repository/add', { name, url, username, password })
   }
 
   /**
@@ -217,7 +222,8 @@ export class SystemControllerClient {
       { headers },
     )
     if (resp.status !== 200) {
-      throw new Error(`GET /systemd/logs: status ${resp.status}`)
+      const text = await resp.text().catch(() => '')
+      throw new Error(`GET /systemd/logs: status ${resp.status}: ${text}`)
     }
 
     const reader = resp.body.getReader()

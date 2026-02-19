@@ -145,10 +145,10 @@ func (m *MockClient) ListFilesystems(_ context.Context, prefix string) ([]storag
 
 // --- Repository ---
 
-func (m *MockClient) AddRepository(_ context.Context, rawURL string) error {
+func (m *MockClient) AddRepository(_ context.Context, name, rawURL, username, password string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "AddRepository", Args: []any{rawURL}})
+	m.Calls = append(m.Calls, MockCall{Method: "AddRepository", Args: []any{name, rawURL, username, password}})
 
 	if m.AddRepoErr != nil {
 		return m.AddRepoErr
@@ -160,7 +160,10 @@ func (m *MockClient) AddRepository(_ context.Context, rawURL string) error {
 		}
 	}
 
-	m.Repositories = append(m.Repositories, RepositoryInfo{Name: rawURL, URL: rawURL})
+	if name == "" {
+		name = rawURL
+	}
+	m.Repositories = append(m.Repositories, RepositoryInfo{Name: name, URL: rawURL})
 	return nil
 }
 

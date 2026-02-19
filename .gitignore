@@ -3,6 +3,7 @@
 /town-os.loop
 /town-os.mount
 /.git*.tmp
+/.env
 /.cache
 /dev.db
 /dev.db-shm

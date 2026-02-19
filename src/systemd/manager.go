@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-systemd/v22/dbus"
@@ -88,6 +91,52 @@ func (m *SystemdManager) SetStatus(ctx context.Context, unit string, action Stat
 	}
 
 	return nil
+}
+
+func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content string) (err error) {
+	unitPath := "/etc/systemd/system/" + name
+
+	f, err := os.Create(unitPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	n, err := io.Copy(f, strings.NewReader(content))
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("wrote 0 bytes to %s", unitPath)
+	}
+
+	conn, err := dbus.NewSystemConnectionContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	return conn.ReloadContext(ctx)
+}
+
+func (m *SystemdManager) UninstallUnit(ctx context.Context, name string) error {
+	unitPath := "/etc/systemd/system/" + name
+
+	if err := os.Remove(unitPath); err != nil {
+		return err
+	}
+
+	conn, err := dbus.NewSystemConnectionContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	return conn.ReloadContext(ctx)
 }
 
 func journalEntryFromSD(entry *sdjournal.JournalEntry) JournalEntry {

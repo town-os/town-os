@@ -145,9 +145,10 @@ export default function PackageManagement() {
     e.preventDefault()
     setError(null)
     setSuccess(null)
+    const name = e.target.elements.name.value
     const url = e.target.elements.url.value
     try {
-      await getClient().addRepository(url)
+      await getClient().addRepository(name, url)
       setSuccess('Repository added')
       setRepoDialog(false)
       doRefresh()
@@ -345,6 +346,15 @@ export default function PackageManagement() {
           </DialogHeader>
           <form onSubmit={handleAddRepo}>
             <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  placeholder="my-repo"
+                  required
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="url">Repository URL</Label>
                 <Input

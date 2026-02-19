@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"go.yaml.in/yaml/v4"
 )
 
@@ -117,9 +118,9 @@ func (rr *RepositoryRoot) Get(name string) (Repository, bool) {
 }
 
 func (rr *RepositoryRoot) Refresh() error {
-	for _, repo := range rr.Items {
-		if _, err := NewRepository(rr.BaseDir, repo.URL); err != nil {
-			return fmt.Errorf("repository %s: %v", repo.Name, err)
+	for i := range rr.Items {
+		if err := rr.Items[i].init(rr.BaseDir); err != nil {
+			return fmt.Errorf("repository %s: %v", rr.Items[i].Name, err)
 		}
 	}
 
@@ -127,14 +128,26 @@ func (rr *RepositoryRoot) Refresh() error {
 }
 
 type Repository struct {
-	Name string
-	URL  url.URL
+	Name     string
+	URL      url.URL
+	Username string
+	Password string
 }
 
-func runGit(baseDir string, args ...string) error {
+func (r *Repository) credentialURL() string {
+	if r.Username == "" {
+		return r.URL.String()
+	}
+	u := r.URL
+	u.User = url.UserPassword(r.Username, r.Password)
+	logrus.Println(u.String())
+	return u.String()
+}
+
+func runGit(dir, home string, args ...string) error {
 	cmd := exec.Command("git", args...)
-	cmd.Dir = baseDir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", fmt.Sprintf("HOME=%s", home))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git %s: %v\n%s", args[0], err, out)
@@ -142,9 +155,21 @@ func runGit(baseDir string, args ...string) error {
 	return nil
 }
 
-func NewRepository(baseDir string, u url.URL) (*Repository, error) {
-	name := strings.TrimSuffix(path.Base(u.Path), ".git")
-	r := &Repository{Name: name, URL: u}
+const (
+	EnvRepoUsername = "TOWN_OS_REPO_USERNAME"
+	EnvRepoPassword = "TOWN_OS_REPO_PASSWORD"
+)
+
+var ErrPartialCredentials = fmt.Errorf("both username and password must be provided together")
+
+func NewRepository(baseDir, name string, u url.URL, username, password string) (*Repository, error) {
+	if (username == "") != (password == "") {
+		return nil, ErrPartialCredentials
+	}
+	if name == "" {
+		name = strings.TrimSuffix(path.Base(u.Path), ".git")
+	}
+	r := &Repository{Name: name, URL: u, Username: username, Password: password}
 	return r, r.init(baseDir)
 }
 
@@ -153,7 +178,7 @@ func (r *Repository) init(baseDir string) error {
 
 	s, err := os.Stat(target)
 	if os.IsNotExist(err) {
-		if err := runGit(baseDir, "clone", r.URL.String(), r.Name); err != nil {
+		if err := runGit(baseDir, baseDir, "clone", r.credentialURL(), r.Name); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -161,20 +186,20 @@ func (r *Repository) init(baseDir string) error {
 	} else if !s.IsDir() {
 		return fmt.Errorf("sub-path %s is not a directory", target)
 	} else {
-		needsStash := runGit(target, "diff", "--quiet", "HEAD") != nil
+		needsStash := runGit(target, baseDir, "diff", "--quiet", "HEAD") != nil
 
 		if needsStash {
-			if err := runGit(target, "stash"); err != nil {
+			if err := runGit(target, baseDir, "stash"); err != nil {
 				return err
 			}
 		}
 
-		if err := runGit(target, "pull", "--rebase"); err != nil {
+		if err := runGit(target, baseDir, "pull", "--rebase"); err != nil {
 			return err
 		}
 
 		if needsStash {
-			if err := runGit(target, "stash", "apply"); err != nil {
+			if err := runGit(target, baseDir, "stash", "apply"); err != nil {
 				return err
 			}
 		}

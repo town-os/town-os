@@ -335,10 +335,145 @@ func TestNewRepositoryBadCredentials(t *testing.T) {
 	dir := t.TempDir()
 	u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
 
-	_, err := NewRepository(dir, u)
+	_, err := NewRepository(dir, "", u, "", "")
 	if err == nil {
 		t.Fatal("expected error for inaccessible repository")
 	}
+}
+
+func TestNewRepositoryPartialCredentials(t *testing.T) {
+	t.Run("username without password", func(t *testing.T) {
+		dir := t.TempDir()
+		u := url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}
+
+		_, err := NewRepository(dir, "", u, "user", "")
+		if err != ErrPartialCredentials {
+			t.Fatalf("expected ErrPartialCredentials, got %v", err)
+		}
+	})
+
+	t.Run("password without username", func(t *testing.T) {
+		dir := t.TempDir()
+		u := url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}
+
+		_, err := NewRepository(dir, "", u, "", "pass")
+		if err != ErrPartialCredentials {
+			t.Fatalf("expected ErrPartialCredentials, got %v", err)
+		}
+	})
+
+	t.Run("both empty is allowed", func(t *testing.T) {
+		dir := t.TempDir()
+		u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
+
+		// Will fail at clone, but should not fail at credential validation
+		_, err := NewRepository(dir, "", u, "", "")
+		if err == ErrPartialCredentials {
+			t.Fatal("empty username and password should not trigger partial credentials error")
+		}
+	})
+
+	t.Run("both provided is allowed", func(t *testing.T) {
+		dir := t.TempDir()
+		u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
+
+		// Will fail at clone, but should not fail at credential validation
+		_, err := NewRepository(dir, "", u, "user", "pass")
+		if err == ErrPartialCredentials {
+			t.Fatal("providing both username and password should not trigger partial credentials error")
+		}
+	})
+}
+
+func TestCredentialURL(t *testing.T) {
+	t.Run("empty username returns plain URL", func(t *testing.T) {
+		r := &Repository{
+			Name: "repo",
+			URL:  url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"},
+		}
+		got := r.credentialURL()
+		want := "https://example.com/repo.git"
+		if got != want {
+			t.Fatalf("expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("username and password", func(t *testing.T) {
+		r := &Repository{
+			Name:     "repo",
+			URL:      url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"},
+			Username: "user",
+			Password: "pass",
+		}
+		got := r.credentialURL()
+		want := "https://user:pass@example.com/repo.git"
+		if got != want {
+			t.Fatalf("expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("username only empty password", func(t *testing.T) {
+		r := &Repository{
+			Name:     "repo",
+			URL:      url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"},
+			Username: "user",
+		}
+		got := r.credentialURL()
+		want := "https://user:@example.com/repo.git"
+		if got != want {
+			t.Fatalf("expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("special characters in password are encoded", func(t *testing.T) {
+		r := &Repository{
+			Name:     "repo",
+			URL:      url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"},
+			Username: "user",
+			Password: "p@ss:w0rd/special",
+		}
+		got := r.credentialURL()
+
+		// Verify round-trip through url.Parse preserves credentials
+		parsed, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", got, err)
+		}
+		if parsed.User.Username() != "user" {
+			t.Fatalf("expected username %q, got %q", "user", parsed.User.Username())
+		}
+		pass, ok := parsed.User.Password()
+		if !ok {
+			t.Fatal("expected password to be set")
+		}
+		if pass != "p@ss:w0rd/special" {
+			t.Fatalf("expected password %q, got %q", "p@ss:w0rd/special", pass)
+		}
+	})
+
+	t.Run("round-trip through url.Parse", func(t *testing.T) {
+		r := &Repository{
+			Name:     "repo",
+			URL:      url.URL{Scheme: "https", Host: "gitea.com", Path: "/org/repo.git"},
+			Username: "deploy",
+			Password: "token123",
+		}
+		got := r.credentialURL()
+
+		parsed, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", got, err)
+		}
+		if parsed.Scheme != "https" {
+			t.Fatalf("expected scheme https, got %q", parsed.Scheme)
+		}
+		if parsed.Host != "gitea.com" {
+			t.Fatalf("expected host gitea.com, got %q", parsed.Host)
+		}
+		if parsed.Path != "/org/repo.git" {
+			t.Fatalf("expected path /org/repo.git, got %q", parsed.Path)
+		}
+	})
 }
 
 func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content string) {

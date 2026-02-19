@@ -13,6 +13,7 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 func testRoute(t *testing.T, base, path string) string {
@@ -628,7 +629,7 @@ func TestEmptyBody(t *testing.T) {
 func TestMockClientAddAndListRepositories(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", ""); err != nil {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
@@ -649,11 +650,11 @@ func TestMockClientAddAndListRepositories(t *testing.T) {
 func TestMockClientAddDuplicateRepository(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", ""); err != nil {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
-	err := m.AddRepository(context.TODO(), "https://example.com/repo.git")
+	err := m.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", "")
 	if err == nil {
 		t.Fatal("expected error adding duplicate repository")
 	}
@@ -662,7 +663,7 @@ func TestMockClientAddDuplicateRepository(t *testing.T) {
 func TestMockClientRemoveRepository(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", ""); err != nil {
 		t.Fatalf("MockClient.AddRepository: %v", err)
 	}
 
@@ -694,7 +695,7 @@ func TestMockClientRepositoryErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.AddRepoErr = injected
-	if err := m.AddRepository(context.TODO(), "https://example.com/repo.git"); err != injected {
+	if err := m.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", ""); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
@@ -714,10 +715,10 @@ func TestMockClientRepositoryErrorInjection(t *testing.T) {
 func TestMockClientRepositoryCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.AddRepository(context.TODO(), "https://example.com/a.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "", "https://example.com/a.git", "", ""); err != nil {
 		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/a.git", err)
 	}
-	if err := m.AddRepository(context.TODO(), "https://example.com/b.git"); err != nil {
+	if err := m.AddRepository(context.TODO(), "", "https://example.com/b.git", "", ""); err != nil {
 		t.Fatalf("MockClient.AddRepository %q: %v", "https://example.com/b.git", err)
 	}
 	if _, err := m.ListRepositories(context.TODO()); err != nil {
@@ -881,6 +882,68 @@ func TestHTTPRepositoryWrongMethod(t *testing.T) {
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for GET on POST-only route")
 	}
+}
+
+func TestHTTPAddRepositoryBadClone(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	err = c.AddRepository(context.TODO(), "", "https://gitea.com/town-os/does-not-exist.git", "", "")
+	if err == nil {
+		t.Fatal("expected error for inaccessible repository")
+	}
+
+	repos, err := c.ListRepositories(context.TODO())
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+
+	if len(repos) != 0 {
+		t.Fatalf("expected 0 repositories after failed add, got %d", len(repos))
+	}
+}
+
+func TestHTTPAddRepositoryPartialCredentials(t *testing.T) {
+	t.Run("username without password", func(t *testing.T) {
+		mock := storage.InitBtrFSMock()
+		rr := emptyRepoRoot(t)
+		ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+		t.Cleanup(ts.Close)
+
+		c, err := ts.Client()
+		if err != nil {
+			t.Fatalf("ts.Client: %v", err)
+		}
+
+		err = c.AddRepository(context.TODO(), "", "https://example.com/repo.git", "user", "")
+		if err == nil {
+			t.Fatal("expected error for username without password")
+		}
+	})
+
+	t.Run("password without username", func(t *testing.T) {
+		mock := storage.InitBtrFSMock()
+		rr := emptyRepoRoot(t)
+		ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+		t.Cleanup(ts.Close)
+
+		c, err := ts.Client()
+		if err != nil {
+			t.Fatalf("ts.Client: %v", err)
+		}
+
+		err = c.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", "pass")
+		if err == nil {
+			t.Fatal("expected error for password without username")
+		}
+	})
 }
 
 // --- ListPackages HTTP endpoint tests ---
@@ -1514,6 +1577,119 @@ func TestHTTPUninstallPackageBadJSON(t *testing.T) {
 	}
 }
 
+// --- Install/Uninstall with systemd integration ---
+
+func initInstallWithSystemdTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, *systemd.MockManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+	inst := packages.InitMockInstallManager()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst, sd
+}
+
+func TestHTTPInstallPackageCreatesSystemdUnit(t *testing.T) {
+	c, _, sd := initInstallWithSystemdTestClient(t)
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "testhost"}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 systemd calls, got %d: %v", len(calls), calls)
+	}
+
+	// 1. InstallUnit
+	if calls[0].Method != "InstallUnit" {
+		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
+	}
+	if calls[0].Args[0].(string) != "town-os-nginx.service" {
+		t.Fatalf("call 0: expected unit name %q, got %v", "town-os-nginx.service", calls[0].Args[0])
+	}
+
+	// 2. SetStatus(enable)
+	if calls[1].Method != "SetStatus" {
+		t.Fatalf("call 1: expected SetStatus, got %q", calls[1].Method)
+	}
+	if calls[1].Args[0].(string) != "town-os-nginx.service" {
+		t.Fatalf("call 1: expected unit name %q, got %v", "town-os-nginx.service", calls[1].Args[0])
+	}
+	if calls[1].Args[1].(systemd.StatusAction) != systemd.Enable {
+		t.Fatalf("call 1: expected action %q, got %v", systemd.Enable, calls[1].Args[1])
+	}
+
+	// 3. SetStatus(start)
+	if calls[2].Method != "SetStatus" {
+		t.Fatalf("call 2: expected SetStatus, got %q", calls[2].Method)
+	}
+	if calls[2].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 2: expected action %q, got %v", systemd.Start, calls[2].Args[1])
+	}
+}
+
+func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
+	c, _, sd := initInstallWithSystemdTestClient(t)
+
+	// Install first so uninstall can succeed.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	// Install produces 3 calls (InstallUnit, enable, start)
+	// Uninstall produces 3 calls (stop, disable, UninstallUnit)
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls, got %d: %v", len(calls), calls)
+	}
+
+	// Uninstall calls: indices 3, 4, 5
+	// 3. SetStatus(stop)
+	if calls[3].Method != "SetStatus" {
+		t.Fatalf("call 3: expected SetStatus, got %q", calls[3].Method)
+	}
+	if calls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
+		t.Fatalf("call 3: expected action %q, got %v", systemd.Stop, calls[3].Args[1])
+	}
+
+	// 4. SetStatus(disable)
+	if calls[4].Method != "SetStatus" {
+		t.Fatalf("call 4: expected SetStatus, got %q", calls[4].Method)
+	}
+	if calls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("call 4: expected action %q, got %v", systemd.Disable, calls[4].Args[1])
+	}
+
+	// 5. UninstallUnit
+	if calls[5].Method != "UninstallUnit" {
+		t.Fatalf("call 5: expected UninstallUnit, got %q", calls[5].Method)
+	}
+	if calls[5].Args[0].(string) != "town-os-nginx.service" {
+		t.Fatalf("call 5: expected unit name %q, got %v", "town-os-nginx.service", calls[5].Args[0])
+	}
+}
+
 func TestHTTPListInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
@@ -1965,7 +2141,7 @@ func TestHTTPDisableAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+adminResp.Token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -2153,7 +2329,7 @@ func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -2233,7 +2409,7 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -2314,7 +2490,7 @@ func TestHTTPAuditLogLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -2397,7 +2573,7 @@ func TestHTTPAuditLogPagination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewRequest: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
 		req.Header.Set("Content-Type", "application/json")
 
 		httpResp, err := c.HTTP.Do(req)
@@ -2555,7 +2731,7 @@ func TestHTTPRequireAuthAllowsAuthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
 
 	httpResp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -2660,7 +2836,7 @@ func TestHTTPCreateAccountNonAdminForbidden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+resp.Token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -2686,7 +2862,7 @@ func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)

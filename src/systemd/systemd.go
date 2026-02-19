@@ -3,6 +3,7 @@ package systemd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -74,4 +75,26 @@ type Manager interface {
 	ListUnits(ctx context.Context) ([]UnitStatus, error)
 	SetStatus(ctx context.Context, unit string, action StatusAction) error
 	LogReplay(ctx context.Context, unit string) (<-chan JournalEntry, error)
+	InstallUnit(ctx context.Context, name string, content string) error
+	UninstallUnit(ctx context.Context, name string) error
+}
+
+// UnitName returns the systemd service unit name for a given package.
+func UnitName(pkgName string) string {
+	return fmt.Sprintf("town-os-%s.service", pkgName)
+}
+
+// StubUnitContent returns a simple Type=simple unit file that loops printing
+// a running message. Useful for stub/test services.
+func StubUnitContent(pkgName, version string) string {
+	return fmt.Sprintf(`[Unit]
+Description=town-os %s@%s
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c 'while true; do echo "%s@%s running"; sleep 1; done'
+
+[Install]
+WantedBy=multi-user.target
+`, pkgName, version, pkgName, version)
 }

@@ -24,7 +24,7 @@ type Client interface {
 	RemoveFilesystem(ctx context.Context, name string) error
 	ListFilesystems(ctx context.Context, prefix string) ([]storage.Filesystem, error)
 
-	AddRepository(ctx context.Context, rawURL string) error
+	AddRepository(ctx context.Context, name, rawURL, username, password string) error
 	RemoveRepository(ctx context.Context, name string) error
 	ListRepositories(ctx context.Context) ([]RepositoryInfo, error)
 
@@ -105,7 +105,7 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
 	}
 
 	resp, err := c.HTTP.Do(req)
@@ -131,7 +131,7 @@ func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Res
 		return nil, fmt.Errorf("new request in GET %s: %v", path, err)
 	}
 	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
 	}
 	return c.HTTP.Do(req)
 }
@@ -143,7 +143,7 @@ func (c *SystemdClient) postJSON(ctx context.Context, path string, body io.Reade
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
 	}
 	return c.HTTP.Do(req)
 }
@@ -195,9 +195,9 @@ func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string) (_ [
 
 // --- Repository ---
 
-func (c *SystemdClient) AddRepository(ctx context.Context, rawURL string) error {
+func (c *SystemdClient) AddRepository(ctx context.Context, name, rawURL, username, password string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, AddRepositoryRequest{URL: rawURL})
+	go pipeEncode(pw, AddRepositoryRequest{Name: name, URL: rawURL, Username: username, Password: password})
 
 	return c.postClient(ctx, "repository/add", pr)
 }
@@ -357,7 +357,7 @@ func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action s
 }
 
 func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {
-	resp, err := c.getClient(ctx, "systemd/logs?unit="+url.QueryEscape(name))
+	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/logs?unit=%s", url.QueryEscape(name)))
 	if err != nil {
 		return nil, fmt.Errorf("http error in LogReplay: %v", err)
 	}
@@ -527,7 +527,7 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 	if err != nil {
 		return nil, fmt.Errorf("new request in ListSessions: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -552,7 +552,7 @@ func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ st
 	if err != nil {
 		return "", fmt.Errorf("new request in SessionUsername: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -585,7 +585,7 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 	if err != nil {
 		return nil, fmt.Errorf("new request in ListAuditLog: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)

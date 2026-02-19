@@ -48,7 +48,10 @@ type ModifyFilesystemRequest struct {
 }
 
 type AddRepositoryRequest struct {
-	URL string `json:"url"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type RepositoryNameRequest struct {
@@ -56,8 +59,9 @@ type RepositoryNameRequest struct {
 }
 
 type RepositoryInfo struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Username string `json:"username,omitempty"`
 }
 
 type PackageNameRequest struct {
@@ -232,7 +236,7 @@ func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
 
 	rr := s.Controller.GetRepositoryRoot()
 
-	repo, err := packages.NewRepository(rr.BaseDir, *u)
+	repo, err := packages.NewRepository(rr.BaseDir, req.Name, *u, req.Username, req.Password)
 	if err != nil {
 		return err
 	}
@@ -281,7 +285,7 @@ func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 
 	out := make([]RepositoryInfo, len(repos))
 	for i, r := range repos {
-		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String()}
+		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String(), Username: r.Username}
 	}
 
 	return c.JSON(200, out)
@@ -339,6 +343,21 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		return err
 	}
 
+	ctx := c.Request().Context()
+	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		unitName := systemd.UnitName(req.Name)
+		content := systemd.StubUnitContent(req.Name, req.Version)
+		if err := sd.InstallUnit(ctx, unitName, content); err != nil {
+			return err
+		}
+		if err := sd.SetStatus(ctx, unitName, systemd.Enable); err != nil {
+			return err
+		}
+		if err := sd.SetStatus(ctx, unitName, systemd.Start); err != nil {
+			return err
+		}
+	}
+
 	c.Response().WriteHeader(200)
 	return nil
 }
@@ -349,6 +368,20 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 
 	if err := de.Decode(&req); err != nil {
 		return err
+	}
+
+	ctx := c.Request().Context()
+	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		unitName := systemd.UnitName(req.Name)
+		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
+			return err
+		}
+		if err := sd.SetStatus(ctx, unitName, systemd.Disable); err != nil {
+			return err
+		}
+		if err := sd.UninstallUnit(ctx, unitName); err != nil {
+			return err
+		}
 	}
 
 	inst := s.Controller.GetInstaller()
