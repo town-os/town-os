@@ -49,6 +49,11 @@ test-ui-integration: test-image ui-integration-image btrfs
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
+	@echo "Waiting for systemd to be ready..."
+	@for i in $$(seq 1 30); do \
+		sudo -E podman exec $(PODMAN_UI_BACKEND) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
+		sleep 1; \
+	done
 	sudo -E podman run \
 		--network container:$(PODMAN_UI_BACKEND) \
 		-e INTEGRATION_URL=http://localhost:8080 \
@@ -67,6 +72,11 @@ test-integration: lint test-image btrfs
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
+	@echo "Waiting for systemd to be ready..."
+	@for i in $$(seq 1 30); do \
+		sudo -E podman exec $(PODMAN_CONTAINER) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
+		sleep 1; \
+	done
 	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v
 
 test-full: test test-integration test-ui-integration
@@ -79,13 +89,33 @@ test-image: production-image
 		-t $(PODMAN_TEST_IMAGE) -f integration/testdata/Containerfile.systemd .
 
 PODMAN_DEV_CONTAINER := town-os-dev
+DEV_BTRFS_IMAGE ?= $(shell mktemp btrfs-dev.XXXXXX)
 
 dev-logs:
 	sudo podman exec -it $(PODMAN_DEV_CONTAINER) journalctl -f
 
+btrfs-dev: clean-btrfs-dev
+	echo $(DEV_BTRFS_IMAGE) >town-os-dev.disk
+	truncate -s 50G $$(cat town-os-dev.disk)
+	mkfs.btrfs -f $$(cat town-os-dev.disk)
+	sudo -E losetup -f $$(cat town-os-dev.disk)
+	sudo -E losetup -j $$(cat town-os-dev.disk) | awk -F: '{ print $$1 }' > town-os-dev.loop
+	mktemp -d > town-os-dev.mount
+	sudo -E mount -t btrfs $$(cat town-os-dev.loop) $$(cat town-os-dev.mount)
+
+clean-btrfs-dev:
+	@if [ -f town-os-dev.mount ]; then \
+		sudo -E umount $$(cat town-os-dev.mount) 2>/dev/null || true; \
+		rmdir $$(cat town-os-dev.mount) 2>/dev/null || true; \
+	fi
+	@if [ -f town-os-dev.disk ]; then \
+		sudo -E losetup -j $$(cat town-os-dev.disk) | awk -F: '{ print $$1 }' | xargs -I{} sudo -E losetup -d {} 2>/dev/null || true; \
+	fi
+	rm -f btrfs-dev.* town-os-dev.disk town-os-dev.loop town-os-dev.mount
+
 dev-btrfs:
-	@if [ ! -f town-os.mount ] || ! mountpoint -q $$(cat town-os.mount) 2>/dev/null; then \
-		$(MAKE) btrfs; \
+	@if [ ! -f town-os-dev.mount ] || ! mountpoint -q $$(cat town-os-dev.mount) 2>/dev/null; then \
+		$(MAKE) btrfs-dev; \
 	fi
 
 dev: test-image dev-btrfs
@@ -96,14 +126,14 @@ dev: test-image dev-btrfs
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
-		-v $$(cat town-os.mount):/data/btrfs:z \
+		-v $$(cat town-os-dev.mount):/data/btrfs:z \
 		-v $$(pwd)/dev-data:/data/db:z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "API server: http://$$(hostname):8080"
 	cd ui && VITE_API_URL=http://$$(hostname):8080 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
-dev-clean: dev-stop clean-btrfs
+dev-clean: dev-stop clean-btrfs-dev
 	rm -rf dev-data
 
 dev-stop:
@@ -143,11 +173,16 @@ clean-btrfs:
 	fi
 	rm -f btrfs.* town-os.disk town-os.loop town-os.mount
 
+clean-integration:
+	@sudo -E podman rm -f $(PODMAN_CONTAINER)
+	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
+	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
+
 clean: clean-podman
 	rm -rf dev-data
 	rm -rf .cache
 
-clean-podman: clean-btrfs
+clean-podman: clean-btrfs clean-btrfs-dev
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
@@ -162,4 +197,9 @@ test-systemd: test-image btrfs
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
+	@echo "Waiting for systemd to be ready..."
+	@for i in $$(seq 1 30); do \
+		sudo -E podman exec $(PODMAN_CONTAINER) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
+		sleep 1; \
+	done
 	sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.run TestPodman

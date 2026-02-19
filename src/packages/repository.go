@@ -19,12 +19,24 @@ import (
 
 const RepositoriesFile = "repositories.json"
 
+// DefaultRepositories returns the default package repositories to seed when
+// no repositories have been configured.
+func DefaultRepositories() []Repository {
+	core, _ := url.Parse("https://gitea.com/town-os/test-packages-core")
+	extras, _ := url.Parse("https://gitea.com/town-os/test-packages-extras")
+	return []Repository{
+		{Name: "core", URL: *core},
+		{Name: "extras", URL: *extras},
+	}
+}
+
 type RepositoryManager interface {
 	Add(repo Repository) error
 	Remove(name string) error
 	Get(name string) (Repository, bool)
 	List() ([]Repository, error)
-	Refresh() error
+	Refresh()
+	RefreshErrors() map[string]string
 	LoadAllPackages() (PackageTable, error)
 	ListPackages() ([]string, error)
 	LatestPackage(name string) (InputPackage, string, error)
@@ -35,6 +47,7 @@ type RepositoryManager interface {
 type RepositoryRoot struct {
 	BaseDir string
 	Items   []Repository
+	Errors  map[string]string
 }
 
 func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
@@ -114,14 +127,18 @@ func (rr *RepositoryRoot) Get(name string) (Repository, bool) {
 	return Repository{}, false
 }
 
-func (rr *RepositoryRoot) Refresh() error {
+func (rr *RepositoryRoot) Refresh() {
+	rr.Errors = map[string]string{}
 	for i := range rr.Items {
 		if err := rr.Items[i].init(rr.BaseDir); err != nil {
-			return fmt.Errorf("repository %s: %v", rr.Items[i].Name, err)
+			logrus.Warnf("repository %s: %v", rr.Items[i].Name, err)
+			rr.Errors[rr.Items[i].Name] = err.Error()
 		}
 	}
+}
 
-	return nil
+func (rr *RepositoryRoot) RefreshErrors() map[string]string {
+	return rr.Errors
 }
 
 type Repository struct {
@@ -215,6 +232,9 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 	packagesDir := filepath.Join(baseDir, r.Name, PackagesDir)
 	names, err := os.ReadDir(packagesDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return pkgs, nil
+		}
 		return nil, err
 	}
 

@@ -8,6 +8,7 @@ import (
 
 var ErrNoFilesystem = errors.New("invalid filesystem")
 var ErrUnimplemented = errors.New("unimplemented call")
+var ErrRootFilesystem = errors.New("cannot modify root filesystem")
 
 type Filesystem struct {
 	Name  string `json:"name"`

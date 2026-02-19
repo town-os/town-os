@@ -376,6 +376,185 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('logTail', () => {
+    it('fetches tail entries with correct query params', async () => {
+      const result = { entries: [{ Message: 'hello', Cursor: 'c1' }], cursor: 'c1' }
+      mockFetch(result)
+      client.setToken('tok')
+
+      const data = await client.logTail('nginx.service', 50)
+      expect(data).toEqual(result)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=50',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('includes before cursor when provided', async () => {
+      mockFetch({ entries: [], cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 100, 'cursor-abc')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&before=cursor-abc',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('includes grep parameter when provided', async () => {
+      mockFetch({ entries: [], cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 50, undefined, 'error')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=50&grep=error',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('includes both before cursor and grep when provided', async () => {
+      mockFetch({ entries: [], cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 100, 'cursor-abc', 'warning')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&before=cursor-abc&grep=warning',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+  })
+
+  describe('removeFilesystem', () => {
+    it('sends name in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.removeFilesystem('data')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/storage/remove',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'data' }),
+        },
+      )
+    })
+  })
+
+  describe('modifyFilesystem', () => {
+    it('sends name and filesystem in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.modifyFilesystem('data', { name: 'data', quota: 2048 })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/storage/modify',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'data', filesystem: { name: 'data', quota: 2048 } }),
+        },
+      )
+    })
+  })
+
+  describe('removeRepository', () => {
+    it('sends name in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.removeRepository('my-repo')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/repository/remove',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'my-repo' }),
+        },
+      )
+    })
+  })
+
+  describe('refreshRepositories', () => {
+    it('sends POST to /repository/refresh', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.refreshRepositories()
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/repository/refresh',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({}),
+        },
+      )
+    })
+  })
+
+  describe('getAccount', () => {
+    it('sends username and returns account', async () => {
+      const acct = {
+        username: 'bob',
+        email: 'bob@example.com',
+        phone: '555',
+        real_name: 'Bob',
+        admin: false,
+        disabled: false,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      }
+      mockFetch(acct)
+      client.setToken('tok')
+
+      const result = await client.getAccount('bob')
+      expect(result).toEqual(acct)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/account',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ username: 'bob' }),
+        },
+      )
+    })
+  })
+
+  describe('disableAccount', () => {
+    it('sends username in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.disableAccount('bob')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/account/disable',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ username: 'bob' }),
+        },
+      )
+    })
+  })
+
   describe('self-authenticated methods', () => {
     it('listSessions uses explicit token', async () => {
       const sessions = [

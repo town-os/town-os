@@ -73,9 +73,18 @@ func run() (err error) {
 
 	repoFile := filepath.Join(repoBase, packages.RepositoriesFile)
 	if _, err := os.Stat(repoFile); os.IsNotExist(err) {
-		repoData, err := json.Marshal([]packages.Repository{})
+		defaults := packages.DefaultRepositories()
+		repoUser := os.Getenv(packages.EnvRepoUsername)
+		repoPass := os.Getenv(packages.EnvRepoPassword)
+		if repoUser != "" && repoPass != "" {
+			for i := range defaults {
+				defaults[i].Username = repoUser
+				defaults[i].Password = repoPass
+			}
+		}
+		repoData, err := json.Marshal(defaults)
 		if err != nil {
-			return fmt.Errorf("marshal empty repo list: %w", err)
+			return fmt.Errorf("marshal default repo list: %w", err)
 		}
 		if err := os.WriteFile(repoFile, repoData, 0644); err != nil {
 			return fmt.Errorf("write repositories file: %w", err)
@@ -85,6 +94,8 @@ func run() (err error) {
 	if err != nil {
 		return fmt.Errorf("init repository root: %w", err)
 	}
+
+	rr.Refresh()
 
 	inst := packages.NewInstallManager(repoBase)
 

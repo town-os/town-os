@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
 import { Link } from 'react-router-dom'
@@ -38,6 +39,7 @@ function StatCard({ to, icon: Icon, label, value, description }) {
 }
 
 export default function DashboardHome() {
+  useEffect(() => { document.title = 'Town OS - Dashboard' }, [])
   const [ping] = usePolling(() => getClient().ping(), null, [], 10000)
 
   return (
@@ -115,8 +117,12 @@ export default function DashboardHome() {
           to="/dashboard/log"
           icon={FileText}
           label="Audit Log"
-          value="View"
-          description="System activity log"
+          value={
+            ping?.recent_errors > 0
+              ? `${ping.recent_errors} error${ping.recent_errors !== 1 ? 's' : ''}`
+              : 'No errors'
+          }
+          description="Last 5 minutes"
         />
       </div>
     </div>

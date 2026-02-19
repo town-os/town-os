@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
@@ -19,6 +19,7 @@ import {
 import { Plus, UserCheck, UserX } from 'lucide-react'
 
 export default function UserManagement() {
+  useEffect(() => { document.title = 'Town OS - Users' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
   const [disableConfirm, setDisableConfirm] = useState(null)
   const [error, setError] = useState(null)

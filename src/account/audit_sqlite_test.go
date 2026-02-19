@@ -552,3 +552,150 @@ func TestAuditListEmpty(t *testing.T) {
 		t.Fatal("expected HasMore to be false")
 	}
 }
+
+// --- TotalPages tests ---
+
+func TestAuditTotalPagesEmpty(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	page, err := mgr.List(AuditListOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if page.TotalPages != 1 {
+		t.Fatalf("expected TotalPages=1 for empty table, got %d", page.TotalPages)
+	}
+}
+
+func TestAuditTotalPagesExactFit(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for i := 0; i < 4; i++ {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "alice",
+			Action:    fmt.Sprintf("action-%d", i),
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry %d: %v", i, err)
+		}
+	}
+
+	page, err := mgr.List(AuditListOptions{Limit: 2})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if page.TotalPages != 2 {
+		t.Fatalf("expected TotalPages=2 for 4 entries with limit 2, got %d", page.TotalPages)
+	}
+}
+
+func TestAuditTotalPagesPartialLastPage(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for i := 0; i < 5; i++ {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "bob",
+			Action:    fmt.Sprintf("action-%d", i),
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry %d: %v", i, err)
+		}
+	}
+
+	page, err := mgr.List(AuditListOptions{Limit: 2})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if page.TotalPages != 3 {
+		t.Fatalf("expected TotalPages=3 for 5 entries with limit 2, got %d", page.TotalPages)
+	}
+}
+
+func TestAuditTotalPagesWithAccountFilter(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for i := 0; i < 3; i++ {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "alice",
+			Action:    fmt.Sprintf("alice-%d", i),
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry alice %d: %v", i, err)
+		}
+	}
+
+	for i := 0; i < 7; i++ {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "bob",
+			Action:    fmt.Sprintf("bob-%d", i),
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry bob %d: %v", i, err)
+		}
+	}
+
+	// Without filter: 10 entries / 5 per page = 2 pages
+	page, err := mgr.List(AuditListOptions{Limit: 5})
+	if err != nil {
+		t.Fatalf("List all: %v", err)
+	}
+	if page.TotalPages != 2 {
+		t.Fatalf("expected TotalPages=2 for 10 entries with limit 5, got %d", page.TotalPages)
+	}
+
+	// With account filter: 3 alice entries / 5 per page = 1 page
+	page2, err := mgr.List(AuditListOptions{Limit: 5, Account: "alice"})
+	if err != nil {
+		t.Fatalf("List alice: %v", err)
+	}
+	if page2.TotalPages != 1 {
+		t.Fatalf("expected TotalPages=1 for 3 alice entries with limit 5, got %d", page2.TotalPages)
+	}
+}
+
+func TestAuditTotalPagesConsistentAcrossPages(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	for i := 0; i < 5; i++ {
+		if err := mgr.LogEntry(AuditEntry{
+			Account:   "alice",
+			Action:    fmt.Sprintf("action-%d", i),
+			Path:      "/test",
+			Success:   true,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("LogEntry %d: %v", i, err)
+		}
+	}
+
+	page1, err := mgr.List(AuditListOptions{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("List page 1: %v", err)
+	}
+
+	page2, err := mgr.List(AuditListOptions{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("List page 2: %v", err)
+	}
+
+	page3, err := mgr.List(AuditListOptions{Limit: 2, Offset: 4})
+	if err != nil {
+		t.Fatalf("List page 3: %v", err)
+	}
+
+	if page1.TotalPages != 3 || page2.TotalPages != 3 || page3.TotalPages != 3 {
+		t.Fatalf("expected TotalPages=3 on all pages, got %d, %d, %d",
+			page1.TotalPages, page2.TotalPages, page3.TotalPages)
+	}
+}

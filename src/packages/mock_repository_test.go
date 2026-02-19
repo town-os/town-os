@@ -244,19 +244,11 @@ func TestMockRepositoryManagerListErrorInjection(t *testing.T) {
 
 func TestMockRepositoryManagerRefresh(t *testing.T) {
 	m := InitMockRepositoryManager()
+	m.Refresh()
 
-	if err := m.Refresh(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestMockRepositoryManagerRefreshErrorInjection(t *testing.T) {
-	m := InitMockRepositoryManager()
-	injected := fmt.Errorf("injected error")
-
-	m.RefreshErr = injected
-	if err := m.Refresh(); err != injected {
-		t.Fatalf("expected injected error, got %v", err)
+	errs := m.RefreshErrors()
+	if errs != nil {
+		t.Fatalf("expected nil errors, got %v", errs)
 	}
 }
 
@@ -573,9 +565,7 @@ func TestMockRepositoryManagerCallLog(t *testing.T) {
 	if _, err := m.List(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := m.Refresh(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	m.Refresh()
 	if _, err := m.LoadAllPackages(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -757,7 +747,5 @@ func TestMockRepositoryManagerLifecycle(t *testing.T) {
 	}
 
 	// Refresh succeeds.
-	if err := m.Refresh(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	m.Refresh()
 }

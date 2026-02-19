@@ -172,6 +172,38 @@ describe('SystemControllerClient integration', () => {
       await client.setUnitStatus('town-os-test.service', 'restart')
     })
 
+    it('starts a unit', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-test.service', 'start')
+    })
+
+    it('stops a unit', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-test.service', 'stop')
+    })
+
+    it('enables a unit', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-test.service', 'enable')
+    })
+
+    it('disables a unit', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-test.service', 'disable')
+    })
+
+    it('rejects invalid action', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.setUnitStatus('town-os-test.service', 'invalid'),
+      ).rejects.toThrow()
+    })
+
     it('replays logs via SSE', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
@@ -185,23 +217,65 @@ describe('SystemControllerClient integration', () => {
       expect(entries.length).toBeGreaterThanOrEqual(1)
       expect(entries[0].Message).toBeTruthy()
     })
+
+    it('tails the last N log entries', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const result = await client.logTail('town-os-testserver.service', 5)
+      expect(result.entries.length).toBeGreaterThan(0)
+      expect(result.entries.length).toBeLessThanOrEqual(5)
+      expect(result.entries[0].Message).toBeTruthy()
+      expect(result.cursor).toBeTruthy()
+    })
+
+    it('paginates backwards with cursor', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const first = await client.logTail('town-os-testserver.service', 3)
+      expect(first.cursor).toBeTruthy()
+
+      const older = await client.logTail(
+        'town-os-testserver.service',
+        3,
+        first.cursor,
+      )
+      expect(Array.isArray(older.entries)).toBe(true)
+      // Older page entries should have earlier timestamps
+      if (older.entries.length > 0 && first.entries.length > 0) {
+        const oldestNew = new Date(first.entries[0].RealtimeTimestamp)
+        const newestOld = new Date(
+          older.entries[older.entries.length - 1].RealtimeTimestamp,
+        )
+        expect(newestOld.getTime()).toBeLessThanOrEqual(oldestNew.getTime())
+      }
+    })
   })
 
   // --- Repositories ---
 
   describe('repositories', () => {
-    it('starts with no repositories', async () => {
+    it('starts with default repositories', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       const repos = await client.listRepositories()
-      expect(repos).toEqual([])
+      expect(repos.length).toBe(2)
+      expect(repos.some((r) => r.name === 'core')).toBe(true)
+      expect(repos.some((r) => r.name === 'extras')).toBe(true)
     })
 
-    it('lists no packages initially', async () => {
+    it('lists packages from default repositories', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       const pkgs = await client.listPackages()
-      expect(pkgs).toEqual([])
+      expect(pkgs.length).toBeGreaterThan(0)
+    })
+
+    it('refreshes repositories', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.refreshRepositories()
+      const repos = await client.listRepositories()
+      expect(repos.length).toBe(2)
     })
 
     it('adds a repository without credentials', async () => {
@@ -211,14 +285,13 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.addRepository(
-        '',
+        'extra-core',
         'https://gitea.com/town-os/test-packages-core.git',
       )
       const repos = await client.listRepositories()
-      expect(repos.length).toBe(1)
-      expect(repos[0].name).toBe('test-packages-core')
-      expect(repos[0].username).toBeFalsy()
-      await client.removeRepository('test-packages-core')
+      expect(repos.length).toBe(3)
+      expect(repos.some((r) => r.name === 'extra-core')).toBe(true)
+      await client.removeRepository('extra-core')
     })
 
     it('adds a repository with credentials', async () => {
@@ -228,15 +301,17 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.addRepository(
-        '',
+        'extra-core',
         'https://gitea.com/town-os/test-packages-core.git',
         repoUser,
         repoPass,
       )
       const repos = await client.listRepositories()
-      expect(repos.length).toBe(1)
-      expect(repos[0].username).toBe(repoUser)
-      await client.removeRepository('test-packages-core')
+      expect(repos.length).toBe(3)
+      expect(repos.find((r) => r.name === 'extra-core').username).toBe(
+        repoUser,
+      )
+      await client.removeRepository('extra-core')
     })
 
     it('rejects partial credentials (username only)', async () => {
@@ -275,7 +350,7 @@ describe('SystemControllerClient integration', () => {
         ),
       ).rejects.toThrow()
       const repos = await client.listRepositories()
-      expect(repos).toEqual([])
+      expect(repos.length).toBe(2)
     })
 
     it('fails to remove nonexistent repository', async () => {
@@ -323,18 +398,11 @@ describe('SystemControllerClient integration', () => {
       } catch (e) {
         console.warn('cleanup: uninstallPackage failed:', e.message)
       }
-      await client.removeRepository('test-packages-core')
     })
 
     it('installs nginx@1.0 and creates a running systemd unit', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.addRepository(
-        '',
-        'https://gitea.com/town-os/test-packages-core.git',
-        repoUser,
-        repoPass,
-      )
       await client.installPackage('nginx', '1.0', {
         hostname: 'testhost',
         port: '8081',
@@ -361,6 +429,44 @@ describe('SystemControllerClient integration', () => {
       const unit = units.find((u) => u.Name === 'town-os-nginx.service')
       expect(unit).toBeDefined()
       expect(unit.ActiveState).toBe('active')
+    })
+
+    it('stops the unit and it becomes inactive', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-nginx.service', 'stop')
+
+      await new Promise((r) => setTimeout(r, 2000))
+
+      const units = await client.listUnits()
+      const unit = units.find((u) => u.Name === 'town-os-nginx.service')
+      expect(unit).toBeDefined()
+      expect(unit.ActiveState).not.toBe('active')
+    })
+
+    it('starts the unit back and it becomes active again', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-nginx.service', 'start')
+
+      await new Promise((r) => setTimeout(r, 2000))
+
+      const units = await client.listUnits()
+      const unit = units.find((u) => u.Name === 'town-os-nginx.service')
+      expect(unit).toBeDefined()
+      expect(unit.ActiveState).toBe('active')
+    })
+
+    it('disables the unit', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-nginx.service', 'disable')
+    })
+
+    it('enables the unit', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setUnitStatus('town-os-nginx.service', 'enable')
     })
 
     it('replays logs containing the running message', async () => {
@@ -479,6 +585,12 @@ describe('SystemControllerClient integration', () => {
       ).rejects.toThrow(/POST \/repository\/remove:.*status 401/)
     })
 
+    it('refreshRepositories requires auth', async () => {
+      await expect(
+        noAuth.refreshRepositories(),
+      ).rejects.toThrow(/POST \/repository\/refresh:.*status 401/)
+    })
+
     it('listRepositories requires auth', async () => {
       await expect(
         noAuth.listRepositories(),
@@ -542,6 +654,12 @@ describe('SystemControllerClient integration', () => {
       await expect(gen.next()).rejects.toThrow(
         /GET \/systemd\/logs:.*status 401/,
       )
+    })
+
+    it('logTail requires auth', async () => {
+      await expect(
+        noAuth.logTail('x'),
+      ).rejects.toThrow(/GET \/systemd\/logs\/tail.*status 401/)
     })
 
     // Audit

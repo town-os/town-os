@@ -23,11 +23,12 @@ var (
 )
 
 type UnitStatus struct {
-	Name        string
-	Description string
-	LoadState   string
-	ActiveState string
-	SubState    string
+	Name          string
+	Description   string
+	LoadState     string
+	ActiveState   string
+	SubState      string
+	UnitFileState string
 }
 
 type JournalEntry struct {
@@ -71,10 +72,16 @@ type JournalEntry struct {
 	Transport              string
 }
 
+type LogTailResult struct {
+	Entries []JournalEntry `json:"entries"`
+	Cursor  string         `json:"cursor"`
+}
+
 type Manager interface {
 	ListUnits(ctx context.Context) ([]UnitStatus, error)
 	SetStatus(ctx context.Context, unit string, action StatusAction) error
 	LogReplay(ctx context.Context, unit string) (<-chan JournalEntry, error)
+	LogTail(ctx context.Context, unit string, lines int, beforeCursor string, grep string) (LogTailResult, error)
 	InstallUnit(ctx context.Context, name string, content string) error
 	UninstallUnit(ctx context.Context, name string) error
 }

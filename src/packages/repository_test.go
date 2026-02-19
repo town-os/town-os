@@ -568,7 +568,7 @@ environment:
 		}
 	})
 
-	t.Run("missing packages dir", func(t *testing.T) {
+	t.Run("missing packages dir returns empty", func(t *testing.T) {
 		dir := t.TempDir()
 		r := &Repository{Name: "myrepo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/myrepo.git"}}
 
@@ -577,9 +577,12 @@ environment:
 			t.Fatalf("MkdirAll: %v", err)
 		}
 
-		_, err := r.LoadPackages(dir)
-		if err == nil {
-			t.Fatal("expected error for missing packages dir")
+		pkgs, err := r.LoadPackages(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(pkgs) != 0 {
+			t.Fatalf("expected empty package table, got %d entries", len(pkgs))
 		}
 	})
 

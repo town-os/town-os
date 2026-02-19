@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function CreateUser() {
+  useEffect(() => { document.title = 'Town OS - Create User' }, [])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()

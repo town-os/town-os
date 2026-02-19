@@ -22,13 +22,15 @@ type AuditListOptions struct {
 }
 
 type AuditPage struct {
-	Entries []AuditEntry `json:"entries"`
-	HasMore bool         `json:"has_more"`
+	Entries    []AuditEntry `json:"entries"`
+	HasMore    bool         `json:"has_more"`
+	TotalPages int          `json:"total_pages"`
 }
 
 type AuditManager interface {
 	LogEntry(entry AuditEntry) error
 	List(opts AuditListOptions) (*AuditPage, error)
+	CountRecentErrors(since time.Time) (int, error)
 }
 
 var RouteActions = map[string]string{
@@ -38,6 +40,7 @@ var RouteActions = map[string]string{
 	"/storage":                "list filesystems",
 	"/repository/add":         "add repository",
 	"/repository/remove":      "remove repository",
+	"/repository/refresh":     "refresh repositories",
 	"/repository":             "list repositories",
 	"/packages":               "list packages",
 	"/packages/questions":     "get package questions",
@@ -48,6 +51,7 @@ var RouteActions = map[string]string{
 	"/systemd/units":          "list units",
 	"/systemd/status":         "set unit status",
 	"/systemd/logs":           "replay logs",
+	"/systemd/logs/tail":      "tail logs",
 	"/account/create":         "create account",
 	"/account":                "get account",
 	"/account/update":         "update account",

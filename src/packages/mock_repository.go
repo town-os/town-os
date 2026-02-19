@@ -18,7 +18,6 @@ type MockRepositoryManager struct {
 	AddErr          error
 	RemoveErr       error
 	ListReposErr    error
-	RefreshErr      error
 	LoadAllErr      error
 	ListPackagesErr error
 	LatestErr       error
@@ -106,15 +105,15 @@ func (m *MockRepositoryManager) List() ([]Repository, error) {
 	return out, nil
 }
 
-func (m *MockRepositoryManager) Refresh() error {
+func (m *MockRepositoryManager) Refresh() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockRepositoryCall{Method: "Refresh", Args: nil})
+}
 
-	if m.RefreshErr != nil {
-		return m.RefreshErr
-	}
-
+func (m *MockRepositoryManager) RefreshErrors() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 

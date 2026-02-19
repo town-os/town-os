@@ -3,6 +3,7 @@ package systemd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -66,6 +67,57 @@ func (m *MockManager) SetStatus(ctx context.Context, unit string, action StatusA
 	default:
 		return fmt.Errorf("%q: %w", action, ErrInvalidAction)
 	}
+}
+
+func (m *MockManager) LogTail(_ context.Context, unit string, lines int, beforeCursor string, grep string) (LogTailResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.Calls = append(m.Calls, MockCall{Method: "LogTail", Args: []any{unit, lines, beforeCursor, grep}})
+
+	if m.LogErr != nil {
+		return LogTailResult{}, m.LogErr
+	}
+
+	entries := make([]JournalEntry, len(m.Entries))
+	copy(entries, m.Entries)
+
+	// Filter by grep if set.
+	if grep != "" {
+		grepLower := strings.ToLower(grep)
+		filtered := make([]JournalEntry, 0, len(entries))
+		for _, e := range entries {
+			if strings.Contains(strings.ToLower(e.Message), grepLower) {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
+	// If beforeCursor is set, find the entry and take entries before it.
+	endIdx := len(entries)
+	if beforeCursor != "" {
+		for i, e := range entries {
+			if e.Cursor == beforeCursor {
+				endIdx = i
+				break
+			}
+		}
+	}
+
+	startIdx := endIdx - lines
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	page := entries[startIdx:endIdx]
+
+	var cursor string
+	if len(page) > 0 {
+		cursor = page[0].Cursor
+	}
+
+	return LogTailResult{Entries: page, Cursor: cursor}, nil
 }
 
 func (m *MockManager) LogReplay(ctx context.Context, unit string) (<-chan JournalEntry, error) {

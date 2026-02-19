@@ -27,6 +27,7 @@ type Client interface {
 
 	AddRepository(ctx context.Context, name, rawURL, username, password string) error
 	RemoveRepository(ctx context.Context, name string) error
+	RefreshRepositories(ctx context.Context) (map[string]string, error)
 	ListRepositories(ctx context.Context, sortBy, sortOrder string) ([]RepositoryInfo, error)
 
 	ListPackages(ctx context.Context, sortBy, sortOrder string) ([]string, error)
@@ -40,6 +41,7 @@ type Client interface {
 	ListUnits(ctx context.Context, sortBy, sortOrder string) ([]systemd.UnitStatus, error)
 	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
 	LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error)
+	LogTail(ctx context.Context, unit string, lines int, beforeCursor string, grep string) (systemd.LogTailResult, error)
 
 	CreateAccount(ctx context.Context, username, password, email, phone, realName string, admin bool) (*account.Account, error)
 	GetAccount(ctx context.Context, username string) (*account.Account, error)
@@ -226,6 +228,27 @@ func (c *SystemdClient) RemoveRepository(ctx context.Context, name string) error
 	return c.postClient(ctx, "repository/remove", pr)
 }
 
+func (c *SystemdClient) RefreshRepositories(ctx context.Context) (_ map[string]string, err error) {
+	resp, err := c.postJSON(ctx, "repository/refresh", nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: RefreshRepositories: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%w: RefreshRepositories: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+	}
+
+	var errs map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&errs); err != nil {
+		// empty body means no errors
+		return nil, nil
+	}
+	return errs, nil
+}
+
 func (c *SystemdClient) ListRepositories(ctx context.Context, sortBy, sortOrder string) (_ []RepositoryInfo, err error) {
 	resp, err := c.getClient(ctx, fmt.Sprintf("repository%s", sortQueryString(sortBy, sortOrder)))
 	if err != nil {
@@ -397,6 +420,31 @@ func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan sy
 	}()
 
 	return ch, nil
+}
+
+func (c *SystemdClient) LogTail(ctx context.Context, unit string, lines int, beforeCursor string, grep string) (_ systemd.LogTailResult, err error) {
+	q := fmt.Sprintf("systemd/logs/tail?unit=%s&lines=%d", url.QueryEscape(unit), lines)
+	if beforeCursor != "" {
+		q = fmt.Sprintf("%s&before=%s", q, url.QueryEscape(beforeCursor))
+	}
+	if grep != "" {
+		q = fmt.Sprintf("%s&grep=%s", q, url.QueryEscape(grep))
+	}
+
+	resp, err := c.getClient(ctx, q)
+	if err != nil {
+		return systemd.LogTailResult{}, fmt.Errorf("%w: LogTail: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return systemd.LogTailResult{}, fmt.Errorf("%w: LogTail: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+	}
+
+	var result systemd.LogTailResult
+	return result, json.NewDecoder(resp.Body).Decode(&result)
 }
 
 // --- Account ---

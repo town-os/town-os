@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import DataTable from '@/components/DataTable.jsx'
@@ -27,9 +27,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Plus, Trash2, FolderGit2 } from 'lucide-react'
+import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 export default function PackageManagement() {
+  useEffect(() => { document.title = 'Town OS - Packages' }, [])
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -183,6 +184,28 @@ export default function PackageManagement() {
     }
   }
 
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function handleRefreshRepos() {
+    setError(null)
+    setSuccess(null)
+    setRefreshing(true)
+    try {
+      const errs = await getClient().refreshRepositories()
+      if (errs && Object.keys(errs).length > 0) {
+        const names = Object.keys(errs).join(', ')
+        setError(`Some repositories failed to refresh: ${names}`)
+      } else {
+        setSuccess('Repositories refreshed')
+      }
+      doRefresh()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const packageColumns = [
     { key: 'name', label: 'Name' },
     {
@@ -231,6 +254,30 @@ export default function PackageManagement() {
       key: 'url',
       label: 'URL',
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
+    },
+    {
+      key: 'error',
+      label: 'Status',
+      sortable: false,
+      transform: (v) =>
+        v ? (
+          <Tooltip>
+            <TooltipTrigger>
+              <Badge variant="destructive" className="gap-1">
+                <AlertCircle className="h-3 w-3" />
+                Error
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-md">
+              <span className="font-mono text-xs">{v}</span>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Badge variant="outline" className="gap-1 text-green-600 border-green-600">
+            <CheckCircle2 className="h-3 w-3" />
+            OK
+          </Badge>
+        ),
     },
     {
       key: '_delete',
@@ -304,7 +351,11 @@ export default function PackageManagement() {
           />
         </TabsContent>
         <TabsContent value="repositories" className="mt-4 space-y-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={handleRefreshRepos} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 mr-1${refreshing ? ' animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
             <Button onClick={() => setRepoDialog(true)}>
               <Plus className="h-4 w-4 mr-1" />
               Add Repository

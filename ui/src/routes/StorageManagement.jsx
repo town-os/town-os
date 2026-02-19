@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import DataTable from '@/components/DataTable.jsx'
@@ -28,6 +28,7 @@ function formatQuota(bytes) {
 }
 
 export default function StorageManagement() {
+  useEffect(() => { document.title = 'Town OS - Storage' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [error, setError] = useState(null)

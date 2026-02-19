@@ -20,6 +20,7 @@ import { ChevronUp, ChevronDown, Search, RotateCcw } from 'lucide-react'
  *   setPage?: (n: number) => void,
  *   pageSize?: number,
  *   hasMore?: boolean,
+ *   totalPages?: number,
  *   sortKey?: string,
  *   sortDirection?: string,
  *   onSortChange?: (key: string, direction: string) => void,
@@ -34,6 +35,7 @@ export default function DataTable({
   setPage,
   pageSize = 20,
   hasMore,
+  totalPages: totalPagesProp,
   sortKey,
   sortDirection,
   onSortChange,
@@ -66,14 +68,19 @@ export default function DataTable({
 
   const totalFiltered = filtered.length
   const totalAll = data.length
+
+  const totalPages = totalPagesProp ?? (Math.ceil(totalFiltered / pageSize) || 1)
+  const lastPage = totalPages - 1
+
   const nextDisabled = serverSide
     ? !hasMore
-    : (currentPage + 1) * pageSize >= totalFiltered
+    : currentPage >= lastPage
 
-  // Always show exactly 10 page numbers, current page in the middle (index 4)
   function getPageNumbers() {
-    const start = Math.max(0, currentPage - 4)
-    return Array.from({ length: 10 }, (_, i) => start + i)
+    if (totalPages <= 0) return []
+    const windowSize = Math.min(10, totalPages)
+    const start = Math.max(0, Math.min(currentPage - 4, totalPages - windowSize))
+    return Array.from({ length: windowSize }, (_, i) => start + i)
   }
 
   const pageNumbers = getPageNumbers()
@@ -177,7 +184,7 @@ export default function DataTable({
           </TableBody>
         </Table>
       </div>
-      {setPage && (
+      {setPage && totalPages > 1 && (
         <div className="flex items-center justify-center gap-1 py-4">
           <Button
             variant="outline"

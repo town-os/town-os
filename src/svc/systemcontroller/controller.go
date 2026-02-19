@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +67,7 @@ type RepositoryInfo struct {
 	Name     string `json:"name"`
 	URL      string `json:"url"`
 	Username string `json:"username,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 type PackageNameRequest struct {
@@ -141,6 +143,7 @@ type PingResponse struct {
 	Installed    int         `json:"installed"`
 	Accounts     int         `json:"accounts"`
 	Units        *UnitCounts `json:"units,omitempty"`
+	RecentErrors int         `json:"recent_errors"`
 }
 
 type UnitCounts struct {
@@ -188,6 +191,10 @@ func (s *SystemControllerHandlers) removeFilesystem(c *echo.Context) error {
 		return err
 	}
 
+	if fs.Name == "" {
+		return storage.ErrRootFilesystem
+	}
+
 	if err := s.Controller.GetStorage().RemoveFilesystem(fs.Name); err != nil {
 		return err
 	}
@@ -225,9 +232,16 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 		return err
 	}
 
-	sortSlice(list, fs.SortBy, fs.SortOrder)
+	filtered := make([]storage.Filesystem, 0, len(list))
+	for _, f := range list {
+		if f.Name != "" {
+			filtered = append(filtered, f)
+		}
+	}
 
-	return c.JSON(200, list)
+	sortSlice(filtered, fs.SortBy, fs.SortOrder)
+
+	return c.JSON(200, filtered)
 }
 
 // --- Repository handlers ---
@@ -260,9 +274,7 @@ func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
 		return err
 	}
 
-	if err := rr.Refresh(); err != nil {
-		return err
-	}
+	rr.Refresh()
 
 	c.Response().WriteHeader(200)
 	return nil
@@ -282,10 +294,19 @@ func (s *SystemControllerHandlers) removeRepository(c *echo.Context) error {
 		return err
 	}
 
-	if err := rr.Refresh(); err != nil {
-		return err
-	}
+	rr.Refresh()
 
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) refreshRepositories(c *echo.Context) error {
+	rr := s.Controller.GetRepositoryRoot()
+	rr.Refresh()
+	errs := rr.RefreshErrors()
+	if len(errs) > 0 {
+		return c.JSON(200, errs)
+	}
 	c.Response().WriteHeader(200)
 	return nil
 }
@@ -298,9 +319,10 @@ func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 		return err
 	}
 
+	errs := rr.RefreshErrors()
 	out := make([]RepositoryInfo, len(repos))
 	for i, r := range repos {
-		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String(), Username: r.Username}
+		out[i] = RepositoryInfo{Name: r.Name, URL: r.URL.String(), Username: r.Username, Error: errs[r.Name]}
 	}
 
 	sortBy, sortOrder := readSortParams(c)
@@ -530,6 +552,32 @@ func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 			return nil
 		}
 	}
+}
+
+func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
+	unit := c.QueryParam("unit")
+	if unit == "" {
+		return fmt.Errorf("missing unit query parameter")
+	}
+
+	lines := 100
+	if v := c.QueryParam("lines"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid lines parameter: %w", err)
+		}
+		lines = n
+	}
+
+	beforeCursor := c.QueryParam("before")
+	grep := c.QueryParam("grep")
+
+	result, err := s.Controller.GetSystemdManager().LogTail(c.Request().Context(), unit, lines, beforeCursor, grep)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, result)
 }
 
 // --- Account handlers ---
@@ -869,7 +917,13 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		if err != nil {
 			return err
 		}
-		resp.Filesystems = len(fs)
+		count := 0
+		for _, f := range fs {
+			if f.Name != "" {
+				count++
+			}
+		}
+		resp.Filesystems = count
 	}
 
 	if rr := s.Controller.GetRepositoryRoot(); rr != nil {
@@ -919,6 +973,14 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		resp.Units = counts
 	}
 
+	if am := s.Controller.GetAuditManager(); am != nil {
+		n, err := am.CountRecentErrors(time.Now().Add(-5 * time.Minute))
+		if err != nil {
+			return err
+		}
+		resp.RecentErrors = n
+	}
+
 	return c.JSON(200, resp)
 }
 
@@ -942,6 +1004,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	e.Add("POST", "/repository/add", s.addRepository, s.requireAuth)
 	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAuth)
+	e.Add("POST", "/repository/refresh", s.refreshRepositories, s.requireAuth)
 	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
 
 	e.Add("GET", "/packages", s.listPackages, s.requireAuth)
@@ -950,6 +1013,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	e.Add("GET", "/systemd/units", s.listUnits, s.requireAuth)
 	e.Add("GET", "/systemd/logs", s.logReplay, s.requireAuth)
+	e.Add("GET", "/systemd/logs/tail", s.logTail, s.requireAuth)
 
 	e.Add("POST", "/account/create", s.createAccount)
 	e.Add("POST", "/account", s.getAccount, s.requireAuth)

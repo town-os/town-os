@@ -144,5 +144,34 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		entries = entries[:limit]
 	}
 
-	return &AuditPage{Entries: entries, HasMore: hasMore}, nil
+	countQuery := "SELECT COUNT(*) FROM audit_log"
+	var countArgs []any
+	if opts.Account != "" {
+		countQuery += " WHERE account = ?"
+		countArgs = append(countArgs, opts.Account)
+	}
+
+	var total int
+	if err := m.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count audit entries: %w", err)
+	}
+
+	totalPages := (total + limit - 1) / limit
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	return &AuditPage{Entries: entries, HasMore: hasMore, TotalPages: totalPages}, nil
+}
+
+func (m *SQLiteAuditManager) CountRecentErrors(since time.Time) (int, error) {
+	var count int
+	err := m.db.QueryRow(
+		`SELECT COUNT(*) FROM audit_log WHERE success = 0 AND created_at >= ?`,
+		since.UTC().Format(time.RFC3339),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count recent errors: %w", err)
+	}
+	return count, nil
 }

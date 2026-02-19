@@ -118,6 +118,7 @@
  * @typedef {Object} RepositoryInfo
  * @property {string} name
  * @property {string} url
+ * @property {string} [error]
  */
 
 /**
@@ -136,6 +137,7 @@
  * @property {number} installed
  * @property {number} accounts
  * @property {UnitCounts} [units]
+ * @property {number} recent_errors
  */
 
 /**

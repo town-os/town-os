@@ -11,11 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	"github.com/containerd/btrfs/v2"
 )
 
 func testRoute(t *testing.T, base, path string) string {
@@ -315,6 +317,44 @@ func TestListFilesystemsBadJSON(t *testing.T) {
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+// --- Root filesystem protection tests ---
+
+func TestListFilesystemsExcludesRoot(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	// Inject a root filesystem entry (empty name) directly into the mock
+	controller.Lock.Lock()
+	controller.Filesystems = append(controller.Filesystems, btrfs.Info{Name: "", ID: 999})
+	controller.Lock.Unlock()
+
+	// Create a normal filesystem via API
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "user-vol"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	fs, err := c.ListFilesystems(context.TODO(), "")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 filesystem (root filtered out), got %d", len(fs))
+	}
+
+	if fs[0].Name != "user-vol" {
+		t.Fatalf("expected %q, got %q", "user-vol", fs[0].Name)
+	}
+}
+
+func TestRemoveFilesystemRejectsRoot(t *testing.T) {
+	c, _ := initTestClient(t)
+
+	err := c.RemoveFilesystem(context.TODO(), "")
+	if err == nil {
+		t.Fatal("expected error when removing root filesystem, got nil")
 	}
 }
 
@@ -883,6 +923,22 @@ func TestHTTPRepositoryWrongMethod(t *testing.T) {
 
 	if resp.StatusCode == 200 {
 		t.Fatal("expected non-200 for GET on POST-only route")
+	}
+}
+
+func TestHTTPRefreshRepositories(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if _, err := c.RefreshRepositories(context.TODO()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -3185,5 +3241,420 @@ func TestHTTPAuditLogSortByIDASc(t *testing.T) {
 		if pageDesc.Entries[i].ID > pageDesc.Entries[i-1].ID {
 			t.Fatalf("entry %d ID (%d) > entry %d ID (%d) in desc sort", i, pageDesc.Entries[i].ID, i-1, pageDesc.Entries[i-1].ID)
 		}
+	}
+}
+
+// --- Systemd handler tests ---
+
+func initSystemdTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, sd
+}
+
+func TestHTTPListUnits(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "foo.service", Description: "Foo", LoadState: "loaded", ActiveState: "active", SubState: "running", UnitFileState: "enabled"},
+		{Name: "bar.service", Description: "Bar", LoadState: "loaded", ActiveState: "inactive", SubState: "dead", UnitFileState: "disabled"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), "", "")
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units) != 2 {
+		t.Fatalf("expected 2 units, got %d", len(units))
+	}
+
+	if units[0].Name != "foo.service" {
+		t.Fatalf("expected first unit %q, got %q", "foo.service", units[0].Name)
+	}
+	if units[0].UnitFileState != "enabled" {
+		t.Fatalf("expected first unit UnitFileState %q, got %q", "enabled", units[0].UnitFileState)
+	}
+	if units[1].Name != "bar.service" {
+		t.Fatalf("expected second unit %q, got %q", "bar.service", units[1].Name)
+	}
+	if units[1].UnitFileState != "disabled" {
+		t.Fatalf("expected second unit UnitFileState %q, got %q", "disabled", units[1].UnitFileState)
+	}
+}
+
+func TestHTTPListUnitsEmpty(t *testing.T) {
+	c, _ := initSystemdTestClient(t)
+
+	units, err := c.ListUnits(context.TODO(), "", "")
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units) != 0 {
+		t.Fatalf("expected 0 units, got %d", len(units))
+	}
+}
+
+func TestHTTPSetUnitStatusStart(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Start); err != nil {
+		t.Fatalf("SetUnitStatus(start): %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "SetStatus" {
+		t.Fatalf("expected method SetStatus, got %q", calls[0].Method)
+	}
+	if calls[0].Args[0].(string) != "test.service" {
+		t.Fatalf("expected unit %q, got %v", "test.service", calls[0].Args[0])
+	}
+	if calls[0].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("expected action %q, got %v", systemd.Start, calls[0].Args[1])
+	}
+}
+
+func TestHTTPSetUnitStatusStop(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Stop); err != nil {
+		t.Fatalf("SetUnitStatus(stop): %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Args[1].(systemd.StatusAction) != systemd.Stop {
+		t.Fatalf("expected action %q, got %v", systemd.Stop, calls[0].Args[1])
+	}
+}
+
+func TestHTTPSetUnitStatusRestart(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Restart); err != nil {
+		t.Fatalf("SetUnitStatus(restart): %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Args[1].(systemd.StatusAction) != systemd.Restart {
+		t.Fatalf("expected action %q, got %v", systemd.Restart, calls[0].Args[1])
+	}
+}
+
+func TestHTTPSetUnitStatusEnable(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Enable); err != nil {
+		t.Fatalf("SetUnitStatus(enable): %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Args[1].(systemd.StatusAction) != systemd.Enable {
+		t.Fatalf("expected action %q, got %v", systemd.Enable, calls[0].Args[1])
+	}
+}
+
+func TestHTTPSetUnitStatusDisable(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Disable); err != nil {
+		t.Fatalf("SetUnitStatus(disable): %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("expected action %q, got %v", systemd.Disable, calls[0].Args[1])
+	}
+}
+
+func TestHTTPSetUnitStatusInvalidAction(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.StatusErr = fmt.Errorf("injected error")
+
+	err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Start)
+	if err == nil {
+		t.Fatal("expected error from SetUnitStatus with injected error")
+	}
+}
+
+func TestHTTPLogReplay(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Message: "entry one", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Message: "entry two", RealtimeTimestamp: now.Add(-time.Second)},
+		{Message: "entry three", RealtimeTimestamp: now},
+	}
+
+	ch, err := c.LogReplay(context.TODO(), "test.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+
+	var entries []systemd.JournalEntry
+	for e := range ch {
+		entries = append(entries, e)
+	}
+
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+
+	if entries[0].Message != "entry one" {
+		t.Fatalf("expected first message %q, got %q", "entry one", entries[0].Message)
+	}
+	if entries[2].Message != "entry three" {
+		t.Fatalf("expected third message %q, got %q", "entry three", entries[2].Message)
+	}
+}
+
+func TestHTTPLogReplayEmpty(t *testing.T) {
+	c, _ := initSystemdTestClient(t)
+
+	ch, err := c.LogReplay(context.TODO(), "test.service")
+	if err != nil {
+		t.Fatalf("LogReplay: %v", err)
+	}
+
+	var count int
+	for range ch {
+		count++
+	}
+
+	if count != 0 {
+		t.Fatalf("expected 0 entries, got %d", count)
+	}
+}
+
+func TestHTTPLogReplayError(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.LogErr = fmt.Errorf("injected log error")
+
+	_, err := c.LogReplay(context.TODO(), "test.service")
+	if err == nil {
+		t.Fatal("expected error from LogReplay with injected error")
+	}
+}
+
+func TestHTTPLogReplayMissingUnit(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	resp, err := ts.Server.Client().Get(fmt.Sprintf("%s/systemd/logs", ts.Server.URL))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for missing unit query param")
+	}
+}
+
+func TestHTTPLogTail(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "first", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "second", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "third", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "fourth", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "fifth", RealtimeTimestamp: now},
+	}
+
+	result, err := c.LogTail(context.TODO(), "test.service", 3, "", "")
+	if err != nil {
+		t.Fatalf("LogTail: %v", err)
+	}
+
+	if len(result.Entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "third" {
+		t.Fatalf("expected first entry %q, got %q", "third", result.Entries[0].Message)
+	}
+	if result.Entries[2].Message != "fifth" {
+		t.Fatalf("expected last entry %q, got %q", "fifth", result.Entries[2].Message)
+	}
+
+	if result.Cursor != "c3" {
+		t.Fatalf("expected cursor %q, got %q", "c3", result.Cursor)
+	}
+}
+
+func TestHTTPLogTailWithCursor(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "first", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "second", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "third", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "fourth", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "fifth", RealtimeTimestamp: now},
+	}
+
+	// Get entries before cursor c3 (should get c1, c2)
+	result, err := c.LogTail(context.TODO(), "test.service", 100, "c3", "")
+	if err != nil {
+		t.Fatalf("LogTail with cursor: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries before c3, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "first" {
+		t.Fatalf("expected first entry %q, got %q", "first", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "second" {
+		t.Fatalf("expected second entry %q, got %q", "second", result.Entries[1].Message)
+	}
+}
+
+func TestHTTPLogTailEmpty(t *testing.T) {
+	c, _ := initSystemdTestClient(t)
+
+	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "")
+	if err != nil {
+		t.Fatalf("LogTail: %v", err)
+	}
+
+	if len(result.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailError(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.LogErr = fmt.Errorf("injected log error")
+
+	_, err := c.LogTail(context.TODO(), "test.service", 100, "", "")
+	if err == nil {
+		t.Fatal("expected error from LogTail with injected error")
+	}
+}
+
+func TestHTTPLogTailMissingUnit(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	resp, err := ts.Server.Client().Get(fmt.Sprintf("%s/systemd/logs/tail", ts.Server.URL))
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected non-200 status for missing unit query param")
+	}
+}
+
+func TestHTTPLogTailGrep(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "starting nginx", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "connection from 10.0.0.1", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "error: upstream timeout", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "connection from 10.0.0.2", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "stopping nginx", RealtimeTimestamp: now},
+	}
+
+	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "connection")
+	if err != nil {
+		t.Fatalf("LogTail with grep: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries matching 'connection', got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "connection from 10.0.0.1" {
+		t.Fatalf("expected first match %q, got %q", "connection from 10.0.0.1", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "connection from 10.0.0.2" {
+		t.Fatalf("expected second match %q, got %q", "connection from 10.0.0.2", result.Entries[1].Message)
+	}
+}
+
+func TestHTTPLogTailGrepCaseInsensitive(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "ERROR: something failed", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c2", Message: "info: all good", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c3", Message: "error: another failure", RealtimeTimestamp: now},
+	}
+
+	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "error")
+	if err != nil {
+		t.Fatalf("LogTail with grep: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries matching 'error' (case-insensitive), got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailGrepNoMatch(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "hello world", RealtimeTimestamp: now},
+	}
+
+	result, err := c.LogTail(context.TODO(), "test.service", 100, "", "nonexistent")
+	if err != nil {
+		t.Fatalf("LogTail with grep: %v", err)
+	}
+
+	if len(result.Entries) != 0 {
+		t.Fatalf("expected 0 entries for non-matching grep, got %d", len(result.Entries))
 	}
 }

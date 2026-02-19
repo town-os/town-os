@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import DataTable from '@/components/DataTable.jsx'
@@ -13,6 +13,7 @@ function formatTime(ts) {
 }
 
 export default function AuditLog() {
+  useEffect(() => { document.title = 'Town OS - Audit Log' }, [])
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
@@ -103,6 +104,7 @@ export default function AuditLog() {
         setPage={setPage}
         pageSize={PAGE_SIZE}
         hasMore={auditData.has_more}
+        totalPages={auditData.total_pages}
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSortChange={handleSortChange}

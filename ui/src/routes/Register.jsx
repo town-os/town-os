@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { setToken, setAccount, getToken } from '@/lib/auth.js'
@@ -16,6 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function Register() {
+  useEffect(() => { document.title = 'Town OS - Register' }, [])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()

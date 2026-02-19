@@ -4,9 +4,9 @@
 .golangci.yml
 .git*.tmp
 btrfs.*
-town-os.disk
-town-os.loop
-town-os.mount
+btrfs-dev.*
+town-os-dev.*
+town-os.*
 .cache
 nspawn-root
 LICENSE

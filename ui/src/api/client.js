@@ -199,6 +199,18 @@ export class SystemControllerClient {
     await this.post('/repository/remove', { name })
   }
 
+  /** @returns {Promise<Record<string, string>|null>} */
+  async refreshRepositories() {
+    const resp = await this.post('/repository/refresh', {})
+    const text = await resp.text()
+    if (!text) return null
+    try {
+      return JSON.parse(text)
+    } catch {
+      return null
+    }
+  }
+
   /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
@@ -301,6 +313,20 @@ export class SystemControllerClient {
     if (buffer.startsWith('data: ')) {
       yield JSON.parse(buffer.slice(6))
     }
+  }
+
+  /**
+   * @param {string} unit
+   * @param {number} [lines=100]
+   * @param {string} [beforeCursor]
+   * @param {string} [grep]
+   * @returns {Promise<{entries: JournalEntry[], cursor: string}>}
+   */
+  async logTail(unit, lines = 100, beforeCursor, grep) {
+    const params = new URLSearchParams({ unit, lines: String(lines) })
+    if (beforeCursor) params.set('before', beforeCursor)
+    if (grep) params.set('grep', grep)
+    return this.getJSON(`/systemd/logs/tail?${params.toString()}`)
   }
 
   /**

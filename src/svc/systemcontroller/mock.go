@@ -186,6 +186,13 @@ func (m *MockClient) RemoveRepository(_ context.Context, name string) error {
 	return fmt.Errorf("repository %s not found", name)
 }
 
+func (m *MockClient) RefreshRepositories(_ context.Context) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "RefreshRepositories", Args: nil})
+	return nil, nil
+}
+
 func (m *MockClient) ListRepositories(_ context.Context, _, _ string) ([]RepositoryInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -365,6 +372,43 @@ func (m *MockClient) LogReplay(_ context.Context, name string) (<-chan systemd.J
 	}()
 
 	return ch, nil
+}
+
+func (m *MockClient) LogTail(_ context.Context, unit string, lines int, beforeCursor string, grep string) (systemd.LogTailResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "LogTail", Args: []any{unit, lines, beforeCursor, grep}})
+
+	if m.LogReplayErr != nil {
+		return systemd.LogTailResult{}, m.LogReplayErr
+	}
+
+	entries := make([]systemd.JournalEntry, len(m.JournalEntries))
+	copy(entries, m.JournalEntries)
+
+	endIdx := len(entries)
+	if beforeCursor != "" {
+		for i, e := range entries {
+			if e.Cursor == beforeCursor {
+				endIdx = i
+				break
+			}
+		}
+	}
+
+	startIdx := endIdx - lines
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	page := entries[startIdx:endIdx]
+
+	var cursor string
+	if len(page) > 0 {
+		cursor = page[0].Cursor
+	}
+
+	return systemd.LogTailResult{Entries: page, Cursor: cursor}, nil
 }
 
 // --- Account ---
@@ -550,7 +594,17 @@ func (m *MockClient) ListAuditLog(_ context.Context, opts account.AuditListOptio
 
 	entries := make([]account.AuditEntry, len(m.AuditEntries))
 	copy(entries, m.AuditEntries)
-	return &account.AuditPage{Entries: entries}, nil
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	totalPages := (len(entries) + limit - 1) / limit
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	return &account.AuditPage{Entries: entries, TotalPages: totalPages}, nil
 }
 
 // --- Status ---

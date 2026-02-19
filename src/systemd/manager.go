@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,14 +32,32 @@ func (m *SystemdManager) ListUnits(ctx context.Context) ([]UnitStatus, error) {
 		return nil, err
 	}
 
+	fileStateMap := make(map[string]string)
+	files, err := conn.ListUnitFilesContext(ctx)
+	if err == nil {
+		for _, f := range files {
+			fileStateMap[filepath.Base(f.Path)] = f.Type
+		}
+	}
+
 	result := make([]UnitStatus, len(units))
 	for i, u := range units {
+		state := fileStateMap[u.Name]
+		if state == "" {
+			prop, err := conn.GetUnitPropertyContext(ctx, u.Name, "UnitFileState")
+			if err == nil && prop.Value.Value() != nil {
+				if s, ok := prop.Value.Value().(string); ok {
+					state = s
+				}
+			}
+		}
 		result[i] = UnitStatus{
-			Name:        u.Name,
-			Description: u.Description,
-			LoadState:   u.LoadState,
-			ActiveState: u.ActiveState,
-			SubState:    u.SubState,
+			Name:          u.Name,
+			Description:   u.Description,
+			LoadState:     u.LoadState,
+			ActiveState:   u.ActiveState,
+			SubState:      u.SubState,
+			UnitFileState: state,
 		}
 	}
 
@@ -176,6 +195,67 @@ func journalEntryFromSD(entry *sdjournal.JournalEntry) JournalEntry {
 		Hostname:               entry.Fields[sdjournal.SD_JOURNAL_FIELD_HOSTNAME],
 		Transport:              entry.Fields[sdjournal.SD_JOURNAL_FIELD_TRANSPORT],
 	}
+}
+
+func (m *SystemdManager) LogTail(ctx context.Context, unit string, lines int, beforeCursor string, grep string) (_ LogTailResult, err error) {
+	j, err := sdjournal.NewJournal()
+	if err != nil {
+		return LogTailResult{}, err
+	}
+	defer func() {
+		err = errors.Join(err, j.Close())
+	}()
+
+	if err := j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", unit)); err != nil {
+		return LogTailResult{}, err
+	}
+
+	if beforeCursor != "" {
+		if err := j.SeekCursor(beforeCursor); err != nil {
+			return LogTailResult{}, err
+		}
+		// SeekCursor lands on the cursor entry; move back one so we don't include it.
+		if _, err := j.Previous(); err != nil {
+			return LogTailResult{}, err
+		}
+	} else {
+		if err := j.SeekTail(); err != nil {
+			return LogTailResult{}, err
+		}
+	}
+
+	grepLower := strings.ToLower(grep)
+	entries := make([]JournalEntry, 0, lines)
+	for len(entries) < lines {
+		n, err := j.Previous()
+		if err != nil {
+			return LogTailResult{}, err
+		}
+		if n == 0 {
+			break
+		}
+		entry, err := j.GetEntry()
+		if err != nil {
+			return LogTailResult{}, err
+		}
+		je := journalEntryFromSD(entry)
+		if grep != "" && !strings.Contains(strings.ToLower(je.Message), grepLower) {
+			continue
+		}
+		entries = append(entries, je)
+	}
+
+	// entries are in reverse chronological order; flip to chronological
+	for i, k := 0, len(entries)-1; i < k; i, k = i+1, k-1 {
+		entries[i], entries[k] = entries[k], entries[i]
+	}
+
+	var cursor string
+	if len(entries) > 0 {
+		cursor = entries[0].Cursor
+	}
+
+	return LogTailResult{Entries: entries, Cursor: cursor}, nil
 }
 
 func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan JournalEntry, err error) {

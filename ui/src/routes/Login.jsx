@@ -20,6 +20,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
+  useEffect(() => { document.title = 'Town OS - Login' }, [])
+
   useEffect(() => {
     const token = getToken()
     if (token) {
