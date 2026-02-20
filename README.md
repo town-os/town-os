@@ -17,16 +17,18 @@ TOWN_OS_REPO_PASSWORD=<password>
 
 After installing prerequisites, run `make pull-images` before any other targets. This fetches the base container images required by all build and test targets.
 
-## Makefile Targets
+## Development
 
-### Development
+Run `make dev` to build the test image, create a dev btrfs volume, start the backend container on port 8080, and launch the Vite dev server with hot reload. Once running, access the UI at `http://<hostname>:5173`.
 
 | Target | Description |
 |--------|-------------|
-| `make dev` | Build the test image, create a dev btrfs volume, start the backend container on port 8080, and launch the Vite dev server with hot reload. Once running, access the UI at `http://<hostname>:5173`. |
+| `make dev` | Start the full dev environment (backend + Vite dev server). |
 | `make dev-stop` | Stop and remove the dev backend container. |
 | `make dev-logs` | Tail journalctl inside the running dev container. |
 | `make dev-clean` | Stop the dev container and tear down the dev btrfs volume. Removes `dev-data/`. |
+
+## Makefile Targets
 
 ### Testing
 
