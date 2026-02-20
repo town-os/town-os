@@ -33,8 +33,9 @@ type MockClient struct {
 	RemRepoErr      error
 	ListRepoErr     error
 	ListPkgErr      error
-	QuestionsErr    error
-	InstallPkgErr   error
+	QuestionsErr         error
+	QuestionsIdentityErr error
+	InstallPkgErr        error
 	UninstallPkgErr error
 	ListInstalledErr error
 	GetResponsesErr error
@@ -244,6 +245,28 @@ func (m *MockClient) GetPackageQuestions(_ context.Context, name string) (map[st
 	questions, ok := m.Questions[name]
 	if !ok {
 		return nil, fmt.Errorf("package %s not found", name)
+	}
+
+	out := make(map[string]packages.Question, len(questions))
+	for k, v := range questions {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *MockClient) GetPackageQuestionsByIdentity(_ context.Context, name, version string) (map[string]packages.Question, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetPackageQuestionsByIdentity", Args: []any{name, version}})
+
+	if m.QuestionsIdentityErr != nil {
+		return nil, m.QuestionsIdentityErr
+	}
+
+	key := fmt.Sprintf("%s@%s", name, version)
+	questions, ok := m.Questions[key]
+	if !ok {
+		return nil, fmt.Errorf("package %s not found", key)
 	}
 
 	out := make(map[string]packages.Question, len(questions))

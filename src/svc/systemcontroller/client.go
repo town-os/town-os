@@ -32,6 +32,7 @@ type Client interface {
 
 	ListPackages(ctx context.Context, params ListParams) (*PageResult[string], error)
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
+	GetPackageQuestionsByIdentity(ctx context.Context, name, version string) (map[string]packages.Question, error)
 
 	InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error
 	UninstallPackage(ctx context.Context, name, version string) error
@@ -300,6 +301,26 @@ func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_
 
 	if resp.StatusCode != 200 {
 		return nil, readProblemDetail(resp, "POST", "packages/questions")
+	}
+
+	var questions map[string]packages.Question
+	return questions, json.NewDecoder(resp.Body).Decode(&questions)
+}
+
+func (c *SystemdClient) GetPackageQuestionsByIdentity(ctx context.Context, name, version string) (_ map[string]packages.Question, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageIdentityRequest{Name: name, Version: version})
+
+	resp, err := c.postJSON(ctx, "packages/questions/identity", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: GetPackageQuestionsByIdentity: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "POST", "packages/questions/identity")
 	}
 
 	var questions map[string]packages.Question

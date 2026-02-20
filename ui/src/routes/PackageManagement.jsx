@@ -90,26 +90,30 @@ export default function PackageManagement() {
 
   async function handleInstall(name, version) {
     try {
-      // Check for questions first
-      const questions = await getClient().getPackageQuestions(name)
+      // Fetch questions for this specific package version.
+      const questions = await getClient().getPackageQuestionsByIdentity(name, version)
+
+      // Get existing responses to use as defaults.
+      let existingResponses = {}
+      try {
+        existingResponses = await getClient().getResponses(name, version)
+      } catch {
+        // no existing responses
+      }
+
       if (questions && Object.keys(questions).length > 0) {
-        // Get existing responses
-        let existingResponses = {}
-        try {
-          existingResponses = await getClient().getResponses(name, version)
-        } catch {
-          // no existing responses
-        }
         setQuestionsDialog({
           open: true,
           name,
           version,
           questions,
           responses: existingResponses || {},
+          fieldErrors: {},
         })
         return
       }
 
+      // No questions — install directly.
       await getClient().installPackage(name, version, {})
       toast.success(`Package "${name}" installed`)
       doRefresh()
@@ -136,7 +140,18 @@ export default function PackageManagement() {
       setQuestionsDialog({ open: false })
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      // Check for per-field validation errors from the server.
+      const verrs = err.problem?.validation_errors
+      if (verrs && verrs.length > 0) {
+        const fieldErrors = {}
+        for (const ve of verrs) {
+          fieldErrors[ve.name] = ve.error
+        }
+        setQuestionsDialog((prev) => ({ ...prev, fieldErrors }))
+        toast.error('Please fix the highlighted fields')
+      } else {
+        toast.error(err.message)
+      }
     }
   }
 
@@ -216,32 +231,51 @@ export default function PackageManagement() {
       transform: (_, row) => {
         const inst = isInstalled(row.name)
         return (
-          <Tooltip>
-            <TooltipTrigger>
-              <Badge
-                variant={inst ? 'default' : 'secondary'}
-                className="cursor-pointer"
-                onClick={() => {
-                  if (inst) {
-                    setUninstallConfirm({
-                      name: row.name,
-                      version: row.version,
-                    })
-                  } else {
-                    setInstallConfirm({
-                      name: row.name,
-                      version: row.version,
-                    })
-                  }
-                }}
-              >
-                {inst ? 'Installed' : 'Not Installed'}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              Click to {inst ? 'uninstall' : 'install'}
-            </TooltipContent>
-          </Tooltip>
+          <div className="flex items-center justify-end gap-1">
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge
+                  variant={inst ? 'default' : 'secondary'}
+                  className="cursor-pointer"
+                  onClick={() => {
+                    if (inst) {
+                      handleInstall(row.name, row.version)
+                    } else {
+                      setInstallConfirm({
+                        name: row.name,
+                        version: row.version,
+                      })
+                    }
+                  }}
+                >
+                  {inst ? 'Installed' : 'Not Installed'}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                Click to {inst ? 'reconfigure' : 'install'}
+              </TooltipContent>
+            </Tooltip>
+            {inst && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                    onClick={() =>
+                      setUninstallConfirm({
+                        name: row.name,
+                        version: row.version,
+                      })
+                    }
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Uninstall</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         )
       },
     },
@@ -408,17 +442,24 @@ export default function PackageManagement() {
             <div className="space-y-4 py-4">
               {questionsDialog.questions &&
                 Object.entries(questionsDialog.questions).map(
-                  ([key, question]) => (
-                    <div key={key} className="space-y-2">
-                      <Label htmlFor={key}>{question.query}</Label>
-                      <Input
-                        id={key}
-                        name={key}
-                        type={question.type === 'password' ? 'password' : 'text'}
-                        defaultValue={questionsDialog.responses?.[key] || ''}
-                      />
-                    </div>
-                  ),
+                  ([key, question]) => {
+                    const fieldError = questionsDialog.fieldErrors?.[key]
+                    return (
+                      <div key={key} className="space-y-2">
+                        <Label htmlFor={key}>{question.query}</Label>
+                        <Input
+                          id={key}
+                          name={key}
+                          type={question.type === 'password' ? 'password' : 'text'}
+                          defaultValue={questionsDialog.responses?.[key] || ''}
+                          className={fieldError ? 'border-destructive' : ''}
+                        />
+                        {fieldError && (
+                          <p className="text-sm text-destructive">{fieldError}</p>
+                        )}
+                      </div>
+                    )
+                  },
                 )}
             </div>
             <DialogFooter>

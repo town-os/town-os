@@ -17,7 +17,24 @@ const TemplateChar = '@'
 var (
 	ErrInvalidResponse     = errors.New("response does not match a prompt question")
 	ErrInvalidResponseType = errors.New("response does not match the expected type")
+	ErrMissingResponse     = errors.New("question has no response")
+	ErrEmptyResponse       = errors.New("empty response")
 )
+
+// ResponseValidationError describes a single response that failed validation.
+type ResponseValidationError struct {
+	Name  string `json:"name"`
+	Error string `json:"error"`
+}
+
+// ValidationError collects all per-response validation errors from Compile.
+type ValidationError struct {
+	Errors []ResponseValidationError `json:"validation_errors"`
+}
+
+func (v *ValidationError) Error() string {
+	return fmt.Sprintf("%d response validation error(s)", len(v.Errors))
+}
 
 type PackageIdentity struct {
 	Name    string `json:"name"`
@@ -217,21 +234,57 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, err
 	}
 
+	var verrs []ResponseValidationError
+
+	// Check for unknown response keys (question does not exist).
+	for prompt := range response {
+		if _, ok := i.Questions[prompt]; !ok {
+			verrs = append(verrs, ResponseValidationError{
+				Name:  prompt,
+				Error: ErrInvalidResponse.Error(),
+			})
+		}
+	}
+
+	// Check for missing or empty responses.
+	for name := range i.Questions {
+		resp, ok := response[name]
+		if !ok {
+			verrs = append(verrs, ResponseValidationError{
+				Name:  name,
+				Error: ErrMissingResponse.Error(),
+			})
+		} else if resp == "" {
+			verrs = append(verrs, ResponseValidationError{
+				Name:  name,
+				Error: ErrEmptyResponse.Error(),
+			})
+		}
+	}
+
+	if len(verrs) > 0 {
+		return nil, &ValidationError{Errors: verrs}
+	}
+
+	// All responses are present and non-empty; apply templates.
 	var err error
 	for prompt, resp := range response {
-		q, ok := i.Questions[prompt]
-		if !ok {
-			return nil, fmt.Errorf("%q: %v", prompt, ErrInvalidResponse)
-		}
-
+		q := i.Questions[prompt]
 		if q.Type != "" {
 			resp, err = q.Type.Output(resp)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", prompt, ErrInvalidResponseType)
+				verrs = append(verrs, ResponseValidationError{
+					Name:  prompt,
+					Error: ErrInvalidResponseType.Error(),
+				})
+				continue
 			}
 		}
-
 		i.iterateFields(prompt, resp)
+	}
+
+	if len(verrs) > 0 {
+		return nil, &ValidationError{Errors: verrs}
 	}
 
 	external, err := convert(i.Network.External)

@@ -460,6 +460,15 @@ export class SystemControllerClient {
   /**
    * @param {string} name
    * @param {string} version
+   * @returns {Promise<Record<string, Question>>}
+   */
+  async getPackageQuestionsByIdentity(name, version) {
+    return this.postJSON('/packages/questions/identity', { name, version })
+  }
+
+  /**
+   * @param {string} name
+   * @param {string} version
    * @param {Responses} responses
    * @returns {Promise<void>}
    */

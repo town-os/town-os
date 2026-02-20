@@ -76,6 +76,11 @@ type PackageNameRequest struct {
 	Name string `json:"name"`
 }
 
+type PackageIdentityRequest struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 type InstallRequest struct {
 	Name      string             `json:"name"`
 	Version   string             `json:"version"`
@@ -380,6 +385,29 @@ func (s *SystemControllerHandlers) getPackageQuestions(c *echo.Context) error {
 	return c.JSON(200, questions)
 }
 
+func (s *SystemControllerHandlers) getPackageQuestionsByIdentity(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageIdentityRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+
+	repoName, err := rr.FindRepoForPackage(req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	ip, err := rr.LoadPackage(repoName, req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, ip.Questions)
+}
+
 // --- Install handlers ---
 
 func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
@@ -396,12 +424,73 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		return err
 	}
 
+	// Load and compile the package to resolve volume definitions.
+	ip, err := rr.LoadPackage(repoName, req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	compiled, err := ip.Compile(req.Responses)
+	if err != nil {
+		return err
+	}
+
 	inst := s.Controller.GetInstaller()
+	ctx := c.Request().Context()
+
+	// If already installed, uninstall without removing volumes.
+	installed, err := inst.ListInstalled()
+	if err != nil {
+		return err
+	}
+
+	alreadyInstalled := false
+	identity := fmt.Sprintf("%s@%s", req.Name, req.Version)
+	for _, pkg := range installed {
+		if pkg == identity {
+			alreadyInstalled = true
+			break
+		}
+	}
+
+	if alreadyInstalled {
+		// Stop and remove the systemd unit.
+		if sd := s.Controller.GetSystemdManager(); sd != nil {
+			unitName := systemd.UnitName(req.Name)
+			if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
+				return err
+			}
+			if err := sd.SetStatus(ctx, unitName, systemd.Disable); err != nil {
+				return err
+			}
+			if err := sd.UninstallUnit(ctx, unitName); err != nil {
+				return err
+			}
+		}
+
+		// Remove the install record (but not storage volumes).
+		if err := inst.Uninstall(req.Name, req.Version); err != nil {
+			return err
+		}
+	}
+
+	// Create or adjust storage volumes under a subvolume named after the package.
+	if st := s.Controller.GetStorage(); st != nil {
+		for volName, vol := range compiled.Volumes {
+			fsName := fmt.Sprintf("%s/%s", req.Name, volName)
+			if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: vol.Quota}); err != nil {
+				// Volume already exists — adjust quota if needed.
+				if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: vol.Quota}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	if err := inst.Install(repoName, req.Name, req.Version, req.Responses); err != nil {
 		return err
 	}
 
-	ctx := c.Request().Context()
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		unitName := systemd.UnitName(req.Name)
 		content := systemd.StubUnitContent(req.Name, req.Version)
@@ -926,8 +1015,9 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/repository":               true,
 			"/packages":                 true,
 			"/packages/installed":       true,
-			"/packages/responses":       true,
-			"/packages/questions":       true,
+			"/packages/responses":            true,
+			"/packages/questions":            true,
+			"/packages/questions/identity":   true,
 			"/systemd/units":            true,
 			"/systemd/logs":             true,
 			"/systemd/logs/tail":        true,
@@ -1151,6 +1241,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	// Admin (requireAdmin, which implies auth)
 	e.Add("POST", "/packages/questions", s.getPackageQuestions, s.requireAdmin)
+	e.Add("POST", "/packages/questions/identity", s.getPackageQuestionsByIdentity, s.requireAdmin)
 	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)

@@ -73,8 +73,8 @@ describe('PackageManagement', () => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
     const triggers = container.querySelectorAll('[data-slot="tooltip-trigger"]')
-    // One tooltip per package row
-    expect(triggers.length).toBe(2)
+    // One tooltip per package row + one uninstall button tooltip for installed row
+    expect(triggers.length).toBe(3)
   })
 
   it('right-aligns the Installation Status column', async () => {

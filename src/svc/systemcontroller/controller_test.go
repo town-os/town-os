@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1413,6 +1414,49 @@ questions:
 	}
 }
 
+// --- HTTP GetPackageQuestionsByIdentity tests ---
+
+func TestHTTPGetPackageQuestionsByIdentity(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetPackageQuestionsByIdentity: %v", err)
+	}
+
+	if len(questions) != 2 {
+		t.Fatalf("expected 2 questions, got %d", len(questions))
+	}
+	if questions["hostname"].Query != "What hostname should nginx serve?" {
+		t.Fatalf("expected hostname query, got %q", questions["hostname"].Query)
+	}
+	if questions["port"].Query != "What external port should nginx listen on?" {
+		t.Fatalf("expected port query, got %q", questions["port"].Query)
+	}
+}
+
+func TestHTTPGetPackageQuestionsByIdentityNoQuestions(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "2.0")
+	if err != nil {
+		t.Fatalf("GetPackageQuestionsByIdentity: %v", err)
+	}
+
+	if len(questions) != 0 {
+		t.Fatalf("expected 0 questions for nginx@2.0, got %d", len(questions))
+	}
+}
+
+func TestHTTPGetPackageQuestionsByIdentityNotFound(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	_, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nonexistent", "1.0")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+}
+
 // --- MockClient ListPackages tests ---
 
 func TestMockClientListPackages(t *testing.T) {
@@ -1582,6 +1626,54 @@ func TestMockClientGetPackageQuestionsReturnsCopy(t *testing.T) {
 	}
 }
 
+// --- MockClient GetPackageQuestionsByIdentity tests ---
+
+func TestMockClientGetPackageQuestionsByIdentity(t *testing.T) {
+	m := InitMockClient()
+	m.Questions = map[string]map[string]packages.Question{
+		"nginx@1.0": {
+			"hostname": {Query: "What hostname?", Type: packages.Hostname},
+		},
+	}
+
+	questions, err := m.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("MockClient.GetPackageQuestionsByIdentity: %v", err)
+	}
+
+	if len(questions) != 1 {
+		t.Fatalf("expected 1 question, got %d", len(questions))
+	}
+	if questions["hostname"].Query != "What hostname?" {
+		t.Fatalf("expected %q, got %q", "What hostname?", questions["hostname"].Query)
+	}
+}
+
+func TestMockClientGetPackageQuestionsByIdentityNotFound(t *testing.T) {
+	m := InitMockClient()
+
+	_, err := m.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+}
+
+func TestMockClientGetPackageQuestionsByIdentityErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := fmt.Errorf("injected error")
+
+	m.Questions = map[string]map[string]packages.Question{
+		"nginx@1.0": {
+			"hostname": {Query: "What hostname?"},
+		},
+	}
+
+	m.QuestionsIdentityErr = injected
+	if _, err := m.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0"); err != injected {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
 // --- Install HTTP endpoint tests ---
 
 func initInstallTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager) {
@@ -1595,7 +1687,23 @@ func initInstallTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallM
 	rr.Items = []packages.Repository{
 		{Name: "repo-a", URL: *u},
 	}
-	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external:
+    "@port@": "80"
+  internal: {}
+volumes: {}
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+  port:
+    query: "What external port should nginx listen on?"
+    type: port
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
 
 	inst := packages.InitMockInstallManager()
@@ -1613,26 +1721,29 @@ func initInstallTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallM
 func TestHTTPInstallPackage(t *testing.T) {
 	c, inst := initInstallTestClient(t)
 
-	responses := packages.Responses{"hostname": "example"}
+	responses := packages.Responses{"hostname": "example", "port": "8080"}
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
 	calls := inst.GetCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
 	}
-	if calls[0].Method != "Install" {
-		t.Fatalf("expected Install call, got %q", calls[0].Method)
+	if calls[0].Method != "ListInstalled" {
+		t.Fatalf("expected ListInstalled call, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "repo-a" {
-		t.Fatalf("expected repoName %q, got %v", "repo-a", calls[0].Args[0])
+	if calls[1].Method != "Install" {
+		t.Fatalf("expected Install call, got %q", calls[1].Method)
 	}
-	if calls[0].Args[1].(string) != "nginx" {
-		t.Fatalf("expected pkgName %q, got %v", "nginx", calls[0].Args[1])
+	if calls[1].Args[0].(string) != "repo-a" {
+		t.Fatalf("expected repoName %q, got %v", "repo-a", calls[1].Args[0])
 	}
-	if calls[0].Args[2].(string) != "1.0" {
-		t.Fatalf("expected version %q, got %v", "1.0", calls[0].Args[2])
+	if calls[1].Args[1].(string) != "nginx" {
+		t.Fatalf("expected pkgName %q, got %v", "nginx", calls[1].Args[1])
+	}
+	if calls[1].Args[2].(string) != "1.0" {
+		t.Fatalf("expected version %q, got %v", "1.0", calls[1].Args[2])
 	}
 }
 
@@ -1669,7 +1780,7 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	c, inst := initInstallTestClient(t)
 
 	// Install first so uninstall can succeed.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -1678,11 +1789,12 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	}
 
 	calls := inst.GetCalls()
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(calls))
+	// ListInstalled + Install + Uninstall = 3 calls
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d: %v", len(calls), calls)
 	}
-	if calls[1].Method != "Uninstall" {
-		t.Fatalf("expected Uninstall call, got %q", calls[1].Method)
+	if calls[2].Method != "Uninstall" {
+		t.Fatalf("expected Uninstall call, got %q", calls[2].Method)
 	}
 }
 
@@ -1728,7 +1840,19 @@ func initInstallWithSystemdTestClient(t *testing.T) (*SystemdClient, *packages.M
 	rr.Items = []packages.Repository{
 		{Name: "repo-a", URL: *u},
 	}
-	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
 
 	inst := packages.InitMockInstallManager()
 	sd := systemd.InitMockManager()
@@ -1787,7 +1911,7 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	c, _, sd := initInstallWithSystemdTestClient(t)
 
 	// Install first so uninstall can succeed.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "testhost"}); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -1828,10 +1952,213 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	}
 }
 
+// --- Install creates storage volumes ---
+
+func TestHTTPInstallPackageCreatesVolumes(t *testing.T) {
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	pkgYAML := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 1gb
+  logs:
+    mountpoint: /var/log/app
+questions: {}
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "myapp", "1.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "myapp", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify volumes were created under the package name.
+	fs := mockCtrl.GetFilesystems()
+
+	foundData := false
+	foundLogs := false
+	for _, f := range fs {
+		if f.Name == "myapp/data" {
+			foundData = true
+		}
+		if f.Name == "myapp/logs" {
+			foundLogs = true
+		}
+	}
+
+	if !foundData {
+		t.Fatalf("expected filesystem myapp/data to be created, got: %v", fs)
+	}
+	if !foundLogs {
+		t.Fatalf("expected filesystem myapp/logs to be created, got: %v", fs)
+	}
+}
+
+func TestHTTPInstallPackageCreatesVolumesWithQuota(t *testing.T) {
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	pkgYAML := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 2gb
+questions: {}
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "myapp", "1.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "myapp", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify quota was set on the volume.
+	quota := mockCtrl.Quotas["myapp/data"]
+	if quota != 2147483648 {
+		t.Fatalf("expected quota 2147483648, got %d", quota)
+	}
+}
+
+func TestHTTPInstallPackageNoVolumes(t *testing.T) {
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// No volumes to create — mock storage should be empty.
+	fs := mockCtrl.GetFilesystems()
+	if len(fs) != 0 {
+		t.Fatalf("expected no filesystems, got %v", fs)
+	}
+}
+
+func TestHTTPInstallPackageVolumesWithTemplatedQuota(t *testing.T) {
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	pkgYAML := `image: postgres:16
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  pgdata:
+    mountpoint: /var/lib/postgresql/data
+    quota: "@size@"
+questions:
+  size:
+    query: "How much storage for the database?"
+    type: bytes
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "postgres", "16.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "postgres", "16.0", packages.Responses{"size": "10gb"}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify the volume was created with the templated quota.
+	fs := mockCtrl.GetFilesystems()
+	found := false
+	for _, f := range fs {
+		if f.Name == "postgres/pgdata" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected filesystem postgres/pgdata to be created, got: %v", fs)
+	}
+
+	// 10GB = 10 * 1024^3 = 10737418240
+	quota := mockCtrl.Quotas["postgres/pgdata"]
+	if quota != 10737418240 {
+		t.Fatalf("expected quota 10737418240, got %d", quota)
+	}
+}
+
 func TestHTTPListInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}); err != nil {
@@ -4448,7 +4775,7 @@ func TestHTTPListPackagesPagination(t *testing.T) {
 func TestHTTPListInstalledPagination(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}); err != nil {
@@ -5083,5 +5410,197 @@ func TestHTTPAuditDetailNeverContainsPassword(t *testing.T) {
 		if strings.Contains(e.Detail, `"password"`) {
 			t.Fatalf("entry %q detail contains password field: %q", e.Action, e.Detail)
 		}
+	}
+}
+
+// --- Install validation errors ---
+
+func TestHTTPInstallValidationErrors(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	// nginx@1.0 has questions: hostname (hostname type) and port (port type).
+	// Send empty responses to trigger missing errors for both.
+	err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{})
+	if err == nil {
+		t.Fatal("expected error from validation")
+	}
+
+	var pe *ProblemError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ProblemError, got %T: %v", err, err)
+	}
+
+	if pe.Problem.Status != 422 {
+		t.Fatalf("expected status 422, got %d", pe.Problem.Status)
+	}
+
+	if len(pe.ValidationErrors) != 2 {
+		t.Fatalf("expected 2 validation errors, got %d: %v", len(pe.ValidationErrors), pe.ValidationErrors)
+	}
+
+	errMap := map[string]string{}
+	for _, ve := range pe.ValidationErrors {
+		errMap[ve.Name] = ve.Error
+	}
+	if errMap["hostname"] != packages.ErrMissingResponse.Error() {
+		t.Fatalf("expected missing response for hostname, got %q", errMap["hostname"])
+	}
+	if errMap["port"] != packages.ErrMissingResponse.Error() {
+		t.Fatalf("expected missing response for port, got %q", errMap["port"])
+	}
+}
+
+func TestHTTPInstallValidationErrorsEmptyResponse(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "",
+		"port":     "",
+	})
+	if err == nil {
+		t.Fatal("expected error from validation")
+	}
+
+	var pe *ProblemError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ProblemError, got %T: %v", err, err)
+	}
+
+	if pe.Problem.Status != 422 {
+		t.Fatalf("expected status 422, got %d", pe.Problem.Status)
+	}
+
+	if len(pe.ValidationErrors) != 2 {
+		t.Fatalf("expected 2 validation errors, got %d: %v", len(pe.ValidationErrors), pe.ValidationErrors)
+	}
+
+	for _, ve := range pe.ValidationErrors {
+		if ve.Error != packages.ErrEmptyResponse.Error() {
+			t.Fatalf("expected empty response error for %q, got %q", ve.Name, ve.Error)
+		}
+	}
+}
+
+func TestHTTPInstallValidationErrorsUnknownQuestion(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+		"bogus":    "value",
+	})
+	if err == nil {
+		t.Fatal("expected error from validation")
+	}
+
+	var pe *ProblemError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ProblemError, got %T: %v", err, err)
+	}
+
+	if len(pe.ValidationErrors) != 1 {
+		t.Fatalf("expected 1 validation error, got %d: %v", len(pe.ValidationErrors), pe.ValidationErrors)
+	}
+
+	if pe.ValidationErrors[0].Name != "bogus" {
+		t.Fatalf("expected error for 'bogus', got %q", pe.ValidationErrors[0].Name)
+	}
+	if pe.ValidationErrors[0].Error != packages.ErrInvalidResponse.Error() {
+		t.Fatalf("expected %q, got %q", packages.ErrInvalidResponse.Error(), pe.ValidationErrors[0].Error)
+	}
+}
+
+// --- Reinstall ---
+
+func TestHTTPReinstallPackage(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	// Install first time.
+	responses := packages.Responses{"hostname": "example", "port": "8080"}
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	// Reinstall with different responses.
+	responses2 := packages.Responses{"hostname": "newhost", "port": "9090"}
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses2); err != nil {
+		t.Fatalf("reinstall: %v", err)
+	}
+
+	calls := inst.GetCalls()
+	// First install: ListInstalled + Install = 2
+	// Reinstall: ListInstalled + Uninstall + Install = 3
+	// Total = 5
+	if len(calls) != 5 {
+		methods := make([]string, len(calls))
+		for i, c := range calls {
+			methods[i] = c.Method
+		}
+		t.Fatalf("expected 5 calls, got %d: %v", len(calls), methods)
+	}
+
+	// Reinstall should: ListInstalled, Uninstall, Install
+	if calls[2].Method != "ListInstalled" {
+		t.Fatalf("call 2: expected ListInstalled, got %q", calls[2].Method)
+	}
+	if calls[3].Method != "Uninstall" {
+		t.Fatalf("call 3: expected Uninstall, got %q", calls[3].Method)
+	}
+	if calls[4].Method != "Install" {
+		t.Fatalf("call 4: expected Install, got %q", calls[4].Method)
+	}
+
+	// Verify new responses were used.
+	newResp := calls[4].Args[3].(packages.Responses)
+	if newResp["hostname"] != "newhost" {
+		t.Fatalf("expected hostname %q, got %q", "newhost", newResp["hostname"])
+	}
+}
+
+func TestHTTPReinstallPackageWithSystemd(t *testing.T) {
+	c, _, sd := initInstallWithSystemdTestClient(t)
+
+	// Install first.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "testhost"}); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	// Reinstall.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "newhost"}); err != nil {
+		t.Fatalf("reinstall: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	// First install: InstallUnit, Enable, Start = 3
+	// Reinstall: Stop, Disable, UninstallUnit, InstallUnit, Enable, Start = 6
+	// Total = 9
+	if len(calls) != 9 {
+		methods := make([]string, len(calls))
+		for i, c := range calls {
+			methods[i] = c.Method
+		}
+		t.Fatalf("expected 9 systemd calls, got %d: %v", len(calls), methods)
+	}
+
+	// Reinstall teardown: Stop, Disable, UninstallUnit
+	if calls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
+		t.Fatalf("call 3: expected Stop, got %v", calls[3].Args[1])
+	}
+	if calls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("call 4: expected Disable, got %v", calls[4].Args[1])
+	}
+	if calls[5].Method != "UninstallUnit" {
+		t.Fatalf("call 5: expected UninstallUnit, got %q", calls[5].Method)
+	}
+
+	// Reinstall setup: InstallUnit, Enable, Start
+	if calls[6].Method != "InstallUnit" {
+		t.Fatalf("call 6: expected InstallUnit, got %q", calls[6].Method)
+	}
+	if calls[7].Args[1].(systemd.StatusAction) != systemd.Enable {
+		t.Fatalf("call 7: expected Enable, got %v", calls[7].Args[1])
+	}
+	if calls[8].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 8: expected Start, got %v", calls[8].Args[1])
 	}
 }

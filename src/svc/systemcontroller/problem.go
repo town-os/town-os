@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"github.com/labstack/echo/v5"
 )
 
@@ -35,8 +36,14 @@ func (p *ProblemDetail) StatusCode() int {
 	return p.Status
 }
 
-func (p *ProblemDetail) MarshalJSON() ([]byte, error) {
-	type alias ProblemDetail
+// InstallProblemDetail extends ProblemDetail with per-response validation errors.
+type InstallProblemDetail struct {
+	ProblemDetail
+	ValidationErrors []packages.ResponseValidationError `json:"validation_errors"`
+}
+
+func (p *InstallProblemDetail) MarshalJSON() ([]byte, error) {
+	type alias InstallProblemDetail
 	return json.Marshal((*alias)(p))
 }
 
@@ -89,6 +96,24 @@ func sanitizeProblemDetail(pd *ProblemDetail) *ProblemDetail {
 func ProblemDetailHTTPErrorHandler() echo.HTTPErrorHandler {
 	return func(c *echo.Context, err error) {
 		if r, _ := echo.UnwrapResponse(c.Response()); r != nil && r.Committed {
+			return
+		}
+
+		// Check for validation errors and produce an extended response.
+		var ve *packages.ValidationError
+		if errors.As(err, &ve) {
+			ipd := &InstallProblemDetail{
+				ProblemDetail: ProblemDetail{
+					Type:   "about:blank#422",
+					Title:  "Unprocessable Entity",
+					Status: http.StatusUnprocessableEntity,
+					Detail: ve.Error(),
+				},
+				ValidationErrors: ve.Errors,
+			}
+			c.Response().Header().Set("Content-Type", "application/problem+json")
+			c.Response().WriteHeader(ipd.Status)
+			_ = json.NewEncoder(c.Response()).Encode(ipd)
 			return
 		}
 

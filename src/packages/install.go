@@ -45,7 +45,7 @@ func (m *InstallManager) responsesDir() string {
 // Install creates a symlink at installed/<pkgName>/<version>.yaml pointing to
 // the repository package file at <repoName>/packages/<pkgName>/<version>.yaml.
 // It also persists the responses to responses/<pkgName>/<version>.json.
-func (m *InstallManager) Install(repoName, pkgName, version string, responses Responses) (err error) {
+func (m *InstallManager) Install(repoName, pkgName, version string, responses Responses) error {
 	pkgDir := filepath.Join(m.dir(), pkgName)
 	if err := os.MkdirAll(pkgDir, 0755); err != nil {
 		return err
@@ -70,23 +70,7 @@ func (m *InstallManager) Install(repoName, pkgName, version string, responses Re
 	}
 
 	// Persist responses.
-	respDir := filepath.Join(m.responsesDir(), pkgName)
-	if err := os.MkdirAll(respDir, 0755); err != nil {
-		return err
-	}
-
-	respFile := filepath.Join(respDir, fmt.Sprintf("%s.json", version))
-	f, err := os.Create(respFile)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err = errors.Join(err, f.Close())
-	}()
-
-	en := json.NewEncoder(f)
-	en.SetIndent("", "  ")
-	return en.Encode(responses)
+	return m.SaveResponses(pkgName, version, responses)
 }
 
 // Uninstall removes the symlink for the given package version. If the package
@@ -220,4 +204,24 @@ func (m *InstallManager) GetResponses(pkgName, version string) (_ Responses, err
 	}
 
 	return resp, nil
+}
+
+// SaveResponses persists responses to disk using an atomic write under an
+// exclusive file lock. The file is written to responses/<pkgName>/<version>.json.
+func (m *InstallManager) SaveResponses(pkgName, version string, responses Responses) (err error) {
+	lock, err := lockDir(m.BaseDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, lock.Unlock())
+	}()
+
+	respDir := filepath.Join(m.responsesDir(), pkgName)
+	if err := os.MkdirAll(respDir, 0755); err != nil {
+		return err
+	}
+
+	respFile := filepath.Join(respDir, fmt.Sprintf("%s.json", version))
+	return atomicWriteJSON(respFile, responses)
 }

@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"gitea.com/town-os/town-os/src/packages"
 )
 
 // ProblemError wraps a ProblemDetail with request context.
 type ProblemError struct {
-	Method  string
-	Path    string
-	Problem ProblemDetail
+	Method           string
+	Path             string
+	Problem          ProblemDetail
+	ValidationErrors []packages.ResponseValidationError
 }
 
 func (pe *ProblemError) Error() string {
@@ -47,12 +50,17 @@ func readProblemDetail(resp *http.Response, method, path string) error {
 		}
 	}
 
-	var pd ProblemDetail
-	if err := json.Unmarshal(body, &pd); err == nil && pd.Status != 0 && pd.Detail != "" {
+	// Try parsing as InstallProblemDetail (has validation_errors extension).
+	var ipd struct {
+		ProblemDetail
+		ValidationErrors []packages.ResponseValidationError `json:"validation_errors"`
+	}
+	if err := json.Unmarshal(body, &ipd); err == nil && ipd.Status != 0 && ipd.Detail != "" {
 		return &ProblemError{
-			Method:  method,
-			Path:    path,
-			Problem: pd,
+			Method:           method,
+			Path:             path,
+			Problem:          ipd.ProblemDetail,
+			ValidationErrors: ipd.ValidationErrors,
 		}
 	}
 

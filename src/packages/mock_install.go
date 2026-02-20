@@ -11,13 +11,13 @@ type MockInstallCall struct {
 }
 
 type MockInstallManager struct {
-	mu              sync.Mutex
-	Installed       []PackageIdentity
-	StoredResponses map[string]Responses
-	Calls           []MockInstallCall
-	InstallErr      error
-	UninstallErr    error
-	ListErr         error
+	mu               sync.Mutex
+	Installed        []PackageIdentity
+	StoredResponses  map[string]Responses
+	Calls            []MockInstallCall
+	InstallErr       error
+	UninstallErr     error
+	ListErr          error
 	GetResponsesErr error
 }
 

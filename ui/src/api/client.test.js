@@ -781,6 +781,31 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('getPackageQuestionsByIdentity', () => {
+    it('sends name and version and returns questions', async () => {
+      const questions = {
+        hostname: { query: 'What hostname?', type: 'hostname' },
+        port: { query: 'What port?', type: 'port' },
+      }
+      mockFetch(questions)
+      client.setToken('tok')
+
+      const result = await client.getPackageQuestionsByIdentity('nginx', '1.0')
+      expect(result).toEqual(questions)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/questions/identity',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'nginx', version: '1.0' }),
+        },
+      )
+    })
+  })
+
   describe('self-authenticated methods', () => {
     it('listSessions uses explicit token', async () => {
       const sessions = [
@@ -817,6 +842,64 @@ describe('SystemControllerClient', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: 'sess-123' }),
+        },
+      )
+    })
+  })
+
+  describe('installPackage', () => {
+    it('sends install request', async () => {
+      mockFetchEmpty()
+
+      await client.installPackage('nginx', '1.0', { hostname: 'example' })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/install',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'nginx', version: '1.0', responses: { hostname: 'example' } }),
+        },
+      )
+    })
+
+    it('throws ApiError with validation_errors on 422', async () => {
+      const problemBody = {
+        type: 'about:blank#422',
+        title: 'Unprocessable Entity',
+        status: 422,
+        detail: '2 response validation error(s)',
+        validation_errors: [
+          { name: 'hostname', error: 'question has no response' },
+          { name: 'port', error: 'empty response' },
+        ],
+      }
+      mockFetch(problemBody, 422)
+
+      try {
+        await client.installPackage('nginx', '1.0', {})
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.status).toBe(422)
+        expect(err.problem).toBeTruthy()
+        expect(err.problem.validation_errors).toHaveLength(2)
+        expect(err.problem.validation_errors[0].name).toBe('hostname')
+        expect(err.problem.validation_errors[1].name).toBe('port')
+      }
+    })
+  })
+
+  describe('uninstallPackage', () => {
+    it('sends uninstall request', async () => {
+      mockFetchEmpty()
+
+      await client.uninstallPackage('nginx', '1.0')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/uninstall',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'nginx', version: '1.0' }),
         },
       )
     })

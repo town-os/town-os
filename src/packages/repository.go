@@ -74,19 +74,16 @@ func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 }
 
 func (rr *RepositoryRoot) save() (err error) {
-	fn := filepath.Join(rr.BaseDir, RepositoriesFile)
-	f, err := os.Create(fn)
+	lock, err := lockDir(rr.BaseDir)
 	if err != nil {
 		return err
 	}
-
 	defer func() {
-		err = errors.Join(err, f.Close())
+		err = errors.Join(err, lock.Unlock())
 	}()
 
-	en := json.NewEncoder(f)
-	en.SetIndent("", "  ")
-	return en.Encode(rr.Items)
+	fn := filepath.Join(rr.BaseDir, RepositoriesFile)
+	return atomicWriteJSON(fn, rr.Items)
 }
 
 func (rr *RepositoryRoot) Add(repo Repository) error {
@@ -303,6 +300,25 @@ func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 	}
 
 	return all, nil
+}
+
+// LoadPackage loads a single InputPackage from a repository by name and version.
+func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ InputPackage, err error) {
+	fn := filepath.Join(rr.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version))
+	f, err := os.Open(fn)
+	if err != nil {
+		return InputPackage{}, fmt.Errorf("package %s@%s not found: %w", pkgName, version, err)
+	}
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
+
+	var ip InputPackage
+	if err := yaml.NewDecoder(f).Decode(&ip); err != nil {
+		return InputPackage{}, fmt.Errorf("decoding %s@%s: %w", pkgName, version, err)
+	}
+
+	return ip, nil
 }
 
 // CompareVersions compares two dot-separated version strings.

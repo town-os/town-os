@@ -411,8 +411,12 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for invalid port")
 		}
-		if !errors.Is(err, ErrInvalidResponseType) {
-			t.Fatalf("expected ErrInvalidResponseType, got %v", err)
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+		}
+		if len(ve.Errors) != 1 || ve.Errors[0].Name != "port" {
+			t.Fatalf("expected single port error, got %v", ve.Errors)
 		}
 	})
 
@@ -428,8 +432,12 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for invalid hostname")
 		}
-		if !errors.Is(err, ErrInvalidResponseType) {
-			t.Fatalf("expected ErrInvalidResponseType, got %v", err)
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+		}
+		if len(ve.Errors) != 1 || ve.Errors[0].Name != "hostname" {
+			t.Fatalf("expected single hostname error, got %v", ve.Errors)
 		}
 	})
 
@@ -567,6 +575,147 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 		_, err := input.Compile(Responses{})
 		if err == nil {
 			t.Fatal("expected error for invalid quota")
+		}
+	})
+}
+
+func TestPackageCompileUnansweredQuestion(t *testing.T) {
+	t.Run("missing response rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{"HOST": "@hostname@"},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions: map[string]Question{
+				"hostname": {Query: "What hostname?", Type: Hostname},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for unanswered question")
+		}
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+		}
+		if len(ve.Errors) != 1 || ve.Errors[0].Error != ErrMissingResponse.Error() {
+			t.Fatalf("expected missing response error, got %v", ve.Errors)
+		}
+	})
+
+	t.Run("partial responses rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{"HOST": "@hostname@"},
+			Network:     InputPackageNetwork{External: map[string]string{"@port@": "80"}, Internal: map[string]string{}},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions: map[string]Question{
+				"hostname": {Query: "What hostname?", Type: Hostname},
+				"port":     {Query: "What port?", Type: Port},
+			},
+		}
+		_, err := input.Compile(Responses{"hostname": "example"})
+		if err == nil {
+			t.Fatal("expected error for partial responses")
+		}
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+		}
+		if len(ve.Errors) != 1 || ve.Errors[0].Name != "port" {
+			t.Fatalf("expected missing port error, got %v", ve.Errors)
+		}
+	})
+
+	t.Run("all responses provided succeeds", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{"HOST": "@hostname@"},
+			Network:     InputPackageNetwork{External: map[string]string{"@port@": "80"}, Internal: map[string]string{}},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions: map[string]Question{
+				"hostname": {Query: "What hostname?", Type: Hostname},
+				"port":     {Query: "What port?", Type: Port},
+			},
+		}
+		_, err := input.Compile(Responses{"hostname": "example", "port": "8080"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("no questions no responses succeeds", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+		}
+		_, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("collects all validation errors", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions: map[string]Question{
+				"hostname": {Query: "What hostname?", Type: Hostname},
+				"port":     {Query: "What port?", Type: Port},
+			},
+		}
+		// "bogus" is unknown, "hostname" is missing, "port" is empty
+		_, err := input.Compile(Responses{"bogus": "value", "port": ""})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+		}
+		// Should have 3 errors: bogus (question does not exist), hostname (missing), port (empty)
+		if len(ve.Errors) != 3 {
+			t.Fatalf("expected 3 errors, got %d: %v", len(ve.Errors), ve.Errors)
+		}
+
+		errMap := map[string]string{}
+		for _, e := range ve.Errors {
+			errMap[e.Name] = e.Error
+		}
+		if errMap["bogus"] != ErrInvalidResponse.Error() {
+			t.Fatalf("expected bogus error %q, got %q", ErrInvalidResponse.Error(), errMap["bogus"])
+		}
+		if errMap["hostname"] != ErrMissingResponse.Error() {
+			t.Fatalf("expected hostname error %q, got %q", ErrMissingResponse.Error(), errMap["hostname"])
+		}
+		if errMap["port"] != ErrEmptyResponse.Error() {
+			t.Fatalf("expected port error %q, got %q", ErrEmptyResponse.Error(), errMap["port"])
+		}
+	})
+
+	t.Run("empty response rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{"name": {Query: "Name?"}},
+		}
+		_, err := input.Compile(Responses{"name": ""})
+		if err == nil {
+			t.Fatal("expected error for empty response")
+		}
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+		}
+		if len(ve.Errors) != 1 || ve.Errors[0].Error != ErrEmptyResponse.Error() {
+			t.Fatalf("expected empty response error, got %v", ve.Errors)
 		}
 	})
 }

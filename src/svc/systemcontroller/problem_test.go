@@ -204,8 +204,6 @@ func TestProblemDetailImplementsInterfaces(t *testing.T) {
 	// Implements HTTPStatusCoder
 	var _ echo.HTTPStatusCoder = pd
 
-	// Implements json.Marshaler
-	var _ json.Marshaler = pd
 }
 
 // --- Client-side tests ---

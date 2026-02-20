@@ -487,6 +487,53 @@ func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content
 	}
 }
 
+func TestLoadPackage(t *testing.T) {
+	t.Run("loads a single package", func(t *testing.T) {
+		dir := t.TempDir()
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", `image: nginx:1.0
+environment:
+  FOO: bar
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 2gb
+`)
+		root := &RepositoryRoot{BaseDir: dir}
+		ip, err := root.LoadPackage("repo-a", "nginx", "1.0")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ip.Image != "nginx:1.0" {
+			t.Fatalf("expected image %q, got %q", "nginx:1.0", ip.Image)
+		}
+		if ip.Volumes["data"].Mountpoint != "/var/lib/data" {
+			t.Fatalf("expected mountpoint %q, got %q", "/var/lib/data", ip.Volumes["data"].Mountpoint)
+		}
+		if ip.Volumes["data"].Quota != "2gb" {
+			t.Fatalf("expected quota %q, got %q", "2gb", ip.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		dir := t.TempDir()
+		root := &RepositoryRoot{BaseDir: dir}
+		_, err := root.LoadPackage("repo-a", "nginx", "1.0")
+		if err == nil {
+			t.Fatal("expected error for missing package")
+		}
+	})
+
+	t.Run("invalid yaml", func(t *testing.T) {
+		dir := t.TempDir()
+		writePackageYAML(t, dir, "repo-a", "nginx", "1.0", "image: [bad yaml")
+		root := &RepositoryRoot{BaseDir: dir}
+		_, err := root.LoadPackage("repo-a", "nginx", "1.0")
+		if err == nil {
+			t.Fatal("expected error for invalid yaml")
+		}
+	})
+}
+
 func TestRepositoryLoadPackages(t *testing.T) {
 	t.Run("single package", func(t *testing.T) {
 		dir := t.TempDir()
