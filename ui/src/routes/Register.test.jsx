@@ -52,7 +52,7 @@ describe('Register', () => {
 
     // Wait for the ping to resolve
     await waitFor(() => {
-      expect(screen.getByText('Create Account')).toBeTruthy()
+      expect(screen.getByLabelText('Username')).toBeTruthy()
     })
 
     expect(screen.queryByText('Welcome to town-os')).toBeNull()
@@ -61,7 +61,7 @@ describe('Register', () => {
   it('always renders the create account form', async () => {
     renderRegister()
     await waitFor(() => {
-      expect(screen.getByText('Create Account')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Create Account' })).toBeTruthy()
     })
     expect(screen.getByLabelText('Username')).toBeTruthy()
     expect(screen.getByLabelText('Password')).toBeTruthy()
