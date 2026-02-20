@@ -16,12 +16,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, UserCheck, UserX } from 'lucide-react'
+import { Plus } from 'lucide-react'
 
 export default function UserManagement() {
   useEffect(() => { document.title = 'Town OS - Users' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
-  const [disableConfirm, setDisableConfirm] = useState(null)
+  const [statusConfirm, setStatusConfirm] = useState(null)
+  const [adminConfirm, setAdminConfirm] = useState(null)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -45,6 +46,10 @@ export default function UserManagement() {
     setSuccess(null)
     const form = e.target.elements
 
+    if (form.password.value && form.password.value.length < 8) {
+      setError('Password must be at least 8 characters')
+      return
+    }
     if (form.password.value && form.password.value !== form.password2.value) {
       setError('Passwords do not match')
       return
@@ -66,16 +71,35 @@ export default function UserManagement() {
     }
   }
 
-  async function handleDisable() {
+  async function handleStatusToggle() {
     setError(null)
     try {
-      await getClient().disableAccount(disableConfirm)
-      setSuccess(`User "${disableConfirm}" disabled`)
-      setDisableConfirm(null)
+      if (statusConfirm.disabled) {
+        await getClient().enableAccount(statusConfirm.username)
+        setSuccess(`User "${statusConfirm.username}" activated`)
+      } else {
+        await getClient().disableAccount(statusConfirm.username)
+        setSuccess(`User "${statusConfirm.username}" deactivated`)
+      }
+      setStatusConfirm(null)
       doRefresh()
     } catch (err) {
       setError(err.message)
-      setDisableConfirm(null)
+      setStatusConfirm(null)
+    }
+  }
+
+  async function handleAdminToggle() {
+    setError(null)
+    try {
+      const newAdmin = !adminConfirm.admin
+      await getClient().updateAccount(adminConfirm.username, { admin: newAdmin })
+      setSuccess(`User "${adminConfirm.username}" ${newAdmin ? 'promoted to admin' : 'demoted to user'}`)
+      setAdminConfirm(null)
+      doRefresh()
+    } catch (err) {
+      setError(err.message)
+      setAdminConfirm(null)
     }
   }
 
@@ -87,8 +111,12 @@ export default function UserManagement() {
     {
       key: 'admin',
       label: 'Role',
-      transform: (v) => (
-        <Badge variant={v ? 'default' : 'secondary'}>
+      transform: (v, row) => (
+        <Badge
+          variant={v ? 'default' : 'secondary'}
+          className="cursor-pointer select-none"
+          onClick={() => setAdminConfirm(row)}
+        >
           {v ? 'Admin' : 'User'}
         </Badge>
       ),
@@ -96,12 +124,15 @@ export default function UserManagement() {
     {
       key: 'disabled',
       label: 'Status',
-      transform: (v) =>
-        v ? (
-          <Badge variant="destructive">Disabled</Badge>
-        ) : (
-          <Badge variant="outline">Active</Badge>
-        ),
+      transform: (v, row) => (
+        <Badge
+          variant={v ? 'destructive' : 'outline'}
+          className={`cursor-pointer select-none ${v ? 'opacity-70' : ''}`}
+          onClick={() => setStatusConfirm(row)}
+        >
+          {v ? 'Disabled' : 'Active'}
+        </Badge>
+      ),
     },
     {
       key: '_edit',
@@ -116,22 +147,6 @@ export default function UserManagement() {
           Edit
         </Button>
       ),
-    },
-    {
-      key: '_disable',
-      label: '',
-      sortable: false,
-      transform: (_, row) =>
-        !row.disabled && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setDisableConfirm(row.username)}
-          >
-            <UserX className="h-3 w-3" />
-          </Button>
-        ),
     },
   ]
 
@@ -255,18 +270,33 @@ export default function UserManagement() {
       </Dialog>
 
       <ConfirmDialog
-        open={!!disableConfirm}
-        title="Disable User"
-        onConfirm={handleDisable}
-        onCancel={() => setDisableConfirm(null)}
-        confirmLabel="Disable"
-        variant="destructive"
+        open={!!statusConfirm}
+        title={statusConfirm?.disabled ? 'Activate User' : 'Deactivate User'}
+        onConfirm={handleStatusToggle}
+        onCancel={() => setStatusConfirm(null)}
+        confirmLabel={statusConfirm?.disabled ? 'Activate' : 'Deactivate'}
+        variant={statusConfirm?.disabled ? 'default' : 'destructive'}
       >
-        Are you sure you want to disable user{' '}
+        Are you sure you want to {statusConfirm?.disabled ? 'activate' : 'deactivate'} user{' '}
         <code className="font-mono text-sm bg-muted px-1 rounded">
-          {disableConfirm}
+          {statusConfirm?.username}
         </code>
         ?
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!adminConfirm}
+        title={adminConfirm?.admin ? 'Demote to User' : 'Promote to Admin'}
+        onConfirm={handleAdminToggle}
+        onCancel={() => setAdminConfirm(null)}
+        confirmLabel={adminConfirm?.admin ? 'Demote' : 'Promote'}
+        variant={adminConfirm?.admin ? 'destructive' : 'default'}
+      >
+        Are you sure you want to {adminConfirm?.admin ? 'demote' : 'promote'} user{' '}
+        <code className="font-mono text-sm bg-muted px-1 rounded">
+          {adminConfirm?.username}
+        </code>
+        {adminConfirm?.admin ? ' to a regular user' : ' to admin'}?
       </ConfirmDialog>
     </div>
   )

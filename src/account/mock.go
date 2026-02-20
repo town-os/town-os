@@ -25,6 +25,7 @@ type MockManager struct {
 	GetErr          error
 	UpdateErr       error
 	DisableErr      error
+	EnableErr       error
 	ListErr         error
 	AuthenticateErr error
 }
@@ -149,6 +150,24 @@ func (m *MockManager) Disable(username string) error {
 	}
 
 	acct.Disabled = true
+	return nil
+}
+
+func (m *MockManager) Enable(username string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "Enable", Args: []any{username}})
+
+	if m.EnableErr != nil {
+		return m.EnableErr
+	}
+
+	acct, ok := m.accounts[username]
+	if !ok {
+		return ErrNotFound
+	}
+
+	acct.Disabled = false
 	return nil
 }
 

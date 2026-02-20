@@ -24,6 +24,10 @@ export default function CreateUser() {
     setError(null)
 
     const form = e.target.elements
+    if (form.password.value.length < 8) {
+      setError('Password must be at least 8 characters')
+      return
+    }
     if (form.password.value !== form.password2.value) {
       setError('Passwords do not match')
       return
@@ -72,6 +76,7 @@ export default function CreateUser() {
                   name="password"
                   type="password"
                   required
+                  minLength="8"
                 />
               </div>
               <div className="space-y-2">
@@ -81,6 +86,7 @@ export default function CreateUser() {
                   name="password2"
                   type="password"
                   required
+                  minLength="8"
                 />
               </div>
             </div>

@@ -16,15 +16,28 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, Trash2, Pencil, HardDrive } from 'lucide-react'
 
+const UNITS = {
+  B: 1,
+  MB: 1024 * 1024,
+  GB: 1024 * 1024 * 1024,
+  TB: 1024 * 1024 * 1024 * 1024,
+}
+
 function formatQuota(bytes) {
   if (!bytes || bytes === 0) return 'none'
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-  }
+  if (bytes >= UNITS.TB) return `${(bytes / UNITS.TB).toFixed(2)} TB`
+  if (bytes >= UNITS.GB) return `${(bytes / UNITS.GB).toFixed(2)} GB`
+  if (bytes >= UNITS.MB) return `${(bytes / UNITS.MB).toFixed(2)} MB`
   return `${bytes} B`
+}
+
+/** Decompose a byte count into a [value, unit] pair for the form. */
+function decomposeQuota(bytes) {
+  if (!bytes || bytes === 0) return ['', 'GB']
+  if (bytes >= UNITS.TB && bytes % UNITS.TB === 0) return [bytes / UNITS.TB, 'TB']
+  if (bytes >= UNITS.GB && bytes % UNITS.GB === 0) return [bytes / UNITS.GB, 'GB']
+  if (bytes >= UNITS.MB && bytes % UNITS.MB === 0) return [bytes / UNITS.MB, 'MB']
+  return [bytes, 'B']
 }
 
 export default function StorageManagement() {
@@ -48,6 +61,13 @@ export default function StorageManagement() {
     setRefreshKey((k) => k + 1)
   }
 
+  function parseQuotaFromForm(form) {
+    const raw = form.quota.value ? parseFloat(form.quota.value) : 0
+    if (raw === 0) return 0
+    const unit = form.quotaUnit.value
+    return Math.round(raw * (UNITS[unit] || 1))
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     setError(null)
@@ -56,7 +76,7 @@ export default function StorageManagement() {
     try {
       await getClient().createFilesystem({
         name: form.name.value,
-        quota: form.quota.value ? parseInt(form.quota.value, 10) : 0,
+        quota: parseQuotaFromForm(form),
       })
       setSuccess('Filesystem created')
       setEditDialog({ open: false })
@@ -74,7 +94,7 @@ export default function StorageManagement() {
     try {
       await getClient().modifyFilesystem(editDialog.originalName, {
         name: form.name.value,
-        quota: form.quota.value ? parseInt(form.quota.value, 10) : 0,
+        quota: parseQuotaFromForm(form),
       })
       setSuccess('Filesystem modified')
       setEditDialog({ open: false })
@@ -113,14 +133,16 @@ export default function StorageManagement() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() =>
+          onClick={() => {
+            const [qv, qu] = decomposeQuota(row.quota)
             setEditDialog({
               open: true,
               create: false,
               originalName: row.name,
               name: row.name,
-              quota: row.quota,
-            })
+              quotaValue: qv,
+              quotaUnit: qu,
+            })}
           }
         >
           <Pencil className="h-3 w-3 mr-1" />
@@ -156,7 +178,7 @@ export default function StorageManagement() {
         </div>
         <Button
           onClick={() =>
-            setEditDialog({ open: true, create: true, name: '', quota: '' })
+            setEditDialog({ open: true, create: true, name: '', quotaValue: '', quotaUnit: 'GB' })
           }
         >
           <Plus className="h-4 w-4 mr-1" />
@@ -220,15 +242,29 @@ export default function StorageManagement() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="quota">Quota (bytes, 0 = unlimited)</Label>
-                <Input
-                  id="quota"
-                  name="quota"
-                  type="number"
-                  min="0"
-                  defaultValue={editDialog.quota || ''}
-                  placeholder="0"
-                />
+                <Label htmlFor="quota">Quota (0 = unlimited)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="quota"
+                    name="quota"
+                    type="number"
+                    min="0"
+                    step="any"
+                    defaultValue={editDialog.quotaValue || ''}
+                    placeholder="0"
+                    className="flex-1"
+                  />
+                  <select
+                    name="quotaUnit"
+                    defaultValue={editDialog.quotaUnit || 'GB'}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="B">B</option>
+                    <option value="MB">MB</option>
+                    <option value="GB">GB</option>
+                    <option value="TB">TB</option>
+                  </select>
+                </div>
               </div>
             </div>
             <DialogFooter>

@@ -130,6 +130,9 @@ func verifyPassword(hash, password string) bool {
 }
 
 func (m *SQLiteManager) Create(username, password, email, phone, realName string, admin bool) (_ *Account, err error) {
+	if err := validatePassword(password); err != nil {
+		return nil, err
+	}
 	if err := validateContactInfo(email, phone, realName); err != nil {
 		return nil, err
 	}
@@ -264,6 +267,24 @@ func (m *SQLiteManager) Disable(username string) error {
 	res, err := m.db.Exec("UPDATE accounts SET disabled = 1, updated_at = ? WHERE username = ?", nowStr, username)
 	if err != nil {
 		return fmt.Errorf("disable account: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (m *SQLiteManager) Enable(username string) error {
+	nowStr := time.Now().UTC().Format(time.RFC3339)
+	res, err := m.db.Exec("UPDATE accounts SET disabled = 0, updated_at = ? WHERE username = ?", nowStr, username)
+	if err != nil {
+		return fmt.Errorf("enable account: %w", err)
 	}
 
 	n, err := res.RowsAffected()

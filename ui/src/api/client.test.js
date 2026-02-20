@@ -647,6 +647,26 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('enableAccount', () => {
+    it('sends username in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.enableAccount('bob')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:8080/account/enable',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ username: 'bob' }),
+        },
+      )
+    })
+  })
+
   describe('self-authenticated methods', () => {
     it('listSessions uses explicit token', async () => {
       const sessions = [

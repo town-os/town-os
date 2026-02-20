@@ -998,7 +998,7 @@ func TestHTTPAddRepositoryPartialCredentials(t *testing.T) {
 			t.Fatalf("ts.Client: %v", err)
 		}
 
-		err = c.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", "pass")
+		err = c.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", "password1")
 		if err == nil {
 			t.Fatal("expected error for password without username")
 		}
@@ -2125,11 +2125,11 @@ func TestHTTPCreateAccount(t *testing.T) {
 func TestHTTPCreateAccountDuplicate(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("first CreateAccount: %v", err)
 	}
 
-	_, err := c.CreateAccount(context.TODO(), "alice", "pass2", "c@d.com", "666", "Alice2", false)
+	_, err := c.CreateAccount(context.TODO(), "alice", "password2", "c@d.com", "666", "Alice2", false)
 	if err == nil {
 		t.Fatal("expected error creating duplicate account")
 	}
@@ -2138,7 +2138,7 @@ func TestHTTPCreateAccountDuplicate(t *testing.T) {
 func TestHTTPGetAccount(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -2164,7 +2164,7 @@ func TestHTTPGetAccountNotFound(t *testing.T) {
 func TestHTTPUpdateAccount(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -2183,15 +2183,15 @@ func TestHTTPDisableAccount(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create admin to perform the disable
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "admin@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount admin: %v", err)
 	}
-	adminResp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate admin: %v", err)
 	}
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount alice: %v", err)
 	}
 
@@ -2227,7 +2227,7 @@ func TestHTTPDisableAccount(t *testing.T) {
 	}
 
 	// verify disabled account cannot authenticate
-	_, err = c.Authenticate(context.TODO(), "alice", "pass")
+	_, err = c.Authenticate(context.TODO(), "alice", "password1")
 	if err == nil {
 		t.Fatal("expected error authenticating disabled account")
 	}
@@ -2236,10 +2236,10 @@ func TestHTTPDisableAccount(t *testing.T) {
 func TestHTTPListAccounts(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount alice: %v", err)
 	}
-	if _, err := c.CreateAccount(context.TODO(), "bob", "pass", "b@b.com", "666", "Bob", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "bob", "password1", "b@b.com", "666", "Bob", false); err != nil {
 		t.Fatalf("CreateAccount bob: %v", err)
 	}
 
@@ -2290,11 +2290,11 @@ func TestHTTPAuthenticateWrongPassword(t *testing.T) {
 func TestHTTPSessionLifecycle(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "alice", "pass")
+	resp, err := c.Authenticate(context.TODO(), "alice", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2350,11 +2350,11 @@ func TestHTTPSessionUsernameUnauthenticated(t *testing.T) {
 func TestHTTPSessionUsernameAuthenticated(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	authResp, err := c.Authenticate(context.TODO(), "alice", "pass")
+	authResp, err := c.Authenticate(context.TODO(), "alice", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2374,11 +2374,11 @@ func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create non-admin user
-	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "user", "password1", "u@b.com", "555", "User", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "user", "pass")
+	resp, err := c.Authenticate(context.TODO(), "user", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2454,11 +2454,11 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 	}
 
 	// create admin user
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2514,7 +2514,7 @@ func TestAdminMiddlewareNoToken(t *testing.T) {
 func TestHTTPPingIncludesAccountCount(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -2535,17 +2535,17 @@ func TestHTTPAuditLogLifecycle(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create admin and authenticate
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
 	// perform an action (create another account) using admin token
-	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"alice","password":"pass","email":"a@b.com","phone":"555","real_name":"Alice","admin":false}`))
+	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"alice","password":"password1","email":"a@b.com","phone":"555","real_name":"Alice","admin":false}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -2596,11 +2596,11 @@ func TestHTTPAuditLogRequiresAdmin(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create non-admin user
-	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "user", "password1", "u@b.com", "555", "User", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "user", "pass")
+	resp, err := c.Authenticate(context.TODO(), "user", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2616,10 +2616,10 @@ func TestHTTPAuditLogPagination(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create admin
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
-	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2627,7 +2627,7 @@ func TestHTTPAuditLogPagination(t *testing.T) {
 	// perform multiple actions via authenticated requests
 	for i := 0; i < 5; i++ {
 		username := fmt.Sprintf("user%d", i)
-		body := fmt.Sprintf(`{"username":"%s","password":"pass","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
+		body := fmt.Sprintf(`{"username":"%s","password":"password1","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
 		req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(body))
 		if err != nil {
 			t.Fatalf("NewRequest: %v", err)
@@ -2680,10 +2680,10 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
 	// create user and authenticate
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
-	resp, err := c.Authenticate(context.TODO(), "alice", "pass")
+	resp, err := c.Authenticate(context.TODO(), "alice", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2719,11 +2719,11 @@ func TestHTTPAuditLogIncludesAuthRoutes(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
 	// create user and authenticate
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	if _, err := c.Authenticate(context.TODO(), "alice", "pass"); err != nil {
+	if _, err := c.Authenticate(context.TODO(), "alice", "password1"); err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
@@ -2776,11 +2776,11 @@ func TestHTTPRequireAuthAllowsAuthenticated(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create non-admin user and authenticate
-	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "user", "password1", "u@b.com", "555", "User", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "user", "pass")
+	resp, err := c.Authenticate(context.TODO(), "user", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -2841,7 +2841,7 @@ func TestHTTPCreateAccountBootstrap(t *testing.T) {
 	}
 
 	// No token set — bootstrap should allow account creation
-	acct, err := c.CreateAccount(context.TODO(), "first", "pass", "f@b.com", "555", "First", true)
+	acct, err := c.CreateAccount(context.TODO(), "first", "password1", "f@b.com", "555", "First", true)
 	if err != nil {
 		t.Fatalf("bootstrap CreateAccount: %v", err)
 	}
@@ -2856,7 +2856,7 @@ func TestHTTPCreateAccountRequiresAuthWhenAccountsExist(t *testing.T) {
 	// Clear the token — unauthenticated request
 	c.Token = ""
 
-	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"pass","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
+	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"password1","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -2881,17 +2881,17 @@ func TestHTTPCreateAccountNonAdminForbidden(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create non-admin user
-	if _, err := c.CreateAccount(context.TODO(), "user", "pass", "u@b.com", "555", "User", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "user", "password1", "u@b.com", "555", "User", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "user", "pass")
+	resp, err := c.Authenticate(context.TODO(), "user", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
 	// try to create account with non-admin token
-	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"pass","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
+	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"password1","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -2937,7 +2937,7 @@ func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
 
 	// all accounts disabled — bootstrap should allow unauthenticated create
 	c.Token = ""
-	acct, err := c.CreateAccount(context.TODO(), "newadmin", "pass", "n@b.com", "555", "New Admin", true)
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "n@b.com", "555", "New Admin", true)
 	if err != nil {
 		t.Fatalf("bootstrap CreateAccount after all disabled: %v", err)
 	}
@@ -2953,7 +2953,7 @@ func TestHTTPListAccountsSortByUsername(t *testing.T) {
 
 	// Create accounts in non-alphabetical order
 	for _, name := range []string{"charlie", "alice", "bob"} {
-		if _, err := c.CreateAccount(context.TODO(), name, "pass", fmt.Sprintf("%s@test.com", name), "555", name, false); err != nil {
+		if _, err := c.CreateAccount(context.TODO(), name, "password1", fmt.Sprintf("%s@test.com", name), "555", name, false); err != nil {
 			t.Fatalf("CreateAccount %q: %v", name, err)
 		}
 	}
@@ -2991,10 +2991,10 @@ func TestHTTPListAccountsSortByUsername(t *testing.T) {
 func TestHTTPListAccountsSortByAdmin(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "user1", "pass", "u1@test.com", "555", "User1", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "user1", "password1", "u1@test.com", "555", "User1", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
-	if _, err := c.CreateAccount(context.TODO(), "admin2", "pass", "a2@test.com", "555", "Admin2", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin2", "password1", "a2@test.com", "555", "Admin2", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -3013,7 +3013,7 @@ func TestHTTPListAccountsSortByAdmin(t *testing.T) {
 func TestHTTPListAccountsNoSort(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "alice", "pass", "a@test.com", "555", "Alice", false); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@test.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -3122,11 +3122,11 @@ func TestHTTPAuditLogSortByAccount(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
 	// create admin and authenticate
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -3179,11 +3179,11 @@ func TestHTTPAuditLogSortByIDASc(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create admin and authenticate
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -3191,7 +3191,7 @@ func TestHTTPAuditLogSortByIDASc(t *testing.T) {
 	// Perform a few actions to create audit entries
 	for i := 0; i < 3; i++ {
 		username := fmt.Sprintf("sortuser%d", i)
-		body := fmt.Sprintf(`{"username":"%s","password":"pass","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
+		body := fmt.Sprintf(`{"username":"%s","password":"password1","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
 		req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(body))
 		if err != nil {
 			t.Fatalf("NewRequest: %v", err)
@@ -4570,17 +4570,17 @@ func TestHTTPAuditDetailCaptured(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
 	// create admin
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	resp, err := c.Authenticate(context.TODO(), "admin", "pass")
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
 	// Disable a user - this should capture detail
-	_, _ = c.CreateAccount(context.TODO(), "user1", "pw", "u@b.com", "555", "User", false)
+	_, _ = c.CreateAccount(context.TODO(), "user1", "password1", "u@b.com", "555", "User", false)
 
 	// The disable call has a simple body: {"username":"user1"}
 	body := `{"username":"user1"}`
@@ -4622,7 +4622,7 @@ func TestHTTPAuditDetailRedactsPassword(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
 	// create admin
-	if _, err := c.CreateAccount(context.TODO(), "admin", "pass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -4633,7 +4633,7 @@ func TestHTTPAuditDetailRedactsPassword(t *testing.T) {
 
 	for _, e := range page.Entries {
 		if e.Action == "create account" {
-			if strings.Contains(e.Detail, "pass") {
+			if strings.Contains(e.Detail, "password1") {
 				t.Fatalf("expected detail to NOT contain password, got %q", e.Detail)
 			}
 			if !strings.Contains(e.Detail, "admin") {
@@ -4648,7 +4648,7 @@ func TestHTTPAuditDetailRedactsPassword(t *testing.T) {
 func TestHTTPAuditDetailValidJSON(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "admin", "secret", "admin@test.com", "555-1234", "Admin User", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "secret12", "admin@test.com", "555-1234", "Admin User", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
@@ -4685,11 +4685,11 @@ func TestHTTPAuditDetailValidJSON(t *testing.T) {
 func TestHTTPAuditDetailAuthenticateRedactsPassword(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
-	if _, err := c.CreateAccount(context.TODO(), "admin", "mypass", "a@b.com", "555", "Admin", true); err != nil {
+	if _, err := c.CreateAccount(context.TODO(), "admin", "mypass12", "a@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	if _, err := c.Authenticate(context.TODO(), "admin", "mypass"); err != nil {
+	if _, err := c.Authenticate(context.TODO(), "admin", "mypass12"); err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
@@ -4700,7 +4700,7 @@ func TestHTTPAuditDetailAuthenticateRedactsPassword(t *testing.T) {
 
 	for _, e := range page.Entries {
 		if e.Action == "authenticate" && e.Detail != "" {
-			if strings.Contains(e.Detail, "mypass") {
+			if strings.Contains(e.Detail, "mypass12") {
 				t.Fatalf("authenticate detail must not contain password, got %q", e.Detail)
 			}
 			if !strings.Contains(e.Detail, "admin") {

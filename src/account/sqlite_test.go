@@ -82,11 +82,11 @@ func TestCreateAccountAdmin(t *testing.T) {
 func TestCreateAccountDuplicate(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass1", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
 
-	_, err := mgr.Create("alice", "pass2", "c@d.com", "666", "Alice2", false)
+	_, err := mgr.Create("alice", "password2", "c@d.com", "666", "Alice2", false)
 	if err != ErrDuplicateUsername {
 		t.Fatalf("expected ErrDuplicateUsername, got %v", err)
 	}
@@ -108,7 +108,7 @@ func TestCreateAccountMissingContactInfo(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		_, err := mgr.Create("user-"+tt.name, "pass", tt.email, tt.phone, tt.realName, false)
+		_, err := mgr.Create("user-"+tt.name, "password1", tt.email, tt.phone, tt.realName, false)
 		if err != ErrMissingContactInfo {
 			t.Fatalf("%s: expected ErrMissingContactInfo, got %v", tt.name, err)
 		}
@@ -130,7 +130,7 @@ func TestCreateAccountInvalidEmail(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		_, err := mgr.Create("user-"+tt.name, "pass", tt.email, "555-1234", "Test", false)
+		_, err := mgr.Create("user-"+tt.name, "password1", tt.email, "555-1234", "Test", false)
 		if err != ErrInvalidEmail {
 			t.Fatalf("%s: expected ErrInvalidEmail, got %v", tt.name, err)
 		}
@@ -150,7 +150,7 @@ func TestCreateAccountInvalidPhone(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		_, err := mgr.Create("user-"+tt.name, "pass", "a@b.com", tt.phone, "Test", false)
+		_, err := mgr.Create("user-"+tt.name, "password1", "a@b.com", tt.phone, "Test", false)
 		if err != ErrInvalidPhone {
 			t.Fatalf("%s: expected ErrInvalidPhone, got %v", tt.name, err)
 		}
@@ -172,7 +172,7 @@ func TestCreateAccountValidPhoneFormats(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		_, err := mgr.Create("user-"+tt.name, "pass", "a@b.com", tt.phone, "Test", false)
+		_, err := mgr.Create("user-"+tt.name, "password1", "a@b.com", tt.phone, "Test", false)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", tt.name, err)
 		}
@@ -182,7 +182,7 @@ func TestCreateAccountValidPhoneFormats(t *testing.T) {
 func TestUpdateAccountInvalidEmail(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -196,7 +196,7 @@ func TestUpdateAccountInvalidEmail(t *testing.T) {
 func TestUpdateAccountInvalidPhone(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -212,7 +212,7 @@ func TestUpdateAccountInvalidPhone(t *testing.T) {
 func TestGetAccount(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -243,7 +243,7 @@ func TestGetAccountNotFound(t *testing.T) {
 func TestUpdateAccount(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -271,22 +271,22 @@ func TestUpdateAccount(t *testing.T) {
 func TestUpdateAccountPassword(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "oldpass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "oldpass12", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	newPass := "newpass"
+	newPass := "newpass12"
 	if _, err := mgr.Update("alice", UpdateFields{Password: &newPass}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
 	// old password should fail
-	if _, err := mgr.Authenticate("alice", "oldpass"); err != ErrInvalidCredentials {
+	if _, err := mgr.Authenticate("alice", "oldpass12"); err != ErrInvalidCredentials {
 		t.Fatalf("expected ErrInvalidCredentials with old password, got %v", err)
 	}
 
 	// new password should work
-	if _, err := mgr.Authenticate("alice", "newpass"); err != nil {
+	if _, err := mgr.Authenticate("alice", "newpass12"); err != nil {
 		t.Fatalf("Authenticate with new password: %v", err)
 	}
 }
@@ -304,7 +304,7 @@ func TestUpdateAccountNotFound(t *testing.T) {
 func TestUpdateAccountNoFields(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestUpdateAccountNoFields(t *testing.T) {
 func TestDisableAccount(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -352,7 +352,7 @@ func TestDisableAccountNotFound(t *testing.T) {
 func TestDisabledAccountCannotAuthenticate(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -360,7 +360,7 @@ func TestDisabledAccountCannotAuthenticate(t *testing.T) {
 		t.Fatalf("Disable: %v", err)
 	}
 
-	_, err := mgr.Authenticate("alice", "pass")
+	_, err := mgr.Authenticate("alice", "password1")
 	if err != ErrAccountDisabled {
 		t.Fatalf("expected ErrAccountDisabled, got %v", err)
 	}
@@ -371,10 +371,10 @@ func TestDisabledAccountCannotAuthenticate(t *testing.T) {
 func TestListAccounts(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.Create("alice", "pass", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create alice: %v", err)
 	}
-	if _, err := mgr.Create("bob", "pass", "b@b.com", "666", "Bob", true); err != nil {
+	if _, err := mgr.Create("bob", "password1", "b@b.com", "666", "Bob", true); err != nil {
 		t.Fatalf("Create bob: %v", err)
 	}
 
@@ -492,7 +492,7 @@ func TestAccountLifecycle(t *testing.T) {
 	mgr := initTestDB(t)
 
 	// Create
-	acct, err := mgr.Create("alice", "pass123", "alice@test.com", "555-1234", "Alice Smith", false)
+	acct, err := mgr.Create("alice", "pass1234", "alice@test.com", "555-1234", "Alice Smith", false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestAccountLifecycle(t *testing.T) {
 	}
 
 	// Authenticate
-	if _, err := mgr.Authenticate("alice", "pass123"); err != nil {
+	if _, err := mgr.Authenticate("alice", "pass1234"); err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
@@ -539,7 +539,7 @@ func TestAccountLifecycle(t *testing.T) {
 	}
 
 	// Verify cannot authenticate
-	_, err = mgr.Authenticate("alice", "pass123")
+	_, err = mgr.Authenticate("alice", "pass1234")
 	if err != ErrAccountDisabled {
 		t.Fatalf("expected ErrAccountDisabled, got %v", err)
 	}

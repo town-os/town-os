@@ -119,6 +119,10 @@ type DisableAccountRequest struct {
 	Username string `json:"username"`
 }
 
+type EnableAccountRequest struct {
+	Username string `json:"username"`
+}
+
 type AuthenticateRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -703,6 +707,22 @@ func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 	return nil
 }
 
+func (s *SystemControllerHandlers) enableAccount(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := EnableAccountRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if err := s.Controller.GetAccountManager().Enable(req.Username); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
 func (s *SystemControllerHandlers) listAccounts(c *echo.Context) error {
 	accounts, err := s.Controller.GetAccountManager().List()
 	if err != nil {
@@ -1086,6 +1106,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)
 	e.Add("POST", "/account/disable", s.disableAccount, s.requireAdmin)
+	e.Add("POST", "/account/enable", s.enableAccount, s.requireAdmin)
 	e.Add("POST", "/audit/log", s.listAuditLog, s.requireAdmin)
 }
 

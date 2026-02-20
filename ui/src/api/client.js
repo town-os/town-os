@@ -456,6 +456,14 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} username
+   * @returns {Promise<void>}
+   */
+  async enableAccount(username) {
+    await this.post('/account/enable', { username })
+  }
+
+  /**
    * @param {AuditListOptions} opts
    * @returns {Promise<AuditPage>}
    */

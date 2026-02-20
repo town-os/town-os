@@ -47,6 +47,7 @@ type MockClient struct {
 	GetAcctErr         error
 	UpdateAcctErr      error
 	DisableAcctErr     error
+	EnableAcctErr      error
 	ListAcctErr        error
 	AuthenticateErr    error
 	RevokeSessionErr   error
@@ -508,6 +509,23 @@ func (m *MockClient) DisableAccount(_ context.Context, username string) error {
 		return fmt.Errorf("account %s not found", username)
 	}
 	acct.Disabled = true
+	return nil
+}
+
+func (m *MockClient) EnableAccount(_ context.Context, username string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "EnableAccount", Args: []any{username}})
+
+	if m.EnableAcctErr != nil {
+		return m.EnableAcctErr
+	}
+
+	acct, ok := m.Accounts[username]
+	if !ok {
+		return fmt.Errorf("account %s not found", username)
+	}
+	acct.Disabled = false
 	return nil
 }
 

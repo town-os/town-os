@@ -47,6 +47,7 @@ type Client interface {
 	GetAccount(ctx context.Context, username string) (*account.Account, error)
 	UpdateAccount(ctx context.Context, username string, fields account.UpdateFields) (*account.Account, error)
 	DisableAccount(ctx context.Context, username string) error
+	EnableAccount(ctx context.Context, username string) error
 	ListAccounts(ctx context.Context, sortBy, sortOrder string) ([]account.Account, error)
 	Authenticate(ctx context.Context, username, password string) (*AuthenticateResponse, error)
 	RevokeSession(ctx context.Context, sessionID string) error
@@ -526,6 +527,13 @@ func (c *SystemdClient) DisableAccount(ctx context.Context, username string) err
 	go pipeEncode(pw, DisableAccountRequest{Username: username})
 
 	return c.postClient(ctx, "account/disable", pr)
+}
+
+func (c *SystemdClient) EnableAccount(ctx context.Context, username string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, EnableAccountRequest{Username: username})
+
+	return c.postClient(ctx, "account/enable", pr)
 }
 
 func (c *SystemdClient) ListAccounts(ctx context.Context, sortBy, sortOrder string) (_ []account.Account, err error) {

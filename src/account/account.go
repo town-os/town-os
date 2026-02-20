@@ -15,6 +15,7 @@ var (
 	ErrAccountDisabled    = errors.New("account is disabled")
 	ErrInvalidEmail       = errors.New("invalid email address")
 	ErrInvalidPhone       = errors.New("invalid phone number")
+	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
 )
 
 var emailRegexp = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -45,6 +46,7 @@ type Manager interface {
 	Get(username string) (*Account, error)
 	Update(username string, fields UpdateFields) (*Account, error)
 	Disable(username string) error
+	Enable(username string) error
 	List() ([]Account, error)
 	Authenticate(username, password string) (*Account, error)
 }
@@ -63,6 +65,13 @@ func validatePhone(phone string) error {
 	return nil
 }
 
+func validatePassword(password string) error {
+	if len(password) < 8 {
+		return ErrPasswordTooShort
+	}
+	return nil
+}
+
 func validateContactInfo(email, phone, realName string) error {
 	if strings.TrimSpace(email) == "" || strings.TrimSpace(phone) == "" || strings.TrimSpace(realName) == "" {
 		return ErrMissingContactInfo
@@ -77,6 +86,11 @@ func validateContactInfo(email, phone, realName string) error {
 }
 
 func validateUpdateFields(fields UpdateFields) error {
+	if fields.Password != nil {
+		if err := validatePassword(*fields.Password); err != nil {
+			return err
+		}
+	}
 	if fields.Email != nil {
 		if err := validateEmail(*fields.Email); err != nil {
 			return err
