@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/containerd/btrfs/v2"
 )
 
 var ErrNoFilesystem = errors.New("invalid filesystem")
@@ -16,6 +14,11 @@ var ErrInvalidName = errors.New("invalid filesystem name")
 type Filesystem struct {
 	Name  string `json:"name"`
 	Quota uint64 `json:"quota"`
+}
+
+type SubvolInfo struct {
+	Name string
+	ID   uint64
 }
 
 type Storage interface {
@@ -31,10 +34,12 @@ type Controller interface {
 	SubvolDelete(string) error
 	SubvolID(string) (uint64, error)
 	SubvolSnapshot(string, string, bool) error
-	SubvolInfo(string) (btrfs.Info, error)
-	SubvolList(string) ([]btrfs.Info, error)
+	SubvolInfo(string) (SubvolInfo, error)
+	SubvolList(string) ([]SubvolInfo, error)
 	SubvolRename(oldPath, newPath string) error
+	QuotaEnable(path string) error
 	QGroupLimit(path string, bytes uint64) error
+	QGroupShow(path string) (uint64, error)
 }
 
 // ValidateFilesystemName checks that a name is a valid unix path component

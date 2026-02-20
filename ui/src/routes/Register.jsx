@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { toast } from 'sonner'
 
 export default function Register() {
   useEffect(() => { document.title = 'Town OS - Register' }, [])
@@ -69,7 +70,7 @@ export default function Register() {
 
       navigate('/dashboard')
     } catch (err) {
-      setError(err.message || 'Failed to create account')
+      toast.error(err.message || 'Failed to create account')
     } finally {
       setLoading(false)
     }
@@ -80,7 +81,7 @@ export default function Register() {
       <div className="w-full max-w-md space-y-4">
       {bootstrap && (
         <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight">Welcome to town-os</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Welcome to Town OS</h1>
           <p className="text-muted-foreground">
             No accounts exist yet. Create an administrator account to get started.
           </p>
@@ -89,7 +90,7 @@ export default function Register() {
       <Card>
         <CardHeader>
           <CardTitle>Create Account</CardTitle>
-          <CardDescription>Set up a new town-os account</CardDescription>
+          <CardDescription>Set up a new Town OS account</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">

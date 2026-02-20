@@ -8,7 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -23,8 +28,6 @@ export default function UserManagement() {
   const [editDialog, setEditDialog] = useState({ open: false })
   const [statusConfirm, setStatusConfirm] = useState(null)
   const [adminConfirm, setAdminConfirm] = useState(null)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('username')
@@ -42,16 +45,14 @@ export default function UserManagement() {
 
   async function handleUpdate(e) {
     e.preventDefault()
-    setError(null)
-    setSuccess(null)
     const form = e.target.elements
 
     if (form.password.value && form.password.value.length < 8) {
-      setError('Password must be at least 8 characters')
+      toast.error('Password must be at least 8 characters')
       return
     }
     if (form.password.value && form.password.value !== form.password2.value) {
-      setError('Passwords do not match')
+      toast.error('Passwords do not match')
       return
     }
 
@@ -63,42 +64,40 @@ export default function UserManagement() {
 
     try {
       await getClient().updateAccount(editDialog.username, fields)
-      setSuccess(`User "${editDialog.username}" updated`)
+      toast.success(`User "${editDialog.username}" updated`)
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
     }
   }
 
   async function handleStatusToggle() {
-    setError(null)
     try {
       if (statusConfirm.disabled) {
         await getClient().enableAccount(statusConfirm.username)
-        setSuccess(`User "${statusConfirm.username}" activated`)
+        toast.success(`User "${statusConfirm.username}" activated`)
       } else {
         await getClient().disableAccount(statusConfirm.username)
-        setSuccess(`User "${statusConfirm.username}" deactivated`)
+        toast.success(`User "${statusConfirm.username}" deactivated`)
       }
       setStatusConfirm(null)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
       setStatusConfirm(null)
     }
   }
 
   async function handleAdminToggle() {
-    setError(null)
     try {
       const newAdmin = !adminConfirm.admin
       await getClient().updateAccount(adminConfirm.username, { admin: newAdmin })
-      setSuccess(`User "${adminConfirm.username}" ${newAdmin ? 'promoted to admin' : 'demoted to user'}`)
+      toast.success(`User "${adminConfirm.username}" ${newAdmin ? 'promoted to admin' : 'demoted to user'}`)
       setAdminConfirm(null)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
       setAdminConfirm(null)
     }
   }
@@ -112,26 +111,40 @@ export default function UserManagement() {
       key: 'admin',
       label: 'Role',
       transform: (v, row) => (
-        <Badge
-          variant={v ? 'default' : 'secondary'}
-          className="cursor-pointer select-none"
-          onClick={() => setAdminConfirm(row)}
-        >
-          {v ? 'Admin' : 'User'}
-        </Badge>
+        <Tooltip>
+          <TooltipTrigger>
+            <Badge
+              variant={v ? 'default' : 'secondary'}
+              className="cursor-pointer select-none"
+              onClick={() => setAdminConfirm(row)}
+            >
+              {v ? 'Admin' : 'User'}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            Click to {v ? 'demote to user' : 'promote to admin'}
+          </TooltipContent>
+        </Tooltip>
       ),
     },
     {
       key: 'disabled',
       label: 'Status',
       transform: (v, row) => (
-        <Badge
-          variant={v ? 'destructive' : 'outline'}
-          className={`cursor-pointer select-none ${v ? 'opacity-70' : ''}`}
-          onClick={() => setStatusConfirm(row)}
-        >
-          {v ? 'Disabled' : 'Active'}
-        </Badge>
+        <Tooltip>
+          <TooltipTrigger>
+            <Badge
+              variant={v ? 'destructive' : 'outline'}
+              className={`cursor-pointer select-none ${v ? 'opacity-70' : ''}`}
+              onClick={() => setStatusConfirm(row)}
+            >
+              {v ? 'Disabled' : 'Active'}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            Click to {v ? 'activate' : 'deactivate'}
+          </TooltipContent>
+        </Tooltip>
       ),
     },
     {
@@ -164,17 +177,6 @@ export default function UserManagement() {
           </Link>
         </Button>
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {loading && accounts.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>

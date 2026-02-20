@@ -4,6 +4,7 @@ import {
   Route,
 } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { Toaster } from '@/components/ui/sonner'
 import Dashboard from '@/components/layout/Dashboard.jsx'
 import Login from '@/routes/Login.jsx'
 import Register from '@/routes/Register.jsx'
@@ -23,6 +24,7 @@ function DashboardRoute({ children }) {
 export default function App() {
   return (
     <TooltipProvider>
+      <Toaster />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Login />} />

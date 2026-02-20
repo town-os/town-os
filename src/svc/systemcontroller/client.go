@@ -141,7 +141,7 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 	}()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("%w: POST %s: status %d", ErrUnsuccessfulStatus, path, resp.StatusCode)
+		return readProblemDetail(resp, "POST", path)
 	}
 
 	return nil
@@ -206,7 +206,7 @@ func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string) (_ [
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListFilesystems: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "storage")
 	}
 
 	fs := []storage.Filesystem{}
@@ -239,7 +239,7 @@ func (c *SystemdClient) RefreshRepositories(ctx context.Context) (_ map[string]s
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: RefreshRepositories: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "repository/refresh")
 	}
 
 	var errs map[string]string
@@ -260,7 +260,7 @@ func (c *SystemdClient) ListRepositories(ctx context.Context, params ListParams)
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListRepositories: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "GET", "repository")
 	}
 
 	var page PageResult[RepositoryInfo]
@@ -279,7 +279,7 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListPackages: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "GET", "packages")
 	}
 
 	var page PageResult[string]
@@ -299,7 +299,7 @@ func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: GetPackageQuestions: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "packages/questions")
 	}
 
 	var questions map[string]packages.Question
@@ -332,7 +332,7 @@ func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListInstalled: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "GET", "packages/installed")
 	}
 
 	var page PageResult[string]
@@ -352,7 +352,7 @@ func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) 
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: GetResponses: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "packages/responses")
 	}
 
 	var responses packages.Responses
@@ -371,7 +371,7 @@ func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *Pa
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListUnits: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "GET", "systemd/units")
 	}
 
 	var page PageResult[systemd.UnitStatus]
@@ -392,10 +392,7 @@ func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan sy
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, errors.Join(
-			fmt.Errorf("%w: LogReplay: status %d", ErrUnsuccessfulStatus, resp.StatusCode),
-			resp.Body.Close(),
-		)
+		return nil, readProblemDetailAndClose(resp, "GET", "systemd/logs")
 	}
 
 	ch := make(chan systemd.JournalEntry)
@@ -450,7 +447,7 @@ func (c *SystemdClient) LogTail(ctx context.Context, p systemd.LogTailParams) (_
 	}()
 
 	if resp.StatusCode != 200 {
-		return systemd.LogTailResult{}, fmt.Errorf("%w: LogTail: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return systemd.LogTailResult{}, readProblemDetail(resp, "GET", "systemd/logs/tail")
 	}
 
 	var result systemd.LogTailResult
@@ -475,7 +472,7 @@ func (c *SystemdClient) CreateAccount(ctx context.Context, username, password, e
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: CreateAccount: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "account/create")
 	}
 
 	var acct account.Account
@@ -495,7 +492,7 @@ func (c *SystemdClient) GetAccount(ctx context.Context, username string) (_ *acc
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: GetAccount: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "account")
 	}
 
 	var acct account.Account
@@ -515,7 +512,7 @@ func (c *SystemdClient) UpdateAccount(ctx context.Context, username string, fiel
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: UpdateAccount: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "account/update")
 	}
 
 	var acct account.Account
@@ -546,7 +543,7 @@ func (c *SystemdClient) ListAccounts(ctx context.Context, sortBy, sortOrder stri
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListAccounts: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "GET", "account")
 	}
 
 	var accounts []account.Account
@@ -566,7 +563,7 @@ func (c *SystemdClient) Authenticate(ctx context.Context, username, password str
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: Authenticate: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "account/authenticate")
 	}
 
 	var authResp AuthenticateResponse
@@ -596,7 +593,7 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListSessions: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "GET", "account/sessions")
 	}
 
 	var sessions []account.Session
@@ -619,7 +616,7 @@ func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ st
 	}()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("%w: SessionUsername: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return "", readProblemDetail(resp, "GET", "/account/me")
 	}
 
 	var result SessionUsernameResponse
@@ -651,7 +648,7 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: ListAuditLog: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "POST", "audit/log")
 	}
 
 	var page account.AuditPage
@@ -670,7 +667,7 @@ func (c *SystemdClient) Ping(ctx context.Context) (_ *PingResponse, err error) {
 	}()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: Ping: status %d", ErrUnsuccessfulStatus, resp.StatusCode)
+		return nil, readProblemDetail(resp, "GET", "status/ping")
 	}
 
 	var ping PingResponse

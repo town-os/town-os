@@ -161,18 +161,19 @@ export default function DataTable({
               {columns.map((col) => (
                 <TableHead
                   key={col.key}
-                  className={
+                  className={[
                     col.sortable !== false && onSortChange
                       ? 'cursor-pointer select-none'
-                      : ''
-                  }
+                      : '',
+                    col.className || '',
+                  ].filter(Boolean).join(' ')}
                   onClick={() =>
                     col.sortable !== false &&
                     onSortChange &&
                     toggleSort(col.key)
                   }
                 >
-                  <div className="flex items-center gap-1">
+                  <div className={`flex items-center gap-1${col.className?.includes('text-right') ? ' justify-end' : ''}`}>
                     {col.label}
                     {sortKey === col.key && (
                       col.sortValues
@@ -200,7 +201,7 @@ export default function DataTable({
               displayed.map((row, i) => (
                 <TableRow key={row[entryKey] ?? i}>
                   {columns.map((col) => (
-                    <TableCell key={col.key}>
+                    <TableCell key={col.key} className={col.className}>
                       {col.transform
                         ? col.transform(row[col.key], row)
                         : row[col.key]}

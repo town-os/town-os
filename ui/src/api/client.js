@@ -8,11 +8,49 @@ export class ApiError extends Error {
    * @param {string} body
    */
   constructor(method, path, status, body) {
-    super(`${method} ${path}: status ${status}: ${body}`)
+    const detail = ApiError.parseDetail(body)
+    const displayDetail = detail || `status ${status}`
+    super(`${method} ${path}: ${displayDetail}`)
     this.name = 'ApiError'
     this.status = status
     this.path = path
     this.body = body
+    this.detail = detail
+    this.problem = ApiError.parseProblem(body)
+  }
+
+  /**
+   * Extract human-readable detail from a response body.
+   * Tries RFC 9457 problem+json first, then legacy echo format.
+   * @param {string} body
+   * @returns {string}
+   */
+  static parseDetail(body) {
+    if (!body) return ''
+    try {
+      const parsed = JSON.parse(body)
+      if (parsed.detail) return parsed.detail
+      if (parsed.message) return parsed.message
+    } catch {
+      // not JSON
+    }
+    return body
+  }
+
+  /**
+   * Parse as RFC 9457 problem detail object if valid.
+   * @param {string} body
+   * @returns {object|null}
+   */
+  static parseProblem(body) {
+    if (!body) return null
+    try {
+      const parsed = JSON.parse(body)
+      if (parsed.type && typeof parsed.status === 'number') return parsed
+    } catch {
+      // not JSON
+    }
+    return null
   }
 }
 

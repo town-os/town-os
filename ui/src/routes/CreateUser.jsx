@@ -11,25 +11,22 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { toast } from 'sonner'
 
 export default function CreateUser() {
   useEffect(() => { document.title = 'Town OS - Create User' }, [])
-  const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setError(null)
-
     const form = e.target.elements
     if (form.password.value.length < 8) {
-      setError('Password must be at least 8 characters')
+      toast.error('Password must be at least 8 characters')
       return
     }
     if (form.password.value !== form.password2.value) {
-      setError('Passwords do not match')
+      toast.error('Passwords do not match')
       return
     }
 
@@ -45,7 +42,7 @@ export default function CreateUser() {
       )
       navigate('/dashboard/users')
     } catch (err) {
-      setError(err.message || 'Failed to create user')
+      toast.error(err.message || 'Failed to create user')
     } finally {
       setLoading(false)
     }
@@ -59,11 +56,6 @@ export default function CreateUser() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
               <Input id="username" name="username" required autoFocus />

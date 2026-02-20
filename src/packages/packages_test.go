@@ -210,8 +210,7 @@ func TestPackageCompile(t *testing.T) {
 				Questions:   map[string]Question{},
 			},
 			output: Package{
-				// FIXME: this should expand to a full image url
-				Image:       "debian:latest",
+				Image:       "docker.io/library/debian:latest",
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
 				Volumes:     map[string]PackageVolume{},
@@ -221,26 +220,23 @@ func TestPackageCompile(t *testing.T) {
 		},
 		"basic-template": {
 			input: InputPackage{
-				Image:       "debian:@tag@",
+				Image:       "debian:latest",
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
 				Volumes:     map[string]PackageVolume{},
 				Questions: map[string]Question{
-					"tag":      {Query: "What tag should I use?"},
 					"name":     {Query: "Who should I say hello to?"},
 					"external": {Query: "What port to forward?", Type: Port},
 					"internal": {Query: "What port to use internally?", Type: Port},
 				},
 			},
 			output: Package{
-				// FIXME: this should expand to a full image url
-				Image:       "debian:latest",
+				Image:       "docker.io/library/debian:latest",
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
 				Volumes:     map[string]PackageVolume{},
 			},
 			responses: Responses{
-				"tag":      "latest",
 				"name":     "scarlett",
 				"external": "80",
 				"internal": "128",
@@ -249,26 +245,18 @@ func TestPackageCompile(t *testing.T) {
 		},
 		"template-errors": {
 			input: InputPackage{
-				Image:       "debian:@tag@",
+				Image:       "debian:latest",
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
 				Volumes:     map[string]PackageVolume{},
 				Questions: map[string]Question{
-					"tag":      {Query: "What tag should I use?"},
 					"name":     {Query: "Who should I say hello to?"},
 					"external": {Query: "What port to forward?", Type: Port},
 					"internal": {Query: "What port to use internally?", Type: Port},
 				},
 			},
-			output: Package{
-				// FIXME: this should expand to a full image url
-				Image:       "debian:latest",
-				Environment: map[string]string{"HELLO": "scarlett"},
-				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
-				Volumes:     map[string]PackageVolume{},
-			},
+			output: Package{},
 			responses: Responses{
-				"tag":      "latest",
 				"name":     "scarlett",
 				"external": "-80",
 				"internal": "128",
@@ -324,6 +312,9 @@ func TestPackageCompileAdditional(t *testing.T) {
 		}
 		if p.Volumes["data"].Mountpoint != "/mnt/mydata" {
 			t.Fatalf("expected /mnt/mydata, got %s", p.Volumes["data"].Mountpoint)
+		}
+		if p.Image != "docker.io/library/debian:latest" {
+			t.Fatalf("expected normalized image, got %s", p.Image)
 		}
 	})
 

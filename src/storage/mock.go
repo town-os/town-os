@@ -3,8 +3,6 @@ package storage
 import (
 	"strings"
 	"sync"
-
-	"github.com/containerd/btrfs/v2"
 )
 
 /*
@@ -23,12 +21,12 @@ type MockBtrFSController struct {
 	Lock        *sync.Mutex
 	Call        []Call
 	NextID      uint64
-	Filesystems []btrfs.Info
+	Filesystems []SubvolInfo
 	Quotas      map[string]uint64
 }
 
 func InitBtrFSMockController() *MockBtrFSController {
-	return &MockBtrFSController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []btrfs.Info{}, NextID: 0, Quotas: map[string]uint64{}}
+	return &MockBtrFSController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []SubvolInfo{}, NextID: 0, Quotas: map[string]uint64{}}
 }
 
 func (m *MockBtrFSController) GetLog() []Call {
@@ -37,7 +35,7 @@ func (m *MockBtrFSController) GetLog() []Call {
 	return m.Call
 }
 
-func (m *MockBtrFSController) GetFilesystems() []btrfs.Info {
+func (m *MockBtrFSController) GetFilesystems() []SubvolInfo {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
 	return m.Filesystems
@@ -49,11 +47,11 @@ func (m *MockBtrFSController) addCallLocked(op string, err error, args ...any) {
 
 func (m *MockBtrFSController) addFilesystemLocked(name string) {
 	m.NextID += 1
-	m.Filesystems = append(m.Filesystems, btrfs.Info{Name: name, ID: m.NextID})
+	m.Filesystems = append(m.Filesystems, SubvolInfo{Name: name, ID: m.NextID})
 }
 
 func (m *MockBtrFSController) removeFilesystemLocked(name string) {
-	fs := []btrfs.Info{}
+	fs := []SubvolInfo{}
 
 	for _, f := range m.Filesystems {
 		if f.Name != name {
@@ -120,17 +118,17 @@ func (m *MockBtrFSController) SubvolID(name string) (uint64, error) {
 	return info.ID, err
 }
 
-func (m *MockBtrFSController) subvolInfoLocked(name string) (btrfs.Info, error) {
+func (m *MockBtrFSController) subvolInfoLocked(name string) (SubvolInfo, error) {
 	for _, fs := range m.Filesystems {
 		if fs.Name == name {
 			return fs, nil
 		}
 	}
 
-	return btrfs.Info{}, ErrNoFilesystem
+	return SubvolInfo{}, ErrNoFilesystem
 }
 
-func (m *MockBtrFSController) SubvolInfo(name string) (btrfs.Info, error) {
+func (m *MockBtrFSController) SubvolInfo(name string) (SubvolInfo, error) {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
 
@@ -147,8 +145,8 @@ func (m *MockBtrFSController) SubvolSnapshot(dst, src string, readonly bool) err
 	return nil
 }
 
-func (m *MockBtrFSController) subvolListLocked(name string) []btrfs.Info {
-	info := []btrfs.Info{}
+func (m *MockBtrFSController) subvolListLocked(name string) []SubvolInfo {
+	info := []SubvolInfo{}
 
 	for _, fs := range m.Filesystems {
 		if strings.HasPrefix(fs.Name, name) {
@@ -159,7 +157,7 @@ func (m *MockBtrFSController) subvolListLocked(name string) []btrfs.Info {
 	return info
 }
 
-func (m *MockBtrFSController) SubvolList(name string) ([]btrfs.Info, error) {
+func (m *MockBtrFSController) SubvolList(name string) ([]SubvolInfo, error) {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
 
@@ -191,6 +189,23 @@ func (m *MockBtrFSController) SubvolRename(oldPath, newPath string) error {
 
 	m.addCallLocked("SubvolRename", err, oldPath, newPath)
 	return err
+}
+
+func (m *MockBtrFSController) QuotaEnable(path string) error {
+	m.Lock.Lock()
+	defer m.Lock.Unlock()
+
+	m.addCallLocked("QuotaEnable", nil, path)
+	return nil
+}
+
+func (m *MockBtrFSController) QGroupShow(path string) (uint64, error) {
+	m.Lock.Lock()
+	defer m.Lock.Unlock()
+
+	val := m.Quotas[path]
+	m.addCallLocked("QGroupShow", nil, path)
+	return val, nil
 }
 
 func (m *MockBtrFSController) QGroupLimit(path string, bytes uint64) error {

@@ -183,7 +183,7 @@ func TestSystemControllerListPrefix(t *testing.T) {
 	}
 }
 
-func TestSystemControllerModifyUnimplemented(t *testing.T) {
+func TestSystemControllerModifyFilesystem(t *testing.T) {
 	c := initSystemControllerTest(t)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-modify"}); err != nil {
@@ -195,9 +195,8 @@ func TestSystemControllerModifyUnimplemented(t *testing.T) {
 		}
 	})
 
-	err := c.ModifyFilesystem(context.TODO(), "sc-modify", storage.Filesystem{Name: "sc-modify", Quota: 1024})
-	if err == nil {
-		t.Fatal("expected error from unimplemented ModifyFilesystem")
+	if err := c.ModifyFilesystem(context.TODO(), "sc-modify", storage.Filesystem{Name: "sc-modify", Quota: 1024}); err != nil {
+		t.Fatalf("ModifyFilesystem: %v", err)
 	}
 }
 

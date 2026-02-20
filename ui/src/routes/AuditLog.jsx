@@ -4,6 +4,7 @@ import { usePolling } from '@/lib/hooks.js'
 import { JsonTree } from '@/lib/json-tree.jsx'
 import DataTable from '@/components/DataTable.jsx'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Check, CircleAlert, FileText } from 'lucide-react'
 import {
   Dialog,
@@ -20,6 +21,44 @@ function formatTime(ts) {
   return d.toLocaleString()
 }
 
+function parseErrorDetail(raw) {
+  if (!raw) return { message: 'Unknown error' }
+  // Echo error format: "code=401, message=invalid credentials"
+  const echoMatch = raw.match(/^code=(\d+),\s*message=(.+)$/)
+  if (echoMatch) {
+    return { status: parseInt(echoMatch[1], 10), message: echoMatch[2] }
+  }
+  return { message: raw }
+}
+
+function ErrorDetail({ row }) {
+  const parsed = parseErrorDetail(row.error)
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-destructive/20 bg-destructive/10">
+        <CircleAlert className="h-4 w-4 text-destructive shrink-0" />
+        <span className="font-medium text-destructive text-sm">
+          {row.action || row.path || 'Request'} failed
+        </span>
+        {parsed.status && (
+          <Badge variant="destructive" className="ml-auto font-mono text-xs">
+            {parsed.status}
+          </Badge>
+        )}
+      </div>
+      <div className="px-4 py-3 space-y-2">
+        <p className="text-sm">{parsed.message}</p>
+        {(row.path || row.account) && (
+          <div className="flex gap-4 text-xs text-muted-foreground pt-1">
+            {row.path && <span className="font-mono">{row.path}</span>}
+            {row.account && <span>{row.account}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function AuditLog() {
   useEffect(() => { document.title = 'Town OS - Audit Log' }, [])
   const [page, setPage] = useState(0)
@@ -29,7 +68,7 @@ export default function AuditLog() {
   const [detailData, setDetailData] = useState('')
   const [detailAction, setDetailAction] = useState('')
   const [errorOpen, setErrorOpen] = useState(false)
-  const [errorMessage, setErrorMessage] = useState('')
+  const [errorRow, setErrorRow] = useState(null)
 
   const [auditData, , auditLoading] = usePolling(
     () =>
@@ -111,7 +150,7 @@ export default function AuditLog() {
           <CircleAlert
             className="h-4 w-4 text-destructive cursor-pointer"
             onClick={() => {
-              setErrorMessage(row.error || 'Unknown error')
+              setErrorRow(row)
               setErrorOpen(true)
             }}
           />
@@ -157,16 +196,14 @@ export default function AuditLog() {
       </Dialog>
 
       <Dialog open={errorOpen} onOpenChange={setErrorOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[70vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CircleAlert className="h-4 w-4 text-destructive" />
               Error
             </DialogTitle>
           </DialogHeader>
-          <div className="rounded border bg-muted p-3 break-words whitespace-pre-wrap font-mono text-sm">
-            {errorMessage}
-          </div>
+          {errorRow && <ErrorDetail row={errorRow} />}
         </DialogContent>
       </Dialog>
     </div>

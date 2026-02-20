@@ -496,12 +496,31 @@ func TestModifyFilesystemClearQuota(t *testing.T) {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 
+	callsBefore := len(controller.GetLog())
+
 	if err := mock.ModifyFilesystem("vol", Filesystem{Name: "vol", Quota: 0}); err != nil {
 		t.Fatalf("ModifyFilesystem clear quota: %v", err)
 	}
 
-	if _, ok := controller.Quotas["vol"]; ok {
-		t.Fatal("expected quota to be cleared")
+	calls := controller.GetLog()[callsBefore:]
+	foundQGroupShow := false
+	foundQGroupLimit := false
+	for _, c := range calls {
+		if c.Operation == "QGroupShow" {
+			foundQGroupShow = true
+		}
+		if c.Operation == "QGroupLimit" {
+			foundQGroupLimit = true
+			if c.Arguments[1] != uint64(0) {
+				t.Fatalf("expected QGroupLimit called with 0, got %v", c.Arguments[1])
+			}
+		}
+	}
+	if !foundQGroupShow {
+		t.Fatal("expected QGroupShow call when clearing quota")
+	}
+	if !foundQGroupLimit {
+		t.Fatal("expected QGroupLimit call with 0 when clearing quota")
 	}
 }
 
@@ -531,5 +550,122 @@ func TestCreateFilesystemWithQuota(t *testing.T) {
 
 	if controller.Quotas["vol"] != 8192 {
 		t.Fatalf("expected quota 8192, got %d", controller.Quotas["vol"])
+	}
+}
+
+func TestMockQGroupShow(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolCreate("vol"); err != nil {
+		t.Fatalf("SubvolCreate: %v", err)
+	}
+
+	if err := mock.QGroupLimit("vol", 4096); err != nil {
+		t.Fatalf("QGroupLimit: %v", err)
+	}
+
+	val, err := mock.QGroupShow("vol")
+	if err != nil {
+		t.Fatalf("QGroupShow: %v", err)
+	}
+	if val != 4096 {
+		t.Fatalf("expected 4096, got %d", val)
+	}
+
+	val, err = mock.QGroupShow("nonexistent")
+	if err != nil {
+		t.Fatalf("QGroupShow nonexistent: %v", err)
+	}
+	if val != 0 {
+		t.Fatalf("expected 0 for missing, got %d", val)
+	}
+}
+
+func TestListFilesystemsReturnsQuota(t *testing.T) {
+	mock := InitBtrFSMock()
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "vol", Quota: 2048}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	fs, err := mock.ListFilesystems("")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(fs))
+	}
+
+	if fs[0].Quota != 2048 {
+		t.Fatalf("expected quota 2048, got %d", fs[0].Quota)
+	}
+}
+
+func TestCreateFilesystemNestedPath(t *testing.T) {
+	mock := InitBtrFSMock()
+	controller := mock.Controller.(*MockBtrFSController)
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "a/b/c"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	// All 3 subvolumes should exist
+	if err := controller.IsSubvolume("a"); err != nil {
+		t.Fatalf("expected intermediate 'a' to exist: %v", err)
+	}
+	if err := controller.IsSubvolume("a/b"); err != nil {
+		t.Fatalf("expected intermediate 'a/b' to exist: %v", err)
+	}
+	if err := controller.IsSubvolume("a/b/c"); err != nil {
+		t.Fatalf("expected leaf 'a/b/c' to exist: %v", err)
+	}
+}
+
+func TestCreateFilesystemNestedPartialExists(t *testing.T) {
+	mock := InitBtrFSMock()
+	controller := mock.Controller.(*MockBtrFSController)
+
+	// Pre-create 'a'
+	if err := controller.SubvolCreate("a"); err != nil {
+		t.Fatalf("SubvolCreate a: %v", err)
+	}
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "a/b/c"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	// Count SubvolCreate calls — 'a' was pre-created, so only 'a/b' and 'a/b/c' should be new
+	createCount := 0
+	for _, c := range controller.GetLog() {
+		if c.Operation == "SubvolCreate" {
+			createCount++
+		}
+	}
+	// 1 for pre-create of 'a', 1 for 'a/b', 1 for 'a/b/c' = 3
+	if createCount != 3 {
+		t.Fatalf("expected 3 SubvolCreate calls (1 pre-create + 2 new), got %d", createCount)
+	}
+}
+
+func TestCreateFilesystemNestedQuotaOnlyOnLeaf(t *testing.T) {
+	mock := InitBtrFSMock()
+	controller := mock.Controller.(*MockBtrFSController)
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "a/b/c", Quota: 1024}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	// Quota should only be on the leaf
+	if controller.Quotas["a/b/c"] != 1024 {
+		t.Fatalf("expected quota 1024 on leaf, got %d", controller.Quotas["a/b/c"])
+	}
+
+	if _, ok := controller.Quotas["a"]; ok {
+		t.Fatal("intermediate 'a' should not have quota")
+	}
+
+	if _, ok := controller.Quotas["a/b"]; ok {
+		t.Fatal("intermediate 'a/b' should not have quota")
 	}
 }

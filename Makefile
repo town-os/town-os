@@ -8,7 +8,7 @@ PODMAN_CONTAINER := town-os-test
 
 test: lint
 	go test -v ./src/...
-	cd ui && bun run test
+	cd ui && bun install && bun run test
 
 PODMAN_UI_IMAGE := town-os-ui-integration
 PODMAN_UI_CONTAINER := town-os-ui-integration
@@ -130,7 +130,7 @@ dev: test-image dev-btrfs
 		-v $$(pwd)/dev-data:/data/db:z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "API server: http://$$(hostname):5309"
-	cd ui && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
+	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
 dev-clean: dev-stop clean-btrfs-dev

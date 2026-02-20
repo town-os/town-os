@@ -794,7 +794,7 @@ func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {
 
 	acct, err := s.Controller.GetAccountManager().Authenticate(req.Username, req.Password)
 	if err != nil {
-		return err
+		return echo.NewHTTPError(401, err.Error())
 	}
 
 	token, err := s.Controller.GetSessionManager().Create(req.Username)
@@ -1220,6 +1220,7 @@ func parseLogLevel() slog.Level {
 func configureRouter(sc systemControllerBackend) http.Handler {
 	handlers := getHandler(sc)
 	e := echo.New()
+	e.HTTPErrorHandler = ProblemDetailHTTPErrorHandler()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel()}))
 	e.Logger = logger
 	slog.SetDefault(logger)

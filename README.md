@@ -21,6 +21,8 @@ After installing prerequisites, run `make pull-images` before any other targets.
 
 Run `make dev` to build the test image, create a dev btrfs volume, start the backend container on port 5309, and launch the Vite dev server with hot reload. Once running, access the UI at `http://<hostname>:5173`.
 
+Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the host.
+
 | Target | Description |
 |--------|-------------|
 | `make dev` | Start the full dev environment (backend + Vite dev server). |

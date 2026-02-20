@@ -8,7 +8,7 @@ import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -74,8 +74,6 @@ function formatMessage(text) {
 
 export default function SystemManagement() {
   useEffect(() => { document.title = 'Town OS - Services' }, [])
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
   const [actionConfirm, setActionConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
@@ -257,17 +255,15 @@ export default function SystemManagement() {
 
   async function handleAction() {
     if (!actionConfirm) return
-    setError(null)
-    setSuccess(null)
     try {
       await getClient().setUnitStatus(actionConfirm.name, actionConfirm.action)
-      setSuccess(
+      toast.success(
         `${actionConfirm.action} "${actionConfirm.name}" succeeded`,
       )
       setActionConfirm(null)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
       setActionConfirm(null)
     }
   }
@@ -417,17 +413,6 @@ export default function SystemManagement() {
         <h1 className="text-3xl font-bold tracking-tight">Services</h1>
         <p className="text-muted-foreground">Manage systemd units</p>
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {unitsLoading && units.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>

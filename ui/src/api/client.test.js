@@ -667,6 +667,120 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('ApiError problem detail parsing', () => {
+    it('parses RFC 9457 problem detail on error', async () => {
+      const problem = {
+        type: 'about:blank#500',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'btrfs qgroup limit: quota not enabled',
+      }
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        status: 500,
+        text: () => Promise.resolve(JSON.stringify(problem)),
+      })
+
+      try {
+        await client.ping()
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.problem).toEqual(problem)
+        expect(err.detail).toBe('btrfs qgroup limit: quota not enabled')
+        expect(err.message).toContain('btrfs qgroup limit: quota not enabled')
+        expect(err.message).toContain('GET')
+        expect(err.message).toContain('/status/ping')
+      }
+    })
+
+    it('falls back to raw body when not problem+json', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        status: 502,
+        text: () => Promise.resolve('Bad Gateway'),
+      })
+
+      try {
+        await client.ping()
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.problem).toBeNull()
+        expect(err.detail).toBe('Bad Gateway')
+      }
+    })
+
+    it('parses legacy echo error format', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        status: 401,
+        text: () => Promise.resolve(JSON.stringify({ message: 'missing authorization token' })),
+      })
+
+      try {
+        await client.ping()
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.detail).toBe('missing authorization token')
+        expect(err.problem).toBeNull()
+      }
+    })
+
+    it('handles empty error body', async () => {
+      mockFetchEmpty(500)
+
+      try {
+        await client.ping()
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.detail).toBe('')
+        expect(err.message).toContain('status 500')
+      }
+    })
+
+    it('message always includes method, path, and detail', async () => {
+      const problem = {
+        type: 'about:blank#500',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'set quota: btrfs qgroup limit: quota not enabled',
+      }
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        status: 500,
+        text: () => Promise.resolve(JSON.stringify(problem)),
+      })
+      client.setToken('tok')
+
+      try {
+        await client.createFilesystem({ name: 'test' })
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err.message).toBe('POST /storage/create: set quota: btrfs qgroup limit: quota not enabled')
+      }
+    })
+
+    it('never shows Internal Server Error when detail is present', async () => {
+      const problem = {
+        type: 'about:blank#500',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'actual error message',
+      }
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        status: 500,
+        text: () => Promise.resolve(JSON.stringify(problem)),
+      })
+
+      try {
+        await client.ping()
+        expect.fail('should have thrown')
+      } catch (err) {
+        expect(err.message).not.toContain('Internal Server Error')
+        expect(err.message).toContain('actual error message')
+      }
+    })
+  })
+
   describe('self-authenticated methods', () => {
     it('listSessions uses explicit token', async () => {
       const sessions = [
@@ -690,7 +804,7 @@ describe('SystemControllerClient', () => {
     it('sessionUsername rejects without token', async () => {
       mockFetch(null, 401)
 
-      await expect(client.sessionUsername('')).rejects.toThrow('status 401')
+      await expect(client.sessionUsername('')).rejects.toThrow(ApiError)
     })
 
     it('revokeSession sends session_id', async () => {

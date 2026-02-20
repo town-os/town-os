@@ -18,7 +18,6 @@ import (
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
-	"github.com/containerd/btrfs/v2"
 )
 
 func testRoute(t *testing.T, base, path string) string {
@@ -408,7 +407,7 @@ func TestListFilesystemsExcludesRoot(t *testing.T) {
 
 	// Inject a root filesystem entry (empty name) directly into the mock
 	controller.Lock.Lock()
-	controller.Filesystems = append(controller.Filesystems, btrfs.Info{Name: "", ID: 999})
+	controller.Filesystems = append(controller.Filesystems, storage.SubvolInfo{Name: "", ID: 999})
 	controller.Lock.Unlock()
 
 	// Create a normal filesystem via API

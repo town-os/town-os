@@ -108,8 +108,6 @@ func applyTemplate(input string, v string, repl string) string {
 }
 
 func (i *InputPackage) iterateFields(iv, response string) {
-	i.Image = applyTemplate(i.Image, iv, response)
-
 	for k, v := range i.Environment {
 		i.Environment[k] = applyTemplate(v, iv, response)
 	}
@@ -170,7 +168,48 @@ func strToPort(input string) (uint16, error) {
 	return uint16(u), nil
 }
 
+// Validate checks that all field names and values in the InputPackage conform
+// to the expected conventions. It is called automatically by Compile before
+// template substitution so that the raw spec (including template markers) is
+// validated.
+func (i *InputPackage) Validate() error {
+	if err := ValidateImageURL(i.Image); err != nil {
+		return err
+	}
+
+	for key := range i.Environment {
+		if err := ValidateEnvironmentKey(key); err != nil {
+			return err
+		}
+	}
+
+	for name := range i.Questions {
+		if err := ValidateQuestionName(name); err != nil {
+			return err
+		}
+	}
+
+	for name, vol := range i.Volumes {
+		if err := ValidateVolumeName(name); err != nil {
+			return err
+		}
+		// Mountpoints may contain template variables (e.g. "/mnt/@path@"),
+		// so only validate literal mountpoints here.
+		if !strings.ContainsRune(vol.Mountpoint, TemplateChar) {
+			if err := ValidateMountpoint(vol.Mountpoint); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func (i *InputPackage) Compile(response Responses) (*Package, error) {
+	if err := i.Validate(); err != nil {
+		return nil, err
+	}
+
 	var err error
 	for prompt, resp := range response {
 		q, ok := i.Questions[prompt]
@@ -198,12 +237,21 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, err
 	}
 
+	// Normalize the container image URL after template substitution.
+	image := NormalizeImageURL(i.Image)
+
+	// Validate mountpoints after template substitution.
+	for name, vol := range i.Volumes {
+		if err := ValidateMountpoint(vol.Mountpoint); err != nil {
+			return nil, fmt.Errorf("volume %q: %w", name, err)
+		}
+	}
+
 	p := &Package{
-		Image:       i.Image,
+		Image:       image,
 		Environment: i.Environment,
 		Network:     PackageNetwork{External: external, Internal: internal},
-		// TODO: validate volume mountpoints
-		Volumes: i.Volumes,
+		Volumes:     i.Volumes,
 	}
 
 	return p, nil

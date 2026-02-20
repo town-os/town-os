@@ -64,7 +64,7 @@ export default function Login() {
     <div className="flex items-center justify-center min-h-screen">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl">town-os</CardTitle>
+          <CardTitle className="text-2xl">Town OS</CardTitle>
           <CardDescription>Sign in to the control panel</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>

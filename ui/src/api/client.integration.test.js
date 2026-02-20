@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { SystemControllerClient } from './client.js'
+import { SystemControllerClient, ApiError } from './client.js'
 
 const baseURL = process.env.INTEGRATION_URL
 if (!baseURL) {
@@ -721,31 +721,31 @@ describe('SystemControllerClient integration', () => {
     it('createAccount requires auth', async () => {
       await expect(
         noAuth.createAccount('x', 'x', 'x@x.com', '0', 'X', false),
-      ).rejects.toThrow(/POST \/account\/create:.*status 401/)
+      ).rejects.toThrow(/POST \/account\/create:.*missing authorization token/)
     })
 
     it('getAccount requires auth', async () => {
       await expect(
         noAuth.getAccount('admin'),
-      ).rejects.toThrow(/POST \/account:.*status 401/)
+      ).rejects.toThrow(/POST \/account:.*missing authorization token/)
     })
 
     it('updateAccount requires auth', async () => {
       await expect(
         noAuth.updateAccount('admin', { real_name: 'X' }),
-      ).rejects.toThrow(/POST \/account\/update:.*status 401/)
+      ).rejects.toThrow(/POST \/account\/update:.*missing authorization token/)
     })
 
     it('listAccounts requires auth', async () => {
       await expect(
         noAuth.listAccounts(),
-      ).rejects.toThrow(/GET \/account:.*status 401/)
+      ).rejects.toThrow(/GET \/account:.*missing authorization token/)
     })
 
     it('disableAccount requires auth', async () => {
       await expect(
         noAuth.disableAccount('admin'),
-      ).rejects.toThrow(/POST \/account\/disable:.*status 401/)
+      ).rejects.toThrow(/POST \/account\/disable:.*missing authorization token/)
     })
 
     // Storage methods
@@ -753,25 +753,25 @@ describe('SystemControllerClient integration', () => {
     it('createFilesystem requires auth', async () => {
       await expect(
         noAuth.createFilesystem({ name: 'x' }),
-      ).rejects.toThrow(/POST \/storage\/create:.*status 401/)
+      ).rejects.toThrow(/POST \/storage\/create:.*missing authorization token/)
     })
 
     it('modifyFilesystem requires auth', async () => {
       await expect(
         noAuth.modifyFilesystem('x', { name: 'x' }),
-      ).rejects.toThrow(/POST \/storage\/modify:.*status 401/)
+      ).rejects.toThrow(/POST \/storage\/modify:.*missing authorization token/)
     })
 
     it('removeFilesystem requires auth', async () => {
       await expect(
         noAuth.removeFilesystem('x'),
-      ).rejects.toThrow(/POST \/storage\/remove:.*status 401/)
+      ).rejects.toThrow(/POST \/storage\/remove:.*missing authorization token/)
     })
 
     it('listFilesystems requires auth', async () => {
       await expect(
         noAuth.listFilesystems(''),
-      ).rejects.toThrow(/POST \/storage:.*status 401/)
+      ).rejects.toThrow(/POST \/storage:.*missing authorization token/)
     })
 
     // Repository methods
@@ -779,25 +779,25 @@ describe('SystemControllerClient integration', () => {
     it('addRepository requires auth', async () => {
       await expect(
         noAuth.addRepository('', 'http://example.com'),
-      ).rejects.toThrow(/POST \/repository\/add:.*status 401/)
+      ).rejects.toThrow(/POST \/repository\/add:.*missing authorization token/)
     })
 
     it('removeRepository requires auth', async () => {
       await expect(
         noAuth.removeRepository('x'),
-      ).rejects.toThrow(/POST \/repository\/remove:.*status 401/)
+      ).rejects.toThrow(/POST \/repository\/remove:.*missing authorization token/)
     })
 
     it('refreshRepositories requires auth', async () => {
       await expect(
         noAuth.refreshRepositories(),
-      ).rejects.toThrow(/POST \/repository\/refresh:.*status 401/)
+      ).rejects.toThrow(/POST \/repository\/refresh:.*missing authorization token/)
     })
 
     it('listRepositories requires auth', async () => {
       await expect(
         noAuth.listRepositories(),
-      ).rejects.toThrow(/GET \/repository:.*status 401/)
+      ).rejects.toThrow(/GET \/repository:.*missing authorization token/)
     })
 
     // Package methods
@@ -805,37 +805,37 @@ describe('SystemControllerClient integration', () => {
     it('listPackages requires auth', async () => {
       await expect(
         noAuth.listPackages(),
-      ).rejects.toThrow(/GET \/packages:.*status 401/)
+      ).rejects.toThrow(/GET \/packages:.*missing authorization token/)
     })
 
     it('listInstalled requires auth', async () => {
       await expect(
         noAuth.listInstalled(),
-      ).rejects.toThrow(/GET \/packages\/installed:.*status 401/)
+      ).rejects.toThrow(/GET \/packages\/installed:.*missing authorization token/)
     })
 
     it('getResponses requires auth', async () => {
       await expect(
         noAuth.getResponses('x', '1.0'),
-      ).rejects.toThrow(/POST \/packages\/responses:.*status 401/)
+      ).rejects.toThrow(/POST \/packages\/responses:.*missing authorization token/)
     })
 
     it('getPackageQuestions requires auth', async () => {
       await expect(
         noAuth.getPackageQuestions('x'),
-      ).rejects.toThrow(/POST \/packages\/questions:.*status 401/)
+      ).rejects.toThrow(/POST \/packages\/questions:.*missing authorization token/)
     })
 
     it('installPackage requires auth', async () => {
       await expect(
         noAuth.installPackage('x', '1.0', {}),
-      ).rejects.toThrow(/POST \/packages\/install:.*status 401/)
+      ).rejects.toThrow(/POST \/packages\/install:.*missing authorization token/)
     })
 
     it('uninstallPackage requires auth', async () => {
       await expect(
         noAuth.uninstallPackage('x', '1.0'),
-      ).rejects.toThrow(/POST \/packages\/uninstall:.*status 401/)
+      ).rejects.toThrow(/POST \/packages\/uninstall:.*missing authorization token/)
     })
 
     // Systemd methods
@@ -843,26 +843,26 @@ describe('SystemControllerClient integration', () => {
     it('listUnits requires auth', async () => {
       await expect(
         noAuth.listUnits(),
-      ).rejects.toThrow(/GET \/systemd\/units:.*status 401/)
+      ).rejects.toThrow(/GET \/systemd\/units:.*missing authorization token/)
     })
 
     it('setUnitStatus requires auth', async () => {
       await expect(
         noAuth.setUnitStatus('x', 'restart'),
-      ).rejects.toThrow(/POST \/systemd\/status:.*status 401/)
+      ).rejects.toThrow(/POST \/systemd\/status:.*missing authorization token/)
     })
 
     it('logReplay requires auth', async () => {
       const gen = noAuth.logReplay('x')
       await expect(gen.next()).rejects.toThrow(
-        /GET \/systemd\/logs:.*status 401/,
+        /GET \/systemd\/logs:.*missing authorization token/,
       )
     })
 
     it('logTail requires auth', async () => {
       await expect(
         noAuth.logTail('x'),
-      ).rejects.toThrow(/GET \/systemd\/logs\/tail.*status 401/)
+      ).rejects.toThrow(/GET \/systemd\/logs\/tail.*missing authorization token/)
     })
 
     // Audit
@@ -870,7 +870,7 @@ describe('SystemControllerClient integration', () => {
     it('listAuditLog requires auth', async () => {
       await expect(
         noAuth.listAuditLog({}),
-      ).rejects.toThrow(/POST \/audit\/log:.*status 401/)
+      ).rejects.toThrow(/POST \/audit\/log:.*missing authorization token/)
     })
 
     // Session methods (explicit token)
@@ -878,13 +878,57 @@ describe('SystemControllerClient integration', () => {
     it('listSessions requires auth', async () => {
       await expect(
         noAuth.listSessions(''),
-      ).rejects.toThrow(/GET \/account\/sessions:.*status 401/)
+      ).rejects.toThrow(/GET \/account\/sessions:.*missing authorization token/)
     })
 
     it('sessionUsername requires auth', async () => {
       await expect(
         noAuth.sessionUsername(''),
-      ).rejects.toThrow(/GET \/account\/me:.*status 401/)
+      ).rejects.toThrow(/GET \/account\/me:.*missing authorization token/)
+    })
+
+    // Problem detail structure
+
+    it('error includes problem detail fields', async () => {
+      try {
+        await noAuth.listAccounts()
+        expect.unreachable('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.status).toBe(401)
+        expect(err.detail).toBe('missing authorization token')
+        expect(err.problem).not.toBeNull()
+        expect(err.problem.status).toBe(401)
+        expect(err.problem.detail).toBe('missing authorization token')
+        expect(err.problem.type).toBe('about:blank#401')
+      }
+    })
+
+    it('error message includes method, path, and detail', async () => {
+      try {
+        await noAuth.createFilesystem({ name: 'x' })
+        expect.unreachable('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.message).toContain('POST')
+        expect(err.message).toContain('/storage/create')
+        expect(err.message).toContain('missing authorization token')
+        expect(err.message).not.toContain('status 401')
+      }
+    })
+
+    it('wrong password error includes detail from server', async () => {
+      try {
+        await client.authenticate('admin', 'wrongpass')
+        expect.unreachable('should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.status).toBe(401)
+        expect(err.detail).toBeTruthy()
+        expect(err.message).toContain('POST')
+        expect(err.message).toContain('/account/authenticate')
+        expect(err.message).not.toContain('Internal Server Error')
+      }
     })
 
   })

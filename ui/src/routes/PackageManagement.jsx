@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -31,8 +31,6 @@ import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2 } from '
 
 export default function PackageManagement() {
   useEffect(() => { document.title = 'Town OS - Packages' }, [])
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Package state
@@ -91,8 +89,6 @@ export default function PackageManagement() {
   }
 
   async function handleInstall(name, version) {
-    setError(null)
-    setSuccess(null)
     try {
       // Check for questions first
       const questions = await getClient().getPackageQuestions(name)
@@ -115,16 +111,15 @@ export default function PackageManagement() {
       }
 
       await getClient().installPackage(name, version, {})
-      setSuccess(`Package "${name}" installed`)
+      toast.success(`Package "${name}" installed`)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
     }
   }
 
   async function handleInstallWithResponses(e) {
     e.preventDefault()
-    setError(null)
     const form = e.target.elements
     const responses = {}
     for (const key of Object.keys(questionsDialog.questions)) {
@@ -137,56 +132,51 @@ export default function PackageManagement() {
         questionsDialog.version,
         responses,
       )
-      setSuccess(`Package "${questionsDialog.name}" installed`)
+      toast.success(`Package "${questionsDialog.name}" installed`)
       setQuestionsDialog({ open: false })
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
     }
   }
 
   async function handleUninstall() {
-    setError(null)
-    setSuccess(null)
     try {
       await getClient().uninstallPackage(
         uninstallConfirm.name,
         uninstallConfirm.version,
       )
-      setSuccess(`Package "${uninstallConfirm.name}" uninstalled`)
+      toast.success(`Package "${uninstallConfirm.name}" uninstalled`)
       setUninstallConfirm(null)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
       setUninstallConfirm(null)
     }
   }
 
   async function handleAddRepo(e) {
     e.preventDefault()
-    setError(null)
-    setSuccess(null)
     const name = e.target.elements.name.value
     const url = e.target.elements.url.value
     try {
       await getClient().addRepository(name, url)
-      setSuccess('Repository added')
+      toast.success('Repository added')
       setRepoDialog(false)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
     }
   }
 
   async function handleRemoveRepo() {
-    setError(null)
     try {
       await getClient().removeRepository(deleteRepoConfirm)
-      setSuccess(`Repository "${deleteRepoConfirm}" removed`)
+      toast.success(`Repository "${deleteRepoConfirm}" removed`)
       setDeleteRepoConfirm(null)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
       setDeleteRepoConfirm(null)
     }
   }
@@ -194,20 +184,18 @@ export default function PackageManagement() {
   const [refreshing, setRefreshing] = useState(false)
 
   async function handleRefreshRepos() {
-    setError(null)
-    setSuccess(null)
     setRefreshing(true)
     try {
       const errs = await getClient().refreshRepositories()
       if (errs && Object.keys(errs).length > 0) {
         const names = Object.keys(errs).join(', ')
-        setError(`Some repositories failed to refresh: ${names}`)
+        toast.error(`Some repositories failed to refresh: ${names}`)
       } else {
-        setSuccess('Repositories refreshed')
+        toast.success('Repositories refreshed')
       }
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
     } finally {
       setRefreshing(false)
     }
@@ -222,8 +210,9 @@ export default function PackageManagement() {
     },
     {
       key: '_status',
-      label: 'Status',
+      label: 'Installation Status',
       sortable: false,
+      className: 'text-right',
       transform: (_, row) => {
         const inst = isInstalled(row.name)
         return (
@@ -239,14 +228,17 @@ export default function PackageManagement() {
                       version: row.version,
                     })
                   } else {
-                    handleInstall(row.name, row.version)
+                    setInstallConfirm({
+                      name: row.name,
+                      version: row.version,
+                    })
                   }
                 }}
               >
                 {inst ? 'Installed' : 'Not Installed'}
               </Badge>
             </TooltipTrigger>
-            <TooltipContent>
+            <TooltipContent side="right">
               Click to {inst ? 'uninstall' : 'install'}
             </TooltipContent>
           </Tooltip>
@@ -321,17 +313,6 @@ export default function PackageManagement() {
           Manage packages and repositories
         </p>
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       <Tabs defaultValue="packages">
         <TabsList>
@@ -497,6 +478,25 @@ export default function PackageManagement() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Install Confirm */}
+      <ConfirmDialog
+        open={!!installConfirm}
+        title="Install Package"
+        onConfirm={() => {
+          const { name, version } = installConfirm
+          setInstallConfirm(null)
+          handleInstall(name, version)
+        }}
+        onCancel={() => setInstallConfirm(null)}
+        confirmLabel="Install"
+      >
+        Install{' '}
+        <code className="font-mono text-sm bg-muted px-1 rounded">
+          {installConfirm?.name}@{installConfirm?.version}
+        </code>
+        ?
+      </ConfirmDialog>
 
       {/* Uninstall Confirm */}
       <ConfirmDialog

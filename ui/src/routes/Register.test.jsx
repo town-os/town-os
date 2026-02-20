@@ -37,7 +37,7 @@ describe('Register', () => {
   it('shows bootstrap heading when no accounts exist', async () => {
     renderRegister()
     await waitFor(() => {
-      expect(screen.getByText('Welcome to town-os')).toBeTruthy()
+      expect(screen.getByText('Welcome to Town OS')).toBeTruthy()
     })
     expect(
       screen.getByText(
@@ -55,7 +55,7 @@ describe('Register', () => {
       expect(screen.getByLabelText('Username')).toBeTruthy()
     })
 
-    expect(screen.queryByText('Welcome to town-os')).toBeNull()
+    expect(screen.queryByText('Welcome to Town OS')).toBeNull()
   })
 
   it('always renders the create account form', async () => {

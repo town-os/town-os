@@ -6,7 +6,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Pencil, HardDrive } from 'lucide-react'
 
 const UNITS = {
@@ -24,7 +25,7 @@ const UNITS = {
 }
 
 function formatQuota(bytes) {
-  if (!bytes || bytes === 0) return 'none'
+  if (!bytes || bytes === 0) return <Badge className="bg-black text-white hover:bg-black/90">none</Badge>
   if (bytes >= UNITS.TB) return `${(bytes / UNITS.TB).toFixed(2)} TB`
   if (bytes >= UNITS.GB) return `${(bytes / UNITS.GB).toFixed(2)} GB`
   if (bytes >= UNITS.MB) return `${(bytes / UNITS.MB).toFixed(2)} MB`
@@ -44,8 +45,6 @@ export default function StorageManagement() {
   useEffect(() => { document.title = 'Town OS - Storage' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('name')
@@ -70,50 +69,44 @@ export default function StorageManagement() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    setError(null)
-    setSuccess(null)
     const form = e.target.elements
     try {
       await getClient().createFilesystem({
         name: form.name.value,
         quota: parseQuotaFromForm(form),
       })
-      setSuccess('Filesystem created')
+      toast.success('Filesystem created')
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
     }
   }
 
   async function handleModify(e) {
     e.preventDefault()
-    setError(null)
-    setSuccess(null)
     const form = e.target.elements
     try {
       await getClient().modifyFilesystem(editDialog.originalName, {
         name: form.name.value,
         quota: parseQuotaFromForm(form),
       })
-      setSuccess('Filesystem modified')
+      toast.success('Filesystem modified')
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
     }
   }
 
   async function handleDelete() {
-    setError(null)
-    setSuccess(null)
     try {
       await getClient().removeFilesystem(deleteConfirm)
-      setSuccess(`Filesystem "${deleteConfirm}" removed`)
+      toast.success(`Filesystem "${deleteConfirm}" removed`)
       setDeleteConfirm(null)
       doRefresh()
     } catch (err) {
-      setError(err.message)
+      toast.error(err.message)
       setDeleteConfirm(null)
     }
   }
@@ -185,17 +178,6 @@ export default function StorageManagement() {
           Create Filesystem
         </Button>
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {loading && filesystems.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
