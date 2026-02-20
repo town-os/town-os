@@ -40,7 +40,7 @@ function StatCard({ to, icon: Icon, label, value, description }) {
 
 export default function DashboardHome() {
   useEffect(() => { document.title = 'Town OS - Dashboard' }, [])
-  const [ping] = usePolling(() => getClient().ping(), null, [], 10000)
+  const [ping, , loading] = usePolling(() => getClient().ping(), null, [], 10000)
 
   return (
     <div className="space-y-6">
@@ -69,6 +69,10 @@ export default function DashboardHome() {
             </>
           )}
         </div>
+      )}
+
+      {loading && !ping && (
+        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
       )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

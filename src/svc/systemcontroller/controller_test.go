@@ -4549,6 +4549,11 @@ func TestSanitizeAuditDetail(t *testing.T) {
 			body: `{"name":"nginx","responses":{"port":"8080"}}`,
 			want: `{"name":"nginx","responses":{"port":"8080"}}`,
 		},
+		{
+			name: "removes password from deeply nested objects",
+			body: `{"data":{"inner":{"password":"deep","name":"ok"}}}`,
+			want: `{"data":{"inner":{"name":"ok"}}}`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -4638,4 +4643,116 @@ func TestHTTPAuditDetailRedactsPassword(t *testing.T) {
 		}
 	}
 	t.Fatal("expected to find create account audit entry")
+}
+
+func TestHTTPAuditDetailValidJSON(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount(context.TODO(), "admin", "secret", "admin@test.com", "555-1234", "Admin User", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		if e.Action == "create account" && e.Detail != "" {
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(e.Detail), &parsed); err != nil {
+				t.Fatalf("detail is not valid JSON: %q, err: %v", e.Detail, err)
+			}
+
+			if parsed["username"] != "admin" {
+				t.Fatalf("expected username 'admin', got %v", parsed["username"])
+			}
+			if parsed["email"] != "admin@test.com" {
+				t.Fatalf("expected email 'admin@test.com', got %v", parsed["email"])
+			}
+			if parsed["real_name"] != "Admin User" {
+				t.Fatalf("expected real_name 'Admin User', got %v", parsed["real_name"])
+			}
+			if _, exists := parsed["password"]; exists {
+				t.Fatal("detail must not contain password field")
+			}
+			return
+		}
+	}
+	t.Fatal("expected to find create account audit entry with detail")
+}
+
+func TestHTTPAuditDetailAuthenticateRedactsPassword(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount(context.TODO(), "admin", "mypass", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if _, err := c.Authenticate(context.TODO(), "admin", "mypass"); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		if e.Action == "authenticate" && e.Detail != "" {
+			if strings.Contains(e.Detail, "mypass") {
+				t.Fatalf("authenticate detail must not contain password, got %q", e.Detail)
+			}
+			if !strings.Contains(e.Detail, "admin") {
+				t.Fatalf("authenticate detail should contain username, got %q", e.Detail)
+			}
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(e.Detail), &parsed); err != nil {
+				t.Fatalf("detail is not valid JSON: %q", e.Detail)
+			}
+			if _, exists := parsed["password"]; exists {
+				t.Fatal("detail must not contain password field")
+			}
+			return
+		}
+	}
+	t.Fatal("expected to find authenticate audit entry with detail")
+}
+
+func TestHTTPAuditDetailNeverContainsPassword(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount(context.TODO(), "admin", "supersecret", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp, err := c.Authenticate(context.TODO(), "admin", "supersecret")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	// Update account with password change
+	newpw := "newpassword"
+	_, _ = c.UpdateAccount(context.TODO(), "admin", account.UpdateFields{Password: &newpw})
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		if e.Detail == "" {
+			continue
+		}
+		if strings.Contains(e.Detail, "supersecret") {
+			t.Fatalf("entry %q detail contains password 'supersecret': %q", e.Action, e.Detail)
+		}
+		if strings.Contains(e.Detail, "newpassword") {
+			t.Fatalf("entry %q detail contains password 'newpassword': %q", e.Action, e.Detail)
+		}
+		if strings.Contains(e.Detail, `"password"`) {
+			t.Fatalf("entry %q detail contains password field: %q", e.Action, e.Detail)
+		}
+	}
 }

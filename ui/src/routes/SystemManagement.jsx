@@ -3,6 +3,7 @@ import { parseAnsi, parseFields, stripAnsi, groupByMinute } from '@/lib/log-form
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { useJournalSearch } from '@/lib/use-journal-search.js'
+import { useFollowMode } from '@/lib/use-follow-mode.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,7 @@ import {
   ClipboardCheck,
   Triangle,
   Search,
+  Clock,
 } from 'lucide-react'
 
 /** Render parsed field segments as styled JSX spans. */
@@ -89,20 +91,36 @@ export default function SystemManagement() {
   const [expandedGroups, setExpandedGroups] = useState({})
   const [flatMode, setFlatMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [followMode, setFollowMode] = useState(true)
   const [journalEndCursor, setJournalEndCursor] = useState(null)
   const [sinceDate, setSinceDate] = useState('')
   const [sinceHour, setSinceHour] = useState('')
   const [untilDate, setUntilDate] = useState('')
   const [untilHour, setUntilHour] = useState('')
+  const [timeFilterOpen, setTimeFilterOpen] = useState(false)
+  // Pending fields shown in the popout before the user commits.
+  const [pendingSinceDate, setPendingSinceDate] = useState('')
+  const [pendingSinceHour, setPendingSinceHour] = useState('')
+  const [pendingUntilDate, setPendingUntilDate] = useState('')
+  const [pendingUntilHour, setPendingUntilHour] = useState('')
+  const hasTimeFilter = sinceDate !== '' || sinceHour !== '' || untilDate !== '' || untilHour !== ''
+  const [followMode, setFollowMode, toggleFollow] = useFollowMode(searchQuery !== '' || hasTimeFilter)
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const sinceTime = useMemo(() => {
-    if (!sinceDate || sinceHour === '') return ''
-    return `${sinceDate}T${String(sinceHour).padStart(2, '0')}:00`
-  }, [sinceDate, sinceHour])
+    const d = sinceDate || (sinceHour !== '' ? today : '')
+    if (!d) return ''
+    if (sinceHour === '') return `${d}T00:00`
+    return `${d}T${String(sinceHour).padStart(2, '0')}:00`
+  }, [sinceDate, sinceHour, today])
   const untilTime = useMemo(() => {
-    if (!untilDate || untilHour === '') return ''
-    return `${untilDate}T${String(untilHour).padStart(2, '0')}:00`
-  }, [untilDate, untilHour])
+    const d = untilDate || (untilHour !== '' ? today : '')
+    if (!d) return ''
+    if (untilHour === '') {
+      const next = new Date(d)
+      next.setDate(next.getDate() + 1)
+      return `${next.toISOString().slice(0, 10)}T00:00`
+    }
+    return `${d}T${String(untilHour).padStart(2, '0')}:00`
+  }, [untilDate, untilHour, today])
   const scrollRef = useRef(null)
   const followAppendRef = useRef(false)
   const wasAtBottomRef = useRef(true)
@@ -117,23 +135,11 @@ export default function SystemManagement() {
     setFlatMode((v) => !v)
   }
 
-  function toggleFollow() {
-    setFollowMode((v) => {
-      if (!v && scrollRef.current) {
-        requestAnimationFrame(() => {
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-          }
-        })
-      }
-      return !v
-    })
-  }
 
   const PAGE_SIZE = 20
   const [searchTerm, setSearchTerm] = useState('')
 
-  const [unitData] = usePolling(
+  const [unitData, , unitsLoading] = usePolling(
     () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, searchTerm || undefined),
     { entries: [], has_more: false, total_pages: 1 },
     [refreshKey, sortKey, sortDirection, page, searchTerm],
@@ -160,6 +166,11 @@ export default function SystemManagement() {
     setSinceHour('')
     setUntilDate('')
     setUntilHour('')
+    setPendingSinceDate('')
+    setPendingSinceHour('')
+    setPendingUntilDate('')
+    setPendingUntilHour('')
+    setTimeFilterOpen(false)
     followAppendRef.current = false
     wasAtBottomRef.current = true
   }
@@ -418,6 +429,10 @@ export default function SystemManagement() {
         </Alert>
       )}
 
+      {unitsLoading && units.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+      )}
+
       <DataTable
         data={units}
         columns={columns}
@@ -481,94 +496,144 @@ export default function SystemManagement() {
               })()}
             </DialogTitle>
           </DialogHeader>
-          {(journalEntries.length > 0 || searchQuery || sinceTime || untilTime) && (
-            <div className="flex items-center gap-2 -mt-2 flex-wrap">
-              <div className="relative flex-1 min-w-[120px]">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                <Input
-                  placeholder="Search logs..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-8 pl-7 text-xs"
-                />
-              </div>
-              <span className="text-xs text-muted-foreground">From</span>
-              <Input
-                type="date"
-                value={sinceDate}
-                onChange={(e) => setSinceDate(e.target.value)}
-                className="h-8 text-xs w-[140px]"
-                title="Start date"
-              />
-              <select
-                value={sinceHour}
-                onChange={(e) => setSinceHour(e.target.value)}
-                className="h-8 text-xs rounded-md border border-input bg-background px-2"
-                title="Start hour"
-              >
-                <option value="">HH</option>
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>
-                    {String(i).padStart(2, '0')}:00
-                  </option>
-                ))}
-              </select>
-              <span className="text-xs text-muted-foreground">To</span>
-              <Input
-                type="date"
-                value={untilDate}
-                onChange={(e) => setUntilDate(e.target.value)}
-                className="h-8 text-xs w-[140px]"
-                title="End date"
-              />
-              <select
-                value={untilHour}
-                onChange={(e) => setUntilHour(e.target.value)}
-                className="h-8 text-xs rounded-md border border-input bg-background px-2"
-                title="End hour"
-              >
-                <option value="">HH</option>
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>
-                    {String(i).padStart(2, '0')}:00
-                  </option>
-                ))}
-              </select>
-              {(searchQuery || sinceDate || sinceHour !== '' || untilDate || untilHour !== '') && (
+          {(journalEntries.length > 0 || searchQuery || hasTimeFilter) && (
+            <div className="space-y-2 -mt-2">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 min-w-[120px]">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                  <Input
+                    placeholder="Search logs..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-8 pl-7 text-xs"
+                  />
+                </div>
                 <Button
-                  variant="ghost"
+                  variant={hasTimeFilter ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => {
-                    setSearchQuery('')
-                    setSinceDate('')
-                    setSinceHour('')
-                    setUntilDate('')
-                    setUntilHour('')
+                    if (hasTimeFilter && !timeFilterOpen) {
+                      // Active time filter: click clears it.
+                      setSinceDate('')
+                      setSinceHour('')
+                      setUntilDate('')
+                      setUntilHour('')
+                      setPendingSinceDate('')
+                      setPendingSinceHour('')
+                      setPendingUntilDate('')
+                      setPendingUntilHour('')
+                    } else {
+                      // Seed pending fields when opening.
+                      if (!timeFilterOpen) {
+                        setPendingSinceDate(sinceDate)
+                        setPendingSinceHour(sinceHour)
+                        setPendingUntilDate(untilDate)
+                        setPendingUntilHour(untilHour)
+                      }
+                      setTimeFilterOpen((v) => !v)
+                    }
                   }}
-                  title="Clear search filters"
+                  title={hasTimeFilter && !timeFilterOpen ? 'Clear time filter' : 'Time range filter'}
                 >
-                  <X className="h-3 w-3" />
+                  <Clock className="h-3 w-3" />
                 </Button>
+                <Button
+                  variant={followMode ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={toggleFollow}
+                >
+                  {followMode ? 'Following' : 'Follow'}
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={toggleFlatMode}
+                >
+                  {flatMode ? 'Collapse Tree' : 'Expand Tree'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={copyJournal}>
+                  {copied
+                    ? <><ClipboardCheck className="h-3 w-3 mr-1" /> Copied</>
+                    : <><Copy className="h-3 w-3 mr-1" /> Copy</>}
+                </Button>
+              </div>
+              {timeFilterOpen && (
+                <div className="flex items-center gap-2 flex-wrap pl-1 rounded border bg-muted/50 p-2">
+                  <span className="text-xs text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={pendingSinceDate}
+                    onChange={(e) => setPendingSinceDate(e.target.value)}
+                    className="h-7 text-xs w-[130px]"
+                    title="Start date (defaults to today if hour is set)"
+                  />
+                  <select
+                    value={pendingSinceHour}
+                    onChange={(e) => setPendingSinceHour(e.target.value)}
+                    className="h-7 text-xs rounded-md border border-input bg-background px-2"
+                    title="Start hour (defaults to 00:00 if date is set)"
+                  >
+                    <option value="">All day</option>
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>
+                        {String(i).padStart(2, '0')}:00
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-muted-foreground ml-2">To</span>
+                  <Input
+                    type="date"
+                    value={pendingUntilDate}
+                    onChange={(e) => setPendingUntilDate(e.target.value)}
+                    className="h-7 text-xs w-[130px]"
+                    title="End date (defaults to today if hour is set)"
+                  />
+                  <select
+                    value={pendingUntilHour}
+                    onChange={(e) => setPendingUntilHour(e.target.value)}
+                    className="h-7 text-xs rounded-md border border-input bg-background px-2"
+                    title="End hour (defaults to end of day if date is set)"
+                  >
+                    <option value="">All day</option>
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>
+                        {String(i).padStart(2, '0')}:00
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => {
+                      setSinceDate(pendingSinceDate)
+                      setSinceHour(pendingSinceHour)
+                      setUntilDate(pendingUntilDate)
+                      setUntilHour(pendingUntilHour)
+                      setTimeFilterOpen(false)
+                    }}
+                  >
+                    <Search className="h-3 w-3 mr-1" /> Search
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setPendingSinceDate('')
+                      setPendingSinceHour('')
+                      setPendingUntilDate('')
+                      setPendingUntilHour('')
+                      setSinceDate('')
+                      setSinceHour('')
+                      setUntilDate('')
+                      setUntilHour('')
+                      setTimeFilterOpen(false)
+                    }}
+                  >
+                    <X className="h-3 w-3 mr-1" /> Clear
+                  </Button>
+                </div>
               )}
-              <Button
-                variant={followMode ? 'default' : 'outline'}
-                size="sm"
-                onClick={toggleFollow}
-              >
-                {followMode ? 'Following' : 'Follow'}
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={toggleFlatMode}
-              >
-                {flatMode ? 'Collapse Tree' : 'Expand Tree'}
-              </Button>
-              <Button variant="outline" size="sm" onClick={copyJournal}>
-                {copied
-                  ? <><ClipboardCheck className="h-3 w-3 mr-1" /> Copied</>
-                  : <><Copy className="h-3 w-3 mr-1" /> Copy</>}
-              </Button>
             </div>
           )}
           <div ref={scrollRef} className="overflow-auto flex-1 min-h-0 rounded border bg-muted p-3">

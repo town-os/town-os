@@ -59,21 +59,21 @@ export default function PackageManagement() {
   const [pkgSearch, setPkgSearch] = useState('')
   const [repoSearch, setRepoSearch] = useState('')
 
-  const [pkgData] = usePolling(
+  const [pkgData, , pkgLoading] = usePolling(
     () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined),
     { entries: [], has_more: false, total_pages: 1 },
     [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch],
   )
   const packages = pkgData.entries || []
 
-  const [installedData] = usePolling(
+  const [installedData, , installedLoading] = usePolling(
     () => getClient().listInstalled(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined),
     { entries: [], has_more: false, total_pages: 1 },
     [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch],
   )
   const installed = installedData.entries || []
 
-  const [repoData] = usePolling(
+  const [repoData, , repoLoading] = usePolling(
     () => getClient().listRepositories(repoSortKey, repoSortDirection, PAGE_SIZE, repoPage * PAGE_SIZE, repoSearch || undefined),
     { entries: [], has_more: false, total_pages: 1 },
     [refreshKey, repoSortKey, repoSortDirection, repoPage, repoSearch],
@@ -339,6 +339,9 @@ export default function PackageManagement() {
           <TabsTrigger value="repositories">Repositories</TabsTrigger>
         </TabsList>
         <TabsContent value="packages" className="mt-4">
+          {pkgLoading && packages.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+          )}
           <DataTable
             data={normalizedPackages}
             columns={packageColumns}
@@ -377,6 +380,9 @@ export default function PackageManagement() {
               Add Repository
             </Button>
           </div>
+          {repoLoading && repositories.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+          )}
           <DataTable
             data={repositories}
             columns={repoColumns}

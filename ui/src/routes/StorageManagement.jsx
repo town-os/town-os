@@ -38,7 +38,7 @@ export default function StorageManagement() {
   const [sortKey, setSortKey] = useState('name')
   const [sortDirection, setSortDirection] = useState('asc')
 
-  const [filesystems, refresh] = usePolling(
+  const [filesystems, refresh, loading] = usePolling(
     () => getClient().listFilesystems('', sortKey, sortDirection),
     [],
     [refreshKey, sortKey, sortDirection],
@@ -173,6 +173,10 @@ export default function StorageManagement() {
         <Alert>
           <AlertDescription>{success}</AlertDescription>
         </Alert>
+      )}
+
+      {loading && filesystems.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
       )}
 
       <DataTable

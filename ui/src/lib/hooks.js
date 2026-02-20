@@ -11,15 +11,23 @@ import { ApiError } from '../api/client.js'
  * @param {T} defaultValue
  * @param {any[]} [deps]
  * @param {number} [interval]
- * @returns {[T, () => void]}
+ * @returns {[T, () => void, boolean]}
  */
 export function usePolling(fetcher, defaultValue, deps = [], interval = 5000) {
   const [data, setData] = useState(defaultValue)
+  const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(() => {
+    setLoading(true)
     fetcher()
-      .then(setData)
-      .catch(() => setData(defaultValue))
+      .then((result) => {
+        setData(result)
+        setLoading(false)
+      })
+      .catch(() => {
+        setData(defaultValue)
+        setLoading(false)
+      })
   }, deps)
 
   useEffect(() => {
@@ -28,7 +36,7 @@ export function usePolling(fetcher, defaultValue, deps = [], interval = 5000) {
     return () => clearInterval(id)
   }, [refresh, interval])
 
-  return [data, refresh]
+  return [data, refresh, loading]
 }
 
 /**

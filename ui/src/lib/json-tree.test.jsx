@@ -76,4 +76,27 @@ describe('JsonTree', () => {
     expect(screen.queryByText(/"a"/)).toBeNull()
     expect(screen.getByText('[2]')).toBeTruthy()
   })
+
+  it('sorts object keys alphabetically', () => {
+    const { container } = render(<JsonTree data='{"zebra":"z","apple":"a","mango":"m"}' />)
+    const labels = [...container.querySelectorAll('.text-muted-foreground')]
+      .map((el) => el.textContent)
+      .filter((t) => t.endsWith(':'))
+    expect(labels).toEqual(['apple:', 'mango:', 'zebra:'])
+  })
+
+  it('sorts nested object keys alphabetically', () => {
+    const { container } = render(<JsonTree data='{"outer":{"beta":"b","alpha":"a"}}' />)
+    const labels = [...container.querySelectorAll('.text-muted-foreground')]
+      .map((el) => el.textContent)
+      .filter((t) => t.endsWith(':'))
+    expect(labels).toEqual(['alpha:', 'beta:'])
+  })
+
+  it('preserves array element order', () => {
+    const { container } = render(<JsonTree data='{"items":["cherry","apple","banana"]}' />)
+    const values = [...container.querySelectorAll('.text-foreground')]
+      .map((el) => el.textContent)
+    expect(values).toEqual(['"cherry"', '"apple"', '"banana"'])
+  })
 })

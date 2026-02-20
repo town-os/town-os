@@ -23,7 +23,7 @@ After installing prerequisites, run `make pull-images` before any other targets.
 
 | Target | Description |
 |--------|-------------|
-| `make dev` | Build the test image, create a dev btrfs volume, start the backend container on port 8080, and launch the Vite dev server with hot reload. Stopping the dev server also removes the backend container. |
+| `make dev` | Build the test image, create a dev btrfs volume, start the backend container on port 8080, and launch the Vite dev server with hot reload. Once running, access the UI at `http://<hostname>:5173`. |
 | `make dev-stop` | Stop and remove the dev backend container. |
 | `make dev-logs` | Tail journalctl inside the running dev container. |
 | `make dev-clean` | Stop the dev container and tear down the dev btrfs volume. Removes `dev-data/`. |
@@ -37,8 +37,8 @@ After installing prerequisites, run `make pull-images` before any other targets.
 | `make test-ui-integration` | Run JS (bun) UI integration tests against a backend container. |
 | `make test-full` | Run `test`, `test-integration`, and `test-ui-integration` in sequence. |
 | `make test-systemd` | Run only the systemd-related integration tests (`TestPodman`). |
-| `make auto-test` | Watch for `.go`/`.js` file changes and re-run `make test` automatically (requires reflex). |
-| `make auto-test-full` | Watch for file changes and re-run `make test-full` automatically. |
+| `make auto-test` | Watch for `.go`/`.js` file changes and re-run `make test` automatically. Reflex is automatically installed when needed. |
+| `make auto-test-full` | Watch for file changes and re-run `make test-full` automatically. Reflex is automatically installed when needed. |
 
 ### Building
 

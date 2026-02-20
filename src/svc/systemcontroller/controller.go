@@ -927,16 +927,23 @@ func sanitizeAuditDetail(body []byte) string {
 		return ""
 	}
 
-	delete(m, "password")
-	if fields, ok := m["fields"].(map[string]any); ok {
-		delete(fields, "password")
-	}
+	redactSensitive(m)
 
 	out, err := json.Marshal(m)
 	if err != nil {
 		return ""
 	}
 	return string(out)
+}
+
+// redactSensitive recursively removes keys named "password" from a map.
+func redactSensitive(m map[string]any) {
+	delete(m, "password")
+	for _, v := range m {
+		if nested, ok := v.(map[string]any); ok {
+			redactSensitive(nested)
+		}
+	}
 }
 
 func (s *SystemControllerHandlers) listAuditLog(c *echo.Context) error {

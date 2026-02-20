@@ -35,7 +35,7 @@ export default function AuditLog() {
   const [detailData, setDetailData] = useState('')
   const [detailAction, setDetailAction] = useState('')
 
-  const [auditData] = usePolling(
+  const [auditData, , auditLoading] = usePolling(
     () =>
       getClient().listAuditLog({
         limit: PAGE_SIZE,
@@ -132,6 +132,10 @@ export default function AuditLog() {
         <h1 className="text-3xl font-bold tracking-tight">Audit Log</h1>
         <p className="text-muted-foreground">System activity history</p>
       </div>
+
+      {auditLoading && entries.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+      )}
 
       <DataTable
         data={entries}

@@ -29,7 +29,7 @@ export default function Dashboard({ children }) {
   const account = useRequireAuth()
   const location = useLocation()
 
-  const [ping] = usePolling(
+  const [ping, , loading] = usePolling(
     () => getClient().ping(),
     null,
     [],
@@ -63,6 +63,14 @@ export default function Dashboard({ children }) {
             })}
           </nav>
           <div className="ml-auto flex items-center gap-3">
+            {loading && !ping && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground animate-pulse">
+                <Activity className="h-3 w-3" />
+                <Badge variant="outline" className="text-xs">
+                  Loading...
+                </Badge>
+              </div>
+            )}
             {ping && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Activity className="h-3 w-3" />

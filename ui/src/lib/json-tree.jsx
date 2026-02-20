@@ -18,7 +18,7 @@ function JsonNode({ label, value }) {
   }
 
   if (typeof value === 'object' && !Array.isArray(value)) {
-    const keys = Object.keys(value)
+    const keys = Object.keys(value).sort()
     return (
       <div>
         <div
@@ -117,7 +117,7 @@ export function JsonTree({ data }) {
   if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
     return (
       <div className="font-mono text-sm">
-        {Object.keys(parsed).map((k) => (
+        {Object.keys(parsed).sort().map((k) => (
           <JsonNode key={k} label={k} value={parsed[k]} />
         ))}
       </div>

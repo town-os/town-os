@@ -404,6 +404,48 @@ describe('SystemControllerClient integration', () => {
       // Password must be redacted from detail.
       expect(createEntry.detail).not.toContain('adminpass')
     })
+
+    it('detail field is valid JSON containing POST body fields', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.listAuditLog({ limit: 100 })
+      const createEntry = page.entries.find(
+        (e) => e.action === 'create account' && e.detail && e.detail.includes('user1'),
+      )
+      expect(createEntry).toBeDefined()
+      const parsed = JSON.parse(createEntry.detail)
+      expect(parsed.username).toBe('user1')
+      expect(parsed.email).toBe('user1@test.com')
+      expect(parsed.real_name).toBe('Regular User')
+      expect(parsed.admin).toBe(false)
+      // Password must never appear in detail
+      expect(parsed.password).toBeUndefined()
+    })
+
+    it('detail never contains password for any entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.listAuditLog({ limit: 200 })
+      for (const entry of page.entries) {
+        if (entry.detail) {
+          expect(entry.detail).not.toContain('adminpass')
+          expect(entry.detail).not.toContain('"password"')
+        }
+      }
+    })
+
+    it('captures detail for authenticate action', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.listAuditLog({ limit: 100 })
+      const authEntry = page.entries.find(
+        (e) => e.action === 'authenticate' && e.detail,
+      )
+      expect(authEntry).toBeDefined()
+      const parsed = JSON.parse(authEntry.detail)
+      expect(parsed.username).toBe('admin')
+      expect(parsed.password).toBeUndefined()
+    })
   })
 
   // --- Package install creates systemd unit ---

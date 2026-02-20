@@ -29,7 +29,7 @@ export default function UserManagement() {
   const [sortKey, setSortKey] = useState('username')
   const [sortDirection, setSortDirection] = useState('asc')
 
-  const [accounts, refresh] = usePolling(
+  const [accounts, refresh, loading] = usePolling(
     () => getClient().listAccounts(sortKey, sortDirection),
     [],
     [refreshKey, sortKey, sortDirection],
@@ -159,6 +159,10 @@ export default function UserManagement() {
         <Alert>
           <AlertDescription>{success}</AlertDescription>
         </Alert>
+      )}
+
+      {loading && accounts.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
       )}
 
       <DataTable
