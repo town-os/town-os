@@ -19,7 +19,17 @@ export default function Register() {
   useEffect(() => { document.title = 'Town OS - Register' }, [])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [bootstrap, setBootstrap] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    getClient()
+      .ping()
+      .then((resp) => {
+        if (resp.accounts === 0) setBootstrap(true)
+      })
+      .catch(() => {})
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -67,7 +77,16 @@ export default function Register() {
 
   return (
     <div className="flex items-center justify-center min-h-screen">
-      <Card className="w-full max-w-md">
+      <div className="w-full max-w-md space-y-4">
+      {bootstrap && (
+        <div className="text-center space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight">Welcome to town-os</h1>
+          <p className="text-muted-foreground">
+            No accounts exist yet. Create an administrator account to get started.
+          </p>
+        </div>
+      )}
+      <Card>
         <CardHeader>
           <CardTitle>Create Account</CardTitle>
           <CardDescription>Set up a new town-os account</CardDescription>
@@ -120,7 +139,7 @@ export default function Register() {
               </div>
             </div>
           </CardContent>
-          <CardFooter className="flex flex-col gap-3">
+          <CardFooter className="flex flex-col gap-3 pt-6">
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Creating...' : 'Create Account'}
             </Button>
@@ -133,6 +152,7 @@ export default function Register() {
           </CardFooter>
         </form>
       </Card>
+      </div>
     </div>
   )
 }
