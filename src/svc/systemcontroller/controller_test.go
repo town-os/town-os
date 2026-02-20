@@ -2233,6 +2233,256 @@ func TestHTTPDisableAccount(t *testing.T) {
 	}
 }
 
+func TestHTTPEnableAccount(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create admin
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount admin: %v", err)
+	}
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
+	}
+
+	// create and disable alice
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount alice: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"alice"}`))
+	if err != nil {
+		t.Fatalf("NewRequest disable: %v", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do disable: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("resp.Body.Close: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("disable: expected 200, got %d", resp.StatusCode)
+	}
+
+	// verify disabled
+	acct, err := c.GetAccount(context.TODO(), "alice")
+	if err != nil {
+		t.Fatalf("GetAccount after disable: %v", err)
+	}
+	if !acct.Disabled {
+		t.Fatal("expected account to be disabled")
+	}
+
+	// enable alice
+	req, err = http.NewRequest("POST", c.route("account/enable"), bytes.NewBufferString(`{"username":"alice"}`))
+	if err != nil {
+		t.Fatalf("NewRequest enable: %v", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do enable: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("resp.Body.Close: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("enable: expected 200, got %d", resp.StatusCode)
+	}
+
+	// verify enabled
+	acct, err = c.GetAccount(context.TODO(), "alice")
+	if err != nil {
+		t.Fatalf("GetAccount after enable: %v", err)
+	}
+	if acct.Disabled {
+		t.Fatal("expected account to be enabled")
+	}
+
+	// verify can authenticate again
+	if _, err := c.Authenticate(context.TODO(), "alice", "password1"); err != nil {
+		t.Fatalf("Authenticate after enable: %v", err)
+	}
+}
+
+func TestHTTPPromoteRequiresAdmin(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create admin and a regular user
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount admin: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount alice: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "bob", "password1", "b@b.com", "555", "Bob", false); err != nil {
+		t.Fatalf("CreateAccount bob: %v", err)
+	}
+
+	// authenticate as non-admin alice
+	aliceResp, err := c.Authenticate(context.TODO(), "alice", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate alice: %v", err)
+	}
+	c.Token = aliceResp.Token
+
+	// alice tries to promote bob -- should fail
+	adminTrue := true
+	_, err = c.UpdateAccount(context.TODO(), "bob", account.UpdateFields{Admin: &adminTrue})
+	if err == nil {
+		t.Fatal("expected error when non-admin promotes user")
+	}
+
+	// verify bob is still not admin
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
+	}
+	c.Token = adminResp.Token
+
+	bob, err := c.GetAccount(context.TODO(), "bob")
+	if err != nil {
+		t.Fatalf("GetAccount bob: %v", err)
+	}
+	if bob.Admin {
+		t.Fatal("bob should not be admin")
+	}
+}
+
+func TestHTTPDemoteRequiresAdmin(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create two admins and a regular user
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount admin: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "admin2", "password1", "a2@b.com", "555", "Admin2", true); err != nil {
+		t.Fatalf("CreateAccount admin2: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount alice: %v", err)
+	}
+
+	// authenticate as non-admin alice
+	aliceResp, err := c.Authenticate(context.TODO(), "alice", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate alice: %v", err)
+	}
+	c.Token = aliceResp.Token
+
+	// alice tries to demote admin2 -- should fail
+	adminFalse := false
+	_, err = c.UpdateAccount(context.TODO(), "admin2", account.UpdateFields{Admin: &adminFalse})
+	if err == nil {
+		t.Fatal("expected error when non-admin demotes admin")
+	}
+
+	// verify admin2 is still admin
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
+	}
+	c.Token = adminResp.Token
+
+	admin2, err := c.GetAccount(context.TODO(), "admin2")
+	if err != nil {
+		t.Fatalf("GetAccount admin2: %v", err)
+	}
+	if !admin2.Admin {
+		t.Fatal("admin2 should still be admin")
+	}
+}
+
+func TestHTTPAdminCannotChangeSelfRole(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create admin
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount admin: %v", err)
+	}
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
+	}
+	c.Token = adminResp.Token
+
+	// admin tries to demote self -- should fail
+	adminFalse := false
+	_, err = c.UpdateAccount(context.TODO(), "admin", account.UpdateFields{Admin: &adminFalse})
+	if err == nil {
+		t.Fatal("expected error when admin changes own role")
+	}
+
+	// verify still admin
+	acct, err := c.GetAccount(context.TODO(), "admin")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if !acct.Admin {
+		t.Fatal("admin should still be admin")
+	}
+}
+
+func TestHTTPAdminCanPromoteOther(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create admin and regular user
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount admin: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("CreateAccount alice: %v", err)
+	}
+
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
+	}
+	c.Token = adminResp.Token
+
+	// promote alice
+	adminTrue := true
+	acct, err := c.UpdateAccount(context.TODO(), "alice", account.UpdateFields{Admin: &adminTrue})
+	if err != nil {
+		t.Fatalf("UpdateAccount promote: %v", err)
+	}
+	if !acct.Admin {
+		t.Fatal("alice should be admin after promotion")
+	}
+}
+
+func TestHTTPAdminCanDemoteOther(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// create two admins
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount admin: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "admin2", "password1", "a2@b.com", "555", "Admin2", true); err != nil {
+		t.Fatalf("CreateAccount admin2: %v", err)
+	}
+
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
+	}
+	c.Token = adminResp.Token
+
+	// demote admin2
+	adminFalse := false
+	acct, err := c.UpdateAccount(context.TODO(), "admin2", account.UpdateFields{Admin: &adminFalse})
+	if err != nil {
+		t.Fatalf("UpdateAccount demote: %v", err)
+	}
+	if acct.Admin {
+		t.Fatal("admin2 should not be admin after demotion")
+	}
+}
+
 func TestHTTPListAccounts(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 

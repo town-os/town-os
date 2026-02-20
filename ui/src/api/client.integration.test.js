@@ -103,6 +103,52 @@ describe('SystemControllerClient integration', () => {
       const acct = await client.getAccount('user1')
       expect(acct.disabled).toBe(true)
     })
+
+    it('enables a disabled account', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.enableAccount('user1')
+      const acct = await client.getAccount('user1')
+      expect(acct.disabled).toBe(false)
+    })
+
+    it('admin can promote another user', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const acct = await client.updateAccount('user1', { admin: true })
+      expect(acct.admin).toBe(true)
+    })
+
+    it('admin can demote another user', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const acct = await client.updateAccount('user1', { admin: false })
+      expect(acct.admin).toBe(false)
+    })
+
+    it('non-admin cannot promote a user', async () => {
+      const resp = await client.authenticate('user1', 'userpass')
+      client.setToken(resp.token)
+      await expect(
+        client.updateAccount('user1', { admin: true }),
+      ).rejects.toThrow()
+    })
+
+    it('non-admin cannot demote an admin', async () => {
+      const resp = await client.authenticate('user1', 'userpass')
+      client.setToken(resp.token)
+      await expect(
+        client.updateAccount('admin', { admin: false }),
+      ).rejects.toThrow()
+    })
+
+    it('admin cannot change own admin status', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.updateAccount('admin', { admin: false }),
+      ).rejects.toThrow()
+    })
   })
 
   // --- Session management ---

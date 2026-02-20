@@ -683,12 +683,57 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 		return err
 	}
 
+	if req.Fields.Admin != nil {
+		if err := s.requireAdminOrNoAdmins(c, req.Username); err != nil {
+			return err
+		}
+	}
+
 	acct, err := s.Controller.GetAccountManager().Update(req.Username, req.Fields)
 	if err != nil {
 		return err
 	}
 
 	return c.JSON(200, acct)
+}
+
+func (s *SystemControllerHandlers) requireAdminOrNoAdmins(c *echo.Context, targetUsername string) error {
+	accounts, err := s.Controller.GetAccountManager().List()
+	if err != nil {
+		return fmt.Errorf("list accounts: %w", err)
+	}
+
+	hasAdmin := false
+	for _, a := range accounts {
+		if a.Admin && !a.Disabled {
+			hasAdmin = true
+			break
+		}
+	}
+
+	if !hasAdmin {
+		return nil
+	}
+
+	token := extractBearerToken(c.Request())
+	if token == "" {
+		return echo.NewHTTPError(403, "admin access required")
+	}
+
+	_, acct, err := s.Controller.GetSessionManager().Validate(token)
+	if err != nil {
+		return echo.NewHTTPError(403, "admin access required")
+	}
+
+	if !acct.Admin {
+		return echo.NewHTTPError(403, "admin access required")
+	}
+
+	if acct.Username == targetUsername {
+		return echo.NewHTTPError(403, "cannot change your own admin status")
+	}
+
+	return nil
 }
 
 func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {

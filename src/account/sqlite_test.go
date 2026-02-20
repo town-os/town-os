@@ -366,6 +366,65 @@ func TestDisabledAccountCannotAuthenticate(t *testing.T) {
 	}
 }
 
+// --- Enable tests ---
+
+func TestEnableAccount(t *testing.T) {
+	mgr := initTestDB(t)
+
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := mgr.Disable("alice"); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+
+	if err := mgr.Enable("alice"); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+
+	acct, err := mgr.Get("alice")
+	if err != nil {
+		t.Fatalf("Get after enable: %v", err)
+	}
+	if acct.Disabled {
+		t.Fatal("expected account to be enabled")
+	}
+}
+
+func TestEnableAccountNotFound(t *testing.T) {
+	mgr := initTestDB(t)
+
+	err := mgr.Enable("nonexistent")
+	if err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestEnabledAccountCanAuthenticate(t *testing.T) {
+	mgr := initTestDB(t)
+
+	if _, err := mgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := mgr.Disable("alice"); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+
+	if _, err := mgr.Authenticate("alice", "password1"); err != ErrAccountDisabled {
+		t.Fatalf("expected ErrAccountDisabled while disabled, got %v", err)
+	}
+
+	if err := mgr.Enable("alice"); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+
+	if _, err := mgr.Authenticate("alice", "password1"); err != nil {
+		t.Fatalf("Authenticate after enable: %v", err)
+	}
+}
+
 // --- List tests ---
 
 func TestListAccounts(t *testing.T) {
