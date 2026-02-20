@@ -28,6 +28,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    reporters: ['verbose'],
     include: ['src/**/*.test.{js,jsx}'],
     exclude: ['src/**/*.integration.test.*', 'node_modules'],
   },

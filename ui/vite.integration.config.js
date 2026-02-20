@@ -10,6 +10,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    reporters: ['verbose'],
     include: ['**/*.integration.test.*'],
     testTimeout: 60000,
   },
