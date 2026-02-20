@@ -112,7 +112,7 @@ func run() (err error) {
 	})
 
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":5309",
 		Handler: handler,
 	}
 
@@ -130,7 +130,7 @@ func run() (err error) {
 		}
 	}()
 
-	fmt.Fprintln(os.Stderr, "listening on :8080")
+	fmt.Fprintln(os.Stderr, "listening on :5309")
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("listen: %w", err)
 	}

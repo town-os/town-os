@@ -56,8 +56,8 @@ test-ui-integration: test-image ui-integration-image btrfs
 	done
 	sudo -E podman run \
 		--network container:$(PODMAN_UI_BACKEND) \
-		-e INTEGRATION_URL=http://localhost:8080 \
-		-e VITE_API_URL=http://localhost:8080 \
+		-e INTEGRATION_URL=http://localhost:5309 \
+		-e VITE_API_URL=http://localhost:5309 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
@@ -121,7 +121,7 @@ dev-btrfs:
 dev: test-image dev-btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@mkdir -p dev-data
-	sudo -E podman run -d -p 0.0.0.0:8080:8080 -e LOG_LEVEL=debug -e DEBUG=1 \
+	sudo -E podman run -d -p 0.0.0.0:5309:5309 -e LOG_LEVEL=debug -e DEBUG=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--systemd=true --privileged \
@@ -129,8 +129,8 @@ dev: test-image dev-btrfs
 		-v $$(cat town-os-dev.mount):/data/btrfs:z \
 		-v $$(pwd)/dev-data:/data/db:z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
-	@echo "API server: http://$$(hostname):8080"
-	cd ui && VITE_API_URL=http://$$(hostname):8080 bun run dev -- --host; \
+	@echo "API server: http://$$(hostname):5309"
+	cd ui && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
 dev-clean: dev-stop clean-btrfs-dev

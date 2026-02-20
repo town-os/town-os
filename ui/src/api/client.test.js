@@ -7,7 +7,7 @@ describe('SystemControllerClient', () => {
   let originalFetch
 
   beforeEach(() => {
-    client = new SystemControllerClient('http://localhost:8080')
+    client = new SystemControllerClient('http://localhost:5309')
     originalFetch = globalThis.fetch
   })
 
@@ -47,7 +47,7 @@ describe('SystemControllerClient', () => {
 
       const result = await client.ping()
       expect(result).toEqual(pingData)
-      expect(globalThis.fetch).toHaveBeenCalledWith('http://localhost:8080/status/ping', {
+      expect(globalThis.fetch).toHaveBeenCalledWith('http://localhost:5309/status/ping', {
         headers: {},
       })
     })
@@ -73,7 +73,7 @@ describe('SystemControllerClient', () => {
       const result = await client.authenticate('admin', 'pass')
       expect(result).toEqual(authResp)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/account/authenticate',
+        'http://localhost:5309/account/authenticate',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -90,7 +90,7 @@ describe('SystemControllerClient', () => {
 
       await client.createFilesystem({ name: 'data', quota: 1024 })
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/storage/create',
+        'http://localhost:5309/storage/create',
         {
           method: 'POST',
           headers: {
@@ -124,7 +124,7 @@ describe('SystemControllerClient', () => {
 
       await client.addRepository('my-repo', 'https://example.com/repo.git', 'user', 'pass')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/repository/add',
+        'http://localhost:5309/repository/add',
         {
           method: 'POST',
           headers: {
@@ -147,7 +147,7 @@ describe('SystemControllerClient', () => {
 
       await client.addRepository('my-repo', 'https://example.com/repo.git')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/repository/add',
+        'http://localhost:5309/repository/add',
         {
           method: 'POST',
           headers: {
@@ -193,7 +193,7 @@ describe('SystemControllerClient', () => {
 
       await client.listUnits('Name', 'asc', 20, 40)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/units?sort_by=Name&sort_order=asc&limit=20&offset=40',
+        'http://localhost:5309/systemd/units?sort_by=Name&sort_order=asc&limit=20&offset=40',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -217,7 +217,7 @@ describe('SystemControllerClient', () => {
 
       await client.setUnitStatus('nginx.service', 'restart')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/status',
+        'http://localhost:5309/systemd/status',
         {
           method: 'POST',
           headers: {
@@ -255,7 +255,7 @@ describe('SystemControllerClient', () => {
       )
       expect(result).toEqual(acct)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/account/create',
+        'http://localhost:5309/account/create',
         {
           method: 'POST',
           headers: {
@@ -296,7 +296,7 @@ describe('SystemControllerClient', () => {
 
       const result = await client.listAuditLog({ limit: 50 })
       expect(result).toEqual(page)
-      expect(globalThis.fetch).toHaveBeenCalledWith('http://localhost:8080/audit/log', {
+      expect(globalThis.fetch).toHaveBeenCalledWith('http://localhost:5309/audit/log', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -396,7 +396,7 @@ describe('SystemControllerClient', () => {
       }
       expect(entries).toEqual([entry1, entry2])
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs?unit=nginx.service',
+        'http://localhost:5309/systemd/logs?unit=nginx.service',
         { headers: { Authorization: 'Bearer tok' } },
       )
     })
@@ -411,7 +411,7 @@ describe('SystemControllerClient', () => {
       const data = await client.logTail('nginx.service', 50)
       expect(data).toEqual(result)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=50',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=50',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -422,7 +422,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 100, 'cursor-abc')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&before=cursor-abc',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=100&before=cursor-abc',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -433,7 +433,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 50, undefined, undefined, 'error')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=50&grep=error',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=50&grep=error',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -444,7 +444,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 100, undefined, 'cursor-xyz')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&after=cursor-xyz',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=100&after=cursor-xyz',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -455,7 +455,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 100, 'cursor-abc', undefined, 'warning')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&before=cursor-abc&grep=warning',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=100&before=cursor-abc&grep=warning',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -466,7 +466,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 200, undefined, undefined, undefined, 1700000000)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=200&since=1700000000',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=200&since=1700000000',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -477,7 +477,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 100, undefined, undefined, 'error', 1700000000)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&grep=error&since=1700000000',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=100&grep=error&since=1700000000',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -488,7 +488,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 200, undefined, undefined, undefined, undefined, 1700003600)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=200&until=1700003600',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=200&until=1700003600',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -499,7 +499,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 200, undefined, undefined, undefined, 1700000000, 1700003600)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=200&since=1700000000&until=1700003600',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=200&since=1700000000&until=1700003600',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -510,7 +510,7 @@ describe('SystemControllerClient', () => {
 
       await client.logTail('nginx.service', 100, undefined, undefined, 'error', 1700000000, 1700003600)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/systemd/logs/tail?unit=nginx.service&lines=100&grep=error&since=1700000000&until=1700003600',
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=100&grep=error&since=1700000000&until=1700003600',
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
@@ -523,7 +523,7 @@ describe('SystemControllerClient', () => {
 
       await client.removeFilesystem('data')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/storage/remove',
+        'http://localhost:5309/storage/remove',
         {
           method: 'POST',
           headers: {
@@ -543,7 +543,7 @@ describe('SystemControllerClient', () => {
 
       await client.modifyFilesystem('data', { name: 'data', quota: 2048 })
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/storage/modify',
+        'http://localhost:5309/storage/modify',
         {
           method: 'POST',
           headers: {
@@ -563,7 +563,7 @@ describe('SystemControllerClient', () => {
 
       await client.removeRepository('my-repo')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/repository/remove',
+        'http://localhost:5309/repository/remove',
         {
           method: 'POST',
           headers: {
@@ -583,7 +583,7 @@ describe('SystemControllerClient', () => {
 
       await client.refreshRepositories()
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/repository/refresh',
+        'http://localhost:5309/repository/refresh',
         {
           method: 'POST',
           headers: {
@@ -614,7 +614,7 @@ describe('SystemControllerClient', () => {
       const result = await client.getAccount('bob')
       expect(result).toEqual(acct)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/account',
+        'http://localhost:5309/account',
         {
           method: 'POST',
           headers: {
@@ -634,7 +634,7 @@ describe('SystemControllerClient', () => {
 
       await client.disableAccount('bob')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/account/disable',
+        'http://localhost:5309/account/disable',
         {
           method: 'POST',
           headers: {
@@ -654,7 +654,7 @@ describe('SystemControllerClient', () => {
 
       await client.enableAccount('bob')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/account/enable',
+        'http://localhost:5309/account/enable',
         {
           method: 'POST',
           headers: {
@@ -698,7 +698,7 @@ describe('SystemControllerClient', () => {
 
       await client.revokeSession('sess-123')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:8080/account/session/revoke',
+        'http://localhost:5309/account/session/revoke',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

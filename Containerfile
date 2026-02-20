@@ -23,5 +23,5 @@ RUN apt-get update && apt-get install -y \
 FROM runtime-deps
 COPY --from=go-builder /testserver /testserver
 COPY --from=ui-builder /ui/dist /ui
-EXPOSE 8080
+EXPOSE 5309
 CMD ["/testserver"]

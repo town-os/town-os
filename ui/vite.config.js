@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import os from 'os'
 
-const apiTarget = process.env.VITE_API_URL || 'http://localhost:8080'
+const apiTarget = process.env.VITE_API_URL || 'http://localhost:5309'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

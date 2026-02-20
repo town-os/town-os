@@ -22,5 +22,5 @@ COPY integration/testdata/town-os-testserver.service /etc/systemd/system/
 COPY integration/testdata/town-os-test.service /etc/systemd/system/
 RUN systemctl enable town-os-testserver.service town-os-test.service
 RUN mkdir -p /test /data/btrfs /data/repos /data/db
-EXPOSE 8080
+EXPOSE 5309
 CMD ["/lib/systemd/systemd"]
