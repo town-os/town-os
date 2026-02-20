@@ -24,12 +24,17 @@ const UNITS = {
   TB: 1024 * 1024 * 1024 * 1024,
 }
 
-function formatQuota(bytes) {
-  if (!bytes || bytes === 0) return <Badge className="bg-black text-white hover:bg-black/90">none</Badge>
+function formatQuotaText(bytes) {
+  if (!bytes || bytes === 0) return 'none'
   if (bytes >= UNITS.TB) return `${(bytes / UNITS.TB).toFixed(2)} TB`
   if (bytes >= UNITS.GB) return `${(bytes / UNITS.GB).toFixed(2)} GB`
   if (bytes >= UNITS.MB) return `${(bytes / UNITS.MB).toFixed(2)} MB`
   return `${bytes} B`
+}
+
+function formatQuota(bytes) {
+  if (!bytes || bytes === 0) return <Badge className="bg-black text-white hover:bg-black/90">none</Badge>
+  return formatQuotaText(bytes)
 }
 
 /** Decompose a byte count into a [value, unit] pair for the form. */
@@ -71,11 +76,14 @@ export default function StorageManagement() {
     e.preventDefault()
     const form = e.target.elements
     try {
+      const quota = parseQuotaFromForm(form)
       await getClient().createFilesystem({
         name: form.name.value,
-        quota: parseQuotaFromForm(form),
+        quota,
       })
-      toast.success('Filesystem created')
+      toast.success(quota > 0
+        ? `Filesystem created with ${formatQuotaText(quota)} quota`
+        : 'Filesystem created')
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -87,11 +95,14 @@ export default function StorageManagement() {
     e.preventDefault()
     const form = e.target.elements
     try {
+      const quota = parseQuotaFromForm(form)
       await getClient().modifyFilesystem(editDialog.originalName, {
         name: form.name.value,
-        quota: parseQuotaFromForm(form),
+        quota,
       })
-      toast.success('Filesystem modified')
+      toast.success(quota > 0
+        ? `Filesystem modified with ${formatQuotaText(quota)} quota`
+        : 'Filesystem modified')
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {

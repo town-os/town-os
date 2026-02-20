@@ -186,7 +186,7 @@ func TestParseQGroupShowNone(t *testing.T) {
 --------         ----         ----     --------     --------
 0/256         16384        16384         none         none
 `
-	val, err := parseQGroupShow(output)
+	val, err := parseQGroupShow(output, 256)
 	if err != nil {
 		t.Fatalf("parseQGroupShow: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestParseQGroupShowWithLimit(t *testing.T) {
 --------         ----         ----     --------     --------
 0/256         16384        16384      1073741824         none
 `
-	val, err := parseQGroupShow(output)
+	val, err := parseQGroupShow(output, 256)
 	if err != nil {
 		t.Fatalf("parseQGroupShow: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestParseQGroupShowWithLimit(t *testing.T) {
 }
 
 func TestParseQGroupShowEmpty(t *testing.T) {
-	val, err := parseQGroupShow("")
+	val, err := parseQGroupShow("", 256)
 	if err != nil {
 		t.Fatalf("parseQGroupShow: %v", err)
 	}
@@ -224,9 +224,44 @@ func TestParseQGroupShowBadNumber(t *testing.T) {
 --------         ----         ----     --------     --------
 0/256         16384        16384      notanumber         none
 `
-	_, err := parseQGroupShow(output)
+	_, err := parseQGroupShow(output, 256)
 	if err == nil {
 		t.Fatal("expected error for bad number")
+	}
+}
+
+func TestParseQGroupShowMultipleQGroups(t *testing.T) {
+	output := `qgroupid         rfer         excl     max_rfer     max_excl
+--------         ----         ----     --------     --------
+0/256         16384        16384         none         none
+0/257         32768        32768      2147483648         none
+0/258         65536        65536      1073741824         none
+`
+	// Target subvol 257 — should find its quota, not the first line
+	val, err := parseQGroupShow(output, 257)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	if val != 2147483648 {
+		t.Fatalf("expected 2147483648, got %d", val)
+	}
+
+	// Target subvol 256 — has no quota
+	val, err = parseQGroupShow(output, 256)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	if val != 0 {
+		t.Fatalf("expected 0 for none, got %d", val)
+	}
+
+	// Target subvol 999 — not in output
+	val, err = parseQGroupShow(output, 999)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	if val != 0 {
+		t.Fatalf("expected 0 for missing, got %d", val)
 	}
 }
 

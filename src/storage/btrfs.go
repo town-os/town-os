@@ -241,7 +241,8 @@ func (c BtrFSController) QGroupLimit(path string, bytes uint64) error {
 	return nil
 }
 
-func parseQGroupShow(output string) (uint64, error) {
+func parseQGroupShow(output string, subvolID uint64) (uint64, error) {
+	target := fmt.Sprintf("0/%d", subvolID)
 	scanner := bufio.NewScanner(strings.NewReader(output))
 
 	// Skip 2 header lines
@@ -251,37 +252,46 @@ func parseQGroupShow(output string) (uint64, error) {
 		}
 	}
 
-	// First data line: qgroupid rfer excl max_rfer ...
-	if !scanner.Scan() {
-		return 0, nil
+	// Search data lines for matching qgroup: qgroupid rfer excl max_rfer ...
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 {
+			continue
+		}
+
+		if fields[0] != target {
+			continue
+		}
+
+		maxRfer := fields[3]
+		if maxRfer == "none" {
+			return 0, nil
+		}
+
+		val, err := strconv.ParseUint(maxRfer, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse max_rfer %q: %w", maxRfer, err)
+		}
+
+		return val, nil
 	}
 
-	fields := strings.Fields(scanner.Text())
-	if len(fields) < 4 {
-		return 0, nil
-	}
-
-	maxRfer := fields[3]
-	if maxRfer == "none" {
-		return 0, nil
-	}
-
-	val, err := strconv.ParseUint(maxRfer, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parse max_rfer %q: %w", maxRfer, err)
-	}
-
-	return val, nil
+	return 0, nil
 }
 
 func (c BtrFSController) QGroupShow(path string) (uint64, error) {
+	id, err := c.SubvolID(path)
+	if err != nil {
+		return 0, nil
+	}
+
 	out, err := exec.Command(c.binPath(), "qgroup", "show", "--raw", "-r", path).CombinedOutput()
 	if err != nil {
 		// Quotas not enabled or other failure — not an error, just no quota
 		return 0, nil
 	}
 
-	return parseQGroupShow(string(out))
+	return parseQGroupShow(string(out), id)
 }
 
 type BtrFS struct {

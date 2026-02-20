@@ -30,7 +30,7 @@ export default function Dashboard({ children }) {
   const location = useLocation()
 
   const [ping, , loading] = usePolling(
-    () => getClient().ping(),
+    () => getClient().ping().catch(() => ({ status: 'error' })),
     null,
     [],
     10000,
@@ -71,11 +71,19 @@ export default function Dashboard({ children }) {
                 </Badge>
               </div>
             )}
-            {ping && (
+            {ping && ping.status !== 'ok' && (
+              <div className="flex items-center gap-2 text-sm">
+                <Activity className="h-3 w-3 text-red-600" />
+                <Badge className="bg-red-600 text-white font-bold text-xs hover:bg-red-600/90">
+                  API Offline
+                </Badge>
+              </div>
+            )}
+            {ping && ping.status === 'ok' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Activity className="h-3 w-3" />
                 <Badge variant="outline" className="text-xs">
-                  {ping.status === 'ok' ? 'Online' : 'Offline'}
+                  Online
                 </Badge>
               </div>
             )}
