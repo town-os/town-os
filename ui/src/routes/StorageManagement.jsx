@@ -147,6 +147,7 @@ export default function StorageManagement() {
       key: '_delete',
       label: 'Delete',
       sortable: false,
+      className: 'text-right',
       transform: (_, row) => (
         <Button
           variant="ghost"
