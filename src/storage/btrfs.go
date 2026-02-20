@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -61,7 +62,9 @@ func findMountPoint(path string) (_ string, err error) {
 	return mount, nil
 }
 
-type BtrFSController struct{}
+type BtrFSController struct {
+	BinPath string
+}
 
 func (BtrFSController) IsSubvolume(name string) error {
 	return btrfs.IsSubvolume(name)
@@ -119,6 +122,31 @@ func (BtrFSController) SubvolList(name string) ([]btrfs.Info, error) {
 	return fs, nil
 }
 
+func (BtrFSController) SubvolRename(oldPath, newPath string) error {
+	return os.Rename(oldPath, newPath)
+}
+
+func (c BtrFSController) QGroupLimit(path string, bytes uint64) error {
+	binPath := c.BinPath
+	if binPath == "" {
+		binPath = "btrfs"
+	}
+
+	var limitArg string
+	if bytes == 0 {
+		limitArg = "none"
+	} else {
+		limitArg = fmt.Sprintf("%d", bytes)
+	}
+
+	out, err := exec.Command(binPath, "qgroup", "limit", limitArg, path).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("btrfs qgroup limit: %w\n%s", err, string(out))
+	}
+
+	return nil
+}
+
 type BtrFS struct {
 	BasePath   string
 	BinPath    string
@@ -126,7 +154,7 @@ type BtrFS struct {
 }
 
 func InitBtrFS(basePath string) *BtrFS {
-	return InitBtrFSFromController(basePath, BtrFSController{})
+	return InitBtrFSFromController(basePath, BtrFSController{BinPath: "btrfs"})
 }
 
 func InitBtrFSMock() *BtrFS {
@@ -142,11 +170,44 @@ func InitBtrFSFromController(basePath string, c Controller) *BtrFS {
 }
 
 func (b *BtrFS) CreateFilesystem(f Filesystem) error {
-	return b.Controller.SubvolCreate(filepath.Join(b.BasePath, f.Name))
+	if err := ValidateFilesystemName(f.Name); err != nil {
+		return err
+	}
+
+	path := filepath.Join(b.BasePath, f.Name)
+	if err := b.Controller.SubvolCreate(path); err != nil {
+		return err
+	}
+
+	if f.Quota > 0 {
+		if err := b.Controller.QGroupLimit(path, f.Quota); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
-	return ErrUnimplemented
+	if err := ValidateFilesystemName(f.Name); err != nil {
+		return err
+	}
+
+	oldPath := filepath.Join(b.BasePath, name)
+
+	if name != f.Name {
+		newPath := filepath.Join(b.BasePath, f.Name)
+		if err := b.Controller.SubvolRename(oldPath, newPath); err != nil {
+			return fmt.Errorf("rename subvolume: %w", err)
+		}
+		oldPath = newPath
+	}
+
+	if err := b.Controller.QGroupLimit(oldPath, f.Quota); err != nil && f.Quota > 0 {
+		return fmt.Errorf("set quota: %w", err)
+	}
+
+	return nil
 }
 
 func (b *BtrFS) RemoveFilesystem(name string) error {

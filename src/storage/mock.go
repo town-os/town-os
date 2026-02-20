@@ -24,10 +24,11 @@ type MockBtrFSController struct {
 	Call        []Call
 	NextID      uint64
 	Filesystems []btrfs.Info
+	Quotas      map[string]uint64
 }
 
 func InitBtrFSMockController() *MockBtrFSController {
-	return &MockBtrFSController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []btrfs.Info{}, NextID: 0}
+	return &MockBtrFSController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []btrfs.Info{}, NextID: 0, Quotas: map[string]uint64{}}
 }
 
 func (m *MockBtrFSController) GetLog() []Call {
@@ -102,6 +103,7 @@ func (m *MockBtrFSController) SubvolDelete(name string) error {
 
 	for _, info := range list {
 		m.removeFilesystemLocked(info.Name)
+		delete(m.Quotas, info.Name)
 	}
 
 	m.addCallLocked("SubvolDelete", nil, name)
@@ -164,4 +166,43 @@ func (m *MockBtrFSController) SubvolList(name string) ([]btrfs.Info, error) {
 	info := m.subvolListLocked(name)
 	m.addCallLocked("SubvolList", nil, info)
 	return info, nil
+}
+
+func (m *MockBtrFSController) SubvolRename(oldPath, newPath string) error {
+	m.Lock.Lock()
+	defer m.Lock.Unlock()
+
+	found := false
+	for i, fs := range m.Filesystems {
+		if fs.Name == oldPath {
+			m.Filesystems[i].Name = newPath
+			found = true
+			break
+		}
+	}
+
+	var err error
+	if !found {
+		err = ErrNoFilesystem
+	} else if q, ok := m.Quotas[oldPath]; ok {
+		delete(m.Quotas, oldPath)
+		m.Quotas[newPath] = q
+	}
+
+	m.addCallLocked("SubvolRename", err, oldPath, newPath)
+	return err
+}
+
+func (m *MockBtrFSController) QGroupLimit(path string, bytes uint64) error {
+	m.Lock.Lock()
+	defer m.Lock.Unlock()
+
+	if bytes == 0 {
+		delete(m.Quotas, path)
+	} else {
+		m.Quotas[path] = bytes
+	}
+
+	m.addCallLocked("QGroupLimit", nil, path, bytes)
+	return nil
 }

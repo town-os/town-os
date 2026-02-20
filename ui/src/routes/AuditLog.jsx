@@ -6,12 +6,6 @@ import DataTable from '@/components/DataTable.jsx'
 import { Button } from '@/components/ui/button'
 import { Check, CircleAlert, FileText } from 'lucide-react'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -34,6 +28,8 @@ export default function AuditLog() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailData, setDetailData] = useState('')
   const [detailAction, setDetailAction] = useState('')
+  const [errorOpen, setErrorOpen] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
 
   const [auditData, , auditLoading] = usePolling(
     () =>
@@ -112,16 +108,13 @@ export default function AuditLog() {
         v ? (
           <Check className="h-4 w-4 text-green-600" />
         ) : (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <CircleAlert className="h-4 w-4 text-destructive cursor-pointer" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="max-w-[300px] break-words">{row.error || 'Unknown error'}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <CircleAlert
+            className="h-4 w-4 text-destructive cursor-pointer"
+            onClick={() => {
+              setErrorMessage(row.error || 'Unknown error')
+              setErrorOpen(true)
+            }}
+          />
         ),
     },
   ]
@@ -159,6 +152,20 @@ export default function AuditLog() {
           </DialogHeader>
           <div className="overflow-auto flex-1 min-h-0 rounded border bg-muted p-3">
             <JsonTree data={detailData} />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={errorOpen} onOpenChange={setErrorOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CircleAlert className="h-4 w-4 text-destructive" />
+              Error
+            </DialogTitle>
+          </DialogHeader>
+          <div className="rounded border bg-muted p-3 break-words whitespace-pre-wrap font-mono text-sm">
+            {errorMessage}
           </div>
         </DialogContent>
       </Dialog>

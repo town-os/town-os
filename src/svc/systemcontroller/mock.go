@@ -108,7 +108,11 @@ func (m *MockClient) ModifyFilesystem(_ context.Context, name string, fs storage
 		return fmt.Errorf("filesystem %s not found", name)
 	}
 
-	m.Filesystems[name] = fs
+	if name != fs.Name {
+		delete(m.Filesystems, name)
+	}
+
+	m.Filesystems[fs.Name] = fs
 	return nil
 }
 

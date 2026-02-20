@@ -217,6 +217,10 @@ func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
 		return err
 	}
 
+	if req.Name == "" {
+		return storage.ErrRootFilesystem
+	}
+
 	if err := s.Controller.GetStorage().ModifyFilesystem(req.Name, req.Filesystem); err != nil {
 		return err
 	}

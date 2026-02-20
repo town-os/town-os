@@ -261,3 +261,275 @@ func TestMockSubvolIDNotFound(t *testing.T) {
 		t.Fatalf("expected id 0 for nonexistent subvol, got %d", id)
 	}
 }
+
+// --- Validation tests ---
+
+func TestValidateFilesystemName(t *testing.T) {
+	valid := []string{
+		"test",
+		"my-volume",
+		"data_dir",
+		"vol.1",
+		"abc/def",
+		"A-Z.0-9_test",
+	}
+
+	for _, name := range valid {
+		if err := ValidateFilesystemName(name); err != nil {
+			t.Errorf("expected %q to be valid, got: %v", name, err)
+		}
+	}
+}
+
+func TestValidateFilesystemNameRejectsInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		desc string
+	}{
+		{"", "empty name"},
+		{"/test", "leading slash"},
+		{"test/", "trailing slash (empty component)"},
+		{"test//sub", "double slash"},
+		{"..", "dotdot traversal"},
+		{"test/..", "dotdot in path"},
+		{"test/./sub", "dot in path"},
+		{"hello world", "space in name"},
+		{"test\x00vol", "null byte"},
+		{"my@vol", "at sign"},
+		{"my:vol", "colon"},
+		{"vol*name", "asterisk"},
+	}
+
+	for _, tc := range cases {
+		if err := ValidateFilesystemName(tc.name); err == nil {
+			t.Errorf("expected %q (%s) to be invalid, got nil", tc.name, tc.desc)
+		}
+	}
+}
+
+// --- Rename tests ---
+
+func TestMockSubvolRename(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolCreate("old"); err != nil {
+		t.Fatalf("SubvolCreate: %v", err)
+	}
+
+	if err := mock.SubvolRename("old", "new"); err != nil {
+		t.Fatalf("SubvolRename: %v", err)
+	}
+
+	if err := mock.IsSubvolume("new"); err != nil {
+		t.Fatalf("expected renamed volume to exist: %v", err)
+	}
+
+	if err := mock.IsSubvolume("old"); err != ErrNoFilesystem {
+		t.Fatalf("expected old name to not exist, got: %v", err)
+	}
+}
+
+func TestMockSubvolRenameNotFound(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolRename("nonexistent", "new"); err != ErrNoFilesystem {
+		t.Fatalf("expected ErrNoFilesystem, got: %v", err)
+	}
+}
+
+func TestMockSubvolRenamePreservesQuota(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolCreate("vol"); err != nil {
+		t.Fatalf("SubvolCreate: %v", err)
+	}
+
+	if err := mock.QGroupLimit("vol", 1024); err != nil {
+		t.Fatalf("QGroupLimit: %v", err)
+	}
+
+	if err := mock.SubvolRename("vol", "renamed"); err != nil {
+		t.Fatalf("SubvolRename: %v", err)
+	}
+
+	if mock.Quotas["renamed"] != 1024 {
+		t.Fatalf("expected quota 1024 on renamed vol, got %d", mock.Quotas["renamed"])
+	}
+
+	if _, ok := mock.Quotas["vol"]; ok {
+		t.Fatal("old quota entry should be removed")
+	}
+}
+
+// --- QGroupLimit tests ---
+
+func TestMockQGroupLimit(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolCreate("vol"); err != nil {
+		t.Fatalf("SubvolCreate: %v", err)
+	}
+
+	if err := mock.QGroupLimit("vol", 4096); err != nil {
+		t.Fatalf("QGroupLimit: %v", err)
+	}
+
+	if mock.Quotas["vol"] != 4096 {
+		t.Fatalf("expected quota 4096, got %d", mock.Quotas["vol"])
+	}
+}
+
+func TestMockQGroupLimitZeroRemoves(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	if err := mock.SubvolCreate("vol"); err != nil {
+		t.Fatalf("SubvolCreate: %v", err)
+	}
+
+	if err := mock.QGroupLimit("vol", 4096); err != nil {
+		t.Fatalf("QGroupLimit set: %v", err)
+	}
+
+	if err := mock.QGroupLimit("vol", 0); err != nil {
+		t.Fatalf("QGroupLimit clear: %v", err)
+	}
+
+	if _, ok := mock.Quotas["vol"]; ok {
+		t.Fatal("expected quota to be removed for 0")
+	}
+}
+
+// --- ModifyFilesystem (BtrFS level) tests ---
+
+func TestModifyFilesystemRename(t *testing.T) {
+	mock := InitBtrFSMock()
+	if err := mock.CreateFilesystem(Filesystem{Name: "old"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	if err := mock.ModifyFilesystem("old", Filesystem{Name: "new", Quota: 0}); err != nil {
+		t.Fatalf("ModifyFilesystem rename: %v", err)
+	}
+
+	fs, err := mock.ListFilesystems("")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(fs))
+	}
+
+	if fs[0].Name != "new" {
+		t.Fatalf("expected name %q, got %q", "new", fs[0].Name)
+	}
+}
+
+func TestModifyFilesystemQuota(t *testing.T) {
+	mock := InitBtrFSMock()
+	controller := mock.Controller.(*MockBtrFSController)
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "vol"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	if err := mock.ModifyFilesystem("vol", Filesystem{Name: "vol", Quota: 2048}); err != nil {
+		t.Fatalf("ModifyFilesystem quota: %v", err)
+	}
+
+	if controller.Quotas["vol"] != 2048 {
+		t.Fatalf("expected quota 2048, got %d", controller.Quotas["vol"])
+	}
+}
+
+func TestModifyFilesystemRenameAndQuota(t *testing.T) {
+	mock := InitBtrFSMock()
+	controller := mock.Controller.(*MockBtrFSController)
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "old"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	if err := mock.ModifyFilesystem("old", Filesystem{Name: "new", Quota: 4096}); err != nil {
+		t.Fatalf("ModifyFilesystem: %v", err)
+	}
+
+	fs, err := mock.ListFilesystems("")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	if len(fs) != 1 || fs[0].Name != "new" {
+		t.Fatalf("expected filesystem named %q, got %v", "new", fs)
+	}
+
+	if controller.Quotas["new"] != 4096 {
+		t.Fatalf("expected quota 4096 on new name, got %d", controller.Quotas["new"])
+	}
+}
+
+func TestModifyFilesystemInvalidName(t *testing.T) {
+	mock := InitBtrFSMock()
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "vol"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	if err := mock.ModifyFilesystem("vol", Filesystem{Name: "/bad", Quota: 0}); err == nil {
+		t.Fatal("expected error for invalid name")
+	}
+
+	if err := mock.ModifyFilesystem("vol", Filesystem{Name: "..", Quota: 0}); err == nil {
+		t.Fatal("expected error for path traversal")
+	}
+
+	if err := mock.ModifyFilesystem("vol", Filesystem{Name: "", Quota: 0}); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestModifyFilesystemClearQuota(t *testing.T) {
+	mock := InitBtrFSMock()
+	controller := mock.Controller.(*MockBtrFSController)
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "vol", Quota: 1024}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	if err := mock.ModifyFilesystem("vol", Filesystem{Name: "vol", Quota: 0}); err != nil {
+		t.Fatalf("ModifyFilesystem clear quota: %v", err)
+	}
+
+	if _, ok := controller.Quotas["vol"]; ok {
+		t.Fatal("expected quota to be cleared")
+	}
+}
+
+func TestCreateFilesystemValidatesName(t *testing.T) {
+	mock := InitBtrFSMock()
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "/bad"}); err == nil {
+		t.Fatal("expected error for leading slash")
+	}
+
+	if err := mock.CreateFilesystem(Filesystem{Name: ".."}); err == nil {
+		t.Fatal("expected error for path traversal")
+	}
+
+	if err := mock.CreateFilesystem(Filesystem{Name: ""}); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestCreateFilesystemWithQuota(t *testing.T) {
+	mock := InitBtrFSMock()
+	controller := mock.Controller.(*MockBtrFSController)
+
+	if err := mock.CreateFilesystem(Filesystem{Name: "vol", Quota: 8192}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	if controller.Quotas["vol"] != 8192 {
+		t.Fatalf("expected quota 8192, got %d", controller.Quotas["vol"])
+	}
+}

@@ -151,6 +151,62 @@ describe('SystemControllerClient integration', () => {
     })
   })
 
+  // --- Storage lifecycle ---
+
+  describe('storage lifecycle', () => {
+    // Note: quota tests are omitted because the test btrfs filesystem
+    // does not have quotas enabled.
+
+    it('creates a filesystem', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.createFilesystem({ name: 'testfs', quota: 0 })
+      const list = await client.listFilesystems('')
+      expect(list.some((f) => f.name === 'testfs')).toBe(true)
+    })
+
+    it('lists filesystems', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const list = await client.listFilesystems('')
+      expect(list.length).toBeGreaterThanOrEqual(1)
+      expect(list.some((f) => f.name === 'testfs')).toBe(true)
+    })
+
+    it('modifies filesystem name (rename)', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.modifyFilesystem('testfs', { name: 'renamedfs', quota: 0 })
+      const list = await client.listFilesystems('')
+      expect(list.some((f) => f.name === 'renamedfs')).toBe(true)
+      expect(list.some((f) => f.name === 'testfs')).toBe(false)
+    })
+
+    it('rejects invalid filesystem name', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.createFilesystem({ name: '/badname', quota: 0 }),
+      ).rejects.toThrow()
+    })
+
+    it('rejects modify of root filesystem', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.modifyFilesystem('', { name: 'stolen', quota: 0 }),
+      ).rejects.toThrow()
+    })
+
+    it('removes a filesystem', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.removeFilesystem('renamedfs')
+      const list = await client.listFilesystems('')
+      expect(list.some((f) => f.name === 'renamedfs')).toBe(false)
+    })
+  })
+
   // --- Session management ---
 
   describe('sessions', () => {
