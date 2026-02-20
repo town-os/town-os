@@ -207,7 +207,7 @@ func TestCompileNormalizesImage(t *testing.T) {
 				Image:       tt.image,
 				Environment: map[string]string{},
 				Network:     InputPackageNetwork{},
-				Volumes:     map[string]PackageVolume{},
+				Volumes:     map[string]InputPackageVolume{},
 				Questions:   map[string]Question{},
 			}
 			p, err := input.Compile(Responses{})
@@ -226,7 +226,7 @@ func TestCompileRejectsInvalidQuestionName(t *testing.T) {
 		Image:       "nginx",
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{},
+		Volumes:     map[string]InputPackageVolume{},
 		Questions:   map[string]Question{"bad-name": {Query: "test?"}},
 	}
 	_, err := input.Compile(Responses{})
@@ -243,7 +243,7 @@ func TestCompileRejectsInvalidEnvironmentKey(t *testing.T) {
 		Image:       "nginx",
 		Environment: map[string]string{"1BAD": "value"},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{},
+		Volumes:     map[string]InputPackageVolume{},
 		Questions:   map[string]Question{},
 	}
 	_, err := input.Compile(Responses{})
@@ -260,7 +260,7 @@ func TestCompileRejectsInvalidVolumeName(t *testing.T) {
 		Image:       "nginx",
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{"bad name!": {Mountpoint: "/data"}},
+		Volumes:     map[string]InputPackageVolume{"bad name!": {Mountpoint: "/data"}},
 		Questions:   map[string]Question{},
 	}
 	_, err := input.Compile(Responses{})
@@ -277,7 +277,7 @@ func TestCompileRejectsInvalidMountpoint(t *testing.T) {
 		Image:       "nginx",
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{"data": {Mountpoint: "relative/path"}},
+		Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "relative/path"}},
 		Questions:   map[string]Question{},
 	}
 	_, err := input.Compile(Responses{})
@@ -294,7 +294,7 @@ func TestCompileRejectsEmptyImage(t *testing.T) {
 		Image:       "",
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{},
+		Volumes:     map[string]InputPackageVolume{},
 		Questions:   map[string]Question{},
 	}
 	_, err := input.Compile(Responses{})
@@ -313,7 +313,7 @@ func TestCompileAcceptsTemplateMountpoint(t *testing.T) {
 		Image:       "nginx",
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{"data": {Mountpoint: "/@path@/files"}},
+		Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/@path@/files"}},
 		Questions:   map[string]Question{"path": {Query: "Mount path?"}},
 	}
 	p, err := input.Compile(Responses{"path": "mnt"})
@@ -332,7 +332,7 @@ func TestCompileRejectsTemplatedMountpointThatResolvesToRelative(t *testing.T) {
 		Image:       "nginx",
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{"data": {Mountpoint: "@path@/files"}},
+		Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "@path@/files"}},
 		Questions:   map[string]Question{"path": {Query: "Mount path?"}},
 	}
 	_, err := input.Compile(Responses{"path": "relative"})
@@ -472,7 +472,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "nginx:latest",
 			Environment: map[string]string{"NGINX_HOST": "localhost"},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{"data": {Mountpoint: "/data"}},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
 			Questions:   map[string]Question{"hostname": {Query: "hostname?", Type: Hostname}},
 		}
 		if err := pkg.Validate(); err != nil {
@@ -485,7 +485,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "alpine",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 		}
 		if err := pkg.Validate(); err != nil {
@@ -498,7 +498,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "nginx",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{"data": {Mountpoint: "@prefix@/data"}},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "@prefix@/data"}},
 			Questions:   map[string]Question{"prefix": {Query: "prefix?"}},
 		}
 		if err := pkg.Validate(); err != nil {
@@ -511,7 +511,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 		}
 		err := pkg.Validate()
@@ -525,7 +525,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "nginx",
 			Environment: map[string]string{"bad-key": "val"},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 		}
 		err := pkg.Validate()
@@ -539,7 +539,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "nginx",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{"bad_name": {Query: "test?"}},
 		}
 		err := pkg.Validate()
@@ -553,7 +553,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "nginx",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{".hidden": {Mountpoint: "/data"}},
+			Volumes:     map[string]InputPackageVolume{".hidden": {Mountpoint: "/data"}},
 			Questions:   map[string]Question{},
 		}
 		err := pkg.Validate()
@@ -567,7 +567,7 @@ func TestValidateInputPackage(t *testing.T) {
 			Image:       "nginx",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{"data": {Mountpoint: "no-slash"}},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "no-slash"}},
 			Questions:   map[string]Question{},
 		}
 		err := pkg.Validate()
@@ -582,7 +582,7 @@ func TestCompileDoesNotTemplateImage(t *testing.T) {
 		Image:       "debian:@tag@",
 		Environment: map[string]string{"TAG": "@tag@"},
 		Network:     InputPackageNetwork{},
-		Volumes:     map[string]PackageVolume{},
+		Volumes:     map[string]InputPackageVolume{},
 		Questions:   map[string]Question{"tag": {Query: "Tag?"}},
 	}
 	p, err := input.Compile(Responses{"tag": "latest"})
@@ -603,4 +603,100 @@ func TestValidateImageURLAcceptsTemplateChars(t *testing.T) {
 	if err := ValidateImageURL("debian:@tag@"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestYAMLVolumeQuotaParsing(t *testing.T) {
+	t.Run("string quota", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /data
+    quota: 1gb
+questions: {}
+`
+		var pkg InputPackage
+		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Volumes["data"].Quota != "1gb" {
+			t.Fatalf("expected quota 1gb, got %q", pkg.Volumes["data"].Quota)
+		}
+		if pkg.Volumes["data"].Mountpoint != "/data" {
+			t.Fatalf("expected mountpoint /data, got %q", pkg.Volumes["data"].Mountpoint)
+		}
+	})
+
+	t.Run("integer quota in YAML", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /data
+    quota: 1073741824
+questions: {}
+`
+		var pkg InputPackage
+		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Volumes["data"].Quota != "1073741824" {
+			t.Fatalf("expected quota 1073741824, got %q", pkg.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("no quota omitted", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /data
+questions: {}
+`
+		var pkg InputPackage
+		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Volumes["data"].Quota != "" {
+			t.Fatalf("expected empty quota, got %q", pkg.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("compile YAML with quota", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /data
+    quota: 2gb
+questions: {}
+`
+		var pkg InputPackage
+		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		compiled, err := pkg.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected compile error: %v", err)
+		}
+		if compiled.Volumes["data"].Quota != 2147483648 {
+			t.Fatalf("expected 2147483648, got %d", compiled.Volumes["data"].Quota)
+		}
+	})
 }

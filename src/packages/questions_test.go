@@ -150,6 +150,73 @@ func TestOutput(t *testing.T) {
 			err:    true,
 		},
 
+		// Bytes tests
+		"bytes_pure_integer": {
+			output:   Bytes,
+			input:    "1073741824",
+			expected: "1073741824",
+		},
+		"bytes_gb": {
+			output:   Bytes,
+			input:    "1gb",
+			expected: "1073741824",
+		},
+		"bytes_GB_uppercase": {
+			output:   Bytes,
+			input:    "2GB",
+			expected: "2147483648",
+		},
+		"bytes_mb": {
+			output:   Bytes,
+			input:    "500mb",
+			expected: "524288000",
+		},
+		"bytes_MB_uppercase": {
+			output:   Bytes,
+			input:    "100MB",
+			expected: "104857600",
+		},
+		"bytes_tb": {
+			output:   Bytes,
+			input:    "1tb",
+			expected: "1099511627776",
+		},
+		"bytes_TB_uppercase": {
+			output:   Bytes,
+			input:    "2TB",
+			expected: "2199023255552",
+		},
+		"bytes_zero": {
+			output:   Bytes,
+			input:    "0",
+			expected: "0",
+		},
+		"bytes_empty": {
+			output:   Bytes,
+			input:    "",
+			expected: "0",
+		},
+		"bytes_invalid_suffix": {
+			output: Bytes,
+			input:  "1xyz",
+			err:    true,
+		},
+		"bytes_negative": {
+			output: Bytes,
+			input:  "-1gb",
+			err:    true,
+		},
+		"bytes_non_numeric": {
+			output: Bytes,
+			input:  "abc",
+			err:    true,
+		},
+		"bytes_float": {
+			output: Bytes,
+			input:  "1.5gb",
+			err:    true,
+		},
+
 		// Invalid output type
 		"invalid_type": {
 			output: OutputType("bogus"),

@@ -206,7 +206,7 @@ func TestPackageCompile(t *testing.T) {
 				Image:       "debian:latest",
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     InputPackageNetwork{External: map[string]string{"80": "80"}, Internal: map[string]string{"128": "128"}},
-				Volumes:     map[string]PackageVolume{},
+				Volumes:     map[string]InputPackageVolume{},
 				Questions:   map[string]Question{},
 			},
 			output: Package{
@@ -223,7 +223,7 @@ func TestPackageCompile(t *testing.T) {
 				Image:       "debian:latest",
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
-				Volumes:     map[string]PackageVolume{},
+				Volumes:     map[string]InputPackageVolume{},
 				Questions: map[string]Question{
 					"name":     {Query: "Who should I say hello to?"},
 					"external": {Query: "What port to forward?", Type: Port},
@@ -248,7 +248,7 @@ func TestPackageCompile(t *testing.T) {
 				Image:       "debian:latest",
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
-				Volumes:     map[string]PackageVolume{},
+				Volumes:     map[string]InputPackageVolume{},
 				Questions: map[string]Question{
 					"name":     {Query: "Who should I say hello to?"},
 					"external": {Query: "What port to forward?", Type: Port},
@@ -289,7 +289,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{"name": {Query: "What is your name?"}},
 		}
 		_, err := input.Compile(Responses{"bogus": "value"})
@@ -303,7 +303,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{"data": {Mountpoint: "/mnt/@path@"}},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/mnt/@path@"}},
 			Questions:   map[string]Question{"path": {Query: "Mount path?"}},
 		}
 		p, err := input.Compile(Responses{"path": "mydata"})
@@ -323,7 +323,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{External: map[string]string{"65535": "65535"}},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 		}
 		p, err := input.Compile(Responses{})
@@ -340,7 +340,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{External: map[string]string{"0": "80"}},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 		}
 		_, err := input.Compile(Responses{})
@@ -356,7 +356,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{"port": {Query: "What port?", Type: Port}},
 		}
 		_, err := input.Compile(Responses{"port": "8080"})
@@ -370,7 +370,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{"HOST": "@hostname@"},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{"hostname": {Query: "What hostname?", Type: Hostname}},
 		}
 		p, err := input.Compile(Responses{"hostname": "myhost"})
@@ -387,7 +387,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{"data": {Mountpoint: "/mnt/@vol@"}},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/mnt/@vol@"}},
 			Questions:   map[string]Question{"vol": {Query: "Volume name?", Type: Volume}},
 		}
 		p, err := input.Compile(Responses{"vol": "my-data"})
@@ -404,7 +404,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{"port": {Query: "What port?", Type: Port}},
 		}
 		_, err := input.Compile(Responses{"port": "abc"})
@@ -421,7 +421,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{"hostname": {Query: "What hostname?", Type: Hostname}},
 		}
 		_, err := input.Compile(Responses{"hostname": "9bad"})
@@ -438,7 +438,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 			Image:       "debian:latest",
 			Environment: map[string]string{"NAME": "@name@"},
 			Network:     InputPackageNetwork{},
-			Volumes:     map[string]PackageVolume{},
+			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{"name": {Query: "What is your name?"}},
 		}
 		p, err := input.Compile(Responses{"name": "anything at all 123!@#"})
@@ -447,6 +447,126 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 		}
 		if p.Environment["NAME"] != "anything at all 123!@#" {
 			t.Fatalf("expected untyped question to accept any string, got %s", p.Environment["NAME"])
+		}
+	})
+}
+
+func TestPackageCompileVolumeQuota(t *testing.T) {
+	t.Run("literal quota in gb", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "1gb"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Quota != 1073741824 {
+			t.Fatalf("expected 1073741824, got %d", p.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("literal quota in mb", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "500mb"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Quota != 524288000 {
+			t.Fatalf("expected 524288000, got %d", p.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("literal quota in tb", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "2tb"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Quota != 2199023255552 {
+			t.Fatalf("expected 2199023255552, got %d", p.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("literal quota in bytes", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "1073741824"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Quota != 1073741824 {
+			t.Fatalf("expected 1073741824, got %d", p.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("templated quota via bytes type", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "@size@"}},
+			Questions:   map[string]Question{"size": {Query: "How much storage?", Type: Bytes}},
+		}
+		p, err := input.Compile(Responses{"size": "2gb"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Bytes type normalizes "2gb" to "2147483648" during template substitution,
+		// then Compile parses the decimal string.
+		if p.Volumes["data"].Quota != 2147483648 {
+			t.Fatalf("expected 2147483648, got %d", p.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("no quota is zero", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Quota != 0 {
+			t.Fatalf("expected 0, got %d", p.Volumes["data"].Quota)
+		}
+	})
+
+	t.Run("invalid quota rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "notasize"}},
+			Questions:   map[string]Question{},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for invalid quota")
 		}
 	})
 }

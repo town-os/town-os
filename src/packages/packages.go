@@ -38,8 +38,14 @@ func ParsePackageIdentity(s string) (PackageIdentity, error) {
 	return PackageIdentity{Name: parts[0], Version: parts[1]}, nil
 }
 
+type InputPackageVolume struct {
+	Mountpoint string `yaml:"mountpoint"`
+	Quota      string `yaml:"quota,omitempty"`
+}
+
 type PackageVolume struct {
-	Mountpoint string
+	Mountpoint string `json:"mountpoint"`
+	Quota      uint64 `json:"quota,omitempty"`
 }
 
 type PackageNetwork struct {
@@ -66,11 +72,11 @@ type Question struct {
 }
 
 type InputPackage struct {
-	Image       string                   `yaml:"image"`
-	Environment map[string]string        `yaml:"environment"`
-	Network     InputPackageNetwork      `yaml:"network"`
-	Volumes     map[string]PackageVolume `yaml:"volumes"`
-	Questions   map[string]Question      `yaml:"questions"`
+	Image       string                        `yaml:"image"`
+	Environment map[string]string             `yaml:"environment"`
+	Network     InputPackageNetwork           `yaml:"network"`
+	Volumes     map[string]InputPackageVolume `yaml:"volumes"`
+	Questions   map[string]Question           `yaml:"questions"`
 }
 
 func applyTemplate(input string, v string, repl string) string {
@@ -131,6 +137,7 @@ func (i *InputPackage) iterateFields(iv, response string) {
 	for name := range i.Volumes {
 		pv := i.Volumes[name]
 		pv.Mountpoint = applyTemplate(pv.Mountpoint, iv, response)
+		pv.Quota = applyTemplate(pv.Quota, iv, response)
 		i.Volumes[name] = pv
 	}
 }
@@ -240,18 +247,29 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	// Normalize the container image URL after template substitution.
 	image := NormalizeImageURL(i.Image)
 
-	// Validate mountpoints after template substitution.
+	// Validate mountpoints and parse quotas after template substitution.
+	volumes := map[string]PackageVolume{}
 	for name, vol := range i.Volumes {
 		if err := ValidateMountpoint(vol.Mountpoint); err != nil {
 			return nil, fmt.Errorf("volume %q: %w", name, err)
 		}
+
+		var quota uint64
+		if vol.Quota != "" {
+			quota, err = ParseBytes(vol.Quota)
+			if err != nil {
+				return nil, fmt.Errorf("volume %q quota: %w", name, err)
+			}
+		}
+
+		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota}
 	}
 
 	p := &Package{
 		Image:       image,
 		Environment: i.Environment,
 		Network:     PackageNetwork{External: external, Internal: internal},
-		Volumes:     i.Volumes,
+		Volumes:     volumes,
 	}
 
 	return p, nil
