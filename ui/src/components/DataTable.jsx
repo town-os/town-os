@@ -123,6 +123,31 @@ export default function DataTable({
     if (!onSearchChange && setPage) setPage(0)
   }
 
+  const lastIdx = columns.length - 1
+  const equalWidth = `${Math.floor(100 / columns.length)}%`
+
+  // All columns get equal width so spacing is uniform across the table.
+  // With table-layout:auto the browser can still expand a column if its
+  // content requires more room.  Edge anchoring comes from the table
+  // primitives' first:pl-4 / last:pr-4 padding.
+  function colStyle() {
+    if (columns.length <= 1) return undefined
+    return { width: equalWidth }
+  }
+
+  function resolveClassName(col, idx) {
+    const parts = []
+    if (col.sortable !== false && onSortChange) parts.push('cursor-pointer select-none')
+    if (col.className) parts.push(col.className)
+    return parts.filter(Boolean).join(' ')
+  }
+
+  function headerJustify(cls) {
+    if (cls?.includes('text-right')) return ' justify-end'
+    if (cls?.includes('text-center')) return ' justify-center'
+    return ''
+  }
+
   return (
     <div>
       <div className="flex items-center gap-2 pb-4">
@@ -158,33 +183,32 @@ export default function DataTable({
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map((col) => (
-                <TableHead
-                  key={col.key}
-                  className={[
-                    col.sortable !== false && onSortChange
-                      ? 'cursor-pointer select-none'
-                      : '',
-                    col.className || '',
-                  ].filter(Boolean).join(' ')}
-                  onClick={() =>
-                    col.sortable !== false &&
-                    onSortChange &&
-                    toggleSort(col.key)
-                  }
-                >
-                  <div className={`flex items-center gap-1${col.className?.includes('text-right') ? ' justify-end' : ''}`}>
-                    {col.label}
-                    {sortKey === col.key && (
-                      col.sortValues
-                        ? <span className="text-xs font-normal text-muted-foreground ml-1">({sortDirection})</span>
-                        : sortDirection === 'asc'
-                          ? <ChevronUp className="h-3 w-3" />
-                          : <ChevronDown className="h-3 w-3" />
-                    )}
-                  </div>
-                </TableHead>
-              ))}
+              {columns.map((col, idx) => {
+                const cls = resolveClassName(col, idx)
+                return (
+                  <TableHead
+                    key={col.key}
+                    className={cls}
+                    style={colStyle()}
+                    onClick={() =>
+                      col.sortable !== false &&
+                      onSortChange &&
+                      toggleSort(col.key)
+                    }
+                  >
+                    <div className={`flex items-center gap-1${headerJustify(cls)}`}>
+                      {col.label}
+                      {sortKey === col.key && (
+                        col.sortValues
+                          ? <span className="text-xs font-normal text-muted-foreground ml-1">({sortDirection})</span>
+                          : sortDirection === 'asc'
+                            ? <ChevronUp className="h-3 w-3" />
+                            : <ChevronDown className="h-3 w-3" />
+                      )}
+                    </div>
+                  </TableHead>
+                )
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -200,8 +224,12 @@ export default function DataTable({
             ) : (
               displayed.map((row, i) => (
                 <TableRow key={row[entryKey] ?? i}>
-                  {columns.map((col) => (
-                    <TableCell key={col.key} className={col.className}>
+                  {columns.map((col, idx) => (
+                    <TableCell
+                      key={col.key}
+                      className={resolveClassName(col, idx)}
+                      style={colStyle()}
+                    >
                       {col.transform
                         ? col.transform(row[col.key], row)
                         : row[col.key]}

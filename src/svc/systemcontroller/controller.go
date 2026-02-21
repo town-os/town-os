@@ -1226,6 +1226,13 @@ func (s *SystemControllerHandlers) getSetting(c *echo.Context) error {
 	return c.JSON(200, map[string]string{"key": req.Key, "value": value})
 }
 
+// byteValueSettings are setting keys whose values represent byte counts
+// and should be normalized through ParseBytes so that human-readable
+// strings like "500GB" are stored as numeric byte values.
+var byteValueSettings = map[string]bool{
+	"default_quota": true,
+}
+
 func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	req := SetSettingRequest{}
@@ -1238,12 +1245,22 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 		return echo.NewHTTPError(400, "key is required")
 	}
 
+	value := req.Value
+
+	if byteValueSettings[req.Key] {
+		b, err := packages.ParseBytes(value)
+		if err != nil {
+			return echo.NewHTTPError(400, fmt.Sprintf("invalid byte value for %q: %v", req.Key, err))
+		}
+		value = strconv.FormatUint(b, 10)
+	}
+
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
 		return echo.NewHTTPError(500, "settings manager not available")
 	}
 
-	if err := mgr.Set(req.Key, req.Value); err != nil {
+	if err := mgr.Set(req.Key, value); err != nil {
 		return err
 	}
 

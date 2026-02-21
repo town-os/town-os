@@ -133,6 +133,7 @@ export default function StorageManagement() {
       key: '_modify',
       label: 'Modify',
       sortable: false,
+      className: 'text-center',
       transform: (_, row) => (
         <Button
           variant="outline"
@@ -158,7 +159,6 @@ export default function StorageManagement() {
       key: '_delete',
       label: 'Delete',
       sortable: false,
-      className: 'text-right',
       transform: (_, row) => (
         <Button
           variant="ghost"

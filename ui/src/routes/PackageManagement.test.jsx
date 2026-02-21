@@ -77,41 +77,15 @@ describe('PackageManagement', () => {
     expect(triggers.length).toBe(3)
   })
 
-  it('right-aligns the Status column', async () => {
+  it('gives all columns equal width', async () => {
     const { container } = renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
     const headers = container.querySelectorAll('th')
-    const statusHeader = Array.from(headers).find((th) =>
-      th.textContent.includes('Status'),
-    )
-    expect(statusHeader.className).toContain('text-right')
-  })
-
-  it('right-aligns the Status header label', async () => {
-    const { container } = renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByText('Installed')).toBeTruthy()
-    })
-    const headers = container.querySelectorAll('th')
-    const statusHeader = Array.from(headers).find((th) =>
-      th.textContent.includes('Status'),
-    )
-    const innerDiv = statusHeader.querySelector('div')
-    expect(innerDiv.className).toContain('justify-end')
-  })
-
-  it('right-aligns Status body cells', async () => {
-    const { container } = renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByText('Installed')).toBeTruthy()
-    })
-    const rows = container.querySelectorAll('tbody tr')
-    for (const row of rows) {
-      const cells = row.querySelectorAll('td')
-      const lastCell = cells[cells.length - 1]
-      expect(lastCell.className).toContain('text-right')
+    const expectedWidth = `${Math.floor(100 / headers.length)}%`
+    for (const th of headers) {
+      expect(th.style.width).toBe(expectedWidth)
     }
   })
 

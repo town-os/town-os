@@ -19,7 +19,6 @@ import {
   Package,
   FileText,
   LogOut,
-  Activity,
   Settings,
 } from 'lucide-react'
 
@@ -81,38 +80,31 @@ export default function Dashboard({ children }) {
           </nav>
           <div className="ml-auto flex items-center gap-3">
             {loading && !ping && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground animate-pulse">
-                <Activity className="h-3 w-3" />
-                <Badge variant="outline" className="text-xs">
-                  Loading...
-                </Badge>
+              <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5 animate-pulse">
+                <span className="text-sm text-muted-foreground">Loading...</span>
               </div>
             )}
             {ping && ping.status !== 'ok' && (
-              <div className="flex items-center gap-2 text-sm">
-                <Activity className="h-3 w-3 text-red-600" />
-                <Badge className="bg-red-600 text-white font-bold text-xs hover:bg-red-600/90">
-                  API Offline
-                </Badge>
+              <div className="flex items-center rounded-full bg-red-600 px-3 py-1.5">
+                <span className="text-sm text-white font-bold">API Offline</span>
               </div>
             )}
             {ping && ping.status === 'ok' && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Activity className="h-3 w-3" />
-                <Badge variant="outline" className="text-xs">
-                  Online
-                </Badge>
+              <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5">
+                <span className="text-sm text-muted-foreground">Online</span>
               </div>
             )}
             {account && (
-              <span className="text-sm text-muted-foreground">
-                {account.username}
+              <div className="flex items-center gap-1 rounded-full bg-black px-3 py-1.5">
+                <span className="text-sm text-white">
+                  {account.username}
+                </span>
                 {account.admin && (
                   <Badge variant="secondary" className="ml-1 text-xs">
                     admin
                   </Badge>
                 )}
-              </span>
+              </div>
             )}
             <Button variant="ghost" size="sm" asChild>
               <Link to="/logout">

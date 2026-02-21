@@ -1,6 +1,10 @@
 package storage
 
-import "testing"
+import (
+	"sort"
+	"strings"
+	"testing"
+)
 
 func TestMockBtrFSStorage(t *testing.T) {
 	mock := InitBtrFSMock()
@@ -677,5 +681,119 @@ func TestCreateFilesystemNestedQuotaOnlyOnLeaf(t *testing.T) {
 
 	if _, ok := controller.Quotas["a/b"]; ok {
 		t.Fatal("intermediate 'a/b' should not have quota")
+	}
+}
+
+// --- Purge simulation tests ---
+
+func TestListFilesystemsPrefixFilter(t *testing.T) {
+	mock := InitBtrFSMock()
+
+	// Create volumes for two packages with similar-prefix names.
+	for _, name := range []string{"nginx/html", "nginx/logs", "nginx2/data"} {
+		if err := mock.CreateFilesystem(Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	// List with trailing-slash prefix: should return only nginx children, not
+	// the parent "nginx" itself and not "nginx2" or its children.
+	fs, err := mock.ListFilesystems("nginx/")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, f := range fs {
+		names[f.Name] = true
+	}
+
+	if !names["nginx/html"] {
+		t.Fatal("expected nginx/html in prefix-filtered list")
+	}
+	if !names["nginx/logs"] {
+		t.Fatal("expected nginx/logs in prefix-filtered list")
+	}
+	if names["nginx"] {
+		t.Fatal("parent nginx should not appear when filtering by nginx/")
+	}
+	if names["nginx2"] || names["nginx2/data"] {
+		t.Fatal("nginx2 volumes should not appear when filtering by nginx/")
+	}
+}
+
+func TestPurgeSimulation(t *testing.T) {
+	mock := InitBtrFSMock()
+
+	// Create a deep hierarchy mimicking a package with nested volumes.
+	for _, name := range []string{"pkg/a", "pkg/a/b", "pkg/a/b/c"} {
+		if err := mock.CreateFilesystem(Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	// Also create a sibling package to verify it survives.
+	if err := mock.CreateFilesystem(Filesystem{Name: "other/data"}); err != nil {
+		t.Fatalf("CreateFilesystem other/data: %v", err)
+	}
+
+	// Simulate the purge algorithm: list children, sort deepest-first, remove.
+	prefix := "pkg/"
+	filesystems, err := mock.ListFilesystems(prefix)
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	sort.Slice(filesystems, func(i, j int) bool {
+		return strings.Count(filesystems[i].Name, "/") > strings.Count(filesystems[j].Name, "/")
+	})
+
+	// Verify deepest-first ordering.
+	if len(filesystems) < 2 {
+		t.Fatalf("expected at least 2 filesystems, got %d", len(filesystems))
+	}
+	for i := 1; i < len(filesystems); i++ {
+		depthPrev := strings.Count(filesystems[i-1].Name, "/")
+		depthCurr := strings.Count(filesystems[i].Name, "/")
+		if depthPrev < depthCurr {
+			t.Fatalf("sort order wrong: %q (depth %d) before %q (depth %d)",
+				filesystems[i-1].Name, depthPrev, filesystems[i].Name, depthCurr)
+		}
+	}
+
+	// Remove children deepest-first.
+	for _, fs := range filesystems {
+		if err := mock.RemoveFilesystem(fs.Name); err != nil {
+			t.Fatalf("RemoveFilesystem %q: %v", fs.Name, err)
+		}
+	}
+
+	// Remove the parent package volume itself.
+	if err := mock.RemoveFilesystem("pkg"); err != nil {
+		t.Fatalf("RemoveFilesystem pkg: %v", err)
+	}
+
+	// Verify pkg is completely gone.
+	remaining, err := mock.ListFilesystems("")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	for _, fs := range remaining {
+		if fs.Name == "pkg" || strings.HasPrefix(fs.Name, "pkg/") {
+			t.Fatalf("expected all pkg volumes purged, found %q", fs.Name)
+		}
+	}
+
+	// Verify other package survived.
+	found := map[string]bool{}
+	for _, fs := range remaining {
+		found[fs.Name] = true
+	}
+	if !found["other"] {
+		t.Fatal("expected other parent volume to survive purge")
+	}
+	if !found["other/data"] {
+		t.Fatal("expected other/data volume to survive purge")
 	}
 }

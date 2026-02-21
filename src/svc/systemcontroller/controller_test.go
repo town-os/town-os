@@ -1864,6 +1864,200 @@ func TestHTTPPurgeVolumes(t *testing.T) {
 	}
 }
 
+func TestHTTPPurgeVolumesVerifiesControllerState(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	// Create a package volume hierarchy: nginx/html, nginx/logs, nginx/cache/tmp.
+	for _, name := range []string{"nginx/html", "nginx/logs", "nginx/cache/tmp"} {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	// Also create a volume for a different package.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "redis/data"}); err != nil {
+		t.Fatalf("CreateFilesystem redis/data: %v", err)
+	}
+
+	// Verify volumes exist before purge.
+	before := controller.GetFilesystems()
+	expectedBefore := map[string]bool{
+		"nginx": true, "nginx/html": true, "nginx/logs": true,
+		"nginx/cache": true, "nginx/cache/tmp": true,
+		"redis": true, "redis/data": true,
+	}
+	for _, fs := range before {
+		if !expectedBefore[fs.Name] {
+			t.Fatalf("unexpected filesystem before purge: %q", fs.Name)
+		}
+		delete(expectedBefore, fs.Name)
+	}
+	if len(expectedBefore) > 0 {
+		t.Fatalf("missing filesystems before purge: %v", expectedBefore)
+	}
+
+	// Purge nginx.
+	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	// Verify at the controller level that nginx volumes are gone.
+	after := controller.GetFilesystems()
+	for _, fs := range after {
+		if fs.Name == "nginx" || strings.HasPrefix(fs.Name, "nginx/") {
+			t.Fatalf("expected all nginx volumes purged, found %q in controller", fs.Name)
+		}
+	}
+
+	// Verify redis volumes are untouched.
+	redisFound := map[string]bool{}
+	for _, fs := range after {
+		redisFound[fs.Name] = true
+	}
+	if !redisFound["redis"] {
+		t.Fatal("expected redis parent volume to survive purge")
+	}
+	if !redisFound["redis/data"] {
+		t.Fatal("expected redis/data volume to survive purge")
+	}
+}
+
+func TestHTTPPurgeVolumesSimilarPrefix(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	// Create volumes with similar prefixes: nginx and nginx2 are separate packages.
+	for _, name := range []string{"nginx/html", "nginx2/data"} {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	// Purge only nginx.
+	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	// Verify nginx is gone, nginx2 is intact.
+	after := controller.GetFilesystems()
+	found := map[string]bool{}
+	for _, fs := range after {
+		found[fs.Name] = true
+	}
+
+	if found["nginx"] || found["nginx/html"] {
+		t.Fatal("expected nginx volumes to be purged")
+	}
+	if !found["nginx2"] {
+		t.Fatal("expected nginx2 parent to survive")
+	}
+	if !found["nginx2/data"] {
+		t.Fatal("expected nginx2/data to survive")
+	}
+}
+
+func TestHTTPPurgeVolumesDeepNesting(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	// Create deeply nested volumes: pkg/a/b/c/d.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "pkg/a/b/c/d"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	// Purge the package.
+	if err := c.PurgeVolumes(context.TODO(), "pkg"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	// Everything under pkg should be gone.
+	after := controller.GetFilesystems()
+	if len(after) != 0 {
+		names := []string{}
+		for _, fs := range after {
+			names = append(names, fs.Name)
+		}
+		t.Fatalf("expected all volumes purged, found: %v", names)
+	}
+}
+
+func TestHTTPPurgeVolumesEmpty(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	// Create a volume for a different package.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "redis/data"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	// Purge a package that has no volumes.
+	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+		t.Fatalf("PurgeVolumes should succeed for nonexistent package: %v", err)
+	}
+
+	// Redis volumes must be untouched.
+	after := controller.GetFilesystems()
+	found := map[string]bool{}
+	for _, fs := range after {
+		found[fs.Name] = true
+	}
+	if !found["redis"] || !found["redis/data"] {
+		t.Fatalf("expected redis volumes to be intact, got: %v", after)
+	}
+}
+
+func TestHTTPPurgeVolumesWithQuotas(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	// Create volumes with quotas.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "nginx/html", Quota: 1024}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "nginx/logs", Quota: 2048}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	// Purge.
+	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	// Verify all volumes gone from controller.
+	after := controller.GetFilesystems()
+	if len(after) != 0 {
+		t.Fatalf("expected all volumes purged, got %d remaining", len(after))
+	}
+
+	// Verify quotas are cleaned up too.
+	if len(controller.Quotas) != 0 {
+		t.Fatalf("expected all quotas cleaned up, got: %v", controller.Quotas)
+	}
+}
+
+func TestHTTPPurgeVolumesMultipleChildren(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	// Create many children under a single parent.
+	children := []string{
+		"app/data", "app/logs", "app/cache", "app/tmp", "app/config",
+	}
+	for _, name := range children {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	if err := c.PurgeVolumes(context.TODO(), "app"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	after := controller.GetFilesystems()
+	if len(after) != 0 {
+		names := []string{}
+		for _, fs := range after {
+			names = append(names, fs.Name)
+		}
+		t.Fatalf("expected all volumes purged, found: %v", names)
+	}
+}
+
 func TestHTTPUninstallPackageBadJSON(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
@@ -6026,6 +6220,64 @@ func TestHTTPSettingsRequiresAdmin(t *testing.T) {
 	}
 	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err == nil {
 		t.Fatal("expected error for non-admin SetSetting")
+	}
+}
+
+// --- Settings byte-value normalization tests ---
+
+func TestHTTPSettingsQuotaHumanReadable(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	table := []struct {
+		input    string
+		expected string
+	}{
+		{"500GB", "536870912000"},
+		{"500gb", "536870912000"},
+		{"1TB", "1099511627776"},
+		{"100MB", "104857600"},
+		{"0", "0"},
+		{"1073741824", "1073741824"},
+	}
+
+	for _, tc := range table {
+		if err := c.SetSetting(context.TODO(), "default_quota", tc.input); err != nil {
+			t.Fatalf("SetSetting(%q): %v", tc.input, err)
+		}
+		val, err := c.GetSetting(context.TODO(), "default_quota")
+		if err != nil {
+			t.Fatalf("GetSetting after setting %q: %v", tc.input, err)
+		}
+		if val != tc.expected {
+			t.Fatalf("SetSetting(%q): expected stored value %q, got %q", tc.input, tc.expected, val)
+		}
+	}
+}
+
+func TestHTTPSettingsQuotaInvalidValue(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	badValues := []string{"not-a-number", "-5GB", "abc"}
+	for _, v := range badValues {
+		if err := c.SetSetting(context.TODO(), "default_quota", v); err == nil {
+			t.Fatalf("expected error for invalid quota value %q", v)
+		}
+	}
+}
+
+func TestHTTPSettingsNonQuotaKeyNotNormalized(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	// Non-quota keys should store values as-is without byte parsing.
+	if err := c.SetSetting(context.TODO(), "motd", "500GB"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	val, err := c.GetSetting(context.TODO(), "motd")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "500GB" {
+		t.Fatalf("expected non-quota key to store raw value %q, got %q", "500GB", val)
 	}
 }
 

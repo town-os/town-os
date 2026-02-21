@@ -258,11 +258,10 @@ export default function PackageManagement() {
       key: '_status',
       label: 'Status',
       sortable: false,
-      className: 'text-right',
       transform: (_, row) => {
         const inst = isInstalled(row.name)
         return (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger>
                 <Badge
