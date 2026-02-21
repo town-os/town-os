@@ -179,6 +179,79 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 	}
 }
 
+func TestRepositoryCompileRedisCommand(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	pkgs, err := root.LoadAllPackages()
+	if err != nil {
+		t.Fatalf("failed to load packages: %v", err)
+	}
+
+	redis, ok := pkgs["redis"]["7.0"]
+	if !ok {
+		t.Fatal("expected redis 7.0")
+	}
+
+	compiled, err := redis.Compile(packages.Responses{
+		"password":  "secret",
+		"maxmemory": "100mb",
+	})
+	if err != nil {
+		t.Fatalf("failed to compile redis package: %v", err)
+	}
+
+	if len(compiled.Command) != 3 {
+		t.Fatalf("expected 3 command args, got %d: %v", len(compiled.Command), compiled.Command)
+	}
+	if compiled.Command[0] != "redis-server" {
+		t.Fatalf("expected command[0] = redis-server, got %s", compiled.Command[0])
+	}
+	if compiled.Command[1] != "--bind" {
+		t.Fatalf("expected command[1] = --bind, got %s", compiled.Command[1])
+	}
+	if compiled.Command[2] != "0.0.0.0" {
+		t.Fatalf("expected command[2] = 0.0.0.0, got %s", compiled.Command[2])
+	}
+}
+
+func TestRepositoryCompileNginxNoCommand(t *testing.T) {
+	root := setupRoot(t, []packages.Repository{
+		{Name: "test-packages-core", URL: coreURL},
+	})
+
+	if _, err := newRepoWithCreds(root.BaseDir, coreURL); err != nil {
+		t.Fatalf("failed to clone core repo: %v", err)
+	}
+
+	pkgs, err := root.LoadAllPackages()
+	if err != nil {
+		t.Fatalf("failed to load packages: %v", err)
+	}
+
+	nginx, ok := pkgs["nginx"]["1.0"]
+	if !ok {
+		t.Fatal("expected nginx 1.0")
+	}
+
+	compiled, err := nginx.Compile(packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	})
+	if err != nil {
+		t.Fatalf("failed to compile nginx package: %v", err)
+	}
+
+	if len(compiled.Command) != 0 {
+		t.Fatalf("expected no command args for nginx, got %v", compiled.Command)
+	}
+}
+
 func TestGetPackageQuestionsFromRepo(t *testing.T) {
 	root := setupRoot(t, []packages.Repository{
 		{Name: "test-packages-core", URL: coreURL},

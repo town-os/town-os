@@ -45,7 +45,7 @@ test-ui-integration: test-image ui-integration-image btrfs
 	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
-		-d --systemd=true --privileged \
+		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
@@ -55,7 +55,7 @@ test-ui-integration: test-image ui-integration-image btrfs
 		sleep 1; \
 	done
 	sudo -E podman run \
-		--network container:$(PODMAN_UI_BACKEND) \
+		--net host \
 		-e INTEGRATION_URL=http://localhost:5309 \
 		-e VITE_API_URL=http://localhost:5309 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
@@ -68,7 +68,7 @@ test-integration: lint test-image btrfs
 	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
-		-d --systemd=true --privileged \
+		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
@@ -124,6 +124,7 @@ dev: test-image dev-btrfs
 	sudo -E podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-e TOWN_OS_NETWORK_MODE=host \
 		--systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os-dev.mount):/data/btrfs:z \
@@ -133,6 +134,23 @@ dev: test-image dev-btrfs
 	@echo "API server: http://$$(hostname):5309"
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
+
+preflight-dev:
+	@echo "Checking podman..."
+	@command -v podman >/dev/null 2>&1 || { echo "ERROR: podman not found"; exit 1; }
+	@echo "Checking btrfs-progs..."
+	@command -v mkfs.btrfs >/dev/null 2>&1 || { echo "ERROR: mkfs.btrfs not found"; exit 1; }
+	@echo "Checking credentials..."
+	@test -n "$(TOWN_OS_REPO_USERNAME)" || { echo "ERROR: TOWN_OS_REPO_USERNAME not set"; exit 1; }
+	@test -n "$(TOWN_OS_REPO_PASSWORD)" || { echo "ERROR: TOWN_OS_REPO_PASSWORD not set"; exit 1; }
+	@echo "Checking bridge networking..."
+	@sudo podman run --rm -d --name preflight-test -p 18273:80 docker.io/library/nginx:alpine >/dev/null 2>&1 && \
+		sleep 2 && \
+		curl -sf http://127.0.0.1:18273/ >/dev/null 2>&1 && \
+		echo "Bridge networking: OK" && \
+		sudo podman rm -f preflight-test >/dev/null 2>&1 || \
+		{ sudo podman rm -f preflight-test >/dev/null 2>&1; echo "ERROR: bridge networking (-p) not working"; exit 1; }
+	@echo "All preflight checks passed."
 
 dev-clean: dev-stop clean-btrfs-dev
 	@sudo rm -rf dev-data dev-repos

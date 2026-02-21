@@ -3,7 +3,7 @@ Description=Town OS System Controller
 
 [Service]
 Type=simple
-PassEnvironment=LOG_LEVEL DEBUG TOWN_OS_REPO_USERNAME TOWN_OS_REPO_PASSWORD
+PassEnvironment=LOG_LEVEL DEBUG TOWN_OS_REPO_USERNAME TOWN_OS_REPO_PASSWORD TOWN_OS_NETWORK_MODE
 ExecStart=/systemcontroller -db /data/db/dev.db -btrfs /data/btrfs -repo-dir /data/repos
 
 [Install]

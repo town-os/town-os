@@ -88,6 +88,7 @@ type systemControllerBackend interface {
 	GetDefaultRepoCredentials() (string, string)
 	GetBtrfsBasePath() string
 	GetUPnPBinPath() string
+	GetNetworkMode() string
 }
 
 type SystemController interface {
@@ -280,6 +281,11 @@ func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd s
 			return fmt.Errorf("install socket unit %s: %w", sock.Name, err)
 		}
 	}
+	for _, fwd := range units.Forwarders {
+		if err := sd.InstallUnit(ctx, fwd.Name, fwd.Content); err != nil {
+			return fmt.Errorf("install forwarder unit %s: %w", fwd.Name, err)
+		}
+	}
 	if units.UPnPService != nil {
 		if err := sd.InstallUnit(ctx, units.UPnPService.Name, units.UPnPService.Content); err != nil {
 			return fmt.Errorf("install upnp service unit: %w", err)
@@ -291,10 +297,15 @@ func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd s
 		}
 	}
 
-	// Enable socket and timer units.
+	// Enable socket, forwarder, and timer units.
 	for _, sock := range units.Sockets {
 		if err := sd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
 			return fmt.Errorf("enable socket %s: %w", sock.Name, err)
+		}
+	}
+	for _, fwd := range units.Forwarders {
+		if err := sd.SetStatus(ctx, fwd.Name, systemd.Enable); err != nil {
+			return fmt.Errorf("enable forwarder %s: %w", fwd.Name, err)
 		}
 	}
 	if units.UPnPTimer != nil {
@@ -335,12 +346,14 @@ func (s *SystemControllerHandlers) packageUnitConfig(pkgName, version string, co
 		PkgName:     pkgName,
 		Version:     version,
 		Image:       compiled.Image,
+		Command:     compiled.Command,
 		Environment: compiled.Environment,
 		External:    compiled.Network.External,
 		Internal:    compiled.Network.Internal,
 		Volumes:     compiled.Volumes,
 		BtrfsBase:   s.Controller.GetBtrfsBasePath(),
 		UPnPBinPath: s.Controller.GetUPnPBinPath(),
+		NetworkMode: s.Controller.GetNetworkMode(),
 	}
 }
 
@@ -1920,6 +1933,7 @@ type ServerConfig struct {
 	DefaultRepoPass    string
 	BtrfsBasePath      string
 	UPnPBinPath        string
+	NetworkMode        string
 }
 
 type contextHandler struct {
@@ -1952,6 +1966,7 @@ func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 }
 func (s *serverBase) GetBtrfsBasePath() string { return s.BtrfsBasePath }
 func (s *serverBase) GetUPnPBinPath() string   { return s.UPnPBinPath }
+func (s *serverBase) GetNetworkMode() string   { return s.NetworkMode }
 
 func parseLogLevel() slog.Level {
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {

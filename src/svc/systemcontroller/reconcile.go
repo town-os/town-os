@@ -22,6 +22,7 @@ type ReconcileConfig struct {
 	SettingsMgr    account.SettingsManager
 	BtrfsBasePath  string
 	UPnPBinPath    string
+	NetworkMode    string
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -147,12 +148,14 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			PkgName:     pi.Name,
 			Version:     pi.Version,
 			Image:       compiled.Image,
+			Command:     compiled.Command,
 			Environment: compiled.Environment,
 			External:    compiled.Network.External,
 			Internal:    compiled.Network.Internal,
 			Volumes:     compiled.Volumes,
 			BtrfsBase:   cfg.BtrfsBasePath,
 			UPnPBinPath: cfg.UPnPBinPath,
+			NetworkMode: cfg.NetworkMode,
 		}
 		units := systemd.GeneratePackageUnits(unitCfg)
 
@@ -163,6 +166,11 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		for _, sock := range units.Sockets {
 			if err := cfg.Systemd.InstallUnit(ctx, sock.Name, sock.Content); err != nil {
 				return fmt.Errorf("install socket unit %s: %w", sock.Name, err)
+			}
+		}
+		for _, fwd := range units.Forwarders {
+			if err := cfg.Systemd.InstallUnit(ctx, fwd.Name, fwd.Content); err != nil {
+				return fmt.Errorf("install forwarder unit %s: %w", fwd.Name, err)
 			}
 		}
 		if units.UPnPService != nil {
@@ -176,10 +184,15 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			}
 		}
 
-		// Enable socket and timer units.
+		// Enable socket, forwarder, and timer units.
 		for _, sock := range units.Sockets {
 			if err := cfg.Systemd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
 				return fmt.Errorf("enable socket %s: %w", sock.Name, err)
+			}
+		}
+		for _, fwd := range units.Forwarders {
+			if err := cfg.Systemd.SetStatus(ctx, fwd.Name, systemd.Enable); err != nil {
+				return fmt.Errorf("enable forwarder %s: %w", fwd.Name, err)
 			}
 		}
 		if units.UPnPTimer != nil {

@@ -18,8 +18,9 @@ RUN bun run build
 
 FROM debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y \
-    btrfs-progs libsystemd0 podman \
+    btrfs-progs libsystemd0 podman runc socat \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
 
 FROM runtime-deps
 COPY --from=go-builder /systemcontroller /systemcontroller

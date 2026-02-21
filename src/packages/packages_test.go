@@ -720,6 +720,27 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 	})
 }
 
+func TestPackageCompileCommand(t *testing.T) {
+	input := InputPackage{
+		Image:       "redis:7.0-alpine",
+		Command:     []string{"redis-server", "--bind", "0.0.0.0"},
+		Environment: map[string]string{},
+		Network:     InputPackageNetwork{},
+		Volumes:     map[string]InputPackageVolume{},
+		Questions:   map[string]Question{},
+	}
+	p, err := input.Compile(Responses{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(p.Command) != 3 {
+		t.Fatalf("expected 3 command args, got %d", len(p.Command))
+	}
+	if p.Command[0] != "redis-server" || p.Command[1] != "--bind" || p.Command[2] != "0.0.0.0" {
+		t.Fatalf("expected [redis-server --bind 0.0.0.0], got %v", p.Command)
+	}
+}
+
 func TestCompileNotes(t *testing.T) {
 	t.Run("templates notes with responses", func(t *testing.T) {
 		input := InputPackage{

@@ -35,7 +35,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 		t.Fatal("service missing description")
 	}
 	if !strings.Contains(svc, "-p 8080:80") {
-		t.Fatal("service missing port mapping")
+		t.Fatal("service missing -p 8080:80")
 	}
 	if !strings.Contains(svc, "-e NGINX_HOST=example.com") {
 		t.Fatal("service missing environment variable")
@@ -118,16 +118,15 @@ func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 		t.Fatalf("expected 3 socket units, got %d", len(units.Sockets))
 	}
 
-	// All ports in -p and firewall.
 	svc := units.Service.Content
 	if !strings.Contains(svc, "-p 8080:80") {
-		t.Fatal("service missing port 8080:80")
+		t.Fatal("service missing -p 8080:80")
 	}
 	if !strings.Contains(svc, "-p 8443:443") {
-		t.Fatal("service missing port 8443:443")
+		t.Fatal("service missing -p 8443:443")
 	}
 	if !strings.Contains(svc, "-p 9090:9090") {
-		t.Fatal("service missing port 9090:9090")
+		t.Fatal("service missing -p 9090:9090")
 	}
 	if !strings.Contains(svc, "--add-port=8080/tcp") {
 		t.Fatal("service missing firewall add-port 8080")
@@ -176,7 +175,7 @@ func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 	}
 	svc := units.Service.Content
 	if !strings.Contains(svc, "-p 6379:6379") {
-		t.Fatal("service missing internal port mapping")
+		t.Fatal("service missing -p 6379:6379")
 	}
 	if !strings.Contains(svc, "--add-port=6379/tcp") {
 		t.Fatal("service missing firewall for internal port")
@@ -289,6 +288,8 @@ func TestPackageUnitNames(t *testing.T) {
 		"town-os-nginx-8080-tcp.socket",
 		"town-os-nginx-8443-tcp.socket",
 		"town-os-nginx-9090-tcp.socket",
+		"town-os-nginx-fwd-8080-tcp.service",
+		"town-os-nginx-fwd-8443-tcp.service",
 		"town-os-nginx-upnp.service",
 		"town-os-nginx-upnp.timer",
 	}
@@ -358,6 +359,105 @@ func TestUPnPTimerUnitName(t *testing.T) {
 	}
 }
 
+func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
+	cfg := PackageUnitConfig{
+		PkgName:     "redis",
+		Version:     "7.0",
+		Image:       "redis:7.0",
+		Environment: map[string]string{},
+		External:    packages.PortMap{},
+		Internal:    packages.PortMap{6379: 6379},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		UPnPBinPath: "/town-os-upnp",
+		NetworkMode: "host",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "--net host") {
+		t.Fatal("service missing --net host")
+	}
+	if strings.Contains(svc, "-p 6379:6379") {
+		t.Fatal("service should not have -p mappings in host network mode")
+	}
+	// Same port (6379→6379) should produce no forwarders.
+	if len(units.Forwarders) != 0 {
+		t.Fatalf("expected 0 forwarders for same-port mapping, got %d", len(units.Forwarders))
+	}
+}
+
+func TestGeneratePackageUnitsCommand(t *testing.T) {
+	cfg := PackageUnitConfig{
+		PkgName:     "redis",
+		Version:     "7.0",
+		Image:       "redis:7.0-alpine",
+		Command:     []string{"redis-server", "--bind", "0.0.0.0"},
+		Environment: map[string]string{},
+		External:    packages.PortMap{},
+		Internal:    packages.PortMap{6379: 6379},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		UPnPBinPath: "/town-os-upnp",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "redis:7.0-alpine") {
+		t.Fatal("service missing image reference")
+	}
+	if !strings.Contains(svc, "redis-server") {
+		t.Fatal("service missing command arg: redis-server")
+	}
+	if !strings.Contains(svc, "--bind") {
+		t.Fatal("service missing command arg: --bind")
+	}
+	if !strings.Contains(svc, "0.0.0.0") {
+		t.Fatal("service missing command arg: 0.0.0.0")
+	}
+
+	// Command args should appear after the image name.
+	imageIdx := strings.Index(svc, "redis:7.0-alpine")
+	cmdIdx := strings.Index(svc, "redis-server")
+	if cmdIdx < imageIdx {
+		t.Fatal("command args should appear after image name")
+	}
+}
+
+func TestGeneratePackageUnitsCommandWithHostNetwork(t *testing.T) {
+	cfg := PackageUnitConfig{
+		PkgName:     "redis",
+		Version:     "7.0",
+		Image:       "redis:7.0-alpine",
+		Command:     []string{"redis-server", "--bind", "0.0.0.0"},
+		Environment: map[string]string{},
+		External:    packages.PortMap{},
+		Internal:    packages.PortMap{6379: 6379},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		UPnPBinPath: "/town-os-upnp",
+		NetworkMode: "host",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "--net host") {
+		t.Fatal("service missing --net host")
+	}
+	if strings.Contains(svc, "-p 6379:6379") {
+		t.Fatal("service should not have -p in host mode")
+	}
+	if !strings.Contains(svc, "redis-server") {
+		t.Fatal("service missing command arg: redis-server")
+	}
+	if !strings.Contains(svc, "0.0.0.0") {
+		t.Fatal("service missing command arg: 0.0.0.0")
+	}
+}
+
 func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 	cfg := PackageUnitConfig{
 		PkgName: "myapp",
@@ -390,5 +490,165 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 
 	if configIdx > dataIdx {
 		t.Fatal("volumes should be sorted alphabetically (config before data)")
+	}
+}
+
+func TestGeneratePackageUnitsHostModeWithForwarder(t *testing.T) {
+	cfg := PackageUnitConfig{
+		PkgName:     "nginx",
+		Version:     "1.0",
+		Image:       "nginx:1.26-alpine",
+		Environment: map[string]string{"NGINX_HOST": "example.com"},
+		External:    packages.PortMap{8080: 80},
+		Internal:    packages.PortMap{},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		UPnPBinPath: "/town-os-upnp",
+		NetworkMode: "host",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	// Should have exactly one forwarder (8080→80).
+	if len(units.Forwarders) != 1 {
+		t.Fatalf("expected 1 forwarder, got %d", len(units.Forwarders))
+	}
+	fwd := units.Forwarders[0]
+	if fwd.Name != "town-os-nginx-fwd-8080-tcp.service" {
+		t.Fatalf("expected forwarder name town-os-nginx-fwd-8080-tcp.service, got %s", fwd.Name)
+	}
+	if !strings.Contains(fwd.Content, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
+		t.Fatalf("forwarder missing socat command, got:\n%s", fwd.Content)
+	}
+	if !strings.Contains(fwd.Content, "PartOf=town-os-nginx.service") {
+		t.Fatal("forwarder missing PartOf")
+	}
+	if !strings.Contains(fwd.Content, "After=town-os-nginx.service") {
+		t.Fatal("forwarder missing After")
+	}
+	if !strings.Contains(fwd.Content, "Description=Town OS Port Forwarder: nginx 8080->80/tcp") {
+		t.Fatalf("forwarder missing description, got:\n%s", fwd.Content)
+	}
+
+	// Service unit should have Wants= for the forwarder.
+	svc := units.Service.Content
+	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", ForwarderUnitName("nginx", 8080))) {
+		t.Fatalf("service missing Wants for forwarder, got:\n%s", svc)
+	}
+}
+
+func TestGeneratePackageUnitsHostModeNoForwarderSamePort(t *testing.T) {
+	cfg := PackageUnitConfig{
+		PkgName:     "redis",
+		Version:     "7.0",
+		Image:       "redis:7.0",
+		Environment: map[string]string{},
+		External:    packages.PortMap{},
+		Internal:    packages.PortMap{6379: 6379},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		UPnPBinPath: "/town-os-upnp",
+		NetworkMode: "host",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	if len(units.Forwarders) != 0 {
+		t.Fatalf("expected 0 forwarders for same-port mapping, got %d", len(units.Forwarders))
+	}
+
+	// Service should not have Wants for any forwarder.
+	svc := units.Service.Content
+	if strings.Contains(svc, "fwd") {
+		t.Fatal("service should not reference forwarder units for same-port mapping")
+	}
+}
+
+func TestGeneratePackageUnitsHostModeUPnPUsesExternalPort(t *testing.T) {
+	cfg := PackageUnitConfig{
+		PkgName:     "nginx",
+		Version:     "1.0",
+		Image:       "nginx:1.26-alpine",
+		Environment: map[string]string{},
+		External:    packages.PortMap{8080: 80},
+		Internal:    packages.PortMap{},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		UPnPBinPath: "/town-os-upnp",
+		NetworkMode: "host",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	if units.UPnPService == nil {
+		t.Fatal("expected UPnP service unit")
+	}
+	upnp := units.UPnPService.Content
+	// In host mode UPnP should use ext:ext (8080:8080), not ext:int (8080:80).
+	if !strings.Contains(upnp, "--port 8080:8080") {
+		t.Fatalf("UPnP should use --port 8080:8080 in host mode, got:\n%s", upnp)
+	}
+	if strings.Contains(upnp, "--port 8080:80 ") {
+		t.Fatal("UPnP should NOT use --port 8080:80 in host mode")
+	}
+}
+
+func TestGeneratePackageUnitsBridgeModeNoForwarder(t *testing.T) {
+	cfg := PackageUnitConfig{
+		PkgName:     "nginx",
+		Version:     "1.0",
+		Image:       "nginx:1.26-alpine",
+		Environment: map[string]string{},
+		External:    packages.PortMap{8080: 80},
+		Internal:    packages.PortMap{},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		UPnPBinPath: "/town-os-upnp",
+		NetworkMode: "",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	if len(units.Forwarders) != 0 {
+		t.Fatalf("expected 0 forwarders in bridge mode, got %d", len(units.Forwarders))
+	}
+
+	// Service should not have Wants for any forwarder.
+	svc := units.Service.Content
+	if strings.Contains(svc, "fwd") {
+		t.Fatal("service should not reference forwarder units in bridge mode")
+	}
+
+	// UPnP should use ext:int in bridge mode.
+	if units.UPnPService == nil {
+		t.Fatal("expected UPnP service unit")
+	}
+	if !strings.Contains(units.UPnPService.Content, "--port 8080:80") {
+		t.Fatalf("UPnP should use --port 8080:80 in bridge mode, got:\n%s", units.UPnPService.Content)
+	}
+}
+
+func TestPackageUnitNamesIncludesForwarders(t *testing.T) {
+	external := packages.PortMap{8080: 80}
+	internal := packages.PortMap{}
+
+	names := PackageUnitNames("nginx", external, internal)
+
+	found := false
+	for _, name := range names {
+		if name == "town-os-nginx-fwd-8080-tcp.service" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected forwarder unit name in PackageUnitNames, got: %v", names)
+	}
+}
+
+func TestForwarderUnitName(t *testing.T) {
+	name := ForwarderUnitName("nginx", 8080)
+	if name != "town-os-nginx-fwd-8080-tcp.service" {
+		t.Fatalf("expected town-os-nginx-fwd-8080-tcp.service, got %s", name)
 	}
 }

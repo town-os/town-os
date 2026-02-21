@@ -23,7 +23,15 @@ func run() (err error) {
 	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
 	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
 	upnpBin := flag.String("upnp-bin", "/town-os-upnp", "path to the town-os-upnp binary")
+	networkMode := flag.String("network-mode", "", "container network mode: empty uses -p mappings; host uses --net host")
 	flag.Parse()
+
+	// Allow env var fallback when flag is not set.
+	if *networkMode == "" {
+		if env := os.Getenv("TOWN_OS_NETWORK_MODE"); env != "" {
+			*networkMode = env
+		}
+	}
 
 	dir, err := os.MkdirTemp("", "systemcontroller-*")
 	if err != nil {
@@ -118,6 +126,7 @@ func run() (err error) {
 		SettingsMgr:    settingsMgr,
 		BtrfsBasePath:  *btrfsPath,
 		UPnPBinPath:    *upnpBin,
+		NetworkMode:    *networkMode,
 	}); err != nil {
 		return fmt.Errorf("reconcile: %w", err)
 	}
@@ -135,6 +144,7 @@ func run() (err error) {
 		DefaultRepoPass: os.Getenv(packages.EnvRepoPassword),
 		BtrfsBasePath:   *btrfsPath,
 		UPnPBinPath:     *upnpBin,
+		NetworkMode:     *networkMode,
 	})
 
 	srv := &http.Server{

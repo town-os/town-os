@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1030,10 +1031,12 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
-	// Install (7) + Uninstall: 4 units * (Stop+Disable+Uninstall) = 12 → total 19
+	// Install (7) + Uninstall: 5 units * (Stop+Disable+Uninstall) = 15 → total 22
+	// (5 units: service, socket, forwarder, upnp-service, upnp-timer —
+	//  forwarder name included by PackageUnitNames for mismatched ports)
 	calls := sd.GetCalls()
-	if len(calls) != 19 {
-		t.Fatalf("expected 19 systemd calls, got %d", len(calls))
+	if len(calls) != 22 {
+		t.Fatalf("expected 22 systemd calls, got %d", len(calls))
 	}
 
 	// Install phase: first call is InstallUnit for service.
@@ -1079,7 +1082,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
-	// Verify 7 systemd calls from install (nginx has 1 ext port).
+	// Verify 7 systemd calls from install (nginx has 1 ext port, bridge mode).
 	calls := sd.GetCalls()
 	if len(calls) != 7 {
 		t.Fatalf("expected 7 systemd calls after install, got %d", len(calls))
@@ -1099,10 +1102,11 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
-	// Install (7) + Uninstall: 4 units * 3 ops = 12 → total 19
+	// Install (7) + Uninstall: 5 units * 3 ops = 15 → total 22
+	// (5 units: service, socket, forwarder, upnp-service, upnp-timer)
 	calls = sd.GetCalls()
-	if len(calls) != 19 {
-		t.Fatalf("expected 19 systemd calls total, got %d", len(calls))
+	if len(calls) != 22 {
+		t.Fatalf("expected 22 systemd calls total, got %d", len(calls))
 	}
 }
 
@@ -1388,16 +1392,14 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 		t.Fatalf("expected unit %q in ListUnits output", unitName)
 	}
 
-	// Verify redis is accepting connections inside the container.
-	// (Host port forwarding doesn't work in podman-in-podman, so we
-	// use podman exec to verify the service is running.)
-	pingOut, err := exec.Command("podman", "exec", "town-os-redis", "redis-cli", "ping").Output()
+	// Verify port 6379 is accessible via TCP from the host.
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:6379", 10*time.Second)
 	if err != nil {
 		logs, _ := exec.Command("podman", "logs", "--tail", "20", "town-os-redis").CombinedOutput()
-		t.Fatalf("redis-cli ping failed: %v\ncontainer logs:\n%s", err, string(logs))
+		t.Fatalf("TCP connect to redis on port 6379 failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
-	if strings.TrimSpace(string(pingOut)) != "PONG" {
-		t.Fatalf("expected PONG from redis-cli ping, got: %s", string(pingOut))
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close redis connection: %v", err)
 	}
 
 	// Verify podman container is listed.
@@ -1434,6 +1436,13 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	out, err = exec.Command("podman", "ps", "--filter", "name=town-os-redis", "--format", "{{.Names}}").Output()
 	if err == nil && strings.Contains(string(out), "town-os-redis") {
 		t.Fatal("expected town-os-redis not in podman ps after uninstall")
+	}
+
+	// Verify port 6379 is no longer accessible.
+	postConn, postErr := net.DialTimeout("tcp", "127.0.0.1:6379", 2*time.Second)
+	if postErr == nil {
+		_ = postConn.Close()
+		t.Fatal("expected port 6379 to be unreachable after uninstall")
 	}
 }
 
@@ -1486,14 +1495,14 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 		t.Fatalf("expected redis@7.0 in installed list, got: %v", pkgs.Entries)
 	}
 
-	// Verify redis is accepting connections after reinstall.
-	pingOut, err := exec.Command("podman", "exec", "town-os-redis", "redis-cli", "ping").Output()
+	// Verify port 6379 is accessible via TCP after reinstall.
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:6379", 10*time.Second)
 	if err != nil {
 		logs, _ := exec.Command("podman", "logs", "--tail", "20", "town-os-redis").CombinedOutput()
-		t.Fatalf("redis-cli ping after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
+		t.Fatalf("TCP connect to redis after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
-	if strings.TrimSpace(string(pingOut)) != "PONG" {
-		t.Fatalf("expected PONG after reinstall, got: %s", string(pingOut))
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close redis connection: %v", err)
 	}
 
 	// Uninstall.
@@ -2722,6 +2731,16 @@ func initReconcileTest(t *testing.T) (
 	*systemd.MockManager,
 	storage.Storage,
 ) {
+	return initReconcileTestWithNetworkMode(t, "")
+}
+
+func initReconcileTestWithNetworkMode(t *testing.T, networkMode string) (
+	*systemcontroller.SystemdClient,
+	*packages.RepositoryRoot,
+	packages.Installer,
+	*systemd.MockManager,
+	storage.Storage,
+) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -2746,6 +2765,7 @@ func initReconcileTest(t *testing.T) (
 		RepositoryRoot: rr,
 		Installer:      inst,
 		Systemd:        sd,
+		NetworkMode:    networkMode,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -2894,5 +2914,489 @@ func TestReconcilePreservesResponses(t *testing.T) {
 	}
 	if resp["port"] != "9090" {
 		t.Fatalf("expected port 9090, got %s", resp["port"])
+	}
+}
+
+// --- Command and NetworkMode integration tests ---
+
+func initSystemControllerInstallSystemdTestWithNetworkMode(t *testing.T, networkMode string) (*systemcontroller.SystemdClient, *systemd.MockManager) {
+	t.Helper()
+
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal empty repository list: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile repositories file: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("failed to load repository root: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:        mock,
+		RepositoryRoot: rr,
+		Installer:      inst,
+		Systemd:        sd,
+		NetworkMode:    networkMode,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, sd
+}
+
+func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"password":  "testpass",
+		"maxmemory": "100mb",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	// Find the InstallUnit call for the service unit and inspect its content.
+	calls := sd.GetCalls()
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-redis.service" {
+				serviceContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-redis.service")
+	}
+
+	// Verify command args appear after the image name.
+	if !strings.Contains(serviceContent, "redis-server") {
+		t.Fatalf("service unit missing command arg 'redis-server', got:\n%s", serviceContent)
+	}
+	if !strings.Contains(serviceContent, "--bind") {
+		t.Fatalf("service unit missing command arg '--bind', got:\n%s", serviceContent)
+	}
+	if !strings.Contains(serviceContent, "0.0.0.0") {
+		t.Fatalf("service unit missing command arg '0.0.0.0', got:\n%s", serviceContent)
+	}
+
+	// Verify -p port mapping is present (default bridge mode).
+	if !strings.Contains(serviceContent, "-p 6379:6379") {
+		t.Fatalf("service unit missing '-p 6379:6379' in bridge mode, got:\n%s", serviceContent)
+	}
+
+	// Verify --net host is NOT present.
+	if strings.Contains(serviceContent, "--net host") {
+		t.Fatal("service unit should not have --net host in bridge mode")
+	}
+}
+
+func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"password":  "testpass",
+		"maxmemory": "100mb",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
+
+	// Find the service unit content.
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-redis.service" {
+				serviceContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-redis.service")
+	}
+
+	// Verify --net host is present.
+	if !strings.Contains(serviceContent, "--net host") {
+		t.Fatalf("service unit missing '--net host' in host mode, got:\n%s", serviceContent)
+	}
+
+	// Verify -p is NOT present.
+	if strings.Contains(serviceContent, "-p 6379:6379") {
+		t.Fatal("service unit should not have -p mappings in host mode")
+	}
+
+	// Verify command args still appear.
+	if !strings.Contains(serviceContent, "redis-server") {
+		t.Fatalf("service unit missing command arg 'redis-server' in host mode, got:\n%s", serviceContent)
+	}
+	if !strings.Contains(serviceContent, "--bind") {
+		t.Fatalf("service unit missing command arg '--bind' in host mode, got:\n%s", serviceContent)
+	}
+
+	// Redis 6379→6379 (same port): no forwarder should be installed.
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if strings.Contains(name, "fwd") {
+				t.Fatalf("unexpected forwarder unit installed for same-port mapping: %s", name)
+			}
+		}
+	}
+}
+
+func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// Find the service unit content.
+	calls := sd.GetCalls()
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-nginx.service" {
+				serviceContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-nginx.service")
+	}
+
+	// Nginx has no command field, so command args should not appear after the image.
+	// The image line should end the ExecStart (no extra args).
+	if !strings.Contains(serviceContent, "-p 8080:80") {
+		t.Fatalf("service unit missing '-p 8080:80', got:\n%s", serviceContent)
+	}
+	if strings.Contains(serviceContent, "--net host") {
+		t.Fatal("service unit should not have --net host in bridge mode")
+	}
+}
+
+func TestSystemControllerInstallNginxHostMode(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
+
+	// Find the service unit content.
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-nginx.service" {
+				serviceContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-nginx.service")
+	}
+
+	// Verify --net host is present and -p is not.
+	if !strings.Contains(serviceContent, "--net host") {
+		t.Fatalf("service unit missing '--net host' in host mode, got:\n%s", serviceContent)
+	}
+	if strings.Contains(serviceContent, "-p 8080:80") {
+		t.Fatal("service unit should not have -p mappings in host mode")
+	}
+
+	// Verify forwarder unit was installed (8080→80 mismatch).
+	var fwdContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-nginx-fwd-8080-tcp.service" {
+				fwdContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+	if fwdContent == "" {
+		t.Fatal("expected InstallUnit call for forwarder unit town-os-nginx-fwd-8080-tcp.service")
+	}
+	if !strings.Contains(fwdContent, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
+		t.Fatalf("forwarder unit missing socat command, got:\n%s", fwdContent)
+	}
+}
+
+func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
+
+	// Full verification of forwarder unit content.
+	var fwdContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-nginx-fwd-8080-tcp.service" {
+				fwdContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+	if fwdContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-nginx-fwd-8080-tcp.service")
+	}
+	if !strings.Contains(fwdContent, "Description=Town OS Port Forwarder: nginx 8080->80/tcp") {
+		t.Fatalf("forwarder missing description, got:\n%s", fwdContent)
+	}
+	if !strings.Contains(fwdContent, "PartOf=town-os-nginx.service") {
+		t.Fatalf("forwarder missing PartOf, got:\n%s", fwdContent)
+	}
+	if !strings.Contains(fwdContent, "After=town-os-nginx.service") {
+		t.Fatalf("forwarder missing After, got:\n%s", fwdContent)
+	}
+	if !strings.Contains(fwdContent, "ExecStart=/usr/bin/socat TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
+		t.Fatalf("forwarder missing socat ExecStart, got:\n%s", fwdContent)
+	}
+
+	// Verify the forwarder was enabled.
+	fwdEnabled := false
+	for _, call := range calls {
+		if call.Method == "SetStatus" {
+			name := call.Args[0].(string)
+			action := call.Args[1].(systemd.StatusAction)
+			if name == "town-os-nginx-fwd-8080-tcp.service" && action == systemd.Enable {
+				fwdEnabled = true
+				break
+			}
+		}
+	}
+	if !fwdEnabled {
+		t.Fatal("expected forwarder unit to be enabled")
+	}
+
+	// Verify the service unit has Wants= for the forwarder.
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-nginx.service" {
+				serviceContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-nginx.service")
+	}
+	if !strings.Contains(serviceContent, "Wants=town-os-nginx-fwd-8080-tcp.service") {
+		t.Fatalf("service unit missing Wants for forwarder, got:\n%s", serviceContent)
+	}
+
+	// Verify UPnP uses ext:ext in host mode.
+	var upnpContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-nginx-upnp.service" {
+				upnpContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+	if upnpContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-nginx-upnp.service")
+	}
+	if !strings.Contains(upnpContent, "--port 8080:8080") {
+		t.Fatalf("UPnP should use --port 8080:8080 in host mode, got:\n%s", upnpContent)
+	}
+	if strings.Contains(upnpContent, "--port 8080:80 ") {
+		t.Fatal("UPnP should NOT use --port 8080:80 in host mode")
+	}
+}
+
+func TestReconcileWithNetworkMode(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"password":  "testpass",
+		"maxmemory": "100mb",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	// Clear mock systemd calls (simulate restart).
+	sd.Calls = nil
+
+	err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		NetworkMode:    "host",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Find the reconciled service unit content.
+	calls := sd.GetCalls()
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-redis.service" {
+				serviceContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-redis.service after reconcile")
+	}
+
+	// Verify --net host and command args after reconcile.
+	if !strings.Contains(serviceContent, "--net host") {
+		t.Fatalf("reconciled unit missing '--net host', got:\n%s", serviceContent)
+	}
+	if strings.Contains(serviceContent, "-p 6379:6379") {
+		t.Fatal("reconciled unit should not have -p in host mode")
+	}
+	if !strings.Contains(serviceContent, "redis-server") {
+		t.Fatalf("reconciled unit missing command arg 'redis-server', got:\n%s", serviceContent)
+	}
+
+	// Redis 6379→6379: no forwarder should be installed after reconcile.
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if strings.Contains(name, "fwd") {
+				t.Fatalf("unexpected forwarder unit installed after reconcile for same-port mapping: %s", name)
+			}
+		}
+	}
+}
+
+func TestReconcileWithNetworkModeNginxForwarder(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// Clear mock systemd calls (simulate restart).
+	sd.Calls = nil
+
+	err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		NetworkMode:    "host",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+
+	// Verify forwarder unit was installed during reconcile.
+	var fwdContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name := call.Args[0].(string)
+			if name == "town-os-nginx-fwd-8080-tcp.service" {
+				fwdContent = call.Args[1].(string)
+				break
+			}
+		}
+	}
+	if fwdContent == "" {
+		t.Fatal("expected InstallUnit call for forwarder unit after reconcile")
+	}
+	if !strings.Contains(fwdContent, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
+		t.Fatalf("forwarder unit missing socat command after reconcile, got:\n%s", fwdContent)
+	}
+
+	// Verify forwarder was enabled.
+	fwdEnabled := false
+	for _, call := range calls {
+		if call.Method == "SetStatus" {
+			name := call.Args[0].(string)
+			action := call.Args[1].(systemd.StatusAction)
+			if name == "town-os-nginx-fwd-8080-tcp.service" && action == systemd.Enable {
+				fwdEnabled = true
+				break
+			}
+		}
+	}
+	if !fwdEnabled {
+		t.Fatal("expected forwarder unit to be enabled after reconcile")
 	}
 }

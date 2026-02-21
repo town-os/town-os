@@ -72,6 +72,7 @@ type PackageNetwork struct {
 
 type Package struct {
 	Image       string
+	Command     []string
 	Environment map[string]string
 	Network     PackageNetwork
 	Volumes     map[string]PackageVolume
@@ -90,6 +91,7 @@ type Question struct {
 
 type InputPackage struct {
 	Image       string                        `yaml:"image"`
+	Command     []string                      `yaml:"command"`
 	Environment map[string]string             `yaml:"environment"`
 	Network     InputPackageNetwork           `yaml:"network"`
 	Volumes     map[string]InputPackageVolume `yaml:"volumes"`
@@ -339,6 +341,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 
 	p := &Package{
 		Image:       image,
+		Command:     i.Command,
 		Environment: i.Environment,
 		Network:     PackageNetwork{External: external, Internal: internal},
 		Volumes:     volumes,

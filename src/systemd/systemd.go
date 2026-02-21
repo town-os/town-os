@@ -117,6 +117,12 @@ func UPnPTimerUnitName(pkgName string) string {
 	return fmt.Sprintf("town-os-%s-upnp.timer", pkgName)
 }
 
+// ForwarderUnitName returns the systemd service unit name for a socat port
+// forwarder associated with the given package and external port.
+func ForwarderUnitName(pkgName string, port uint16) string {
+	return fmt.Sprintf("town-os-%s-fwd-%d-tcp.service", pkgName, port)
+}
+
 // StubUnitContent returns a simple Type=simple unit file that loops printing
 // a running message. Useful for stub/test services.
 func StubUnitContent(pkgName, version string) string {
