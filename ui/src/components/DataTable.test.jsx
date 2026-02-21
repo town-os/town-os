@@ -67,7 +67,7 @@ describe('DataTable', () => {
     expect(headerDivs[1].className).toContain('justify-end')
   })
 
-  it('does not add justify-end when column has no className', () => {
+  it('auto-applies text-right and justify-end to last column', () => {
     const { container } = render(
       <DataTable
         {...baseProps}
@@ -78,7 +78,8 @@ describe('DataTable', () => {
     )
     const headerDivs = container.querySelectorAll('th div')
     expect(headerDivs[0].className).not.toContain('justify-end')
-    expect(headerDivs[1].className).not.toContain('justify-end')
+    // Last column automatically gets text-right alignment
+    expect(headerDivs[1].className).toContain('justify-end')
   })
 
   it('shows "No data" when data is empty', () => {

@@ -32,6 +32,7 @@ export default function PackageManagement() {
   const [installConfirm, setInstallConfirm] = useState(null)
   const [uninstallConfirm, setUninstallConfirm] = useState(null)
   const [purgeVolumes, setPurgeVolumes] = useState(false)
+  const [purgeConfirm, setPurgeConfirm] = useState(null)
   const [questionsDialog, setQuestionsDialog] = useState({ open: false })
   const [infoDialog, setInfoDialog] = useState({ open: false })
 
@@ -177,6 +178,18 @@ export default function PackageManagement() {
     }
   }
 
+  async function handlePurgeVolumes() {
+    try {
+      await getClient().purgeVolumes(purgeConfirm)
+      toast.success(`Volumes purged for "${purgeConfirm}"`)
+      setPurgeConfirm(null)
+      doRefresh()
+    } catch (err) {
+      toast.error(err.message)
+      setPurgeConfirm(null)
+    }
+  }
+
   async function handleAddRepo(e) {
     e.preventDefault()
     const name = e.target.elements.name.value
@@ -236,20 +249,36 @@ export default function PackageManagement() {
       sortable: false,
       transform: (_, row) => {
         const inst = isInstalled(row.name)
-        if (!inst) return null
+        if (inst) {
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => handleShowInfo(row.name, row.version)}
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">View configuration</TooltipContent>
+            </Tooltip>
+          )
+        }
         return (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => handleShowInfo(row.name, row.version)}
+                className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                onClick={() => setPurgeConfirm(row.name)}
               >
-                <Info className="h-3.5 w-3.5" />
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">View configuration</TooltipContent>
+            <TooltipContent side="right">Purge volumes</TooltipContent>
           </Tooltip>
         )
       },
@@ -261,7 +290,7 @@ export default function PackageManagement() {
       transform: (_, row) => {
         const inst = isInstalled(row.name)
         return (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center justify-end gap-1">
             <Tooltip>
               <TooltipTrigger>
                 <Badge
@@ -665,6 +694,22 @@ export default function PackageManagement() {
         Remove repository{' '}
         <code className="font-mono text-sm bg-muted px-1 rounded">
           {deleteRepoConfirm}
+        </code>
+        ?
+      </ConfirmDialog>
+
+      {/* Purge Volumes Confirm */}
+      <ConfirmDialog
+        open={!!purgeConfirm}
+        title="Purge Volumes"
+        onConfirm={handlePurgeVolumes}
+        onCancel={() => setPurgeConfirm(null)}
+        confirmLabel="Purge"
+        variant="destructive"
+      >
+        Permanently delete all volumes for{' '}
+        <code className="font-mono text-sm bg-muted px-1 rounded">
+          {purgeConfirm}
         </code>
         ?
       </ConfirmDialog>

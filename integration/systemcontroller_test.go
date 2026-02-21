@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
@@ -1826,5 +1827,658 @@ func TestSystemControllerPingUnitCountsFiltersTownOS(t *testing.T) {
 
 	if ping.Units.Failed != 1 {
 		t.Fatalf("expected 1 failed town-os unit, got %d", ping.Units.Failed)
+	}
+}
+
+// --- Subvolume and quota integration tests ---
+
+func TestSystemControllerCreateWithQuota(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-quota", Quota: 1048576}); err != nil {
+		t.Fatalf("CreateFilesystem with quota: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(context.TODO(), "sc-quota"); err != nil {
+			t.Errorf("cleanup RemoveFilesystem: %v", err)
+		}
+	})
+
+	list, err := c.ListFilesystems(context.TODO(), "sc-quota")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(list))
+	}
+	if list[0].Quota != 1048576 {
+		t.Fatalf("expected quota %d, got %d", 1048576, list[0].Quota)
+	}
+}
+
+func TestSystemControllerModifyQuota(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-modq"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(context.TODO(), "sc-modq"); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	})
+
+	// Set quota.
+	if err := c.ModifyFilesystem(context.TODO(), "sc-modq", storage.Filesystem{Name: "sc-modq", Quota: 2097152}); err != nil {
+		t.Fatalf("ModifyFilesystem set quota: %v", err)
+	}
+
+	list, err := c.ListFilesystems(context.TODO(), "sc-modq")
+	if err != nil {
+		t.Fatalf("ListFilesystems after set: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(list))
+	}
+	if list[0].Quota != 2097152 {
+		t.Fatalf("expected quota %d, got %d", 2097152, list[0].Quota)
+	}
+
+	// Clear quota.
+	if err := c.ModifyFilesystem(context.TODO(), "sc-modq", storage.Filesystem{Name: "sc-modq", Quota: 0}); err != nil {
+		t.Fatalf("ModifyFilesystem clear quota: %v", err)
+	}
+
+	list, err = c.ListFilesystems(context.TODO(), "sc-modq")
+	if err != nil {
+		t.Fatalf("ListFilesystems after clear: %v", err)
+	}
+	if list[0].Quota != 0 {
+		t.Fatalf("expected quota 0 after clear, got %d", list[0].Quota)
+	}
+}
+
+func TestSystemControllerNestedSubvolumes(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	names := []string{"sc-nest/parent", "sc-nest/parent/child", "sc-nest/parent/child/deep"}
+	for _, name := range names {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+	// Clean up deepest first, including the auto-created intermediate.
+	allNames := append([]string{"sc-nest"}, names...)
+	t.Cleanup(func() {
+		for i := len(allNames) - 1; i >= 0; i-- {
+			if err := c.RemoveFilesystem(context.TODO(), allNames[i]); err != nil {
+				t.Errorf("cleanup RemoveFilesystem(%q): %v", allNames[i], err)
+			}
+		}
+	})
+
+	// All three should appear when listing with the parent prefix.
+	list, err := c.ListFilesystems(context.TODO(), "sc-nest/")
+	if err != nil {
+		t.Fatalf("ListFilesystems with parent prefix: %v", err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("expected 3 filesystems under sc-nest/, got %d", len(list))
+	}
+
+	// Exact match should return only the leaf.
+	list, err = c.ListFilesystems(context.TODO(), "sc-nest/parent/child/deep")
+	if err != nil {
+		t.Fatalf("ListFilesystems exact: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 filesystem for exact match, got %d", len(list))
+	}
+	if list[0].Name != "sc-nest/parent/child/deep" {
+		t.Fatalf("expected %q, got %q", "sc-nest/parent/child/deep", list[0].Name)
+	}
+}
+
+func TestSystemControllerNestedSubvolumeQuotaOnLeaf(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-leafq/parent"}); err != nil {
+		t.Fatalf("CreateFilesystem parent: %v", err)
+	}
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-leafq/parent/child", Quota: 4194304}); err != nil {
+		t.Fatalf("CreateFilesystem child with quota: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(context.TODO(), "sc-leafq/parent/child"); err != nil {
+			t.Errorf("cleanup child: %v", err)
+		}
+		if err := c.RemoveFilesystem(context.TODO(), "sc-leafq/parent"); err != nil {
+			t.Errorf("cleanup parent: %v", err)
+		}
+		if err := c.RemoveFilesystem(context.TODO(), "sc-leafq"); err != nil {
+			t.Errorf("cleanup sc-leafq: %v", err)
+		}
+	})
+
+	// Child should have its quota.
+	list, err := c.ListFilesystems(context.TODO(), "sc-leafq/parent/child")
+	if err != nil {
+		t.Fatalf("ListFilesystems child: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1, got %d", len(list))
+	}
+	if list[0].Quota != 4194304 {
+		t.Fatalf("expected child quota %d, got %d", 4194304, list[0].Quota)
+	}
+
+	// Parent should have no quota.
+	list, err = c.ListFilesystems(context.TODO(), "sc-leafq/parent")
+	if err != nil {
+		t.Fatalf("ListFilesystems parent: %v", err)
+	}
+	for _, fs := range list {
+		if fs.Name == "sc-leafq/parent" && fs.Quota != 0 {
+			t.Fatalf("expected parent quota 0, got %d", fs.Quota)
+		}
+	}
+}
+
+func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-qname", Quota: 1024}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(context.TODO(), "sc-qname"); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	})
+
+	// Modify quota without changing name.
+	if err := c.ModifyFilesystem(context.TODO(), "sc-qname", storage.Filesystem{Name: "sc-qname", Quota: 8192}); err != nil {
+		t.Fatalf("ModifyFilesystem: %v", err)
+	}
+
+	list, err := c.ListFilesystems(context.TODO(), "sc-qname")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(list))
+	}
+	if list[0].Name != "sc-qname" {
+		t.Fatalf("expected name %q, got %q", "sc-qname", list[0].Name)
+	}
+	if list[0].Quota != 8192 {
+		t.Fatalf("expected quota %d, got %d", 8192, list[0].Quota)
+	}
+}
+
+func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	type fs struct {
+		name  string
+		quota uint64
+	}
+	filesystems := []fs{
+		{"sc-mnq/data", 0},
+		{"sc-mnq/data/logs", 1048576},
+		{"sc-mnq/data/cache", 2097152},
+		{"sc-mnq/data/media", 4194304},
+	}
+
+	for _, f := range filesystems {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: f.name, Quota: f.quota}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", f.name, err)
+		}
+	}
+	// Clean up deepest first, including the auto-created intermediate.
+	t.Cleanup(func() {
+		for i := len(filesystems) - 1; i >= 0; i-- {
+			if err := c.RemoveFilesystem(context.TODO(), filesystems[i].name); err != nil {
+				t.Errorf("cleanup %q: %v", filesystems[i].name, err)
+			}
+		}
+		if err := c.RemoveFilesystem(context.TODO(), "sc-mnq"); err != nil {
+			t.Errorf("cleanup sc-mnq: %v", err)
+		}
+	})
+
+	// List all children.
+	list, err := c.ListFilesystems(context.TODO(), "sc-mnq/data")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+	if len(list) != 4 {
+		t.Fatalf("expected 4 filesystems, got %d", len(list))
+	}
+
+	// Verify individual quotas.
+	quotaMap := map[string]uint64{}
+	for _, f := range list {
+		quotaMap[f.Name] = f.Quota
+	}
+	for _, want := range filesystems {
+		got, ok := quotaMap[want.name]
+		if !ok {
+			t.Fatalf("missing filesystem %q in list", want.name)
+		}
+		if got != want.quota {
+			t.Fatalf("filesystem %q: expected quota %d, got %d", want.name, want.quota, got)
+		}
+	}
+}
+
+// --- Purge volume integration tests ---
+
+func TestSystemControllerPurgeVolumes(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	// Simulate package "sc-purge" with two child volumes.
+	children := []string{"sc-purge/data", "sc-purge/logs"}
+	for _, name := range children {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	// Safety net: if purge fails, clean up manually.
+	t.Cleanup(func() {
+		for i := len(children) - 1; i >= 0; i-- {
+			_ = c.RemoveFilesystem(context.TODO(), children[i])
+		}
+		_ = c.RemoveFilesystem(context.TODO(), "sc-purge")
+	})
+
+	// Verify children exist.
+	list, err := c.ListFilesystems(context.TODO(), "sc-purge/")
+	if err != nil {
+		t.Fatalf("ListFilesystems before purge: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 filesystems before purge, got %d", len(list))
+	}
+
+	// Purge all volumes for "sc-purge".
+	if err := c.PurgeVolumes(context.TODO(), "sc-purge"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	// Verify all children are gone.
+	list, err = c.ListFilesystems(context.TODO(), "sc-purge/")
+	if err != nil {
+		t.Fatalf("ListFilesystems after purge: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 filesystems after purge, got %d", len(list))
+	}
+
+	// Verify the parent intermediate is also gone.
+	list, err = c.ListFilesystems(context.TODO(), "sc-purge")
+	if err != nil {
+		t.Fatalf("ListFilesystems parent after purge: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected parent to be purged, got %d filesystems", len(list))
+	}
+}
+
+func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	// Create two packages with similar prefixes.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-pfx/data"}); err != nil {
+		t.Fatalf("CreateFilesystem sc-pfx/data: %v", err)
+	}
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-pfx2/data"}); err != nil {
+		t.Fatalf("CreateFilesystem sc-pfx2/data: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx/data")
+		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx")
+		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx2/data")
+		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx2")
+	})
+
+	// Purge "sc-pfx" only.
+	if err := c.PurgeVolumes(context.TODO(), "sc-pfx"); err != nil {
+		t.Fatalf("PurgeVolumes sc-pfx: %v", err)
+	}
+
+	// sc-pfx should be gone.
+	list, err := c.ListFilesystems(context.TODO(), "sc-pfx/")
+	if err != nil {
+		t.Fatalf("ListFilesystems sc-pfx/: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 filesystems for sc-pfx/, got %d", len(list))
+	}
+
+	// sc-pfx2 should survive.
+	list, err = c.ListFilesystems(context.TODO(), "sc-pfx2/")
+	if err != nil {
+		t.Fatalf("ListFilesystems sc-pfx2/: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 filesystem for sc-pfx2/, got %d", len(list))
+	}
+}
+
+func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	names := []string{
+		"sc-dpurge/a",
+		"sc-dpurge/a/b",
+		"sc-dpurge/a/b/c",
+		"sc-dpurge/a/b/c/d",
+	}
+	for _, name := range names {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+	t.Cleanup(func() {
+		for i := len(names) - 1; i >= 0; i-- {
+			_ = c.RemoveFilesystem(context.TODO(), names[i])
+		}
+		_ = c.RemoveFilesystem(context.TODO(), "sc-dpurge")
+	})
+
+	if err := c.PurgeVolumes(context.TODO(), "sc-dpurge"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	list, err := c.ListFilesystems(context.TODO(), "sc-dpurge")
+	if err != nil {
+		t.Fatalf("ListFilesystems after purge: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 filesystems after purge, got %d", len(list))
+	}
+}
+
+func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	// Create a filesystem to verify it's not affected.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-surv"}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = c.RemoveFilesystem(context.TODO(), "sc-surv")
+	})
+
+	// Purge a package that doesn't exist — should succeed.
+	if err := c.PurgeVolumes(context.TODO(), "sc-nonexistent"); err != nil {
+		t.Fatalf("PurgeVolumes nonexistent: %v", err)
+	}
+
+	// The unrelated filesystem should still exist.
+	list, err := c.ListFilesystems(context.TODO(), "sc-surv")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 filesystem to survive, got %d", len(list))
+	}
+}
+
+func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	children := []storage.Filesystem{
+		{Name: "sc-pq/data", Quota: 1048576},
+		{Name: "sc-pq/logs", Quota: 2097152},
+	}
+	for _, f := range children {
+		if err := c.CreateFilesystem(context.TODO(), f); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", f.Name, err)
+		}
+	}
+	t.Cleanup(func() {
+		for i := len(children) - 1; i >= 0; i-- {
+			_ = c.RemoveFilesystem(context.TODO(), children[i].Name)
+		}
+		_ = c.RemoveFilesystem(context.TODO(), "sc-pq")
+	})
+
+	// Verify quotas exist before purge.
+	list, err := c.ListFilesystems(context.TODO(), "sc-pq/")
+	if err != nil {
+		t.Fatalf("ListFilesystems before purge: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2, got %d", len(list))
+	}
+	for _, fs := range list {
+		if fs.Quota == 0 {
+			t.Fatalf("expected non-zero quota for %q before purge", fs.Name)
+		}
+	}
+
+	if err := c.PurgeVolumes(context.TODO(), "sc-pq"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	list, err = c.ListFilesystems(context.TODO(), "sc-pq")
+	if err != nil {
+		t.Fatalf("ListFilesystems after purge: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 after purge, got %d", len(list))
+	}
+}
+
+func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
+	c := initSystemControllerTest(t)
+
+	names := []string{
+		"sc-pmulti/alpha",
+		"sc-pmulti/bravo",
+		"sc-pmulti/charlie",
+		"sc-pmulti/delta",
+		"sc-pmulti/echo",
+	}
+	for _, name := range names {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+	t.Cleanup(func() {
+		for i := len(names) - 1; i >= 0; i-- {
+			_ = c.RemoveFilesystem(context.TODO(), names[i])
+		}
+		_ = c.RemoveFilesystem(context.TODO(), "sc-pmulti")
+	})
+
+	if err := c.PurgeVolumes(context.TODO(), "sc-pmulti"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	list, err := c.ListFilesystems(context.TODO(), "sc-pmulti")
+	if err != nil {
+		t.Fatalf("ListFilesystems after purge: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 after purge, got %d", len(list))
+	}
+}
+
+// --- Settings integration tests (admin and user) ---
+
+func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdClient {
+	t.Helper()
+
+	dir := t.TempDir()
+	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
+	settingsMgr, err := account.InitSettingsManager(db)
+	if err != nil {
+		t.Fatalf("InitSettingsManager: %v", err)
+	}
+
+	btr := storage.InitBtrFS("/data/btrfs")
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:     btr,
+		AccountMgr:  mgr,
+		SessionMgr:  sessMgr,
+		AuditMgr:    auditMgr,
+		SettingsMgr: settingsMgr,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap: create admin account and authenticate.
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("bootstrap Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	return c
+}
+
+func TestSettingsDefaultsOnInit(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	// Defaults should be present without any explicit Set calls.
+	val, err := c.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting default_quota: %v", err)
+	}
+	if val != account.DefaultSettings["default_quota"] {
+		t.Fatalf("expected default %q, got %q", account.DefaultSettings["default_quota"], val)
+	}
+
+	settings, err := c.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	for k, want := range account.DefaultSettings {
+		got, ok := settings[k]
+		if !ok {
+			t.Fatalf("expected default key %q in list", k)
+		}
+		if got != want {
+			t.Fatalf("default %q: expected %q, got %q", k, want, got)
+		}
+	}
+}
+
+func TestSettingsAdminCanSetAndGet(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	if err := c.SetSetting(context.TODO(), "default_quota", "1073741824"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "1073741824" {
+		t.Fatalf("expected %q, got %q", "1073741824", val)
+	}
+}
+
+func TestSettingsAdminCanSetHumanReadable(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	if err := c.SetSetting(context.TODO(), "default_quota", "500GB"); err != nil {
+		t.Fatalf("SetSetting 500GB: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "536870912000" {
+		t.Fatalf("expected %q, got %q", "536870912000", val)
+	}
+}
+
+func TestSettingsNonAdminRejected(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	// Create a non-admin user and switch to their token.
+	if _, err := c.CreateAccount(context.TODO(), "user", "userpass", "user@test.com", "555-1111", "User", false); err != nil {
+		t.Fatalf("CreateAccount user: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "user", "userpass")
+	if err != nil {
+		t.Fatalf("Authenticate user: %v", err)
+	}
+	c.Token = resp.Token
+
+	// All settings endpoints should reject non-admin.
+	if _, err := c.GetSettings(context.TODO()); err == nil {
+		t.Fatal("expected error for non-admin GetSettings")
+	}
+	if _, err := c.GetSetting(context.TODO(), "default_quota"); err == nil {
+		t.Fatal("expected error for non-admin GetSetting")
+	}
+	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err == nil {
+		t.Fatal("expected error for non-admin SetSetting")
+	}
+}
+
+func TestSettingsAdminOverrideAndList(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	// Set a custom key.
+	if err := c.SetSetting(context.TODO(), "motd", "hello world"); err != nil {
+		t.Fatalf("SetSetting motd: %v", err)
+	}
+
+	// Override the default quota.
+	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err != nil {
+		t.Fatalf("SetSetting default_quota: %v", err)
+	}
+
+	settings, err := c.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+
+	if settings["motd"] != "hello world" {
+		t.Fatalf("expected motd %q, got %q", "hello world", settings["motd"])
+	}
+	if settings["default_quota"] != "0" {
+		t.Fatalf("expected default_quota %q, got %q", "0", settings["default_quota"])
 	}
 }

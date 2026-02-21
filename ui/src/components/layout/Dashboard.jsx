@@ -95,8 +95,8 @@ export default function Dashboard({ children }) {
               </div>
             )}
             {account && (
-              <div className="flex items-center gap-1 rounded-full bg-black px-3 py-1.5">
-                <span className="text-sm text-white">
+              <div className="flex items-center gap-1 rounded-full bg-gray-600 px-3 py-1.5">
+                <span className="text-sm font-bold text-white">
                   {account.username}
                 </span>
                 {account.admin && (

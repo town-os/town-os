@@ -393,7 +393,10 @@ func (b *BtrFS) RemoveFilesystem(name string) error {
 }
 
 func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
-	info, err := b.Controller.SubvolList(filepath.Join(b.BasePath, prefix))
+	// Always list from the base path so that btrfs subvolume list runs
+	// against the filesystem root. Passing a nested subvolume path can
+	// produce path-relative names that don't match the expected prefix.
+	info, err := b.Controller.SubvolList(b.BasePath)
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +404,6 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 	fs := []Filesystem{}
 
 	for _, item := range info {
-		// filepath.Join strips the trailing slash from the prefix, so
-		// SubvolList may return entries that don't actually match.
-		// Re-filter against the original prefix to avoid including the
-		// parent itself or unrelated volumes that share a name prefix
-		// (e.g. "nginx" matching "nginx2").
 		if prefix != "" && !strings.HasPrefix(item.Name, prefix) {
 			continue
 		}

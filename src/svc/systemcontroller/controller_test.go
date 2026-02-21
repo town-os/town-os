@@ -1823,6 +1823,110 @@ func TestHTTPUninstallPackageWithPurge(t *testing.T) {
 	}
 }
 
+func initInstallWithVolumesTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	controller := mock.Controller.(*storage.MockBtrFSController)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external: {}
+  internal: {}
+volumes:
+  html:
+    mountpoint: /var/www/html
+  logs:
+    mountpoint: /var/log/nginx
+    quota: 2048
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, controller
+}
+
+func TestHTTPUninstallPackagePurgesVolumes(t *testing.T) {
+	c, controller := initInstallWithVolumesTestClient(t)
+
+	// Install a package that defines volumes.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example"}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify volumes were created.
+	before := controller.GetFilesystems()
+	volNames := map[string]bool{}
+	for _, fs := range before {
+		volNames[fs.Name] = true
+	}
+	if !volNames["nginx/html"] {
+		t.Fatal("expected nginx/html volume to exist after install")
+	}
+	if !volNames["nginx/logs"] {
+		t.Fatal("expected nginx/logs volume to exist after install")
+	}
+
+	// Uninstall with purge.
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", true); err != nil {
+		t.Fatalf("UninstallPackage with purge: %v", err)
+	}
+
+	// Verify all nginx volumes are gone.
+	after := controller.GetFilesystems()
+	for _, fs := range after {
+		if fs.Name == "nginx" || strings.HasPrefix(fs.Name, "nginx/") {
+			t.Fatalf("expected all nginx volumes purged, found %q", fs.Name)
+		}
+	}
+}
+
+func TestHTTPUninstallPackageWithoutPurgePreservesVolumes(t *testing.T) {
+	c, controller := initInstallWithVolumesTestClient(t)
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example"}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Uninstall WITHOUT purge.
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	// Verify volumes are still present.
+	after := controller.GetFilesystems()
+	volNames := map[string]bool{}
+	for _, fs := range after {
+		volNames[fs.Name] = true
+	}
+	if !volNames["nginx/html"] {
+		t.Fatal("expected nginx/html volume preserved after uninstall without purge")
+	}
+	if !volNames["nginx/logs"] {
+		t.Fatal("expected nginx/logs volume preserved after uninstall without purge")
+	}
+}
+
 func TestHTTPPurgeVolumes(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 

@@ -73,8 +73,18 @@ describe('PackageManagement', () => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
     const triggers = container.querySelectorAll('[data-slot="tooltip-trigger"]')
-    // One tooltip per package status badge + one info icon for installed row
-    expect(triggers.length).toBe(3)
+    // One tooltip per package status badge + info icon for installed + purge icon for not-installed
+    expect(triggers.length).toBe(4)
+  })
+
+  it('right-aligns the last column', async () => {
+    const { container } = renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed')).toBeTruthy()
+    })
+    const headers = container.querySelectorAll('th')
+    const lastHeader = headers[headers.length - 1]
+    expect(lastHeader.className).toContain('text-right')
   })
 
   it('gives all columns equal width', async () => {
@@ -99,8 +109,10 @@ describe('PackageManagement', () => {
     // First row (nginx) is installed — should have info button
     const nginxInfoBtn = rows[0].querySelector('button svg.lucide-info')
     expect(nginxInfoBtn).toBeTruthy()
-    // Second row (redis) is not installed — should not have info button
+    // Second row (redis) is not installed — should not have info button, but has purge button
     const redisInfoBtn = rows[1].querySelector('button svg.lucide-info')
     expect(redisInfoBtn).toBeNull()
+    const redisPurgeBtn = rows[1].querySelector('button svg.lucide-trash-2')
+    expect(redisPurgeBtn).toBeTruthy()
   })
 })

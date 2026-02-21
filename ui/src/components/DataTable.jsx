@@ -139,11 +139,12 @@ export default function DataTable({
     const parts = []
     if (col.sortable !== false && onSortChange) parts.push('cursor-pointer select-none')
     if (col.className) parts.push(col.className)
+    if (idx === lastIdx && !col.className?.includes('text-')) parts.push('text-right')
     return parts.filter(Boolean).join(' ')
   }
 
   function headerJustify(cls) {
-    if (cls?.includes('text-right')) return ' justify-end'
+    if (cls?.includes('text-right')) return ' justify-end pr-2'
     if (cls?.includes('text-center')) return ' justify-center'
     return ''
   }
