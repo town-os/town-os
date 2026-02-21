@@ -106,7 +106,7 @@ func UnitName(pkgName string) string {
 // a running message. Useful for stub/test services.
 func StubUnitContent(pkgName, version string) string {
 	return fmt.Sprintf(`[Unit]
-Description=town-os %s@%s
+Description=Town OS Package Service: %s@%s
 
 [Service]
 Type=simple

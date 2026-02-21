@@ -185,6 +185,28 @@ func readSortParams(c *echo.Context) (string, string) {
 	return c.QueryParam("sort_by"), c.QueryParam("sort_order")
 }
 
+// defaultQuota returns the system-wide default quota in bytes.
+// If no settings manager is configured or the value is missing/invalid, it
+// returns 0 (no quota).
+func (s *SystemControllerHandlers) defaultQuota() uint64 {
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return 0
+	}
+
+	val, err := mgr.Get("default_quota")
+	if err != nil {
+		return 0
+	}
+
+	q, err := strconv.ParseUint(val, 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	return q
+}
+
 // --- Storage handlers ---
 
 func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
@@ -193,6 +215,10 @@ func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 
 	if err := de.Decode(&fs); err != nil {
 		return err
+	}
+
+	if fs.Quota == 0 {
+		fs.Quota = s.defaultQuota()
 	}
 
 	if err := s.Controller.GetStorage().CreateFilesystem(fs); err != nil {
@@ -485,11 +511,16 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	// Create or adjust storage volumes under a subvolume named after the package.
 	if st := s.Controller.GetStorage(); st != nil {
+		defQuota := s.defaultQuota()
 		for volName, vol := range compiled.Volumes {
+			quota := vol.Quota
+			if quota == 0 {
+				quota = defQuota
+			}
 			fsName := fmt.Sprintf("%s/%s", req.Name, volName)
-			if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: vol.Quota}); err != nil {
+			if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 				// Volume already exists — adjust quota if needed.
-				if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: vol.Quota}); err != nil {
+				if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 					return err
 				}
 			}
