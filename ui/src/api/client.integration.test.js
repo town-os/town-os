@@ -36,6 +36,7 @@ describe('SystemControllerClient integration', () => {
       expect(typeof resp.packages).toBe('number')
       expect(typeof resp.installed).toBe('number')
       expect(typeof resp.accounts).toBe('number')
+      expect(typeof resp.admins).toBe('number')
     })
 
     it('includes unit counts from systemd', async () => {
@@ -112,18 +113,20 @@ describe('SystemControllerClient integration', () => {
       expect(acct.disabled).toBe(false)
     })
 
-    it('admin can promote another user', async () => {
+    it('admin cannot promote another user', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const acct = await client.updateAccount('user1', { admin: true })
-      expect(acct.admin).toBe(true)
+      await expect(
+        client.updateAccount('user1', { admin: true }),
+      ).rejects.toThrow()
     })
 
-    it('admin can demote another user', async () => {
+    it('admin cannot demote another user', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const acct = await client.updateAccount('user1', { admin: false })
-      expect(acct.admin).toBe(false)
+      await expect(
+        client.updateAccount('user1', { admin: false }),
+      ).rejects.toThrow()
     })
 
     it('non-admin cannot promote a user', async () => {
@@ -550,6 +553,41 @@ describe('SystemControllerClient integration', () => {
     })
   })
 
+  // --- Settings ---
+
+  describe('settings', () => {
+    it('sets and gets a setting', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setSetting('default_quota', '53687091200')
+      const value = await client.getSetting('default_quota')
+      expect(value).toBe('53687091200')
+    })
+
+    it('lists all settings', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const settings = await client.getSettings()
+      expect(settings.default_quota).toBe('53687091200')
+    })
+
+    it('overwrites a setting', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setSetting('default_quota', '0')
+      const value = await client.getSetting('default_quota')
+      expect(value).toBe('0')
+    })
+
+    it('returns 404 for nonexistent setting', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.getSetting('nonexistent'),
+      ).rejects.toThrow()
+    })
+  })
+
   // --- Package install creates systemd unit ---
 
   describe('package install creates systemd unit', () => {
@@ -557,7 +595,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       try {
-        await client.uninstallPackage('nginx', '1.0')
+        await client.uninstallPackage('nginx', '1.0', true)
       } catch (e) {
         console.warn('cleanup: uninstallPackage failed:', e.message)
       }
@@ -586,6 +624,22 @@ describe('SystemControllerClient integration', () => {
       )
       expect(unit).toBeDefined()
       expect(unit.ActiveState).toBe('active')
+    })
+
+    it('returns installed info with questions and responses', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const info = await client.getInstalledInfo('nginx', '1.0')
+      expect(info.questions).toBeDefined()
+      expect(info.questions.hostname.query).toBe('What hostname should nginx serve?')
+      expect(info.questions.port.query).toBe('What external port should nginx listen on?')
+      expect(info.responses).toBeDefined()
+      expect(info.responses.hostname).toBe('testhost')
+      expect(info.responses.port).toBe('8081')
+      // notes are only present if the remote package defines them
+      if (info.notes) {
+        expect(info.notes.URL).toBe('http://testhost:8081')
+      }
     })
 
     it('restarts the unit and it stays active', async () => {
@@ -682,7 +736,7 @@ describe('SystemControllerClient integration', () => {
     it('uninstalls nginx@1.0 and the unit is gone', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.uninstallPackage('nginx', '1.0')
+      await client.uninstallPackage('nginx', '1.0', false)
 
       const result = await client.listUnits(
         undefined,
@@ -820,6 +874,12 @@ describe('SystemControllerClient integration', () => {
       ).rejects.toThrow(/POST \/packages\/responses:.*missing authorization token/)
     })
 
+    it('getInstalledInfo requires auth', async () => {
+      await expect(
+        noAuth.getInstalledInfo('x', '1.0'),
+      ).rejects.toThrow(/POST \/packages\/installed\/info:.*missing authorization token/)
+    })
+
     it('getPackageQuestions requires auth', async () => {
       await expect(
         noAuth.getPackageQuestions('x'),
@@ -836,6 +896,12 @@ describe('SystemControllerClient integration', () => {
       await expect(
         noAuth.uninstallPackage('x', '1.0'),
       ).rejects.toThrow(/POST \/packages\/uninstall:.*missing authorization token/)
+    })
+
+    it('purgeVolumes requires auth', async () => {
+      await expect(
+        noAuth.purgeVolumes('x'),
+      ).rejects.toThrow(/POST \/packages\/purge-volumes:.*missing authorization token/)
     })
 
     // Systemd methods
@@ -871,6 +937,26 @@ describe('SystemControllerClient integration', () => {
       await expect(
         noAuth.listAuditLog({}),
       ).rejects.toThrow(/POST \/audit\/log:.*missing authorization token/)
+    })
+
+    // Settings methods
+
+    it('getSettings requires auth', async () => {
+      await expect(
+        noAuth.getSettings(),
+      ).rejects.toThrow(/GET \/settings:.*missing authorization token/)
+    })
+
+    it('getSetting requires auth', async () => {
+      await expect(
+        noAuth.getSetting('default_quota'),
+      ).rejects.toThrow(/POST \/settings\/get:.*missing authorization token/)
+    })
+
+    it('setSetting requires auth', async () => {
+      await expect(
+        noAuth.setSetting('default_quota', '0'),
+      ).rejects.toThrow(/POST \/settings\/set:.*missing authorization token/)
     })
 
     // Session methods (explicit token)

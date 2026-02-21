@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Register from './Register.jsx'
 
-let mockPingResponse = { accounts: 0 }
+let mockPingResponse = { accounts: 0, admins: 0 }
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
@@ -31,7 +31,7 @@ function renderRegister() {
 
 describe('Register', () => {
   beforeEach(() => {
-    mockPingResponse = { accounts: 0 }
+    mockPingResponse = { accounts: 0, admins: 0 }
   })
 
   it('shows bootstrap heading when no accounts exist', async () => {
@@ -41,13 +41,13 @@ describe('Register', () => {
     })
     expect(
       screen.getByText(
-        'No accounts exist yet. Create an administrator account to get started.',
+        'No valid accounts exist. Create an administrator account to get started.',
       ),
     ).toBeTruthy()
   })
 
   it('does not show bootstrap heading when accounts exist', async () => {
-    mockPingResponse = { accounts: 1 }
+    mockPingResponse = { accounts: 1, admins: 1 }
     renderRegister()
 
     // Wait for the ping to resolve

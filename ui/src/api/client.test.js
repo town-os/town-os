@@ -41,6 +41,7 @@ describe('SystemControllerClient', () => {
         packages: 5,
         installed: 3,
         accounts: 1,
+        admins: 1,
         units: { total: 10, active: 8, failed: 1 },
       }
       mockFetch(pingData)
@@ -890,7 +891,7 @@ describe('SystemControllerClient', () => {
   })
 
   describe('uninstallPackage', () => {
-    it('sends uninstall request', async () => {
+    it('sends uninstall request without purge', async () => {
       mockFetchEmpty()
 
       await client.uninstallPackage('nginx', '1.0')
@@ -899,7 +900,83 @@ describe('SystemControllerClient', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx', version: '1.0' }),
+          body: JSON.stringify({ name: 'nginx', version: '1.0', purge_volumes: false }),
+        },
+      )
+    })
+
+    it('sends uninstall request with purge', async () => {
+      mockFetchEmpty()
+
+      await client.uninstallPackage('nginx', '1.0', true)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/uninstall',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'nginx', version: '1.0', purge_volumes: true }),
+        },
+      )
+    })
+  })
+
+  describe('purgeVolumes', () => {
+    it('sends purge request', async () => {
+      mockFetchEmpty()
+
+      await client.purgeVolumes('nginx')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/purge-volumes',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'nginx' }),
+        },
+      )
+    })
+  })
+
+  describe('getSettings', () => {
+    it('fetches all settings', async () => {
+      mockFetch({ default_quota: '0' })
+
+      const result = await client.getSettings()
+      expect(result).toEqual({ default_quota: '0' })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/settings',
+        { headers: {} },
+      )
+    })
+  })
+
+  describe('setSetting', () => {
+    it('sends set request', async () => {
+      mockFetchEmpty()
+
+      await client.setSetting('default_quota', '53687091200')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/settings/set',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'default_quota', value: '53687091200' }),
+        },
+      )
+    })
+  })
+
+  describe('getSetting', () => {
+    it('fetches a single setting value', async () => {
+      mockFetch({ key: 'default_quota', value: '53687091200' })
+
+      const value = await client.getSetting('default_quota')
+      expect(value).toBe('53687091200')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/settings/get',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'default_quota' }),
         },
       )
     })

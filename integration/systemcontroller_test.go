@@ -844,7 +844,7 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	}
 
 	// Uninstall.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "2.0"); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "nginx", "2.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -1019,7 +1019,7 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1093,7 +1093,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	}
 
 	// Uninstall
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1261,7 +1261,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	}
 
 	// Uninstall nginx@1.0.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 

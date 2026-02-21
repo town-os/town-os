@@ -34,7 +34,7 @@ export default function Login() {
     getClient()
       .ping()
       .then((resp) => {
-        if (resp.accounts === 0) navigate('/register')
+        if (resp.admins === 0) navigate('/register')
       })
       .catch(() => {})
   }, [navigate])

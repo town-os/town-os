@@ -46,10 +46,10 @@ function renderPackageManagement() {
 }
 
 describe('PackageManagement', () => {
-  it('renders the Installation Status column header', async () => {
+  it('renders the Status column header', async () => {
     renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByText('Installation Status')).toBeTruthy()
+      expect(screen.getByText('Status')).toBeTruthy()
     })
   })
 
@@ -67,42 +67,42 @@ describe('PackageManagement', () => {
     })
   })
 
-  it('wraps status badges in tooltip triggers', async () => {
+  it('wraps status badges and info icon in tooltip triggers', async () => {
     const { container } = renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
     const triggers = container.querySelectorAll('[data-slot="tooltip-trigger"]')
-    // One tooltip per package row + one uninstall button tooltip for installed row
+    // One tooltip per package status badge + one info icon for installed row
     expect(triggers.length).toBe(3)
   })
 
-  it('right-aligns the Installation Status column', async () => {
+  it('right-aligns the Status column', async () => {
     const { container } = renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByText('Installation Status')).toBeTruthy()
+      expect(screen.getByText('Installed')).toBeTruthy()
     })
     const headers = container.querySelectorAll('th')
     const statusHeader = Array.from(headers).find((th) =>
-      th.textContent.includes('Installation Status'),
+      th.textContent.includes('Status'),
     )
     expect(statusHeader.className).toContain('text-right')
   })
 
-  it('right-aligns the Installation Status header label', async () => {
+  it('right-aligns the Status header label', async () => {
     const { container } = renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByText('Installation Status')).toBeTruthy()
+      expect(screen.getByText('Installed')).toBeTruthy()
     })
     const headers = container.querySelectorAll('th')
     const statusHeader = Array.from(headers).find((th) =>
-      th.textContent.includes('Installation Status'),
+      th.textContent.includes('Status'),
     )
     const innerDiv = statusHeader.querySelector('div')
     expect(innerDiv.className).toContain('justify-end')
   })
 
-  it('right-aligns Installation Status body cells', async () => {
+  it('right-aligns Status body cells', async () => {
     const { container } = renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
@@ -113,5 +113,20 @@ describe('PackageManagement', () => {
       const lastCell = cells[cells.length - 1]
       expect(lastCell.className).toContain('text-right')
     }
+  })
+
+  it('shows info icon only for installed packages', async () => {
+    const { container } = renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed')).toBeTruthy()
+    })
+    // Info icon uses lucide Info which renders as an svg
+    const rows = container.querySelectorAll('tbody tr')
+    // First row (nginx) is installed — should have info button
+    const nginxInfoBtn = rows[0].querySelector('button svg.lucide-info')
+    expect(nginxInfoBtn).toBeTruthy()
+    // Second row (redis) is not installed — should not have info button
+    const redisInfoBtn = rows[1].querySelector('button svg.lucide-info')
+    expect(redisInfoBtn).toBeNull()
   })
 })

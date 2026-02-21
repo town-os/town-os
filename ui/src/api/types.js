@@ -116,6 +116,13 @@
 /** @typedef {Record<string, string>} Responses */
 
 /**
+ * @typedef {Object} InstalledInfo
+ * @property {Record<string, Question>} questions
+ * @property {Responses} responses
+ * @property {Record<string, string>} notes
+ */
+
+/**
  * @typedef {Object} RepositoryInfo
  * @property {string} name
  * @property {string} url
@@ -137,6 +144,7 @@
  * @property {number} packages
  * @property {number} installed
  * @property {number} accounts
+ * @property {number} admins
  * @property {UnitCounts} [units]
  * @property {number} recent_errors
  */

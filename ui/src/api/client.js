@@ -1,4 +1,4 @@
-/** @import { Filesystem, UnitStatus, JournalEntry, StatusAction, Account, UpdateFields, Session, AuditListOptions, AuditPage, Question, Responses, RepositoryInfo, PingResponse, AuthenticateResponse } from './types.js' */
+/** @import { Filesystem, UnitStatus, JournalEntry, StatusAction, Account, UpdateFields, Session, AuditListOptions, AuditPage, Question, Responses, InstalledInfo, RepositoryInfo, PingResponse, AuthenticateResponse } from './types.js' */
 
 export class ApiError extends Error {
   /**
@@ -316,6 +316,15 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} name
+   * @param {string} version
+   * @returns {Promise<InstalledInfo>}
+   */
+  async getInstalledInfo(name, version) {
+    return this.postJSON('/packages/installed/info', { name, version })
+  }
+
+  /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
    * @param {number} [limit]
@@ -479,10 +488,19 @@ export class SystemControllerClient {
   /**
    * @param {string} name
    * @param {string} version
+   * @param {boolean} [purgeVolumes=false]
    * @returns {Promise<void>}
    */
-  async uninstallPackage(name, version) {
-    await this.post('/packages/uninstall', { name, version })
+  async uninstallPackage(name, version, purgeVolumes = false) {
+    await this.post('/packages/uninstall', { name, version, purge_volumes: purgeVolumes })
+  }
+
+  /**
+   * @param {string} name
+   * @returns {Promise<void>}
+   */
+  async purgeVolumes(name) {
+    await this.post('/packages/purge-volumes', { name })
   }
 
   /**
@@ -516,5 +534,31 @@ export class SystemControllerClient {
    */
   async listAuditLog(opts) {
     return this.postJSON('/audit/log', opts)
+  }
+
+  // --- Settings (admin) ---
+
+  /** @returns {Promise<Record<string, string>>} */
+  async getSettings() {
+    return this.getJSON('/settings')
+  }
+
+  /**
+   * @param {string} key
+   * @returns {Promise<string>}
+   */
+  async getSetting(key) {
+    /** @type {{ value: string }} */
+    const result = await this.postJSON('/settings/get', { key })
+    return result.value
+  }
+
+  /**
+   * @param {string} key
+   * @param {string} value
+   * @returns {Promise<void>}
+   */
+  async setSetting(key, value) {
+    await this.post('/settings/set', { key, value })
   }
 }

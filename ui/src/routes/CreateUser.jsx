@@ -21,8 +21,20 @@ export default function CreateUser() {
   async function handleSubmit(e) {
     e.preventDefault()
     const form = e.target.elements
+    if (!form.username.value) {
+      toast.error('Username is required')
+      return
+    }
+    if (!form.password.value) {
+      toast.error('Password is required')
+      return
+    }
     if (form.password.value.length < 8) {
       toast.error('Password must be at least 8 characters')
+      return
+    }
+    if (!form.password2.value) {
+      toast.error('Password confirmation is required')
       return
     }
     if (form.password.value !== form.password2.value) {
@@ -54,7 +66,7 @@ export default function CreateUser() {
         <CardHeader>
           <CardTitle>Create New User</CardTitle>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>

@@ -1702,6 +1702,8 @@ questions:
   port:
     query: "What external port should nginx listen on?"
     type: port
+notes:
+  URL: "http://@hostname@:@port@"
 `
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
@@ -1784,7 +1786,7 @@ func TestHTTPUninstallPackage(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -1801,9 +1803,64 @@ func TestHTTPUninstallPackage(t *testing.T) {
 func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	err := c.UninstallPackage(context.TODO(), "nginx", "1.0")
+	err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false)
 	if err == nil {
 		t.Fatal("expected error uninstalling package that is not installed")
+	}
+}
+
+func TestHTTPUninstallPackageWithPurge(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify volumes were NOT created (nginx 1.0 has no volumes in the test fixture).
+	// Install with purge=true should still succeed even with no volumes.
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", true); err != nil {
+		t.Fatalf("UninstallPackage with purge: %v", err)
+	}
+}
+
+func TestHTTPPurgeVolumes(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	// Create some filesystems via the storage API.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "nginx/html", Quota: 1024}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "nginx/logs", Quota: 2048}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "other/data", Quota: 512}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+
+	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	remaining, err := c.ListFilesystems(context.TODO(), "")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	for _, fs := range remaining {
+		if fs.Name == "nginx/html" || fs.Name == "nginx/logs" || fs.Name == "nginx" {
+			t.Fatalf("expected nginx volumes to be purged, found %s", fs.Name)
+		}
+	}
+
+	found := false
+	for _, fs := range remaining {
+		if fs.Name == "other/data" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected other/data volume to be preserved")
 	}
 }
 
@@ -1915,7 +1972,7 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -2238,6 +2295,51 @@ func TestHTTPGetResponsesBadJSON(t *testing.T) {
 	}
 }
 
+func TestHTTPGetInstalledInfo(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	// Install nginx with responses
+	responses := packages.Responses{"hostname": "testhost", "port": "8081"}
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	info, err := c.GetInstalledInfo(context.TODO(), "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetInstalledInfo: %v", err)
+	}
+
+	// Verify questions
+	if info.Questions["hostname"].Query != "What hostname should nginx serve?" {
+		t.Fatalf("expected hostname query, got %q", info.Questions["hostname"].Query)
+	}
+	if info.Questions["port"].Query != "What external port should nginx listen on?" {
+		t.Fatalf("expected port query, got %q", info.Questions["port"].Query)
+	}
+
+	// Verify responses
+	if info.Responses["hostname"] != "testhost" {
+		t.Fatalf("expected hostname=testhost, got %q", info.Responses["hostname"])
+	}
+	if info.Responses["port"] != "8081" {
+		t.Fatalf("expected port=8081, got %q", info.Responses["port"])
+	}
+
+	// Verify compiled notes
+	if info.Notes["URL"] != "http://testhost:8081" {
+		t.Fatalf("expected URL=http://testhost:8081, got %q", info.Notes["URL"])
+	}
+}
+
+func TestHTTPGetInstalledInfoNotInstalled(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	_, err := c.GetInstalledInfo(context.TODO(), "nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error getting info for uninstalled package")
+	}
+}
+
 // --- MockClient InstallPackage tests ---
 
 func TestMockClientInstallPackage(t *testing.T) {
@@ -2303,7 +2405,7 @@ func TestMockClientUninstallPackage(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
 		t.Fatalf("MockClient.UninstallPackage: %v", err)
 	}
 
@@ -2315,7 +2417,7 @@ func TestMockClientUninstallPackage(t *testing.T) {
 func TestMockClientUninstallPackageNotInstalled(t *testing.T) {
 	m := InitMockClient()
 
-	err := m.UninstallPackage(context.TODO(), "nginx", "1.0")
+	err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false)
 	if err == nil {
 		t.Fatal("expected error uninstalling non-installed package")
 	}
@@ -2326,7 +2428,7 @@ func TestMockClientUninstallPackageErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.UninstallPkgErr = injected
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0"); err != injected {
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -2338,7 +2440,7 @@ func TestMockClientUninstallPackageCallLog(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0"); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -2349,8 +2451,95 @@ func TestMockClientUninstallPackageCallLog(t *testing.T) {
 	if calls[1].Method != "UninstallPackage" {
 		t.Fatalf("expected method UninstallPackage, got %q", calls[1].Method)
 	}
-	if len(calls[1].Args) != 2 {
-		t.Fatalf("expected 2 args, got %d", len(calls[1].Args))
+	if len(calls[1].Args) != 3 {
+		t.Fatalf("expected 3 args, got %d", len(calls[1].Args))
+	}
+}
+
+// --- MockClient UninstallPackage purge tests ---
+
+func TestMockClientUninstallPackagePurgesVolumes(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	m.Filesystems["nginx"] = storage.Filesystem{Name: "nginx"}
+	m.Filesystems["nginx/html"] = storage.Filesystem{Name: "nginx/html", Quota: 1024}
+	m.Filesystems["nginx/logs"] = storage.Filesystem{Name: "nginx/logs", Quota: 2048}
+	m.Filesystems["other/data"] = storage.Filesystem{Name: "other/data"}
+
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", true); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	if len(m.Installed) != 0 {
+		t.Fatalf("expected 0 installed after uninstall, got %d", len(m.Installed))
+	}
+
+	if _, ok := m.Filesystems["nginx"]; ok {
+		t.Fatal("expected nginx parent volume to be purged")
+	}
+	if _, ok := m.Filesystems["nginx/html"]; ok {
+		t.Fatal("expected nginx/html volume to be purged")
+	}
+	if _, ok := m.Filesystems["nginx/logs"]; ok {
+		t.Fatal("expected nginx/logs volume to be purged")
+	}
+	if _, ok := m.Filesystems["other/data"]; !ok {
+		t.Fatal("expected other/data volume to be preserved")
+	}
+}
+
+func TestMockClientUninstallPackageNoPurge(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	m.Filesystems["nginx/html"] = storage.Filesystem{Name: "nginx/html", Quota: 1024}
+
+	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	if _, ok := m.Filesystems["nginx/html"]; !ok {
+		t.Fatal("expected nginx/html volume to be preserved when purge is false")
+	}
+}
+
+// --- MockClient PurgeVolumes tests ---
+
+func TestMockClientPurgeVolumes(t *testing.T) {
+	m := InitMockClient()
+
+	m.Filesystems["nginx"] = storage.Filesystem{Name: "nginx"}
+	m.Filesystems["nginx/html"] = storage.Filesystem{Name: "nginx/html"}
+	m.Filesystems["nginx/logs"] = storage.Filesystem{Name: "nginx/logs"}
+	m.Filesystems["other/data"] = storage.Filesystem{Name: "other/data"}
+
+	if err := m.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+		t.Fatalf("PurgeVolumes: %v", err)
+	}
+
+	if _, ok := m.Filesystems["nginx"]; ok {
+		t.Fatal("expected nginx parent volume to be purged")
+	}
+	if _, ok := m.Filesystems["nginx/html"]; ok {
+		t.Fatal("expected nginx/html volume to be purged")
+	}
+	if _, ok := m.Filesystems["nginx/logs"]; ok {
+		t.Fatal("expected nginx/logs volume to be purged")
+	}
+	if _, ok := m.Filesystems["other/data"]; !ok {
+		t.Fatal("expected other/data volume to be preserved")
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 1 || calls[0].Method != "PurgeVolumes" {
+		t.Fatalf("expected 1 PurgeVolumes call, got %v", calls)
 	}
 }
 
@@ -2715,7 +2904,7 @@ func TestHTTPEnableAccount(t *testing.T) {
 	}
 }
 
-func TestHTTPPromoteRequiresAdmin(t *testing.T) {
+func TestHTTPAdminChangeRejected(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create admin and a regular user
@@ -2725,143 +2914,31 @@ func TestHTTPPromoteRequiresAdmin(t *testing.T) {
 	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount alice: %v", err)
 	}
-	if _, err := c.CreateAccount(context.TODO(), "bob", "password1", "b@b.com", "555", "Bob", false); err != nil {
-		t.Fatalf("CreateAccount bob: %v", err)
-	}
 
-	// authenticate as non-admin alice
-	aliceResp, err := c.Authenticate(context.TODO(), "alice", "password1")
+	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
 	if err != nil {
-		t.Fatalf("Authenticate alice: %v", err)
+		t.Fatalf("Authenticate admin: %v", err)
 	}
-	c.Token = aliceResp.Token
+	c.Token = adminResp.Token
 
-	// alice tries to promote bob -- should fail
+	// admin tries to promote alice -- should get 403
 	adminTrue := true
-	_, err = c.UpdateAccount(context.TODO(), "bob", account.UpdateFields{Admin: &adminTrue})
+	_, err = c.UpdateAccount(context.TODO(), "alice", account.UpdateFields{Admin: &adminTrue})
 	if err == nil {
-		t.Fatal("expected error when non-admin promotes user")
+		t.Fatal("expected error when changing admin status")
 	}
 
-	// verify bob is still not admin
-	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	// verify alice is still not admin
+	alice, err := c.GetAccount(context.TODO(), "alice")
 	if err != nil {
-		t.Fatalf("Authenticate admin: %v", err)
+		t.Fatalf("GetAccount alice: %v", err)
 	}
-	c.Token = adminResp.Token
-
-	bob, err := c.GetAccount(context.TODO(), "bob")
-	if err != nil {
-		t.Fatalf("GetAccount bob: %v", err)
-	}
-	if bob.Admin {
-		t.Fatal("bob should not be admin")
+	if alice.Admin {
+		t.Fatal("alice should not be admin")
 	}
 }
 
-func TestHTTPDemoteRequiresAdmin(t *testing.T) {
-	c, _ := initAccountTestClient(t)
-
-	// create two admins and a regular user
-	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
-		t.Fatalf("CreateAccount admin: %v", err)
-	}
-	if _, err := c.CreateAccount(context.TODO(), "admin2", "password1", "a2@b.com", "555", "Admin2", true); err != nil {
-		t.Fatalf("CreateAccount admin2: %v", err)
-	}
-	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
-		t.Fatalf("CreateAccount alice: %v", err)
-	}
-
-	// authenticate as non-admin alice
-	aliceResp, err := c.Authenticate(context.TODO(), "alice", "password1")
-	if err != nil {
-		t.Fatalf("Authenticate alice: %v", err)
-	}
-	c.Token = aliceResp.Token
-
-	// alice tries to demote admin2 -- should fail
-	adminFalse := false
-	_, err = c.UpdateAccount(context.TODO(), "admin2", account.UpdateFields{Admin: &adminFalse})
-	if err == nil {
-		t.Fatal("expected error when non-admin demotes admin")
-	}
-
-	// verify admin2 is still admin
-	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
-	if err != nil {
-		t.Fatalf("Authenticate admin: %v", err)
-	}
-	c.Token = adminResp.Token
-
-	admin2, err := c.GetAccount(context.TODO(), "admin2")
-	if err != nil {
-		t.Fatalf("GetAccount admin2: %v", err)
-	}
-	if !admin2.Admin {
-		t.Fatal("admin2 should still be admin")
-	}
-}
-
-func TestHTTPAdminCannotChangeSelfRole(t *testing.T) {
-	c, _ := initAccountTestClient(t)
-
-	// create admin
-	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
-		t.Fatalf("CreateAccount admin: %v", err)
-	}
-	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
-	if err != nil {
-		t.Fatalf("Authenticate admin: %v", err)
-	}
-	c.Token = adminResp.Token
-
-	// admin tries to demote self -- should fail
-	adminFalse := false
-	_, err = c.UpdateAccount(context.TODO(), "admin", account.UpdateFields{Admin: &adminFalse})
-	if err == nil {
-		t.Fatal("expected error when admin changes own role")
-	}
-
-	// verify still admin
-	acct, err := c.GetAccount(context.TODO(), "admin")
-	if err != nil {
-		t.Fatalf("GetAccount: %v", err)
-	}
-	if !acct.Admin {
-		t.Fatal("admin should still be admin")
-	}
-}
-
-func TestHTTPAdminCanPromoteOther(t *testing.T) {
-	c, _ := initAccountTestClient(t)
-
-	// create admin and regular user
-	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "admin@b.com", "555", "Admin", true); err != nil {
-		t.Fatalf("CreateAccount admin: %v", err)
-	}
-	if _, err := c.CreateAccount(context.TODO(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
-		t.Fatalf("CreateAccount alice: %v", err)
-	}
-
-	adminResp, err := c.Authenticate(context.TODO(), "admin", "password1")
-	if err != nil {
-		t.Fatalf("Authenticate admin: %v", err)
-	}
-	c.Token = adminResp.Token
-
-	// promote alice
-	adminTrue := true
-	acct, err := c.UpdateAccount(context.TODO(), "alice", account.UpdateFields{Admin: &adminTrue})
-	if err != nil {
-		t.Fatalf("UpdateAccount promote: %v", err)
-	}
-	if !acct.Admin {
-		t.Fatal("alice should be admin after promotion")
-	}
-}
-
-func TestHTTPAdminCanDemoteOther(t *testing.T) {
+func TestHTTPAdminDemoteRejected(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create two admins
@@ -2878,14 +2955,20 @@ func TestHTTPAdminCanDemoteOther(t *testing.T) {
 	}
 	c.Token = adminResp.Token
 
-	// demote admin2
+	// admin tries to demote admin2 -- should get 403
 	adminFalse := false
-	acct, err := c.UpdateAccount(context.TODO(), "admin2", account.UpdateFields{Admin: &adminFalse})
-	if err != nil {
-		t.Fatalf("UpdateAccount demote: %v", err)
+	_, err = c.UpdateAccount(context.TODO(), "admin2", account.UpdateFields{Admin: &adminFalse})
+	if err == nil {
+		t.Fatal("expected error when changing admin status")
 	}
-	if acct.Admin {
-		t.Fatal("admin2 should not be admin after demotion")
+
+	// verify admin2 is still admin
+	admin2, err := c.GetAccount(context.TODO(), "admin2")
+	if err != nil {
+		t.Fatalf("GetAccount admin2: %v", err)
+	}
+	if !admin2.Admin {
+		t.Fatal("admin2 should still be admin")
 	}
 }
 
@@ -3182,6 +3265,11 @@ func TestHTTPPingIncludesAccountCount(t *testing.T) {
 	// 2 = testadmin (bootstrap) + alice
 	if ping.Accounts != 2 {
 		t.Fatalf("expected 2 accounts in ping, got %d", ping.Accounts)
+	}
+
+	// only testadmin is an enabled admin
+	if ping.Admins != 1 {
+		t.Fatalf("expected 1 admin in ping, got %d", ping.Admins)
 	}
 }
 
@@ -3596,6 +3684,56 @@ func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
 	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "n@b.com", "555", "New Admin", true)
 	if err != nil {
 		t.Fatalf("bootstrap CreateAccount after all disabled: %v", err)
+	}
+	if acct.Username != "newadmin" {
+		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+	}
+}
+
+func TestHTTPCreateAccountBootstrapNoAdmins(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// Create a non-admin user
+	if _, err := c.CreateAccount(context.TODO(), "regularuser", "password1", "r@b.com", "555", "Regular", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Disable the only admin
+	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	if err := httpResp.Body.Close(); err != nil {
+		t.Errorf("resp.Body.Close: %v", err)
+	}
+	if httpResp.StatusCode != 200 {
+		t.Fatalf("expected 200 for disable, got %d", httpResp.StatusCode)
+	}
+
+	// Ping should report 0 admins
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if ping.Admins != 0 {
+		t.Fatalf("expected 0 admins, got %d", ping.Admins)
+	}
+	if ping.Accounts != 2 {
+		t.Fatalf("expected 2 accounts, got %d", ping.Accounts)
+	}
+
+	// No enabled admin — bootstrap should allow unauthenticated create
+	c.Token = ""
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "n@b.com", "555", "New Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with no admins: %v", err)
 	}
 	if acct.Username != "newadmin" {
 		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
@@ -4120,7 +4258,7 @@ func TestHTTPLogReplayError(t *testing.T) {
 	}
 }
 
-func TestHTTPLogReplayMissingUnit(t *testing.T) {
+func TestHTTPLogReplayEmptyUnit(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
@@ -4136,8 +4274,8 @@ func TestHTTPLogReplayMissingUnit(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
-		t.Fatal("expected non-200 status for missing unit query param")
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 for system-wide log replay (empty unit), got %d", resp.StatusCode)
 	}
 }
 
@@ -4231,7 +4369,7 @@ func TestHTTPLogTailError(t *testing.T) {
 	}
 }
 
-func TestHTTPLogTailMissingUnit(t *testing.T) {
+func TestHTTPLogTailEmptyUnit(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
@@ -4247,8 +4385,8 @@ func TestHTTPLogTailMissingUnit(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
-		t.Fatal("expected non-200 status for missing unit query param")
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 for system-wide log tail (empty unit), got %d", resp.StatusCode)
 	}
 }
 
@@ -5602,5 +5740,162 @@ func TestHTTPReinstallPackageWithSystemd(t *testing.T) {
 	}
 	if calls[8].Args[1].(systemd.StatusAction) != systemd.Start {
 		t.Fatalf("call 8: expected Start, got %v", calls[8].Args[1])
+	}
+}
+
+// --- Settings tests ---
+
+func initSettingsTestClient(t *testing.T) *SystemdClient {
+	t.Helper()
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	settingsMgr, err := account.InitSettingsManager(db)
+	if err != nil {
+		t.Fatalf("InitSettingsManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr, SettingsMgr: settingsMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap: create admin account and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "testadmin", "adminpass", "admin@test.com", "555-0000", "Test Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "testadmin", "adminpass")
+	if err != nil {
+		t.Fatalf("bootstrap Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	return c
+}
+
+func TestHTTPSettingsSetAndGet(t *testing.T) {
+	c := initSettingsTestClient(t)
+
+	if err := c.SetSetting(context.TODO(), "default_quota", "53687091200"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "53687091200" {
+		t.Fatalf("expected %q, got %q", "53687091200", val)
+	}
+}
+
+func TestHTTPSettingsGetNotFound(t *testing.T) {
+	c := initSettingsTestClient(t)
+
+	_, err := c.GetSetting(context.TODO(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent setting")
+	}
+}
+
+func TestHTTPSettingsList(t *testing.T) {
+	c := initSettingsTestClient(t)
+
+	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	if err := c.SetSetting(context.TODO(), "other_setting", "hello"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	settings, err := c.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+
+	if len(settings) != 2 {
+		t.Fatalf("expected 2 settings, got %d", len(settings))
+	}
+	if settings["default_quota"] != "0" {
+		t.Fatalf("expected default_quota %q, got %q", "0", settings["default_quota"])
+	}
+	if settings["other_setting"] != "hello" {
+		t.Fatalf("expected other_setting %q, got %q", "hello", settings["other_setting"])
+	}
+}
+
+func TestHTTPSettingsOverwrite(t *testing.T) {
+	c := initSettingsTestClient(t)
+
+	if err := c.SetSetting(context.TODO(), "default_quota", "100"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	if err := c.SetSetting(context.TODO(), "default_quota", "200"); err != nil {
+		t.Fatalf("SetSetting overwrite: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "200" {
+		t.Fatalf("expected %q, got %q", "200", val)
+	}
+}
+
+// --- MockClient Settings tests ---
+
+func TestMockClientSettings(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.SetSetting(context.TODO(), "default_quota", "50"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	val, err := m.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "50" {
+		t.Fatalf("expected %q, got %q", "50", val)
+	}
+
+	settings, err := m.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if len(settings) != 1 {
+		t.Fatalf("expected 1 setting, got %d", len(settings))
+	}
+}
+
+func TestMockClientGetSettingNotFound(t *testing.T) {
+	m := InitMockClient()
+
+	_, err := m.GetSetting(context.TODO(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent setting")
 	}
 }

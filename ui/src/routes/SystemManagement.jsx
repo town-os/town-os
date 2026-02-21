@@ -22,6 +22,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { DialogFooter } from '@/components/ui/dialog'
 import {
   MoreHorizontal,
   Play,
@@ -35,6 +37,7 @@ import {
   Triangle,
   Search,
   Clock,
+  Terminal,
 } from 'lucide-react'
 
 /** Render parsed field segments as styled JSX spans. */
@@ -136,11 +139,15 @@ export default function SystemManagement() {
 
   const PAGE_SIZE = 20
   const [searchTerm, setSearchTerm] = useState('')
+  const [customLogDialog, setCustomLogDialog] = useState(false)
+  const [customLogUnit, setCustomLogUnit] = useState('')
+
+  const effectiveSearch = searchTerm ? `town-os-${searchTerm}` : 'town-os-'
 
   const [unitData, , unitsLoading] = usePolling(
-    () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, searchTerm || undefined),
+    () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, effectiveSearch),
     { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, sortKey, sortDirection, page, searchTerm],
+    [refreshKey, sortKey, sortDirection, page, effectiveSearch],
   )
   const units = unitData.entries || []
 
@@ -213,8 +220,9 @@ export default function SystemManagement() {
 
   const loadEntries = useCallback(async (unitName, beforeCursor, grep, since, until) => {
     setJournalLoading(true)
+    const apiUnit = unitName === '__system__' ? '' : unitName
     try {
-      const result = await getClient().logTail(unitName, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined)
+      const result = await getClient().logTail(apiUnit, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined)
       const entries = result.entries || []
       if (beforeCursor) {
         setJournalEntries((prev) => [...entries, ...prev])
@@ -274,9 +282,10 @@ export default function SystemManagement() {
   // Follow mode: poll for new entries.
   useEffect(() => {
     if (!journalUnit || !followMode || !journalEndCursor) return
+    const apiUnit = journalUnit === '__system__' ? '' : journalUnit
     const timer = setInterval(async () => {
       try {
-        const result = await getClient().logTail(journalUnit, 200, undefined, journalEndCursor, searchQuery || undefined)
+        const result = await getClient().logTail(apiUnit, 200, undefined, journalEndCursor, searchQuery || undefined)
         const entries = result.entries || []
         if (entries.length > 0) {
           const el = scrollRef.current
@@ -445,6 +454,51 @@ export default function SystemManagement() {
         }}
       />
 
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={() => setCustomLogDialog(true)}>
+          <Terminal className="h-4 w-4 mr-1" />
+          Advanced Logs
+        </Button>
+      </div>
+
+      {/* Custom/System Log Dialog */}
+      <Dialog open={customLogDialog} onOpenChange={(v) => !v && setCustomLogDialog(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>View Service Logs</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              View logs for the overall system journal or any specific systemd service.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="custom-log-unit">Service name</Label>
+              <Input
+                id="custom-log-unit"
+                placeholder="e.g. sshd.service or leave blank for system logs"
+                value={customLogUnit}
+                onChange={(e) => setCustomLogUnit(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank to view system-wide logs. Enter a full unit name for a specific service.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCustomLogDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => {
+              const unit = customLogUnit.trim() || '__system__'
+              setCustomLogDialog(false)
+              openJournal(unit)
+            }}>
+              View Logs
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog
         open={!!actionConfirm}
         title={`${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)} service`}
@@ -463,7 +517,7 @@ export default function SystemManagement() {
         <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <span>{journalUnit?.replace('.service', '')}</span>
+              <span>{journalUnit === '__system__' ? 'System Logs' : journalUnit?.replace('.service', '')}</span>
               {journalUnit && (() => {
                 const unit = units.find((u) => u.Name === journalUnit)
                 if (!unit) return null

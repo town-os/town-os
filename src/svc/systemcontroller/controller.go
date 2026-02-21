@@ -33,6 +33,7 @@ type systemControllerBackend interface {
 	GetAccountManager() account.Manager
 	GetSessionManager() account.SessionManager
 	GetAuditManager() account.AuditManager
+	GetSettingsManager() account.SettingsManager
 	GetAllowedHosts() []string
 	GetDefaultRepoCredentials() (string, string)
 }
@@ -88,13 +89,20 @@ type InstallRequest struct {
 }
 
 type UninstallRequest struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	PurgeVolumes bool   `json:"purge_volumes"`
 }
 
 type GetResponsesRequest struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+}
+
+type InstalledInfoResponse struct {
+	Questions map[string]packages.Question `json:"questions"`
+	Responses packages.Responses           `json:"responses"`
+	Notes     map[string]string            `json:"notes"`
 }
 
 type SetStatusRequest struct {
@@ -153,6 +161,7 @@ type PingResponse struct {
 	Packages     int         `json:"packages"`
 	Installed    int         `json:"installed"`
 	Accounts     int         `json:"accounts"`
+	Admins       int         `json:"admins"`
 	Units        *UnitCounts `json:"units,omitempty"`
 	RecentErrors int         `json:"recent_errors"`
 }
@@ -536,6 +545,60 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		return err
 	}
 
+	if req.PurgeVolumes {
+		if err := s.purgePackageVolumes(req.Name); err != nil {
+			return err
+		}
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) purgePackageVolumes(name string) error {
+	st := s.Controller.GetStorage()
+	if st == nil {
+		return nil
+	}
+
+	prefix := fmt.Sprintf("%s/", name)
+	filesystems, err := st.ListFilesystems(prefix)
+	if err != nil {
+		return err
+	}
+
+	// Sort deepest-first so child subvolumes are removed before parents.
+	sort.Slice(filesystems, func(i, j int) bool {
+		return strings.Count(filesystems[i].Name, "/") > strings.Count(filesystems[j].Name, "/")
+	})
+
+	for _, fs := range filesystems {
+		if err := st.RemoveFilesystem(fs.Name); err != nil {
+			return err
+		}
+	}
+
+	// Remove the parent package subvolume itself.
+	if err := st.RemoveFilesystem(name); err != nil {
+		// Parent may not exist as a managed filesystem; ignore.
+		slog.Debug(fmt.Sprintf("purge parent volume %s: %v", name, err))
+	}
+
+	return nil
+}
+
+func (s *SystemControllerHandlers) purgeVolumes(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if err := s.purgePackageVolumes(req.Name); err != nil {
+		return err
+	}
+
 	c.Response().WriteHeader(200)
 	return nil
 }
@@ -575,6 +638,41 @@ func (s *SystemControllerHandlers) getResponses(c *echo.Context) error {
 	return c.JSON(200, resp)
 }
 
+func (s *SystemControllerHandlers) getInstalledInfo(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageIdentityRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	responses, err := inst.GetResponses(req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+
+	repoName, err := rr.FindRepoForPackage(req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	ip, err := rr.LoadPackage(repoName, req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	notes := ip.CompileNotes(responses)
+
+	return c.JSON(200, InstalledInfoResponse{
+		Questions: ip.Questions,
+		Responses: responses,
+		Notes:     notes,
+	})
+}
+
 // --- Systemd handlers ---
 
 func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
@@ -608,9 +706,6 @@ func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
 
 func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 	unit := c.QueryParam("unit")
-	if unit == "" {
-		return fmt.Errorf("missing unit query parameter")
-	}
 
 	ch, err := s.Controller.GetSystemdManager().LogReplay(c.Request().Context(), unit)
 	if err != nil {
@@ -659,9 +754,6 @@ func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 
 func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	unit := c.QueryParam("unit")
-	if unit == "" {
-		return fmt.Errorf("missing unit query parameter")
-	}
 
 	lines := 100
 	if v := c.QueryParam("lines"); v != "" {
@@ -714,15 +806,15 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 			return fmt.Errorf("list accounts: %w", err)
 		}
 
-		hasEnabled := false
+		hasEnabledAdmin := false
 		for _, a := range accounts {
-			if !a.Disabled {
-				hasEnabled = true
+			if !a.Disabled && a.Admin {
+				hasEnabledAdmin = true
 				break
 			}
 		}
 
-		if hasEnabled {
+		if hasEnabledAdmin {
 			token := extractBearerToken(c.Request())
 			if token == "" {
 				return echo.NewHTTPError(401, "missing authorization token")
@@ -777,9 +869,7 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 	}
 
 	if req.Fields.Admin != nil {
-		if err := s.requireAdminOrNoAdmins(c, req.Username); err != nil {
-			return err
-		}
+		return echo.NewHTTPError(403, "admin status cannot be changed after account creation")
 	}
 
 	acct, err := s.Controller.GetAccountManager().Update(req.Username, req.Fields)
@@ -790,44 +880,6 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 	return c.JSON(200, acct)
 }
 
-func (s *SystemControllerHandlers) requireAdminOrNoAdmins(c *echo.Context, targetUsername string) error {
-	accounts, err := s.Controller.GetAccountManager().List()
-	if err != nil {
-		return fmt.Errorf("list accounts: %w", err)
-	}
-
-	hasAdmin := false
-	for _, a := range accounts {
-		if a.Admin && !a.Disabled {
-			hasAdmin = true
-			break
-		}
-	}
-
-	if !hasAdmin {
-		return nil
-	}
-
-	token := extractBearerToken(c.Request())
-	if token == "" {
-		return echo.NewHTTPError(403, "admin access required")
-	}
-
-	_, acct, err := s.Controller.GetSessionManager().Validate(token)
-	if err != nil {
-		return echo.NewHTTPError(403, "admin access required")
-	}
-
-	if !acct.Admin {
-		return echo.NewHTTPError(403, "admin access required")
-	}
-
-	if acct.Username == targetUsername {
-		return echo.NewHTTPError(403, "cannot change your own admin status")
-	}
-
-	return nil
-}
 
 func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
@@ -1126,6 +1178,77 @@ func (s *SystemControllerHandlers) listAuditLog(c *echo.Context) error {
 	return c.JSON(200, page)
 }
 
+// --- Settings handlers ---
+
+type SetSettingRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type GetSettingRequest struct {
+	Key string `json:"key"`
+}
+
+func (s *SystemControllerHandlers) getSettings(c *echo.Context) error {
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return c.JSON(200, map[string]string{})
+	}
+
+	settings, err := mgr.List()
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, settings)
+}
+
+func (s *SystemControllerHandlers) getSetting(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := GetSettingRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return echo.NewHTTPError(404, fmt.Sprintf("setting %q not found", req.Key))
+	}
+
+	value, err := mgr.Get(req.Key)
+	if err != nil {
+		return echo.NewHTTPError(404, fmt.Sprintf("setting %q not found", req.Key))
+	}
+
+	return c.JSON(200, map[string]string{"key": req.Key, "value": value})
+}
+
+func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := SetSettingRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if req.Key == "" {
+		return echo.NewHTTPError(400, "key is required")
+	}
+
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return echo.NewHTTPError(500, "settings manager not available")
+	}
+
+	if err := mgr.Set(req.Key, req.Value); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
 // --- Status handlers ---
 
 func (s *SystemControllerHandlers) ping(c *echo.Context) error {
@@ -1173,6 +1296,11 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 			return err
 		}
 		resp.Accounts = len(accounts)
+		for _, a := range accounts {
+			if !a.Disabled && a.Admin {
+				resp.Admins++
+			}
+		}
 	}
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
@@ -1228,6 +1356,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	e.Add("GET", "/packages", s.listPackages, s.requireAuth)
 	e.Add("GET", "/packages/installed", s.listInstalled, s.requireAuth)
+	e.Add("POST", "/packages/installed/info", s.getInstalledInfo, s.requireAuth)
 	e.Add("POST", "/packages/responses", s.getResponses, s.requireAuth)
 
 	e.Add("GET", "/systemd/units", s.listUnits, s.requireAuth)
@@ -1244,10 +1373,14 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/questions/identity", s.getPackageQuestionsByIdentity, s.requireAdmin)
 	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
+	e.Add("POST", "/packages/purge-volumes", s.purgeVolumes, s.requireAdmin)
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)
 	e.Add("POST", "/account/disable", s.disableAccount, s.requireAdmin)
 	e.Add("POST", "/account/enable", s.enableAccount, s.requireAdmin)
 	e.Add("POST", "/audit/log", s.listAuditLog, s.requireAdmin)
+	e.Add("GET", "/settings", s.getSettings, s.requireAdmin)
+	e.Add("POST", "/settings/get", s.getSetting, s.requireAdmin)
+	e.Add("POST", "/settings/set", s.setSetting, s.requireAdmin)
 }
 
 // --- Server infrastructure ---
@@ -1260,6 +1393,7 @@ type ServerConfig struct {
 	AccountMgr         account.Manager
 	SessionMgr         account.SessionManager
 	AuditMgr           account.AuditManager
+	SettingsMgr        account.SettingsManager
 	AllowedHosts       []string
 	DefaultRepoUser    string
 	DefaultRepoPass    string
@@ -1288,6 +1422,7 @@ func (s *serverBase) GetSystemdManager() systemd.Manager          { return s.Sys
 func (s *serverBase) GetAccountManager() account.Manager          { return s.AccountMgr }
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
+func (s *serverBase) GetSettingsManager() account.SettingsManager  { return s.SettingsMgr }
 func (s *serverBase) GetAllowedHosts() []string                   { return s.AllowedHosts }
 func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 	return s.DefaultRepoUser, s.DefaultRepoPass

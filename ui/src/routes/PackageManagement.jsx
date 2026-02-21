@@ -21,13 +21,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info } from 'lucide-react'
+import { Separator } from '@/components/ui/separator'
 
 export default function PackageManagement() {
   useEffect(() => { document.title = 'Town OS - Packages' }, [])
@@ -36,7 +31,9 @@ export default function PackageManagement() {
   // Package state
   const [installConfirm, setInstallConfirm] = useState(null)
   const [uninstallConfirm, setUninstallConfirm] = useState(null)
+  const [purgeVolumes, setPurgeVolumes] = useState(false)
   const [questionsDialog, setQuestionsDialog] = useState({ open: false })
+  const [infoDialog, setInfoDialog] = useState({ open: false })
 
   // Repository state
   const [repoDialog, setRepoDialog] = useState(false)
@@ -122,6 +119,15 @@ export default function PackageManagement() {
     }
   }
 
+  async function handleShowInfo(name, version) {
+    try {
+      const info = await getClient().getInstalledInfo(name, version)
+      setInfoDialog({ open: true, name, version, ...info })
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
   async function handleInstallWithResponses(e) {
     e.preventDefault()
     const form = e.target.elements
@@ -160,8 +166,9 @@ export default function PackageManagement() {
       await getClient().uninstallPackage(
         uninstallConfirm.name,
         uninstallConfirm.version,
+        purgeVolumes,
       )
-      toast.success(`Package "${uninstallConfirm.name}" uninstalled`)
+      toast.success(`Package "${uninstallConfirm.name}" uninstalled${purgeVolumes ? ' (volumes purged)' : ''}`)
       setUninstallConfirm(null)
       doRefresh()
     } catch (err) {
@@ -224,8 +231,32 @@ export default function PackageManagement() {
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
     {
+      key: '_info',
+      label: '',
+      sortable: false,
+      transform: (_, row) => {
+        const inst = isInstalled(row.name)
+        if (!inst) return null
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={() => handleShowInfo(row.name, row.version)}
+              >
+                <Info className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">View configuration</TooltipContent>
+          </Tooltip>
+        )
+      },
+    },
+    {
       key: '_status',
-      label: 'Installation Status',
+      label: 'Status',
       sortable: false,
       className: 'text-right',
       transform: (_, row) => {
@@ -239,7 +270,11 @@ export default function PackageManagement() {
                   className="cursor-pointer"
                   onClick={() => {
                     if (inst) {
-                      handleInstall(row.name, row.version)
+                      setPurgeVolumes(false)
+                      setUninstallConfirm({
+                        name: row.name,
+                        version: row.version,
+                      })
                     } else {
                       setInstallConfirm({
                         name: row.name,
@@ -252,29 +287,9 @@ export default function PackageManagement() {
                 </Badge>
               </TooltipTrigger>
               <TooltipContent side="right">
-                Click to {inst ? 'reconfigure' : 'install'}
+                Click to {inst ? 'uninstall' : 'install'}
               </TooltipContent>
             </Tooltip>
-            {inst && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                    onClick={() =>
-                      setUninstallConfirm({
-                        name: row.name,
-                        version: row.version,
-                      })
-                    }
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Uninstall</TooltipContent>
-              </Tooltip>
-            )}
           </div>
         )
       },
@@ -476,6 +491,63 @@ export default function PackageManagement() {
         </DialogContent>
       </Dialog>
 
+      {/* Package Info Dialog */}
+      <Dialog
+        open={infoDialog.open}
+        onOpenChange={(v) => !v && setInfoDialog({ open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {infoDialog.name}@{infoDialog.version}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {infoDialog.questions && Object.keys(infoDialog.questions).length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Configuration</h4>
+                <div className="space-y-1">
+                  {Object.entries(infoDialog.questions).map(([key, question]) => (
+                    <div key={key} className="flex justify-between gap-4 text-sm">
+                      <span className="text-muted-foreground">{question.query}</span>
+                      <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
+                        {question.type === 'password' ? '********' : (infoDialog.responses?.[key] || '-')}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {infoDialog.notes && Object.keys(infoDialog.notes).length > 0 && (
+              <>
+                {infoDialog.questions && Object.keys(infoDialog.questions).length > 0 && (
+                  <Separator />
+                )}
+                <div className="space-y-1">
+                  {Object.entries(infoDialog.notes).map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-4 text-sm">
+                      <span className="text-muted-foreground">{label}</span>
+                      <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
+                        {value}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {(!infoDialog.questions || Object.keys(infoDialog.questions).length === 0) &&
+              (!infoDialog.notes || Object.keys(infoDialog.notes).length === 0) && (
+              <p className="text-sm text-muted-foreground">No configuration for this package.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInfoDialog({ open: false })}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Repository Dialog */}
       <Dialog open={repoDialog} onOpenChange={setRepoDialog}>
         <DialogContent>
@@ -540,20 +612,47 @@ export default function PackageManagement() {
       </ConfirmDialog>
 
       {/* Uninstall Confirm */}
-      <ConfirmDialog
+      <Dialog
         open={!!uninstallConfirm}
-        title="Uninstall Package"
-        onConfirm={handleUninstall}
-        onCancel={() => setUninstallConfirm(null)}
-        confirmLabel="Uninstall"
-        variant="destructive"
+        onOpenChange={(v) => !v && setUninstallConfirm(null)}
       >
-        Uninstall{' '}
-        <code className="font-mono text-sm bg-muted px-1 rounded">
-          {uninstallConfirm?.name}@{uninstallConfirm?.version}
-        </code>
-        ?
-      </ConfirmDialog>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Uninstall Package</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Uninstall{' '}
+              <code className="font-mono text-sm bg-muted px-1 rounded">
+                {uninstallConfirm?.name}@{uninstallConfirm?.version}
+              </code>
+              ?
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={purgeVolumes}
+                onChange={(e) => setPurgeVolumes(e.target.checked)}
+                className="rounded border-input"
+              />
+              Purge all volumes for this package
+            </label>
+            {purgeVolumes && (
+              <p className="text-sm text-destructive">
+                All data stored in this package&apos;s volumes will be permanently deleted.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUninstallConfirm(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleUninstall}>
+              Uninstall
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Remove Repo Confirm */}
       <ConfirmDialog

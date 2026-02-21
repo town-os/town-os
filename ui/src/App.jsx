@@ -16,6 +16,7 @@ import CreateUser from '@/routes/CreateUser.jsx'
 import SystemManagement from '@/routes/SystemManagement.jsx'
 import PackageManagement from '@/routes/PackageManagement.jsx'
 import AuditLog from '@/routes/AuditLog.jsx'
+import SystemSettings from '@/routes/SystemSettings.jsx'
 
 function DashboardRoute({ children }) {
   return <Dashboard>{children}</Dashboard>
@@ -83,6 +84,14 @@ export default function App() {
             element={
               <DashboardRoute>
                 <AuditLog />
+              </DashboardRoute>
+            }
+          />
+          <Route
+            path="/dashboard/settings"
+            element={
+              <DashboardRoute>
+                <SystemSettings />
               </DashboardRoute>
             }
           />

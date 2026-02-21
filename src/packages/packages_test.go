@@ -719,3 +719,64 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 		}
 	})
 }
+
+func TestCompileNotes(t *testing.T) {
+	t.Run("templates notes with responses", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]string{"URL": "http://@hostname@:@port@"},
+		}
+		notes := input.CompileNotes(Responses{"hostname": "example.com", "port": "8080"})
+		if notes["URL"] != "http://example.com:8080" {
+			t.Fatalf("expected http://example.com:8080, got %s", notes["URL"])
+		}
+	})
+
+	t.Run("nil notes returns nil", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+		}
+		notes := input.CompileNotes(Responses{})
+		if notes != nil {
+			t.Fatalf("expected nil, got %v", notes)
+		}
+	})
+
+	t.Run("empty notes returns nil", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]string{},
+		}
+		notes := input.CompileNotes(Responses{})
+		if notes != nil {
+			t.Fatalf("expected nil, got %v", notes)
+		}
+	})
+
+	t.Run("notes with no templates pass through", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]string{"Info": "static text"},
+		}
+		notes := input.CompileNotes(Responses{})
+		if notes["Info"] != "static text" {
+			t.Fatalf("expected 'static text', got %s", notes["Info"])
+		}
+	})
+}

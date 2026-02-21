@@ -27,7 +27,7 @@ export default function Register() {
     getClient()
       .ping()
       .then((resp) => {
-        if (resp.accounts === 0) setBootstrap(true)
+        if (resp.admins === 0) setBootstrap(true)
       })
       .catch(() => {})
   }, [])
@@ -83,7 +83,7 @@ export default function Register() {
         <div className="text-center space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">Welcome to Town OS</h1>
           <p className="text-muted-foreground">
-            No accounts exist yet. Create an administrator account to get started.
+            No valid accounts exist. Create an administrator account to get started.
           </p>
         </div>
       )}
@@ -144,12 +144,14 @@ export default function Register() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Creating...' : 'Create Account'}
             </Button>
-            <p className="text-sm text-muted-foreground">
-              Already have an account?{' '}
-              <Link to="/" className="underline">
-                Sign in
-              </Link>
-            </p>
+            {!bootstrap && (
+              <p className="text-sm text-muted-foreground">
+                Already have an account?{' '}
+                <Link to="/" className="underline">
+                  Sign in
+                </Link>
+              </p>
+            )}
           </CardFooter>
         </form>
       </Card>

@@ -57,6 +57,7 @@ type MockClient struct {
 	AuthToken          string
 	AuditEntries       []account.AuditEntry
 	ListAuditErr       error
+	Settings           map[string]string
 }
 
 type MockCall struct {
@@ -293,10 +294,10 @@ func (m *MockClient) InstallPackage(_ context.Context, name, version string, res
 	return nil
 }
 
-func (m *MockClient) UninstallPackage(_ context.Context, name, version string) error {
+func (m *MockClient) UninstallPackage(_ context.Context, name, version string, purgeVolumes bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "UninstallPackage", Args: []any{name, version}})
+	m.Calls = append(m.Calls, MockCall{Method: "UninstallPackage", Args: []any{name, version, purgeVolumes}})
 
 	if m.UninstallPkgErr != nil {
 		return m.UninstallPkgErr
@@ -307,11 +308,38 @@ func (m *MockClient) UninstallPackage(_ context.Context, name, version string) e
 		if p == key {
 			m.Installed = append(m.Installed[:i], m.Installed[i+1:]...)
 			delete(m.StoredResponses, key)
+
+			if purgeVolumes {
+				prefix := fmt.Sprintf("%s/", name)
+				for fsName := range m.Filesystems {
+					if len(fsName) >= len(prefix) && fsName[:len(prefix)] == prefix {
+						delete(m.Filesystems, fsName)
+					}
+				}
+				delete(m.Filesystems, name)
+			}
+
 			return nil
 		}
 	}
 
 	return fmt.Errorf("%s: not installed", key)
+}
+
+func (m *MockClient) PurgeVolumes(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "PurgeVolumes", Args: []any{name}})
+
+	prefix := fmt.Sprintf("%s/", name)
+	for fsName := range m.Filesystems {
+		if len(fsName) >= len(prefix) && fsName[:len(prefix)] == prefix {
+			delete(m.Filesystems, fsName)
+		}
+	}
+	delete(m.Filesystems, name)
+
+	return nil
 }
 
 func (m *MockClient) ListInstalled(_ context.Context, params ListParams) (*PageResult[string], error) {
@@ -350,6 +378,22 @@ func (m *MockClient) GetResponses(_ context.Context, name, version string) (pack
 		out[k] = v
 	}
 	return out, nil
+}
+
+func (m *MockClient) GetInstalledInfo(_ context.Context, name, version string) (*InstalledInfoResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetInstalledInfo", Args: []any{name, version}})
+
+	key := fmt.Sprintf("%s@%s", name, version)
+	resp, ok := m.StoredResponses[key]
+	if !ok {
+		return nil, fmt.Errorf("%s: not installed", key)
+	}
+
+	return &InstalledInfoResponse{
+		Responses: resp,
+	}, nil
 }
 
 // --- Systemd ---
@@ -658,6 +702,44 @@ func (m *MockClient) ListAuditLog(_ context.Context, opts account.AuditListOptio
 	}
 
 	return &account.AuditPage{Entries: entries, TotalPages: totalPages}, nil
+}
+
+// --- Settings ---
+
+func (m *MockClient) GetSettings(_ context.Context) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetSettings", Args: nil})
+
+	out := make(map[string]string)
+	for k, v := range m.Settings {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *MockClient) GetSetting(_ context.Context, key string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetSetting", Args: []any{key}})
+
+	v, ok := m.Settings[key]
+	if !ok {
+		return "", fmt.Errorf("setting %q not found", key)
+	}
+	return v, nil
+}
+
+func (m *MockClient) SetSetting(_ context.Context, key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "SetSetting", Args: []any{key, value}})
+
+	if m.Settings == nil {
+		m.Settings = make(map[string]string)
+	}
+	m.Settings[key] = value
+	return nil
 }
 
 // --- Status ---

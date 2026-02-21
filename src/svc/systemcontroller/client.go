@@ -35,9 +35,11 @@ type Client interface {
 	GetPackageQuestionsByIdentity(ctx context.Context, name, version string) (map[string]packages.Question, error)
 
 	InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error
-	UninstallPackage(ctx context.Context, name, version string) error
+	UninstallPackage(ctx context.Context, name, version string, purgeVolumes bool) error
+	PurgeVolumes(ctx context.Context, name string) error
 	ListInstalled(ctx context.Context, params ListParams) (*PageResult[string], error)
 	GetResponses(ctx context.Context, name, version string) (packages.Responses, error)
+	GetInstalledInfo(ctx context.Context, name, version string) (*InstalledInfoResponse, error)
 
 	ListUnits(ctx context.Context, params ListParams) (*PageResult[systemd.UnitStatus], error)
 	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
@@ -56,6 +58,10 @@ type Client interface {
 	SessionUsername(ctx context.Context, token string) (string, error)
 
 	ListAuditLog(ctx context.Context, opts account.AuditListOptions, token string) (*account.AuditPage, error)
+
+	GetSettings(ctx context.Context) (map[string]string, error)
+	GetSetting(ctx context.Context, key string) (string, error)
+	SetSetting(ctx context.Context, key, value string) error
 
 	Ping(ctx context.Context) (*PingResponse, error)
 }
@@ -336,11 +342,18 @@ func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string
 	return c.postClient(ctx, "packages/install", pr)
 }
 
-func (c *SystemdClient) UninstallPackage(ctx context.Context, name, version string) error {
+func (c *SystemdClient) UninstallPackage(ctx context.Context, name, version string, purgeVolumes bool) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, UninstallRequest{Name: name, Version: version})
+	go pipeEncode(pw, UninstallRequest{Name: name, Version: version, PurgeVolumes: purgeVolumes})
 
 	return c.postClient(ctx, "packages/uninstall", pr)
+}
+
+func (c *SystemdClient) PurgeVolumes(ctx context.Context, name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageNameRequest{Name: name})
+
+	return c.postClient(ctx, "packages/purge-volumes", pr)
 }
 
 func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_ *PageResult[string], err error) {
@@ -378,6 +391,26 @@ func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) 
 
 	var responses packages.Responses
 	return responses, json.NewDecoder(resp.Body).Decode(&responses)
+}
+
+func (c *SystemdClient) GetInstalledInfo(ctx context.Context, name, version string) (_ *InstalledInfoResponse, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageIdentityRequest{Name: name, Version: version})
+
+	resp, err := c.postJSON(ctx, "packages/installed/info", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: GetInstalledInfo: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "POST", "packages/installed/info")
+	}
+
+	var info InstalledInfoResponse
+	return &info, json.NewDecoder(resp.Body).Decode(&info)
 }
 
 // --- Systemd ---
@@ -674,6 +707,58 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 
 	var page account.AuditPage
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
+}
+
+// --- Settings ---
+
+func (c *SystemdClient) GetSettings(ctx context.Context) (_ map[string]string, err error) {
+	resp, err := c.getClient(ctx, "settings")
+	if err != nil {
+		return nil, fmt.Errorf("%w: GetSettings: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "GET", "settings")
+	}
+
+	var settings map[string]string
+	return settings, json.NewDecoder(resp.Body).Decode(&settings)
+}
+
+func (c *SystemdClient) GetSetting(ctx context.Context, key string) (_ string, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, GetSettingRequest{Key: key})
+
+	resp, err := c.postJSON(ctx, "settings/get", pr)
+	if err != nil {
+		return "", fmt.Errorf("%w: GetSetting: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return "", readProblemDetail(resp, "POST", "settings/get")
+	}
+
+	var result struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.Value, nil
+}
+
+func (c *SystemdClient) SetSetting(ctx context.Context, key, value string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, SetSettingRequest{Key: key, Value: value})
+
+	return c.postClient(ctx, "settings/set", pr)
 }
 
 // --- Status ---

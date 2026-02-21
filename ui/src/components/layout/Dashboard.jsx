@@ -14,6 +14,7 @@ import {
   FileText,
   LogOut,
   Activity,
+  Settings,
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { to: '/dashboard/system', label: 'Services', icon: Cog },
   { to: '/dashboard/packages', label: 'Packages', icon: Package },
   { to: '/dashboard/log', label: 'Audit Log', icon: FileText },
+  { to: '/dashboard/settings', label: 'Settings', icon: Settings, adminOnly: true },
 ]
 
 export default function Dashboard({ children }) {
@@ -45,7 +47,9 @@ export default function Dashboard({ children }) {
           </Link>
           <Separator orientation="vertical" className="h-6" />
           <nav className="flex items-center gap-1">
-            {NAV_ITEMS.map(({ to, label, icon: Icon }) => {
+            {NAV_ITEMS.filter(
+              (item) => !item.adminOnly || account?.admin,
+            ).map(({ to, label, icon: Icon }) => {
               const active = location.pathname === to
               return (
                 <Button

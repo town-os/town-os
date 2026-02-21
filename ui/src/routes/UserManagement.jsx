@@ -27,7 +27,7 @@ export default function UserManagement() {
   useEffect(() => { document.title = 'Town OS - Users' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
   const [statusConfirm, setStatusConfirm] = useState(null)
-  const [adminConfirm, setAdminConfirm] = useState(null)
+  const [adminCount, setAdminCount] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('username')
@@ -38,6 +38,10 @@ export default function UserManagement() {
     [],
     [refreshKey, sortKey, sortDirection],
   )
+
+  useEffect(() => {
+    getClient().ping().then((r) => setAdminCount(r.admins)).catch(() => {})
+  }, [refreshKey])
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
@@ -89,19 +93,6 @@ export default function UserManagement() {
     }
   }
 
-  async function handleAdminToggle() {
-    try {
-      const newAdmin = !adminConfirm.admin
-      await getClient().updateAccount(adminConfirm.username, { admin: newAdmin })
-      toast.success(`User "${adminConfirm.username}" ${newAdmin ? 'promoted to admin' : 'demoted to user'}`)
-      setAdminConfirm(null)
-      doRefresh()
-    } catch (err) {
-      toast.error(err.message)
-      setAdminConfirm(null)
-    }
-  }
-
   const columns = [
     { key: 'username', label: 'Username' },
     { key: 'real_name', label: 'Name', transform: (v) => v || '-' },
@@ -110,21 +101,10 @@ export default function UserManagement() {
     {
       key: 'admin',
       label: 'Role',
-      transform: (v, row) => (
-        <Tooltip>
-          <TooltipTrigger>
-            <Badge
-              variant={v ? 'default' : 'secondary'}
-              className="cursor-pointer select-none"
-              onClick={() => setAdminConfirm(row)}
-            >
-              {v ? 'Admin' : 'User'}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            Click to {v ? 'demote to user' : 'promote to admin'}
-          </TooltipContent>
-        </Tooltip>
+      transform: (v) => (
+        <Badge variant={v ? 'default' : 'secondary'}>
+          {v ? 'Admin' : 'User'}
+        </Badge>
       ),
     },
     {
@@ -279,26 +259,21 @@ export default function UserManagement() {
         confirmLabel={statusConfirm?.disabled ? 'Activate' : 'Deactivate'}
         variant={statusConfirm?.disabled ? 'default' : 'destructive'}
       >
-        Are you sure you want to {statusConfirm?.disabled ? 'activate' : 'deactivate'} user{' '}
-        <code className="font-mono text-sm bg-muted px-1 rounded">
-          {statusConfirm?.username}
-        </code>
-        ?
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={!!adminConfirm}
-        title={adminConfirm?.admin ? 'Demote to User' : 'Promote to Admin'}
-        onConfirm={handleAdminToggle}
-        onCancel={() => setAdminConfirm(null)}
-        confirmLabel={adminConfirm?.admin ? 'Demote' : 'Promote'}
-        variant={adminConfirm?.admin ? 'destructive' : 'default'}
-      >
-        Are you sure you want to {adminConfirm?.admin ? 'demote' : 'promote'} user{' '}
-        <code className="font-mono text-sm bg-muted px-1 rounded">
-          {adminConfirm?.username}
-        </code>
-        {adminConfirm?.admin ? ' to a regular user' : ' to admin'}?
+        {!statusConfirm?.disabled && statusConfirm?.admin && adminCount <= 1 ? (
+          <>
+            <strong>Warning:</strong> This is the last enabled admin account.
+            Deactivating it will lock all users out of the system until a new
+            admin account is created through the bootstrap flow.
+          </>
+        ) : (
+          <>
+            Are you sure you want to {statusConfirm?.disabled ? 'activate' : 'deactivate'} user{' '}
+            <code className="font-mono text-sm bg-muted px-1 rounded">
+              {statusConfirm?.username}
+            </code>
+            ?
+          </>
+        )}
       </ConfirmDialog>
     </div>
   )

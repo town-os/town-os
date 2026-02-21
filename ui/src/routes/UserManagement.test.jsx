@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import UserManagement from './UserManagement.jsx'
@@ -26,6 +26,7 @@ vi.mock('@/lib/client-instance.js', () => ({
         },
       ]),
     ),
+    ping: vi.fn(() => Promise.resolve({ admins: 1 })),
   }),
 }))
 
@@ -56,14 +57,41 @@ describe('UserManagement', () => {
     expect(screen.getByText('Disabled')).toBeTruthy()
   })
 
-  it('wraps role badges in tooltip triggers', async () => {
+  it('wraps status badges in tooltip triggers', async () => {
     const { container } = renderUserManagement()
     await waitFor(() => {
       expect(screen.getByText('Admin')).toBeTruthy()
     })
     const triggers = container.querySelectorAll('[data-slot="tooltip-trigger"]')
-    // 2 role tooltips + 2 status tooltips = 4 total
-    expect(triggers.length).toBe(4)
+    // only 2 status tooltips (role badges are plain now)
+    expect(triggers.length).toBe(2)
+  })
+
+  it('role badges are display-only', async () => {
+    const { container } = renderUserManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Admin')).toBeTruthy()
+    })
+    const adminBadge = screen.getByText('Admin')
+    const userBadge = screen.getByText('User')
+    // role badges should not be inside tooltip triggers
+    expect(adminBadge.closest('[data-slot="tooltip-trigger"]')).toBeNull()
+    expect(userBadge.closest('[data-slot="tooltip-trigger"]')).toBeNull()
+    // role badges should not have cursor-pointer
+    expect(adminBadge.className).not.toContain('cursor-pointer')
+    expect(userBadge.className).not.toContain('cursor-pointer')
+  })
+
+  it('shows last-admin warning when disabling the only admin', async () => {
+    renderUserManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Active')).toBeTruthy()
+    })
+    // click the Active status badge to open confirm dialog
+    fireEvent.click(screen.getByText('Active'))
+    await waitFor(() => {
+      expect(screen.getByText(/last enabled admin account/)).toBeTruthy()
+    })
   })
 
   it('renders user data in table rows', async () => {

@@ -94,6 +94,25 @@ type InputPackage struct {
 	Network     InputPackageNetwork           `yaml:"network"`
 	Volumes     map[string]InputPackageVolume `yaml:"volumes"`
 	Questions   map[string]Question           `yaml:"questions"`
+	Notes       map[string]string             `yaml:"notes" json:"notes,omitempty"`
+}
+
+// CompileNotes applies template substitution to the Notes map using the
+// provided responses and returns the compiled result.
+func (i *InputPackage) CompileNotes(responses Responses) map[string]string {
+	if len(i.Notes) == 0 {
+		return nil
+	}
+
+	compiled := make(map[string]string, len(i.Notes))
+	for k, v := range i.Notes {
+		for rk, rv := range responses {
+			v = applyTemplate(v, rk, rv)
+		}
+		compiled[k] = v
+	}
+
+	return compiled
 }
 
 func applyTemplate(input string, v string, repl string) string {

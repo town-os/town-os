@@ -206,8 +206,10 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 		err = errors.Join(err, j.Close())
 	}()
 
-	if err := j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", p.Unit)); err != nil {
-		return LogTailResult{}, err
+	if p.Unit != "" {
+		if err := j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", p.Unit)); err != nil {
+			return LogTailResult{}, err
+		}
 	}
 
 	grepLower := strings.ToLower(p.Grep)
@@ -326,9 +328,11 @@ func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan J
 		return nil, err
 	}
 
-	err = j.AddMatch("_SYSTEMD_UNIT=" + unit)
-	if err != nil {
-		return nil, errors.Join(err, j.Close())
+	if unit != "" {
+		err = j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", unit))
+		if err != nil {
+			return nil, errors.Join(err, j.Close())
+		}
 	}
 
 	err = j.SeekHead()

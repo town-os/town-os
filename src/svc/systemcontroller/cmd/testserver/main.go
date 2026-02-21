@@ -63,6 +63,11 @@ func run() (err error) {
 		return fmt.Errorf("init audit manager: %w", err)
 	}
 
+	settingsMgr, err := account.InitSettingsManager(db)
+	if err != nil {
+		return fmt.Errorf("init settings manager: %w", err)
+	}
+
 	repoBase := dir
 	if *repoDir != "" {
 		repoBase = *repoDir
@@ -107,6 +112,7 @@ func run() (err error) {
 		AccountMgr:      acctMgr,
 		SessionMgr:      sessMgr,
 		AuditMgr:        auditMgr,
+		SettingsMgr:     settingsMgr,
 		DefaultRepoUser: os.Getenv(packages.EnvRepoUsername),
 		DefaultRepoPass: os.Getenv(packages.EnvRepoPassword),
 	})
