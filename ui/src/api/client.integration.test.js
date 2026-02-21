@@ -553,30 +553,53 @@ describe('SystemControllerClient integration', () => {
     })
   })
 
-  // --- Settings ---
+  // --- Settings lifecycle with defaults ---
 
   describe('settings', () => {
-    it('sets and gets a setting', async () => {
+    it('returns seeded defaults before any explicit set', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setSetting('default_quota', '53687091200')
       const value = await client.getSetting('default_quota')
       expect(value).toBe('53687091200')
     })
 
-    it('lists all settings', async () => {
+    it('lists all settings including defaults', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       const settings = await client.getSettings()
       expect(settings.default_quota).toBe('53687091200')
     })
 
-    it('overwrites a setting', async () => {
+    it('set overrides a default', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.setSetting('default_quota', '0')
       const value = await client.getSetting('default_quota')
       expect(value).toBe('0')
+    })
+
+    it('overwrites a previously set value', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setSetting('default_quota', '999')
+      const value = await client.getSetting('default_quota')
+      expect(value).toBe('999')
+    })
+
+    it('sets and gets a custom key', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setSetting('motd', 'hello world')
+      const value = await client.getSetting('motd')
+      expect(value).toBe('hello world')
+    })
+
+    it('list includes defaults and custom keys', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const settings = await client.getSettings()
+      expect(settings.default_quota).toBeDefined()
+      expect(settings.motd).toBe('hello world')
     })
 
     it('returns 404 for nonexistent setting', async () => {

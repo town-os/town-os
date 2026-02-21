@@ -19,6 +19,14 @@ func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
 		return nil, fmt.Errorf("create settings table: %w", err)
 	}
 
+	// Seed default values; INSERT OR IGNORE preserves existing rows.
+	for k, v := range DefaultSettings {
+		_, err := db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v)
+		if err != nil {
+			return nil, fmt.Errorf("seed default setting %q: %w", k, err)
+		}
+	}
+
 	return &SQLiteSettingsManager{db: db}, nil
 }
 

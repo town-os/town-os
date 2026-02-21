@@ -66,11 +66,17 @@ type MockCall struct {
 }
 
 func InitMockClient() *MockClient {
+	settings := make(map[string]string)
+	for k, v := range account.DefaultSettings {
+		settings[k] = v
+	}
+
 	return &MockClient{
 		Filesystems:     map[string]storage.Filesystem{},
 		StoredResponses: map[string]packages.Responses{},
 		Accounts:        map[string]*account.Account{},
 		Sessions:        map[string]*account.Session{},
+		Settings:        settings,
 	}
 }
 

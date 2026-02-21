@@ -5795,10 +5795,39 @@ func initSettingsTestClient(t *testing.T) *SystemdClient {
 	return c
 }
 
+func TestHTTPSettingsDefaultsOnInit(t *testing.T) {
+	c := initSettingsTestClient(t)
+
+	// Defaults should be present without any explicit Set calls.
+	val, err := c.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting default_quota: %v", err)
+	}
+	if val != account.DefaultSettings["default_quota"] {
+		t.Fatalf("expected default %q, got %q", account.DefaultSettings["default_quota"], val)
+	}
+
+	// List should include all defaults.
+	settings, err := c.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	for k, want := range account.DefaultSettings {
+		got, ok := settings[k]
+		if !ok {
+			t.Fatalf("expected default key %q in list", k)
+		}
+		if got != want {
+			t.Fatalf("default %q: expected %q, got %q", k, want, got)
+		}
+	}
+}
+
 func TestHTTPSettingsSetAndGet(t *testing.T) {
 	c := initSettingsTestClient(t)
 
-	if err := c.SetSetting(context.TODO(), "default_quota", "53687091200"); err != nil {
+	// Override the seeded default.
+	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
 
@@ -5806,8 +5835,8 @@ func TestHTTPSettingsSetAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSetting: %v", err)
 	}
-	if val != "53687091200" {
-		t.Fatalf("expected %q, got %q", "53687091200", val)
+	if val != "0" {
+		t.Fatalf("expected %q, got %q", "0", val)
 	}
 }
 
@@ -5823,10 +5852,8 @@ func TestHTTPSettingsGetNotFound(t *testing.T) {
 func TestHTTPSettingsList(t *testing.T) {
 	c := initSettingsTestClient(t)
 
-	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	if err := c.SetSetting(context.TODO(), "other_setting", "hello"); err != nil {
+	// Add a custom setting alongside the seeded defaults.
+	if err := c.SetSetting(context.TODO(), "custom_key", "hello"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
 
@@ -5835,14 +5862,16 @@ func TestHTTPSettingsList(t *testing.T) {
 		t.Fatalf("GetSettings: %v", err)
 	}
 
-	if len(settings) != 2 {
-		t.Fatalf("expected 2 settings, got %d", len(settings))
+	// Should have all defaults plus the custom key.
+	wantLen := len(account.DefaultSettings) + 1
+	if len(settings) != wantLen {
+		t.Fatalf("expected %d settings, got %d: %v", wantLen, len(settings), settings)
 	}
-	if settings["default_quota"] != "0" {
-		t.Fatalf("expected default_quota %q, got %q", "0", settings["default_quota"])
+	if settings["default_quota"] != account.DefaultSettings["default_quota"] {
+		t.Fatalf("expected default_quota %q, got %q", account.DefaultSettings["default_quota"], settings["default_quota"])
 	}
-	if settings["other_setting"] != "hello" {
-		t.Fatalf("expected other_setting %q, got %q", "hello", settings["other_setting"])
+	if settings["custom_key"] != "hello" {
+		t.Fatalf("expected custom_key %q, got %q", "hello", settings["custom_key"])
 	}
 }
 
@@ -5865,9 +5894,46 @@ func TestHTTPSettingsOverwrite(t *testing.T) {
 	}
 }
 
+func TestHTTPSettingsSetNewKey(t *testing.T) {
+	c := initSettingsTestClient(t)
+
+	if err := c.SetSetting(context.TODO(), "motd", "welcome"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "motd")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "welcome" {
+		t.Fatalf("expected %q, got %q", "welcome", val)
+	}
+}
+
 // --- MockClient Settings tests ---
 
-func TestMockClientSettings(t *testing.T) {
+func TestMockClientSettingsDefaults(t *testing.T) {
+	m := InitMockClient()
+
+	// Defaults should be present immediately.
+	val, err := m.GetSetting(context.TODO(), "default_quota")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != account.DefaultSettings["default_quota"] {
+		t.Fatalf("expected %q, got %q", account.DefaultSettings["default_quota"], val)
+	}
+
+	settings, err := m.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if len(settings) != len(account.DefaultSettings) {
+		t.Fatalf("expected %d settings, got %d", len(account.DefaultSettings), len(settings))
+	}
+}
+
+func TestMockClientSettingsOverride(t *testing.T) {
 	m := InitMockClient()
 
 	if err := m.SetSetting(context.TODO(), "default_quota", "50"); err != nil {
@@ -5880,14 +5946,6 @@ func TestMockClientSettings(t *testing.T) {
 	}
 	if val != "50" {
 		t.Fatalf("expected %q, got %q", "50", val)
-	}
-
-	settings, err := m.GetSettings(context.TODO())
-	if err != nil {
-		t.Fatalf("GetSettings: %v", err)
-	}
-	if len(settings) != 1 {
-		t.Fatalf("expected 1 setting, got %d", len(settings))
 	}
 }
 
