@@ -3273,6 +3273,39 @@ func TestHTTPPingIncludesAccountCount(t *testing.T) {
 	}
 }
 
+func TestHTTPPingUnitCountsFiltersTownOS(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-nginx.service", ActiveState: "active"},
+		{Name: "town-os-redis.service", ActiveState: "active"},
+		{Name: "town-os-postgres.service", ActiveState: "failed"},
+		{Name: "sshd.service", ActiveState: "active"},
+		{Name: "systemd-journald.service", ActiveState: "active"},
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.Units == nil {
+		t.Fatal("expected units in ping response")
+	}
+
+	if ping.Units.Total != 3 {
+		t.Fatalf("expected 3 total town-os units, got %d", ping.Units.Total)
+	}
+
+	if ping.Units.Active != 2 {
+		t.Fatalf("expected 2 active town-os units, got %d", ping.Units.Active)
+	}
+
+	if ping.Units.Failed != 1 {
+		t.Fatalf("expected 1 failed town-os unit, got %d", ping.Units.Failed)
+	}
+}
+
 // --- Audit log tests ---
 
 func TestHTTPAuditLogLifecycle(t *testing.T) {
@@ -5745,7 +5778,7 @@ func TestHTTPReinstallPackageWithSystemd(t *testing.T) {
 
 // --- Settings tests ---
 
-func initSettingsTestClient(t *testing.T) *SystemdClient {
+func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 	t.Helper()
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -5768,13 +5801,18 @@ func initSettingsTestClient(t *testing.T) *SystemdClient {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
 	settingsMgr, err := account.InitSettingsManager(db)
 	if err != nil {
 		t.Fatalf("InitSettingsManager: %v", err)
 	}
 
 	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr, SettingsMgr: settingsMgr})
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr, AuditMgr: auditMgr, SettingsMgr: settingsMgr})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -5792,11 +5830,11 @@ func initSettingsTestClient(t *testing.T) *SystemdClient {
 	}
 	c.Token = resp.Token
 
-	return c
+	return c, resp.Token
 }
 
 func TestHTTPSettingsDefaultsOnInit(t *testing.T) {
-	c := initSettingsTestClient(t)
+	c, _ := initSettingsTestClient(t)
 
 	// Defaults should be present without any explicit Set calls.
 	val, err := c.GetSetting(context.TODO(), "default_quota")
@@ -5824,7 +5862,7 @@ func TestHTTPSettingsDefaultsOnInit(t *testing.T) {
 }
 
 func TestHTTPSettingsSetAndGet(t *testing.T) {
-	c := initSettingsTestClient(t)
+	c, _ := initSettingsTestClient(t)
 
 	// Override the seeded default.
 	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err != nil {
@@ -5841,7 +5879,7 @@ func TestHTTPSettingsSetAndGet(t *testing.T) {
 }
 
 func TestHTTPSettingsGetNotFound(t *testing.T) {
-	c := initSettingsTestClient(t)
+	c, _ := initSettingsTestClient(t)
 
 	_, err := c.GetSetting(context.TODO(), "nonexistent")
 	if err == nil {
@@ -5850,7 +5888,7 @@ func TestHTTPSettingsGetNotFound(t *testing.T) {
 }
 
 func TestHTTPSettingsList(t *testing.T) {
-	c := initSettingsTestClient(t)
+	c, _ := initSettingsTestClient(t)
 
 	// Add a custom setting alongside the seeded defaults.
 	if err := c.SetSetting(context.TODO(), "custom_key", "hello"); err != nil {
@@ -5876,7 +5914,7 @@ func TestHTTPSettingsList(t *testing.T) {
 }
 
 func TestHTTPSettingsOverwrite(t *testing.T) {
-	c := initSettingsTestClient(t)
+	c, _ := initSettingsTestClient(t)
 
 	if err := c.SetSetting(context.TODO(), "default_quota", "100"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
@@ -5895,7 +5933,7 @@ func TestHTTPSettingsOverwrite(t *testing.T) {
 }
 
 func TestHTTPSettingsSetNewKey(t *testing.T) {
-	c := initSettingsTestClient(t)
+	c, _ := initSettingsTestClient(t)
 
 	if err := c.SetSetting(context.TODO(), "motd", "welcome"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
@@ -5907,6 +5945,87 @@ func TestHTTPSettingsSetNewKey(t *testing.T) {
 	}
 	if val != "welcome" {
 		t.Fatalf("expected %q, got %q", "welcome", val)
+	}
+}
+
+func TestHTTPSettingsSetAuditLog(t *testing.T) {
+	c, token := initSettingsTestClient(t)
+
+	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	page, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{}, token)
+	if err != nil {
+		t.Fatalf("ListAuditLog: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "update setting" && e.Path == "/settings/set" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			if e.Account != "testadmin" {
+				t.Fatalf("expected account %q, got %q", "testadmin", e.Account)
+			}
+			if e.Detail == "" {
+				t.Fatal("expected non-empty audit detail")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'update setting' audit entry")
+	}
+}
+
+func TestHTTPSettingsGetNotAudited(t *testing.T) {
+	c, token := initSettingsTestClient(t)
+
+	// Read operations should not appear in audit log.
+	if _, err := c.GetSetting(context.TODO(), "default_quota"); err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if _, err := c.GetSettings(context.TODO()); err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+
+	page, err := c.ListAuditLog(context.TODO(), account.AuditListOptions{}, token)
+	if err != nil {
+		t.Fatalf("ListAuditLog: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		if e.Path == "/settings/get" || e.Path == "/settings" {
+			t.Fatalf("read-only settings path %q should not be audited", e.Path)
+		}
+	}
+}
+
+func TestHTTPSettingsRequiresAdmin(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	// Create a non-admin user.
+	if _, err := c.CreateAccount(context.TODO(), "user", "password1", "u@b.com", "555", "User", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "user", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	// All settings endpoints should reject non-admin.
+	if _, err := c.GetSettings(context.TODO()); err == nil {
+		t.Fatal("expected error for non-admin GetSettings")
+	}
+	if _, err := c.GetSetting(context.TODO(), "default_quota"); err == nil {
+		t.Fatal("expected error for non-admin GetSetting")
+	}
+	if err := c.SetSetting(context.TODO(), "default_quota", "0"); err == nil {
+		t.Fatal("expected error for non-admin SetSetting")
 	}
 }
 

@@ -401,6 +401,15 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 	fs := []Filesystem{}
 
 	for _, item := range info {
+		// filepath.Join strips the trailing slash from the prefix, so
+		// SubvolList may return entries that don't actually match.
+		// Re-filter against the original prefix to avoid including the
+		// parent itself or unrelated volumes that share a name prefix
+		// (e.g. "nginx" matching "nginx2").
+		if prefix != "" && !strings.HasPrefix(item.Name, prefix) {
+			continue
+		}
+
 		quota, err := b.Controller.QGroupShow(filepath.Join(b.BasePath, item.Name))
 		if err != nil {
 			return nil, fmt.Errorf("qgroup show %q: %w", item.Name, err)

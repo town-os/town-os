@@ -1059,21 +1059,23 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		path := c.Request().URL.Path
 
 		excluded := map[string]bool{
-			"/account/sessions":         true,
-			"/account/me":               true,
-			"/status/ping":              true,
-			"/audit/log":                true,
-			"/storage":                  true,
-			"/repository":               true,
-			"/packages":                 true,
-			"/packages/installed":       true,
+			"/account/sessions":              true,
+			"/account/me":                    true,
+			"/status/ping":                   true,
+			"/audit/log":                     true,
+			"/storage":                       true,
+			"/repository":                    true,
+			"/packages":                      true,
+			"/packages/installed":            true,
 			"/packages/responses":            true,
 			"/packages/questions":            true,
 			"/packages/questions/identity":   true,
-			"/systemd/units":            true,
-			"/systemd/logs":             true,
-			"/systemd/logs/tail":        true,
-			"/account":                  true,
+			"/systemd/units":                 true,
+			"/systemd/logs":                  true,
+			"/systemd/logs/tail":             true,
+			"/account":                       true,
+			"/settings":                      true,
+			"/settings/get":                  true,
 		}
 
 		if excluded[path] {
@@ -1308,8 +1310,12 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		if err != nil {
 			return err
 		}
-		counts := &UnitCounts{Total: len(units)}
+		counts := &UnitCounts{}
 		for _, u := range units {
+			if !strings.HasPrefix(u.Name, "town-os-") {
+				continue
+			}
+			counts.Total++
 			switch u.ActiveState {
 			case "active":
 				counts.Active++

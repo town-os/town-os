@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -97,12 +98,18 @@ func (m *MockBtrFSController) SubvolDelete(name string) error {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
 
-	list := m.subvolListLocked(name)
-
-	for _, info := range list {
-		m.removeFilesystemLocked(info.Name)
-		delete(m.Quotas, info.Name)
+	// Real btrfs refuses to delete a subvolume that contains child subvolumes.
+	childPrefix := fmt.Sprintf("%s/", name)
+	for _, fs := range m.Filesystems {
+		if strings.HasPrefix(fs.Name, childPrefix) {
+			err := fmt.Errorf("btrfs subvolume delete: directory not empty: %s", name)
+			m.addCallLocked("SubvolDelete", err, name)
+			return err
+		}
 	}
+
+	m.removeFilesystemLocked(name)
+	delete(m.Quotas, name)
 
 	m.addCallLocked("SubvolDelete", nil, name)
 	return nil

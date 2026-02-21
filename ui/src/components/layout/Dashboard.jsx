@@ -6,6 +6,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from '@/components/ui/tooltip'
+import {
   LayoutDashboard,
   HardDrive,
   Users,
@@ -42,9 +48,16 @@ export default function Dashboard({ children }) {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-14 items-center px-6 gap-4">
-          <Link to="/dashboard" className="font-bold text-lg mr-4">
-            Town OS
-          </Link>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link to="/dashboard" className="mr-4 flex items-center">
+                  <img src="/48.png" alt="Town OS" className="h-8 w-8" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>Home</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Separator orientation="vertical" className="h-6" />
           <nav className="flex items-center gap-1">
             {NAV_ITEMS.filter(
@@ -110,7 +123,14 @@ export default function Dashboard({ children }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-6">{children}</main>
+      <main className="relative mx-auto max-w-6xl px-6 py-6">
+        <img
+          src="/512.png"
+          alt=""
+          className="pointer-events-none fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 opacity-5"
+        />
+        {children}
+      </main>
     </div>
   )
 }

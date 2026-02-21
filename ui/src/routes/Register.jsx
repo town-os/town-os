@@ -79,6 +79,9 @@ export default function Register() {
   return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="w-full max-w-md space-y-4">
+      <div className="flex justify-center">
+        <img src="/512.png" alt="Town OS" className="h-32 w-32" />
+      </div>
       {bootstrap && (
         <div className="text-center space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">Welcome to Town OS</h1>

@@ -609,6 +609,52 @@ describe('SystemControllerClient integration', () => {
         client.getSetting('nonexistent'),
       ).rejects.toThrow()
     })
+
+    it('requires admin for all settings endpoints', async () => {
+      const resp = await client.authenticate('user1', 'userpass')
+      client.setToken(resp.token)
+      await expect(client.getSettings()).rejects.toThrow()
+      await expect(client.getSetting('default_quota')).rejects.toThrow()
+      await expect(
+        client.setSetting('default_quota', '0'),
+      ).rejects.toThrow()
+    })
+  })
+
+  // --- Settings audit ---
+
+  describe('settings audit', () => {
+    it('setSetting creates an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.setSetting('audit_test_key', 'audit_test_value')
+      const page = await client.listAuditLog({ limit: 100 })
+      const entry = page.entries.find(
+        (e) => e.action === 'update setting' && e.path === '/settings/set',
+      )
+      expect(entry).toBeDefined()
+      expect(entry.success).toBe(true)
+      expect(entry.account).toBe('admin')
+      expect(entry.detail).toContain('audit_test_key')
+    })
+
+    it('getSetting does not create an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.getSetting('default_quota')
+      const page = await client.listAuditLog({ limit: 200 })
+      const getEntry = page.entries.find((e) => e.path === '/settings/get')
+      expect(getEntry).toBeUndefined()
+    })
+
+    it('getSettings does not create an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.getSettings()
+      const page = await client.listAuditLog({ limit: 200 })
+      const listEntry = page.entries.find((e) => e.path === '/settings')
+      expect(listEntry).toBeUndefined()
+    })
   })
 
   // --- Package install creates systemd unit ---

@@ -51,23 +51,11 @@ export default function DashboardHome() {
         </p>
       </div>
 
-      {ping && (
+      {ping && ping.units && ping.units.failed > 0 && (
         <div className="flex items-center gap-2">
-          <Badge variant={ping.status === 'ok' ? 'default' : 'destructive'}>
-            {ping.status === 'ok' ? 'System Online' : 'System Offline'}
+          <Badge variant="destructive">
+            {ping.units.failed} failed service{ping.units.failed !== 1 ? 's' : ''}
           </Badge>
-          {ping.units && (
-            <>
-              <Badge variant="outline">
-                {ping.units.active} active / {ping.units.total} units
-              </Badge>
-              {ping.units.failed > 0 && (
-                <Badge variant="destructive">
-                  {ping.units.failed} failed
-                </Badge>
-              )}
-            </>
-          )}
         </div>
       )}
 

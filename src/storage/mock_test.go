@@ -149,6 +149,16 @@ func TestMockBtrFSBasic(t *testing.T) {
 		t.Fatal("Volumes were not re-created")
 	}
 
+	// Deleting a parent with children must fail (matches real btrfs behavior).
+	if err := mock.SubvolDelete("test"); err == nil {
+		t.Fatal("SubvolDelete test should fail when child subvolumes exist")
+	}
+
+	// Delete child first, then parent.
+	if err := mock.SubvolDelete("test/sub"); err != nil {
+		t.Fatalf("SubvolDelete test/sub (final child): %v", err)
+	}
+
 	if err := mock.SubvolDelete("test"); err != nil {
 		t.Fatalf("SubvolDelete test (final): %v", err)
 	}

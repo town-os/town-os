@@ -62,7 +62,11 @@ export default function Login() {
 
   return (
     <div className="flex items-center justify-center min-h-screen">
-      <Card className="w-full max-w-sm">
+      <div className="w-full max-w-sm space-y-6">
+      <div className="flex justify-center">
+        <img src="/512.png" alt="Town OS" className="h-32 w-32" />
+      </div>
+      <Card>
         <CardHeader>
           <CardTitle className="text-2xl">Town OS</CardTitle>
           <CardDescription>Sign in to the control panel</CardDescription>
@@ -101,6 +105,7 @@ export default function Login() {
           </CardFooter>
         </form>
       </Card>
+      </div>
     </div>
   )
 }

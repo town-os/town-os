@@ -1795,3 +1795,36 @@ func TestSystemControllerSystemdSetUnitStatusMultipleUnits(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemControllerPingUnitCountsFiltersTownOS(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-nginx.service", ActiveState: "active"},
+		{Name: "town-os-redis.service", ActiveState: "active"},
+		{Name: "town-os-postgres.service", ActiveState: "failed"},
+		{Name: "sshd.service", ActiveState: "active"},
+		{Name: "systemd-journald.service", ActiveState: "active"},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.Units == nil {
+		t.Fatal("expected units in ping response")
+	}
+
+	if ping.Units.Total != 3 {
+		t.Fatalf("expected 3 total town-os units, got %d", ping.Units.Total)
+	}
+
+	if ping.Units.Active != 2 {
+		t.Fatalf("expected 2 active town-os units, got %d", ping.Units.Active)
+	}
+
+	if ping.Units.Failed != 1 {
+		t.Fatalf("expected 1 failed town-os unit, got %d", ping.Units.Failed)
+	}
+}
