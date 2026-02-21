@@ -8,6 +8,7 @@
 /.env
 /.cache
 /dev-data
+/dev-repos
 /dev.btrfs
 /dev.db*
-/todo.md
+/.foo

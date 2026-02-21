@@ -29,7 +29,6 @@ import {
   Play,
   Square,
   RotateCcw,
-  Check,
   X,
   FileText,
   Copy,
@@ -327,20 +326,6 @@ export default function SystemManagement() {
     },
     { key: 'Description', label: 'Description' },
     {
-      key: 'UnitFileState',
-      label: 'Enabled',
-      sortValues: ['enabled', 'disabled', 'static', 'masked'],
-      transform: (v) => {
-        const variant =
-          v === 'enabled'
-            ? 'default'
-            : v === 'disabled'
-              ? 'secondary'
-              : 'outline'
-        return <Badge variant={variant}>{v || 'unknown'}</Badge>
-      },
-    },
-    {
       key: 'ActiveState',
       label: 'Status',
       sortValues: ['active', 'inactive', 'failed'],
@@ -374,14 +359,16 @@ export default function SystemManagement() {
               <Play className="h-3 w-3 mr-2" />
               Start
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                setActionConfirm({ name: row.Name, action: 'stop' })
-              }
-            >
-              <Square className="h-3 w-3 mr-2" />
-              Stop
-            </DropdownMenuItem>
+            {row.Name !== 'town-os-systemcontroller.service' && (
+              <DropdownMenuItem
+                onClick={() =>
+                  setActionConfirm({ name: row.Name, action: 'stop' })
+                }
+              >
+                <Square className="h-3 w-3 mr-2" />
+                Stop
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={() =>
                 setActionConfirm({ name: row.Name, action: 'restart' })
@@ -389,22 +376,6 @@ export default function SystemManagement() {
             >
               <RotateCcw className="h-3 w-3 mr-2" />
               Restart
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                setActionConfirm({ name: row.Name, action: 'enable' })
-              }
-            >
-              <Check className="h-3 w-3 mr-2" />
-              Enable
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                setActionConfirm({ name: row.Name, action: 'disable' })
-              }
-            >
-              <X className="h-3 w-3 mr-2" />
-              Disable
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openJournal(row.Name)}>
               <FileText className="h-3 w-3 mr-2" />

@@ -15,12 +15,12 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 FROM runtime-deps
-COPY --from=town-os /testserver /testserver
+COPY --from=town-os /systemcontroller /systemcontroller
 COPY --from=town-os /ui /ui
 COPY --from=builder /integration-test /integration-test
-COPY integration/testdata/town-os-testserver.service /etc/systemd/system/
+COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 COPY integration/testdata/town-os-test.service /etc/systemd/system/
-RUN systemctl enable town-os-testserver.service town-os-test.service
+RUN systemctl enable town-os-systemcontroller.service town-os-test.service
 RUN mkdir -p /test /data/btrfs /data/repos /data/db
 EXPOSE 5309
 CMD ["/lib/systemd/systemd"]

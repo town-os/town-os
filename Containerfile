@@ -6,7 +6,7 @@ COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
 COPY . /src
-RUN CGO_ENABLED=1 go build -o /testserver ./src/svc/systemcontroller/cmd/testserver
+RUN CGO_ENABLED=1 go build -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
 
 FROM oven/bun:latest AS ui-builder
 COPY ui/package.json ui/bun.lock /ui/
@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 FROM runtime-deps
-COPY --from=go-builder /testserver /testserver
+COPY --from=go-builder /systemcontroller /systemcontroller
 COPY --from=ui-builder /ui/dist /ui
 EXPOSE 5309
-CMD ["/testserver"]
+CMD ["/systemcontroller"]

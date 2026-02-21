@@ -120,7 +120,7 @@ dev-btrfs:
 
 dev: test-image dev-btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
-	@mkdir -p dev-data
+	@mkdir -p dev-data dev-repos
 	sudo -E podman run -d -p 0.0.0.0:5309:5309 -e LOG_LEVEL=debug -e DEBUG=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
@@ -128,13 +128,14 @@ dev: test-image dev-btrfs
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os-dev.mount):/data/btrfs:z \
 		-v $$(pwd)/dev-data:/data/db:z \
+		-v $$(pwd)/dev-repos:/data/repos:z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "API server: http://$$(hostname):5309"
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
 dev-clean: dev-stop clean-btrfs-dev
-	rm -rf dev-data
+	@sudo rm -rf dev-data dev-repos
 
 dev-stop:
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)

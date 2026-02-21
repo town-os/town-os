@@ -24,6 +24,8 @@ type Installer interface {
 	Uninstall(pkgName, version string) error
 	ListInstalled() ([]string, error)
 	GetResponses(pkgName, version string) (Responses, error)
+	SetDisabled(pkgName string, disabled bool) error
+	IsDisabled(pkgName string) (bool, error)
 }
 
 type InstallManager struct {
@@ -73,6 +75,39 @@ func (m *InstallManager) Install(repoName, pkgName, version string, responses Re
 	return m.SaveResponses(pkgName, version, responses)
 }
 
+// SetDisabled creates or removes a disabled marker file for the given package.
+func (m *InstallManager) SetDisabled(pkgName string, disabled bool) error {
+	marker := filepath.Join(m.dir(), pkgName, "disabled")
+	if disabled {
+		pkgDir := filepath.Join(m.dir(), pkgName)
+		if err := os.MkdirAll(pkgDir, 0755); err != nil {
+			return err
+		}
+		f, err := os.Create(marker)
+		if err != nil {
+			return err
+		}
+		return f.Close()
+	}
+	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// IsDisabled returns true if the package has a disabled marker file.
+func (m *InstallManager) IsDisabled(pkgName string) (bool, error) {
+	marker := filepath.Join(m.dir(), pkgName, "disabled")
+	_, err := os.Stat(marker)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
 // Uninstall removes the symlink for the given package version. If the package
 // directory becomes empty it is removed as well.
 func (m *InstallManager) Uninstall(pkgName, version string) error {
@@ -91,6 +126,12 @@ func (m *InstallManager) Uninstall(pkgName, version string) error {
 	}
 
 	if err := os.Remove(link); err != nil {
+		return err
+	}
+
+	// Remove disabled marker so the directory can be cleaned up.
+	marker := filepath.Join(m.dir(), pkgName, "disabled")
+	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 

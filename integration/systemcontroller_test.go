@@ -27,6 +27,12 @@ func addRepoWithCreds(c *systemcontroller.SystemdClient, rawURL string) error {
 
 func initSystemControllerTest(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
+	c, _ := initSystemControllerTestWithStorage(t)
+	return c
+}
+
+func initSystemControllerTestWithStorage(t *testing.T) (*systemcontroller.SystemdClient, *storage.BtrFS) {
+	t.Helper()
 
 	btr := storage.InitBtrFS("/data/btrfs")
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr})
@@ -37,13 +43,13 @@ func initSystemControllerTest(t *testing.T) *systemcontroller.SystemdClient {
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return c
+	return c, btr
 }
 
 func TestSystemControllerCreateAndList(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "")
+	baseList, err := c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
@@ -58,7 +64,7 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), "")
+	list, err := c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("error listing after create: %v", err)
 	}
@@ -67,7 +73,7 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 		t.Fatalf("expected %d filesystems after create, got %d", baseCount+1, len(list))
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), "sc-create-list")
+	list, err = c.ListFilesystems(context.TODO(), "sc-create-list", "")
 	if err != nil {
 		t.Fatalf("error listing with exact prefix: %v", err)
 	}
@@ -80,7 +86,7 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 func TestSystemControllerRemove(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "")
+	baseList, err := c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
@@ -94,7 +100,7 @@ func TestSystemControllerRemove(t *testing.T) {
 		t.Fatalf("error removing filesystem: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "")
+	list, err := c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("error listing after remove: %v", err)
 	}
@@ -107,7 +113,7 @@ func TestSystemControllerRemove(t *testing.T) {
 func TestSystemControllerMultipleFilesystems(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "")
+	baseList, err := c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
@@ -129,7 +135,7 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 		}
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "")
+	list, err := c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("error listing after creates: %v", err)
 	}
@@ -143,7 +149,7 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 		t.Fatalf("error removing sc-multi-b: %v", err)
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), "")
+	list, err = c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("error listing after partial remove: %v", err)
 	}
@@ -174,7 +180,7 @@ func TestSystemControllerListPrefix(t *testing.T) {
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-pfx-a")
+	list, err := c.ListFilesystems(context.TODO(), "sc-pfx-a", "")
 	if err != nil {
 		t.Fatalf("error listing with prefix: %v", err)
 	}
@@ -204,7 +210,7 @@ func TestSystemControllerModifyFilesystem(t *testing.T) {
 func TestSystemControllerFullLifecycle(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "")
+	baseList, err := c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems before create: %v", err)
 	}
@@ -216,7 +222,7 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	}
 
 	// Verify exists
-	list, err := c.ListFilesystems(context.TODO(), "sc-lifecycle")
+	list, err := c.ListFilesystems(context.TODO(), "sc-lifecycle", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify creation: %v", err)
 	}
@@ -230,7 +236,7 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	}
 
 	// Verify gone
-	list, err = c.ListFilesystems(context.TODO(), "")
+	list, err = c.ListFilesystems(context.TODO(), "", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify removal: %v", err)
 	}
@@ -762,7 +768,7 @@ func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -787,7 +793,7 @@ func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 	}
 
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, ""); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -822,7 +828,7 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 
 	// Install with responses.
 	responses := packages.Responses{"hostname": "webserver", "port": "9090"}
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", responses); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", responses, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@2.0: %v", err)
 	}
 
@@ -875,10 +881,10 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -978,13 +984,13 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
 	calls := sd.GetCalls()
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 systemd calls, got %d", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls, got %d", len(calls))
 	}
 
 	if calls[0].Method != "InstallUnit" {
@@ -997,15 +1003,8 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 	if calls[1].Method != "SetStatus" {
 		t.Fatalf("call 1: expected SetStatus, got %q", calls[1].Method)
 	}
-	if calls[1].Args[1].(systemd.StatusAction) != systemd.Enable {
-		t.Fatalf("call 1: expected Enable, got %v", calls[1].Args[1])
-	}
-
-	if calls[2].Method != "SetStatus" {
-		t.Fatalf("call 2: expected SetStatus, got %q", calls[2].Method)
-	}
-	if calls[2].Args[1].(systemd.StatusAction) != systemd.Start {
-		t.Fatalf("call 2: expected Start, got %v", calls[2].Args[1])
+	if calls[1].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 1: expected Start, got %v", calls[1].Args[1])
 	}
 }
 
@@ -1016,7 +1015,7 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1025,41 +1024,31 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 	}
 
 	calls := sd.GetCalls()
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls, got %d", len(calls))
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 systemd calls, got %d", len(calls))
 	}
 
-	// Install phase: InstallUnit, Enable, Start
+	// Install phase: InstallUnit, Start
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[1].Args[1].(systemd.StatusAction) != systemd.Enable {
-		t.Fatalf("call 1: expected Enable, got %v", calls[1].Args[1])
-	}
-	if calls[2].Args[1].(systemd.StatusAction) != systemd.Start {
-		t.Fatalf("call 2: expected Start, got %v", calls[2].Args[1])
+	if calls[1].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 1: expected Start, got %v", calls[1].Args[1])
 	}
 
-	// Uninstall phase: Stop, Disable, UninstallUnit
-	if calls[3].Method != "SetStatus" {
-		t.Fatalf("call 3: expected SetStatus, got %q", calls[3].Method)
+	// Uninstall phase: Stop, UninstallUnit
+	if calls[2].Method != "SetStatus" {
+		t.Fatalf("call 2: expected SetStatus, got %q", calls[2].Method)
 	}
-	if calls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
-		t.Fatalf("call 3: expected Stop, got %v", calls[3].Args[1])
-	}
-
-	if calls[4].Method != "SetStatus" {
-		t.Fatalf("call 4: expected SetStatus, got %q", calls[4].Method)
-	}
-	if calls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
-		t.Fatalf("call 4: expected Disable, got %v", calls[4].Args[1])
+	if calls[2].Args[1].(systemd.StatusAction) != systemd.Stop {
+		t.Fatalf("call 2: expected Stop, got %v", calls[2].Args[1])
 	}
 
-	if calls[5].Method != "UninstallUnit" {
-		t.Fatalf("call 5: expected UninstallUnit, got %q", calls[5].Method)
+	if calls[3].Method != "UninstallUnit" {
+		t.Fatalf("call 3: expected UninstallUnit, got %q", calls[3].Method)
 	}
-	if calls[5].Args[0].(string) != "town-os-nginx.service" {
-		t.Fatalf("call 5: expected unit %q, got %v", "town-os-nginx.service", calls[5].Args[0])
+	if calls[3].Args[0].(string) != "town-os-nginx.service" {
+		t.Fatalf("call 3: expected unit %q, got %v", "town-os-nginx.service", calls[3].Args[0])
 	}
 }
 
@@ -1071,7 +1060,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	}
 
 	// Install nginx@1.0
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1087,10 +1076,10 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
-	// Verify 3 systemd calls from install
+	// Verify 2 systemd calls from install
 	calls := sd.GetCalls()
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 systemd calls after install, got %d", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls after install, got %d", len(calls))
 	}
 
 	// Uninstall
@@ -1107,10 +1096,10 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
-	// Verify all 6 systemd calls with correct unit name
+	// Verify all 4 systemd calls with correct unit name
 	calls = sd.GetCalls()
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls total, got %d", len(calls))
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 systemd calls total, got %d", len(calls))
 	}
 
 	for _, call := range calls {
@@ -1128,45 +1117,42 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
 	calls := sd.GetCalls()
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls (3 per package), got %d", len(calls))
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 systemd calls (2 per package), got %d", len(calls))
 	}
 
-	// First 3 calls for nginx
-	for i := 0; i < 3; i++ {
+	// First 2 calls for nginx
+	for i := 0; i < 2; i++ {
 		unit := calls[i].Args[0].(string)
 		if unit != "town-os-nginx.service" {
 			t.Fatalf("call %d: expected unit %q, got %q", i, "town-os-nginx.service", unit)
 		}
 	}
 
-	// Next 3 calls for redis
-	for i := 3; i < 6; i++ {
+	// Next 2 calls for redis
+	for i := 2; i < 4; i++ {
 		unit := calls[i].Args[0].(string)
 		if unit != "town-os-redis.service" {
 			t.Fatalf("call %d: expected unit %q, got %q", i, "town-os-redis.service", unit)
 		}
 	}
 
-	// Verify call sequence for each package: InstallUnit, Enable, Start
-	for _, offset := range []int{0, 3} {
+	// Verify call sequence for each package: InstallUnit, Start
+	for _, offset := range []int{0, 2} {
 		if calls[offset].Method != "InstallUnit" {
 			t.Fatalf("call %d: expected InstallUnit, got %q", offset, calls[offset].Method)
 		}
-		if calls[offset+1].Method != "SetStatus" || calls[offset+1].Args[1].(systemd.StatusAction) != systemd.Enable {
-			t.Fatalf("call %d: expected SetStatus/Enable, got %q/%v", offset+1, calls[offset+1].Method, calls[offset+1].Args[1])
-		}
-		if calls[offset+2].Method != "SetStatus" || calls[offset+2].Args[1].(systemd.StatusAction) != systemd.Start {
-			t.Fatalf("call %d: expected SetStatus/Start, got %q/%v", offset+2, calls[offset+2].Method, calls[offset+2].Args[1])
+		if calls[offset+1].Method != "SetStatus" || calls[offset+1].Args[1].(systemd.StatusAction) != systemd.Start {
+			t.Fatalf("call %d: expected SetStatus/Start, got %q/%v", offset+1, calls[offset+1].Method, calls[offset+1].Args[1])
 		}
 	}
 }
@@ -1225,7 +1211,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	}
 
 	// Install nginx@1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1405,7 +1391,7 @@ func TestSystemControllerSystemdListUnitsPreservesAllFields(t *testing.T) {
 }
 
 func TestSystemControllerSystemdSetUnitStatusAllActions(t *testing.T) {
-	for _, action := range []systemd.StatusAction{systemd.Start, systemd.Stop, systemd.Restart, systemd.Enable, systemd.Disable} {
+	for _, action := range []systemd.StatusAction{systemd.Start, systemd.Stop, systemd.Restart} {
 		t.Run(string(action), func(t *testing.T) {
 			sd := systemd.InitMockManager()
 			c := initSystemControllerSystemdTest(t, sd)
@@ -1436,6 +1422,19 @@ func TestSystemControllerSystemdSetUnitStatusAllActions(t *testing.T) {
 			}
 			if gotAction != action {
 				t.Fatalf("expected action %q, got %q", action, gotAction)
+			}
+		})
+	}
+
+	// Enable and disable must be rejected.
+	for _, action := range []systemd.StatusAction{systemd.Enable, systemd.Disable} {
+		t.Run(string(action), func(t *testing.T) {
+			sd := systemd.InitMockManager()
+			c := initSystemControllerSystemdTest(t, sd)
+
+			err := c.SetUnitStatus(context.TODO(), "nginx.service", action)
+			if err == nil {
+				t.Fatalf("expected error for %q action", action)
 			}
 		})
 	}
@@ -1655,10 +1654,7 @@ func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
 		t.Fatalf("expected inactive, got %q", units.Entries[0].ActiveState)
 	}
 
-	// Enable and start.
-	if err := c.SetUnitStatus(context.TODO(), "nginx.service", systemd.Enable); err != nil {
-		t.Fatalf("Enable: %v", err)
-	}
+	// Start.
 	if err := c.SetUnitStatus(context.TODO(), "nginx.service", systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1686,21 +1682,18 @@ func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
 		t.Fatalf("expected first message %q, got %q", "Starting nginx...", entries[0].Message)
 	}
 
-	// Stop and disable.
+	// Stop.
 	if err := c.SetUnitStatus(context.TODO(), "nginx.service", systemd.Stop); err != nil {
 		t.Fatalf("Stop: %v", err)
-	}
-	if err := c.SetUnitStatus(context.TODO(), "nginx.service", systemd.Disable); err != nil {
-		t.Fatalf("Disable: %v", err)
 	}
 
 	// Verify full call log.
 	calls := sd.GetCalls()
-	if len(calls) != 7 {
-		t.Fatalf("expected 7 calls, got %d", len(calls))
+	if len(calls) != 5 {
+		t.Fatalf("expected 5 calls, got %d", len(calls))
 	}
 
-	expected := []string{"ListUnits", "ListUnits", "SetStatus", "SetStatus", "LogReplay", "SetStatus", "SetStatus"}
+	expected := []string{"ListUnits", "ListUnits", "SetStatus", "LogReplay", "SetStatus"}
 	for i, want := range expected {
 		if calls[i].Method != want {
 			t.Fatalf("call %d: expected method %q, got %q", i, want, calls[i].Method)
@@ -1844,7 +1837,7 @@ func TestSystemControllerCreateWithQuota(t *testing.T) {
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-quota")
+	list, err := c.ListFilesystems(context.TODO(), "sc-quota", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
@@ -1873,7 +1866,7 @@ func TestSystemControllerModifyQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem set quota: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-modq")
+	list, err := c.ListFilesystems(context.TODO(), "sc-modq", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems after set: %v", err)
 	}
@@ -1889,7 +1882,7 @@ func TestSystemControllerModifyQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem clear quota: %v", err)
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), "sc-modq")
+	list, err = c.ListFilesystems(context.TODO(), "sc-modq", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems after clear: %v", err)
 	}
@@ -1918,7 +1911,7 @@ func TestSystemControllerNestedSubvolumes(t *testing.T) {
 	})
 
 	// All three should appear when listing with the parent prefix.
-	list, err := c.ListFilesystems(context.TODO(), "sc-nest/")
+	list, err := c.ListFilesystems(context.TODO(), "sc-nest/", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems with parent prefix: %v", err)
 	}
@@ -1927,7 +1920,7 @@ func TestSystemControllerNestedSubvolumes(t *testing.T) {
 	}
 
 	// Exact match should return only the leaf.
-	list, err = c.ListFilesystems(context.TODO(), "sc-nest/parent/child/deep")
+	list, err = c.ListFilesystems(context.TODO(), "sc-nest/parent/child/deep", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems exact: %v", err)
 	}
@@ -1961,7 +1954,7 @@ func TestSystemControllerNestedSubvolumeQuotaOnLeaf(t *testing.T) {
 	})
 
 	// Child should have its quota.
-	list, err := c.ListFilesystems(context.TODO(), "sc-leafq/parent/child")
+	list, err := c.ListFilesystems(context.TODO(), "sc-leafq/parent/child", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems child: %v", err)
 	}
@@ -1973,7 +1966,7 @@ func TestSystemControllerNestedSubvolumeQuotaOnLeaf(t *testing.T) {
 	}
 
 	// Parent should have no quota.
-	list, err = c.ListFilesystems(context.TODO(), "sc-leafq/parent")
+	list, err = c.ListFilesystems(context.TODO(), "sc-leafq/parent", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems parent: %v", err)
 	}
@@ -2001,7 +1994,7 @@ func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
 		t.Fatalf("ModifyFilesystem: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-qname")
+	list, err := c.ListFilesystems(context.TODO(), "sc-qname", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
@@ -2048,7 +2041,7 @@ func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
 	})
 
 	// List all children.
-	list, err := c.ListFilesystems(context.TODO(), "sc-mnq/data")
+	list, err := c.ListFilesystems(context.TODO(), "sc-mnq/data", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
@@ -2075,12 +2068,12 @@ func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
 // --- Purge volume integration tests ---
 
 func TestSystemControllerPurgeVolumes(t *testing.T) {
-	c := initSystemControllerTest(t)
+	c, btr := initSystemControllerTestWithStorage(t)
 
-	// Simulate package "sc-purge" with two child volumes.
-	children := []string{"sc-purge/data", "sc-purge/logs"}
+	// Simulate package "sc-purge" with two child volumes via direct storage.
+	children := []string{"installed/sc-purge/data", "installed/sc-purge/logs"}
 	for _, name := range children {
-		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+		if err := btr.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
@@ -2088,13 +2081,13 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 	// Safety net: if purge fails, clean up manually.
 	t.Cleanup(func() {
 		for i := len(children) - 1; i >= 0; i-- {
-			_ = c.RemoveFilesystem(context.TODO(), children[i])
+			_ = btr.RemoveFilesystem(children[i])
 		}
-		_ = c.RemoveFilesystem(context.TODO(), "sc-purge")
+		_ = btr.RemoveFilesystem("installed/sc-purge")
 	})
 
-	// Verify children exist.
-	list, err := c.ListFilesystems(context.TODO(), "sc-purge/")
+	// Verify children exist via direct storage.
+	list, err := btr.ListFilesystems("installed/sc-purge/")
 	if err != nil {
 		t.Fatalf("ListFilesystems before purge: %v", err)
 	}
@@ -2108,7 +2101,7 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 	}
 
 	// Verify all children are gone.
-	list, err = c.ListFilesystems(context.TODO(), "sc-purge/")
+	list, err = btr.ListFilesystems("installed/sc-purge/")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2117,7 +2110,7 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 	}
 
 	// Verify the parent intermediate is also gone.
-	list, err = c.ListFilesystems(context.TODO(), "sc-purge")
+	list, err = btr.ListFilesystems("installed/sc-purge")
 	if err != nil {
 		t.Fatalf("ListFilesystems parent after purge: %v", err)
 	}
@@ -2127,20 +2120,20 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
-	c := initSystemControllerTest(t)
+	c, btr := initSystemControllerTestWithStorage(t)
 
-	// Create two packages with similar prefixes.
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-pfx/data"}); err != nil {
-		t.Fatalf("CreateFilesystem sc-pfx/data: %v", err)
+	// Create two packages with similar prefixes via direct storage.
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: "installed/sc-pfx/data"}); err != nil {
+		t.Fatalf("CreateFilesystem packages/sc-pfx/data: %v", err)
 	}
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-pfx2/data"}); err != nil {
-		t.Fatalf("CreateFilesystem sc-pfx2/data: %v", err)
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: "installed/sc-pfx2/data"}); err != nil {
+		t.Fatalf("CreateFilesystem packages/sc-pfx2/data: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx/data")
-		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx")
-		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx2/data")
-		_ = c.RemoveFilesystem(context.TODO(), "sc-pfx2")
+		_ = btr.RemoveFilesystem("installed/sc-pfx/data")
+		_ = btr.RemoveFilesystem("installed/sc-pfx")
+		_ = btr.RemoveFilesystem("installed/sc-pfx2/data")
+		_ = btr.RemoveFilesystem("installed/sc-pfx2")
 	})
 
 	// Purge "sc-pfx" only.
@@ -2149,50 +2142,50 @@ func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
 	}
 
 	// sc-pfx should be gone.
-	list, err := c.ListFilesystems(context.TODO(), "sc-pfx/")
+	list, err := btr.ListFilesystems("installed/sc-pfx/")
 	if err != nil {
-		t.Fatalf("ListFilesystems sc-pfx/: %v", err)
+		t.Fatalf("ListFilesystems installed/sc-pfx/: %v", err)
 	}
 	if len(list) != 0 {
-		t.Fatalf("expected 0 filesystems for sc-pfx/, got %d", len(list))
+		t.Fatalf("expected 0 filesystems for installed/sc-pfx/, got %d", len(list))
 	}
 
 	// sc-pfx2 should survive.
-	list, err = c.ListFilesystems(context.TODO(), "sc-pfx2/")
+	list, err = btr.ListFilesystems("installed/sc-pfx2/")
 	if err != nil {
-		t.Fatalf("ListFilesystems sc-pfx2/: %v", err)
+		t.Fatalf("ListFilesystems installed/sc-pfx2/: %v", err)
 	}
 	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem for sc-pfx2/, got %d", len(list))
+		t.Fatalf("expected 1 filesystem for installed/sc-pfx2/, got %d", len(list))
 	}
 }
 
 func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
-	c := initSystemControllerTest(t)
+	c, btr := initSystemControllerTestWithStorage(t)
 
 	names := []string{
-		"sc-dpurge/a",
-		"sc-dpurge/a/b",
-		"sc-dpurge/a/b/c",
-		"sc-dpurge/a/b/c/d",
+		"installed/sc-dpurge/a",
+		"installed/sc-dpurge/a/b",
+		"installed/sc-dpurge/a/b/c",
+		"installed/sc-dpurge/a/b/c/d",
 	}
 	for _, name := range names {
-		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+		if err := btr.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 	t.Cleanup(func() {
 		for i := len(names) - 1; i >= 0; i-- {
-			_ = c.RemoveFilesystem(context.TODO(), names[i])
+			_ = btr.RemoveFilesystem(names[i])
 		}
-		_ = c.RemoveFilesystem(context.TODO(), "sc-dpurge")
+		_ = btr.RemoveFilesystem("installed/sc-dpurge")
 	})
 
 	if err := c.PurgeVolumes(context.TODO(), "sc-dpurge"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-dpurge")
+	list, err := btr.ListFilesystems("installed/sc-dpurge")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2218,7 +2211,7 @@ func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
 	}
 
 	// The unrelated filesystem should still exist.
-	list, err := c.ListFilesystems(context.TODO(), "sc-surv")
+	list, err := c.ListFilesystems(context.TODO(), "sc-surv", "")
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
@@ -2228,26 +2221,26 @@ func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
-	c := initSystemControllerTest(t)
+	c, btr := initSystemControllerTestWithStorage(t)
 
 	children := []storage.Filesystem{
-		{Name: "sc-pq/data", Quota: 1048576},
-		{Name: "sc-pq/logs", Quota: 2097152},
+		{Name: "installed/sc-pq/data", Quota: 1048576},
+		{Name: "installed/sc-pq/logs", Quota: 2097152},
 	}
 	for _, f := range children {
-		if err := c.CreateFilesystem(context.TODO(), f); err != nil {
+		if err := btr.CreateFilesystem(f); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", f.Name, err)
 		}
 	}
 	t.Cleanup(func() {
 		for i := len(children) - 1; i >= 0; i-- {
-			_ = c.RemoveFilesystem(context.TODO(), children[i].Name)
+			_ = btr.RemoveFilesystem(children[i].Name)
 		}
-		_ = c.RemoveFilesystem(context.TODO(), "sc-pq")
+		_ = btr.RemoveFilesystem("installed/sc-pq")
 	})
 
-	// Verify quotas exist before purge.
-	list, err := c.ListFilesystems(context.TODO(), "sc-pq/")
+	// Verify quotas exist before purge via direct storage.
+	list, err := btr.ListFilesystems("installed/sc-pq/")
 	if err != nil {
 		t.Fatalf("ListFilesystems before purge: %v", err)
 	}
@@ -2264,7 +2257,7 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), "sc-pq")
+	list, err = btr.ListFilesystems("installed/sc-pq")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2274,32 +2267,32 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
-	c := initSystemControllerTest(t)
+	c, btr := initSystemControllerTestWithStorage(t)
 
 	names := []string{
-		"sc-pmulti/alpha",
-		"sc-pmulti/bravo",
-		"sc-pmulti/charlie",
-		"sc-pmulti/delta",
-		"sc-pmulti/echo",
+		"installed/sc-pmulti/alpha",
+		"installed/sc-pmulti/bravo",
+		"installed/sc-pmulti/charlie",
+		"installed/sc-pmulti/delta",
+		"installed/sc-pmulti/echo",
 	}
 	for _, name := range names {
-		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+		if err := btr.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
 		}
 	}
 	t.Cleanup(func() {
 		for i := len(names) - 1; i >= 0; i-- {
-			_ = c.RemoveFilesystem(context.TODO(), names[i])
+			_ = btr.RemoveFilesystem(names[i])
 		}
-		_ = c.RemoveFilesystem(context.TODO(), "sc-pmulti")
+		_ = btr.RemoveFilesystem("installed/sc-pmulti")
 	})
 
 	if err := c.PurgeVolumes(context.TODO(), "sc-pmulti"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-pmulti")
+	list, err := btr.ListFilesystems("installed/sc-pmulti")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2480,5 +2473,184 @@ func TestSettingsAdminOverrideAndList(t *testing.T) {
 	}
 	if settings["default_quota"] != "0" {
 		t.Fatalf("expected default_quota %q, got %q", "0", settings["default_quota"])
+	}
+}
+
+// --- Reconciliation tests ---
+
+// initReconcileTest creates a test server with all components wired up and
+// returns them individually so tests can exercise Reconcile directly.
+func initReconcileTest(t *testing.T) (
+	*systemcontroller.SystemdClient,
+	*packages.RepositoryRoot,
+	packages.Installer,
+	*systemd.MockManager,
+	storage.Storage,
+) {
+	t.Helper()
+
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal empty repository list: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile repositories file: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("failed to load repository root: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:        mock,
+		RepositoryRoot: rr,
+		Installer:      inst,
+		Systemd:        sd,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, rr, inst, sd, mock
+}
+
+func TestReconcileAfterInstall(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTest(t)
+
+	// Add a repository and install a package via the API.
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// Verify the install created a systemd unit.
+	installCalls := sd.GetCalls()
+	if len(installCalls) != 2 {
+		t.Fatalf("expected 2 systemd calls from install, got %d", len(installCalls))
+	}
+
+	// Simulate a container restart: clear the mock systemd state.
+	// The installed state (symlinks + responses) persists but units are gone.
+	sd.Calls = nil
+
+	// Run reconciliation.
+	err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Verify reconciliation re-created the unit.
+	calls := sd.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls from reconcile, got %d: %v", len(calls), calls)
+	}
+
+	if calls[0].Method != "InstallUnit" {
+		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
+	}
+	unitName := calls[0].Args[0].(string)
+	if unitName != "town-os-nginx.service" {
+		t.Fatalf("expected unit town-os-nginx.service, got %s", unitName)
+	}
+
+	if calls[1].Method != "SetStatus" || calls[1].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 1: expected SetStatus Start, got %s %v", calls[1].Method, calls[1].Args)
+	}
+
+	// Verify installed state is intact.
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(pkgs.Entries) != 1 || pkgs.Entries[0] != "nginx@1.0" {
+		t.Fatalf("expected [nginx@1.0], got %v", pkgs.Entries)
+	}
+}
+
+func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTest(t)
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}, false, ""); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	// Clear mock systemd calls (simulate restart).
+	sd.Calls = nil
+
+	err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	// 2 packages * 2 calls each = 4
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 systemd calls, got %d", len(calls))
+	}
+}
+
+func TestReconcilePreservesResponses(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTest(t)
+
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	responses := packages.Responses{"hostname": "myhost", "port": "9090"}
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, ""); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	sd.Calls = nil
+
+	err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Verify responses are still accessible via the API.
+	resp, err := c.GetResponses(context.TODO(), "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+	if resp["hostname"] != "myhost" {
+		t.Fatalf("expected hostname myhost, got %s", resp["hostname"])
+	}
+	if resp["port"] != "9090" {
+		t.Fatalf("expected port 9090, got %s", resp["port"])
 	}
 }

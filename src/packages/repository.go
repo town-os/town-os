@@ -39,6 +39,7 @@ type RepositoryManager interface {
 	RefreshErrors() map[string]string
 	LoadAllPackages() (PackageTable, error)
 	ListPackages() ([]string, error)
+	ListPackageVersions(name string) ([]string, error)
 	LatestPackage(name string) (InputPackage, string, error)
 	GetPackageQuestions(name string) (map[string]Question, error)
 	FindRepoForPackage(name, version string) (string, error)
@@ -363,6 +364,39 @@ func CompareVersions(a, b string) int {
 	}
 
 	return 0
+}
+
+// ListPackageVersions returns all available versions of a named package across
+// all repositories, sorted highest-to-lowest.
+func (rr *RepositoryRoot) ListPackageVersions(name string) ([]string, error) {
+	seen := map[string]bool{}
+
+	for _, repo := range rr.Items {
+		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+		}
+
+		versions, ok := pkgs[name]
+		if !ok {
+			continue
+		}
+
+		for version := range versions {
+			seen[version] = true
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for v := range seen {
+		out = append(out, v)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return CompareVersions(out[i], out[j]) > 0
+	})
+
+	return out, nil
 }
 
 var ErrPackageNotFound = fmt.Errorf("package not found")

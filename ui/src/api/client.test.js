@@ -107,14 +107,50 @@ describe('SystemControllerClient', () => {
   describe('listFilesystems', () => {
     it('returns parsed array', async () => {
       const fsList = [
-        { name: 'data', quota: 1024 },
-        { name: 'logs', quota: 512 },
+        { name: 'data', quota: 1024, state: 'user' },
+        { name: 'logs', quota: 512, state: 'user' },
       ]
       mockFetch(fsList)
       client.setToken('tok')
 
       const result = await client.listFilesystems('')
       expect(result).toEqual(fsList)
+    })
+
+    it('sends state parameter when provided', async () => {
+      mockFetch([])
+      client.setToken('tok')
+
+      await client.listFilesystems('', 'name', 'asc', 'installed')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/storage',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: '', sort_by: 'name', sort_order: 'asc', state: 'installed' }),
+        },
+      )
+    })
+
+    it('omits state parameter when not provided', async () => {
+      mockFetch([])
+      client.setToken('tok')
+
+      await client.listFilesystems('', 'name', 'asc')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/storage',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: '', sort_by: 'name', sort_order: 'asc' }),
+        },
+      )
     })
   })
 
@@ -648,6 +684,46 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('disablePackage', () => {
+    it('sends name in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.disablePackage('nginx')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/disable',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'nginx' }),
+        },
+      )
+    })
+  })
+
+  describe('enablePackage', () => {
+    it('sends name in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.enablePackage('nginx')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/enable',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'nginx' }),
+        },
+      )
+    })
+  })
+
   describe('enableAccount', () => {
     it('sends username in POST body', async () => {
       mockFetchEmpty()
@@ -977,6 +1053,121 @@ describe('SystemControllerClient', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'default_quota' }),
+        },
+      )
+    })
+  })
+
+  describe('listPackageVersions', () => {
+    it('sends name and returns versions', async () => {
+      mockFetch(['2.0', '1.0'])
+      client.setToken('tok')
+
+      const result = await client.listPackageVersions('nginx')
+      expect(result).toEqual(['2.0', '1.0'])
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/versions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'nginx' }),
+        },
+      )
+    })
+  })
+
+  describe('listUninstalledVolumes', () => {
+    it('sends name and returns response object', async () => {
+      const resp = {
+        has_uninstalled_volumes: true,
+        uninstalled_versions: ['1.0'],
+        installed_versions: ['2.0'],
+      }
+      mockFetch(resp)
+      client.setToken('tok')
+
+      const result = await client.listUninstalledVolumes('nginx')
+      expect(result).toEqual(resp)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/uninstalled-volumes',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'nginx' }),
+        },
+      )
+    })
+  })
+
+  describe('purgeUninstalledVolumes', () => {
+    it('sends name in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.purgeUninstalledVolumes('nginx')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/purge-uninstalled-volumes',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'nginx' }),
+        },
+      )
+    })
+  })
+
+  describe('installPackage with reuseVolumes', () => {
+    it('includes reuse_volumes when true', async () => {
+      mockFetchEmpty()
+
+      await client.installPackage('nginx', '1.0', {}, true)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/install',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'nginx', version: '1.0', responses: {}, reuse_volumes: true }),
+        },
+      )
+    })
+  })
+
+  describe('installPackage with importFromVersion', () => {
+    it('includes import_from_version when set', async () => {
+      mockFetchEmpty()
+
+      await client.installPackage('nginx', '2.0', {}, false, '1.0')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/install',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'nginx', version: '2.0', responses: {}, import_from_version: '1.0' }),
+        },
+      )
+    })
+  })
+
+  describe('installPackage without optional params', () => {
+    it('does not include reuse_volumes or import_from_version', async () => {
+      mockFetchEmpty()
+
+      await client.installPackage('nginx', '1.0', { hostname: 'example' })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/install',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'nginx', version: '1.0', responses: { hostname: 'example' } }),
         },
       )
     })

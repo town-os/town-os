@@ -27,7 +27,11 @@ func (m *SystemdManager) ListUnits(ctx context.Context) ([]UnitStatus, error) {
 	}
 	defer conn.Close()
 
-	units, err := conn.ListUnitsContext(ctx)
+	// Use ListUnitsByPatternsContext with empty states to include units in
+	// all states (active, inactive, not-loaded). ListUnitsContext only
+	// returns loaded units, so stopped-and-unloaded services would be
+	// missing from the results.
+	units, err := conn.ListUnitsByPatternsContext(ctx, []string{}, []string{"*"})
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@
  * @typedef {Object} Filesystem
  * @property {string} name
  * @property {number} quota
+ * @property {string} [state]
  */
 
 /**
@@ -51,7 +52,7 @@
  * @property {string} Transport
  */
 
-/** @typedef {"start" | "stop" | "restart" | "enable" | "disable"} StatusAction */
+/** @typedef {"start" | "stop" | "restart"} StatusAction */
 
 /**
  * @typedef {Object} Account

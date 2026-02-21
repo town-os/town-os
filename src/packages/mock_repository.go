@@ -2,6 +2,7 @@ package packages
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -11,18 +12,19 @@ type MockRepositoryCall struct {
 }
 
 type MockRepositoryManager struct {
-	mu              sync.Mutex
-	Items           []Repository
-	Packages        PackageTable
-	Calls           []MockRepositoryCall
-	AddErr          error
-	RemoveErr       error
-	ListReposErr    error
-	LoadAllErr      error
-	ListPackagesErr error
-	LatestErr       error
-	QuestionsErr    error
-	FindRepoErr     error
+	mu                     sync.Mutex
+	Items                  []Repository
+	Packages               PackageTable
+	Calls                  []MockRepositoryCall
+	AddErr                 error
+	RemoveErr              error
+	ListReposErr           error
+	LoadAllErr             error
+	ListPackagesErr        error
+	ListPackageVersionsErr error
+	LatestErr              error
+	QuestionsErr           error
+	FindRepoErr            error
 }
 
 func InitMockRepositoryManager() *MockRepositoryManager {
@@ -160,6 +162,32 @@ func (m *MockRepositoryManager) ListPackages() ([]string, error) {
 	for name, version := range best {
 		out = append(out, PackageIdentity{Name: name, Version: version}.String())
 	}
+
+	return out, nil
+}
+
+func (m *MockRepositoryManager) ListPackageVersions(name string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockRepositoryCall{Method: "ListPackageVersions", Args: []any{name}})
+
+	if m.ListPackageVersionsErr != nil {
+		return nil, m.ListPackageVersionsErr
+	}
+
+	versions, ok := m.Packages[name]
+	if !ok {
+		return nil, nil
+	}
+
+	out := make([]string, 0, len(versions))
+	for v := range versions {
+		out = append(out, v)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return CompareVersions(out[i], out[j]) > 0
+	})
 
 	return out, nil
 }

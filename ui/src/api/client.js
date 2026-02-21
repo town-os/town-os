@@ -209,12 +209,14 @@ export class SystemControllerClient {
    * @param {string} prefix
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
+   * @param {string} [state]
    * @returns {Promise<Filesystem[]>}
    */
-  async listFilesystems(prefix, sortBy, sortOrder) {
+  async listFilesystems(prefix, sortBy, sortOrder, state) {
     const body = { name: prefix }
     if (sortBy) body.sort_by = sortBy
     if (sortOrder) body.sort_order = sortOrder
+    if (state) body.state = state
     return this.postJSON('/storage', body)
   }
 
@@ -477,12 +479,41 @@ export class SystemControllerClient {
 
   /**
    * @param {string} name
-   * @param {string} version
-   * @param {Responses} responses
+   * @returns {Promise<string[]>}
+   */
+  async listPackageVersions(name) {
+    return this.postJSON('/packages/versions', { name })
+  }
+
+  /**
+   * @param {string} name
+   * @returns {Promise<{has_uninstalled_volumes: boolean, uninstalled_versions?: string[], installed_versions?: string[]}>}
+   */
+  async listUninstalledVolumes(name) {
+    return this.postJSON('/packages/uninstalled-volumes', { name })
+  }
+
+  /**
+   * @param {string} name
    * @returns {Promise<void>}
    */
-  async installPackage(name, version, responses) {
-    await this.post('/packages/install', { name, version, responses })
+  async purgeUninstalledVolumes(name) {
+    await this.post('/packages/purge-uninstalled-volumes', { name })
+  }
+
+  /**
+   * @param {string} name
+   * @param {string} version
+   * @param {Responses} responses
+   * @param {boolean} [reuseVolumes=false]
+   * @param {string} [importFromVersion]
+   * @returns {Promise<void>}
+   */
+  async installPackage(name, version, responses, reuseVolumes = false, importFromVersion) {
+    const body = { name, version, responses }
+    if (reuseVolumes) body.reuse_volumes = true
+    if (importFromVersion) body.import_from_version = importFromVersion
+    await this.post('/packages/install', body)
   }
 
   /**
@@ -510,6 +541,22 @@ export class SystemControllerClient {
    */
   async setUnitStatus(name, action) {
     await this.post('/systemd/status', { name, action })
+  }
+
+  /**
+   * @param {string} name
+   * @returns {Promise<void>}
+   */
+  async disablePackage(name) {
+    await this.post('/packages/disable', { name })
+  }
+
+  /**
+   * @param {string} name
+   * @returns {Promise<void>}
+   */
+  async enablePackage(name) {
+    await this.post('/packages/enable', { name })
   }
 
   /**

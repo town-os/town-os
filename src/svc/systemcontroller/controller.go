@@ -25,6 +25,56 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 )
 
+const (
+	PackagesVolumePrefix    = "installed"
+	UninstalledVolumePrefix = "uninstalled"
+)
+
+// isReservedFilesystem returns true if the given name is one of the
+// system-managed volume prefixes that users must not create, modify, or delete.
+func isReservedFilesystem(name string) bool {
+	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix {
+		return true
+	}
+	if strings.HasPrefix(name, fmt.Sprintf("%s/", PackagesVolumePrefix)) {
+		return true
+	}
+	if strings.HasPrefix(name, fmt.Sprintf("%s/", UninstalledVolumePrefix)) {
+		return true
+	}
+	return false
+}
+
+// classifyFilesystem determines the state of a filesystem based on its name
+// prefix. Returns the state ("user", "installed", "uninstalled") and the
+// display name with internal prefixes stripped. Root subvolumes (installed,
+// uninstalled, empty name) return empty state to signal they should be skipped.
+func classifyFilesystem(name string) (state, displayName string) {
+	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix {
+		return "", name
+	}
+
+	installedPrefix := fmt.Sprintf("%s/", PackagesVolumePrefix)
+	uninstalledPrefix := fmt.Sprintf("%s/", UninstalledVolumePrefix)
+
+	if strings.HasPrefix(name, installedPrefix) {
+		return "installed", strings.TrimPrefix(name, installedPrefix)
+	}
+	if strings.HasPrefix(name, uninstalledPrefix) {
+		return "uninstalled", strings.TrimPrefix(name, uninstalledPrefix)
+	}
+
+	return "user", name
+}
+
+func packageVolumePath(name, version, volName string) string {
+	return fmt.Sprintf("%s/%s/%s/%s", PackagesVolumePrefix, name, version, volName)
+}
+
+func packagePrefix(name string) string {
+	return fmt.Sprintf("%s/%s/", PackagesVolumePrefix, name)
+}
+
 type systemControllerBackend interface {
 	GetStorage() storage.Storage
 	GetRepositoryRoot() *packages.RepositoryRoot
@@ -48,6 +98,7 @@ type FilesystemName struct {
 	Name      string `json:"name"`
 	SortBy    string `json:"sort_by"`
 	SortOrder string `json:"sort_order"`
+	State     string `json:"state,omitempty"`
 }
 
 type ModifyFilesystemRequest struct {
@@ -83,9 +134,11 @@ type PackageIdentityRequest struct {
 }
 
 type InstallRequest struct {
-	Name      string             `json:"name"`
-	Version   string             `json:"version"`
-	Responses packages.Responses `json:"responses"`
+	Name              string             `json:"name"`
+	Version           string             `json:"version"`
+	Responses         packages.Responses `json:"responses"`
+	ReuseVolumes      bool               `json:"reuse_volumes"`
+	ImportFromVersion string             `json:"import_from_version,omitempty"`
 }
 
 type UninstallRequest struct {
@@ -103,6 +156,12 @@ type InstalledInfoResponse struct {
 	Questions map[string]packages.Question `json:"questions"`
 	Responses packages.Responses           `json:"responses"`
 	Notes     map[string]string            `json:"notes"`
+}
+
+type UninstalledVolumesResponse struct {
+	HasUninstalledVolumes bool     `json:"has_uninstalled_volumes"`
+	UninstalledVersions   []string `json:"uninstalled_versions,omitempty"`
+	InstalledVersions     []string `json:"installed_versions,omitempty"`
 }
 
 type SetStatusRequest struct {
@@ -217,9 +276,19 @@ func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 		return err
 	}
 
+	if fs.State == "installed" || fs.State == "uninstalled" {
+		return storage.ErrReservedFilesystem
+	}
+
+	if isReservedFilesystem(fs.Name) {
+		return storage.ErrReservedFilesystem
+	}
+
 	if fs.Quota == 0 {
 		fs.Quota = s.defaultQuota()
 	}
+
+	fs.State = ""
 
 	if err := s.Controller.GetStorage().CreateFilesystem(fs); err != nil {
 		return err
@@ -237,8 +306,16 @@ func (s *SystemControllerHandlers) removeFilesystem(c *echo.Context) error {
 		return err
 	}
 
+	if fs.State == "installed" || fs.State == "uninstalled" {
+		return storage.ErrReservedFilesystem
+	}
+
 	if fs.Name == "" {
 		return storage.ErrRootFilesystem
+	}
+
+	if isReservedFilesystem(fs.Name) {
+		return storage.ErrReservedFilesystem
 	}
 
 	if err := s.Controller.GetStorage().RemoveFilesystem(fs.Name); err != nil {
@@ -257,9 +334,19 @@ func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
 		return err
 	}
 
+	if req.Filesystem.State == "installed" || req.Filesystem.State == "uninstalled" {
+		return storage.ErrReservedFilesystem
+	}
+
 	if req.Name == "" {
 		return storage.ErrRootFilesystem
 	}
+
+	if isReservedFilesystem(req.Name) {
+		return storage.ErrReservedFilesystem
+	}
+
+	req.Filesystem.State = ""
 
 	if err := s.Controller.GetStorage().ModifyFilesystem(req.Name, req.Filesystem); err != nil {
 		return err
@@ -284,9 +371,16 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 
 	filtered := make([]storage.Filesystem, 0, len(list))
 	for _, f := range list {
-		if f.Name != "" {
-			filtered = append(filtered, f)
+		state, displayName := classifyFilesystem(f.Name)
+		if state == "" {
+			continue
 		}
+		if fs.State != "" && state != fs.State {
+			continue
+		}
+		f.Name = displayName
+		f.State = state
+		filtered = append(filtered, f)
 	}
 
 	sortSlice(filtered, fs.SortBy, fs.SortOrder)
@@ -392,6 +486,35 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 		return err
 	}
 
+	// Merge installed packages that may not be the latest version.
+	inst := s.Controller.GetInstaller()
+	if inst != nil {
+		installed, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
+
+		known := map[string]bool{}
+		for _, pkg := range pkgs {
+			pi, err := packages.ParsePackageIdentity(pkg)
+			if err != nil {
+				continue
+			}
+			known[pi.Name] = true
+		}
+
+		for _, pkg := range installed {
+			pi, err := packages.ParsePackageIdentity(pkg)
+			if err != nil {
+				continue
+			}
+			if !known[pi.Name] {
+				pkgs = append(pkgs, pkg)
+				known[pi.Name] = true
+			}
+		}
+	}
+
 	p := readListParams(c)
 	pkgs = filterSearch(pkgs, p.Search)
 	sort.Strings(pkgs)
@@ -400,6 +523,24 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 	}
 
 	return c.JSON(200, paginate(pkgs, p.Limit, p.Offset))
+}
+
+func (s *SystemControllerHandlers) listPackageVersions(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+
+	versions, err := rr.ListPackageVersions(req.Name)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, versions)
 }
 
 func (s *SystemControllerHandlers) getPackageQuestions(c *echo.Context) error {
@@ -473,29 +614,29 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	inst := s.Controller.GetInstaller()
 	ctx := c.Request().Context()
 
-	// If already installed, uninstall without removing volumes.
+	// Check for any installed version of the same package.
 	installed, err := inst.ListInstalled()
 	if err != nil {
 		return err
 	}
 
-	alreadyInstalled := false
-	identity := fmt.Sprintf("%s@%s", req.Name, req.Version)
+	var activeVersion string
 	for _, pkg := range installed {
-		if pkg == identity {
-			alreadyInstalled = true
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+		if pi.Name == req.Name {
+			activeVersion = pi.Version
 			break
 		}
 	}
 
-	if alreadyInstalled {
-		// Stop and remove the systemd unit.
+	if activeVersion != "" {
+		// Stop and remove the systemd unit for the currently active version.
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
 			unitName := systemd.UnitName(req.Name)
 			if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
-				return err
-			}
-			if err := sd.SetStatus(ctx, unitName, systemd.Disable); err != nil {
 				return err
 			}
 			if err := sd.UninstallUnit(ctx, unitName); err != nil {
@@ -503,25 +644,57 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			}
 		}
 
-		// Remove the install record (but not storage volumes).
-		if err := inst.Uninstall(req.Name, req.Version); err != nil {
-			return err
+		if activeVersion == req.Version {
+			// Same version reinstall: remove the install record (but not volumes).
+			if err := inst.Uninstall(req.Name, req.Version); err != nil {
+				return err
+			}
 		}
+		// Different version: keep old install record and volumes; only the unit is stopped.
 	}
 
-	// Create or adjust storage volumes under a subvolume named after the package.
+	// Handle volume reuse/import and create or adjust storage volumes.
 	if st := s.Controller.GetStorage(); st != nil {
+		// If reusing volumes, rename uninstalled/<name> → installed/<name>.
+		if req.ReuseVolumes {
+			src := fmt.Sprintf("%s/%s", UninstalledVolumePrefix, req.Name)
+			dst := fmt.Sprintf("%s/%s", PackagesVolumePrefix, req.Name)
+			if err := st.RenameFilesystem(src, dst); err != nil {
+				slog.Debug(fmt.Sprintf("reuse volumes: rename %s -> %s: %v", src, dst, err))
+			}
+		}
+
 		defQuota := s.defaultQuota()
 		for volName, vol := range compiled.Volumes {
 			quota := vol.Quota
 			if quota == 0 {
 				quota = defQuota
 			}
-			fsName := fmt.Sprintf("%s/%s", req.Name, volName)
-			if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-				// Volume already exists — adjust quota if needed.
-				if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-					return err
+			fsName := packageVolumePath(req.Name, req.Version, volName)
+
+			if req.ImportFromVersion != "" {
+				// Import from another version: snapshot from the source version's volume.
+				srcVol := packageVolumePath(req.Name, req.ImportFromVersion, volName)
+				if err := st.SnapshotFilesystem(srcVol, fsName); err != nil {
+					slog.Debug(fmt.Sprintf("import snapshot %s -> %s: %v", srcVol, fsName, err))
+					// Fall through to create if snapshot fails.
+					if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+						if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+							return err
+						}
+					}
+				} else {
+					// Snapshot succeeded; adjust quota if needed.
+					if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+						slog.Debug(fmt.Sprintf("adjust quota on snapshot %s: %v", fsName, err))
+					}
+				}
+			} else {
+				if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+					// Volume already exists — adjust quota if needed.
+					if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -535,9 +708,6 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		unitName := systemd.UnitName(req.Name)
 		content := systemd.StubUnitContent(req.Name, req.Version)
 		if err := sd.InstallUnit(ctx, unitName, content); err != nil {
-			return err
-		}
-		if err := sd.SetStatus(ctx, unitName, systemd.Enable); err != nil {
 			return err
 		}
 		if err := sd.SetStatus(ctx, unitName, systemd.Start); err != nil {
@@ -563,22 +733,50 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
 			return err
 		}
-		if err := sd.SetStatus(ctx, unitName, systemd.Disable); err != nil {
-			return err
-		}
 		if err := sd.UninstallUnit(ctx, unitName); err != nil {
 			return err
 		}
 	}
 
 	inst := s.Controller.GetInstaller()
+	if err := inst.SetDisabled(req.Name, false); err != nil {
+		return err
+	}
 	if err := inst.Uninstall(req.Name, req.Version); err != nil {
 		return err
 	}
 
+	// Volume handling after uninstall.
 	if req.PurgeVolumes {
 		if err := s.purgePackageVolumes(req.Name); err != nil {
 			return err
+		}
+	} else if st := s.Controller.GetStorage(); st != nil {
+		// Check if any other versions remain installed.
+		installed, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
+
+		otherVersionInstalled := false
+		for _, pkg := range installed {
+			pi, err := packages.ParsePackageIdentity(pkg)
+			if err != nil {
+				continue
+			}
+			if pi.Name == req.Name {
+				otherVersionInstalled = true
+				break
+			}
+		}
+
+		if !otherVersionInstalled {
+			// Move installed/<name> → uninstalled/<name>.
+			src := fmt.Sprintf("%s/%s", PackagesVolumePrefix, req.Name)
+			dst := fmt.Sprintf("%s/%s", UninstalledVolumePrefix, req.Name)
+			if err := st.RenameFilesystem(src, dst); err != nil {
+				slog.Debug(fmt.Sprintf("preserve volumes: rename %s -> %s: %v", src, dst, err))
+			}
 		}
 	}
 
@@ -592,7 +790,32 @@ func (s *SystemControllerHandlers) purgePackageVolumes(name string) error {
 		return nil
 	}
 
-	prefix := fmt.Sprintf("%s/", name)
+	// Purge from installed/<name>/.
+	if err := s.purgeVolumePrefix(st, packagePrefix(name)); err != nil {
+		return err
+	}
+
+	// Remove the installed/<name> parent subvolume itself.
+	parentPath := fmt.Sprintf("%s/%s", PackagesVolumePrefix, name)
+	if err := st.RemoveFilesystem(parentPath); err != nil {
+		slog.Debug(fmt.Sprintf("purge parent volume %s: %v", parentPath, err))
+	}
+
+	// Also purge from uninstalled/<name>/.
+	uninstPrefix := fmt.Sprintf("%s/%s/", UninstalledVolumePrefix, name)
+	if err := s.purgeVolumePrefix(st, uninstPrefix); err != nil {
+		return err
+	}
+
+	uninstParent := fmt.Sprintf("%s/%s", UninstalledVolumePrefix, name)
+	if err := st.RemoveFilesystem(uninstParent); err != nil {
+		slog.Debug(fmt.Sprintf("purge uninstalled parent volume %s: %v", uninstParent, err))
+	}
+
+	return nil
+}
+
+func (s *SystemControllerHandlers) purgeVolumePrefix(st storage.Storage, prefix string) error {
 	filesystems, err := st.ListFilesystems(prefix)
 	if err != nil {
 		return err
@@ -609,12 +832,6 @@ func (s *SystemControllerHandlers) purgePackageVolumes(name string) error {
 		}
 	}
 
-	// Remove the parent package subvolume itself.
-	if err := st.RemoveFilesystem(name); err != nil {
-		// Parent may not exist as a managed filesystem; ignore.
-		slog.Debug(fmt.Sprintf("purge parent volume %s: %v", name, err))
-	}
-
 	return nil
 }
 
@@ -628,6 +845,94 @@ func (s *SystemControllerHandlers) purgeVolumes(c *echo.Context) error {
 
 	if err := s.purgePackageVolumes(req.Name); err != nil {
 		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) listUninstalledVolumes(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	resp := UninstalledVolumesResponse{}
+
+	st := s.Controller.GetStorage()
+	if st != nil {
+		// Check uninstalled/<name>/ for existing volume trees.
+		uninstPrefix := fmt.Sprintf("%s/%s/", UninstalledVolumePrefix, req.Name)
+		filesystems, err := st.ListFilesystems(uninstPrefix)
+		if err != nil {
+			return err
+		}
+
+		if len(filesystems) > 0 {
+			resp.HasUninstalledVolumes = true
+			// Extract unique versions from uninstalled/<name>/<version>/...
+			versionSet := map[string]bool{}
+			for _, fs := range filesystems {
+				rest := strings.TrimPrefix(fs.Name, uninstPrefix)
+				parts := strings.SplitN(rest, "/", 2)
+				if len(parts) > 0 && parts[0] != "" {
+					versionSet[parts[0]] = true
+				}
+			}
+			for v := range versionSet {
+				resp.UninstalledVersions = append(resp.UninstalledVersions, v)
+			}
+			sort.Strings(resp.UninstalledVersions)
+		}
+
+		// Extract installed versions from installed/<name>/<version>/...
+		instPrefix := packagePrefix(req.Name)
+		instFS, err := st.ListFilesystems(instPrefix)
+		if err != nil {
+			return err
+		}
+
+		instVersionSet := map[string]bool{}
+		for _, fs := range instFS {
+			rest := strings.TrimPrefix(fs.Name, instPrefix)
+			parts := strings.SplitN(rest, "/", 2)
+			if len(parts) > 0 && parts[0] != "" {
+				instVersionSet[parts[0]] = true
+			}
+		}
+		for v := range instVersionSet {
+			resp.InstalledVersions = append(resp.InstalledVersions, v)
+		}
+		sort.Strings(resp.InstalledVersions)
+	}
+
+	return c.JSON(200, resp)
+}
+
+func (s *SystemControllerHandlers) purgeUninstalledVolumes(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	st := s.Controller.GetStorage()
+	if st == nil {
+		c.Response().WriteHeader(200)
+		return nil
+	}
+
+	uninstPrefix := fmt.Sprintf("%s/%s/", UninstalledVolumePrefix, req.Name)
+	if err := s.purgeVolumePrefix(st, uninstPrefix); err != nil {
+		return err
+	}
+
+	uninstParent := fmt.Sprintf("%s/%s", UninstalledVolumePrefix, req.Name)
+	if err := st.RemoveFilesystem(uninstParent); err != nil {
+		slog.Debug(fmt.Sprintf("purge uninstalled parent %s: %v", uninstParent, err))
 	}
 
 	c.Response().WriteHeader(200)
@@ -727,8 +1032,68 @@ func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
 		return err
 	}
 
+	if req.Action == systemd.Enable || req.Action == systemd.Disable {
+		return echo.NewHTTPError(http.StatusBadRequest, "enable/disable not allowed")
+	}
+
+	if req.Action == systemd.Stop && req.Name == "town-os-systemcontroller.service" {
+		return echo.NewHTTPError(http.StatusBadRequest, "cannot stop systemcontroller")
+	}
+
 	if err := s.Controller.GetSystemdManager().SetStatus(c.Request().Context(), req.Name, req.Action); err != nil {
 		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+type PackageToggleRequest struct {
+	Name string `json:"name"`
+}
+
+func (s *SystemControllerHandlers) disablePackage(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageToggleRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	if err := inst.SetDisabled(req.Name, true); err != nil {
+		return err
+	}
+
+	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		unitName := systemd.UnitName(req.Name)
+		if err := sd.SetStatus(c.Request().Context(), unitName, systemd.Stop); err != nil {
+			return err
+		}
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) enablePackage(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageToggleRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	if err := inst.SetDisabled(req.Name, false); err != nil {
+		return err
+	}
+
+	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		unitName := systemd.UnitName(req.Name)
+		if err := sd.SetStatus(c.Request().Context(), unitName, systemd.Start); err != nil {
+			return err
+		}
 	}
 
 	c.Response().WriteHeader(200)
@@ -1099,8 +1464,10 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/packages":                      true,
 			"/packages/installed":            true,
 			"/packages/responses":            true,
+			"/packages/versions":             true,
 			"/packages/questions":            true,
 			"/packages/questions/identity":   true,
+			"/packages/uninstalled-volumes":  true,
 			"/systemd/units":                 true,
 			"/systemd/logs":                  true,
 			"/systemd/logs/tail":             true,
@@ -1311,7 +1678,8 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 		count := 0
 		for _, f := range fs {
-			if f.Name != "" {
+			state, _ := classifyFilesystem(f.Name)
+			if state == "user" {
 				count++
 			}
 		}
@@ -1409,6 +1777,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
 
 	e.Add("GET", "/packages", s.listPackages, s.requireAuth)
+	e.Add("POST", "/packages/versions", s.listPackageVersions, s.requireAuth)
 	e.Add("GET", "/packages/installed", s.listInstalled, s.requireAuth)
 	e.Add("POST", "/packages/installed/info", s.getInstalledInfo, s.requireAuth)
 	e.Add("POST", "/packages/responses", s.getResponses, s.requireAuth)
@@ -1428,6 +1797,10 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
 	e.Add("POST", "/packages/purge-volumes", s.purgeVolumes, s.requireAdmin)
+	e.Add("POST", "/packages/uninstalled-volumes", s.listUninstalledVolumes, s.requireAdmin)
+	e.Add("POST", "/packages/purge-uninstalled-volumes", s.purgeUninstalledVolumes, s.requireAdmin)
+	e.Add("POST", "/packages/disable", s.disablePackage, s.requireAdmin)
+	e.Add("POST", "/packages/enable", s.enablePackage, s.requireAdmin)
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)
 	e.Add("POST", "/account/disable", s.disableAccount, s.requireAdmin)
 	e.Add("POST", "/account/enable", s.enableAccount, s.requireAdmin)

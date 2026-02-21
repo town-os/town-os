@@ -9,11 +9,13 @@ import (
 var ErrNoFilesystem = errors.New("invalid filesystem")
 var ErrUnimplemented = errors.New("unimplemented call")
 var ErrRootFilesystem = errors.New("cannot modify root filesystem")
+var ErrReservedFilesystem = errors.New("cannot modify reserved filesystem")
 var ErrInvalidName = errors.New("invalid filesystem name")
 
 type Filesystem struct {
 	Name  string `json:"name"`
 	Quota uint64 `json:"quota"`
+	State string `json:"state,omitempty"`
 }
 
 type SubvolInfo struct {
@@ -26,6 +28,8 @@ type Storage interface {
 	ModifyFilesystem(string, Filesystem) error
 	RemoveFilesystem(string) error
 	ListFilesystems(string) ([]Filesystem, error)
+	RenameFilesystem(oldName, newName string) error
+	SnapshotFilesystem(src, dst string) error
 }
 
 type Controller interface {

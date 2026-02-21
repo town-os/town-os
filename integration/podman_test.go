@@ -134,16 +134,15 @@ func TestPodmanSystemdRestart(t *testing.T) {
 	t.Fatal("town-os-test.service not found after restart")
 }
 
-func TestPodmanSystemdEnableDisable(t *testing.T) {
+func TestPodmanSystemdEnableDisableRejected(t *testing.T) {
 	c := initPodmanSystemdTest(t)
 
-	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Disable); err != nil {
-		t.Fatalf("Disable: %v", err)
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Disable); err == nil {
+		t.Fatal("expected error for Disable, got nil")
 	}
 
-	// Re-enable so subsequent tests are unaffected.
-	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Enable); err != nil {
-		t.Fatalf("Enable: %v", err)
+	if err := c.SetUnitStatus(context.TODO(), "town-os-test.service", systemd.Enable); err == nil {
+		t.Fatal("expected error for Enable, got nil")
 	}
 }
 

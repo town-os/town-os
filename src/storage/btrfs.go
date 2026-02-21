@@ -392,6 +392,28 @@ func (b *BtrFS) RemoveFilesystem(name string) error {
 	return b.Controller.SubvolDelete(filepath.Join(b.BasePath, name))
 }
 
+func (b *BtrFS) RenameFilesystem(oldName, newName string) error {
+	if err := ValidateFilesystemName(oldName); err != nil {
+		return err
+	}
+	if err := ValidateFilesystemName(newName); err != nil {
+		return err
+	}
+
+	return b.Controller.SubvolRename(filepath.Join(b.BasePath, oldName), filepath.Join(b.BasePath, newName))
+}
+
+func (b *BtrFS) SnapshotFilesystem(src, dst string) error {
+	if err := ValidateFilesystemName(src); err != nil {
+		return err
+	}
+	if err := ValidateFilesystemName(dst); err != nil {
+		return err
+	}
+
+	return b.Controller.SubvolSnapshot(filepath.Join(b.BasePath, dst), filepath.Join(b.BasePath, src), false)
+}
+
 func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 	// Always list from the base path so that btrfs subvolume list runs
 	// against the filesystem root. Passing a nested subvolume path can

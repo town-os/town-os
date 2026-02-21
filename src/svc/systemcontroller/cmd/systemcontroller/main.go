@@ -24,7 +24,7 @@ func run() (err error) {
 	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
 	flag.Parse()
 
-	dir, err := os.MkdirTemp("", "testserver-*")
+	dir, err := os.MkdirTemp("", "systemcontroller-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
@@ -103,12 +103,27 @@ func run() (err error) {
 	rr.Refresh()
 
 	inst := packages.NewInstallManager(repoBase)
+	st := storage.InitBtrFS(*btrfsPath)
+	sd := systemd.NewManager()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        st,
+		Systemd:        sd,
+		SettingsMgr:    settingsMgr,
+	}); err != nil {
+		return fmt.Errorf("reconcile: %w", err)
+	}
 
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
-		Storage:         storage.InitBtrFS(*btrfsPath),
+		Storage:         st,
 		RepositoryRoot:  rr,
 		Installer:       inst,
-		Systemd:         systemd.NewManager(),
+		Systemd:         sd,
 		AccountMgr:      acctMgr,
 		SessionMgr:      sessMgr,
 		AuditMgr:        auditMgr,
@@ -122,9 +137,6 @@ func run() (err error) {
 		Handler: handler,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 
@@ -136,18 +148,17 @@ func run() (err error) {
 		}
 	}()
 
-	fmt.Fprintln(os.Stderr, "listening on :5309")
+	fmt.Fprintln(os.Stderr, "systemcontroller: listening on :5309")
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("listen: %w", err)
 	}
 
-	_ = ctx
 	return nil
 }
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "testserver: %v\n", err)
+		fmt.Fprintf(os.Stderr, "systemcontroller: %v\n", err)
 		os.Exit(1)
 	}
 }

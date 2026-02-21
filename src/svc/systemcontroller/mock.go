@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,30 +14,34 @@ import (
 )
 
 type MockClient struct {
-	mu              sync.Mutex
-	Filesystems     map[string]storage.Filesystem
-	Repositories    []RepositoryInfo
-	Packages        []string
-	Questions       map[string]map[string]packages.Question
-	Installed       []string
-	StoredResponses map[string]packages.Responses
-	Units           []systemd.UnitStatus
-	JournalEntries  []systemd.JournalEntry
-	Accounts        map[string]*account.Account
-	Sessions        map[string]*account.Session
-	Calls           []MockCall
-	CreateErr       error
-	ModifyErr       error
-	RemoveErr       error
-	ListErr         error
-	AddRepoErr      error
-	RemRepoErr      error
-	ListRepoErr     error
-	ListPkgErr      error
+	mu               sync.Mutex
+	Filesystems      map[string]storage.Filesystem
+	Repositories     []RepositoryInfo
+	Packages         []string
+	Questions        map[string]map[string]packages.Question
+	Installed        []string
+	StoredResponses  map[string]packages.Responses
+	DisabledPackages map[string]bool
+	Units            []systemd.UnitStatus
+	JournalEntries   []systemd.JournalEntry
+	Accounts         map[string]*account.Account
+	Sessions         map[string]*account.Session
+	Calls            []MockCall
+	CreateErr        error
+	ModifyErr        error
+	RemoveErr        error
+	ListErr          error
+	AddRepoErr       error
+	RemRepoErr       error
+	ListRepoErr      error
+	ListPkgErr           error
+	ListPkgVersionsErr   error
 	QuestionsErr         error
 	QuestionsIdentityErr error
 	InstallPkgErr        error
 	UninstallPkgErr error
+	DisablePkgErr   error
+	EnablePkgErr    error
 	ListInstalledErr error
 	GetResponsesErr error
 	ListUnitsErr    error
@@ -72,11 +77,12 @@ func InitMockClient() *MockClient {
 	}
 
 	return &MockClient{
-		Filesystems:     map[string]storage.Filesystem{},
-		StoredResponses: map[string]packages.Responses{},
-		Accounts:        map[string]*account.Account{},
-		Sessions:        map[string]*account.Session{},
-		Settings:        settings,
+		Filesystems:      map[string]storage.Filesystem{},
+		StoredResponses:  map[string]packages.Responses{},
+		DisabledPackages: map[string]bool{},
+		Accounts:         map[string]*account.Account{},
+		Sessions:         map[string]*account.Session{},
+		Settings:         settings,
 	}
 }
 
@@ -137,10 +143,10 @@ func (m *MockClient) RemoveFilesystem(_ context.Context, name string) error {
 	return nil
 }
 
-func (m *MockClient) ListFilesystems(_ context.Context, prefix string) ([]storage.Filesystem, error) {
+func (m *MockClient) ListFilesystems(_ context.Context, prefix string, state string) ([]storage.Filesystem, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListFilesystems", Args: []any{prefix}})
+	m.Calls = append(m.Calls, MockCall{Method: "ListFilesystems", Args: []any{prefix, state}})
 
 	if m.ListErr != nil {
 		return nil, m.ListErr
@@ -240,6 +246,32 @@ func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageRe
 	return &result, nil
 }
 
+func (m *MockClient) ListPackageVersions(_ context.Context, name string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListPackageVersions", Args: []any{name}})
+
+	if m.ListPkgVersionsErr != nil {
+		return nil, m.ListPkgVersionsErr
+	}
+
+	// Collect versions from Packages list matching name.
+	seen := map[string]bool{}
+	for _, pkg := range m.Packages {
+		parts := strings.SplitN(pkg, "@", 2)
+		if len(parts) == 2 && parts[0] == name {
+			seen[parts[1]] = true
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for v := range seen {
+		out = append(out, v)
+	}
+
+	return out, nil
+}
+
 func (m *MockClient) GetPackageQuestions(_ context.Context, name string) (map[string]packages.Question, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -285,10 +317,10 @@ func (m *MockClient) GetPackageQuestionsByIdentity(_ context.Context, name, vers
 
 // --- Install ---
 
-func (m *MockClient) InstallPackage(_ context.Context, name, version string, responses packages.Responses) error {
+func (m *MockClient) InstallPackage(_ context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "InstallPackage", Args: []any{name, version, responses}})
+	m.Calls = append(m.Calls, MockCall{Method: "InstallPackage", Args: []any{name, version, responses, reuseVolumes, importFromVersion}})
 
 	if m.InstallPkgErr != nil {
 		return m.InstallPkgErr
@@ -316,13 +348,13 @@ func (m *MockClient) UninstallPackage(_ context.Context, name, version string, p
 			delete(m.StoredResponses, key)
 
 			if purgeVolumes {
-				prefix := fmt.Sprintf("%s/", name)
+				prefix := fmt.Sprintf("installed/%s/", name)
 				for fsName := range m.Filesystems {
 					if len(fsName) >= len(prefix) && fsName[:len(prefix)] == prefix {
 						delete(m.Filesystems, fsName)
 					}
 				}
-				delete(m.Filesystems, name)
+				delete(m.Filesystems, fmt.Sprintf("installed/%s", name))
 			}
 
 			return nil
@@ -337,14 +369,56 @@ func (m *MockClient) PurgeVolumes(_ context.Context, name string) error {
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "PurgeVolumes", Args: []any{name}})
 
-	prefix := fmt.Sprintf("%s/", name)
+	prefix := fmt.Sprintf("installed/%s/", name)
 	for fsName := range m.Filesystems {
 		if len(fsName) >= len(prefix) && fsName[:len(prefix)] == prefix {
 			delete(m.Filesystems, fsName)
 		}
 	}
-	delete(m.Filesystems, name)
+	delete(m.Filesystems, fmt.Sprintf("installed/%s", name))
 
+	return nil
+}
+
+func (m *MockClient) ListUninstalledVolumes(_ context.Context, name string) (*UninstalledVolumesResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListUninstalledVolumes", Args: []any{name}})
+
+	return &UninstalledVolumesResponse{}, nil
+}
+
+func (m *MockClient) PurgeUninstalledVolumes(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "PurgeUninstalledVolumes", Args: []any{name}})
+
+	return nil
+}
+
+func (m *MockClient) DisablePackage(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "DisablePackage", Args: []any{name}})
+
+	if m.DisablePkgErr != nil {
+		return m.DisablePkgErr
+	}
+
+	m.DisabledPackages[name] = true
+	return nil
+}
+
+func (m *MockClient) EnablePackage(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "EnablePackage", Args: []any{name}})
+
+	if m.EnablePkgErr != nil {
+		return m.EnablePkgErr
+	}
+
+	delete(m.DisabledPackages, name)
 	return nil
 }
 
@@ -430,7 +504,7 @@ func (m *MockClient) SetUnitStatus(_ context.Context, name string, action system
 	}
 
 	switch action {
-	case systemd.Start, systemd.Stop, systemd.Restart, systemd.Enable, systemd.Disable:
+	case systemd.Start, systemd.Stop, systemd.Restart:
 		return nil
 	default:
 		return fmt.Errorf("%q: %w", action, systemd.ErrInvalidAction)

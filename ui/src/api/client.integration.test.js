@@ -173,7 +173,17 @@ describe('SystemControllerClient integration', () => {
       client.setToken(resp.token)
       const list = await client.listFilesystems('')
       expect(list.length).toBeGreaterThanOrEqual(1)
-      expect(list.some((f) => f.name === 'testfs')).toBe(true)
+      const testfs = list.find((f) => f.name === 'testfs')
+      expect(testfs).toBeDefined()
+      expect(testfs.state).toBe('user')
+    })
+
+    it('filters by state', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const userOnly = await client.listFilesystems('', undefined, undefined, 'user')
+      expect(userOnly.every((f) => f.state === 'user')).toBe(true)
+      expect(userOnly.some((f) => f.name === 'testfs')).toBe(true)
     })
 
     it('modifies filesystem name (rename)', async () => {
@@ -267,11 +277,11 @@ describe('SystemControllerClient integration', () => {
         undefined,
         undefined,
         undefined,
-        'town-os-testserver',
+        'town-os-systemcontroller',
       )
       expect(result.entries.length).toBeGreaterThan(0)
       const testserver = result.entries.find(
-        (u) => u.Name === 'town-os-testserver.service',
+        (u) => u.Name === 'town-os-systemcontroller.service',
       )
       expect(testserver).toBeDefined()
       expect(testserver.ActiveState).toBe('active')
@@ -289,22 +299,20 @@ describe('SystemControllerClient integration', () => {
       await client.setUnitStatus('town-os-test.service', 'start')
     })
 
-    it('stops a unit', async () => {
+    it('rejects enable action', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-test.service', 'stop')
+      await expect(
+        client.setUnitStatus('town-os-test.service', 'enable'),
+      ).rejects.toThrow()
     })
 
-    it('enables a unit', async () => {
+    it('rejects disable action', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-test.service', 'enable')
-    })
-
-    it('disables a unit', async () => {
-      const resp = await client.authenticate('admin', 'adminpass')
-      client.setToken(resp.token)
-      await client.setUnitStatus('town-os-test.service', 'disable')
+      await expect(
+        client.setUnitStatus('town-os-test.service', 'disable'),
+      ).rejects.toThrow()
     })
 
     it('rejects invalid action', async () => {
@@ -320,7 +328,7 @@ describe('SystemControllerClient integration', () => {
       client.setToken(resp.token)
       const entries = []
       for await (const entry of client.logReplay(
-        'town-os-testserver.service',
+        'town-os-systemcontroller.service',
       )) {
         entries.push(entry)
         if (entries.length >= 1) break
@@ -332,7 +340,7 @@ describe('SystemControllerClient integration', () => {
     it('tails the last N log entries', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const result = await client.logTail('town-os-testserver.service', 5)
+      const result = await client.logTail('town-os-systemcontroller.service', 5)
       expect(result.entries.length).toBeGreaterThan(0)
       expect(result.entries.length).toBeLessThanOrEqual(5)
       expect(result.entries[0].Message).toBeTruthy()
@@ -342,11 +350,11 @@ describe('SystemControllerClient integration', () => {
     it('paginates backwards with cursor', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const first = await client.logTail('town-os-testserver.service', 3)
+      const first = await client.logTail('town-os-systemcontroller.service', 3)
       expect(first.cursor).toBeTruthy()
 
       const older = await client.logTail(
-        'town-os-testserver.service',
+        'town-os-systemcontroller.service',
         3,
         first.cursor,
       )
@@ -775,16 +783,20 @@ describe('SystemControllerClient integration', () => {
       expect(unit.ActiveState).toBe('active')
     })
 
-    it('disables the unit', async () => {
+    it('rejects disable on installed unit', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-nginx.service', 'disable')
+      await expect(
+        client.setUnitStatus('town-os-nginx.service', 'disable'),
+      ).rejects.toThrow()
     })
 
-    it('enables the unit', async () => {
+    it('rejects enable on installed unit', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-nginx.service', 'enable')
+      await expect(
+        client.setUnitStatus('town-os-nginx.service', 'enable'),
+      ).rejects.toThrow()
     })
 
     it('replays logs containing the running message', async () => {

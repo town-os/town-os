@@ -21,7 +21,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 
 export default function PackageManagement() {
@@ -29,11 +36,12 @@ export default function PackageManagement() {
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Package state
-  const [installConfirm, setInstallConfirm] = useState(null)
   const [uninstallConfirm, setUninstallConfirm] = useState(null)
   const [purgeVolumes, setPurgeVolumes] = useState(false)
   const [questionsDialog, setQuestionsDialog] = useState({ open: false })
   const [infoDialog, setInfoDialog] = useState({ open: false })
+  const [versionSelectDialog, setVersionSelectDialog] = useState({ open: false })
+  const [volumeReuseDialog, setVolumeReuseDialog] = useState({ open: false })
 
   // Repository state
   const [repoDialog, setRepoDialog] = useState(false)
@@ -79,13 +87,52 @@ export default function PackageManagement() {
     setRefreshKey((k) => k + 1)
   }
 
-  function isInstalled(name) {
-    return (installed || []).some(
-      (pkg) => pkg === name || pkg.startsWith(name + '@'),
-    )
+  function installedVersion(name) {
+    for (const pkg of (installed || [])) {
+      if (pkg === name) return ''
+      if (pkg.startsWith(`${name}@`)) return pkg.slice(name.length + 1)
+    }
+    return null
   }
 
-  async function handleInstall(name, version) {
+  async function handleStartInstall(name, latestVersion) {
+    try {
+      const versions = await getClient().listPackageVersions(name)
+      if (versions && versions.length > 1) {
+        setVersionSelectDialog({
+          open: true,
+          name,
+          versions,
+          selectedVersion: latestVersion,
+        })
+      } else {
+        await handleCheckVolumes(name, latestVersion)
+      }
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
+  async function handleCheckVolumes(name, version, importFromVersion) {
+    try {
+      const volInfo = await getClient().listUninstalledVolumes(name)
+      if (volInfo.has_uninstalled_volumes) {
+        setVolumeReuseDialog({
+          open: true,
+          name,
+          version,
+          importFromVersion,
+          uninstalledVersions: volInfo.uninstalled_versions || [],
+        })
+        return
+      }
+      await handleInstall(name, version, false, importFromVersion)
+    } catch (err) {
+      await handleInstall(name, version, false, importFromVersion)
+    }
+  }
+
+  async function handleInstall(name, version, reuseVolumes = false, importFromVersion) {
     try {
       // Fetch questions for this specific package version.
       const questions = await getClient().getPackageQuestionsByIdentity(name, version)
@@ -106,12 +153,14 @@ export default function PackageManagement() {
           questions,
           responses: existingResponses || {},
           fieldErrors: {},
+          reuseVolumes,
+          importFromVersion,
         })
         return
       }
 
       // No questions — install directly.
-      await getClient().installPackage(name, version, {})
+      await getClient().installPackage(name, version, {}, reuseVolumes, importFromVersion)
       toast.success(`Package "${name}" installed`)
       doRefresh()
     } catch (err) {
@@ -141,6 +190,8 @@ export default function PackageManagement() {
         questionsDialog.name,
         questionsDialog.version,
         responses,
+        questionsDialog.reuseVolumes || false,
+        questionsDialog.importFromVersion,
       )
       toast.success(`Package "${questionsDialog.name}" installed`)
       setQuestionsDialog({ open: false })
@@ -235,7 +286,8 @@ export default function PackageManagement() {
       label: '',
       sortable: false,
       transform: (_, row) => {
-        if (!isInstalled(row.name)) return null
+        const instVer = installedVersion(row.name)
+        if (instVer === null) return null
         return (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -243,7 +295,7 @@ export default function PackageManagement() {
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0"
-                onClick={() => handleShowInfo(row.name, row.version)}
+                onClick={() => handleShowInfo(row.name, instVer || row.version)}
               >
                 <Info className="h-3.5 w-3.5" />
               </Button>
@@ -258,34 +310,52 @@ export default function PackageManagement() {
       label: 'Status',
       sortable: false,
       transform: (_, row) => {
-        const inst = isInstalled(row.name)
+        const instVer = installedVersion(row.name)
+        const isInst = instVer !== null
+        const hasUpgrade = isInst && instVer !== '' && instVer !== row.version
         return (
           <div className="flex items-center justify-end gap-1">
+            {hasUpgrade && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <Badge
+                    variant="outline"
+                    className="cursor-pointer gap-1 text-blue-600 border-blue-600"
+                    onClick={() => handleStartInstall(row.name, row.version)}
+                  >
+                    <ArrowUpCircle className="h-3 w-3" />
+                    Upgrade
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  Upgrade from {instVer} to {row.version}
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger>
                 <Badge
-                  variant={inst ? 'default' : 'secondary'}
+                  variant={isInst ? 'default' : 'secondary'}
                   className="cursor-pointer"
                   onClick={() => {
-                    if (inst) {
+                    if (isInst) {
                       setPurgeVolumes(false)
                       setUninstallConfirm({
                         name: row.name,
-                        version: row.version,
+                        version: instVer || row.version,
                       })
                     } else {
-                      setInstallConfirm({
-                        name: row.name,
-                        version: row.version,
-                      })
+                      handleStartInstall(row.name, row.version)
                     }
                   }}
                 >
-                  {inst ? 'Installed' : 'Not Installed'}
+                  {isInst
+                    ? (hasUpgrade ? `Installed (${instVer})` : 'Installed')
+                    : 'Not Installed'}
                 </Badge>
               </TooltipTrigger>
               <TooltipContent side="right">
-                Click to {inst ? 'uninstall' : 'install'}
+                Click to {isInst ? 'uninstall' : 'install'}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -590,24 +660,117 @@ export default function PackageManagement() {
         </DialogContent>
       </Dialog>
 
-      {/* Install Confirm */}
-      <ConfirmDialog
-        open={!!installConfirm}
-        title="Install Package"
-        onConfirm={() => {
-          const { name, version } = installConfirm
-          setInstallConfirm(null)
-          handleInstall(name, version)
-        }}
-        onCancel={() => setInstallConfirm(null)}
-        confirmLabel="Install"
+      {/* Version Select Dialog */}
+      <Dialog
+        open={versionSelectDialog.open}
+        onOpenChange={(v) => !v && setVersionSelectDialog({ open: false })}
       >
-        Install{' '}
-        <code className="font-mono text-sm bg-muted px-1 rounded">
-          {installConfirm?.name}@{installConfirm?.version}
-        </code>
-        ?
-      </ConfirmDialog>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Install {versionSelectDialog.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Version</Label>
+              <Select
+                value={versionSelectDialog.selectedVersion || ''}
+                onValueChange={(v) =>
+                  setVersionSelectDialog((prev) => ({ ...prev, selectedVersion: v }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select version" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(versionSelectDialog.versions || []).map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setVersionSelectDialog({ open: false })}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const { name, selectedVersion } = versionSelectDialog
+                const instVer = installedVersion(name)
+                const importFrom = (instVer && instVer !== selectedVersion) ? instVer : undefined
+                setVersionSelectDialog({ open: false })
+                handleCheckVolumes(name, selectedVersion, importFrom)
+              }}
+            >
+              Install
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Volume Reuse Dialog */}
+      <Dialog
+        open={volumeReuseDialog.open}
+        onOpenChange={(v) => !v && setVolumeReuseDialog({ open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Existing Data Found</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Previous data exists for{' '}
+              <code className="font-mono text-sm bg-muted px-1 rounded">
+                {volumeReuseDialog.name}
+              </code>
+              {volumeReuseDialog.uninstalledVersions?.length > 0 && (
+                <span>
+                  {' '}(versions: {volumeReuseDialog.uninstalledVersions.join(', ')})
+                </span>
+              )}
+              . Would you like to reuse it or start fresh?
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setVolumeReuseDialog({ open: false })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                const { name, version, importFromVersion } = volumeReuseDialog
+                setVolumeReuseDialog({ open: false })
+                try {
+                  await getClient().purgeUninstalledVolumes(name)
+                } catch (err) {
+                  toast.error(err.message)
+                  return
+                }
+                await handleInstall(name, version, false, importFromVersion)
+              }}
+            >
+              Start Fresh
+            </Button>
+            <Button
+              onClick={() => {
+                const { name, version, importFromVersion } = volumeReuseDialog
+                setVolumeReuseDialog({ open: false })
+                handleInstall(name, version, true, importFromVersion)
+              }}
+            >
+              Reuse Data
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Uninstall Confirm */}
       <Dialog

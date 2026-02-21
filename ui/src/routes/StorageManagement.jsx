@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import DataTable from '@/components/DataTable.jsx'
@@ -15,7 +15,15 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Pencil, HardDrive } from 'lucide-react'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Plus, Trash2, Pencil, HardDrive, ChevronRight, ChevronDown, Package } from 'lucide-react'
 
 const UNITS = {
   B: 1,
@@ -46,6 +54,110 @@ function decomposeQuota(bytes) {
   return [bytes, 'B']
 }
 
+/**
+ * Build a tree structure from package volume names.
+ * Names are like "nginx/1.0/data" -> package "nginx", version "1.0", volume "data".
+ * Returns { [packageName]: { [version]: Filesystem[] } }
+ */
+function buildVolumeTree(filesystems) {
+  const tree = {}
+  for (const fs of filesystems) {
+    const parts = fs.name.split('/')
+    const pkgName = parts[0] || fs.name
+    const version = parts.length > 1 ? parts[1] : ''
+    const volName = parts.length > 2 ? parts.slice(2).join('/') : ''
+    if (!tree[pkgName]) tree[pkgName] = {}
+    if (!tree[pkgName][version]) tree[pkgName][version] = []
+    tree[pkgName][version].push({ ...fs, volumeName: volName })
+  }
+  return tree
+}
+
+function VolumeTreeSection({ title, state, filesystems, badge }) {
+  const [expanded, setExpanded] = useState({})
+  const tree = useMemo(() => buildVolumeTree(filesystems), [filesystems])
+  const packageNames = Object.keys(tree).sort()
+
+  if (packageNames.length === 0) return null
+
+  function togglePkg(pkg) {
+    setExpanded((prev) => ({ ...prev, [pkg]: !prev[pkg] }))
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Package className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-lg font-semibold">{title}</h3>
+        {badge}
+        <span className="text-sm text-muted-foreground ml-auto">
+          {filesystems.length} volume{filesystems.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead style={{ width: '50%' }}>Name</TableHead>
+              <TableHead style={{ width: '25%' }}>Quota</TableHead>
+              <TableHead className="text-right" style={{ width: '25%' }}>
+                <div className="flex items-center justify-end pr-2">State</div>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {packageNames.map((pkg) => {
+              const versions = Object.keys(tree[pkg]).sort()
+              const isExpanded = !!expanded[pkg]
+              const totalVols = versions.reduce((sum, v) => sum + tree[pkg][v].length, 0)
+              return (
+                <>{/* Fragment for package group */}
+                  <TableRow
+                    key={pkg}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => togglePkg(pkg)}
+                  >
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-1">
+                        {isExpanded
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                        <span className="font-mono text-sm">{pkg}</span>
+                        <span className="text-xs text-muted-foreground ml-2">
+                          ({totalVols} volume{totalVols !== 1 ? 's' : ''}, {versions.length} version{versions.length !== 1 ? 's' : ''})
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell />
+                    <TableCell className="text-right">
+                      <Badge variant={state === 'installed' ? 'default' : 'secondary'}>
+                        {state}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                  {isExpanded && versions.map((version) =>
+                    tree[pkg][version].map((vol) => (
+                      <TableRow key={`${pkg}/${version}/${vol.volumeName}`}>
+                        <TableCell>
+                          <span className="font-mono text-sm pl-8 text-muted-foreground">
+                            {version}{vol.volumeName ? `/${vol.volumeName}` : ''}
+                          </span>
+                        </TableCell>
+                        <TableCell>{formatQuota(vol.quota)}</TableCell>
+                        <TableCell />
+                      </TableRow>
+                    ))
+                  )}
+                </>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  )
+}
+
 export default function StorageManagement() {
   useEffect(() => { document.title = 'Town OS - Storage' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
@@ -54,11 +166,25 @@ export default function StorageManagement() {
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('name')
   const [sortDirection, setSortDirection] = useState('asc')
+  const [showAll, setShowAll] = useState(false)
 
   const [filesystems, refresh, loading] = usePolling(
     () => getClient().listFilesystems('', sortKey, sortDirection),
     [],
     [refreshKey, sortKey, sortDirection],
+  )
+
+  const userFilesystems = useMemo(
+    () => filesystems.filter((f) => f.state === 'user'),
+    [filesystems],
+  )
+  const installedFilesystems = useMemo(
+    () => filesystems.filter((f) => f.state === 'installed'),
+    [filesystems],
+  )
+  const uninstalledFilesystems = useMemo(
+    () => filesystems.filter((f) => f.state === 'uninstalled'),
+    [filesystems],
   )
 
   function doRefresh() {
@@ -181,37 +307,76 @@ export default function StorageManagement() {
             Manage btrfs subvolumes
           </p>
         </div>
-        <Button
-          onClick={() =>
-            setEditDialog({ open: true, create: true, name: '', quotaValue: '', quotaUnit: 'GB' })
-          }
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          Create Filesystem
-        </Button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+              className="rounded border-input"
+            />
+            Show uninstalled volumes
+          </label>
+          <Button
+            onClick={() =>
+              setEditDialog({ open: true, create: true, name: '', quotaValue: '', quotaUnit: 'GB' })
+            }
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Create Filesystem
+          </Button>
+        </div>
       </div>
 
       {loading && filesystems.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
       )}
 
-      <DataTable
-        data={filesystems}
-        columns={columns}
-        entryKey="name"
-        page={page}
-        setPage={setPage}
-        sortKey={sortKey}
-        sortDirection={sortDirection}
-        onSortChange={(key, dir) => {
-          setSortKey(key)
-          setSortDirection(dir)
-        }}
-        onReset={() => {
-          setSortKey('name')
-          setSortDirection('asc')
-        }}
+      {/* User filesystems section */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <HardDrive className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">User Filesystems</h3>
+          <span className="text-sm text-muted-foreground ml-auto">
+            {userFilesystems.length} filesystem{userFilesystems.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <DataTable
+          data={userFilesystems}
+          columns={columns}
+          entryKey="name"
+          page={page}
+          setPage={setPage}
+          sortKey={sortKey}
+          sortDirection={sortDirection}
+          onSortChange={(key, dir) => {
+            setSortKey(key)
+            setSortDirection(dir)
+          }}
+          onReset={() => {
+            setSortKey('name')
+            setSortDirection('asc')
+          }}
+        />
+      </div>
+
+      {/* Installed package volumes section */}
+      <VolumeTreeSection
+        title="Installed Package Volumes"
+        state="installed"
+        filesystems={installedFilesystems}
+        badge={<Badge variant="default">installed</Badge>}
       />
+
+      {/* Uninstalled package volumes section (only when showAll is checked) */}
+      {showAll && (
+        <VolumeTreeSection
+          title="Uninstalled Package Volumes"
+          state="uninstalled"
+          filesystems={uninstalledFilesystems}
+          badge={<Badge variant="secondary">uninstalled</Badge>}
+        />
+      )}
 
       <Dialog
         open={editDialog.open}

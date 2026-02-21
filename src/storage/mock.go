@@ -148,6 +148,12 @@ func (m *MockBtrFSController) SubvolSnapshot(dst, src string, readonly bool) err
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
 
+	// Create a copy of the source filesystem at the destination path.
+	m.addFilesystemLocked(dst)
+	if q, ok := m.Quotas[src]; ok {
+		m.Quotas[dst] = q
+	}
+
 	m.addCallLocked("SubvolSnapshot", nil, dst, src, readonly)
 	return nil
 }
@@ -186,16 +192,33 @@ func (m *MockBtrFSController) SubvolRename(oldPath, newPath string) error {
 		}
 	}
 
-	var err error
 	if !found {
-		err = ErrNoFilesystem
-	} else if q, ok := m.Quotas[oldPath]; ok {
+		err := ErrNoFilesystem
+		m.addCallLocked("SubvolRename", err, oldPath, newPath)
+		return err
+	}
+
+	// Rename quota for the exact match.
+	if q, ok := m.Quotas[oldPath]; ok {
 		delete(m.Quotas, oldPath)
 		m.Quotas[newPath] = q
 	}
 
-	m.addCallLocked("SubvolRename", err, oldPath, newPath)
-	return err
+	// Also rename children (os.Rename on a real directory moves all contents).
+	childPrefix := fmt.Sprintf("%s/", oldPath)
+	for i, fs := range m.Filesystems {
+		if strings.HasPrefix(fs.Name, childPrefix) {
+			newChildName := fmt.Sprintf("%s/%s", newPath, strings.TrimPrefix(fs.Name, childPrefix))
+			m.Filesystems[i].Name = newChildName
+			if q, ok := m.Quotas[fs.Name]; ok {
+				delete(m.Quotas, fs.Name)
+				m.Quotas[newChildName] = q
+			}
+		}
+	}
+
+	m.addCallLocked("SubvolRename", nil, oldPath, newPath)
+	return nil
 }
 
 func (m *MockBtrFSController) QuotaEnable(path string) error {

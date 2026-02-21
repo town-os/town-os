@@ -14,16 +14,20 @@ type MockInstallManager struct {
 	mu               sync.Mutex
 	Installed        []PackageIdentity
 	StoredResponses  map[string]Responses
+	Disabled         map[string]bool
 	Calls            []MockInstallCall
 	InstallErr       error
 	UninstallErr     error
 	ListErr          error
-	GetResponsesErr error
+	GetResponsesErr  error
+	SetDisabledErr   error
+	IsDisabledErr    error
 }
 
 func InitMockInstallManager() *MockInstallManager {
 	return &MockInstallManager{
 		StoredResponses: map[string]Responses{},
+		Disabled:        map[string]bool{},
 	}
 }
 
@@ -113,4 +117,33 @@ func (m *MockInstallManager) GetResponses(pkgName, version string) (Responses, e
 		out[k] = v
 	}
 	return out, nil
+}
+
+func (m *MockInstallManager) SetDisabled(pkgName string, disabled bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "SetDisabled", Args: []any{pkgName, disabled}})
+
+	if m.SetDisabledErr != nil {
+		return m.SetDisabledErr
+	}
+
+	if disabled {
+		m.Disabled[pkgName] = true
+	} else {
+		delete(m.Disabled, pkgName)
+	}
+	return nil
+}
+
+func (m *MockInstallManager) IsDisabled(pkgName string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "IsDisabled", Args: []any{pkgName}})
+
+	if m.IsDisabledErr != nil {
+		return false, m.IsDisabledErr
+	}
+
+	return m.Disabled[pkgName], nil
 }

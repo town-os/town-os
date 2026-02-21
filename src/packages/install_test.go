@@ -445,6 +445,103 @@ func TestMockInstallManagerGetResponsesReturnsCopy(t *testing.T) {
 	}
 }
 
+// --- InstallManager disabled state tests ---
+
+func TestSetDisabledCreatesMarker(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewInstallManager(dir)
+
+	if err := mgr.SetDisabled("nginx", true); err != nil {
+		t.Fatalf("SetDisabled: %v", err)
+	}
+
+	marker := filepath.Join(dir, InstalledDir, "nginx", "disabled")
+	if _, err := os.Stat(marker); os.IsNotExist(err) {
+		t.Fatal("expected disabled marker file to exist")
+	}
+}
+
+func TestSetDisabledClearsMarker(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewInstallManager(dir)
+
+	if err := mgr.SetDisabled("nginx", true); err != nil {
+		t.Fatalf("SetDisabled(true): %v", err)
+	}
+
+	if err := mgr.SetDisabled("nginx", false); err != nil {
+		t.Fatalf("SetDisabled(false): %v", err)
+	}
+
+	marker := filepath.Join(dir, InstalledDir, "nginx", "disabled")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("expected disabled marker file to be removed")
+	}
+}
+
+func TestIsDisabledTrue(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewInstallManager(dir)
+
+	if err := mgr.SetDisabled("nginx", true); err != nil {
+		t.Fatalf("SetDisabled: %v", err)
+	}
+
+	disabled, err := mgr.IsDisabled("nginx")
+	if err != nil {
+		t.Fatalf("IsDisabled: %v", err)
+	}
+	if !disabled {
+		t.Fatal("expected IsDisabled to return true")
+	}
+}
+
+func TestIsDisabledFalse(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewInstallManager(dir)
+
+	disabled, err := mgr.IsDisabled("nginx")
+	if err != nil {
+		t.Fatalf("IsDisabled: %v", err)
+	}
+	if disabled {
+		t.Fatal("expected IsDisabled to return false")
+	}
+}
+
+func TestUninstallClearsDisabledMarker(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a fake repo package.
+	pkgDir := filepath.Join(dir, "repo-a", PackagesDir, "nginx")
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mgr := NewInstallManager(dir)
+
+	if err := mgr.Install("repo-a", "nginx", "1.0", Responses{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if err := mgr.SetDisabled("nginx", true); err != nil {
+		t.Fatalf("SetDisabled: %v", err)
+	}
+
+	if err := mgr.Uninstall("nginx", "1.0"); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	// The package directory should be cleaned up entirely.
+	pkgInstallDir := filepath.Join(dir, InstalledDir, "nginx")
+	if _, err := os.Stat(pkgInstallDir); !os.IsNotExist(err) {
+		t.Fatalf("expected package install directory to be removed, got err: %v", err)
+	}
+}
+
 // --- InstallManager response persistence tests ---
 
 func TestInstallManagerResponsesPersistence(t *testing.T) {

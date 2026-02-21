@@ -23,7 +23,7 @@ type Client interface {
 	CreateFilesystem(ctx context.Context, fs storage.Filesystem) error
 	ModifyFilesystem(ctx context.Context, name string, fs storage.Filesystem) error
 	RemoveFilesystem(ctx context.Context, name string) error
-	ListFilesystems(ctx context.Context, prefix string) ([]storage.Filesystem, error)
+	ListFilesystems(ctx context.Context, prefix string, state string) ([]storage.Filesystem, error)
 
 	AddRepository(ctx context.Context, name, rawURL, username, password string) error
 	RemoveRepository(ctx context.Context, name string) error
@@ -31,12 +31,17 @@ type Client interface {
 	ListRepositories(ctx context.Context, params ListParams) (*PageResult[RepositoryInfo], error)
 
 	ListPackages(ctx context.Context, params ListParams) (*PageResult[string], error)
+	ListPackageVersions(ctx context.Context, name string) ([]string, error)
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
 	GetPackageQuestionsByIdentity(ctx context.Context, name, version string) (map[string]packages.Question, error)
 
-	InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error
+	InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error
 	UninstallPackage(ctx context.Context, name, version string, purgeVolumes bool) error
 	PurgeVolumes(ctx context.Context, name string) error
+	ListUninstalledVolumes(ctx context.Context, name string) (*UninstalledVolumesResponse, error)
+	PurgeUninstalledVolumes(ctx context.Context, name string) error
+	DisablePackage(ctx context.Context, name string) error
+	EnablePackage(ctx context.Context, name string) error
 	ListInstalled(ctx context.Context, params ListParams) (*PageResult[string], error)
 	GetResponses(ctx context.Context, name, version string) (packages.Responses, error)
 	GetInstalledInfo(ctx context.Context, name, version string) (*InstalledInfoResponse, error)
@@ -200,9 +205,9 @@ func (c *SystemdClient) RemoveFilesystem(ctx context.Context, name string) error
 	return c.postClient(ctx, "storage/remove", pr)
 }
 
-func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string) (_ []storage.Filesystem, err error) {
+func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string, state string) (_ []storage.Filesystem, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, FilesystemName{Name: prefix})
+	go pipeEncode(pw, FilesystemName{Name: prefix, State: state})
 
 	resp, err := c.postJSON(ctx, "storage", pr)
 	if err != nil {
@@ -293,6 +298,26 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
+func (c *SystemdClient) ListPackageVersions(ctx context.Context, name string) (_ []string, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageNameRequest{Name: name})
+
+	resp, err := c.postJSON(ctx, "packages/versions", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListPackageVersions: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "POST", "packages/versions")
+	}
+
+	var versions []string
+	return versions, json.NewDecoder(resp.Body).Decode(&versions)
+}
+
 func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_ map[string]packages.Question, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, PackageNameRequest{Name: name})
@@ -335,9 +360,15 @@ func (c *SystemdClient) GetPackageQuestionsByIdentity(ctx context.Context, name,
 
 // --- Install ---
 
-func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string, responses packages.Responses) error {
+func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, InstallRequest{Name: name, Version: version, Responses: responses})
+	go pipeEncode(pw, InstallRequest{
+		Name:              name,
+		Version:           version,
+		Responses:         responses,
+		ReuseVolumes:      reuseVolumes,
+		ImportFromVersion: importFromVersion,
+	})
 
 	return c.postClient(ctx, "packages/install", pr)
 }
@@ -354,6 +385,47 @@ func (c *SystemdClient) PurgeVolumes(ctx context.Context, name string) error {
 	go pipeEncode(pw, PackageNameRequest{Name: name})
 
 	return c.postClient(ctx, "packages/purge-volumes", pr)
+}
+
+func (c *SystemdClient) ListUninstalledVolumes(ctx context.Context, name string) (_ *UninstalledVolumesResponse, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageNameRequest{Name: name})
+
+	resp, err := c.postJSON(ctx, "packages/uninstalled-volumes", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListUninstalledVolumes: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "POST", "packages/uninstalled-volumes")
+	}
+
+	var result UninstalledVolumesResponse
+	return &result, json.NewDecoder(resp.Body).Decode(&result)
+}
+
+func (c *SystemdClient) PurgeUninstalledVolumes(ctx context.Context, name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageNameRequest{Name: name})
+
+	return c.postClient(ctx, "packages/purge-uninstalled-volumes", pr)
+}
+
+func (c *SystemdClient) DisablePackage(ctx context.Context, name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageToggleRequest{Name: name})
+
+	return c.postClient(ctx, "packages/disable", pr)
+}
+
+func (c *SystemdClient) EnablePackage(ctx context.Context, name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageToggleRequest{Name: name})
+
+	return c.postClient(ctx, "packages/enable", pr)
 }
 
 func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_ *PageResult[string], err error) {
