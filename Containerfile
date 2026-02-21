@@ -18,7 +18,7 @@ RUN bun run build
 
 FROM debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y \
-    btrfs-progs libsystemd0 \
+    btrfs-progs libsystemd0 podman \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 FROM runtime-deps

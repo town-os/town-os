@@ -121,7 +121,7 @@ dev-btrfs:
 dev: test-image dev-btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@mkdir -p dev-data dev-repos
-	sudo -E podman run -d -p 0.0.0.0:5309:5309 -e LOG_LEVEL=debug -e DEBUG=1 \
+	sudo -E podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--systemd=true --privileged \

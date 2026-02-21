@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -884,7 +886,7 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1115,7 +1117,7 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1260,6 +1262,243 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	// Verify unit file no longer exists on disk.
 	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
 		t.Fatalf("expected unit file %q to be removed, got err: %v", unitPath, err)
+	}
+}
+
+// --- Real container integration tests ---
+
+// initSystemControllerRealContainerTest sets up a test server with real BtrFS
+// storage, real systemd, and proper paths so that podman containers can
+// actually be launched.
+func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.SystemdClient {
+	t.Helper()
+
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal empty repository list: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile repositories file: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("failed to load repository root: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	btr := storage.InitBtrFS("/data/btrfs")
+	sd := systemd.NewManager()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:        btr,
+		RepositoryRoot: rr,
+		Installer:      inst,
+		Systemd:        sd,
+		BtrfsBasePath:  "/data/btrfs",
+		UPnPBinPath:    "/town-os-upnp",
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c
+}
+
+// cleanupContainerUnits unconditionally stops, disables, and removes all
+// systemd units for a package plus the podman container itself.
+func cleanupContainerUnits(pkgName string, external, internal packages.PortMap) {
+	cleanup := systemd.NewManager()
+	ctx := context.Background()
+	allUnits := systemd.PackageUnitNames(pkgName, external, internal)
+	for _, name := range allUnits {
+		_ = cleanup.SetStatus(ctx, name, systemd.Stop)
+		_ = cleanup.SetStatus(ctx, name, systemd.Disable)
+		_ = cleanup.UninstallUnit(ctx, name)
+	}
+	containerName := fmt.Sprintf("town-os-%s", pkgName)
+	_ = exec.Command("podman", "stop", "-t", "10", containerName).Run()
+	_ = exec.Command("podman", "rm", "-f", containerName).Run()
+}
+
+// waitForContainer polls podman inspect until the container reaches "running"
+// state or the timeout expires. pkgName is the package name (e.g. "nginx");
+// the podman container name is "town-os-<pkgName>".
+func waitForContainer(t *testing.T, pkgName string, timeout time.Duration) {
+	t.Helper()
+	containerName := fmt.Sprintf("town-os-%s", pkgName)
+	unitName := fmt.Sprintf("town-os-%s.service", pkgName)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
+		if err == nil && strings.TrimSpace(string(out)) == "running" {
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
+	// Log the systemd journal for debugging before failing.
+	journal, _ := exec.Command("journalctl", "-u", unitName, "--no-pager", "-n", "50").Output()
+	t.Fatalf("container %q did not reach running state within %v\njournal:\n%s", containerName, timeout, string(journal))
+}
+
+func TestSystemControllerRealContainerLifecycle(t *testing.T) {
+	c := initSystemControllerRealContainerTest(t)
+
+	t.Cleanup(func() {
+		cleanupContainerUnits("redis", packages.PortMap{}, packages.PortMap{6379: 6379})
+	})
+
+	// Add core repo.
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install redis@7.0.
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"password":  "testpass",
+		"maxmemory": "100mb",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	// Wait for the container to start (includes image pull).
+	waitForContainer(t, "redis", 180*time.Second)
+
+	// Verify the systemd unit is active.
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-redis"})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	unitName := systemd.UnitName("redis")
+	var found bool
+	for _, u := range units.Entries {
+		if u.Name == unitName {
+			found = true
+			if u.ActiveState != "active" {
+				t.Fatalf("expected unit %q ActiveState active, got %q", unitName, u.ActiveState)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected unit %q in ListUnits output", unitName)
+	}
+
+	// Verify redis is accepting connections inside the container.
+	// (Host port forwarding doesn't work in podman-in-podman, so we
+	// use podman exec to verify the service is running.)
+	pingOut, err := exec.Command("podman", "exec", "town-os-redis", "redis-cli", "ping").Output()
+	if err != nil {
+		logs, _ := exec.Command("podman", "logs", "--tail", "20", "town-os-redis").CombinedOutput()
+		t.Fatalf("redis-cli ping failed: %v\ncontainer logs:\n%s", err, string(logs))
+	}
+	if strings.TrimSpace(string(pingOut)) != "PONG" {
+		t.Fatalf("expected PONG from redis-cli ping, got: %s", string(pingOut))
+	}
+
+	// Verify podman container is listed.
+	out, err := exec.Command("podman", "ps", "--filter", "name=town-os-redis", "--format", "{{.Names}}").Output()
+	if err != nil {
+		t.Fatalf("podman ps: %v", err)
+	}
+	if !strings.Contains(string(out), "town-os-redis") {
+		t.Fatalf("expected town-os-redis in podman ps output, got: %s", string(out))
+	}
+
+	// Uninstall redis@7.0.
+	if err := c.UninstallPackage(context.TODO(), "redis", "7.0", false); err != nil {
+		t.Fatalf("UninstallPackage redis@7.0: %v", err)
+	}
+
+	// Wait for the container to stop.
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		inspectOut, inspectErr := exec.Command("podman", "inspect", "--format", "{{.State.Status}}", "town-os-redis").Output()
+		if inspectErr != nil || strings.TrimSpace(string(inspectOut)) != "running" {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
+	// Verify the unit file is gone.
+	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName)
+	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
+		t.Fatalf("expected unit file %q removed after uninstall, got err: %v", unitPath, err)
+	}
+
+	// Verify the container is no longer running.
+	out, err = exec.Command("podman", "ps", "--filter", "name=town-os-redis", "--format", "{{.Names}}").Output()
+	if err == nil && strings.Contains(string(out), "town-os-redis") {
+		t.Fatal("expected town-os-redis not in podman ps after uninstall")
+	}
+}
+
+func TestSystemControllerRealContainerReinstall(t *testing.T) {
+	c := initSystemControllerRealContainerTest(t)
+
+	t.Cleanup(func() {
+		cleanupContainerUnits("redis", packages.PortMap{}, packages.PortMap{6379: 6379})
+	})
+
+	// Add core repo.
+	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install redis@7.0.
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"password":  "testpass",
+		"maxmemory": "100mb",
+	}, false, ""); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
+	}
+
+	waitForContainer(t, "redis", 180*time.Second)
+
+	// Reinstall with the same version (same-version reinstall path).
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"password":  "newpass",
+		"maxmemory": "200mb",
+	}, false, ""); err != nil {
+		t.Fatalf("Reinstall redis@7.0: %v", err)
+	}
+
+	// Wait for the new container to come up.
+	waitForContainer(t, "redis", 180*time.Second)
+
+	// Verify installed list still shows redis@7.0.
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+
+	var foundRedis bool
+	for _, entry := range pkgs.Entries {
+		if entry == "redis@7.0" {
+			foundRedis = true
+		}
+	}
+	if !foundRedis {
+		t.Fatalf("expected redis@7.0 in installed list, got: %v", pkgs.Entries)
+	}
+
+	// Verify redis is accepting connections after reinstall.
+	pingOut, err := exec.Command("podman", "exec", "town-os-redis", "redis-cli", "ping").Output()
+	if err != nil {
+		logs, _ := exec.Command("podman", "logs", "--tail", "20", "town-os-redis").CombinedOutput()
+		t.Fatalf("redis-cli ping after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
+	}
+	if strings.TrimSpace(string(pingOut)) != "PONG" {
+		t.Fatalf("expected PONG after reinstall, got: %s", string(pingOut))
+	}
+
+	// Uninstall.
+	if err := c.UninstallPackage(context.TODO(), "redis", "7.0", false); err != nil {
+		t.Fatalf("UninstallPackage redis@7.0: %v", err)
 	}
 }
 
@@ -2595,7 +2834,7 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, ""); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 

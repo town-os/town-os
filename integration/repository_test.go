@@ -166,8 +166,8 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 		t.Fatalf("failed to compile nginx package: %v", err)
 	}
 
-	if compiled.Image != "docker.io/library/nginx:1.0" {
-		t.Fatalf("expected image docker.io/library/nginx:1.0, got %s", compiled.Image)
+	if compiled.Image != "docker.io/library/nginx:1.26-alpine" {
+		t.Fatalf("expected image docker.io/library/nginx:1.26-alpine, got %s", compiled.Image)
 	}
 
 	if compiled.Environment["NGINX_HOST"] != "example" {
@@ -1160,8 +1160,8 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 		t.Fatalf("Compile through symlink: %v", err)
 	}
 
-	if compiled.Image != "docker.io/library/nginx:1.0" {
-		t.Fatalf("expected image docker.io/library/nginx:1.0, got %s", compiled.Image)
+	if compiled.Image != "docker.io/library/nginx:1.26-alpine" {
+		t.Fatalf("expected image docker.io/library/nginx:1.26-alpine, got %s", compiled.Image)
 	}
 	if compiled.Environment["NGINX_HOST"] != "webserver" {
 		t.Fatalf("expected NGINX_HOST=webserver, got %s", compiled.Environment["NGINX_HOST"])
