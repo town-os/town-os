@@ -86,6 +86,8 @@ type systemControllerBackend interface {
 	GetSettingsManager() account.SettingsManager
 	GetAllowedHosts() []string
 	GetDefaultRepoCredentials() (string, string)
+	GetBtrfsBasePath() string
+	GetUPnPBinPath() string
 }
 
 type SystemController interface {
@@ -264,6 +266,105 @@ func (s *SystemControllerHandlers) defaultQuota() uint64 {
 	}
 
 	return q
+}
+
+// installPackageUnits installs all systemd unit files for a package, enables
+// socket and timer units, and starts the main service.
+func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd systemd.Manager, units systemd.PackageUnits) error {
+	// Install all unit files.
+	if err := sd.InstallUnit(ctx, units.Service.Name, units.Service.Content); err != nil {
+		return fmt.Errorf("install service unit: %w", err)
+	}
+	for _, sock := range units.Sockets {
+		if err := sd.InstallUnit(ctx, sock.Name, sock.Content); err != nil {
+			return fmt.Errorf("install socket unit %s: %w", sock.Name, err)
+		}
+	}
+	if units.UPnPService != nil {
+		if err := sd.InstallUnit(ctx, units.UPnPService.Name, units.UPnPService.Content); err != nil {
+			return fmt.Errorf("install upnp service unit: %w", err)
+		}
+	}
+	if units.UPnPTimer != nil {
+		if err := sd.InstallUnit(ctx, units.UPnPTimer.Name, units.UPnPTimer.Content); err != nil {
+			return fmt.Errorf("install upnp timer unit: %w", err)
+		}
+	}
+
+	// Enable socket and timer units.
+	for _, sock := range units.Sockets {
+		if err := sd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
+			return fmt.Errorf("enable socket %s: %w", sock.Name, err)
+		}
+	}
+	if units.UPnPTimer != nil {
+		if err := sd.SetStatus(ctx, units.UPnPTimer.Name, systemd.Enable); err != nil {
+			return fmt.Errorf("enable upnp timer: %w", err)
+		}
+	}
+
+	// Start the main service.
+	if err := sd.SetStatus(ctx, units.Service.Name, systemd.Start); err != nil {
+		return fmt.Errorf("start service: %w", err)
+	}
+
+	return nil
+}
+
+// uninstallPackageUnits stops, disables, and uninstalls all systemd units for
+// a package.
+func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd systemd.Manager, unitNames []string) error {
+	for _, name := range unitNames {
+		if err := sd.SetStatus(ctx, name, systemd.Stop); err != nil {
+			slog.Debug(fmt.Sprintf("stop unit %s: %v", name, err))
+		}
+		if err := sd.SetStatus(ctx, name, systemd.Disable); err != nil {
+			slog.Debug(fmt.Sprintf("disable unit %s: %v", name, err))
+		}
+		if err := sd.UninstallUnit(ctx, name); err != nil {
+			slog.Debug(fmt.Sprintf("uninstall unit %s: %v", name, err))
+		}
+	}
+	return nil
+}
+
+// packageUnitConfig builds a PackageUnitConfig from a compiled package and
+// backend configuration.
+func (s *SystemControllerHandlers) packageUnitConfig(pkgName, version string, compiled *packages.Package) systemd.PackageUnitConfig {
+	return systemd.PackageUnitConfig{
+		PkgName:     pkgName,
+		Version:     version,
+		Image:       compiled.Image,
+		Environment: compiled.Environment,
+		External:    compiled.Network.External,
+		Internal:    compiled.Network.Internal,
+		Volumes:     compiled.Volumes,
+		BtrfsBase:   s.Controller.GetBtrfsBasePath(),
+		UPnPBinPath: s.Controller.GetUPnPBinPath(),
+	}
+}
+
+// activeUnitNames tries to load a compiled package to determine the full set
+// of unit names. Falls back to just the main service unit if the package
+// cannot be loaded.
+func (s *SystemControllerHandlers) activeUnitNames(rr *packages.RepositoryRoot, inst packages.Installer, pkgName, version string) []string {
+	if rr != nil && inst != nil {
+		repoName, err := rr.FindRepoForPackage(pkgName, version)
+		if err == nil {
+			ip, err := rr.LoadPackage(repoName, pkgName, version)
+			if err == nil {
+				responses, err := inst.GetResponses(pkgName, version)
+				if err == nil {
+					compiled, err := ip.Compile(responses)
+					if err == nil {
+						return systemd.PackageUnitNames(pkgName, compiled.Network.External, compiled.Network.Internal)
+					}
+				}
+			}
+		}
+	}
+
+	return []string{systemd.UnitName(pkgName)}
 }
 
 // --- Storage handlers ---
@@ -633,13 +734,10 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	if activeVersion != "" {
-		// Stop and remove the systemd unit for the currently active version.
+		// Stop and remove all systemd units for the currently active version.
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
-			unitName := systemd.UnitName(req.Name)
-			if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
-				return err
-			}
-			if err := sd.UninstallUnit(ctx, unitName); err != nil {
+			unitNames := s.activeUnitNames(rr, inst, req.Name, activeVersion)
+			if err := s.uninstallPackageUnits(ctx, sd, unitNames); err != nil {
 				return err
 			}
 		}
@@ -705,12 +803,9 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		unitName := systemd.UnitName(req.Name)
-		content := systemd.StubUnitContent(req.Name, req.Version)
-		if err := sd.InstallUnit(ctx, unitName, content); err != nil {
-			return err
-		}
-		if err := sd.SetStatus(ctx, unitName, systemd.Start); err != nil {
+		cfg := s.packageUnitConfig(req.Name, req.Version, compiled)
+		units := systemd.GeneratePackageUnits(cfg)
+		if err := s.installPackageUnits(ctx, sd, units); err != nil {
 			return err
 		}
 	}
@@ -728,17 +823,16 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	rr := s.Controller.GetRepositoryRoot()
+	inst := s.Controller.GetInstaller()
+
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		unitName := systemd.UnitName(req.Name)
-		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
-			return err
-		}
-		if err := sd.UninstallUnit(ctx, unitName); err != nil {
+		unitNames := s.activeUnitNames(rr, inst, req.Name, req.Version)
+		if err := s.uninstallPackageUnits(ctx, sd, unitNames); err != nil {
 			return err
 		}
 	}
 
-	inst := s.Controller.GetInstaller()
 	if err := inst.SetDisabled(req.Name, false); err != nil {
 		return err
 	}
@@ -1824,6 +1918,8 @@ type ServerConfig struct {
 	AllowedHosts       []string
 	DefaultRepoUser    string
 	DefaultRepoPass    string
+	BtrfsBasePath      string
+	UPnPBinPath        string
 }
 
 type contextHandler struct {
@@ -1854,6 +1950,8 @@ func (s *serverBase) GetAllowedHosts() []string                   { return s.All
 func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 	return s.DefaultRepoUser, s.DefaultRepoPass
 }
+func (s *serverBase) GetBtrfsBasePath() string { return s.BtrfsBasePath }
+func (s *serverBase) GetUPnPBinPath() string   { return s.UPnPBinPath }
 
 func parseLogLevel() slog.Level {
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {

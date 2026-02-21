@@ -22,6 +22,7 @@ func run() (err error) {
 	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
 	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
 	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
+	upnpBin := flag.String("upnp-bin", "/town-os-upnp", "path to the town-os-upnp binary")
 	flag.Parse()
 
 	dir, err := os.MkdirTemp("", "systemcontroller-*")
@@ -115,6 +116,8 @@ func run() (err error) {
 		Storage:        st,
 		Systemd:        sd,
 		SettingsMgr:    settingsMgr,
+		BtrfsBasePath:  *btrfsPath,
+		UPnPBinPath:    *upnpBin,
 	}); err != nil {
 		return fmt.Errorf("reconcile: %w", err)
 	}
@@ -130,6 +133,8 @@ func run() (err error) {
 		SettingsMgr:     settingsMgr,
 		DefaultRepoUser: os.Getenv(packages.EnvRepoUsername),
 		DefaultRepoPass: os.Getenv(packages.EnvRepoPassword),
+		BtrfsBasePath:   *btrfsPath,
+		UPnPBinPath:     *upnpBin,
 	})
 
 	srv := &http.Server{

@@ -333,7 +333,7 @@ func TestRepositoryRootList(t *testing.T) {
 
 func TestNewRepositoryBadCredentials(t *testing.T) {
 	dir := t.TempDir()
-	u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
+	u := url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/does-not-exist.git"}
 
 	_, err := NewRepository(dir, "", u, "", "")
 	if err == nil {
@@ -364,7 +364,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 
 	t.Run("both empty is allowed", func(t *testing.T) {
 		dir := t.TempDir()
-		u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
+		u := url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/does-not-exist.git"}
 
 		// Will fail at clone, but should not fail at credential validation
 		_, err := NewRepository(dir, "", u, "", "")
@@ -375,7 +375,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 
 	t.Run("both provided is allowed", func(t *testing.T) {
 		dir := t.TempDir()
-		u := url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/does-not-exist.git"}
+		u := url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/does-not-exist.git"}
 
 		// Will fail at clone, but should not fail at credential validation
 		_, err := NewRepository(dir, "", u, "user", "pass")
@@ -454,7 +454,7 @@ func TestCredentialURL(t *testing.T) {
 	t.Run("round-trip through url.Parse", func(t *testing.T) {
 		r := &Repository{
 			Name:     "repo",
-			URL:      url.URL{Scheme: "https", Host: "gitea.com", Path: "/org/repo.git"},
+			URL:      url.URL{Scheme: "https", Host: "github.com", Path: "/org/repo.git"},
 			Username: "deploy",
 			Password: "token123",
 		}
@@ -467,8 +467,8 @@ func TestCredentialURL(t *testing.T) {
 		if parsed.Scheme != "https" {
 			t.Fatalf("expected scheme https, got %q", parsed.Scheme)
 		}
-		if parsed.Host != "gitea.com" {
-			t.Fatalf("expected host gitea.com, got %q", parsed.Host)
+		if parsed.Host != "github.com" {
+			t.Fatalf("expected host github.com, got %q", parsed.Host)
 		}
 		if parsed.Path != "/org/repo.git" {
 			t.Fatalf("expected path /org/repo.git, got %q", parsed.Path)

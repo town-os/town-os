@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	coreURL   = url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/test-packages-core.git"}
-	extrasURL = url.URL{Scheme: "https", Host: "gitea.com", Path: "/town-os/test-packages-extras.git"}
+	coreURL   = url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/test-packages-core.git"}
+	extrasURL = url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/test-packages-extras.git"}
 )
 
 func repoCredentials() (string, string) {

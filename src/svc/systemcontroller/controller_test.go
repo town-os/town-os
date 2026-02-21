@@ -1213,7 +1213,7 @@ func TestHTTPAddRepositoryBadClone(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	err = c.AddRepository(context.TODO(), "", "https://gitea.com/town-os/does-not-exist.git", "", "")
+	err = c.AddRepository(context.TODO(), "", "https://github.com/town-os/does-not-exist.git", "", "")
 	if err == nil {
 		t.Fatal("expected error for inaccessible repository")
 	}
@@ -2431,14 +2431,18 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	}
 
 	calls := sd.GetCalls()
-	// Install produces 2 calls (InstallUnit, start)
-	// Uninstall produces 2 calls (stop, UninstallUnit)
-	if len(calls) != 4 {
-		t.Fatalf("expected 4 systemd calls, got %d: %v", len(calls), calls)
+	// Install produces 2 calls (InstallUnit, Start)
+	// Uninstall produces 3 calls (Stop, Disable, UninstallUnit)
+	if len(calls) != 5 {
+		methods := make([]string, len(calls))
+		for i, cl := range calls {
+			methods[i] = cl.Method
+		}
+		t.Fatalf("expected 5 systemd calls, got %d: %v", len(calls), methods)
 	}
 
-	// Uninstall calls: indices 2, 3
-	// 2. SetStatus(stop)
+	// Uninstall calls: indices 2, 3, 4
+	// 2. SetStatus(Stop)
 	if calls[2].Method != "SetStatus" {
 		t.Fatalf("call 2: expected SetStatus, got %q", calls[2].Method)
 	}
@@ -2446,12 +2450,20 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("call 2: expected action %q, got %v", systemd.Stop, calls[2].Args[1])
 	}
 
-	// 3. UninstallUnit
-	if calls[3].Method != "UninstallUnit" {
-		t.Fatalf("call 3: expected UninstallUnit, got %q", calls[3].Method)
+	// 3. SetStatus(Disable)
+	if calls[3].Method != "SetStatus" {
+		t.Fatalf("call 3: expected SetStatus, got %q", calls[3].Method)
 	}
-	if calls[3].Args[0].(string) != "town-os-nginx.service" {
-		t.Fatalf("call 3: expected unit name %q, got %v", "town-os-nginx.service", calls[3].Args[0])
+	if calls[3].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("call 3: expected action %q, got %v", systemd.Disable, calls[3].Args[1])
+	}
+
+	// 4. UninstallUnit
+	if calls[4].Method != "UninstallUnit" {
+		t.Fatalf("call 4: expected UninstallUnit, got %q", calls[4].Method)
+	}
+	if calls[4].Args[0].(string) != "town-os-nginx.service" {
+		t.Fatalf("call 4: expected unit name %q, got %v", "town-os-nginx.service", calls[4].Args[0])
 	}
 }
 
@@ -6248,30 +6260,34 @@ func TestHTTPReinstallPackageWithSystemd(t *testing.T) {
 
 	calls := sd.GetCalls()
 	// First install: InstallUnit, Start = 2
-	// Reinstall: Stop, UninstallUnit, InstallUnit, Start = 4
-	// Total = 6
-	if len(calls) != 6 {
+	// Reinstall teardown: Stop, Disable, UninstallUnit = 3
+	// Reinstall setup: InstallUnit, Start = 2
+	// Total = 7
+	if len(calls) != 7 {
 		methods := make([]string, len(calls))
 		for i, c := range calls {
 			methods[i] = c.Method
 		}
-		t.Fatalf("expected 6 systemd calls, got %d: %v", len(calls), methods)
+		t.Fatalf("expected 7 systemd calls, got %d: %v", len(calls), methods)
 	}
 
-	// Reinstall teardown: Stop, UninstallUnit
+	// Reinstall teardown: Stop, Disable, UninstallUnit
 	if calls[2].Args[1].(systemd.StatusAction) != systemd.Stop {
 		t.Fatalf("call 2: expected Stop, got %v", calls[2].Args[1])
 	}
-	if calls[3].Method != "UninstallUnit" {
-		t.Fatalf("call 3: expected UninstallUnit, got %q", calls[3].Method)
+	if calls[3].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("call 3: expected Disable, got %v", calls[3].Args[1])
+	}
+	if calls[4].Method != "UninstallUnit" {
+		t.Fatalf("call 4: expected UninstallUnit, got %q", calls[4].Method)
 	}
 
 	// Reinstall setup: InstallUnit, Start
-	if calls[4].Method != "InstallUnit" {
-		t.Fatalf("call 4: expected InstallUnit, got %q", calls[4].Method)
+	if calls[5].Method != "InstallUnit" {
+		t.Fatalf("call 5: expected InstallUnit, got %q", calls[5].Method)
 	}
-	if calls[5].Args[1].(systemd.StatusAction) != systemd.Start {
-		t.Fatalf("call 5: expected Start, got %v", calls[5].Args[1])
+	if calls[6].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 6: expected Start, got %v", calls[6].Args[1])
 	}
 }
 
@@ -7127,14 +7143,14 @@ questions:
 
 	calls := sd.GetCalls()
 	// First install: InstallUnit + Start = 2
-	// Upgrade: Stop + UninstallUnit + InstallUnit + Start = 4
-	// Total = 6
-	if len(calls) != 6 {
+	// Upgrade: Stop + Disable + UninstallUnit + InstallUnit + Start = 5
+	// Total = 7
+	if len(calls) != 7 {
 		methods := make([]string, len(calls))
 		for i, cl := range calls {
 			methods[i] = cl.Method
 		}
-		t.Fatalf("expected 6 systemd calls, got %d: %v", len(calls), methods)
+		t.Fatalf("expected 7 systemd calls, got %d: %v", len(calls), methods)
 	}
 
 	// First install: InstallUnit, Start
@@ -7145,20 +7161,23 @@ questions:
 		t.Fatalf("call 1: expected Start, got %v", calls[1].Args[1])
 	}
 
-	// Upgrade teardown: Stop, UninstallUnit
+	// Upgrade teardown: Stop, Disable, UninstallUnit
 	if calls[2].Args[1].(systemd.StatusAction) != systemd.Stop {
 		t.Fatalf("call 2: expected Stop, got %v", calls[2].Args[1])
 	}
-	if calls[3].Method != "UninstallUnit" {
-		t.Fatalf("call 3: expected UninstallUnit, got %q", calls[3].Method)
+	if calls[3].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("call 3: expected Disable, got %v", calls[3].Args[1])
+	}
+	if calls[4].Method != "UninstallUnit" {
+		t.Fatalf("call 4: expected UninstallUnit, got %q", calls[4].Method)
 	}
 
 	// Upgrade setup: InstallUnit, Start
-	if calls[4].Method != "InstallUnit" {
-		t.Fatalf("call 4: expected InstallUnit, got %q", calls[4].Method)
+	if calls[5].Method != "InstallUnit" {
+		t.Fatalf("call 5: expected InstallUnit, got %q", calls[5].Method)
 	}
-	if calls[5].Args[1].(systemd.StatusAction) != systemd.Start {
-		t.Fatalf("call 5: expected Start, got %v", calls[5].Args[1])
+	if calls[6].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 6: expected Start, got %v", calls[6].Args[1])
 	}
 }
 
@@ -7329,35 +7348,40 @@ questions:
 
 	sdCalls := sd.GetCalls()
 	// First install: InstallUnit + Start = 2
-	// Downgrade: Stop + UninstallUnit + InstallUnit + Start = 4
-	// Total = 6
-	if len(sdCalls) != 6 {
+	// Downgrade teardown: Stop + Disable + UninstallUnit = 3
+	// Downgrade setup: InstallUnit + Start = 2
+	// Total = 7
+	if len(sdCalls) != 7 {
 		methods := make([]string, len(sdCalls))
 		for i, cl := range sdCalls {
 			methods[i] = cl.Method
 		}
-		t.Fatalf("expected 6 systemd calls, got %d: %v", len(sdCalls), methods)
+		t.Fatalf("expected 7 systemd calls, got %d: %v", len(sdCalls), methods)
 	}
 
 	// Downgrade teardown: Stop old unit
 	if sdCalls[2].Args[1].(systemd.StatusAction) != systemd.Stop {
 		t.Fatalf("call 2: expected Stop, got %v", sdCalls[2].Args[1])
 	}
+	// Downgrade teardown: Disable old unit
+	if sdCalls[3].Args[1].(systemd.StatusAction) != systemd.Disable {
+		t.Fatalf("call 3: expected Disable, got %v", sdCalls[3].Args[1])
+	}
 	// Downgrade teardown: UninstallUnit
-	if sdCalls[3].Method != "UninstallUnit" {
-		t.Fatalf("call 3: expected UninstallUnit, got %q", sdCalls[3].Method)
+	if sdCalls[4].Method != "UninstallUnit" {
+		t.Fatalf("call 4: expected UninstallUnit, got %q", sdCalls[4].Method)
 	}
 	// Downgrade setup: InstallUnit with 1.0 content
-	if sdCalls[4].Method != "InstallUnit" {
-		t.Fatalf("call 4: expected InstallUnit, got %q", sdCalls[4].Method)
+	if sdCalls[5].Method != "InstallUnit" {
+		t.Fatalf("call 5: expected InstallUnit, got %q", sdCalls[5].Method)
 	}
-	unitContent := sdCalls[4].Args[1].(string)
+	unitContent := sdCalls[5].Args[1].(string)
 	if !strings.Contains(unitContent, "1.0") {
 		t.Fatalf("expected unit content to reference version 1.0, got: %s", unitContent)
 	}
 	// Downgrade setup: Start new unit
-	if sdCalls[5].Args[1].(systemd.StatusAction) != systemd.Start {
-		t.Fatalf("call 5: expected Start, got %v", sdCalls[5].Args[1])
+	if sdCalls[6].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 6: expected Start, got %v", sdCalls[6].Args[1])
 	}
 }
 

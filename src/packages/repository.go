@@ -22,8 +22,8 @@ const RepositoriesFile = "repositories.json"
 // DefaultRepositories returns the default package repositories to seed when
 // no repositories have been configured.
 func DefaultRepositories() []Repository {
-	core, _ := url.Parse("https://gitea.com/town-os/test-packages-core")
-	extras, _ := url.Parse("https://gitea.com/town-os/test-packages-extras")
+	core, _ := url.Parse("https://github.com/town-os/test-packages-core")
+	extras, _ := url.Parse("https://github.com/town-os/test-packages-extras")
 	return []Repository{
 		{Name: "core", URL: *core},
 		{Name: "extras", URL: *extras},

@@ -102,6 +102,21 @@ func UnitName(pkgName string) string {
 	return fmt.Sprintf("town-os-%s.service", pkgName)
 }
 
+// SocketUnitName returns the systemd socket unit name for a given package and port.
+func SocketUnitName(pkgName string, port uint16) string {
+	return fmt.Sprintf("town-os-%s-%d-tcp.socket", pkgName, port)
+}
+
+// UPnPServiceUnitName returns the systemd uPnP service unit name for a given package.
+func UPnPServiceUnitName(pkgName string) string {
+	return fmt.Sprintf("town-os-%s-upnp.service", pkgName)
+}
+
+// UPnPTimerUnitName returns the systemd uPnP timer unit name for a given package.
+func UPnPTimerUnitName(pkgName string) string {
+	return fmt.Sprintf("town-os-%s-upnp.timer", pkgName)
+}
+
 // StubUnitContent returns a simple Type=simple unit file that loops printing
 // a running message. Useful for stub/test services.
 func StubUnitContent(pkgName, version string) string {

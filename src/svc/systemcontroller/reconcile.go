@@ -20,6 +20,8 @@ type ReconcileConfig struct {
 	Storage        storage.Storage
 	Systemd        systemd.Manager
 	SettingsMgr    account.SettingsManager
+	BtrfsBasePath  string
+	UPnPBinPath    string
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -103,7 +105,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 }
 
 // reconcilePackage restores a single installed package: compiles it with its
-// persisted responses, ensures volumes, and installs+starts the systemd unit.
+// persisted responses, ensures volumes, and installs+starts the systemd units.
 func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64) error {
 	repoName, err := cfg.RepositoryRoot.FindRepoForPackage(pi.Name, pi.Version)
 	if err != nil {
@@ -141,17 +143,57 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	}
 
 	if cfg.Systemd != nil {
-		unitName := systemd.UnitName(pi.Name)
-		content := systemd.StubUnitContent(pi.Name, pi.Version)
-		if err := cfg.Systemd.InstallUnit(ctx, unitName, content); err != nil {
-			return fmt.Errorf("install unit: %w", err)
+		unitCfg := systemd.PackageUnitConfig{
+			PkgName:     pi.Name,
+			Version:     pi.Version,
+			Image:       compiled.Image,
+			Environment: compiled.Environment,
+			External:    compiled.Network.External,
+			Internal:    compiled.Network.Internal,
+			Volumes:     compiled.Volumes,
+			BtrfsBase:   cfg.BtrfsBasePath,
+			UPnPBinPath: cfg.UPnPBinPath,
 		}
+		units := systemd.GeneratePackageUnits(unitCfg)
+
+		// Install all unit files.
+		if err := cfg.Systemd.InstallUnit(ctx, units.Service.Name, units.Service.Content); err != nil {
+			return fmt.Errorf("install service unit: %w", err)
+		}
+		for _, sock := range units.Sockets {
+			if err := cfg.Systemd.InstallUnit(ctx, sock.Name, sock.Content); err != nil {
+				return fmt.Errorf("install socket unit %s: %w", sock.Name, err)
+			}
+		}
+		if units.UPnPService != nil {
+			if err := cfg.Systemd.InstallUnit(ctx, units.UPnPService.Name, units.UPnPService.Content); err != nil {
+				return fmt.Errorf("install upnp service unit: %w", err)
+			}
+		}
+		if units.UPnPTimer != nil {
+			if err := cfg.Systemd.InstallUnit(ctx, units.UPnPTimer.Name, units.UPnPTimer.Content); err != nil {
+				return fmt.Errorf("install upnp timer unit: %w", err)
+			}
+		}
+
+		// Enable socket and timer units.
+		for _, sock := range units.Sockets {
+			if err := cfg.Systemd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
+				return fmt.Errorf("enable socket %s: %w", sock.Name, err)
+			}
+		}
+		if units.UPnPTimer != nil {
+			if err := cfg.Systemd.SetStatus(ctx, units.UPnPTimer.Name, systemd.Enable); err != nil {
+				return fmt.Errorf("enable upnp timer: %w", err)
+			}
+		}
+
 		disabled, err := cfg.Installer.IsDisabled(pi.Name)
 		if err != nil {
 			return fmt.Errorf("check disabled: %w", err)
 		}
 		if !disabled {
-			if err := cfg.Systemd.SetStatus(ctx, unitName, systemd.Start); err != nil {
+			if err := cfg.Systemd.SetStatus(ctx, units.Service.Name, systemd.Start); err != nil {
 				return fmt.Errorf("start unit: %w", err)
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -412,9 +413,11 @@ func TestReconcileMultiVersionPicksLatest(t *testing.T) {
 	}
 
 	unitContent := calls[0].Args[1].(string)
-	expectedContent := systemd.StubUnitContent("nginx", "2.0")
-	if unitContent != expectedContent {
-		t.Fatalf("expected unit content for 2.0, got:\n%s", unitContent)
+	if !strings.Contains(unitContent, "nginx@2.0") {
+		t.Fatalf("expected unit content to reference nginx@2.0, got:\n%s", unitContent)
+	}
+	if !strings.Contains(unitContent, "nginx:2.0") {
+		t.Fatalf("expected unit content to reference image nginx:2.0, got:\n%s", unitContent)
 	}
 
 	if calls[1].Method != "SetStatus" || calls[1].Args[1] != systemd.Start {

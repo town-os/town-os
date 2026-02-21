@@ -148,6 +148,9 @@ auto-test-full:
 	go get github.com/cespare/reflex@latest
 	sudo -E -E $(shell go env GOPATH)/bin/reflex -r '\.(go|js)$$' make test-full
 
+build-upnp:
+	CGO_ENABLED=0 go build -o town-os-upnp ./src/upnp/cmd/town-os-upnp
+
 lint:
 	go vet ./...
 	go vet -tags=podman ./...
