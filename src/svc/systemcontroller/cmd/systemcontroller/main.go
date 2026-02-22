@@ -24,12 +24,19 @@ func run() (err error) {
 	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
 	upnpBin := flag.String("upnp-bin", "/town-os-upnp", "path to the town-os-upnp binary")
 	networkMode := flag.String("network-mode", "", "container network mode: empty uses -p mappings; host uses --net host")
+	listenAddr := flag.String("listen", ":5309", "address to listen on")
 	flag.Parse()
 
 	// Allow env var fallback when flag is not set.
 	if *networkMode == "" {
 		if env := os.Getenv("TOWN_OS_NETWORK_MODE"); env != "" {
 			*networkMode = env
+		}
+	}
+
+	if *listenAddr == ":5309" {
+		if env := os.Getenv("TOWN_OS_LISTEN"); env != "" {
+			*listenAddr = env
 		}
 	}
 
@@ -87,9 +94,14 @@ func run() (err error) {
 
 	repoFile := filepath.Join(repoBase, packages.RepositoriesFile)
 	if _, err := os.Stat(repoFile); os.IsNotExist(err) {
-		defaults := packages.DefaultRepositories()
-		if os.Getenv("DEBUG") != "" {
-			defaults = append(defaults, packages.TestRepositories()...)
+		var defaults []packages.Repository
+		if os.Getenv("TOWN_OS_TEST") != "" {
+			defaults = packages.TestRepositories()
+		} else {
+			defaults = packages.DefaultRepositories()
+			if os.Getenv("DEBUG") != "" {
+				defaults = append(defaults, packages.TestRepositories()...)
+			}
 		}
 		repoUser := os.Getenv(packages.EnvRepoUsername)
 		repoPass := os.Getenv(packages.EnvRepoPassword)
@@ -151,7 +163,7 @@ func run() (err error) {
 	})
 
 	srv := &http.Server{
-		Addr:    ":5309",
+		Addr:    *listenAddr,
 		Handler: handler,
 	}
 
@@ -166,7 +178,7 @@ func run() (err error) {
 		}
 	}()
 
-	fmt.Fprintln(os.Stderr, "systemcontroller: listening on :5309")
+	fmt.Fprintf(os.Stderr, "systemcontroller: listening on %s\n", *listenAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("listen: %w", err)
 	}

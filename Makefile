@@ -40,13 +40,12 @@ production-image: .cache/.images-pulled
 		-t $(PODMAN_IMAGE) -f Containerfile .
 
 test-ui-integration: test-image ui-integration-image btrfs
-	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
-	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
-	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 \
+	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 -e TOWN_OS_TEST=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-e TOWN_OS_LISTEN=:5310 \
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
@@ -56,10 +55,15 @@ test-ui-integration: test-image ui-integration-image btrfs
 		sudo -E podman exec $(PODMAN_UI_BACKEND) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
 		sleep 1; \
 	done
+	@echo "Waiting for systemcontroller API to be ready..."
+	@for i in $$(seq 1 30); do \
+		curl -sf http://localhost:5310/ >/dev/null 2>&1 && break; \
+		sleep 1; \
+	done
 	sudo -E podman run \
 		--net host \
-		-e INTEGRATION_URL=http://localhost:5309 \
-		-e VITE_API_URL=http://localhost:5309 \
+		-e INTEGRATION_URL=http://localhost:5310 \
+		-e VITE_API_URL=http://localhost:5310 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
@@ -67,7 +71,7 @@ test-ui-integration: test-image ui-integration-image btrfs
 
 test-integration: lint test-image btrfs
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
-	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} \
+	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} -e TOWN_OS_TEST=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		-d --net host --systemd=true --privileged \
@@ -154,7 +158,7 @@ preflight-dev:
 		{ sudo podman rm -f preflight-test >/dev/null 2>&1; echo "ERROR: bridge networking (-p) not working"; exit 1; }
 	@echo "All preflight checks passed."
 
-dev-clean: dev-stop clean-btrfs-dev
+dev-clean: dev-stop clean-integration clean-btrfs clean-btrfs-dev
 	@sudo rm -rf dev-data dev-repos
 
 dev-stop:

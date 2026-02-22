@@ -378,8 +378,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       const result = await client.listRepositories()
-      expect(result.entries.length).toBe(3)
-      expect(result.entries.some((r) => r.name === 'default')).toBe(true)
+      expect(result.entries.length).toBe(2)
       expect(result.entries.some((r) => r.name === 'core')).toBe(true)
       expect(result.entries.some((r) => r.name === 'extras')).toBe(true)
     })
@@ -396,7 +395,7 @@ describe('SystemControllerClient integration', () => {
       client.setToken(resp.token)
       await client.refreshRepositories()
       const result = await client.listRepositories()
-      expect(result.entries.length).toBe(3)
+      expect(result.entries.length).toBe(2)
     })
 
     it('adds a repository without credentials', async () => {
@@ -410,7 +409,7 @@ describe('SystemControllerClient integration', () => {
         'https://github.com/town-os/test-packages-core.git',
       )
       const result = await client.listRepositories()
-      expect(result.entries.length).toBe(4)
+      expect(result.entries.length).toBe(3)
       expect(result.entries.some((r) => r.name === 'extra-core')).toBe(true)
       await client.removeRepository('extra-core')
     })
@@ -428,7 +427,7 @@ describe('SystemControllerClient integration', () => {
         repoPass,
       )
       const result = await client.listRepositories()
-      expect(result.entries.length).toBe(4)
+      expect(result.entries.length).toBe(3)
       expect(result.entries.find((r) => r.name === 'extra-core').username).toBe(
         repoUser,
       )
@@ -471,7 +470,7 @@ describe('SystemControllerClient integration', () => {
         ),
       ).rejects.toThrow()
       const result = await client.listRepositories()
-      expect(result.entries.length).toBe(3)
+      expect(result.entries.length).toBe(2)
     })
 
     it('fails to remove nonexistent repository', async () => {
