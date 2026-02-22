@@ -167,25 +167,32 @@ export default function StorageManagement() {
   const [sortKey, setSortKey] = useState('name')
   const [sortDirection, setSortDirection] = useState('asc')
   const [showAll, setShowAll] = useState(false)
+  const [search, setSearch] = useState('')
 
-  const [filesystems, refresh, loading] = usePolling(
-    () => getClient().listFilesystems('', sortKey, sortDirection),
-    [],
-    [refreshKey, sortKey, sortDirection],
-  )
+  const PAGE_SIZE = 20
 
-  const userFilesystems = useMemo(
-    () => filesystems.filter((f) => f.state === 'user'),
-    [filesystems],
+  const [userData, , userLoading] = usePolling(
+    () => getClient().listFilesystems('', sortKey, sortDirection, 'user', PAGE_SIZE, page * PAGE_SIZE, search || undefined),
+    { entries: [], has_more: false, total_pages: 1, total_count: 0 },
+    [refreshKey, sortKey, sortDirection, page, search],
   )
-  const installedFilesystems = useMemo(
-    () => filesystems.filter((f) => f.state === 'installed'),
-    [filesystems],
+  const userFilesystems = userData.entries || []
+
+  const [installedData, , installedLoading] = usePolling(
+    () => getClient().listFilesystems('', 'name', 'asc', 'installed'),
+    { entries: [], has_more: false, total_pages: 1, total_count: 0 },
+    [refreshKey],
   )
-  const uninstalledFilesystems = useMemo(
-    () => filesystems.filter((f) => f.state === 'uninstalled'),
-    [filesystems],
+  const installedFilesystems = installedData.entries || []
+
+  const [uninstalledData, , uninstalledLoading] = usePolling(
+    () => getClient().listFilesystems('', 'name', 'asc', 'uninstalled'),
+    { entries: [], has_more: false, total_pages: 1, total_count: 0 },
+    [refreshKey],
   )
+  const uninstalledFilesystems = uninstalledData.entries || []
+
+  const loading = userLoading || installedLoading || uninstalledLoading
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
@@ -328,7 +335,7 @@ export default function StorageManagement() {
         </div>
       </div>
 
-      {loading && filesystems.length === 0 && (
+      {loading && userFilesystems.length === 0 && installedFilesystems.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
       )}
 
@@ -347,15 +354,26 @@ export default function StorageManagement() {
           entryKey="name"
           page={page}
           setPage={setPage}
+          pageSize={PAGE_SIZE}
+          hasMore={userData.has_more}
+          totalPages={userData.total_pages}
+          totalCount={userData.total_count}
           sortKey={sortKey}
           sortDirection={sortDirection}
           onSortChange={(key, dir) => {
             setSortKey(key)
             setSortDirection(dir)
+            setPage(0)
           }}
           onReset={() => {
             setSortKey('name')
             setSortDirection('asc')
+            setSearch('')
+            setPage(0)
+          }}
+          onSearchChange={(s) => {
+            setSearch(s)
+            setPage(0)
           }}
         />
       </div>

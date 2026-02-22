@@ -448,6 +448,7 @@ export default function PackageManagement() {
             setPage={setPkgPage}
             hasMore={pkgData.has_more}
             totalPages={pkgData.total_pages}
+            totalCount={pkgData.total_count}
             sortKey={pkgSortKey}
             sortDirection={pkgSortDirection}
             onSortChange={(key, dir) => {
@@ -489,6 +490,7 @@ export default function PackageManagement() {
             setPage={setRepoPage}
             hasMore={repoData.has_more}
             totalPages={repoData.total_pages}
+            totalCount={repoData.total_count}
             sortKey={repoSortKey}
             sortDirection={repoSortDirection}
             onSortChange={(key, dir) => {

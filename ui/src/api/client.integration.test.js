@@ -78,9 +78,9 @@ describe('SystemControllerClient integration', () => {
     it('lists accounts', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const accounts = await client.listAccounts()
-      expect(accounts.length).toBeGreaterThanOrEqual(1)
-      expect(accounts.some((a) => a.username === 'admin')).toBe(true)
+      const result = await client.listAccounts()
+      expect(result.entries.length).toBeGreaterThanOrEqual(1)
+      expect(result.entries.some((a) => a.username === 'admin')).toBe(true)
     })
 
     it('creates a second account (requires auth)', async () => {
@@ -165,16 +165,16 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.createFilesystem({ name: 'testfs', quota: 0 })
-      const list = await client.listFilesystems('')
-      expect(list.some((f) => f.name === 'testfs')).toBe(true)
+      const result = await client.listFilesystems('')
+      expect(result.entries.some((f) => f.name === 'testfs')).toBe(true)
     })
 
     it('lists filesystems', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const list = await client.listFilesystems('')
-      expect(list.length).toBeGreaterThanOrEqual(1)
-      const testfs = list.find((f) => f.name === 'testfs')
+      const result = await client.listFilesystems('')
+      expect(result.entries.length).toBeGreaterThanOrEqual(1)
+      const testfs = result.entries.find((f) => f.name === 'testfs')
       expect(testfs).toBeDefined()
       expect(testfs.state).toBe('user')
     })
@@ -182,18 +182,18 @@ describe('SystemControllerClient integration', () => {
     it('filters by state', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const userOnly = await client.listFilesystems('', undefined, undefined, 'user')
-      expect(userOnly.every((f) => f.state === 'user')).toBe(true)
-      expect(userOnly.some((f) => f.name === 'testfs')).toBe(true)
+      const result = await client.listFilesystems('', undefined, undefined, 'user')
+      expect(result.entries.every((f) => f.state === 'user')).toBe(true)
+      expect(result.entries.some((f) => f.name === 'testfs')).toBe(true)
     })
 
     it('modifies filesystem name (rename)', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.modifyFilesystem('testfs', { name: 'renamedfs', quota: 0 })
-      const list = await client.listFilesystems('')
-      expect(list.some((f) => f.name === 'renamedfs')).toBe(true)
-      expect(list.some((f) => f.name === 'testfs')).toBe(false)
+      const result = await client.listFilesystems('')
+      expect(result.entries.some((f) => f.name === 'renamedfs')).toBe(true)
+      expect(result.entries.some((f) => f.name === 'testfs')).toBe(false)
     })
 
     it('rejects invalid filesystem name', async () => {
@@ -216,8 +216,8 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.removeFilesystem('renamedfs')
-      const list = await client.listFilesystems('')
-      expect(list.some((f) => f.name === 'renamedfs')).toBe(false)
+      const result = await client.listFilesystems('')
+      expect(result.entries.some((f) => f.name === 'renamedfs')).toBe(false)
     })
   })
 
@@ -1103,5 +1103,43 @@ describe('SystemControllerClient integration', () => {
       }
     })
 
+  })
+
+  // --- Repository pagination / search / sort ---
+
+  describe('repository pagination and search', () => {
+    it('paginates repositories with limit and offset', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const page1 = await client.listRepositories('name', 'asc', 1, 0)
+      expect(page1.entries.length).toBe(1)
+      expect(page1.has_more).toBe(true)
+      expect(page1.total_count).toBeGreaterThanOrEqual(2)
+
+      const page2 = await client.listRepositories('name', 'asc', 1, 1)
+      expect(page2.entries.length).toBe(1)
+      expect(page2.entries[0].name).not.toBe(page1.entries[0].name)
+    })
+
+    it('searches repositories by name', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.listRepositories(undefined, undefined, undefined, undefined, 'core')
+      expect(result.entries.length).toBeGreaterThanOrEqual(1)
+      expect(result.entries.every((r) => r.name.includes('core'))).toBe(true)
+    })
+
+    it('sorts repositories by name descending', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.listRepositories('name', 'desc')
+      expect(result.entries.length).toBeGreaterThanOrEqual(2)
+      for (let i = 1; i < result.entries.length; i++) {
+        expect(result.entries[i - 1].name >= result.entries[i].name).toBe(true)
+      }
+    })
   })
 })

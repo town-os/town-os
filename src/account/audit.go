@@ -20,12 +20,14 @@ type AuditListOptions struct {
 	Account   string `json:"account"`
 	SortBy    string `json:"sort_by"`
 	SortOrder string `json:"sort_order"`
+	Search    string `json:"search"`
 }
 
 type AuditPage struct {
 	Entries    []AuditEntry `json:"entries"`
 	HasMore    bool         `json:"has_more"`
 	TotalPages int          `json:"total_pages"`
+	TotalCount int          `json:"total_count"`
 }
 
 type AuditManager interface {

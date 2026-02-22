@@ -102,6 +102,9 @@ type FilesystemName struct {
 	SortBy    string `json:"sort_by"`
 	SortOrder string `json:"sort_order"`
 	State     string `json:"state,omitempty"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+	Search    string `json:"search"`
 }
 
 type ModifyFilesystemRequest struct {
@@ -243,10 +246,6 @@ func getHandler(sc systemControllerBackend) *SystemControllerHandlers {
 	return &SystemControllerHandlers{Controller: sc}
 }
 
-// readSortParams extracts sort_by and sort_order from GET query parameters.
-func readSortParams(c *echo.Context) (string, string) {
-	return c.QueryParam("sort_by"), c.QueryParam("sort_order")
-}
 
 // defaultQuota returns the system-wide default quota in bytes.
 // If no settings manager is configured or the value is missing/invalid, it
@@ -498,9 +497,10 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 		filtered = append(filtered, f)
 	}
 
+	filtered = filterSearch(filtered, fs.Search)
 	sortSlice(filtered, fs.SortBy, fs.SortOrder)
 
-	return c.JSON(200, filtered)
+	return c.JSON(200, paginate(filtered, fs.Limit, fs.Offset))
 }
 
 // --- Repository handlers ---
@@ -1429,10 +1429,11 @@ func (s *SystemControllerHandlers) listAccounts(c *echo.Context) error {
 		return err
 	}
 
-	sortBy, sortOrder := readSortParams(c)
-	sortSlice(accounts, sortBy, sortOrder)
+	p := readListParams(c)
+	accounts = filterSearch(accounts, p.Search)
+	sortSlice(accounts, p.SortBy, p.SortOrder)
 
-	return c.JSON(200, accounts)
+	return c.JSON(200, paginate(accounts, p.Limit, p.Offset))
 }
 
 func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {

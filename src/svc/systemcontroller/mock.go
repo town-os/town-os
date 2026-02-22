@@ -143,10 +143,10 @@ func (m *MockClient) RemoveFilesystem(_ context.Context, name string) error {
 	return nil
 }
 
-func (m *MockClient) ListFilesystems(_ context.Context, prefix string, state string) ([]storage.Filesystem, error) {
+func (m *MockClient) ListFilesystems(_ context.Context, prefix string, state string, params ListParams) (*PageResult[storage.Filesystem], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListFilesystems", Args: []any{prefix, state}})
+	m.Calls = append(m.Calls, MockCall{Method: "ListFilesystems", Args: []any{prefix, state, params}})
 
 	if m.ListErr != nil {
 		return nil, m.ListErr
@@ -159,7 +159,9 @@ func (m *MockClient) ListFilesystems(_ context.Context, prefix string, state str
 		}
 	}
 
-	return out, nil
+	out = filterSearch(out, params.Search)
+	result := paginate(out, params.Limit, params.Offset)
+	return &result, nil
 }
 
 // --- Repository ---
@@ -680,10 +682,10 @@ func (m *MockClient) EnableAccount(_ context.Context, username string) error {
 	return nil
 }
 
-func (m *MockClient) ListAccounts(_ context.Context, _, _ string) ([]account.Account, error) {
+func (m *MockClient) ListAccounts(_ context.Context, params ListParams) (*PageResult[account.Account], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListAccounts", Args: nil})
+	m.Calls = append(m.Calls, MockCall{Method: "ListAccounts", Args: []any{params}})
 
 	if m.ListAcctErr != nil {
 		return nil, m.ListAcctErr
@@ -693,7 +695,9 @@ func (m *MockClient) ListAccounts(_ context.Context, _, _ string) ([]account.Acc
 	for _, acct := range m.Accounts {
 		out = append(out, *acct)
 	}
-	return out, nil
+	out = filterSearch(out, params.Search)
+	result := paginate(out, params.Limit, params.Offset)
+	return &result, nil
 }
 
 func (m *MockClient) Authenticate(_ context.Context, username, password string) (*AuthenticateResponse, error) {
@@ -781,7 +785,7 @@ func (m *MockClient) ListAuditLog(_ context.Context, opts account.AuditListOptio
 		totalPages = 1
 	}
 
-	return &account.AuditPage{Entries: entries, TotalPages: totalPages}, nil
+	return &account.AuditPage{Entries: entries, TotalPages: totalPages, TotalCount: len(entries)}, nil
 }
 
 // --- Settings ---

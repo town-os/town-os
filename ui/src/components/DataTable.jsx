@@ -26,6 +26,7 @@ import { ChevronUp, ChevronDown, Search, RotateCcw } from 'lucide-react'
  *   onSortChange?: (key: string, direction: string) => void,
  *   onReset?: () => void,
  *   onSearchChange?: (search: string) => void,
+ *   totalCount?: number,
  * }} props
  */
 export default function DataTable({
@@ -42,6 +43,7 @@ export default function DataTable({
   onSortChange,
   onReset,
   onSearchChange,
+  totalCount,
 }) {
   const [filter, setFilter] = useState('')
   const debounceRef = useRef(null)
@@ -175,9 +177,11 @@ export default function DataTable({
           />
         </div>
         <span className="text-sm text-muted-foreground ml-auto">
-          {filter && totalFiltered !== totalAll
-            ? `${totalFiltered} of ${totalAll} results`
-            : `${totalAll} results`}
+          {serverSide && totalCount != null
+            ? `${totalCount} results`
+            : filter && totalFiltered !== totalAll
+              ? `${totalFiltered} of ${totalAll} results`
+              : `${totalAll} results`}
         </span>
       </div>
       <div className="rounded-md border">

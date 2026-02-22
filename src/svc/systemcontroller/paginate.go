@@ -24,6 +24,7 @@ type PageResult[T any] struct {
 	Entries    []T  `json:"entries"`
 	HasMore    bool `json:"has_more"`
 	TotalPages int  `json:"total_pages"`
+	TotalCount int  `json:"total_count"`
 }
 
 const defaultPageLimit = 20
@@ -63,6 +64,7 @@ func paginate[T any](items []T, limit, offset int) PageResult[T] {
 		Entries:    entries,
 		HasMore:    end < total,
 		TotalPages: totalPages,
+		TotalCount: total,
 	}
 }
 

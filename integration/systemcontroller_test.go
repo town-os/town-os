@@ -52,11 +52,11 @@ func initSystemControllerTestWithStorage(t *testing.T) (*systemcontroller.System
 func TestSystemControllerCreateAndList(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "", "")
+	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
-	baseCount := len(baseList)
+	baseCount := len(baseResult.Entries)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-create-list"}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
@@ -67,33 +67,33 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), "", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after create: %v", err)
 	}
 
-	if len(list) != baseCount+1 {
-		t.Fatalf("expected %d filesystems after create, got %d", baseCount+1, len(list))
+	if len(listResult.Entries) != baseCount+1 {
+		t.Fatalf("expected %d filesystems after create, got %d", baseCount+1, len(listResult.Entries))
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), "sc-create-list", "")
+	listResult, err = c.ListFilesystems(context.TODO(), "sc-create-list", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing with exact prefix: %v", err)
 	}
 
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem under test path, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem under test path, got %d", len(listResult.Entries))
 	}
 }
 
 func TestSystemControllerRemove(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "", "")
+	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
-	baseCount := len(baseList)
+	baseCount := len(baseResult.Entries)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-remove"}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
@@ -103,24 +103,24 @@ func TestSystemControllerRemove(t *testing.T) {
 		t.Fatalf("error removing filesystem: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after remove: %v", err)
 	}
 
-	if len(list) != baseCount {
-		t.Fatalf("expected %d filesystems after remove, got %d", baseCount, len(list))
+	if len(listResult.Entries) != baseCount {
+		t.Fatalf("expected %d filesystems after remove, got %d", baseCount, len(listResult.Entries))
 	}
 }
 
 func TestSystemControllerMultipleFilesystems(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "", "")
+	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing before create: %v", err)
 	}
-	baseCount := len(baseList)
+	baseCount := len(baseResult.Entries)
 
 	names := []string{"sc-multi-a", "sc-multi-b", "sc-multi-c"}
 	for _, name := range names {
@@ -138,13 +138,13 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 		}
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after creates: %v", err)
 	}
 
-	if len(list) != baseCount+len(names) {
-		t.Fatalf("expected %d filesystems, got %d", baseCount+len(names), len(list))
+	if len(listResult.Entries) != baseCount+len(names) {
+		t.Fatalf("expected %d filesystems, got %d", baseCount+len(names), len(listResult.Entries))
 	}
 
 	// Remove one and verify count
@@ -152,13 +152,13 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 		t.Fatalf("error removing sc-multi-b: %v", err)
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), "", "")
+	listResult, err = c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after partial remove: %v", err)
 	}
 
-	if len(list) != baseCount+len(names)-1 {
-		t.Fatalf("expected %d filesystems after partial remove, got %d", baseCount+len(names)-1, len(list))
+	if len(listResult.Entries) != baseCount+len(names)-1 {
+		t.Fatalf("expected %d filesystems after partial remove, got %d", baseCount+len(names)-1, len(listResult.Entries))
 	}
 }
 
@@ -183,13 +183,13 @@ func TestSystemControllerListPrefix(t *testing.T) {
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-pfx-a", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-pfx-a", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing with prefix: %v", err)
 	}
 
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem for prefix sc-pfx-a, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem for prefix sc-pfx-a, got %d", len(listResult.Entries))
 	}
 }
 
@@ -213,11 +213,11 @@ func TestSystemControllerModifyFilesystem(t *testing.T) {
 func TestSystemControllerFullLifecycle(t *testing.T) {
 	c := initSystemControllerTest(t)
 
-	baseList, err := c.ListFilesystems(context.TODO(), "", "")
+	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems before create: %v", err)
 	}
-	baseCount := len(baseList)
+	baseCount := len(baseResult.Entries)
 
 	// Create
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-lifecycle"}); err != nil {
@@ -225,12 +225,12 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	}
 
 	// Verify exists
-	list, err := c.ListFilesystems(context.TODO(), "sc-lifecycle", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-lifecycle", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify creation: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(listResult.Entries))
 	}
 
 	// Remove
@@ -239,12 +239,12 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	}
 
 	// Verify gone
-	list, err = c.ListFilesystems(context.TODO(), "", "")
+	listResult, err = c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify removal: %v", err)
 	}
-	if len(list) != baseCount {
-		t.Fatalf("expected %d filesystems after remove, got %d", baseCount, len(list))
+	if len(listResult.Entries) != baseCount {
+		t.Fatalf("expected %d filesystems after remove, got %d", baseCount, len(listResult.Entries))
 	}
 }
 
@@ -2087,15 +2087,15 @@ func TestSystemControllerCreateWithQuota(t *testing.T) {
 		}
 	})
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-quota", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-quota", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(listResult.Entries))
 	}
-	if list[0].Quota != 1048576 {
-		t.Fatalf("expected quota %d, got %d", 1048576, list[0].Quota)
+	if listResult.Entries[0].Quota != 1048576 {
+		t.Fatalf("expected quota %d, got %d", 1048576, listResult.Entries[0].Quota)
 	}
 }
 
@@ -2116,15 +2116,15 @@ func TestSystemControllerModifyQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem set quota: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-modq", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-modq", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems after set: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(listResult.Entries))
 	}
-	if list[0].Quota != 2097152 {
-		t.Fatalf("expected quota %d, got %d", 2097152, list[0].Quota)
+	if listResult.Entries[0].Quota != 2097152 {
+		t.Fatalf("expected quota %d, got %d", 2097152, listResult.Entries[0].Quota)
 	}
 
 	// Clear quota.
@@ -2132,12 +2132,12 @@ func TestSystemControllerModifyQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem clear quota: %v", err)
 	}
 
-	list, err = c.ListFilesystems(context.TODO(), "sc-modq", "")
+	listResult, err = c.ListFilesystems(context.TODO(), "sc-modq", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems after clear: %v", err)
 	}
-	if list[0].Quota != 0 {
-		t.Fatalf("expected quota 0 after clear, got %d", list[0].Quota)
+	if listResult.Entries[0].Quota != 0 {
+		t.Fatalf("expected quota 0 after clear, got %d", listResult.Entries[0].Quota)
 	}
 }
 
@@ -2161,24 +2161,24 @@ func TestSystemControllerNestedSubvolumes(t *testing.T) {
 	})
 
 	// All three should appear when listing with the parent prefix.
-	list, err := c.ListFilesystems(context.TODO(), "sc-nest/", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-nest/", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems with parent prefix: %v", err)
 	}
-	if len(list) != 3 {
-		t.Fatalf("expected 3 filesystems under sc-nest/, got %d", len(list))
+	if len(listResult.Entries) != 3 {
+		t.Fatalf("expected 3 filesystems under sc-nest/, got %d", len(listResult.Entries))
 	}
 
 	// Exact match should return only the leaf.
-	list, err = c.ListFilesystems(context.TODO(), "sc-nest/parent/child/deep", "")
+	listResult, err = c.ListFilesystems(context.TODO(), "sc-nest/parent/child/deep", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems exact: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem for exact match, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem for exact match, got %d", len(listResult.Entries))
 	}
-	if list[0].Name != "sc-nest/parent/child/deep" {
-		t.Fatalf("expected %q, got %q", "sc-nest/parent/child/deep", list[0].Name)
+	if listResult.Entries[0].Name != "sc-nest/parent/child/deep" {
+		t.Fatalf("expected %q, got %q", "sc-nest/parent/child/deep", listResult.Entries[0].Name)
 	}
 }
 
@@ -2204,23 +2204,23 @@ func TestSystemControllerNestedSubvolumeQuotaOnLeaf(t *testing.T) {
 	})
 
 	// Child should have its quota.
-	list, err := c.ListFilesystems(context.TODO(), "sc-leafq/parent/child", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-leafq/parent/child", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems child: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1, got %d", len(listResult.Entries))
 	}
-	if list[0].Quota != 4194304 {
-		t.Fatalf("expected child quota %d, got %d", 4194304, list[0].Quota)
+	if listResult.Entries[0].Quota != 4194304 {
+		t.Fatalf("expected child quota %d, got %d", 4194304, listResult.Entries[0].Quota)
 	}
 
 	// Parent should have no quota.
-	list, err = c.ListFilesystems(context.TODO(), "sc-leafq/parent", "")
+	listResult, err = c.ListFilesystems(context.TODO(), "sc-leafq/parent", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems parent: %v", err)
 	}
-	for _, fs := range list {
+	for _, fs := range listResult.Entries {
 		if fs.Name == "sc-leafq/parent" && fs.Quota != 0 {
 			t.Fatalf("expected parent quota 0, got %d", fs.Quota)
 		}
@@ -2244,18 +2244,18 @@ func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
 		t.Fatalf("ModifyFilesystem: %v", err)
 	}
 
-	list, err := c.ListFilesystems(context.TODO(), "sc-qname", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-qname", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(listResult.Entries))
 	}
-	if list[0].Name != "sc-qname" {
-		t.Fatalf("expected name %q, got %q", "sc-qname", list[0].Name)
+	if listResult.Entries[0].Name != "sc-qname" {
+		t.Fatalf("expected name %q, got %q", "sc-qname", listResult.Entries[0].Name)
 	}
-	if list[0].Quota != 8192 {
-		t.Fatalf("expected quota %d, got %d", 8192, list[0].Quota)
+	if listResult.Entries[0].Quota != 8192 {
+		t.Fatalf("expected quota %d, got %d", 8192, listResult.Entries[0].Quota)
 	}
 }
 
@@ -2291,17 +2291,17 @@ func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
 	})
 
 	// List all children.
-	list, err := c.ListFilesystems(context.TODO(), "sc-mnq/data", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-mnq/data", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
-	if len(list) != 4 {
-		t.Fatalf("expected 4 filesystems, got %d", len(list))
+	if len(listResult.Entries) != 4 {
+		t.Fatalf("expected 4 filesystems, got %d", len(listResult.Entries))
 	}
 
 	// Verify individual quotas.
 	quotaMap := map[string]uint64{}
-	for _, f := range list {
+	for _, f := range listResult.Entries {
 		quotaMap[f.Name] = f.Quota
 	}
 	for _, want := range filesystems {
@@ -2461,12 +2461,12 @@ func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
 	}
 
 	// The unrelated filesystem should still exist.
-	list, err := c.ListFilesystems(context.TODO(), "sc-surv", "")
+	listResult, err := c.ListFilesystems(context.TODO(), "sc-surv", "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem to survive, got %d", len(list))
+	if len(listResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem to survive, got %d", len(listResult.Entries))
 	}
 }
 

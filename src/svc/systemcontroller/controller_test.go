@@ -157,13 +157,13 @@ func TestModifyFilesystemRename(t *testing.T) {
 		t.Fatalf("ModifyFilesystem rename: %v", err)
 	}
 
-	fs, err := c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
 
 	found := false
-	for _, f := range fs {
+	for _, f := range fsResult.Entries {
 		if f.Name == "new-vol" {
 			found = true
 		}
@@ -312,13 +312,13 @@ func TestRemoveFilesystemBadJSON(t *testing.T) {
 func TestListFilesystemsEmpty(t *testing.T) {
 	c, _ := initTestClient(t)
 
-	fs, err := c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(fs) != 0 {
-		t.Fatalf("expected 0 filesystems, got %d", len(fs))
+	if len(fsResult.Entries) != 0 {
+		t.Fatalf("expected 0 filesystems, got %d", len(fsResult.Entries))
 	}
 }
 
@@ -331,17 +331,17 @@ func TestListFilesystemsAll(t *testing.T) {
 		}
 	}
 
-	fs, err := c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(fs) != 3 {
-		t.Fatalf("expected 3 filesystems, got %d", len(fs))
+	if len(fsResult.Entries) != 3 {
+		t.Fatalf("expected 3 filesystems, got %d", len(fsResult.Entries))
 	}
 
 	found := map[string]bool{}
-	for _, f := range fs {
+	for _, f := range fsResult.Entries {
 		found[f.Name] = true
 	}
 	for _, want := range []string{"vol-a", "vol-b", "vol-c"} {
@@ -360,17 +360,17 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 		}
 	}
 
-	fs, err := c.ListFilesystems(context.TODO(), "app-", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "app-", "", ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(fs) != 2 {
-		t.Fatalf("expected 2 filesystems with prefix 'app-', got %d", len(fs))
+	if len(fsResult.Entries) != 2 {
+		t.Fatalf("expected 2 filesystems with prefix 'app-', got %d", len(fsResult.Entries))
 	}
 
 	appNames := map[string]bool{}
-	for _, f := range fs {
+	for _, f := range fsResult.Entries {
 		appNames[f.Name] = true
 	}
 	for _, want := range []string{"app-web", "app-db"} {
@@ -379,16 +379,16 @@ func TestListFilesystemsWithPrefix(t *testing.T) {
 		}
 	}
 
-	fs, err = c.ListFilesystems(context.TODO(), "data-", "")
+	fsResult, err = c.ListFilesystems(context.TODO(), "data-", "", ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(fs) != 1 {
-		t.Fatalf("expected 1 filesystem with prefix 'data-', got %d", len(fs))
+	if len(fsResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem with prefix 'data-', got %d", len(fsResult.Entries))
 	}
-	if fs[0].Name != "data-cache" {
-		t.Fatalf("expected data-cache, got %s", fs[0].Name)
+	if fsResult.Entries[0].Name != "data-cache" {
+		t.Fatalf("expected data-cache, got %s", fsResult.Entries[0].Name)
 	}
 }
 
@@ -399,13 +399,13 @@ func TestListFilesystemsPrefixNoMatch(t *testing.T) {
 		t.Fatalf("CreateFilesystem %q: %v", "vol-a", err)
 	}
 
-	fs, err := c.ListFilesystems(context.TODO(), "nope", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "nope", "", ListParams{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(fs) != 0 {
-		t.Fatalf("expected 0 filesystems, got %d", len(fs))
+	if len(fsResult.Entries) != 0 {
+		t.Fatalf("expected 0 filesystems, got %d", len(fsResult.Entries))
 	}
 }
 
@@ -444,17 +444,17 @@ func TestListFilesystemsExcludesRoot(t *testing.T) {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 
-	fs, err := c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
 
-	if len(fs) != 1 {
-		t.Fatalf("expected 1 filesystem (root filtered out), got %d", len(fs))
+	if len(fsResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem (root filtered out), got %d", len(fsResult.Entries))
 	}
 
-	if fs[0].Name != "user-vol" {
-		t.Fatalf("expected %q, got %q", "user-vol", fs[0].Name)
+	if fsResult.Entries[0].Name != "user-vol" {
+		t.Fatalf("expected %q, got %q", "user-vol", fsResult.Entries[0].Name)
 	}
 }
 
@@ -548,7 +548,7 @@ func TestListFilesystemsExcludesReserved(t *testing.T) {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 
-	fs, err := c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
@@ -559,16 +559,16 @@ func TestListFilesystemsExcludesReserved(t *testing.T) {
 	//   nginx/1.0/data (stripped from installed/nginx/1.0/data, state="installed")
 	//   nginx (stripped from uninstalled/nginx, state="uninstalled")
 	// Should NOT see: installed, uninstalled (root subvolumes).
-	if len(fs) != 4 {
-		t.Fatalf("expected 4 filesystems, got %d: %v", len(fs), fs)
+	if len(fsResult.Entries) != 4 {
+		t.Fatalf("expected 4 filesystems, got %d: %v", len(fsResult.Entries), fsResult.Entries)
 	}
 
 	type nameState struct {
 		Name  string
 		State string
 	}
-	got := make([]nameState, len(fs))
-	for i, f := range fs {
+	got := make([]nameState, len(fsResult.Entries))
+	for i, f := range fsResult.Entries {
 		got[i] = nameState{Name: f.Name, State: f.State}
 	}
 
@@ -593,7 +593,7 @@ func TestListFilesystemsExcludesReserved(t *testing.T) {
 	}
 
 	// Verify root subvolumes are excluded.
-	for _, f := range fs {
+	for _, f := range fsResult.Entries {
 		if f.Name == "installed" || f.Name == "uninstalled" {
 			t.Fatalf("expected root subvolume %q to be hidden, but it was visible", f.Name)
 		}
@@ -624,12 +624,12 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	// Start empty
-	fs, err := c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems (initial): %v", err)
 	}
-	if len(fs) != 0 {
-		t.Fatalf("expected empty list, got %d", len(fs))
+	if len(fsResult.Entries) != 0 {
+		t.Fatalf("expected empty list, got %d", len(fsResult.Entries))
 	}
 
 	// Create
@@ -638,15 +638,15 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	}
 
 	// Verify present
-	fs, err = c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err = c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems (after create): %v", err)
 	}
-	if len(fs) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(fs))
+	if len(fsResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(fsResult.Entries))
 	}
-	if fs[0].Name != "lifecycle-vol" {
-		t.Fatalf("expected name %q, got %q", "lifecycle-vol", fs[0].Name)
+	if fsResult.Entries[0].Name != "lifecycle-vol" {
+		t.Fatalf("expected name %q, got %q", "lifecycle-vol", fsResult.Entries[0].Name)
 	}
 
 	// Remove
@@ -655,12 +655,12 @@ func TestCreateListRemoveLifecycle(t *testing.T) {
 	}
 
 	// Verify gone
-	fs, err = c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err = c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems (after remove): %v", err)
 	}
-	if len(fs) != 0 {
-		t.Fatalf("expected 0 after removal, got %d", len(fs))
+	if len(fsResult.Entries) != 0 {
+		t.Fatalf("expected 0 after removal, got %d", len(fsResult.Entries))
 	}
 }
 
@@ -675,12 +675,12 @@ func TestBulkCreateAndRemove(t *testing.T) {
 		}
 	}
 
-	fs, err := c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems (after bulk create): %v", err)
 	}
-	if len(fs) != count {
-		t.Fatalf("expected %d filesystems, got %d", count, len(fs))
+	if len(fsResult.Entries) != count {
+		t.Fatalf("expected %d filesystems, got %d", count, len(fsResult.Entries))
 	}
 
 	// Remove evens
@@ -691,12 +691,12 @@ func TestBulkCreateAndRemove(t *testing.T) {
 		}
 	}
 
-	fs, err = c.ListFilesystems(context.TODO(), "", "")
+	fsResult, err = c.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems (after bulk remove): %v", err)
 	}
-	if len(fs) != count/2 {
-		t.Fatalf("expected %d filesystems after removal, got %d", count/2, len(fs))
+	if len(fsResult.Entries) != count/2 {
+		t.Fatalf("expected %d filesystems after removal, got %d", count/2, len(fsResult.Entries))
 	}
 }
 
@@ -719,17 +719,17 @@ func TestMockClientCreateAndList(t *testing.T) {
 		t.Fatalf("MockClient.CreateFilesystem %q: %v", "test", err)
 	}
 
-	fs, err := m.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := m.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
 
-	if len(fs) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(fs))
+	if len(fsResult.Entries) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(fsResult.Entries))
 	}
 
-	if fs[0].Name != "test" {
-		t.Fatalf("expected name %q, got %q", "test", fs[0].Name)
+	if fsResult.Entries[0].Name != "test" {
+		t.Fatalf("expected name %q, got %q", "test", fsResult.Entries[0].Name)
 	}
 }
 
@@ -743,13 +743,13 @@ func TestMockClientRemove(t *testing.T) {
 		t.Fatalf("MockClient.RemoveFilesystem %q: %v", "test", err)
 	}
 
-	fs, err := m.ListFilesystems(context.TODO(), "", "")
+	fsResult, err := m.ListFilesystems(context.TODO(), "", "", ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
 
-	if len(fs) != 0 {
-		t.Fatalf("expected 0 filesystems, got %d", len(fs))
+	if len(fsResult.Entries) != 0 {
+		t.Fatalf("expected 0 filesystems, got %d", len(fsResult.Entries))
 	}
 }
 
@@ -787,17 +787,17 @@ func TestMockClientListWithPrefix(t *testing.T) {
 		}
 	}
 
-	fs, err := m.ListFilesystems(context.TODO(), "app-", "")
+	fsResult, err := m.ListFilesystems(context.TODO(), "app-", "", ListParams{})
 	if err != nil {
 		t.Fatalf("MockClient.ListFilesystems %q: %v", "app-", err)
 	}
 
-	if len(fs) != 2 {
-		t.Fatalf("expected 2 filesystems with prefix, got %d", len(fs))
+	if len(fsResult.Entries) != 2 {
+		t.Fatalf("expected 2 filesystems with prefix, got %d", len(fsResult.Entries))
 	}
 
 	names := map[string]bool{}
-	for _, f := range fs {
+	for _, f := range fsResult.Entries {
 		names[f.Name] = true
 	}
 	for _, want := range []string{"app-web", "app-db"} {
@@ -818,7 +818,7 @@ func TestMockClientErrorInjection(t *testing.T) {
 
 	m.CreateErr = nil
 	m.ListErr = injected
-	if _, err := m.ListFilesystems(context.TODO(), "", ""); err != injected {
+	if _, err := m.ListFilesystems(context.TODO(), "", "", ListParams{}); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
@@ -844,7 +844,7 @@ func TestMockClientCallLog(t *testing.T) {
 	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "b"}); err != nil {
 		t.Fatalf("MockClient.CreateFilesystem %q: %v", "b", err)
 	}
-	if _, err := m.ListFilesystems(context.TODO(), "", ""); err != nil {
+	if _, err := m.ListFilesystems(context.TODO(), "", "", ListParams{}); err != nil {
 		t.Fatalf("MockClient.ListFilesystems: %v", err)
 	}
 	if err := m.RemoveFilesystem(context.TODO(), "a"); err != nil {
@@ -3440,14 +3440,14 @@ func TestHTTPListAccounts(t *testing.T) {
 		t.Fatalf("CreateAccount bob: %v", err)
 	}
 
-	accounts, err := c.ListAccounts(context.TODO(), "", "")
+	accounts, err := c.ListAccounts(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListAccounts: %v", err)
 	}
 
 	// 3 = testadmin (bootstrap) + alice + bob
-	if len(accounts) != 3 {
-		t.Fatalf("expected 3 accounts, got %d", len(accounts))
+	if len(accounts.Entries) != 3 {
+		t.Fatalf("expected 3 accounts, got %d", len(accounts.Entries))
 	}
 }
 
@@ -4551,32 +4551,32 @@ func TestHTTPListAccountsSortByUsername(t *testing.T) {
 	}
 
 	// Sort ascending by username
-	accounts, err := c.ListAccounts(context.TODO(), "username", "asc")
+	accounts, err := c.ListAccounts(context.TODO(), ListParams{SortBy: "username", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("ListAccounts sort asc: %v", err)
 	}
 
 	// testadmin (bootstrap) + alice + bob + charlie = 4
-	if len(accounts) != 4 {
-		t.Fatalf("expected 4 accounts, got %d", len(accounts))
+	if len(accounts.Entries) != 4 {
+		t.Fatalf("expected 4 accounts, got %d", len(accounts.Entries))
 	}
 
 	// First should be alice (alphabetically after testadmin? No, 'a' < 't')
-	if accounts[0].Username != "alice" {
-		t.Fatalf("expected first account %q, got %q", "alice", accounts[0].Username)
+	if accounts.Entries[0].Username != "alice" {
+		t.Fatalf("expected first account %q, got %q", "alice", accounts.Entries[0].Username)
 	}
-	if accounts[1].Username != "bob" {
-		t.Fatalf("expected second account %q, got %q", "bob", accounts[1].Username)
+	if accounts.Entries[1].Username != "bob" {
+		t.Fatalf("expected second account %q, got %q", "bob", accounts.Entries[1].Username)
 	}
 
 	// Sort descending by username
-	accountsDesc, err := c.ListAccounts(context.TODO(), "username", "desc")
+	accountsDesc, err := c.ListAccounts(context.TODO(), ListParams{SortBy: "username", SortOrder: "desc"})
 	if err != nil {
 		t.Fatalf("ListAccounts sort desc: %v", err)
 	}
 
-	if accountsDesc[0].Username != "testadmin" {
-		t.Fatalf("expected first desc account %q, got %q", "testadmin", accountsDesc[0].Username)
+	if accountsDesc.Entries[0].Username != "testadmin" {
+		t.Fatalf("expected first desc account %q, got %q", "testadmin", accountsDesc.Entries[0].Username)
 	}
 }
 
@@ -4591,13 +4591,13 @@ func TestHTTPListAccountsSortByAdmin(t *testing.T) {
 	}
 
 	// Sort ascending by admin (false < true)
-	accounts, err := c.ListAccounts(context.TODO(), "admin", "asc")
+	accounts, err := c.ListAccounts(context.TODO(), ListParams{SortBy: "admin", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("ListAccounts: %v", err)
 	}
 
 	// Non-admins should come first
-	if accounts[0].Admin {
+	if accounts.Entries[0].Admin {
 		t.Fatal("expected first account to be non-admin when sorted asc by admin")
 	}
 }
@@ -4610,13 +4610,13 @@ func TestHTTPListAccountsNoSort(t *testing.T) {
 	}
 
 	// No sort params should still work
-	accounts, err := c.ListAccounts(context.TODO(), "", "")
+	accounts, err := c.ListAccounts(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListAccounts: %v", err)
 	}
 
-	if len(accounts) != 2 {
-		t.Fatalf("expected 2 accounts, got %d", len(accounts))
+	if len(accounts.Entries) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(accounts.Entries))
 	}
 }
 
@@ -4647,23 +4647,23 @@ func TestHTTPListFilesystemsSorted(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var fs []storage.Filesystem
-	if err := json.NewDecoder(resp.Body).Decode(&fs); err != nil {
+	var fsResult PageResult[storage.Filesystem]
+	if err := json.NewDecoder(resp.Body).Decode(&fsResult); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if len(fs) != 3 {
-		t.Fatalf("expected 3 filesystems, got %d", len(fs))
+	if len(fsResult.Entries) != 3 {
+		t.Fatalf("expected 3 filesystems, got %d", len(fsResult.Entries))
 	}
 
-	if fs[0].Name != "alpha" {
-		t.Fatalf("expected first filesystem %q, got %q", "alpha", fs[0].Name)
+	if fsResult.Entries[0].Name != "alpha" {
+		t.Fatalf("expected first filesystem %q, got %q", "alpha", fsResult.Entries[0].Name)
 	}
-	if fs[1].Name != "middle" {
-		t.Fatalf("expected second filesystem %q, got %q", "middle", fs[1].Name)
+	if fsResult.Entries[1].Name != "middle" {
+		t.Fatalf("expected second filesystem %q, got %q", "middle", fsResult.Entries[1].Name)
 	}
-	if fs[2].Name != "zeta" {
-		t.Fatalf("expected third filesystem %q, got %q", "zeta", fs[2].Name)
+	if fsResult.Entries[2].Name != "zeta" {
+		t.Fatalf("expected third filesystem %q, got %q", "zeta", fsResult.Entries[2].Name)
 	}
 }
 
@@ -4693,20 +4693,20 @@ func TestHTTPListFilesystemsSortedDesc(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var fs []storage.Filesystem
-	if err := json.NewDecoder(resp.Body).Decode(&fs); err != nil {
+	var fsResult PageResult[storage.Filesystem]
+	if err := json.NewDecoder(resp.Body).Decode(&fsResult); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if len(fs) != 3 {
-		t.Fatalf("expected 3 filesystems, got %d", len(fs))
+	if len(fsResult.Entries) != 3 {
+		t.Fatalf("expected 3 filesystems, got %d", len(fsResult.Entries))
 	}
 
-	if fs[0].Name != "zeta" {
-		t.Fatalf("expected first filesystem %q, got %q", "zeta", fs[0].Name)
+	if fsResult.Entries[0].Name != "zeta" {
+		t.Fatalf("expected first filesystem %q, got %q", "zeta", fsResult.Entries[0].Name)
 	}
-	if fs[2].Name != "alpha" {
-		t.Fatalf("expected third filesystem %q, got %q", "alpha", fs[2].Name)
+	if fsResult.Entries[2].Name != "alpha" {
+		t.Fatalf("expected third filesystem %q, got %q", "alpha", fsResult.Entries[2].Name)
 	}
 }
 
@@ -5876,6 +5876,9 @@ func TestPaginateHelper(t *testing.T) {
 	if p.TotalPages != 1 {
 		t.Fatalf("expected 1 total page, got %d", p.TotalPages)
 	}
+	if p.TotalCount != 5 {
+		t.Fatalf("expected total_count=5, got %d", p.TotalCount)
+	}
 
 	// Limit=2, offset=0
 	p = paginate(items, 2, 0)
@@ -5887,6 +5890,9 @@ func TestPaginateHelper(t *testing.T) {
 	}
 	if p.TotalPages != 3 {
 		t.Fatalf("expected 3 total pages, got %d", p.TotalPages)
+	}
+	if p.TotalCount != 5 {
+		t.Fatalf("expected total_count=5 with pagination, got %d", p.TotalCount)
 	}
 	if p.Entries[0] != "a" || p.Entries[1] != "b" {
 		t.Fatalf("unexpected entries: %v", p.Entries)
@@ -7883,5 +7889,163 @@ func TestHTTPInstallOlderVersionNotFound(t *testing.T) {
 	err = c.InstallPackage(context.TODO(), "nginx", "3.0", packages.Responses{}, false, "")
 	if err == nil {
 		t.Fatal("expected error installing nonexistent version 3.0")
+	}
+}
+
+func TestHTTPListFilesystemsPagination(t *testing.T) {
+	c, _ := initTestClient(t)
+
+	for _, name := range []string{"alpha", "beta", "gamma", "delta", "epsilon"} {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	// Page 1: limit=2, offset=0
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{Limit: 2, Offset: 0, SortBy: "name", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListFilesystems page1: %v", err)
+	}
+	if len(fsResult.Entries) != 2 {
+		t.Fatalf("expected 2 entries on page1, got %d", len(fsResult.Entries))
+	}
+	if !fsResult.HasMore {
+		t.Fatal("expected has_more=true on page1")
+	}
+	if fsResult.TotalCount != 5 {
+		t.Fatalf("expected total_count=5, got %d", fsResult.TotalCount)
+	}
+	if fsResult.Entries[0].Name != "alpha" {
+		t.Fatalf("expected first entry %q, got %q", "alpha", fsResult.Entries[0].Name)
+	}
+
+	// Page 3: limit=2, offset=4
+	fsResult, err = c.ListFilesystems(context.TODO(), "", "", ListParams{Limit: 2, Offset: 4, SortBy: "name", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListFilesystems page3: %v", err)
+	}
+	if len(fsResult.Entries) != 1 {
+		t.Fatalf("expected 1 entry on last page, got %d", len(fsResult.Entries))
+	}
+	if fsResult.HasMore {
+		t.Fatal("expected has_more=false on last page")
+	}
+}
+
+func TestHTTPListFilesystemsSearch(t *testing.T) {
+	c, _ := initTestClient(t)
+
+	for _, name := range []string{"app-data", "app-logs", "db-main"} {
+		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
+			t.Fatalf("CreateFilesystem %q: %v", name, err)
+		}
+	}
+
+	fsResult, err := c.ListFilesystems(context.TODO(), "", "", ListParams{Search: "app"})
+	if err != nil {
+		t.Fatalf("ListFilesystems search: %v", err)
+	}
+	if len(fsResult.Entries) != 2 {
+		t.Fatalf("expected 2 results for search 'app', got %d", len(fsResult.Entries))
+	}
+
+	fsResult, err = c.ListFilesystems(context.TODO(), "", "", ListParams{Search: "db"})
+	if err != nil {
+		t.Fatalf("ListFilesystems search db: %v", err)
+	}
+	if len(fsResult.Entries) != 1 {
+		t.Fatalf("expected 1 result for search 'db', got %d", len(fsResult.Entries))
+	}
+
+	fsResult, err = c.ListFilesystems(context.TODO(), "", "", ListParams{Search: "nope"})
+	if err != nil {
+		t.Fatalf("ListFilesystems search nope: %v", err)
+	}
+	if len(fsResult.Entries) != 0 {
+		t.Fatalf("expected 0 results for search 'nope', got %d", len(fsResult.Entries))
+	}
+}
+
+func TestHTTPListAccountsPagination(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	names := []string{"alice", "bob", "charlie", "diana"}
+	emails := []string{"alice@test.com", "bob@test.com", "charlie@test.com", "diana@test.com"}
+	for i, name := range names {
+		if _, err := c.CreateAccount(context.TODO(), name, "password1", emails[i], "555-0001", name, false); err != nil {
+			t.Fatalf("CreateAccount %q: %v", name, err)
+		}
+	}
+
+	// 5 total accounts: testadmin (bootstrapped) + alice, bob, charlie, diana
+
+	// Page 1: limit=2, offset=0
+	result, err := c.ListAccounts(context.TODO(), ListParams{Limit: 2, Offset: 0, SortBy: "username", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListAccounts page1: %v", err)
+	}
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries on page1, got %d", len(result.Entries))
+	}
+	if !result.HasMore {
+		t.Fatal("expected has_more=true on page1")
+	}
+	if result.TotalCount != 5 {
+		t.Fatalf("expected total_count=5, got %d", result.TotalCount)
+	}
+
+	// Page 2: limit=2, offset=2
+	result, err = c.ListAccounts(context.TODO(), ListParams{Limit: 2, Offset: 2, SortBy: "username", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListAccounts page2: %v", err)
+	}
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries on page2, got %d", len(result.Entries))
+	}
+	if !result.HasMore {
+		t.Fatal("expected has_more=true on page2")
+	}
+
+	// Page 3: limit=2, offset=4
+	result, err = c.ListAccounts(context.TODO(), ListParams{Limit: 2, Offset: 4, SortBy: "username", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListAccounts page3: %v", err)
+	}
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry on page3, got %d", len(result.Entries))
+	}
+	if result.HasMore {
+		t.Fatal("expected has_more=false on last page")
+	}
+}
+
+func TestHTTPListAccountsSearch(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	names := []string{"alice", "bob", "charlie"}
+	emails := []string{"alice@test.com", "bob@test.com", "charlie@test.com"}
+	for i, name := range names {
+		if _, err := c.CreateAccount(context.TODO(), name, "password1", emails[i], "555-0001", name, false); err != nil {
+			t.Fatalf("CreateAccount %q: %v", name, err)
+		}
+	}
+
+	result, err := c.ListAccounts(context.TODO(), ListParams{Search: "ali"})
+	if err != nil {
+		t.Fatalf("ListAccounts search: %v", err)
+	}
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 result for search 'ali', got %d", len(result.Entries))
+	}
+	if result.Entries[0].Username != "alice" {
+		t.Fatalf("expected alice, got %s", result.Entries[0].Username)
+	}
+
+	result, err = c.ListAccounts(context.TODO(), ListParams{Search: "nope"})
+	if err != nil {
+		t.Fatalf("ListAccounts search nope: %v", err)
+	}
+	if len(result.Entries) != 0 {
+		t.Fatalf("expected 0 results for search 'nope', got %d", len(result.Entries))
 	}
 }

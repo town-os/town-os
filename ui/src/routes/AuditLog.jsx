@@ -64,6 +64,7 @@ export default function AuditLog() {
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
+  const [search, setSearch] = useState('')
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailData, setDetailData] = useState('')
   const [detailAction, setDetailAction] = useState('')
@@ -77,9 +78,10 @@ export default function AuditLog() {
         offset: page * PAGE_SIZE,
         sort_by: sortKey,
         sort_order: sortDirection,
+        search: search || undefined,
       }),
     { entries: [], has_more: false },
-    [page, sortKey, sortDirection],
+    [page, sortKey, sortDirection, search],
     10000,
   )
 
@@ -88,11 +90,14 @@ export default function AuditLog() {
   function handleSortChange(key, direction) {
     setSortKey(key)
     setSortDirection(direction)
+    setPage(0)
   }
 
   function handleReset() {
     setSortKey('id')
     setSortDirection('desc')
+    setSearch('')
+    setPage(0)
   }
 
   function openDetail(row) {
@@ -178,10 +183,15 @@ export default function AuditLog() {
         pageSize={PAGE_SIZE}
         hasMore={auditData.has_more}
         totalPages={auditData.total_pages}
+        totalCount={auditData.total_count}
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSortChange={handleSortChange}
         onReset={handleReset}
+        onSearchChange={(s) => {
+          setSearch(s)
+          setPage(0)
+        }}
       />
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>

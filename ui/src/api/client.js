@@ -210,13 +210,19 @@ export class SystemControllerClient {
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
    * @param {string} [state]
-   * @returns {Promise<Filesystem[]>}
+   * @param {number} [limit]
+   * @param {number} [offset]
+   * @param {string} [search]
+   * @returns {Promise<{entries: Filesystem[], has_more: boolean, total_pages: number, total_count: number}>}
    */
-  async listFilesystems(prefix, sortBy, sortOrder, state) {
+  async listFilesystems(prefix, sortBy, sortOrder, state, limit, offset, search) {
     const body = { name: prefix }
     if (sortBy) body.sort_by = sortBy
     if (sortOrder) body.sort_order = sortOrder
     if (state) body.state = state
+    if (limit) body.limit = limit
+    if (offset) body.offset = offset
+    if (search) body.search = search
     return this.postJSON('/storage', body)
   }
 
@@ -448,12 +454,18 @@ export class SystemControllerClient {
   /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
-   * @returns {Promise<Account[]>}
+   * @param {number} [limit]
+   * @param {number} [offset]
+   * @param {string} [search]
+   * @returns {Promise<{entries: Account[], has_more: boolean, total_pages: number, total_count: number}>}
    */
-  async listAccounts(sortBy, sortOrder) {
+  async listAccounts(sortBy, sortOrder, limit, offset, search) {
     const params = new URLSearchParams()
     if (sortBy) params.set('sort_by', sortBy)
     if (sortOrder) params.set('sort_order', sortOrder)
+    if (limit) params.set('limit', String(limit))
+    if (offset) params.set('offset', String(offset))
+    if (search) params.set('search', search)
     const qs = params.toString()
     return this.getJSON(`/account${qs ? `?${qs}` : ''}`)
   }

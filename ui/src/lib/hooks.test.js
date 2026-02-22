@@ -61,4 +61,37 @@ describe('usePolling', () => {
     expect(typeof refresh).toBe('function')
     expect(loading).toBe(false)
   })
+
+  it('discards stale responses when deps change', async () => {
+    // First fetcher: slow, resolves to 'stale'
+    let resolveStale
+    const staleFetcher = vi.fn(() => new Promise((r) => { resolveStale = r }))
+
+    // Second fetcher: fast, resolves to 'fresh'
+    const freshFetcher = vi.fn(() => Promise.resolve('fresh'))
+
+    const { result, rerender } = renderHook(
+      ({ fetcher, dep }) => usePolling(fetcher, 'default', [dep], 60000),
+      { initialProps: { fetcher: staleFetcher, dep: 1 } },
+    )
+
+    // The stale fetcher is in flight but hasn't resolved yet
+    expect(result.current[2]).toBe(true)
+
+    // Change deps — triggers a new generation with the fresh fetcher
+    rerender({ fetcher: freshFetcher, dep: 2 })
+
+    // Fresh fetcher resolves immediately
+    await act(async () => {})
+    expect(result.current[0]).toBe('fresh')
+    expect(result.current[2]).toBe(false)
+
+    // Now the stale response comes back — it should be ignored
+    await act(async () => {
+      resolveStale('stale')
+    })
+
+    // Data should still be 'fresh', not overwritten by 'stale'
+    expect(result.current[0]).toBe('fresh')
+  })
 })

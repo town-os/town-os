@@ -94,4 +94,25 @@ describe('DataTable', () => {
     render(<DataTable {...baseProps} columns={columns} />)
     expect(screen.getByText('[alpha]')).toBeTruthy()
   })
+
+  it('displays totalCount in server-side mode', () => {
+    render(
+      <DataTable
+        {...baseProps}
+        hasMore={false}
+        totalPages={5}
+        totalCount={42}
+      />,
+    )
+    expect(screen.getByText('42 results')).toBeTruthy()
+  })
+
+  it('displays data.length in client-side mode', () => {
+    const data = [
+      { name: 'alpha', value: '1' },
+      { name: 'beta', value: '2' },
+    ]
+    render(<DataTable {...baseProps} data={data} />)
+    expect(screen.getByText('2 results')).toBeTruthy()
+  })
 })

@@ -7,24 +7,29 @@ import UserManagement from './UserManagement.jsx'
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     listAccounts: vi.fn(() =>
-      Promise.resolve([
-        {
-          username: 'alice',
-          real_name: 'Alice A',
-          email: 'alice@test.com',
-          phone: '555-0001',
-          admin: true,
-          disabled: false,
-        },
-        {
-          username: 'bob',
-          real_name: 'Bob B',
-          email: 'bob@test.com',
-          phone: '555-0002',
-          admin: false,
-          disabled: true,
-        },
-      ]),
+      Promise.resolve({
+        entries: [
+          {
+            username: 'alice',
+            real_name: 'Alice A',
+            email: 'alice@test.com',
+            phone: '555-0001',
+            admin: true,
+            disabled: false,
+          },
+          {
+            username: 'bob',
+            real_name: 'Bob B',
+            email: 'bob@test.com',
+            phone: '555-0002',
+            admin: false,
+            disabled: true,
+          },
+        ],
+        has_more: false,
+        total_pages: 1,
+        total_count: 2,
+      }),
     ),
     ping: vi.fn(() => Promise.resolve({ admins: 1 })),
   }),

@@ -32,12 +32,16 @@ export default function UserManagement() {
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('username')
   const [sortDirection, setSortDirection] = useState('asc')
+  const [search, setSearch] = useState('')
 
-  const [accounts, refresh, loading] = usePolling(
-    () => getClient().listAccounts(sortKey, sortDirection),
-    [],
-    [refreshKey, sortKey, sortDirection],
+  const PAGE_SIZE = 20
+
+  const [accountData, refresh, loading] = usePolling(
+    () => getClient().listAccounts(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, search || undefined),
+    { entries: [], has_more: false, total_pages: 1, total_count: 0 },
+    [refreshKey, sortKey, sortDirection, page, search],
   )
+  const accounts = accountData.entries || []
 
   useEffect(() => {
     getClient().ping().then((r) => setAdminCount(r.admins)).catch(() => {})
@@ -168,15 +172,26 @@ export default function UserManagement() {
         entryKey="username"
         page={page}
         setPage={setPage}
+        pageSize={PAGE_SIZE}
+        hasMore={accountData.has_more}
+        totalPages={accountData.total_pages}
+        totalCount={accountData.total_count}
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSortChange={(key, dir) => {
           setSortKey(key)
           setSortDirection(dir)
+          setPage(0)
         }}
         onReset={() => {
           setSortKey('username')
           setSortDirection('asc')
+          setSearch('')
+          setPage(0)
+        }}
+        onSearchChange={(s) => {
+          setSearch(s)
+          setPage(0)
         }}
       />
 

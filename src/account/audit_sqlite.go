@@ -90,6 +90,11 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		where = append(where, "account = ?")
 		args = append(args, opts.Account)
 	}
+	if opts.Search != "" {
+		pattern := fmt.Sprintf("%%%s%%", opts.Search)
+		where = append(where, "(account LIKE ? OR action LIKE ? OR path LIKE ? OR detail LIKE ?)")
+		args = append(args, pattern, pattern, pattern, pattern)
+	}
 
 	if len(where) > 0 {
 		query += " WHERE " + where[0]
@@ -150,10 +155,19 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	}
 
 	countQuery := "SELECT COUNT(*) FROM audit_log"
+	var countWhere []string
 	var countArgs []any
 	if opts.Account != "" {
-		countQuery += " WHERE account = ?"
+		countWhere = append(countWhere, "account = ?")
 		countArgs = append(countArgs, opts.Account)
+	}
+	if opts.Search != "" {
+		pattern := fmt.Sprintf("%%%s%%", opts.Search)
+		countWhere = append(countWhere, "(account LIKE ? OR action LIKE ? OR path LIKE ? OR detail LIKE ?)")
+		countArgs = append(countArgs, pattern, pattern, pattern, pattern)
+	}
+	if len(countWhere) > 0 {
+		countQuery += fmt.Sprintf(" WHERE %s", strings.Join(countWhere, " AND "))
 	}
 
 	var total int
@@ -166,7 +180,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		totalPages = 1
 	}
 
-	return &AuditPage{Entries: entries, HasMore: hasMore, TotalPages: totalPages}, nil
+	return &AuditPage{Entries: entries, HasMore: hasMore, TotalPages: totalPages, TotalCount: total}, nil
 }
 
 func (m *SQLiteAuditManager) CountRecentErrors(since time.Time) (int, error) {

@@ -406,6 +406,7 @@ export default function SystemManagement() {
         setPage={setPage}
         hasMore={unitData.has_more}
         totalPages={unitData.total_pages}
+        totalCount={unitData.total_count}
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSortChange={(key, dir) => {

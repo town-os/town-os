@@ -23,7 +23,7 @@ type Client interface {
 	CreateFilesystem(ctx context.Context, fs storage.Filesystem) error
 	ModifyFilesystem(ctx context.Context, name string, fs storage.Filesystem) error
 	RemoveFilesystem(ctx context.Context, name string) error
-	ListFilesystems(ctx context.Context, prefix string, state string) ([]storage.Filesystem, error)
+	ListFilesystems(ctx context.Context, prefix string, state string, params ListParams) (*PageResult[storage.Filesystem], error)
 
 	AddRepository(ctx context.Context, name, rawURL, username, password string) error
 	RemoveRepository(ctx context.Context, name string) error
@@ -56,7 +56,7 @@ type Client interface {
 	UpdateAccount(ctx context.Context, username string, fields account.UpdateFields) (*account.Account, error)
 	DisableAccount(ctx context.Context, username string) error
 	EnableAccount(ctx context.Context, username string) error
-	ListAccounts(ctx context.Context, sortBy, sortOrder string) ([]account.Account, error)
+	ListAccounts(ctx context.Context, params ListParams) (*PageResult[account.Account], error)
 	Authenticate(ctx context.Context, username, password string) (*AuthenticateResponse, error)
 	RevokeSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context, token string) ([]account.Session, error)
@@ -104,19 +104,6 @@ func FromClient(client *http.Client, baseURL string) (*SystemdClient, error) {
 	return &SystemdClient{HTTP: client, BaseURL: baseURL}, nil
 }
 
-func sortQueryString(sortBy, sortOrder string) string {
-	params := url.Values{}
-	if sortBy != "" {
-		params.Set("sort_by", sortBy)
-	}
-	if sortOrder != "" {
-		params.Set("sort_order", sortOrder)
-	}
-	if len(params) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("?%s", params.Encode())
-}
 
 func (c *SystemdClient) route(path string) string {
 	pathPart, query, hasQuery := strings.Cut(path, "?")
@@ -205,9 +192,17 @@ func (c *SystemdClient) RemoveFilesystem(ctx context.Context, name string) error
 	return c.postClient(ctx, "storage/remove", pr)
 }
 
-func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string, state string) (_ []storage.Filesystem, err error) {
+func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string, state string, params ListParams) (_ *PageResult[storage.Filesystem], err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, FilesystemName{Name: prefix, State: state})
+	go pipeEncode(pw, FilesystemName{
+		Name:      prefix,
+		State:     state,
+		SortBy:    params.SortBy,
+		SortOrder: params.SortOrder,
+		Limit:     params.Limit,
+		Offset:    params.Offset,
+		Search:    params.Search,
+	})
 
 	resp, err := c.postJSON(ctx, "storage", pr)
 	if err != nil {
@@ -221,8 +216,8 @@ func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string, stat
 		return nil, readProblemDetail(resp, "POST", "storage")
 	}
 
-	fs := []storage.Filesystem{}
-	return fs, json.NewDecoder(resp.Body).Decode(&fs)
+	var page PageResult[storage.Filesystem]
+	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
 // --- Repository ---
@@ -659,8 +654,8 @@ func (c *SystemdClient) EnableAccount(ctx context.Context, username string) erro
 	return c.postClient(ctx, "account/enable", pr)
 }
 
-func (c *SystemdClient) ListAccounts(ctx context.Context, sortBy, sortOrder string) (_ []account.Account, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("account%s", sortQueryString(sortBy, sortOrder)))
+func (c *SystemdClient) ListAccounts(ctx context.Context, params ListParams) (_ *PageResult[account.Account], err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("account%s", params.QueryString()))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListAccounts: %w", ErrHTTPRequest, err)
 	}
@@ -672,8 +667,8 @@ func (c *SystemdClient) ListAccounts(ctx context.Context, sortBy, sortOrder stri
 		return nil, readProblemDetail(resp, "GET", "account")
 	}
 
-	var accounts []account.Account
-	return accounts, json.NewDecoder(resp.Body).Decode(&accounts)
+	var page PageResult[account.Account]
+	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
 func (c *SystemdClient) Authenticate(ctx context.Context, username, password string) (_ *AuthenticateResponse, err error) {

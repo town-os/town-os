@@ -105,20 +105,25 @@ describe('SystemControllerClient', () => {
   })
 
   describe('listFilesystems', () => {
-    it('returns parsed array', async () => {
-      const fsList = [
-        { name: 'data', quota: 1024, state: 'user' },
-        { name: 'logs', quota: 512, state: 'user' },
-      ]
-      mockFetch(fsList)
+    it('returns PageResult', async () => {
+      const page = {
+        entries: [
+          { name: 'data', quota: 1024, state: 'user' },
+          { name: 'logs', quota: 512, state: 'user' },
+        ],
+        has_more: false,
+        total_pages: 1,
+        total_count: 2,
+      }
+      mockFetch(page)
       client.setToken('tok')
 
       const result = await client.listFilesystems('')
-      expect(result).toEqual(fsList)
+      expect(result).toEqual(page)
     })
 
     it('sends state parameter when provided', async () => {
-      mockFetch([])
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
       client.setToken('tok')
 
       await client.listFilesystems('', 'name', 'asc', 'installed')
@@ -136,7 +141,7 @@ describe('SystemControllerClient', () => {
     })
 
     it('omits state parameter when not provided', async () => {
-      mockFetch([])
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
       client.setToken('tok')
 
       await client.listFilesystems('', 'name', 'asc')
@@ -149,6 +154,24 @@ describe('SystemControllerClient', () => {
             Authorization: 'Bearer tok',
           },
           body: JSON.stringify({ name: '', sort_by: 'name', sort_order: 'asc' }),
+        },
+      )
+    })
+
+    it('sends limit, offset, and search in POST body', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listFilesystems('', 'name', 'asc', 'user', 20, 40, 'data')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/storage',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: '', sort_by: 'name', sort_order: 'asc', state: 'user', limit: 20, offset: 40, search: 'data' }),
         },
       )
     })
@@ -341,6 +364,74 @@ describe('SystemControllerClient', () => {
         },
         body: JSON.stringify({ limit: 50 }),
       })
+    })
+  })
+
+  describe('listAccounts', () => {
+    it('sends sort params as query string', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listAccounts('username', 'asc')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/account?sort_by=username&sort_order=asc',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('sends limit, offset, and search params', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listAccounts('username', 'asc', 20, 40, 'bob')
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('limit=20')
+      expect(url).toContain('offset=40')
+      expect(url).toContain('search=bob')
+    })
+  })
+
+  describe('listRepositories', () => {
+    it('sends sort, limit, offset, and search params', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listRepositories('name', 'asc', 20, 40, 'my-repo')
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('sort_by=name')
+      expect(url).toContain('sort_order=asc')
+      expect(url).toContain('limit=20')
+      expect(url).toContain('offset=40')
+      expect(url).toContain('search=my-repo')
+    })
+  })
+
+  describe('listPackages', () => {
+    it('sends sort, limit, offset, and search params', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listPackages('name', 'desc', 10, 20, 'nginx')
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('sort_by=name')
+      expect(url).toContain('sort_order=desc')
+      expect(url).toContain('limit=10')
+      expect(url).toContain('offset=20')
+      expect(url).toContain('search=nginx')
+    })
+  })
+
+  describe('listInstalled', () => {
+    it('sends sort, limit, offset, and search params', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listInstalled('name', 'asc', 20, 0, 'redis')
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('sort_by=name')
+      expect(url).toContain('sort_order=asc')
+      expect(url).toContain('limit=20')
+      expect(url).toContain('search=redis')
     })
   })
 

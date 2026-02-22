@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import getClient from './client-instance.js'
 import { getToken, clearToken, getAccount } from './auth.js'
@@ -6,6 +6,8 @@ import { ApiError } from '../api/client.js'
 
 /**
  * Hook to poll an API call periodically and maintain state.
+ * Uses a generation counter to discard stale responses from in-flight
+ * requests that complete after deps have changed.
  * @template T
  * @param {() => Promise<T>} fetcher
  * @param {T} defaultValue
@@ -16,15 +18,19 @@ import { ApiError } from '../api/client.js'
 export function usePolling(fetcher, defaultValue, deps = [], interval = 5000) {
   const [data, setData] = useState(defaultValue)
   const [loading, setLoading] = useState(true)
+  const generationRef = useRef(0)
 
   const refresh = useCallback(() => {
+    const gen = ++generationRef.current
     setLoading(true)
     fetcher()
       .then((result) => {
+        if (gen !== generationRef.current) return
         setData(result)
         setLoading(false)
       })
       .catch(() => {
+        if (gen !== generationRef.current) return
         setData(defaultValue)
         setLoading(false)
       })
