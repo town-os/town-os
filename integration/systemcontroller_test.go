@@ -1037,12 +1037,11 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
-	// Install (7) + Uninstall: 5 units * (Stop+Disable+Uninstall) = 15 → total 22
-	// (5 units: service, socket, forwarder, upnp-service, upnp-timer —
-	//  forwarder name included by PackageUnitNames for mismatched ports)
+	// Install (7) + Uninstall: ListPackageUnitFiles + 4 units * (Stop+Disable+Uninstall) = 13 → total 20
+	// (4 units in bridge mode: service, socket, upnp-service, upnp-timer — no forwarder)
 	calls := sd.GetCalls()
-	if len(calls) != 22 {
-		t.Fatalf("expected 22 systemd calls, got %d", len(calls))
+	if len(calls) != 20 {
+		t.Fatalf("expected 20 systemd calls, got %d", len(calls))
 	}
 
 	// Install phase: first call is InstallUnit for service.
@@ -1055,12 +1054,15 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("call 6: expected Start, got %v", calls[6].Args[1])
 	}
 
-	// Uninstall phase starts at index 7: Stop, Disable, UninstallUnit for each unit.
-	if calls[7].Method != "SetStatus" {
-		t.Fatalf("call 7: expected SetStatus, got %q", calls[7].Method)
+	// Uninstall phase starts at index 7: ListPackageUnitFiles, then Stop, Disable, UninstallUnit per unit.
+	if calls[7].Method != "ListPackageUnitFiles" {
+		t.Fatalf("call 7: expected ListPackageUnitFiles, got %q", calls[7].Method)
 	}
-	if calls[7].Args[1].(systemd.StatusAction) != systemd.Stop {
-		t.Fatalf("call 7: expected Stop, got %v", calls[7].Args[1])
+	if calls[8].Method != "SetStatus" {
+		t.Fatalf("call 8: expected SetStatus, got %q", calls[8].Method)
+	}
+	if calls[8].Args[1].(systemd.StatusAction) != systemd.Stop {
+		t.Fatalf("call 8: expected Stop, got %v", calls[8].Args[1])
 	}
 }
 
@@ -1108,11 +1110,11 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
-	// Install (7) + Uninstall: 5 units * 3 ops = 15 → total 22
-	// (5 units: service, socket, forwarder, upnp-service, upnp-timer)
+	// Install (7) + Uninstall: ListPackageUnitFiles + 4 units * 3 ops = 13 → total 20
+	// (4 units in bridge mode: service, socket, upnp-service, upnp-timer — no forwarder)
 	calls = sd.GetCalls()
-	if len(calls) != 22 {
-		t.Fatalf("expected 22 systemd calls total, got %d", len(calls))
+	if len(calls) != 20 {
+		t.Fatalf("expected 20 systemd calls total, got %d", len(calls))
 	}
 }
 
@@ -3209,8 +3211,8 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 	if !strings.Contains(fwdContent, "Description=Town OS Port Forwarder: nginx 8080->80/tcp") {
 		t.Fatalf("forwarder missing description, got:\n%s", fwdContent)
 	}
-	if !strings.Contains(fwdContent, "PartOf=town-os-nginx.service") {
-		t.Fatalf("forwarder missing PartOf, got:\n%s", fwdContent)
+	if !strings.Contains(fwdContent, "BindsTo=town-os-nginx.service") {
+		t.Fatalf("forwarder missing BindsTo, got:\n%s", fwdContent)
 	}
 	if !strings.Contains(fwdContent, "After=town-os-nginx.service") {
 		t.Fatalf("forwarder missing After, got:\n%s", fwdContent)

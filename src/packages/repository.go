@@ -154,7 +154,32 @@ type Repository struct {
 	Password string
 }
 
-func (r *Repository) credentialURL() string {
+func (r Repository) MarshalJSON() ([]byte, error) {
+	return json.Marshal([2]string{r.Name, r.credentialURL()})
+}
+
+func (r *Repository) UnmarshalJSON(data []byte) error {
+	var pair [2]string
+	if err := json.Unmarshal(data, &pair); err != nil {
+		return err
+	}
+
+	parsed, err := url.Parse(pair[1])
+	if err != nil {
+		return fmt.Errorf("invalid repository URL: %w", err)
+	}
+
+	r.Name = pair[0]
+	if parsed.User != nil {
+		r.Username = parsed.User.Username()
+		r.Password, _ = parsed.User.Password()
+		parsed.User = nil
+	}
+	r.URL = *parsed
+	return nil
+}
+
+func (r Repository) credentialURL() string {
 	if r.Username == "" {
 		return r.URL.String()
 	}
