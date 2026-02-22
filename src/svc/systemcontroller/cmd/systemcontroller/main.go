@@ -88,6 +88,9 @@ func run() (err error) {
 	repoFile := filepath.Join(repoBase, packages.RepositoriesFile)
 	if _, err := os.Stat(repoFile); os.IsNotExist(err) {
 		defaults := packages.DefaultRepositories()
+		if os.Getenv("DEBUG") != "" {
+			defaults = append(defaults, packages.TestRepositories()...)
+		}
 		repoUser := os.Getenv(packages.EnvRepoUsername)
 		repoPass := os.Getenv(packages.EnvRepoPassword)
 		if repoUser != "" && repoPass != "" {

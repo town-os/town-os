@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -224,6 +225,30 @@ func (s *SQLiteSessionManager) GetUsername(sessionID string) (string, error) {
 		return "", fmt.Errorf("get username: %w", err)
 	}
 	return username, nil
+}
+
+func (s *SQLiteSessionManager) HasActiveAdminSessions(adminUsernames []string) (bool, error) {
+	if err := s.Cleanup(); err != nil {
+		return false, fmt.Errorf("cleanup: %w", err)
+	}
+	if len(adminUsernames) == 0 {
+		return false, nil
+	}
+	placeholders := make([]string, len(adminUsernames))
+	args := make([]any, len(adminUsernames))
+	for i, u := range adminUsernames {
+		placeholders[i] = "?"
+		args[i] = u
+	}
+	query := fmt.Sprintf(
+		"SELECT COUNT(*) FROM sessions WHERE username IN (%s)",
+		strings.Join(placeholders, ","),
+	)
+	var count int
+	if err := s.db.QueryRow(query, args...).Scan(&count); err != nil {
+		return false, fmt.Errorf("count admin sessions: %w", err)
+	}
+	return count > 0, nil
 }
 
 func (s *SQLiteSessionManager) StartCleanup(ctx context.Context, interval time.Duration) {

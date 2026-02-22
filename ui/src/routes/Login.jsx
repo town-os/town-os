@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { setToken, setAccount, getToken } from '@/lib/auth.js'
 import { Button } from '@/components/ui/button'
@@ -34,7 +34,7 @@ export default function Login() {
     getClient()
       .ping()
       .then((resp) => {
-        if (resp.admins === 0) navigate('/register')
+        if (resp.needs_setup) navigate('/register')
       })
       .catch(() => {})
   }, [navigate])
@@ -92,16 +92,10 @@ export default function Login() {
               />
             </div>
           </CardContent>
-          <CardFooter className="flex flex-col gap-3">
+          <CardFooter>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
-            <p className="text-sm text-muted-foreground">
-              First time?{' '}
-              <Link to="/register" className="underline">
-                Create an account
-              </Link>
-            </p>
           </CardFooter>
         </form>
       </Card>

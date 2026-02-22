@@ -221,13 +221,14 @@ type MockSessionManager struct {
 	accountMgr Manager
 	Calls      []MockCall
 
-	CreateErr          error
-	ValidateErr        error
-	RevokeErr          error
-	RevokeAllErr       error
-	CleanupErr         error
-	ListErr            error
-	GetUsernameErr     error
+	CreateErr                 error
+	ValidateErr               error
+	RevokeErr                 error
+	RevokeAllErr              error
+	CleanupErr                error
+	ListErr                   error
+	GetUsernameErr            error
+	HasActiveAdminSessionsErr error
 }
 
 func InitMockSessionManager(mgr Manager) *MockSessionManager {
@@ -380,6 +381,33 @@ func (m *MockSessionManager) GetUsername(sessionID string) (string, error) {
 		return "", ErrSessionNotFound
 	}
 	return sess.Username, nil
+}
+
+func (m *MockSessionManager) HasActiveAdminSessions(adminUsernames []string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "HasActiveAdminSessions", Args: []any{adminUsernames}})
+
+	if m.HasActiveAdminSessionsErr != nil {
+		return false, m.HasActiveAdminSessionsErr
+	}
+
+	if len(adminUsernames) == 0 {
+		return false, nil
+	}
+
+	usernameSet := make(map[string]bool, len(adminUsernames))
+	for _, u := range adminUsernames {
+		usernameSet[u] = true
+	}
+
+	for _, sess := range m.sessions {
+		if usernameSet[sess.Username] && time.Since(sess.LastUsed) <= SessionMaxAge {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (m *MockSessionManager) StartCleanup(ctx context.Context, interval time.Duration) {

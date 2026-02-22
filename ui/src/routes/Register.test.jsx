@@ -3,7 +3,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Register from './Register.jsx'
 
-let mockPingResponse = { accounts: 0, admins: 0 }
+const mockNavigate = vi.fn()
+let mockPingResponse = { accounts: 0, admins: 0, needs_setup: true }
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
@@ -31,34 +37,32 @@ function renderRegister() {
 
 describe('Register', () => {
   beforeEach(() => {
-    mockPingResponse = { accounts: 0, admins: 0 }
+    mockPingResponse = { accounts: 0, admins: 0, needs_setup: true }
+    mockNavigate.mockReset()
   })
 
-  it('shows bootstrap heading when no accounts exist', async () => {
+  it('shows bootstrap heading when needs_setup is true', async () => {
     renderRegister()
     await waitFor(() => {
       expect(screen.getByText('Welcome to Town OS')).toBeTruthy()
     })
     expect(
       screen.getByText(
-        'No valid accounts exist. Create an administrator account to get started.',
+        'Create an administrator account to get started.',
       ),
     ).toBeTruthy()
   })
 
-  it('does not show bootstrap heading when accounts exist', async () => {
-    mockPingResponse = { accounts: 1, admins: 1 }
+  it('redirects to login when needs_setup is false', async () => {
+    mockPingResponse = { accounts: 1, admins: 1, needs_setup: false }
     renderRegister()
 
-    // Wait for the ping to resolve
     await waitFor(() => {
-      expect(screen.getByLabelText('Username')).toBeTruthy()
+      expect(mockNavigate).toHaveBeenCalledWith('/')
     })
-
-    expect(screen.queryByText('Welcome to Town OS')).toBeNull()
   })
 
-  it('always renders the create account form', async () => {
+  it('renders the create account form', async () => {
     renderRegister()
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Create Account' })).toBeTruthy()
@@ -69,5 +73,13 @@ describe('Register', () => {
     expect(screen.getByLabelText('Real Name')).toBeTruthy()
     expect(screen.getByLabelText('Phone')).toBeTruthy()
     expect(screen.getByLabelText('Email')).toBeTruthy()
+  })
+
+  it('does not show a sign-in link', async () => {
+    renderRegister()
+    await waitFor(() => {
+      expect(screen.getByText('Welcome to Town OS')).toBeTruthy()
+    })
+    expect(screen.queryByText('Sign in')).toBeNull()
   })
 })

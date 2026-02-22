@@ -29,5 +29,6 @@ type SessionManager interface {
 	Cleanup() error
 	List(username string) ([]Session, error)
 	GetUsername(sessionID string) (string, error)
+	HasActiveAdminSessions(adminUsernames []string) (bool, error)
 	StartCleanup(ctx context.Context, interval time.Duration)
 }

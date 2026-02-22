@@ -22,6 +22,14 @@ const RepositoriesFile = "repositories.json"
 // DefaultRepositories returns the default package repositories to seed when
 // no repositories have been configured.
 func DefaultRepositories() []Repository {
+	u, _ := url.Parse("https://github.com/town-os/default-packages")
+	return []Repository{
+		{Name: "default", URL: *u},
+	}
+}
+
+// TestRepositories returns the test package repositories used in development.
+func TestRepositories() []Repository {
 	core, _ := url.Parse("https://github.com/town-os/test-packages-core")
 	extras, _ := url.Parse("https://github.com/town-os/test-packages-extras")
 	return []Repository{

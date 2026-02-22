@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
-import { setToken, setAccount, getToken } from '@/lib/auth.js'
+import { setToken, setAccount } from '@/lib/auth.js'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,17 +20,21 @@ export default function Register() {
   useEffect(() => { document.title = 'Town OS - Register' }, [])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [bootstrap, setBootstrap] = useState(false)
+  const [ready, setReady] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
     getClient()
       .ping()
       .then((resp) => {
-        if (resp.admins === 0) setBootstrap(true)
+        if (resp.needs_setup) {
+          setReady(true)
+        } else {
+          navigate('/')
+        }
       })
       .catch(() => {})
-  }, [])
+  }, [navigate])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -57,16 +61,12 @@ export default function Register() {
         true,
       )
 
-      // Auto-login after creation
-      const token = getToken()
-      if (!token) {
-        const resp = await getClient().authenticate(
-          form.username.value,
-          form.password.value,
-        )
-        setToken(resp.token)
-        setAccount(resp.account)
-      }
+      const resp = await getClient().authenticate(
+        form.username.value,
+        form.password.value,
+      )
+      setToken(resp.token)
+      setAccount(resp.account)
 
       navigate('/dashboard')
     } catch (err) {
@@ -76,24 +76,24 @@ export default function Register() {
     }
   }
 
+  if (!ready) return null
+
   return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="w-full max-w-md space-y-4">
       <div className="flex justify-center">
         <img src="/512.png" alt="Town OS" className="h-32 w-32" />
       </div>
-      {bootstrap && (
-        <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight">Welcome to Town OS</h1>
-          <p className="text-muted-foreground">
-            No valid accounts exist. Create an administrator account to get started.
-          </p>
-        </div>
-      )}
+      <div className="text-center space-y-1">
+        <h1 className="text-2xl font-bold tracking-tight">Welcome to Town OS</h1>
+        <p className="text-muted-foreground">
+          Create an administrator account to get started.
+        </p>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Create Account</CardTitle>
-          <CardDescription>Set up a new Town OS account</CardDescription>
+          <CardDescription>Set up your first administrator account</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -143,18 +143,10 @@ export default function Register() {
               </div>
             </div>
           </CardContent>
-          <CardFooter className="flex flex-col gap-3 pt-6">
+          <CardFooter className="pt-6">
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Creating...' : 'Create Account'}
             </Button>
-            {!bootstrap && (
-              <p className="text-sm text-muted-foreground">
-                Already have an account?{' '}
-                <Link to="/" className="underline">
-                  Sign in
-                </Link>
-              </p>
-            )}
           </CardFooter>
         </form>
       </Card>

@@ -148,6 +148,7 @@
  * @property {number} admins
  * @property {UnitCounts} [units]
  * @property {number} recent_errors
+ * @property {boolean} needs_setup
  */
 
 /**

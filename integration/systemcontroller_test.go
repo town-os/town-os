@@ -529,16 +529,19 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs.Entries) != 2 {
-		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
+	if len(pkgs.Entries) != 3 {
+		t.Fatalf("expected 3 packages, got %d", len(pkgs.Entries))
 	}
 
 	// Results are sorted, latest version only.
-	if pkgs.Entries[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "demo-nginx@1.0" {
+		t.Fatalf("expected demo-nginx@1.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs.Entries[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[1])
+	}
+	if pkgs.Entries[2] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[2])
 	}
 
 	// Verify round-trip through ParsePackageIdentity.
@@ -568,8 +571,8 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs.Entries) != 4 {
-		t.Fatalf("expected 4 packages, got %d", len(pkgs.Entries))
+	if len(pkgs.Entries) != 5 {
+		t.Fatalf("expected 5 packages, got %d", len(pkgs.Entries))
 	}
 
 	// Verify all expected packages present in name@version format.
@@ -578,7 +581,7 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		pkgSet[p] = true
 	}
 
-	for _, want := range []string{"nginx@2.0", "redis@7.0", "mosquitto@2.0", "postgres@16.0"} {
+	for _, want := range []string{"demo-nginx@1.0", "nginx@2.0", "redis@7.0", "mosquitto@2.0", "postgres@16.0"} {
 		if !pkgSet[want] {
 			t.Fatalf("expected %s in package list", want)
 		}
@@ -613,15 +616,18 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 	}
 
 	// Only core packages should remain.
-	if len(pkgs.Entries) != 2 {
-		t.Fatalf("expected 2 packages after removing extras, got %d", len(pkgs.Entries))
+	if len(pkgs.Entries) != 3 {
+		t.Fatalf("expected 3 packages after removing extras, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs.Entries[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "demo-nginx@1.0" {
+		t.Fatalf("expected demo-nginx@1.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs.Entries[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[1])
+	}
+	if pkgs.Entries[2] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[2])
 	}
 }
 
@@ -3398,5 +3404,258 @@ func TestReconcileWithNetworkModeNginxForwarder(t *testing.T) {
 	}
 	if !fwdEnabled {
 		t.Fatal("expected forwarder unit to be enabled after reconcile")
+	}
+}
+
+// --- Bootstrap account creation integration tests ---
+
+// initBootstrapTest creates a server with auth enabled but no accounts.
+// Returns the client and account manager for further manipulation.
+func initBootstrapTest(t *testing.T) (*systemcontroller.SystemdClient, *account.SQLiteManager) {
+	t.Helper()
+
+	dir := t.TempDir()
+	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:    mock,
+		AccountMgr: mgr,
+		SessionMgr: sessMgr,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, mgr
+}
+
+func TestBootstrapCreateAccountNoUsers(t *testing.T) {
+	c, _ := initBootstrapTest(t)
+
+	// No accounts exist — should succeed without any token.
+	acct, err := c.CreateAccount(context.TODO(), "first", "password1", "f@test.com", "555-0001", "First Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount on empty DB: %v", err)
+	}
+	if acct.Username != "first" {
+		t.Fatalf("expected username %q, got %q", "first", acct.Username)
+	}
+	if !acct.Admin {
+		t.Fatal("expected admin=true for bootstrap account")
+	}
+}
+
+func TestBootstrapCreateAccountWithStaleToken(t *testing.T) {
+	c, _ := initBootstrapTest(t)
+
+	// Set a stale/invalid token — bootstrap mode should ignore it.
+	c.Token = "stale-garbage-token-from-previous-session"
+
+	acct, err := c.CreateAccount(context.TODO(), "first", "password1", "f@test.com", "555-0001", "First Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with stale token on empty DB: %v", err)
+	}
+	if acct.Username != "first" {
+		t.Fatalf("expected username %q, got %q", "first", acct.Username)
+	}
+}
+
+func TestBootstrapCreateAccountAllAdminsDisabled(t *testing.T) {
+	c, mgr := initBootstrapTest(t)
+
+	// Create an admin and authenticate.
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	// Disable the only admin.
+	if err := mgr.Disable("admin"); err != nil {
+		t.Fatalf("Disable admin: %v", err)
+	}
+
+	// Clear token — bootstrap mode should re-engage.
+	c.Token = ""
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "new@test.com", "555-0002", "New Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount after all admins disabled: %v", err)
+	}
+	if acct.Username != "newadmin" {
+		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+	}
+}
+
+func TestBootstrapCreateAccountAllAdminsDisabledWithStaleToken(t *testing.T) {
+	c, mgr := initBootstrapTest(t)
+
+	// Create an admin and authenticate.
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	// Disable the only admin.
+	if err := mgr.Disable("admin"); err != nil {
+		t.Fatalf("Disable admin: %v", err)
+	}
+
+	// Keep the (now-stale) token — bootstrap mode should ignore it.
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "new@test.com", "555-0002", "New Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with stale token after all admins disabled: %v", err)
+	}
+	if acct.Username != "newadmin" {
+		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+	}
+}
+
+func TestBootstrapCreateAccountOnlyNonAdminUsers(t *testing.T) {
+	c, _ := initBootstrapTest(t)
+
+	// Bootstrap first admin.
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	// Create a non-admin user.
+	if _, err := c.CreateAccount(context.TODO(), "regular", "password1", "r@test.com", "555-0001", "Regular User", false); err != nil {
+		t.Fatalf("CreateAccount regular: %v", err)
+	}
+
+	// Disable the only admin.
+	if err := c.DisableAccount(context.TODO(), "admin"); err != nil {
+		t.Fatalf("DisableAccount admin: %v", err)
+	}
+
+	// No enabled admins remain (only a non-admin) — bootstrap should allow create.
+	c.Token = ""
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "new@test.com", "555-0002", "New Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with only non-admin users: %v", err)
+	}
+	if acct.Username != "newadmin" {
+		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+	}
+}
+
+func TestBootstrapRejectsAfterAdminExists(t *testing.T) {
+	c, _ := initBootstrapTest(t)
+
+	// Bootstrap first admin.
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+
+	// Authenticate to create an active session.
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	_ = resp
+
+	// Unauthenticated create should now be rejected (active session exists).
+	c.Token = ""
+	_, err = c.CreateAccount(context.TODO(), "intruder", "password1", "i@test.com", "555-9999", "Intruder", false)
+	if err == nil {
+		t.Fatal("expected error for unauthenticated create when enabled admin exists with active session")
+	}
+}
+
+func TestBootstrapNoActiveAdminSessions(t *testing.T) {
+	c, _ := initBootstrapTest(t)
+
+	// Bootstrap first admin.
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+
+	// Admin exists but was never authenticated — no active sessions.
+	// Bootstrap should re-engage.
+	c.Token = ""
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "new@test.com", "555-0002", "New Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with no active sessions: %v", err)
+	}
+	if acct.Username != "newadmin" {
+		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+	}
+}
+
+func TestBootstrapPingNeedsSetup(t *testing.T) {
+	c, _ := initBootstrapTest(t)
+
+	// No accounts — needs_setup should be true.
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if !ping.NeedsSetup {
+		t.Fatal("expected needs_setup=true with no accounts")
+	}
+
+	// Create admin (no auth needed on empty DB).
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+
+	// Admin exists but no session — needs_setup should still be true.
+	ping, err = c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if !ping.NeedsSetup {
+		t.Fatal("expected needs_setup=true with admin but no active sessions")
+	}
+
+	// Authenticate to create a session.
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	// Now needs_setup should be false.
+	ping, err = c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if ping.NeedsSetup {
+		t.Fatal("expected needs_setup=false with active admin session")
 	}
 }

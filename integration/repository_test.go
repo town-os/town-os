@@ -63,8 +63,19 @@ func TestRepositoryCloneAndLoadPackages(t *testing.T) {
 		t.Fatalf("failed to load packages: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 package names, got %d", len(pkgs))
+	if len(pkgs) != 3 {
+		t.Fatalf("expected 3 package names, got %d", len(pkgs))
+	}
+
+	demoNginxVersions, ok := pkgs["demo-nginx"]
+	if !ok {
+		t.Fatal("expected demo-nginx package")
+	}
+	if len(demoNginxVersions) != 1 {
+		t.Fatalf("expected 1 demo-nginx version, got %d", len(demoNginxVersions))
+	}
+	if _, ok := demoNginxVersions["1.0"]; !ok {
+		t.Fatal("expected demo-nginx version 1.0")
 	}
 
 	nginxVersions, ok := pkgs["nginx"]
@@ -111,11 +122,11 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("failed to load all packages: %v", err)
 	}
 
-	if len(pkgs) != 4 {
-		t.Fatalf("expected 4 package names (nginx, redis, postgres, mosquitto), got %d", len(pkgs))
+	if len(pkgs) != 5 {
+		t.Fatalf("expected 5 package names (demo-nginx, nginx, redis, postgres, mosquitto), got %d", len(pkgs))
 	}
 
-	for _, name := range []string{"nginx", "redis", "postgres", "mosquitto"} {
+	for _, name := range []string{"demo-nginx", "nginx", "redis", "postgres", "mosquitto"} {
 		if _, ok := pkgs[name]; !ok {
 			t.Fatalf("expected package %s", name)
 		}
@@ -348,16 +359,19 @@ func TestListPackagesSingleRepo(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages (nginx, redis), got %d", len(pkgs))
+	if len(pkgs) != 3 {
+		t.Fatalf("expected 3 packages (demo-nginx, nginx, redis), got %d", len(pkgs))
 	}
 
 	// results are sorted by name
-	if pkgs[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+	if pkgs[0] != "demo-nginx@1.0" {
+		t.Fatalf("expected demo-nginx@1.0, got %s", pkgs[0])
 	}
-	if pkgs[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+	if pkgs[1] != "nginx@2.0" {
+		t.Fatalf("expected nginx@2.0, got %s", pkgs[1])
+	}
+	if pkgs[2] != "redis@7.0" {
+		t.Fatalf("expected redis@7.0, got %s", pkgs[2])
 	}
 }
 
@@ -379,8 +393,8 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	if len(pkgs) != 4 {
-		t.Fatalf("expected 4 packages (mosquitto, nginx, postgres, redis), got %d", len(pkgs))
+	if len(pkgs) != 5 {
+		t.Fatalf("expected 5 packages (demo-nginx, mosquitto, nginx, postgres, redis), got %d", len(pkgs))
 	}
 
 	// verify sorted and all expected names present
@@ -393,7 +407,7 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 		found[pi.Name] = true
 	}
 
-	for _, want := range []string{"mosquitto", "nginx", "postgres", "redis"} {
+	for _, want := range []string{"demo-nginx", "mosquitto", "nginx", "postgres", "redis"} {
 		if !found[want] {
 			t.Fatalf("expected package %s to be present", want)
 		}
@@ -431,9 +445,9 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	// same 4 packages regardless of order
-	if len(pkgs) != 4 {
-		t.Fatalf("expected 4 packages, got %d", len(pkgs))
+	// same 5 packages regardless of order
+	if len(pkgs) != 5 {
+		t.Fatalf("expected 5 packages, got %d", len(pkgs))
 	}
 
 	// verify all expected names and versions present
@@ -446,7 +460,7 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		foundNames[pi.Name] = true
 	}
 
-	for _, name := range []string{"mosquitto", "nginx", "postgres", "redis"} {
+	for _, name := range []string{"demo-nginx", "mosquitto", "nginx", "postgres", "redis"} {
 		if !foundNames[name] {
 			t.Fatalf("expected package %s to be present", name)
 		}

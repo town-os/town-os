@@ -40,6 +40,8 @@ production-image: .cache/.images-pulled
 		-t $(PODMAN_IMAGE) -f Containerfile .
 
 test-ui-integration: test-image ui-integration-image btrfs
+	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
+	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 \

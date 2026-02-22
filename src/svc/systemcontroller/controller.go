@@ -226,6 +226,7 @@ type PingResponse struct {
 	Admins       int         `json:"admins"`
 	Units        *UnitCounts `json:"units,omitempty"`
 	RecentErrors int         `json:"recent_errors"`
+	NeedsSetup   bool        `json:"needs_setup"`
 }
 
 type UnitCounts struct {
@@ -1309,25 +1310,31 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 			return fmt.Errorf("list accounts: %w", err)
 		}
 
-		hasEnabledAdmin := false
+		var adminUsernames []string
 		for _, a := range accounts {
 			if !a.Disabled && a.Admin {
-				hasEnabledAdmin = true
-				break
+				adminUsernames = append(adminUsernames, a.Username)
 			}
 		}
 
-		if hasEnabledAdmin {
-			token := extractBearerToken(c.Request())
-			if token == "" {
-				return echo.NewHTTPError(401, "missing authorization token")
-			}
-			_, acct, err := sessMgr.Validate(token)
+		if len(adminUsernames) > 0 {
+			hasActiveSessions, err := sessMgr.HasActiveAdminSessions(adminUsernames)
 			if err != nil {
-				return echo.NewHTTPError(401, "invalid session")
+				return fmt.Errorf("check active admin sessions: %w", err)
 			}
-			if !acct.Admin {
-				return echo.NewHTTPError(403, "admin access required")
+
+			if hasActiveSessions {
+				token := extractBearerToken(c.Request())
+				if token == "" {
+					return echo.NewHTTPError(401, "missing authorization token")
+				}
+				_, acct, err := sessMgr.Validate(token)
+				if err != nil {
+					return echo.NewHTTPError(401, "invalid session")
+				}
+				if !acct.Admin {
+					return echo.NewHTTPError(403, "admin access required")
+				}
 			}
 		}
 	}
@@ -1821,10 +1828,22 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 			return err
 		}
 		resp.Accounts = len(accounts)
+		var adminUsernames []string
 		for _, a := range accounts {
 			if !a.Disabled && a.Admin {
 				resp.Admins++
+				adminUsernames = append(adminUsernames, a.Username)
 			}
+		}
+
+		if resp.Admins == 0 {
+			resp.NeedsSetup = true
+		} else if sm := s.Controller.GetSessionManager(); sm != nil {
+			hasActive, err := sm.HasActiveAdminSessions(adminUsernames)
+			if err != nil {
+				return err
+			}
+			resp.NeedsSetup = !hasActive
 		}
 	}
 

@@ -4231,6 +4231,313 @@ func TestHTTPCreateAccountBootstrapNoAdmins(t *testing.T) {
 	}
 }
 
+func TestHTTPCreateAccountBootstrapWithStaleToken(t *testing.T) {
+	// Fresh DB with no accounts — a stale/invalid bearer token should be ignored.
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Set a stale token — bootstrap mode should ignore it.
+	c.Token = "stale-garbage-token-from-previous-session"
+
+	acct, err := c.CreateAccount(context.TODO(), "first", "password1", "f@b.com", "555", "First", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with stale token: %v", err)
+	}
+	if acct.Username != "first" {
+		t.Fatalf("expected username %q, got %q", "first", acct.Username)
+	}
+}
+
+func TestHTTPCreateAccountBootstrapAllDisabledWithStaleToken(t *testing.T) {
+	c, _ := initAccountTestClient(t)
+
+	// Disable the bootstrap admin.
+	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	if err := httpResp.Body.Close(); err != nil {
+		t.Errorf("resp.Body.Close: %v", err)
+	}
+	if httpResp.StatusCode != 200 {
+		t.Fatalf("expected 200 for disable, got %d", httpResp.StatusCode)
+	}
+
+	// Keep the (now-stale) token — bootstrap mode should ignore it.
+	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "n@b.com", "555", "New Admin", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with stale token after all disabled: %v", err)
+	}
+	if acct.Username != "newadmin" {
+		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+	}
+}
+
+func TestHTTPCreateAccountBootstrapNoActiveSessions(t *testing.T) {
+	// Admin exists but was never authenticated — no active sessions.
+	// Bootstrap should re-engage and allow unauthenticated create.
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap first admin (no auth required on empty DB).
+	if _, err := c.CreateAccount(context.TODO(), "first", "password1", "f@b.com", "555", "First", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+
+	// Admin exists but no session — bootstrap should allow another create.
+	acct, err := c.CreateAccount(context.TODO(), "second", "password1", "s@b.com", "555", "Second", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with no active sessions: %v", err)
+	}
+	if acct.Username != "second" {
+		t.Fatalf("expected username %q, got %q", "second", acct.Username)
+	}
+}
+
+func TestHTTPCreateAccountBootstrapNoActiveSessionsWithStaleToken(t *testing.T) {
+	// Admin exists, no active sessions, stale token — bootstrap should still work.
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap first admin.
+	if _, err := c.CreateAccount(context.TODO(), "first", "password1", "f@b.com", "555", "First", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+
+	// Set a stale token — no active sessions, should still bootstrap.
+	c.Token = "stale-garbage-token-from-previous-session"
+
+	acct, err := c.CreateAccount(context.TODO(), "second", "password1", "s@b.com", "555", "Second", true)
+	if err != nil {
+		t.Fatalf("bootstrap CreateAccount with stale token and no active sessions: %v", err)
+	}
+	if acct.Username != "second" {
+		t.Fatalf("expected username %q, got %q", "second", acct.Username)
+	}
+}
+
+func TestHTTPCreateAccountRejectsWithActiveSession(t *testing.T) {
+	// Admin exists with active session + no token → 401.
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap first admin.
+	if _, err := c.CreateAccount(context.TODO(), "first", "password1", "f@b.com", "555", "First", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+
+	// Authenticate to create an active session.
+	resp, err := c.Authenticate(context.TODO(), "first", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	_ = resp
+
+	// Clear token — active session exists, should require auth.
+	c.Token = ""
+
+	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"intruder","password":"password1","email":"i@b.com","phone":"555","real_name":"Intruder","admin":false}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != 401 {
+		t.Fatalf("expected 401 for unauthenticated create with active admin session, got %d", httpResp.StatusCode)
+	}
+}
+
+func TestHTTPPingNeedsSetup(t *testing.T) {
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// No accounts — needs_setup should be true.
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if !ping.NeedsSetup {
+		t.Fatal("expected needs_setup=true with no accounts")
+	}
+
+	// Create admin (no auth needed on empty DB).
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Admin exists but no session — needs_setup should still be true.
+	ping, err = c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if !ping.NeedsSetup {
+		t.Fatal("expected needs_setup=true with admin but no active sessions")
+	}
+
+	// Authenticate to create a session.
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	// Now needs_setup should be false.
+	ping, err = c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if ping.NeedsSetup {
+		t.Fatal("expected needs_setup=false with active admin session")
+	}
+}
+
 // --- Sort integration tests ---
 
 func TestHTTPListAccountsSortByUsername(t *testing.T) {
