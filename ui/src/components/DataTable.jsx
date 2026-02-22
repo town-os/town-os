@@ -47,6 +47,8 @@ export default function DataTable({
 }) {
   const [filter, setFilter] = useState('')
   const debounceRef = useRef(null)
+  const onSearchChangeRef = useRef(onSearchChange)
+  onSearchChangeRef.current = onSearchChange
 
   const searchableKeys = useMemo(
     () => columns.filter((c) => c.sortable !== false).map((c) => c.key),
@@ -109,16 +111,19 @@ export default function DataTable({
   }
 
   // Debounce server-side search.
+  // Use a ref for onSearchChange so this effect only fires when `filter`
+  // actually changes — not on every parent re-render (which would create a
+  // new callback identity and reset pagination via the debounced handler).
   useEffect(() => {
-    if (!onSearchChange) return
+    if (!onSearchChangeRef.current) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      onSearchChange(filter)
+      onSearchChangeRef.current(filter)
     }, 300)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [filter, onSearchChange])
+  }, [filter])
 
   function handleFilterChange(e) {
     setFilter(e.target.value)

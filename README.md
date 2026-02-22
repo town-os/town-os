@@ -23,7 +23,7 @@ After installing prerequisites, run `make pull-images` before any other targets.
 
 **There are probably still some outstanding issues running integration tests while the dev server is running. This is being investigated.**
 
-Note that the repository is pretty volatile as things grow: please use the `known-working` branch if you're just looking to try things out. It will be set to something that appears to work well while main may churn and be less reliable. This branch will continue to be updated as development continues and features stabilize.
+If you're just trying things out, use the `stable` branch (the default). If you want the latest changes (which may not be good), use `main`. Both branches will roll as things are deemed stable or integrated into the repository.
 
 Run `make dev` to build the test image, create a dev btrfs volume, start the backend container on port 5309, and launch the Vite dev server with hot reload. Once running, access the UI at `http://<hostname>:5173`.
 

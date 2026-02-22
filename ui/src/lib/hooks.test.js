@@ -47,6 +47,7 @@ describe('usePolling', () => {
     })
 
     expect(result.current[2]).toBe(false)
+    // On first poll error, data stays at defaultValue (initial state)
     expect(result.current[0]).toBe('default')
   })
 
@@ -60,6 +61,42 @@ describe('usePolling', () => {
     expect(data).toEqual([1, 2, 3])
     expect(typeof refresh).toBe('function')
     expect(loading).toBe(false)
+  })
+
+  it('preserves existing data when fetcher rejects after success', async () => {
+    let resolve
+    let reject
+    let callCount = 0
+    const fetcher = vi.fn(() => new Promise((res, rej) => {
+      callCount++
+      if (callCount === 1) {
+        resolve = res
+      } else {
+        reject = rej
+      }
+    }))
+
+    const { result } = renderHook(() => usePolling(fetcher, 'default', [], 5000))
+
+    // First call succeeds with real data.
+    await act(async () => {
+      resolve({ items: [1, 2, 3] })
+    })
+    expect(result.current[0]).toEqual({ items: [1, 2, 3] })
+    expect(result.current[2]).toBe(false)
+
+    // Advance timer to trigger second poll.
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+
+    // Second call fails — data should be preserved.
+    await act(async () => {
+      reject(new Error('network error'))
+    })
+
+    expect(result.current[2]).toBe(false)
+    expect(result.current[0]).toEqual({ items: [1, 2, 3] })
   })
 
   it('discards stale responses when deps change', async () => {

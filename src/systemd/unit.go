@@ -111,7 +111,7 @@ func forwardedPorts(external, internal packages.PortMap) []portPair {
 func generateForwarderUnit(pkgName string, extPort, intPort uint16) UnitFile {
 	content := fmt.Sprintf(`[Unit]
 Description=Town OS Port Forwarder: %s %d->%d/tcp
-PartOf=town-os-%s.service
+BindsTo=town-os-%s.service
 After=town-os-%s.service
 
 [Service]
@@ -310,7 +310,8 @@ WantedBy=sockets.target
 func generateUPnPTimerUnit(pkgName string) UnitFile {
 	content := fmt.Sprintf(`[Unit]
 Description=Town OS uPnP Renewal: %s
-PartOf=town-os-%s.service
+BindsTo=town-os-%s.service
+After=town-os-%s.service
 
 [Timer]
 OnBootSec=1min
@@ -319,7 +320,7 @@ Persistent=true
 
 [Install]
 WantedBy=timers.target
-`, pkgName, pkgName)
+`, pkgName, pkgName, pkgName)
 
 	return UnitFile{
 		Name:    UPnPTimerUnitName(pkgName),
@@ -332,6 +333,8 @@ func generateUPnPServiceUnit(cfg PackageUnitConfig) UnitFile {
 
 	b.WriteString("[Unit]\n")
 	b.WriteString(fmt.Sprintf("Description=Town OS uPnP Mapping: %s\n", cfg.PkgName))
+	b.WriteString(fmt.Sprintf("BindsTo=town-os-%s.service\n", cfg.PkgName))
+	b.WriteString(fmt.Sprintf("After=town-os-%s.service\n", cfg.PkgName))
 
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=oneshot\n")

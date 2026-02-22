@@ -96,6 +96,25 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(units.UPnPTimer.Content, "OnBootSec=1min") {
 		t.Fatal("uPnP timer missing OnBootSec")
 	}
+	if !strings.Contains(units.UPnPTimer.Content, "BindsTo=town-os-nginx.service") {
+		t.Fatal("uPnP timer missing BindsTo")
+	}
+	if !strings.Contains(units.UPnPTimer.Content, "After=town-os-nginx.service") {
+		t.Fatal("uPnP timer missing After")
+	}
+
+	// Verify uPnP service has BindsTo and After.
+	if !strings.Contains(units.UPnPService.Content, "BindsTo=town-os-nginx.service") {
+		t.Fatal("uPnP service missing BindsTo")
+	}
+	if !strings.Contains(units.UPnPService.Content, "After=town-os-nginx.service") {
+		t.Fatal("uPnP service missing After")
+	}
+
+	// Verify socket units still use PartOf (not BindsTo).
+	if strings.Contains(sock.Content, "BindsTo=") {
+		t.Fatal("socket should not have BindsTo")
+	}
 }
 
 func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
@@ -520,8 +539,8 @@ func TestGeneratePackageUnitsHostModeWithForwarder(t *testing.T) {
 	if !strings.Contains(fwd.Content, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
 		t.Fatalf("forwarder missing socat command, got:\n%s", fwd.Content)
 	}
-	if !strings.Contains(fwd.Content, "PartOf=town-os-nginx.service") {
-		t.Fatal("forwarder missing PartOf")
+	if !strings.Contains(fwd.Content, "BindsTo=town-os-nginx.service") {
+		t.Fatal("forwarder missing BindsTo")
 	}
 	if !strings.Contains(fwd.Content, "After=town-os-nginx.service") {
 		t.Fatal("forwarder missing After")

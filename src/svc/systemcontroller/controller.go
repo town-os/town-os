@@ -323,8 +323,13 @@ func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd s
 }
 
 // uninstallPackageUnits stops, disables, and uninstalls all systemd units for
-// a package.
-func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd systemd.Manager, unitNames []string) error {
+// a package by scanning installed unit files.
+func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd systemd.Manager, pkgName string) error {
+	unitNames, err := sd.ListPackageUnitFiles(ctx, pkgName)
+	if err != nil {
+		return fmt.Errorf("list package unit files: %w", err)
+	}
+
 	for _, name := range unitNames {
 		if err := sd.SetStatus(ctx, name, systemd.Stop); err != nil {
 			slog.Debug(fmt.Sprintf("stop unit %s: %v", name, err))
@@ -355,29 +360,6 @@ func (s *SystemControllerHandlers) packageUnitConfig(pkgName, version string, co
 		UPnPBinPath: s.Controller.GetUPnPBinPath(),
 		NetworkMode: s.Controller.GetNetworkMode(),
 	}
-}
-
-// activeUnitNames tries to load a compiled package to determine the full set
-// of unit names. Falls back to just the main service unit if the package
-// cannot be loaded.
-func (s *SystemControllerHandlers) activeUnitNames(rr *packages.RepositoryRoot, inst packages.Installer, pkgName, version string) []string {
-	if rr != nil && inst != nil {
-		repoName, err := rr.FindRepoForPackage(pkgName, version)
-		if err == nil {
-			ip, err := rr.LoadPackage(repoName, pkgName, version)
-			if err == nil {
-				responses, err := inst.GetResponses(pkgName, version)
-				if err == nil {
-					compiled, err := ip.Compile(responses)
-					if err == nil {
-						return systemd.PackageUnitNames(pkgName, compiled.Network.External, compiled.Network.Internal)
-					}
-				}
-			}
-		}
-	}
-
-	return []string{systemd.UnitName(pkgName)}
 }
 
 // --- Storage handlers ---
@@ -750,8 +732,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	if activeVersion != "" {
 		// Stop and remove all systemd units for the currently active version.
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
-			unitNames := s.activeUnitNames(rr, inst, req.Name, activeVersion)
-			if err := s.uninstallPackageUnits(ctx, sd, unitNames); err != nil {
+			if err := s.uninstallPackageUnits(ctx, sd, req.Name); err != nil {
 				return err
 			}
 		}
@@ -837,12 +818,10 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	rr := s.Controller.GetRepositoryRoot()
 	inst := s.Controller.GetInstaller()
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		unitNames := s.activeUnitNames(rr, inst, req.Name, req.Version)
-		if err := s.uninstallPackageUnits(ctx, sd, unitNames); err != nil {
+		if err := s.uninstallPackageUnits(ctx, sd, req.Name); err != nil {
 			return err
 		}
 	}

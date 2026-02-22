@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -142,6 +143,22 @@ func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content s
 	defer conn.Close()
 
 	return conn.ReloadContext(ctx)
+}
+
+func (m *SystemdManager) ListPackageUnitFiles(_ context.Context, pkgName string) ([]string, error) {
+	pattern := fmt.Sprintf("/etc/systemd/system/town-os-%s*", pkgName)
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, len(matches))
+	for i, match := range matches {
+		names[i] = filepath.Base(match)
+	}
+	sort.Strings(names)
+
+	return names, nil
 }
 
 func (m *SystemdManager) UninstallUnit(ctx context.Context, name string) error {

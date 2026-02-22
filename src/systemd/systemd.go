@@ -95,6 +95,7 @@ type Manager interface {
 	LogTail(ctx context.Context, params LogTailParams) (LogTailResult, error)
 	InstallUnit(ctx context.Context, name string, content string) error
 	UninstallUnit(ctx context.Context, name string) error
+	ListPackageUnitFiles(ctx context.Context, pkgName string) ([]string, error)
 }
 
 // UnitName returns the systemd service unit name for a given package.

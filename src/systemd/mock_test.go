@@ -451,3 +451,80 @@ func TestSystemdMockManagerLifecycle(t *testing.T) {
 		}
 	}
 }
+
+// --- ListPackageUnitFiles tests ---
+
+func TestMockManagerListPackageUnitFiles(t *testing.T) {
+	m := InitMockManager()
+	ctx := context.Background()
+
+	// Install several units for "nginx".
+	if err := m.InstallUnit(ctx, "town-os-nginx.service", "content"); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	if err := m.InstallUnit(ctx, "town-os-nginx-8080-tcp.socket", "content"); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	if err := m.InstallUnit(ctx, "town-os-nginx-upnp.service", "content"); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	if err := m.InstallUnit(ctx, "town-os-nginx-upnp.timer", "content"); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+
+	// Install a unit for a different package.
+	if err := m.InstallUnit(ctx, "town-os-redis.service", "content"); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+
+	names, err := m.ListPackageUnitFiles(ctx, "nginx")
+	if err != nil {
+		t.Fatalf("ListPackageUnitFiles: %v", err)
+	}
+
+	if len(names) != 4 {
+		t.Fatalf("expected 4 unit files, got %d: %v", len(names), names)
+	}
+
+	// Should be sorted.
+	expectedNames := []string{
+		"town-os-nginx-8080-tcp.socket",
+		"town-os-nginx-upnp.service",
+		"town-os-nginx-upnp.timer",
+		"town-os-nginx.service",
+	}
+	for i, want := range expectedNames {
+		if names[i] != want {
+			t.Fatalf("names[%d]: expected %q, got %q", i, want, names[i])
+		}
+	}
+}
+
+func TestMockManagerListPackageUnitFilesAfterUninstall(t *testing.T) {
+	m := InitMockManager()
+	ctx := context.Background()
+
+	if err := m.InstallUnit(ctx, "town-os-nginx.service", "content"); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	if err := m.InstallUnit(ctx, "town-os-nginx-8080-tcp.socket", "content"); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+
+	// Uninstall all.
+	if err := m.UninstallUnit(ctx, "town-os-nginx.service"); err != nil {
+		t.Fatalf("UninstallUnit: %v", err)
+	}
+	if err := m.UninstallUnit(ctx, "town-os-nginx-8080-tcp.socket"); err != nil {
+		t.Fatalf("UninstallUnit: %v", err)
+	}
+
+	names, err := m.ListPackageUnitFiles(ctx, "nginx")
+	if err != nil {
+		t.Fatalf("ListPackageUnitFiles: %v", err)
+	}
+
+	if len(names) != 0 {
+		t.Fatalf("expected 0 unit files after uninstall, got %d: %v", len(names), names)
+	}
+}

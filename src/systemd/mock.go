@@ -3,6 +3,7 @@ package systemd
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -13,19 +14,23 @@ type MockCall struct {
 }
 
 type MockManager struct {
-	mu              sync.Mutex
-	Units           []UnitStatus
-	Entries         []JournalEntry
-	Calls           []MockCall
-	ListErr         error
-	StatusErr       error
-	LogErr          error
-	InstallUnitErr  error
+	mu               sync.Mutex
+	Units            []UnitStatus
+	Entries          []JournalEntry
+	Calls            []MockCall
+	InstalledUnits   map[string]bool
+	ListErr          error
+	StatusErr        error
+	LogErr           error
+	InstallUnitErr   error
 	UninstallUnitErr error
+	ListPackageUnitFilesErr error
 }
 
 func InitMockManager() *MockManager {
-	return &MockManager{}
+	return &MockManager{
+		InstalledUnits: make(map[string]bool),
+	}
 }
 
 func (m *MockManager) GetCalls() []MockCall {
@@ -211,6 +216,8 @@ func (m *MockManager) InstallUnit(ctx context.Context, name string, content stri
 		return m.InstallUnitErr
 	}
 
+	m.InstalledUnits[name] = true
+
 	return nil
 }
 
@@ -224,5 +231,29 @@ func (m *MockManager) UninstallUnit(ctx context.Context, name string) error {
 		return m.UninstallUnitErr
 	}
 
+	delete(m.InstalledUnits, name)
+
 	return nil
+}
+
+func (m *MockManager) ListPackageUnitFiles(ctx context.Context, pkgName string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.Calls = append(m.Calls, MockCall{Method: "ListPackageUnitFiles", Args: []any{pkgName}})
+
+	if m.ListPackageUnitFilesErr != nil {
+		return nil, m.ListPackageUnitFilesErr
+	}
+
+	prefix := fmt.Sprintf("town-os-%s", pkgName)
+	var names []string
+	for name := range m.InstalledUnits {
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	return names, nil
 }

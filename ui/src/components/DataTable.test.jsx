@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import DataTable from './DataTable.jsx'
 
 describe('DataTable', () => {
@@ -114,5 +114,79 @@ describe('DataTable', () => {
     ]
     render(<DataTable {...baseProps} data={data} />)
     expect(screen.getByText('2 results')).toBeTruthy()
+  })
+
+  describe('onSearchChange debounce', () => {
+    beforeEach(() => { vi.useFakeTimers() })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('does not fire onSearchChange when parent re-renders without filter change', () => {
+      const onSearch1 = vi.fn()
+      const serverProps = {
+        ...baseProps,
+        hasMore: false,
+        totalPages: 1,
+        page: 0,
+        setPage: vi.fn(),
+        sortKey: 'name',
+        sortDirection: 'asc',
+        onSortChange: vi.fn(),
+      }
+
+      const { rerender } = render(
+        <DataTable {...serverProps} onSearchChange={onSearch1} />,
+      )
+
+      // Flush the initial mount debounce
+      act(() => { vi.advanceTimersByTime(400) })
+      onSearch1.mockClear()
+
+      // Re-render with a NEW onSearchChange reference (simulates parent
+      // re-rendering from a polling update — inline callbacks get new identity)
+      const onSearch2 = vi.fn()
+      rerender(
+        <DataTable {...serverProps} onSearchChange={onSearch2} />,
+      )
+
+      // Advance well past the 300ms debounce window
+      act(() => { vi.advanceTimersByTime(500) })
+
+      // Neither callback should have been invoked since filter didn't change
+      expect(onSearch1).not.toHaveBeenCalled()
+      expect(onSearch2).not.toHaveBeenCalled()
+    })
+
+    it('fires onSearchChange when user types in the search box', () => {
+      const onSearch = vi.fn()
+      const serverProps = {
+        ...baseProps,
+        hasMore: false,
+        totalPages: 1,
+        page: 0,
+        setPage: vi.fn(),
+        sortKey: 'name',
+        sortDirection: 'asc',
+        onSortChange: vi.fn(),
+        onSearchChange: onSearch,
+      }
+
+      render(<DataTable {...serverProps} />)
+
+      // Flush mount debounce
+      act(() => { vi.advanceTimersByTime(400) })
+      onSearch.mockClear()
+
+      // Type in the search box
+      const input = screen.getByPlaceholderText('Search...')
+      fireEvent.change(input, { target: { value: 'test' } })
+
+      // Before debounce expires — not called yet
+      act(() => { vi.advanceTimersByTime(200) })
+      expect(onSearch).not.toHaveBeenCalled()
+
+      // After debounce expires — called with the typed value
+      act(() => { vi.advanceTimersByTime(200) })
+      expect(onSearch).toHaveBeenCalledWith('test')
+    })
   })
 })
