@@ -42,6 +42,7 @@ var RouteActions = map[string]string{
 	"/storage/remove":         "remove filesystem",
 	"/repository/add":         "add repository",
 	"/repository/remove":      "remove repository",
+	"/repository/move":        "move repository",
 	"/repository/refresh":     "refresh repositories",
 	"/packages/install":                   "install package",
 	"/packages/uninstall":                 "uninstall package",

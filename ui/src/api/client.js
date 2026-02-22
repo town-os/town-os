@@ -245,6 +245,15 @@ export class SystemControllerClient {
     await this.post('/repository/remove', { name })
   }
 
+  /**
+   * @param {string} name
+   * @param {number} position
+   * @returns {Promise<void>}
+   */
+  async moveRepository(name, position) {
+    await this.post('/repository/move', { name, position })
+  }
+
   /** @returns {Promise<Record<string, string>|null>} */
   async refreshRepositories() {
     const resp = await this.post('/repository/refresh', {})

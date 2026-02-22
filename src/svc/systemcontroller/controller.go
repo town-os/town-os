@@ -123,6 +123,11 @@ type RepositoryNameRequest struct {
 	Name string `json:"name"`
 }
 
+type MoveRepositoryRequest struct {
+	Name     string `json:"name"`
+	Position int    `json:"position"`
+}
+
 type RepositoryInfo struct {
 	Name     string `json:"name"`
 	URL      string `json:"url"`
@@ -536,6 +541,24 @@ func (s *SystemControllerHandlers) removeRepository(c *echo.Context) error {
 	}
 
 	rr.Refresh()
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+func (s *SystemControllerHandlers) moveRepository(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := MoveRepositoryRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+
+	if err := rr.Move(req.Name, req.Position); err != nil {
+		return err
+	}
 
 	c.Response().WriteHeader(200)
 	return nil
@@ -1879,6 +1902,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	e.Add("POST", "/repository/add", s.addRepository, s.requireAuth)
 	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAuth)
+	e.Add("POST", "/repository/move", s.moveRepository, s.requireAuth)
 	e.Add("POST", "/repository/refresh", s.refreshRepositories, s.requireAuth)
 	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
 

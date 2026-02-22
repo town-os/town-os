@@ -25,6 +25,7 @@ type MockRepositoryManager struct {
 	LatestErr              error
 	QuestionsErr           error
 	FindRepoErr            error
+	MoveErr                error
 }
 
 func InitMockRepositoryManager() *MockRepositoryManager {
@@ -77,6 +78,42 @@ func (m *MockRepositoryManager) Remove(name string) error {
 	}
 
 	return fmt.Errorf("repository %s not found", name)
+}
+
+func (m *MockRepositoryManager) Move(name string, position int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockRepositoryCall{Method: "Move", Args: []any{name, position}})
+
+	if m.MoveErr != nil {
+		return m.MoveErr
+	}
+
+	idx := -1
+	for i, r := range m.Items {
+		if r.Name == name {
+			idx = i
+			break
+		}
+	}
+
+	if idx == -1 {
+		return fmt.Errorf("repository %s not found", name)
+	}
+
+	repo := m.Items[idx]
+	m.Items = append(m.Items[:idx], m.Items[idx+1:]...)
+
+	if position < 0 {
+		position = 0
+	}
+	if position > len(m.Items) {
+		position = len(m.Items)
+	}
+
+	m.Items = append(m.Items[:position], append([]Repository{repo}, m.Items[position:]...)...)
+
+	return nil
 }
 
 func (m *MockRepositoryManager) Get(name string) (Repository, bool) {

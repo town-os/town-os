@@ -27,6 +27,7 @@ type Client interface {
 
 	AddRepository(ctx context.Context, name, rawURL, username, password string) error
 	RemoveRepository(ctx context.Context, name string) error
+	MoveRepository(ctx context.Context, name string, position int) error
 	RefreshRepositories(ctx context.Context) (map[string]string, error)
 	ListRepositories(ctx context.Context, params ListParams) (*PageResult[RepositoryInfo], error)
 
@@ -234,6 +235,13 @@ func (c *SystemdClient) RemoveRepository(ctx context.Context, name string) error
 	go pipeEncode(pw, RepositoryNameRequest{Name: name})
 
 	return c.postClient(ctx, "repository/remove", pr)
+}
+
+func (c *SystemdClient) MoveRepository(ctx context.Context, name string, position int) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, MoveRepositoryRequest{Name: name, Position: position})
+
+	return c.postClient(ctx, "repository/move", pr)
 }
 
 func (c *SystemdClient) RefreshRepositories(ctx context.Context) (_ map[string]string, err error) {

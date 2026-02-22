@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle } from 'lucide-react'
+import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 
 export default function PackageManagement() {
@@ -51,9 +51,9 @@ export default function PackageManagement() {
   const [pkgSortKey, setPkgSortKey] = useState('name')
   const [pkgSortDirection, setPkgSortDirection] = useState('asc')
 
-  // Sort state for repositories tab
-  const [repoSortKey, setRepoSortKey] = useState('name')
-  const [repoSortDirection, setRepoSortDirection] = useState('asc')
+  // Sort state for repositories tab (empty = natural insertion order)
+  const [repoSortKey, setRepoSortKey] = useState('')
+  const [repoSortDirection, setRepoSortDirection] = useState('')
 
   const PAGE_SIZE = 20
 
@@ -82,6 +82,7 @@ export default function PackageManagement() {
     [refreshKey, repoSortKey, repoSortDirection, repoPage, repoSearch],
   )
   const repositories = repoData.entries || []
+  const displayRepos = [...repositories].reverse()
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
@@ -274,6 +275,15 @@ export default function PackageManagement() {
     }
   }
 
+  async function handleMoveRepo(name, position) {
+    try {
+      await getClient().moveRepository(name, position)
+      doRefresh()
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
   const packageColumns = [
     { key: 'name', label: 'Name' },
     {
@@ -396,6 +406,36 @@ export default function PackageManagement() {
         ),
     },
     {
+      key: '_move',
+      label: '',
+      sortable: false,
+      transform: (_, row) => {
+        const idx = repositories.findIndex((r) => r.name === row.name)
+        return (
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              disabled={idx >= repositories.length - 1}
+              onClick={() => handleMoveRepo(row.name, idx + 1)}
+            >
+              <ArrowUp className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              disabled={idx <= 0}
+              onClick={() => handleMoveRepo(row.name, idx - 1)}
+            >
+              <ArrowDown className="h-3 w-3" />
+            </Button>
+          </div>
+        )
+      },
+    },
+    {
       key: '_delete',
       label: '',
       sortable: false,
@@ -479,11 +519,16 @@ export default function PackageManagement() {
               Add Repository
             </Button>
           </div>
+          <p className="text-sm text-muted-foreground">
+            The first repository has the highest priority. If the same package
+            appears in multiple repositories, the one closest to the top is used.
+            Use the arrow buttons to reorder.
+          </p>
           {repoLoading && repositories.length === 0 && (
             <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
           )}
           <DataTable
-            data={repositories}
+            data={displayRepos}
             columns={repoColumns}
             entryKey="name"
             page={repoPage}
@@ -499,8 +544,8 @@ export default function PackageManagement() {
               setRepoPage(0)
             }}
             onReset={() => {
-              setRepoSortKey('name')
-              setRepoSortDirection('asc')
+              setRepoSortKey('')
+              setRepoSortDirection('')
               setRepoSearch('')
               setRepoPage(0)
             }}

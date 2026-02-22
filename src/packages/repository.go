@@ -51,6 +51,7 @@ type RepositoryManager interface {
 	LatestPackage(name string) (InputPackage, string, error)
 	GetPackageQuestions(name string) (map[string]Question, error)
 	FindRepoForPackage(name, version string) (string, error)
+	Move(name string, position int) error
 }
 
 type RepositoryRoot struct {
@@ -115,6 +116,34 @@ func (rr *RepositoryRoot) Remove(name string) error {
 	}
 
 	return fmt.Errorf("repository %s not found", name)
+}
+
+func (rr *RepositoryRoot) Move(name string, position int) error {
+	idx := -1
+	for i, r := range rr.Items {
+		if r.Name == name {
+			idx = i
+			break
+		}
+	}
+
+	if idx == -1 {
+		return fmt.Errorf("repository %s not found", name)
+	}
+
+	repo := rr.Items[idx]
+	rr.Items = append(rr.Items[:idx], rr.Items[idx+1:]...)
+
+	if position < 0 {
+		position = 0
+	}
+	if position > len(rr.Items) {
+		position = len(rr.Items)
+	}
+
+	rr.Items = append(rr.Items[:position], append([]Repository{repo}, rr.Items[position:]...)...)
+
+	return rr.save()
 }
 
 func (rr *RepositoryRoot) List() ([]Repository, error) {
@@ -435,8 +464,8 @@ func (rr *RepositoryRoot) ListPackageVersions(name string) ([]string, error) {
 var ErrPackageNotFound = fmt.Errorf("package not found")
 
 // LatestPackage finds the latest version of a named package across all
-// repositories. Repositories are consulted in preferential order; when two
-// repositories carry the same highest version the one listed first wins.
+// repositories. Repositories are consulted in order; when two repositories
+// carry the same highest version the one listed last wins.
 func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, error) {
 	var bestPkg InputPackage
 	var bestVersion string
@@ -454,7 +483,7 @@ func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, erro
 		}
 
 		for version, pkg := range versions {
-			if !found || CompareVersions(version, bestVersion) > 0 {
+			if !found || CompareVersions(version, bestVersion) >= 0 {
 				bestVersion = version
 				bestPkg = pkg
 				found = true
@@ -478,9 +507,10 @@ func (rr *RepositoryRoot) GetPackageQuestions(name string) (map[string]Question,
 }
 
 // FindRepoForPackage finds the repository that contains the given package
-// name and version. Repositories are checked in preferential order; the first
-// match wins.
+// name and version. When multiple repositories contain the same package the
+// one listed last wins.
 func (rr *RepositoryRoot) FindRepoForPackage(name, version string) (string, error) {
+	result := ""
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
@@ -493,16 +523,20 @@ func (rr *RepositoryRoot) FindRepoForPackage(name, version string) (string, erro
 		}
 
 		if _, ok := versions[version]; ok {
-			return repo.Name, nil
+			result = repo.Name
 		}
 	}
 
-	return "", ErrPackageNotFound
+	if result == "" {
+		return "", ErrPackageNotFound
+	}
+
+	return result, nil
 }
 
 // ListPackages returns the latest version of every package across all
-// repositories. Repositories are consulted in preferential order; when two
-// repositories carry the same highest version the one listed first wins.
+// repositories. Repositories are consulted in order; when two repositories
+// carry the same highest version the one listed last wins.
 func (rr *RepositoryRoot) ListPackages() ([]string, error) {
 	best := map[string]string{}
 
@@ -515,7 +549,7 @@ func (rr *RepositoryRoot) ListPackages() ([]string, error) {
 		for name, versions := range pkgs {
 			for version := range versions {
 				prev, exists := best[name]
-				if !exists || CompareVersions(version, prev) > 0 {
+				if !exists || CompareVersions(version, prev) >= 0 {
 					best[name] = version
 				}
 			}
