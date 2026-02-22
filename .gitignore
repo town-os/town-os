@@ -12,3 +12,4 @@
 /dev.btrfs
 /dev.db*
 /.todo
+/.hack
