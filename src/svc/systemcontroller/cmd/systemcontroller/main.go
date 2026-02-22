@@ -100,7 +100,7 @@ func run() (err error) {
 		} else {
 			defaults = packages.DefaultRepositories()
 			if os.Getenv("DEBUG") != "" {
-				defaults = append(defaults, packages.TestRepositories()...)
+				defaults = append(packages.TestRepositories(), defaults...)
 			}
 		}
 		repoUser := os.Getenv(packages.EnvRepoUsername)
