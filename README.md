@@ -98,3 +98,13 @@ The dev and integration test environments use separate btrfs volumes so they can
 | Target      | Description                       |
 | ----------- | --------------------------------- |
 | `make lint` | Run `go vet` and `golangci-lint`. |
+
+### License
+
+GNU Affero GPL 3.0
+
+## From
+
+Town OS is not a one-man show -- it's supposed to be here for everyone to contribute ideas to. A solution that's free isn't really free if it's just done by one person. The licensing is deliberately chosen to ensure that people can audit, fix, and contribute back to a product where you know what you're getting on the label.
+
+Erik Hollensbe <erik@hollensbe.org> conceived this project. Several people have already made significant financial contributions to keep me housed and living fairly well, considering I'm in the Bay Area. Lots of people contributed lots and lots of ideas. And Claude helped too. This is as much from them as it is from me.
