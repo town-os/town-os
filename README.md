@@ -1,5 +1,19 @@
 # Town OS
 
+The goal of this system is to build a self-service platform that anyone can run at home, with premier ease of use and reliability acceptable for a home user.
+
+This platform manages its own storage, state, and is completely responsible for its own health. To allow for this, upgrades are fully atomic and because we are in a home environment, powering off the computer is acceptable. A USB drive running squashfs can provide the host operating system in ram, and the services that Town OS has running in containers, pulled from the internet, can manage any changes of state that need to occur over the lifetime of the power cycle. Thusly, a reboot can be a simple way to allow users to get themselves to a working state.
+
+Packaging is fully integrated with the storage and network, creating resources on demand, including opening ports over upnp or establishing tunnels. Router-level functionality is expected to arrive which would allow users more control over DNS and DHCP within their home and direct network-mappable relationships with RBL and other security features which come with the advantage of using a local resolver -- more than just names. Packaging can also be leveraged to inform the user of where services might reside or proxy connections when necessary to conform to a network topology.
+
+Packages are able to request input from the user -- similar to debconf -- but through the UI. These are template variables and can be used to configure container images and manage networking. https://github.com/town-os/default-packages for more information. You can also completely replace the repositories with a private repository list -- perfect for your gamer buddies, family members you need to support, etc.
+
+Services all have adequate logging and supervision. There is a comfortable UI for accessing this information, presented in a way that does not confuse non-technical users. There are separate accounts for admin and normal users: you could help your parents run a Plex (or something similar) if you wanted. You could keep them spyware free.
+
+You also can't lock yourself out. If all accounts become disabled or there are none... it runs behind the firewall. Just create a new one and fix it. Or, if you really get yourself into a bad spot, you can actually nuke the entire SQLite database to recover a system.
+
+Check out some of the [screenshots](screen shots). This all works in the dev tasks today.
+
 ## Prerequisites
 
 - Go 1.25+
