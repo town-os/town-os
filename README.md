@@ -12,7 +12,7 @@ Services all have adequate logging and supervision. There is a comfortable UI fo
 
 You also can't lock yourself out. If all accounts become disabled or there are none... it runs behind the firewall. Just create a new one and fix it. Or, if you really get yourself into a bad spot, you can actually nuke the entire SQLite database to recover a system.
 
-Check out some of the (screen shots)[./screenshots]. This all works in the dev tasks today.
+Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
 
 ## Prerequisites
 
