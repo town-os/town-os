@@ -51,6 +51,7 @@ type RepositoryManager interface {
 	LatestPackage(name string) (InputPackage, string, error)
 	GetPackageQuestions(name string) (map[string]Question, error)
 	FindRepoForPackage(name, version string) (string, error)
+	ListPackagesByRepo() ([]RepoPackageGroup, error)
 	Move(name string, position int) error
 }
 
@@ -465,7 +466,7 @@ var ErrPackageNotFound = fmt.Errorf("package not found")
 
 // LatestPackage finds the latest version of a named package across all
 // repositories. Repositories are consulted in order; when two repositories
-// carry the same highest version the one listed last wins.
+// carry the same highest version the one listed first wins.
 func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, error) {
 	var bestPkg InputPackage
 	var bestVersion string
@@ -483,7 +484,7 @@ func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, erro
 		}
 
 		for version, pkg := range versions {
-			if !found || CompareVersions(version, bestVersion) >= 0 {
+			if !found || CompareVersions(version, bestVersion) > 0 {
 				bestVersion = version
 				bestPkg = pkg
 				found = true
@@ -508,9 +509,8 @@ func (rr *RepositoryRoot) GetPackageQuestions(name string) (map[string]Question,
 
 // FindRepoForPackage finds the repository that contains the given package
 // name and version. When multiple repositories contain the same package the
-// one listed last wins.
+// one listed first wins.
 func (rr *RepositoryRoot) FindRepoForPackage(name, version string) (string, error) {
-	result := ""
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
@@ -523,22 +523,23 @@ func (rr *RepositoryRoot) FindRepoForPackage(name, version string) (string, erro
 		}
 
 		if _, ok := versions[version]; ok {
-			result = repo.Name
+			return repo.Name, nil
 		}
 	}
 
-	if result == "" {
-		return "", ErrPackageNotFound
-	}
-
-	return result, nil
+	return "", ErrPackageNotFound
 }
 
 // ListPackages returns the latest version of every package across all
 // repositories. Repositories are consulted in order; when two repositories
-// carry the same highest version the one listed last wins.
+// carry the same highest version the one listed first wins.
+// Returns "repo/name@version" strings.
 func (rr *RepositoryRoot) ListPackages() ([]string, error) {
-	best := map[string]string{}
+	type bestEntry struct {
+		Repo    string
+		Version string
+	}
+	best := map[string]bestEntry{}
 
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
@@ -549,19 +550,73 @@ func (rr *RepositoryRoot) ListPackages() ([]string, error) {
 		for name, versions := range pkgs {
 			for version := range versions {
 				prev, exists := best[name]
-				if !exists || CompareVersions(version, prev) >= 0 {
-					best[name] = version
+				if !exists || CompareVersions(version, prev.Version) > 0 {
+					best[name] = bestEntry{Repo: repo.Name, Version: version}
 				}
 			}
 		}
 	}
 
 	out := make([]string, 0, len(best))
-	for name, version := range best {
-		out = append(out, PackageIdentity{Name: name, Version: version}.String())
+	for name, entry := range best {
+		out = append(out, PackageIdentity{Repo: entry.Repo, Name: name, Version: entry.Version}.String())
 	}
 
 	sort.Strings(out)
 
 	return out, nil
+}
+
+// RepoPackageGroup represents a repository and its packages, used by
+// ListPackagesByRepo.
+type RepoPackageGroup struct {
+	Repo     string            `json:"repo"`
+	Packages []PackageIdentity `json:"packages"`
+}
+
+// ListPackagesByRepo returns packages grouped by repository in precedence
+// order (most important repo first = reversed internal order). Within each
+// repo, packages are sorted alphabetically and only the latest version of
+// each package name is included.
+func (rr *RepositoryRoot) ListPackagesByRepo() ([]RepoPackageGroup, error) {
+	var groups []RepoPackageGroup
+
+	// Iterate in reverse so highest-precedence repo comes first.
+	for i := len(rr.Items) - 1; i >= 0; i-- {
+		repo := rr.Items[i]
+		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+		}
+
+		// Pick latest version per package name.
+		best := map[string]string{}
+		for name, versions := range pkgs {
+			for version := range versions {
+				prev, exists := best[name]
+				if !exists || CompareVersions(version, prev) > 0 {
+					best[name] = version
+				}
+			}
+		}
+
+		if len(best) == 0 {
+			continue
+		}
+
+		names := make([]string, 0, len(best))
+		for name := range best {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		pkgList := make([]PackageIdentity, len(names))
+		for j, name := range names {
+			pkgList[j] = PackageIdentity{Repo: repo.Name, Name: name, Version: best[name]}
+		}
+
+		groups = append(groups, RepoPackageGroup{Repo: repo.Name, Packages: pkgList})
+	}
+
+	return groups, nil
 }

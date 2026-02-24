@@ -56,19 +56,31 @@ function decomposeQuota(bytes) {
 
 /**
  * Build a tree structure from package volume names.
- * Names are like "nginx/1.0/data" -> package "nginx", version "1.0", volume "data".
- * Returns { [packageName]: { [version]: Filesystem[] } }
+ * Names are like "repo/nginx/1.0/data" -> repo "repo", package "nginx", version "1.0", volume "data".
+ * The tree groups by "repo/name" as the top-level key.
+ * Returns { [repo/name]: { [version]: Filesystem[] } }
  */
 function buildVolumeTree(filesystems) {
   const tree = {}
   for (const fs of filesystems) {
     const parts = fs.name.split('/')
-    const pkgName = parts[0] || fs.name
-    const version = parts.length > 1 ? parts[1] : ''
-    const volName = parts.length > 2 ? parts.slice(2).join('/') : ''
-    if (!tree[pkgName]) tree[pkgName] = {}
-    if (!tree[pkgName][version]) tree[pkgName][version] = []
-    tree[pkgName][version].push({ ...fs, volumeName: volName })
+    // 4-part: repo/name/version/volName
+    if (parts.length >= 4) {
+      const pkgKey = `${parts[0]}/${parts[1]}`
+      const version = parts[2]
+      const volName = parts.slice(3).join('/')
+      if (!tree[pkgKey]) tree[pkgKey] = {}
+      if (!tree[pkgKey][version]) tree[pkgKey][version] = []
+      tree[pkgKey][version].push({ ...fs, volumeName: volName })
+    } else {
+      // Legacy 3-part: name/version/volName
+      const pkgName = parts[0] || fs.name
+      const version = parts.length > 1 ? parts[1] : ''
+      const volName = parts.length > 2 ? parts.slice(2).join('/') : ''
+      if (!tree[pkgName]) tree[pkgName] = {}
+      if (!tree[pkgName][version]) tree[pkgName][version] = []
+      tree[pkgName][version].push({ ...fs, volumeName: volName })
+    }
   }
   return tree
 }

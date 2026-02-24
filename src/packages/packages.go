@@ -37,17 +37,33 @@ func (v *ValidationError) Error() string {
 }
 
 type PackageIdentity struct {
+	Repo    string `json:"repo"`
 	Name    string `json:"name"`
 	Version string `json:"version"`
 }
 
 func (p PackageIdentity) String() string {
-	return fmt.Sprintf("%s@%s", p.Name, p.Version)
+	if p.Repo == "" {
+		return fmt.Sprintf("%s@%s", p.Name, p.Version)
+	}
+	return fmt.Sprintf("%s/%s@%s", p.Repo, p.Name, p.Version)
 }
 
-var ErrInvalidPackageIdentity = errors.New("invalid package identity: expected name@version")
+var ErrInvalidPackageIdentity = errors.New("invalid package identity: expected repo/name@version")
 
 func ParsePackageIdentity(s string) (PackageIdentity, error) {
+	// Try repo/name@version first.
+	if slashIdx := strings.IndexByte(s, '/'); slashIdx > 0 {
+		repo := s[:slashIdx]
+		rest := s[slashIdx+1:]
+		parts := strings.SplitN(rest, "@", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			return PackageIdentity{Repo: repo, Name: parts[0], Version: parts[1]}, nil
+		}
+		return PackageIdentity{}, ErrInvalidPackageIdentity
+	}
+
+	// Legacy fallback: name@version with empty Repo (no slash in input).
 	parts := strings.SplitN(s, "@", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return PackageIdentity{}, ErrInvalidPackageIdentity

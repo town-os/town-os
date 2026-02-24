@@ -1151,11 +1151,11 @@ func TestListPackages(t *testing.T) {
 		}
 
 		// sorted by name
-		if pkgs[0] != "nginx@2.0" {
-			t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+		if pkgs[0] != "repo-a/nginx@2.0" {
+			t.Fatalf("expected repo-a/nginx@2.0, got %s", pkgs[0])
 		}
-		if pkgs[1] != "redis@7.0" {
-			t.Fatalf("expected redis@7.0, got %s", pkgs[1])
+		if pkgs[1] != "repo-a/redis@7.0" {
+			t.Fatalf("expected repo-a/redis@7.0, got %s", pkgs[1])
 		}
 	})
 
@@ -1228,8 +1228,8 @@ func TestListPackages(t *testing.T) {
 		if len(pkgs) != 1 {
 			t.Fatalf("expected 1 package, got %d", len(pkgs))
 		}
-		if pkgs[0] != "nginx@2.0" {
-			t.Fatalf("expected nginx@2.0, got %s", pkgs[0])
+		if pkgs[0] != "repo-a/nginx@2.0" {
+			t.Fatalf("expected repo-a/nginx@2.0, got %s", pkgs[0])
 		}
 	})
 
@@ -1260,8 +1260,8 @@ func TestListPackages(t *testing.T) {
 		if len(pkgs) != 1 {
 			t.Fatalf("expected 1 package, got %d", len(pkgs))
 		}
-		if pkgs[0] != "nginx@3.0" {
-			t.Fatalf("expected nginx@3.0, got %s", pkgs[0])
+		if pkgs[0] != "repo-b/nginx@3.0" {
+			t.Fatalf("expected repo-b/nginx@3.0, got %s", pkgs[0])
 		}
 	})
 

@@ -10,6 +10,7 @@ import (
 
 func TestGeneratePackageUnitsBasic(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "nginx",
 		Version:     "1.0",
 		Image:       "docker.io/library/nginx:1.0",
@@ -26,12 +27,12 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	units := GeneratePackageUnits(cfg)
 
 	// Verify service unit.
-	if units.Service.Name != "town-os-nginx.service" {
-		t.Fatalf("expected service name town-os-nginx.service, got %s", units.Service.Name)
+	if units.Service.Name != "town-os-package--test-repo-nginx-1.0.service" {
+		t.Fatalf("expected service name town-os-package--test-repo-nginx-1.0.service, got %s", units.Service.Name)
 	}
 
 	svc := units.Service.Content
-	if !strings.Contains(svc, "Description=Town OS Package Service: nginx@1.0") {
+	if !strings.Contains(svc, "Description=Town OS Package Service: test-repo/nginx@1.0") {
 		t.Fatal("service missing description")
 	}
 	if !strings.Contains(svc, "-p 8080:80") {
@@ -40,13 +41,13 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(svc, "-e NGINX_HOST=example.com") {
 		t.Fatal("service missing environment variable")
 	}
-	if !strings.Contains(svc, "-v /data/btrfs/installed/nginx/1.0/data:/var/data:rw,z") {
+	if !strings.Contains(svc, "-v /data/btrfs/installed/test-repo/nginx/1.0/data:/var/data:rw,z") {
 		t.Fatalf("service missing volume mount, got:\n%s", svc)
 	}
-	if !strings.Contains(svc, "systemctl stop town-os-nginx-8080-tcp.socket") {
+	if !strings.Contains(svc, "systemctl stop town-os-package--test-repo-nginx-1.0-8080-tcp.socket") {
 		t.Fatal("service missing socket stop in ExecStartPre")
 	}
-	if !strings.Contains(svc, "systemctl start town-os-nginx-8080-tcp.socket") {
+	if !strings.Contains(svc, "systemctl start town-os-package--test-repo-nginx-1.0-8080-tcp.socket") {
 		t.Fatal("service missing socket start in ExecStopPost")
 	}
 	if !strings.Contains(svc, "firewall-cmd --add-port=8080/tcp") {
@@ -55,7 +56,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(svc, "firewall-cmd --remove-port=8080/tcp") {
 		t.Fatal("service missing firewall remove-port")
 	}
-	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", UPnPTimerUnitName("nginx"))) {
+	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", UPnPTimerUnitName("test-repo", "nginx", "1.0"))) {
 		t.Fatal("service missing Wants for uPnP timer")
 	}
 
@@ -64,8 +65,8 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 		t.Fatalf("expected 1 socket unit, got %d", len(units.Sockets))
 	}
 	sock := units.Sockets[0]
-	if sock.Name != "town-os-nginx-8080-tcp.socket" {
-		t.Fatalf("expected socket name town-os-nginx-8080-tcp.socket, got %s", sock.Name)
+	if sock.Name != "town-os-package--test-repo-nginx-1.0-8080-tcp.socket" {
+		t.Fatalf("expected socket name town-os-package--test-repo-nginx-1.0-8080-tcp.socket, got %s", sock.Name)
 	}
 	if !strings.Contains(sock.Content, "ListenStream=8080") {
 		t.Fatal("socket missing ListenStream")
@@ -73,7 +74,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(sock.Content, "FreeBind=true") {
 		t.Fatal("socket missing FreeBind")
 	}
-	if !strings.Contains(sock.Content, "PartOf=town-os-nginx.service") {
+	if !strings.Contains(sock.Content, "PartOf=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatal("socket missing PartOf")
 	}
 
@@ -84,30 +85,30 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if units.UPnPTimer == nil {
 		t.Fatal("expected uPnP timer unit")
 	}
-	if units.UPnPService.Name != "town-os-nginx-upnp.service" {
-		t.Fatalf("expected uPnP service name town-os-nginx-upnp.service, got %s", units.UPnPService.Name)
+	if units.UPnPService.Name != "town-os-package--test-repo-nginx-1.0-upnp.service" {
+		t.Fatalf("expected uPnP service name town-os-package--test-repo-nginx-1.0-upnp.service, got %s", units.UPnPService.Name)
 	}
 	if !strings.Contains(units.UPnPService.Content, "/town-os-upnp add --port 8080:80 --ttl 600") {
 		t.Fatalf("uPnP service missing correct ExecStart, got:\n%s", units.UPnPService.Content)
 	}
-	if units.UPnPTimer.Name != "town-os-nginx-upnp.timer" {
-		t.Fatalf("expected uPnP timer name town-os-nginx-upnp.timer, got %s", units.UPnPTimer.Name)
+	if units.UPnPTimer.Name != "town-os-package--test-repo-nginx-1.0-upnp.timer" {
+		t.Fatalf("expected uPnP timer name town-os-package--test-repo-nginx-1.0-upnp.timer, got %s", units.UPnPTimer.Name)
 	}
 	if !strings.Contains(units.UPnPTimer.Content, "OnBootSec=1min") {
 		t.Fatal("uPnP timer missing OnBootSec")
 	}
-	if !strings.Contains(units.UPnPTimer.Content, "BindsTo=town-os-nginx.service") {
+	if !strings.Contains(units.UPnPTimer.Content, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatal("uPnP timer missing BindsTo")
 	}
-	if !strings.Contains(units.UPnPTimer.Content, "After=town-os-nginx.service") {
+	if !strings.Contains(units.UPnPTimer.Content, "After=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatal("uPnP timer missing After")
 	}
 
 	// Verify uPnP service has BindsTo and After.
-	if !strings.Contains(units.UPnPService.Content, "BindsTo=town-os-nginx.service") {
+	if !strings.Contains(units.UPnPService.Content, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatal("uPnP service missing BindsTo")
 	}
-	if !strings.Contains(units.UPnPService.Content, "After=town-os-nginx.service") {
+	if !strings.Contains(units.UPnPService.Content, "After=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatal("uPnP service missing After")
 	}
 
@@ -119,6 +120,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 
 func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "myapp",
 		Version:     "2.0",
 		Image:       "myapp:2.0",
@@ -175,6 +177,7 @@ func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 
 func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "redis",
 		Version:     "7.0",
 		Image:       "redis:7.0",
@@ -216,6 +219,7 @@ func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 
 func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "worker",
 		Version:     "1.0",
 		Image:       "worker:1.0",
@@ -255,7 +259,7 @@ func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 	}
 
 	// Should still have the basic service structure.
-	if !strings.Contains(svc, "Description=Town OS Package Service: worker@1.0") {
+	if !strings.Contains(svc, "Description=Town OS Package Service: test-repo/worker@1.0") {
 		t.Fatal("service missing description")
 	}
 	if !strings.Contains(svc, "worker:1.0") {
@@ -265,9 +269,10 @@ func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 
 func TestGeneratePackageUnitsEnvironmentSorted(t *testing.T) {
 	cfg := PackageUnitConfig{
-		PkgName: "myapp",
-		Version: "1.0",
-		Image:   "myapp:1.0",
+		RepoName: "test-repo",
+		PkgName:  "myapp",
+		Version:  "1.0",
+		Image:    "myapp:1.0",
 		Environment: map[string]string{
 			"ZEBRA":  "last",
 			"ALPHA":  "first",
@@ -300,17 +305,17 @@ func TestPackageUnitNames(t *testing.T) {
 	external := packages.PortMap{8080: 80, 8443: 443}
 	internal := packages.PortMap{9090: 9090}
 
-	names := PackageUnitNames("nginx", external, internal)
+	names := PackageUnitNames("test-repo", "nginx", "1.0", external, internal)
 
 	expected := []string{
-		"town-os-nginx.service",
-		"town-os-nginx-8080-tcp.socket",
-		"town-os-nginx-8443-tcp.socket",
-		"town-os-nginx-9090-tcp.socket",
-		"town-os-nginx-fwd-8080-tcp.service",
-		"town-os-nginx-fwd-8443-tcp.service",
-		"town-os-nginx-upnp.service",
-		"town-os-nginx-upnp.timer",
+		"town-os-package--test-repo-nginx-1.0.service",
+		"town-os-package--test-repo-nginx-1.0-8080-tcp.socket",
+		"town-os-package--test-repo-nginx-1.0-8443-tcp.socket",
+		"town-os-package--test-repo-nginx-1.0-9090-tcp.socket",
+		"town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service",
+		"town-os-package--test-repo-nginx-1.0-fwd-8443-tcp.service",
+		"town-os-package--test-repo-nginx-1.0-upnp.service",
+		"town-os-package--test-repo-nginx-1.0-upnp.timer",
 	}
 
 	if len(names) != len(expected) {
@@ -328,11 +333,11 @@ func TestPackageUnitNamesNoExternalPorts(t *testing.T) {
 	external := packages.PortMap{}
 	internal := packages.PortMap{6379: 6379}
 
-	names := PackageUnitNames("redis", external, internal)
+	names := PackageUnitNames("test-repo", "redis", "7.0", external, internal)
 
 	expected := []string{
-		"town-os-redis.service",
-		"town-os-redis-6379-tcp.socket",
+		"town-os-package--test-repo-redis-7.0.service",
+		"town-os-package--test-repo-redis-7.0-6379-tcp.socket",
 	}
 
 	if len(names) != len(expected) {
@@ -347,39 +352,40 @@ func TestPackageUnitNamesNoExternalPorts(t *testing.T) {
 }
 
 func TestPackageUnitNamesNoPorts(t *testing.T) {
-	names := PackageUnitNames("worker", packages.PortMap{}, packages.PortMap{})
+	names := PackageUnitNames("test-repo", "worker", "1.0", packages.PortMap{}, packages.PortMap{})
 
 	if len(names) != 1 {
 		t.Fatalf("expected 1 name, got %d: %v", len(names), names)
 	}
-	if names[0] != "town-os-worker.service" {
-		t.Fatalf("expected town-os-worker.service, got %s", names[0])
+	if names[0] != "town-os-package--test-repo-worker-1.0.service" {
+		t.Fatalf("expected town-os-package--test-repo-worker-1.0.service, got %s", names[0])
 	}
 }
 
 func TestSocketUnitName(t *testing.T) {
-	name := SocketUnitName("nginx", 8080)
-	if name != "town-os-nginx-8080-tcp.socket" {
-		t.Fatalf("expected town-os-nginx-8080-tcp.socket, got %s", name)
+	name := SocketUnitName("test-repo", "nginx", "1.0", 8080)
+	if name != "town-os-package--test-repo-nginx-1.0-8080-tcp.socket" {
+		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-8080-tcp.socket, got %s", name)
 	}
 }
 
 func TestUPnPServiceUnitName(t *testing.T) {
-	name := UPnPServiceUnitName("nginx")
-	if name != "town-os-nginx-upnp.service" {
-		t.Fatalf("expected town-os-nginx-upnp.service, got %s", name)
+	name := UPnPServiceUnitName("test-repo", "nginx", "1.0")
+	if name != "town-os-package--test-repo-nginx-1.0-upnp.service" {
+		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-upnp.service, got %s", name)
 	}
 }
 
 func TestUPnPTimerUnitName(t *testing.T) {
-	name := UPnPTimerUnitName("nginx")
-	if name != "town-os-nginx-upnp.timer" {
-		t.Fatalf("expected town-os-nginx-upnp.timer, got %s", name)
+	name := UPnPTimerUnitName("test-repo", "nginx", "1.0")
+	if name != "town-os-package--test-repo-nginx-1.0-upnp.timer" {
+		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-upnp.timer, got %s", name)
 	}
 }
 
 func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "redis",
 		Version:     "7.0",
 		Image:       "redis:7.0",
@@ -401,7 +407,7 @@ func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
 	if strings.Contains(svc, "-p 6379:6379") {
 		t.Fatal("service should not have -p mappings in host network mode")
 	}
-	// Same port (6379→6379) should produce no forwarders.
+	// Same port (6379->6379) should produce no forwarders.
 	if len(units.Forwarders) != 0 {
 		t.Fatalf("expected 0 forwarders for same-port mapping, got %d", len(units.Forwarders))
 	}
@@ -409,6 +415,7 @@ func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
 
 func TestGeneratePackageUnitsCommand(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "redis",
 		Version:     "7.0",
 		Image:       "redis:7.0-alpine",
@@ -447,6 +454,7 @@ func TestGeneratePackageUnitsCommand(t *testing.T) {
 
 func TestGeneratePackageUnitsCommandWithHostNetwork(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "redis",
 		Version:     "7.0",
 		Image:       "redis:7.0-alpine",
@@ -479,9 +487,10 @@ func TestGeneratePackageUnitsCommandWithHostNetwork(t *testing.T) {
 
 func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 	cfg := PackageUnitConfig{
-		PkgName: "myapp",
-		Version: "1.0",
-		Image:   "myapp:1.0",
+		RepoName: "test-repo",
+		PkgName:  "myapp",
+		Version:  "1.0",
+		Image:    "myapp:1.0",
 		Environment: map[string]string{},
 		External:    packages.PortMap{},
 		Internal:    packages.PortMap{},
@@ -497,8 +506,8 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 	svc := units.Service.Content
 
 	// Volumes should be sorted by name (config before data).
-	configIdx := strings.Index(svc, "/data/btrfs/installed/myapp/1.0/config:/etc/myapp:rw,z")
-	dataIdx := strings.Index(svc, "/data/btrfs/installed/myapp/1.0/data:/var/lib/data:rw,z")
+	configIdx := strings.Index(svc, "/data/btrfs/installed/test-repo/myapp/1.0/config:/etc/myapp:rw,z")
+	dataIdx := strings.Index(svc, "/data/btrfs/installed/test-repo/myapp/1.0/data:/var/lib/data:rw,z")
 
 	if configIdx == -1 {
 		t.Fatalf("service missing config volume, got:\n%s", svc)
@@ -514,6 +523,7 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 
 func TestGeneratePackageUnitsHostModeWithForwarder(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "nginx",
 		Version:     "1.0",
 		Image:       "nginx:1.26-alpine",
@@ -528,36 +538,37 @@ func TestGeneratePackageUnitsHostModeWithForwarder(t *testing.T) {
 
 	units := GeneratePackageUnits(cfg)
 
-	// Should have exactly one forwarder (8080→80).
+	// Should have exactly one forwarder (8080->80).
 	if len(units.Forwarders) != 1 {
 		t.Fatalf("expected 1 forwarder, got %d", len(units.Forwarders))
 	}
 	fwd := units.Forwarders[0]
-	if fwd.Name != "town-os-nginx-fwd-8080-tcp.service" {
-		t.Fatalf("expected forwarder name town-os-nginx-fwd-8080-tcp.service, got %s", fwd.Name)
+	if fwd.Name != "town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service" {
+		t.Fatalf("expected forwarder name town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service, got %s", fwd.Name)
 	}
 	if !strings.Contains(fwd.Content, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
 		t.Fatalf("forwarder missing socat command, got:\n%s", fwd.Content)
 	}
-	if !strings.Contains(fwd.Content, "BindsTo=town-os-nginx.service") {
+	if !strings.Contains(fwd.Content, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatal("forwarder missing BindsTo")
 	}
-	if !strings.Contains(fwd.Content, "After=town-os-nginx.service") {
+	if !strings.Contains(fwd.Content, "After=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatal("forwarder missing After")
 	}
-	if !strings.Contains(fwd.Content, "Description=Town OS Port Forwarder: nginx 8080->80/tcp") {
+	if !strings.Contains(fwd.Content, "Description=Town OS Port Forwarder: test-repo/nginx@1.0 8080->80/tcp") {
 		t.Fatalf("forwarder missing description, got:\n%s", fwd.Content)
 	}
 
 	// Service unit should have Wants= for the forwarder.
 	svc := units.Service.Content
-	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", ForwarderUnitName("nginx", 8080))) {
+	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", ForwarderUnitName("test-repo", "nginx", "1.0", 8080))) {
 		t.Fatalf("service missing Wants for forwarder, got:\n%s", svc)
 	}
 }
 
 func TestGeneratePackageUnitsHostModeNoForwarderSamePort(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "redis",
 		Version:     "7.0",
 		Image:       "redis:7.0",
@@ -585,6 +596,7 @@ func TestGeneratePackageUnitsHostModeNoForwarderSamePort(t *testing.T) {
 
 func TestGeneratePackageUnitsHostModeUPnPUsesExternalPort(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "nginx",
 		Version:     "1.0",
 		Image:       "nginx:1.26-alpine",
@@ -614,6 +626,7 @@ func TestGeneratePackageUnitsHostModeUPnPUsesExternalPort(t *testing.T) {
 
 func TestGeneratePackageUnitsBridgeModeNoForwarder(t *testing.T) {
 	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
 		PkgName:     "nginx",
 		Version:     "1.0",
 		Image:       "nginx:1.26-alpine",
@@ -651,11 +664,11 @@ func TestPackageUnitNamesIncludesForwarders(t *testing.T) {
 	external := packages.PortMap{8080: 80}
 	internal := packages.PortMap{}
 
-	names := PackageUnitNames("nginx", external, internal)
+	names := PackageUnitNames("test-repo", "nginx", "1.0", external, internal)
 
 	found := false
 	for _, name := range names {
-		if name == "town-os-nginx-fwd-8080-tcp.service" {
+		if name == "town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service" {
 			found = true
 			break
 		}
@@ -666,8 +679,8 @@ func TestPackageUnitNamesIncludesForwarders(t *testing.T) {
 }
 
 func TestForwarderUnitName(t *testing.T) {
-	name := ForwarderUnitName("nginx", 8080)
-	if name != "town-os-nginx-fwd-8080-tcp.service" {
-		t.Fatalf("expected town-os-nginx-fwd-8080-tcp.service, got %s", name)
+	name := ForwarderUnitName("test-repo", "nginx", "1.0", 8080)
+	if name != "town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service" {
+		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service, got %s", name)
 	}
 }

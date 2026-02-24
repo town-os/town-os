@@ -49,36 +49,36 @@ func (m *MockInstallManager) Install(repoName, pkgName, version string, response
 	}
 
 	for _, p := range m.Installed {
-		if p.Name == pkgName && p.Version == version {
-			return fmt.Errorf("%s@%s: %w", pkgName, version, ErrAlreadyInstalled)
+		if p.Repo == repoName && p.Name == pkgName && p.Version == version {
+			return fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrAlreadyInstalled)
 		}
 	}
 
-	m.Installed = append(m.Installed, PackageIdentity{Name: pkgName, Version: version})
-	key := fmt.Sprintf("%s@%s", pkgName, version)
+	m.Installed = append(m.Installed, PackageIdentity{Repo: repoName, Name: pkgName, Version: version})
+	key := fmt.Sprintf("%s/%s@%s", repoName, pkgName, version)
 	m.StoredResponses[key] = responses
 	return nil
 }
 
-func (m *MockInstallManager) Uninstall(pkgName, version string) error {
+func (m *MockInstallManager) Uninstall(repoName, pkgName, version string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockInstallCall{Method: "Uninstall", Args: []any{pkgName, version}})
+	m.Calls = append(m.Calls, MockInstallCall{Method: "Uninstall", Args: []any{repoName, pkgName, version}})
 
 	if m.UninstallErr != nil {
 		return m.UninstallErr
 	}
 
 	for i, p := range m.Installed {
-		if p.Name == pkgName && p.Version == version {
+		if p.Repo == repoName && p.Name == pkgName && p.Version == version {
 			m.Installed = append(m.Installed[:i], m.Installed[i+1:]...)
-			key := fmt.Sprintf("%s@%s", pkgName, version)
+			key := fmt.Sprintf("%s/%s@%s", repoName, pkgName, version)
 			delete(m.StoredResponses, key)
 			return nil
 		}
 	}
 
-	return fmt.Errorf("%s@%s: %w", pkgName, version, ErrNotInstalled)
+	return fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrNotInstalled)
 }
 
 func (m *MockInstallManager) ListInstalled() ([]string, error) {
@@ -97,19 +97,19 @@ func (m *MockInstallManager) ListInstalled() ([]string, error) {
 	return out, nil
 }
 
-func (m *MockInstallManager) GetResponses(pkgName, version string) (Responses, error) {
+func (m *MockInstallManager) GetResponses(repoName, pkgName, version string) (Responses, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockInstallCall{Method: "GetResponses", Args: []any{pkgName, version}})
+	m.Calls = append(m.Calls, MockInstallCall{Method: "GetResponses", Args: []any{repoName, pkgName, version}})
 
 	if m.GetResponsesErr != nil {
 		return nil, m.GetResponsesErr
 	}
 
-	key := fmt.Sprintf("%s@%s", pkgName, version)
+	key := fmt.Sprintf("%s/%s@%s", repoName, pkgName, version)
 	resp, ok := m.StoredResponses[key]
 	if !ok {
-		return nil, fmt.Errorf("%s@%s: %w", pkgName, version, ErrNotInstalled)
+		return nil, fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrNotInstalled)
 	}
 
 	out := make(Responses, len(resp))
@@ -119,31 +119,33 @@ func (m *MockInstallManager) GetResponses(pkgName, version string) (Responses, e
 	return out, nil
 }
 
-func (m *MockInstallManager) SetDisabled(pkgName string, disabled bool) error {
+func (m *MockInstallManager) SetDisabled(repoName, pkgName string, disabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockInstallCall{Method: "SetDisabled", Args: []any{pkgName, disabled}})
+	m.Calls = append(m.Calls, MockInstallCall{Method: "SetDisabled", Args: []any{repoName, pkgName, disabled}})
 
 	if m.SetDisabledErr != nil {
 		return m.SetDisabledErr
 	}
 
+	key := fmt.Sprintf("%s/%s", repoName, pkgName)
 	if disabled {
-		m.Disabled[pkgName] = true
+		m.Disabled[key] = true
 	} else {
-		delete(m.Disabled, pkgName)
+		delete(m.Disabled, key)
 	}
 	return nil
 }
 
-func (m *MockInstallManager) IsDisabled(pkgName string) (bool, error) {
+func (m *MockInstallManager) IsDisabled(repoName, pkgName string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockInstallCall{Method: "IsDisabled", Args: []any{pkgName}})
+	m.Calls = append(m.Calls, MockInstallCall{Method: "IsDisabled", Args: []any{repoName, pkgName}})
 
 	if m.IsDisabledErr != nil {
 		return false, m.IsDisabledErr
 	}
 
-	return m.Disabled[pkgName], nil
+	key := fmt.Sprintf("%s/%s", repoName, pkgName)
+	return m.Disabled[key], nil
 }

@@ -32,20 +32,21 @@ type Client interface {
 	ListRepositories(ctx context.Context, params ListParams) (*PageResult[RepositoryInfo], error)
 
 	ListPackages(ctx context.Context, params ListParams) (*PageResult[string], error)
+	ListPackagesByRepo(ctx context.Context, params ListParams) ([]packages.RepoPackageGroup, error)
 	ListPackageVersions(ctx context.Context, name string) ([]string, error)
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
-	GetPackageQuestionsByIdentity(ctx context.Context, name, version string) (map[string]packages.Question, error)
+	GetPackageQuestionsByIdentity(ctx context.Context, repo, name, version string) (map[string]packages.Question, error)
 
 	InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error
-	UninstallPackage(ctx context.Context, name, version string, purgeVolumes bool) error
-	PurgeVolumes(ctx context.Context, name string) error
-	ListUninstalledVolumes(ctx context.Context, name string) (*UninstalledVolumesResponse, error)
-	PurgeUninstalledVolumes(ctx context.Context, name string) error
-	DisablePackage(ctx context.Context, name string) error
-	EnablePackage(ctx context.Context, name string) error
+	UninstallPackage(ctx context.Context, repo, name, version string, purgeVolumes bool) error
+	PurgeVolumes(ctx context.Context, repo, name string) error
+	ListUninstalledVolumes(ctx context.Context, repo, name string) (*UninstalledVolumesResponse, error)
+	PurgeUninstalledVolumes(ctx context.Context, repo, name string) error
+	DisablePackage(ctx context.Context, repo, name string) error
+	EnablePackage(ctx context.Context, repo, name string) error
 	ListInstalled(ctx context.Context, params ListParams) (*PageResult[string], error)
-	GetResponses(ctx context.Context, name, version string) (packages.Responses, error)
-	GetInstalledInfo(ctx context.Context, name, version string) (*InstalledInfoResponse, error)
+	GetResponses(ctx context.Context, repo, name, version string) (packages.Responses, error)
+	GetInstalledInfo(ctx context.Context, repo, name, version string) (*InstalledInfoResponse, error)
 
 	ListUnits(ctx context.Context, params ListParams) (*PageResult[systemd.UnitStatus], error)
 	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
@@ -301,6 +302,23 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
+func (c *SystemdClient) ListPackagesByRepo(ctx context.Context, params ListParams) (_ []packages.RepoPackageGroup, err error) {
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages/by-repo%s", params.QueryString()))
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListPackagesByRepo: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "GET", "packages/by-repo")
+	}
+
+	var groups []packages.RepoPackageGroup
+	return groups, json.NewDecoder(resp.Body).Decode(&groups)
+}
+
 func (c *SystemdClient) ListPackageVersions(ctx context.Context, name string) (_ []string, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, PackageNameRequest{Name: name})
@@ -341,9 +359,9 @@ func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_
 	return questions, json.NewDecoder(resp.Body).Decode(&questions)
 }
 
-func (c *SystemdClient) GetPackageQuestionsByIdentity(ctx context.Context, name, version string) (_ map[string]packages.Question, err error) {
+func (c *SystemdClient) GetPackageQuestionsByIdentity(ctx context.Context, repo, name, version string) (_ map[string]packages.Question, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, PackageIdentityRequest{Name: name, Version: version})
+	go pipeEncode(pw, PackageIdentityRequest{Repo: repo, Name: name, Version: version})
 
 	resp, err := c.postJSON(ctx, "packages/questions/identity", pr)
 	if err != nil {
@@ -376,23 +394,23 @@ func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string
 	return c.postClient(ctx, "packages/install", pr)
 }
 
-func (c *SystemdClient) UninstallPackage(ctx context.Context, name, version string, purgeVolumes bool) error {
+func (c *SystemdClient) UninstallPackage(ctx context.Context, repo, name, version string, purgeVolumes bool) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, UninstallRequest{Name: name, Version: version, PurgeVolumes: purgeVolumes})
+	go pipeEncode(pw, UninstallRequest{Repo: repo, Name: name, Version: version, PurgeVolumes: purgeVolumes})
 
 	return c.postClient(ctx, "packages/uninstall", pr)
 }
 
-func (c *SystemdClient) PurgeVolumes(ctx context.Context, name string) error {
+func (c *SystemdClient) PurgeVolumes(ctx context.Context, repo, name string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, PackageNameRequest{Name: name})
+	go pipeEncode(pw, PackageNameRequest{Repo: repo, Name: name})
 
 	return c.postClient(ctx, "packages/purge-volumes", pr)
 }
 
-func (c *SystemdClient) ListUninstalledVolumes(ctx context.Context, name string) (_ *UninstalledVolumesResponse, err error) {
+func (c *SystemdClient) ListUninstalledVolumes(ctx context.Context, repo, name string) (_ *UninstalledVolumesResponse, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, PackageNameRequest{Name: name})
+	go pipeEncode(pw, PackageNameRequest{Repo: repo, Name: name})
 
 	resp, err := c.postJSON(ctx, "packages/uninstalled-volumes", pr)
 	if err != nil {
@@ -410,23 +428,23 @@ func (c *SystemdClient) ListUninstalledVolumes(ctx context.Context, name string)
 	return &result, json.NewDecoder(resp.Body).Decode(&result)
 }
 
-func (c *SystemdClient) PurgeUninstalledVolumes(ctx context.Context, name string) error {
+func (c *SystemdClient) PurgeUninstalledVolumes(ctx context.Context, repo, name string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, PackageNameRequest{Name: name})
+	go pipeEncode(pw, PackageNameRequest{Repo: repo, Name: name})
 
 	return c.postClient(ctx, "packages/purge-uninstalled-volumes", pr)
 }
 
-func (c *SystemdClient) DisablePackage(ctx context.Context, name string) error {
+func (c *SystemdClient) DisablePackage(ctx context.Context, repo, name string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, PackageToggleRequest{Name: name})
+	go pipeEncode(pw, PackageToggleRequest{Repo: repo, Name: name})
 
 	return c.postClient(ctx, "packages/disable", pr)
 }
 
-func (c *SystemdClient) EnablePackage(ctx context.Context, name string) error {
+func (c *SystemdClient) EnablePackage(ctx context.Context, repo, name string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, PackageToggleRequest{Name: name})
+	go pipeEncode(pw, PackageToggleRequest{Repo: repo, Name: name})
 
 	return c.postClient(ctx, "packages/enable", pr)
 }
@@ -448,9 +466,9 @@ func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
-func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) (_ packages.Responses, err error) {
+func (c *SystemdClient) GetResponses(ctx context.Context, repo, name, version string) (_ packages.Responses, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, GetResponsesRequest{Name: name, Version: version})
+	go pipeEncode(pw, GetResponsesRequest{Repo: repo, Name: name, Version: version})
 
 	resp, err := c.postJSON(ctx, "packages/responses", pr)
 	if err != nil {
@@ -468,9 +486,9 @@ func (c *SystemdClient) GetResponses(ctx context.Context, name, version string) 
 	return responses, json.NewDecoder(resp.Body).Decode(&responses)
 }
 
-func (c *SystemdClient) GetInstalledInfo(ctx context.Context, name, version string) (_ *InstalledInfoResponse, err error) {
+func (c *SystemdClient) GetInstalledInfo(ctx context.Context, repo, name, version string) (_ *InstalledInfoResponse, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, PackageIdentityRequest{Name: name, Version: version})
+	go pipeEncode(pw, PackageIdentityRequest{Repo: repo, Name: name, Version: version})
 
 	resp, err := c.postJSON(ctx, "packages/installed/info", pr)
 	if err != nil {

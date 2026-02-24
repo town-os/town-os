@@ -458,26 +458,26 @@ func TestMockManagerListPackageUnitFiles(t *testing.T) {
 	m := InitMockManager()
 	ctx := context.Background()
 
-	// Install several units for "nginx".
-	if err := m.InstallUnit(ctx, "town-os-nginx.service", "content"); err != nil {
+	// Install several units for repo-a/nginx/1.0.
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-nginx-8080-tcp.socket", "content"); err != nil {
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-nginx-upnp.service", "content"); err != nil {
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-upnp.service", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-nginx-upnp.timer", "content"); err != nil {
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-upnp.timer", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
 
 	// Install a unit for a different package.
-	if err := m.InstallUnit(ctx, "town-os-redis.service", "content"); err != nil {
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-redis-7.0.service", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
 
-	names, err := m.ListPackageUnitFiles(ctx, "nginx")
+	names, err := m.ListPackageUnitFiles(ctx, "repo-a", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("ListPackageUnitFiles: %v", err)
 	}
@@ -488,10 +488,10 @@ func TestMockManagerListPackageUnitFiles(t *testing.T) {
 
 	// Should be sorted.
 	expectedNames := []string{
-		"town-os-nginx-8080-tcp.socket",
-		"town-os-nginx-upnp.service",
-		"town-os-nginx-upnp.timer",
-		"town-os-nginx.service",
+		"town-os-package--repo-a-nginx-1.0-8080-tcp.socket",
+		"town-os-package--repo-a-nginx-1.0-upnp.service",
+		"town-os-package--repo-a-nginx-1.0-upnp.timer",
+		"town-os-package--repo-a-nginx-1.0.service",
 	}
 	for i, want := range expectedNames {
 		if names[i] != want {
@@ -504,22 +504,22 @@ func TestMockManagerListPackageUnitFilesAfterUninstall(t *testing.T) {
 	m := InitMockManager()
 	ctx := context.Background()
 
-	if err := m.InstallUnit(ctx, "town-os-nginx.service", "content"); err != nil {
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-nginx-8080-tcp.socket", "content"); err != nil {
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
 
 	// Uninstall all.
-	if err := m.UninstallUnit(ctx, "town-os-nginx.service"); err != nil {
+	if err := m.UninstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service"); err != nil {
 		t.Fatalf("UninstallUnit: %v", err)
 	}
-	if err := m.UninstallUnit(ctx, "town-os-nginx-8080-tcp.socket"); err != nil {
+	if err := m.UninstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket"); err != nil {
 		t.Fatalf("UninstallUnit: %v", err)
 	}
 
-	names, err := m.ListPackageUnitFiles(ctx, "nginx")
+	names, err := m.ListPackageUnitFiles(ctx, "repo-a", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("ListPackageUnitFiles: %v", err)
 	}

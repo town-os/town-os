@@ -673,7 +673,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       try {
-        await client.uninstallPackage('nginx', '1.0', true)
+        await client.uninstallPackage('core', 'nginx', '1.0', true)
       } catch (e) {
         console.warn('cleanup: uninstallPackage failed:', e.message)
       }
@@ -682,7 +682,7 @@ describe('SystemControllerClient integration', () => {
     it('installs nginx@1.0 and creates a systemd unit', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.installPackage('nginx', '1.0', {
+      await client.installPackage('core', 'nginx', '1.0', {
         hostname: 'testhost',
         port: '8081',
       })
@@ -695,10 +695,10 @@ describe('SystemControllerClient integration', () => {
         undefined,
         undefined,
         undefined,
-        'town-os-nginx',
+        'town-os-package--core-nginx',
       )
       const unit = result.entries.find(
-        (u) => u.Name === 'town-os-nginx.service',
+        (u) => u.Name === 'town-os-package--core-nginx-1.0.service',
       )
       expect(unit).toBeDefined()
       // Unit may be active, deactivating, or failed depending on timing
@@ -711,7 +711,7 @@ describe('SystemControllerClient integration', () => {
     it('returns installed info with questions and responses', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      const info = await client.getInstalledInfo('nginx', '1.0')
+      const info = await client.getInstalledInfo('core', 'nginx', '1.0')
       expect(info.questions).toBeDefined()
       expect(info.questions.hostname.query).toBe('What hostname should nginx serve?')
       expect(info.questions.port.query).toBe('What external port should nginx listen on?')
@@ -727,7 +727,7 @@ describe('SystemControllerClient integration', () => {
     it('restarts the unit and it is recognized by systemd', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-nginx.service', 'restart')
+      await client.setUnitStatus('town-os-package--core-nginx-1.0.service', 'restart')
 
       // give time to restart
       await new Promise((r) => setTimeout(r, 2000))
@@ -737,10 +737,10 @@ describe('SystemControllerClient integration', () => {
         undefined,
         undefined,
         undefined,
-        'town-os-nginx',
+        'town-os-package--core-nginx',
       )
       const unit = result.entries.find(
-        (u) => u.Name === 'town-os-nginx.service',
+        (u) => u.Name === 'town-os-package--core-nginx-1.0.service',
       )
       expect(unit).toBeDefined()
       expect(['active', 'deactivating', 'failed']).toContain(
@@ -751,7 +751,7 @@ describe('SystemControllerClient integration', () => {
     it('stops the unit and it becomes inactive', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-nginx.service', 'stop')
+      await client.setUnitStatus('town-os-package--core-nginx-1.0.service', 'stop')
 
       await new Promise((r) => setTimeout(r, 2000))
 
@@ -760,10 +760,10 @@ describe('SystemControllerClient integration', () => {
         undefined,
         undefined,
         undefined,
-        'town-os-nginx',
+        'town-os-package--core-nginx',
       )
       const unit = result.entries.find(
-        (u) => u.Name === 'town-os-nginx.service',
+        (u) => u.Name === 'town-os-package--core-nginx-1.0.service',
       )
       expect(unit).toBeDefined()
       expect(unit.ActiveState).not.toBe('active')
@@ -772,7 +772,7 @@ describe('SystemControllerClient integration', () => {
     it('starts the unit back and systemd recognizes it', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-nginx.service', 'start')
+      await client.setUnitStatus('town-os-package--core-nginx-1.0.service', 'start')
 
       await new Promise((r) => setTimeout(r, 2000))
 
@@ -781,10 +781,10 @@ describe('SystemControllerClient integration', () => {
         undefined,
         undefined,
         undefined,
-        'town-os-nginx',
+        'town-os-package--core-nginx',
       )
       const unit = result.entries.find(
-        (u) => u.Name === 'town-os-nginx.service',
+        (u) => u.Name === 'town-os-package--core-nginx-1.0.service',
       )
       expect(unit).toBeDefined()
       expect(['active', 'deactivating', 'failed']).toContain(
@@ -796,7 +796,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await expect(
-        client.setUnitStatus('town-os-nginx.service', 'disable'),
+        client.setUnitStatus('town-os-package--core-nginx-1.0.service', 'disable'),
       ).rejects.toThrow()
     })
 
@@ -804,7 +804,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await expect(
-        client.setUnitStatus('town-os-nginx.service', 'enable'),
+        client.setUnitStatus('town-os-package--core-nginx-1.0.service', 'enable'),
       ).rejects.toThrow()
     })
 
@@ -812,7 +812,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       const entries = []
-      for await (const entry of client.logReplay('town-os-nginx.service')) {
+      for await (const entry of client.logReplay('town-os-package--core-nginx-1.0.service')) {
         entries.push(entry)
         if (entries.length >= 3) break
       }
@@ -822,17 +822,17 @@ describe('SystemControllerClient integration', () => {
     it('uninstalls nginx@1.0 and the unit is gone', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.uninstallPackage('nginx', '1.0', false)
+      await client.uninstallPackage('core', 'nginx', '1.0', false)
 
       const result = await client.listUnits(
         undefined,
         undefined,
         undefined,
         undefined,
-        'town-os-nginx',
+        'town-os-package--core-nginx',
       )
       const unit = result.entries.find(
-        (u) => u.Name === 'town-os-nginx.service',
+        (u) => u.Name === 'town-os-package--core-nginx-1.0.service',
       )
       expect(
         unit === undefined || unit.ActiveState !== 'active',
@@ -956,13 +956,13 @@ describe('SystemControllerClient integration', () => {
 
     it('getResponses requires auth', async () => {
       await expect(
-        noAuth.getResponses('x', '1.0'),
+        noAuth.getResponses('r', 'x', '1.0'),
       ).rejects.toThrow(/POST \/packages\/responses:.*missing authorization token/)
     })
 
     it('getInstalledInfo requires auth', async () => {
       await expect(
-        noAuth.getInstalledInfo('x', '1.0'),
+        noAuth.getInstalledInfo('r', 'x', '1.0'),
       ).rejects.toThrow(/POST \/packages\/installed\/info:.*missing authorization token/)
     })
 
@@ -974,19 +974,19 @@ describe('SystemControllerClient integration', () => {
 
     it('installPackage requires auth', async () => {
       await expect(
-        noAuth.installPackage('x', '1.0', {}),
+        noAuth.installPackage('r', 'x', '1.0', {}),
       ).rejects.toThrow(/POST \/packages\/install:.*missing authorization token/)
     })
 
     it('uninstallPackage requires auth', async () => {
       await expect(
-        noAuth.uninstallPackage('x', '1.0'),
+        noAuth.uninstallPackage('r', 'x', '1.0'),
       ).rejects.toThrow(/POST \/packages\/uninstall:.*missing authorization token/)
     })
 
     it('purgeVolumes requires auth', async () => {
       await expect(
-        noAuth.purgeVolumes('x'),
+        noAuth.purgeVolumes('r', 'x'),
       ).rejects.toThrow(/POST \/packages\/purge-volumes:.*missing authorization token/)
     })
 

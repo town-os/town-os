@@ -780,7 +780,7 @@ describe('SystemControllerClient', () => {
       mockFetchEmpty()
       client.setToken('tok')
 
-      await client.disablePackage('nginx')
+      await client.disablePackage('core', 'nginx')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/disable',
         {
@@ -789,7 +789,7 @@ describe('SystemControllerClient', () => {
             'Content-Type': 'application/json',
             Authorization: 'Bearer tok',
           },
-          body: JSON.stringify({ name: 'nginx' }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx' }),
         },
       )
     })
@@ -800,7 +800,7 @@ describe('SystemControllerClient', () => {
       mockFetchEmpty()
       client.setToken('tok')
 
-      await client.enablePackage('nginx')
+      await client.enablePackage('core', 'nginx')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/enable',
         {
@@ -809,7 +809,7 @@ describe('SystemControllerClient', () => {
             'Content-Type': 'application/json',
             Authorization: 'Bearer tok',
           },
-          body: JSON.stringify({ name: 'nginx' }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx' }),
         },
       )
     })
@@ -958,7 +958,7 @@ describe('SystemControllerClient', () => {
       mockFetch(questions)
       client.setToken('tok')
 
-      const result = await client.getPackageQuestionsByIdentity('nginx', '1.0')
+      const result = await client.getPackageQuestionsByIdentity('core', 'nginx', '1.0')
       expect(result).toEqual(questions)
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/questions/identity',
@@ -968,7 +968,7 @@ describe('SystemControllerClient', () => {
             'Content-Type': 'application/json',
             Authorization: 'Bearer tok',
           },
-          body: JSON.stringify({ name: 'nginx', version: '1.0' }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '1.0' }),
         },
       )
     })
@@ -1019,13 +1019,13 @@ describe('SystemControllerClient', () => {
     it('sends install request', async () => {
       mockFetchEmpty()
 
-      await client.installPackage('nginx', '1.0', { hostname: 'example' })
+      await client.installPackage('core', 'nginx', '1.0', { hostname: 'example' })
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/install',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx', version: '1.0', responses: { hostname: 'example' } }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '1.0', responses: { hostname: 'example' } }),
         },
       )
     })
@@ -1044,7 +1044,7 @@ describe('SystemControllerClient', () => {
       mockFetch(problemBody, 422)
 
       try {
-        await client.installPackage('nginx', '1.0', {})
+        await client.installPackage('core', 'nginx', '1.0', {})
         expect.fail('should have thrown')
       } catch (err) {
         expect(err).toBeInstanceOf(ApiError)
@@ -1061,13 +1061,13 @@ describe('SystemControllerClient', () => {
     it('sends uninstall request without purge', async () => {
       mockFetchEmpty()
 
-      await client.uninstallPackage('nginx', '1.0')
+      await client.uninstallPackage('core', 'nginx', '1.0')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/uninstall',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx', version: '1.0', purge_volumes: false }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '1.0', purge_volumes: false }),
         },
       )
     })
@@ -1075,13 +1075,13 @@ describe('SystemControllerClient', () => {
     it('sends uninstall request with purge', async () => {
       mockFetchEmpty()
 
-      await client.uninstallPackage('nginx', '1.0', true)
+      await client.uninstallPackage('core', 'nginx', '1.0', true)
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/uninstall',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx', version: '1.0', purge_volumes: true }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '1.0', purge_volumes: true }),
         },
       )
     })
@@ -1091,13 +1091,13 @@ describe('SystemControllerClient', () => {
     it('sends purge request', async () => {
       mockFetchEmpty()
 
-      await client.purgeVolumes('nginx')
+      await client.purgeVolumes('core', 'nginx')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/purge-volumes',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx' }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx' }),
         },
       )
     })
@@ -1180,7 +1180,7 @@ describe('SystemControllerClient', () => {
       mockFetch(resp)
       client.setToken('tok')
 
-      const result = await client.listUninstalledVolumes('nginx')
+      const result = await client.listUninstalledVolumes('core', 'nginx')
       expect(result).toEqual(resp)
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/uninstalled-volumes',
@@ -1190,7 +1190,7 @@ describe('SystemControllerClient', () => {
             'Content-Type': 'application/json',
             Authorization: 'Bearer tok',
           },
-          body: JSON.stringify({ name: 'nginx' }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx' }),
         },
       )
     })
@@ -1201,7 +1201,7 @@ describe('SystemControllerClient', () => {
       mockFetchEmpty()
       client.setToken('tok')
 
-      await client.purgeUninstalledVolumes('nginx')
+      await client.purgeUninstalledVolumes('core', 'nginx')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/purge-uninstalled-volumes',
         {
@@ -1210,7 +1210,7 @@ describe('SystemControllerClient', () => {
             'Content-Type': 'application/json',
             Authorization: 'Bearer tok',
           },
-          body: JSON.stringify({ name: 'nginx' }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx' }),
         },
       )
     })
@@ -1220,13 +1220,13 @@ describe('SystemControllerClient', () => {
     it('includes reuse_volumes when true', async () => {
       mockFetchEmpty()
 
-      await client.installPackage('nginx', '1.0', {}, true)
+      await client.installPackage('core', 'nginx', '1.0', {}, true)
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/install',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx', version: '1.0', responses: {}, reuse_volumes: true }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '1.0', responses: {}, reuse_volumes: true }),
         },
       )
     })
@@ -1236,13 +1236,13 @@ describe('SystemControllerClient', () => {
     it('includes import_from_version when set', async () => {
       mockFetchEmpty()
 
-      await client.installPackage('nginx', '2.0', {}, false, '1.0')
+      await client.installPackage('core', 'nginx', '2.0', {}, false, '1.0')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/install',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx', version: '2.0', responses: {}, import_from_version: '1.0' }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '2.0', responses: {}, import_from_version: '1.0' }),
         },
       )
     })
@@ -1252,13 +1252,13 @@ describe('SystemControllerClient', () => {
     it('does not include reuse_volumes or import_from_version', async () => {
       mockFetchEmpty()
 
-      await client.installPackage('nginx', '1.0', { hostname: 'example' })
+      await client.installPackage('core', 'nginx', '1.0', { hostname: 'example' })
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/packages/install',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'nginx', version: '1.0', responses: { hostname: 'example' } }),
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '1.0', responses: { hostname: 'example' } }),
         },
       )
     })

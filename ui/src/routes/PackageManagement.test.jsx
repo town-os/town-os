@@ -9,8 +9,8 @@ vi.mock('@/lib/client-instance.js', () => ({
     listPackages: vi.fn(() =>
       Promise.resolve({
         entries: [
-          { name: 'nginx', version: '1.0' },
-          { name: 'redis', version: '7.0' },
+          'core/nginx@1.0',
+          'core/redis@7.0',
         ],
         has_more: false,
         total_pages: 1,
@@ -18,7 +18,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     ),
     listInstalled: vi.fn(() =>
       Promise.resolve({
-        entries: ['nginx@1.0'],
+        entries: ['core/nginx@1.0'],
         has_more: false,
         total_pages: 1,
       }),

@@ -73,10 +73,11 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 		return nil
 	}
 
-	// Group by name, pick only the latest version of each package.
-	// Since only one systemd unit per package name can be active, we
-	// reconcile only the highest version.
-	byName := map[string]packages.PackageIdentity{}
+	// Group by repo/name, pick only the latest version of each package.
+	// Since only one systemd unit per repo/package-name can be active, we
+	// reconcile only the highest version per repo+name pair.
+	type repoNameKey struct{ repo, name string }
+	byRepoName := map[repoNameKey]packages.PackageIdentity{}
 	for _, identity := range installed {
 		pi, err := packages.ParsePackageIdentity(identity)
 		if err != nil {
@@ -84,15 +85,16 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 			continue
 		}
 
-		existing, ok := byName[pi.Name]
+		key := repoNameKey{pi.Repo, pi.Name}
+		existing, ok := byRepoName[key]
 		if !ok || packages.CompareVersions(pi.Version, existing.Version) > 0 {
-			byName[pi.Name] = pi
+			byRepoName[key] = pi
 		}
 	}
 
 	defQuota := reconcileDefaultQuota(cfg.SettingsMgr)
 
-	for _, pi := range byName {
+	for _, pi := range byRepoName {
 		identity := pi.String()
 		if err := reconcilePackage(ctx, cfg, pi, defQuota); err != nil {
 			slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
@@ -108,17 +110,14 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 // reconcilePackage restores a single installed package: compiles it with its
 // persisted responses, ensures volumes, and installs+starts the systemd units.
 func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64) error {
-	repoName, err := cfg.RepositoryRoot.FindRepoForPackage(pi.Name, pi.Version)
-	if err != nil {
-		return fmt.Errorf("find repo: %w", err)
-	}
+	repoName := pi.Repo
 
 	ip, err := cfg.RepositoryRoot.LoadPackage(repoName, pi.Name, pi.Version)
 	if err != nil {
 		return fmt.Errorf("load package: %w", err)
 	}
 
-	responses, err := cfg.Installer.GetResponses(pi.Name, pi.Version)
+	responses, err := cfg.Installer.GetResponses(repoName, pi.Name, pi.Version)
 	if err != nil {
 		return fmt.Errorf("get responses: %w", err)
 	}
@@ -134,7 +133,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			if quota == 0 {
 				quota = defQuota
 			}
-			fsName := fmt.Sprintf("%s/%s/%s/%s", PackagesVolumePrefix, pi.Name, pi.Version, volName)
+			fsName := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, volName)
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 				if err := cfg.Storage.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 					return fmt.Errorf("storage volume %s: %w", fsName, err)
@@ -145,6 +144,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 
 	if cfg.Systemd != nil {
 		unitCfg := systemd.PackageUnitConfig{
+			RepoName:    repoName,
 			PkgName:     pi.Name,
 			Version:     pi.Version,
 			Image:       compiled.Image,
@@ -201,7 +201,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			}
 		}
 
-		disabled, err := cfg.Installer.IsDisabled(pi.Name)
+		disabled, err := cfg.Installer.IsDisabled(repoName, pi.Name)
 		if err != nil {
 			return fmt.Errorf("check disabled: %w", err)
 		}

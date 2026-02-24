@@ -95,46 +95,54 @@ type Manager interface {
 	LogTail(ctx context.Context, params LogTailParams) (LogTailResult, error)
 	InstallUnit(ctx context.Context, name string, content string) error
 	UninstallUnit(ctx context.Context, name string) error
-	ListPackageUnitFiles(ctx context.Context, pkgName string) ([]string, error)
+	ListPackageUnitFiles(ctx context.Context, repo, pkgName, version string) ([]string, error)
 }
 
+// PackageUnitPrefix is the prefix for all package-related systemd units.
+const PackageUnitPrefix = "town-os-package--"
+
 // UnitName returns the systemd service unit name for a given package.
-func UnitName(pkgName string) string {
-	return fmt.Sprintf("town-os-%s.service", pkgName)
+func UnitName(repo, pkgName, version string) string {
+	return fmt.Sprintf("%s%s-%s-%s.service", PackageUnitPrefix, repo, pkgName, version)
 }
 
 // SocketUnitName returns the systemd socket unit name for a given package and port.
-func SocketUnitName(pkgName string, port uint16) string {
-	return fmt.Sprintf("town-os-%s-%d-tcp.socket", pkgName, port)
+func SocketUnitName(repo, pkgName, version string, port uint16) string {
+	return fmt.Sprintf("%s%s-%s-%s-%d-tcp.socket", PackageUnitPrefix, repo, pkgName, version, port)
 }
 
 // UPnPServiceUnitName returns the systemd uPnP service unit name for a given package.
-func UPnPServiceUnitName(pkgName string) string {
-	return fmt.Sprintf("town-os-%s-upnp.service", pkgName)
+func UPnPServiceUnitName(repo, pkgName, version string) string {
+	return fmt.Sprintf("%s%s-%s-%s-upnp.service", PackageUnitPrefix, repo, pkgName, version)
 }
 
 // UPnPTimerUnitName returns the systemd uPnP timer unit name for a given package.
-func UPnPTimerUnitName(pkgName string) string {
-	return fmt.Sprintf("town-os-%s-upnp.timer", pkgName)
+func UPnPTimerUnitName(repo, pkgName, version string) string {
+	return fmt.Sprintf("%s%s-%s-%s-upnp.timer", PackageUnitPrefix, repo, pkgName, version)
 }
 
 // ForwarderUnitName returns the systemd service unit name for a socat port
 // forwarder associated with the given package and external port.
-func ForwarderUnitName(pkgName string, port uint16) string {
-	return fmt.Sprintf("town-os-%s-fwd-%d-tcp.service", pkgName, port)
+func ForwarderUnitName(repo, pkgName, version string, port uint16) string {
+	return fmt.Sprintf("%s%s-%s-%s-fwd-%d-tcp.service", PackageUnitPrefix, repo, pkgName, version, port)
+}
+
+// ContainerName returns the podman container name for a package.
+func ContainerName(repo, pkgName, version string) string {
+	return fmt.Sprintf("%s%s-%s-%s", PackageUnitPrefix, repo, pkgName, version)
 }
 
 // StubUnitContent returns a simple Type=simple unit file that loops printing
 // a running message. Useful for stub/test services.
-func StubUnitContent(pkgName, version string) string {
+func StubUnitContent(repo, pkgName, version string) string {
 	return fmt.Sprintf(`[Unit]
-Description=Town OS Package Service: %s@%s
+Description=Town OS Package Service: %s/%s@%s
 
 [Service]
 Type=simple
-ExecStart=/bin/sh -c 'while true; do echo "%s@%s running"; sleep 1; done'
+ExecStart=/bin/sh -c 'while true; do echo "%s/%s@%s running"; sleep 1; done'
 
 [Install]
 WantedBy=multi-user.target
-`, pkgName, version, pkgName, version)
+`, repo, pkgName, version, repo, pkgName, version)
 }

@@ -1345,11 +1345,11 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 	}
 
 	// results are sorted by name
-	if pkgs.Entries[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "repo-a/nginx@2.0" {
+		t.Fatalf("expected repo-a/nginx@2.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs.Entries[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1] != "repo-a/redis@7.0" {
+		t.Fatalf("expected repo-a/redis@7.0, got %s", pkgs.Entries[1])
 	}
 }
 
@@ -1391,11 +1391,11 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 	}
 
 	// nginx should be 3.0 (higher version from repo-b wins)
-	if pkgs.Entries[0] != "nginx@3.0" {
-		t.Fatalf("expected nginx@3.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "repo-b/nginx@3.0" {
+		t.Fatalf("expected repo-b/nginx@3.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs.Entries[1] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1] != "repo-b/redis@7.0" {
+		t.Fatalf("expected repo-b/redis@7.0, got %s", pkgs.Entries[1])
 	}
 }
 
@@ -1598,7 +1598,7 @@ questions:
 func TestHTTPGetPackageQuestionsByIdentity(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0")
+	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "repo-a", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetPackageQuestionsByIdentity: %v", err)
 	}
@@ -1617,7 +1617,7 @@ func TestHTTPGetPackageQuestionsByIdentity(t *testing.T) {
 func TestHTTPGetPackageQuestionsByIdentityNoQuestions(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "2.0")
+	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "repo-a", "nginx", "2.0")
 	if err != nil {
 		t.Fatalf("GetPackageQuestionsByIdentity: %v", err)
 	}
@@ -1630,7 +1630,7 @@ func TestHTTPGetPackageQuestionsByIdentityNoQuestions(t *testing.T) {
 func TestHTTPGetPackageQuestionsByIdentityNotFound(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	_, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nonexistent", "1.0")
+	_, err := c.GetPackageQuestionsByIdentity(context.TODO(), "repo-a", "nonexistent", "1.0")
 	if err == nil {
 		t.Fatal("expected error for nonexistent package")
 	}
@@ -1640,7 +1640,7 @@ func TestHTTPGetPackageQuestionsByIdentityNotFound(t *testing.T) {
 
 func TestMockClientListPackages(t *testing.T) {
 	m := InitMockClient()
-	m.Packages = []string{"nginx@2.0", "redis@7.0"}
+	m.Packages = []string{"mock-repo/nginx@2.0", "mock-repo/redis@7.0"}
 
 	pkgs, err := m.ListPackages(context.TODO(), ListParams{})
 	if err != nil {
@@ -1651,8 +1651,8 @@ func TestMockClientListPackages(t *testing.T) {
 		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs.Entries[0] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "mock-repo/nginx@2.0" {
+		t.Fatalf("expected mock-repo/nginx@2.0, got %s", pkgs.Entries[0])
 	}
 }
 
@@ -1681,7 +1681,7 @@ func TestMockClientListPackagesErrorInjection(t *testing.T) {
 
 func TestMockClientListPackagesCallLog(t *testing.T) {
 	m := InitMockClient()
-	m.Packages = []string{"nginx@1.0"}
+	m.Packages = []string{"mock-repo/nginx@1.0"}
 
 	if _, err := m.ListPackages(context.TODO(), ListParams{}); err != nil {
 		t.Fatalf("MockClient.ListPackages (first call): %v", err)
@@ -1815,7 +1815,7 @@ func TestMockClientGetPackageQuestionsByIdentity(t *testing.T) {
 		},
 	}
 
-	questions, err := m.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0")
+	questions, err := m.GetPackageQuestionsByIdentity(context.TODO(), "mock-repo", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("MockClient.GetPackageQuestionsByIdentity: %v", err)
 	}
@@ -1831,7 +1831,7 @@ func TestMockClientGetPackageQuestionsByIdentity(t *testing.T) {
 func TestMockClientGetPackageQuestionsByIdentityNotFound(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0")
+	_, err := m.GetPackageQuestionsByIdentity(context.TODO(), "mock-repo", "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error for nonexistent package")
 	}
@@ -1848,7 +1848,7 @@ func TestMockClientGetPackageQuestionsByIdentityErrorInjection(t *testing.T) {
 	}
 
 	m.QuestionsIdentityErr = injected
-	if _, err := m.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0"); err != injected {
+	if _, err := m.GetPackageQuestionsByIdentity(context.TODO(), "mock-repo", "nginx", "1.0"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1965,7 +1965,7 @@ func TestHTTPUninstallPackage(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -1988,7 +1988,7 @@ func TestHTTPUninstallPackage(t *testing.T) {
 func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false)
+	err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false)
 	if err == nil {
 		t.Fatal("expected error uninstalling package that is not installed")
 	}
@@ -2003,7 +2003,7 @@ func TestHTTPUninstallPackageWithPurge(t *testing.T) {
 
 	// Verify volumes were NOT created (nginx 1.0 has no volumes in the test fixture).
 	// Install with purge=true should still succeed even with no volumes.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", true); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", true); err != nil {
 		t.Fatalf("UninstallPackage with purge: %v", err)
 	}
 }
@@ -2065,22 +2065,22 @@ func TestHTTPUninstallPackagePurgesVolumes(t *testing.T) {
 	for _, fs := range before {
 		volNames[fs.Name] = true
 	}
-	if !volNames["installed/nginx/1.0/html"] {
-		t.Fatal("expected installed/nginx/1.0/html volume to exist after install")
+	if !volNames["installed/repo-a/nginx/1.0/html"] {
+		t.Fatal("expected installed/repo-a/nginx/1.0/html volume to exist after install")
 	}
-	if !volNames["installed/nginx/1.0/logs"] {
-		t.Fatal("expected installed/nginx/1.0/logs volume to exist after install")
+	if !volNames["installed/repo-a/nginx/1.0/logs"] {
+		t.Fatal("expected installed/repo-a/nginx/1.0/logs volume to exist after install")
 	}
 
 	// Uninstall with purge.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", true); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", true); err != nil {
 		t.Fatalf("UninstallPackage with purge: %v", err)
 	}
 
 	// Verify all nginx volumes are gone.
 	after := controller.GetFilesystems()
 	for _, fs := range after {
-		if fs.Name == "installed/nginx" || strings.HasPrefix(fs.Name, "installed/nginx/") {
+		if fs.Name == "installed/repo-a/nginx" || strings.HasPrefix(fs.Name, "installed/repo-a/nginx/") {
 			t.Fatalf("expected all nginx volumes purged, found %q", fs.Name)
 		}
 	}
@@ -2094,7 +2094,7 @@ func TestHTTPUninstallPackageWithoutPurgePreservesVolumes(t *testing.T) {
 	}
 
 	// Uninstall WITHOUT purge.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -2104,11 +2104,11 @@ func TestHTTPUninstallPackageWithoutPurgePreservesVolumes(t *testing.T) {
 	for _, fs := range after {
 		volNames[fs.Name] = true
 	}
-	if !volNames["uninstalled/nginx/1.0/html"] {
-		t.Fatal("expected uninstalled/nginx/1.0/html volume preserved after uninstall without purge")
+	if !volNames["uninstalled/repo-a/nginx/1.0/html"] {
+		t.Fatal("expected uninstalled/repo-a/nginx/1.0/html volume preserved after uninstall without purge")
 	}
-	if !volNames["uninstalled/nginx/1.0/logs"] {
-		t.Fatal("expected uninstalled/nginx/1.0/logs volume preserved after uninstall without purge")
+	if !volNames["uninstalled/repo-a/nginx/1.0/logs"] {
+		t.Fatal("expected uninstalled/repo-a/nginx/1.0/logs volume preserved after uninstall without purge")
 	}
 }
 
@@ -2116,30 +2116,30 @@ func TestHTTPPurgeVolumes(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	// Inject package volume entries directly into the mock controller.
-	injectSubvol(t, controller, "installed/nginx/1.0/html", 1024)
-	injectSubvol(t, controller, "installed/nginx/1.0/logs", 2048)
-	injectSubvol(t, controller, "installed/other/1.0/data", 512)
+	injectSubvol(t, controller, "installed/mock-repo/nginx/1.0/html", 1024)
+	injectSubvol(t, controller, "installed/mock-repo/nginx/1.0/logs", 2048)
+	injectSubvol(t, controller, "installed/mock-repo/other/1.0/data", 512)
 
-	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "mock-repo", "nginx"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
 	remaining := controller.GetFilesystems()
 	for _, fs := range remaining {
-		if fs.Name == "installed/nginx" || strings.HasPrefix(fs.Name, "installed/nginx/") {
+		if fs.Name == "installed/mock-repo/nginx" || strings.HasPrefix(fs.Name, "installed/mock-repo/nginx/") {
 			t.Fatalf("expected nginx volumes to be purged, found %s", fs.Name)
 		}
 	}
 
 	found := false
 	for _, fs := range remaining {
-		if fs.Name == "installed/other/1.0/data" {
+		if fs.Name == "installed/mock-repo/other/1.0/data" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("expected installed/other/1.0/data volume to be preserved")
+		t.Fatal("expected installed/mock-repo/other/1.0/data volume to be preserved")
 	}
 }
 
@@ -2147,26 +2147,27 @@ func TestHTTPPurgeVolumesVerifiesControllerState(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	// Inject package volume hierarchy directly into the mock controller.
-	for _, name := range []string{"installed/nginx/1.0/html", "installed/nginx/1.0/logs", "installed/nginx/1.0/cache/tmp"} {
+	for _, name := range []string{"installed/mock-repo/nginx/1.0/html", "installed/mock-repo/nginx/1.0/logs", "installed/mock-repo/nginx/1.0/cache/tmp"} {
 		injectSubvol(t, controller, name, 0)
 	}
 
 	// Also create a volume for a different package.
-	injectSubvol(t, controller, "installed/redis/7.0/data", 0)
+	injectSubvol(t, controller, "installed/mock-repo/redis/7.0/data", 0)
 
 	// Verify volumes exist before purge.
 	before := controller.GetFilesystems()
 	expectedBefore := map[string]bool{
-		"installed":                     true,
-		"installed/nginx":                true,
-		"installed/nginx/1.0":            true,
-		"installed/nginx/1.0/html":       true,
-		"installed/nginx/1.0/logs":       true,
-		"installed/nginx/1.0/cache":      true,
-		"installed/nginx/1.0/cache/tmp":  true,
-		"installed/redis":                true,
-		"installed/redis/7.0":            true,
-		"installed/redis/7.0/data":       true,
+		"installed":                                true,
+		"installed/mock-repo":                      true,
+		"installed/mock-repo/nginx":                true,
+		"installed/mock-repo/nginx/1.0":            true,
+		"installed/mock-repo/nginx/1.0/html":       true,
+		"installed/mock-repo/nginx/1.0/logs":       true,
+		"installed/mock-repo/nginx/1.0/cache":      true,
+		"installed/mock-repo/nginx/1.0/cache/tmp":  true,
+		"installed/mock-repo/redis":                true,
+		"installed/mock-repo/redis/7.0":            true,
+		"installed/mock-repo/redis/7.0/data":       true,
 	}
 	for _, fs := range before {
 		if !expectedBefore[fs.Name] {
@@ -2179,14 +2180,14 @@ func TestHTTPPurgeVolumesVerifiesControllerState(t *testing.T) {
 	}
 
 	// Purge nginx.
-	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "mock-repo", "nginx"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
 	// Verify at the controller level that nginx volumes are gone.
 	after := controller.GetFilesystems()
 	for _, fs := range after {
-		if fs.Name == "installed/nginx" || strings.HasPrefix(fs.Name, "installed/nginx/") {
+		if fs.Name == "installed/mock-repo/nginx" || strings.HasPrefix(fs.Name, "installed/mock-repo/nginx/") {
 			t.Fatalf("expected all nginx volumes purged, found %q in controller", fs.Name)
 		}
 	}
@@ -2196,11 +2197,11 @@ func TestHTTPPurgeVolumesVerifiesControllerState(t *testing.T) {
 	for _, fs := range after {
 		redisFound[fs.Name] = true
 	}
-	if !redisFound["installed/redis"] {
-		t.Fatal("expected installed/redis parent volume to survive purge")
+	if !redisFound["installed/mock-repo/redis"] {
+		t.Fatal("expected installed/mock-repo/redis parent volume to survive purge")
 	}
-	if !redisFound["installed/redis/7.0/data"] {
-		t.Fatal("expected installed/redis/7.0/data volume to survive purge")
+	if !redisFound["installed/mock-repo/redis/7.0/data"] {
+		t.Fatal("expected installed/mock-repo/redis/7.0/data volume to survive purge")
 	}
 }
 
@@ -2208,12 +2209,12 @@ func TestHTTPPurgeVolumesSimilarPrefix(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	// Inject volumes with similar prefixes: nginx and nginx2 are separate packages.
-	for _, name := range []string{"installed/nginx/1.0/html", "installed/nginx2/1.0/data"} {
+	for _, name := range []string{"installed/mock-repo/nginx/1.0/html", "installed/mock-repo/nginx2/1.0/data"} {
 		injectSubvol(t, controller, name, 0)
 	}
 
 	// Purge only nginx.
-	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "mock-repo", "nginx"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
@@ -2224,32 +2225,32 @@ func TestHTTPPurgeVolumesSimilarPrefix(t *testing.T) {
 		found[fs.Name] = true
 	}
 
-	if found["installed/nginx"] || found["installed/nginx/1.0/html"] {
+	if found["installed/mock-repo/nginx"] || found["installed/mock-repo/nginx/1.0/html"] {
 		t.Fatal("expected nginx volumes to be purged")
 	}
-	if !found["installed/nginx2"] {
-		t.Fatal("expected installed/nginx2 parent to survive")
+	if !found["installed/mock-repo/nginx2"] {
+		t.Fatal("expected installed/mock-repo/nginx2 parent to survive")
 	}
-	if !found["installed/nginx2/1.0/data"] {
-		t.Fatal("expected installed/nginx2/1.0/data to survive")
+	if !found["installed/mock-repo/nginx2/1.0/data"] {
+		t.Fatal("expected installed/mock-repo/nginx2/1.0/data to survive")
 	}
 }
 
 func TestHTTPPurgeVolumesDeepNesting(t *testing.T) {
 	c, controller := initTestClient(t)
 
-	// Inject deeply nested volumes: installed/pkg/1.0/a/b/c/d.
-	injectSubvol(t, controller, "installed/pkg/1.0/a/b/c/d", 0)
+	// Inject deeply nested volumes: installed/mock-repo/pkg/1.0/a/b/c/d.
+	injectSubvol(t, controller, "installed/mock-repo/pkg/1.0/a/b/c/d", 0)
 
 	// Purge the package.
-	if err := c.PurgeVolumes(context.TODO(), "pkg"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "mock-repo", "pkg"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	// Everything under installed/pkg should be gone; only the installed root remains.
+	// Everything under installed/mock-repo/pkg should be gone; only the installed root remains.
 	after := controller.GetFilesystems()
 	for _, fs := range after {
-		if fs.Name == "installed/pkg" || strings.HasPrefix(fs.Name, "installed/pkg/") {
+		if fs.Name == "installed/mock-repo/pkg" || strings.HasPrefix(fs.Name, "installed/mock-repo/pkg/") {
 			t.Fatalf("expected all pkg volumes purged, found %q", fs.Name)
 		}
 	}
@@ -2259,10 +2260,10 @@ func TestHTTPPurgeVolumesEmpty(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	// Inject a volume for a different package.
-	injectSubvol(t, controller, "installed/redis/7.0/data", 0)
+	injectSubvol(t, controller, "installed/mock-repo/redis/7.0/data", 0)
 
 	// Purge a package that has no volumes.
-	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "mock-repo", "nginx"); err != nil {
 		t.Fatalf("PurgeVolumes should succeed for nonexistent package: %v", err)
 	}
 
@@ -2272,7 +2273,7 @@ func TestHTTPPurgeVolumesEmpty(t *testing.T) {
 	for _, fs := range after {
 		found[fs.Name] = true
 	}
-	if !found["installed/redis"] || !found["installed/redis/7.0/data"] {
+	if !found["installed/mock-repo/redis"] || !found["installed/mock-repo/redis/7.0/data"] {
 		t.Fatalf("expected redis volumes to be intact, got: %v", after)
 	}
 }
@@ -2281,25 +2282,25 @@ func TestHTTPPurgeVolumesWithQuotas(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	// Inject volumes with quotas.
-	injectSubvol(t, controller, "installed/nginx/1.0/html", 1024)
-	injectSubvol(t, controller, "installed/nginx/1.0/logs", 2048)
+	injectSubvol(t, controller, "installed/mock-repo/nginx/1.0/html", 1024)
+	injectSubvol(t, controller, "installed/mock-repo/nginx/1.0/logs", 2048)
 
 	// Purge.
-	if err := c.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "mock-repo", "nginx"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
 	// Verify all nginx volumes gone from controller.
 	after := controller.GetFilesystems()
 	for _, fs := range after {
-		if fs.Name == "installed/nginx" || strings.HasPrefix(fs.Name, "installed/nginx/") {
+		if fs.Name == "installed/mock-repo/nginx" || strings.HasPrefix(fs.Name, "installed/mock-repo/nginx/") {
 			t.Fatalf("expected all nginx volumes purged, found %q", fs.Name)
 		}
 	}
 
 	// Verify quotas are cleaned up too.
 	for k := range controller.Quotas {
-		if strings.HasPrefix(k, "installed/nginx/") {
+		if strings.HasPrefix(k, "installed/mock-repo/nginx/") {
 			t.Fatalf("expected nginx quotas cleaned up, found quota for %q", k)
 		}
 	}
@@ -2310,20 +2311,20 @@ func TestHTTPPurgeVolumesMultipleChildren(t *testing.T) {
 
 	// Inject many children under a single parent.
 	children := []string{
-		"installed/app/1.0/data", "installed/app/1.0/logs", "installed/app/1.0/cache",
-		"installed/app/1.0/tmp", "installed/app/1.0/config",
+		"installed/mock-repo/app/1.0/data", "installed/mock-repo/app/1.0/logs", "installed/mock-repo/app/1.0/cache",
+		"installed/mock-repo/app/1.0/tmp", "installed/mock-repo/app/1.0/config",
 	}
 	for _, name := range children {
 		injectSubvol(t, controller, name, 0)
 	}
 
-	if err := c.PurgeVolumes(context.TODO(), "app"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "mock-repo", "app"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
 	after := controller.GetFilesystems()
 	for _, fs := range after {
-		if fs.Name == "installed/app" || strings.HasPrefix(fs.Name, "installed/app/") {
+		if fs.Name == "installed/mock-repo/app" || strings.HasPrefix(fs.Name, "installed/mock-repo/app/") {
 			t.Fatalf("expected all app volumes purged, found %q", fs.Name)
 		}
 	}
@@ -2405,8 +2406,8 @@ func TestHTTPInstallPackageCreatesSystemdUnit(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "town-os-nginx.service" {
-		t.Fatalf("call 0: expected unit name %q, got %v", "town-os-nginx.service", calls[0].Args[0])
+	if calls[0].Args[0].(string) != "town-os-package--repo-a-nginx-1.0.service" {
+		t.Fatalf("call 0: expected unit name %q, got %v", "town-os-package--repo-a-nginx-1.0.service", calls[0].Args[0])
 	}
 
 	// 2. SetStatus(start)
@@ -2426,7 +2427,7 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -2467,8 +2468,8 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	if calls[5].Method != "UninstallUnit" {
 		t.Fatalf("call 5: expected UninstallUnit, got %q", calls[5].Method)
 	}
-	if calls[5].Args[0].(string) != "town-os-nginx.service" {
-		t.Fatalf("call 5: expected unit name %q, got %v", "town-os-nginx.service", calls[5].Args[0])
+	if calls[5].Args[0].(string) != "town-os-package--repo-a-nginx-1.0.service" {
+		t.Fatalf("call 5: expected unit name %q, got %v", "town-os-package--repo-a-nginx-1.0.service", calls[5].Args[0])
 	}
 }
 
@@ -2514,25 +2515,25 @@ questions: {}
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	// Verify volumes were created under installed/<name>/<version>/.
+	// Verify volumes were created under installed/<repo>/<name>/<version>/.
 	fs := mockCtrl.GetFilesystems()
 
 	foundData := false
 	foundLogs := false
 	for _, f := range fs {
-		if f.Name == "installed/myapp/1.0/data" {
+		if f.Name == "installed/repo-a/myapp/1.0/data" {
 			foundData = true
 		}
-		if f.Name == "installed/myapp/1.0/logs" {
+		if f.Name == "installed/repo-a/myapp/1.0/logs" {
 			foundLogs = true
 		}
 	}
 
 	if !foundData {
-		t.Fatalf("expected filesystem installed/myapp/1.0/data to be created, got: %v", fs)
+		t.Fatalf("expected filesystem installed/repo-a/myapp/1.0/data to be created, got: %v", fs)
 	}
 	if !foundLogs {
-		t.Fatalf("expected filesystem installed/myapp/1.0/logs to be created, got: %v", fs)
+		t.Fatalf("expected filesystem installed/repo-a/myapp/1.0/logs to be created, got: %v", fs)
 	}
 }
 
@@ -2575,7 +2576,7 @@ questions: {}
 	}
 
 	// Verify quota was set on the volume.
-	quota := mockCtrl.Quotas["installed/myapp/1.0/data"]
+	quota := mockCtrl.Quotas["installed/repo-a/myapp/1.0/data"]
 	if quota != 2147483648 {
 		t.Fatalf("expected quota 2147483648, got %d", quota)
 	}
@@ -2660,16 +2661,16 @@ questions:
 	fs := mockCtrl.GetFilesystems()
 	found := false
 	for _, f := range fs {
-		if f.Name == "installed/postgres/16.0/pgdata" {
+		if f.Name == "installed/repo-a/postgres/16.0/pgdata" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected filesystem installed/postgres/16.0/pgdata to be created, got: %v", fs)
+		t.Fatalf("expected filesystem installed/repo-a/postgres/16.0/pgdata to be created, got: %v", fs)
 	}
 
 	// 10GB = 10 * 1024^3 = 10737418240
-	quota := mockCtrl.Quotas["installed/postgres/16.0/pgdata"]
+	quota := mockCtrl.Quotas["installed/repo-a/postgres/16.0/pgdata"]
 	if quota != 10737418240 {
 		t.Fatalf("expected quota 10737418240, got %d", quota)
 	}
@@ -2716,7 +2717,7 @@ func TestHTTPGetResponses(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	got, err := c.GetResponses(context.TODO(), "nginx", "1.0")
+	got, err := c.GetResponses(context.TODO(), "repo-a", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetResponses: %v", err)
 	}
@@ -2732,7 +2733,7 @@ func TestHTTPGetResponses(t *testing.T) {
 func TestHTTPGetResponsesNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	_, err := c.GetResponses(context.TODO(), "nginx", "1.0")
+	_, err := c.GetResponses(context.TODO(), "repo-a", "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error getting responses for uninstalled package")
 	}
@@ -2767,7 +2768,7 @@ func TestHTTPGetInstalledInfo(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	info, err := c.GetInstalledInfo(context.TODO(), "nginx", "1.0")
+	info, err := c.GetInstalledInfo(context.TODO(), "repo-a", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetInstalledInfo: %v", err)
 	}
@@ -2797,7 +2798,7 @@ func TestHTTPGetInstalledInfo(t *testing.T) {
 func TestHTTPGetInstalledInfoNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	_, err := c.GetInstalledInfo(context.TODO(), "nginx", "1.0")
+	_, err := c.GetInstalledInfo(context.TODO(), "repo-a", "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error getting info for uninstalled package")
 	}
@@ -2868,7 +2869,7 @@ func TestMockClientUninstallPackage(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", false); err != nil {
 		t.Fatalf("MockClient.UninstallPackage: %v", err)
 	}
 
@@ -2880,7 +2881,7 @@ func TestMockClientUninstallPackage(t *testing.T) {
 func TestMockClientUninstallPackageNotInstalled(t *testing.T) {
 	m := InitMockClient()
 
-	err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false)
+	err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", false)
 	if err == nil {
 		t.Fatal("expected error uninstalling non-installed package")
 	}
@@ -2891,7 +2892,7 @@ func TestMockClientUninstallPackageErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.UninstallPkgErr = injected
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != injected {
+	if err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", false); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -2903,7 +2904,7 @@ func TestMockClientUninstallPackageCallLog(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -2914,8 +2915,8 @@ func TestMockClientUninstallPackageCallLog(t *testing.T) {
 	if calls[1].Method != "UninstallPackage" {
 		t.Fatalf("expected method UninstallPackage, got %q", calls[1].Method)
 	}
-	if len(calls[1].Args) != 3 {
-		t.Fatalf("expected 3 args, got %d", len(calls[1].Args))
+	if len(calls[1].Args) != 4 {
+		t.Fatalf("expected 4 args, got %d", len(calls[1].Args))
 	}
 }
 
@@ -2928,12 +2929,12 @@ func TestMockClientUninstallPackagePurgesVolumes(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	m.Filesystems["installed/nginx"] = storage.Filesystem{Name: "installed/nginx"}
-	m.Filesystems["installed/nginx/1.0/html"] = storage.Filesystem{Name: "installed/nginx/1.0/html", Quota: 1024}
-	m.Filesystems["installed/nginx/1.0/logs"] = storage.Filesystem{Name: "installed/nginx/1.0/logs", Quota: 2048}
+	m.Filesystems["installed/mock-repo/nginx"] = storage.Filesystem{Name: "installed/mock-repo/nginx"}
+	m.Filesystems["installed/mock-repo/nginx/1.0/html"] = storage.Filesystem{Name: "installed/mock-repo/nginx/1.0/html", Quota: 1024}
+	m.Filesystems["installed/mock-repo/nginx/1.0/logs"] = storage.Filesystem{Name: "installed/mock-repo/nginx/1.0/logs", Quota: 2048}
 	m.Filesystems["installed/other/1.0/data"] = storage.Filesystem{Name: "installed/other/1.0/data"}
 
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", true); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", true); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -2941,14 +2942,14 @@ func TestMockClientUninstallPackagePurgesVolumes(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(m.Installed))
 	}
 
-	if _, ok := m.Filesystems["installed/nginx"]; ok {
-		t.Fatal("expected installed/nginx parent volume to be purged")
+	if _, ok := m.Filesystems["installed/mock-repo/nginx"]; ok {
+		t.Fatal("expected installed/mock-repo/nginx parent volume to be purged")
 	}
-	if _, ok := m.Filesystems["installed/nginx/1.0/html"]; ok {
-		t.Fatal("expected installed/nginx/1.0/html volume to be purged")
+	if _, ok := m.Filesystems["installed/mock-repo/nginx/1.0/html"]; ok {
+		t.Fatal("expected installed/mock-repo/nginx/1.0/html volume to be purged")
 	}
-	if _, ok := m.Filesystems["installed/nginx/1.0/logs"]; ok {
-		t.Fatal("expected installed/nginx/1.0/logs volume to be purged")
+	if _, ok := m.Filesystems["installed/mock-repo/nginx/1.0/logs"]; ok {
+		t.Fatal("expected installed/mock-repo/nginx/1.0/logs volume to be purged")
 	}
 	if _, ok := m.Filesystems["installed/other/1.0/data"]; !ok {
 		t.Fatal("expected installed/other/1.0/data volume to be preserved")
@@ -2962,14 +2963,14 @@ func TestMockClientUninstallPackageNoPurge(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	m.Filesystems["installed/nginx/1.0/html"] = storage.Filesystem{Name: "installed/nginx/1.0/html", Quota: 1024}
+	m.Filesystems["installed/mock-repo/nginx/1.0/html"] = storage.Filesystem{Name: "installed/mock-repo/nginx/1.0/html", Quota: 1024}
 
-	if err := m.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
-	if _, ok := m.Filesystems["installed/nginx/1.0/html"]; !ok {
-		t.Fatal("expected installed/nginx/1.0/html volume to be preserved when purge is false")
+	if _, ok := m.Filesystems["installed/mock-repo/nginx/1.0/html"]; !ok {
+		t.Fatal("expected installed/mock-repo/nginx/1.0/html volume to be preserved when purge is false")
 	}
 }
 
@@ -2978,23 +2979,23 @@ func TestMockClientUninstallPackageNoPurge(t *testing.T) {
 func TestMockClientPurgeVolumes(t *testing.T) {
 	m := InitMockClient()
 
-	m.Filesystems["installed/nginx"] = storage.Filesystem{Name: "installed/nginx"}
-	m.Filesystems["installed/nginx/1.0/html"] = storage.Filesystem{Name: "installed/nginx/1.0/html"}
-	m.Filesystems["installed/nginx/1.0/logs"] = storage.Filesystem{Name: "installed/nginx/1.0/logs"}
+	m.Filesystems["installed/mock-repo/nginx"] = storage.Filesystem{Name: "installed/mock-repo/nginx"}
+	m.Filesystems["installed/mock-repo/nginx/1.0/html"] = storage.Filesystem{Name: "installed/mock-repo/nginx/1.0/html"}
+	m.Filesystems["installed/mock-repo/nginx/1.0/logs"] = storage.Filesystem{Name: "installed/mock-repo/nginx/1.0/logs"}
 	m.Filesystems["installed/other/1.0/data"] = storage.Filesystem{Name: "installed/other/1.0/data"}
 
-	if err := m.PurgeVolumes(context.TODO(), "nginx"); err != nil {
+	if err := m.PurgeVolumes(context.TODO(), "mock-repo", "nginx"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	if _, ok := m.Filesystems["installed/nginx"]; ok {
-		t.Fatal("expected installed/nginx parent volume to be purged")
+	if _, ok := m.Filesystems["installed/mock-repo/nginx"]; ok {
+		t.Fatal("expected installed/mock-repo/nginx parent volume to be purged")
 	}
-	if _, ok := m.Filesystems["installed/nginx/1.0/html"]; ok {
-		t.Fatal("expected installed/nginx/1.0/html volume to be purged")
+	if _, ok := m.Filesystems["installed/mock-repo/nginx/1.0/html"]; ok {
+		t.Fatal("expected installed/mock-repo/nginx/1.0/html volume to be purged")
 	}
-	if _, ok := m.Filesystems["installed/nginx/1.0/logs"]; ok {
-		t.Fatal("expected installed/nginx/1.0/logs volume to be purged")
+	if _, ok := m.Filesystems["installed/mock-repo/nginx/1.0/logs"]; ok {
+		t.Fatal("expected installed/mock-repo/nginx/1.0/logs volume to be purged")
 	}
 	if _, ok := m.Filesystems["installed/other/1.0/data"]; !ok {
 		t.Fatal("expected installed/other/1.0/data volume to be preserved")
@@ -3061,7 +3062,7 @@ func TestMockClientGetResponses(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	got, err := m.GetResponses(context.TODO(), "nginx", "1.0")
+	got, err := m.GetResponses(context.TODO(), "mock-repo", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("MockClient.GetResponses: %v", err)
 	}
@@ -3077,7 +3078,7 @@ func TestMockClientGetResponses(t *testing.T) {
 func TestMockClientGetResponsesNotInstalled(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.GetResponses(context.TODO(), "nginx", "1.0")
+	_, err := m.GetResponses(context.TODO(), "mock-repo", "nginx", "1.0")
 	if err == nil {
 		t.Fatal("expected error for non-installed package")
 	}
@@ -3088,7 +3089,7 @@ func TestMockClientGetResponsesErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.GetResponsesErr = injected
-	if _, err := m.GetResponses(context.TODO(), "nginx", "1.0"); err != injected {
+	if _, err := m.GetResponses(context.TODO(), "mock-repo", "nginx", "1.0"); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -3100,7 +3101,7 @@ func TestMockClientGetResponsesReturnsCopy(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	got, err := m.GetResponses(context.TODO(), "nginx", "1.0")
+	got, err := m.GetResponses(context.TODO(), "mock-repo", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetResponses: %v", err)
 	}
@@ -5002,20 +5003,20 @@ func TestHTTPDisablePackage(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := c.DisablePackage(context.TODO(), "nginx"); err != nil {
+	if err := c.DisablePackage(context.TODO(), "repo-a", "nginx"); err != nil {
 		t.Fatalf("DisablePackage: %v", err)
 	}
 
 	instCalls := inst.GetCalls()
 	found := false
 	for _, call := range instCalls {
-		if call.Method == "SetDisabled" && call.Args[0].(string) == "nginx" && call.Args[1].(bool) == true {
+		if call.Method == "SetDisabled" && call.Args[0].(string) == "repo-a" && call.Args[1].(string) == "nginx" && call.Args[2].(bool) == true {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("expected SetDisabled(nginx, true) call")
+		t.Fatal("expected SetDisabled(repo-a, nginx, true) call")
 	}
 
 	sdCalls := sd.GetCalls()
@@ -5032,24 +5033,24 @@ func TestHTTPEnablePackage(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	if err := c.DisablePackage(context.TODO(), "nginx"); err != nil {
+	if err := c.DisablePackage(context.TODO(), "repo-a", "nginx"); err != nil {
 		t.Fatalf("DisablePackage: %v", err)
 	}
 
-	if err := c.EnablePackage(context.TODO(), "nginx"); err != nil {
+	if err := c.EnablePackage(context.TODO(), "repo-a", "nginx"); err != nil {
 		t.Fatalf("EnablePackage: %v", err)
 	}
 
 	instCalls := inst.GetCalls()
 	found := false
 	for _, call := range instCalls {
-		if call.Method == "SetDisabled" && call.Args[0].(string) == "nginx" && call.Args[1].(bool) == false {
+		if call.Method == "SetDisabled" && call.Args[0].(string) == "repo-a" && call.Args[1].(string) == "nginx" && call.Args[2].(bool) == false {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("expected SetDisabled(nginx, false) call")
+		t.Fatal("expected SetDisabled(repo-a, nginx, false) call")
 	}
 
 	sdCalls := sd.GetCalls()
@@ -5973,7 +5974,7 @@ func TestListParamsQueryString(t *testing.T) {
 }
 
 func TestFilterSearchStrings(t *testing.T) {
-	items := []string{"nginx@1.0", "redis@7.0", "postgres@16.0", "nginx@2.0"}
+	items := []string{"mock-repo/nginx@1.0", "mock-repo/redis@7.0", "mock-repo/postgres@16.0", "mock-repo/nginx@2.0"}
 
 	// Match
 	result := filterSearch(items, "nginx")
@@ -7058,8 +7059,8 @@ questions: {}
 		found[f.Name] = true
 	}
 
-	expectedData := "installed/nginx/1.0/data"
-	expectedLogs := "installed/nginx/1.0/logs"
+	expectedData := "installed/repo-a/nginx/1.0/data"
+	expectedLogs := "installed/repo-a/nginx/1.0/logs"
 	if !found[expectedData] {
 		t.Fatalf("expected filesystem %q, got: %v", expectedData, fs)
 	}
@@ -7106,7 +7107,7 @@ questions: {}
 	}
 
 	// Uninstall WITHOUT purge.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -7116,19 +7117,19 @@ questions: {}
 		found[f.Name] = true
 	}
 
-	// installed/nginx should be gone (renamed to uninstalled/nginx).
+	// installed/repo-a/nginx should be gone (renamed to uninstalled/repo-a/nginx).
 	for name := range found {
-		if strings.HasPrefix(name, "installed/nginx") {
-			t.Fatalf("expected installed/nginx volumes to be renamed away, found %q", name)
+		if strings.HasPrefix(name, "installed/repo-a/nginx") {
+			t.Fatalf("expected installed/repo-a/nginx volumes to be renamed away, found %q", name)
 		}
 	}
 
-	// uninstalled/nginx/... should exist.
-	if !found["uninstalled/nginx"] {
-		t.Fatalf("expected uninstalled/nginx to exist, got: %v", fs)
+	// uninstalled/repo-a/nginx/... should exist.
+	if !found["uninstalled/repo-a/nginx"] {
+		t.Fatalf("expected uninstalled/repo-a/nginx to exist, got: %v", fs)
 	}
-	if !found["uninstalled/nginx/1.0/data"] {
-		t.Fatalf("expected uninstalled/nginx/1.0/data to exist, got: %v", fs)
+	if !found["uninstalled/repo-a/nginx/1.0/data"] {
+		t.Fatalf("expected uninstalled/repo-a/nginx/1.0/data to exist, got: %v", fs)
 	}
 }
 
@@ -7180,7 +7181,7 @@ questions: {}
 	}
 
 	// Uninstall nginx 1.0 without purge.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage 1.0: %v", err)
 	}
 
@@ -7191,12 +7192,12 @@ questions: {}
 		found[f.Name] = true
 	}
 
-	// installed/nginx/... should still exist (not moved to uninstalled).
-	if !found["installed/nginx/1.0/data"] {
-		t.Fatalf("expected installed/nginx/1.0/data to still exist, got: %v", fs)
+	// installed/repo-a/nginx/... should still exist (not moved to uninstalled).
+	if !found["installed/repo-a/nginx/1.0/data"] {
+		t.Fatalf("expected installed/repo-a/nginx/1.0/data to still exist, got: %v", fs)
 	}
-	if !found["installed/nginx/2.0/data"] {
-		t.Fatalf("expected installed/nginx/2.0/data to still exist, got: %v", fs)
+	if !found["installed/repo-a/nginx/2.0/data"] {
+		t.Fatalf("expected installed/repo-a/nginx/2.0/data to still exist, got: %v", fs)
 	}
 
 	for name := range found {
@@ -7243,7 +7244,7 @@ questions: {}
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -7253,8 +7254,8 @@ questions: {}
 	for _, f := range midFS {
 		midFound[f.Name] = true
 	}
-	if !midFound["uninstalled/nginx"] {
-		t.Fatalf("expected uninstalled/nginx after uninstall, got: %v", midFS)
+	if !midFound["uninstalled/repo-a/nginx"] {
+		t.Fatalf("expected uninstalled/repo-a/nginx after uninstall, got: %v", midFS)
 	}
 
 	// Reinstall with reuseVolumes=true.
@@ -7269,13 +7270,13 @@ questions: {}
 		afterFound[f.Name] = true
 	}
 
-	if !afterFound["installed/nginx/1.0/data"] {
-		t.Fatalf("expected installed/nginx/1.0/data after reuse, got: %v", afterFS)
+	if !afterFound["installed/repo-a/nginx/1.0/data"] {
+		t.Fatalf("expected installed/repo-a/nginx/1.0/data after reuse, got: %v", afterFS)
 	}
 
 	for name := range afterFound {
-		if strings.HasPrefix(name, "uninstalled/nginx") {
-			t.Fatalf("expected no uninstalled/nginx after reuse, found %q", name)
+		if strings.HasPrefix(name, "uninstalled/repo-a/nginx") {
+			t.Fatalf("expected no uninstalled/repo-a/nginx after reuse, found %q", name)
 		}
 	}
 }
@@ -7334,7 +7335,7 @@ questions: {}
 		found[f.Name] = true
 	}
 
-	expected20 := "installed/nginx/2.0/data"
+	expected20 := "installed/repo-a/nginx/2.0/data"
 	if !found[expected20] {
 		t.Fatalf("expected %q to exist after import, got: %v", expected20, fs)
 	}
@@ -7374,23 +7375,23 @@ func TestHTTPPurgeUninstalledVolumes(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	// Inject filesystems under uninstalled/nginx/ to simulate preserved volumes.
-	injectSubvol(t, mockCtrl, "uninstalled/nginx/1.0/data", 0)
-	injectSubvol(t, mockCtrl, "uninstalled/nginx/1.0/logs", 0)
+	// Inject filesystems under uninstalled/repo-a/nginx/ to simulate preserved volumes.
+	injectSubvol(t, mockCtrl, "uninstalled/repo-a/nginx/1.0/data", 0)
+	injectSubvol(t, mockCtrl, "uninstalled/repo-a/nginx/1.0/logs", 0)
 
 	// Also inject a volume for a different package to ensure it is not affected.
-	injectSubvol(t, mockCtrl, "uninstalled/redis/7.0/data", 0)
+	injectSubvol(t, mockCtrl, "uninstalled/repo-a/redis/7.0/data", 0)
 
 	// Purge uninstalled volumes for nginx.
-	if err := c.PurgeUninstalledVolumes(context.TODO(), "nginx"); err != nil {
+	if err := c.PurgeUninstalledVolumes(context.TODO(), "repo-a", "nginx"); err != nil {
 		t.Fatalf("PurgeUninstalledVolumes: %v", err)
 	}
 
 	// Verify nginx uninstalled volumes are gone.
 	fs := mockCtrl.GetFilesystems()
 	for _, f := range fs {
-		if strings.HasPrefix(f.Name, "uninstalled/nginx") {
-			t.Fatalf("expected uninstalled/nginx volumes to be purged, found %q", f.Name)
+		if strings.HasPrefix(f.Name, "uninstalled/repo-a/nginx") {
+			t.Fatalf("expected uninstalled/repo-a/nginx volumes to be purged, found %q", f.Name)
 		}
 	}
 
@@ -7399,8 +7400,8 @@ func TestHTTPPurgeUninstalledVolumes(t *testing.T) {
 	for _, f := range fs {
 		found[f.Name] = true
 	}
-	if !found["uninstalled/redis/7.0/data"] {
-		t.Fatalf("expected uninstalled/redis/7.0/data to be preserved, got: %v", fs)
+	if !found["uninstalled/repo-a/redis/7.0/data"] {
+		t.Fatalf("expected uninstalled/repo-a/redis/7.0/data to be preserved, got: %v", fs)
 	}
 }
 
@@ -7522,7 +7523,7 @@ func TestHTTPListPackagesIncludesInstalledOlderVersions(t *testing.T) {
 
 	// But nginx 1.0 was previously installed (still registered).
 	inst := packages.InitMockInstallManager()
-	inst.Installed = []packages.PackageIdentity{{Name: "nginx", Version: "1.0"}}
+	inst.Installed = []packages.PackageIdentity{{Repo: "repo-a", Name: "nginx", Version: "1.0"}}
 
 	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst})
 	t.Cleanup(ts.Close)
@@ -7537,23 +7538,23 @@ func TestHTTPListPackagesIncludesInstalledOlderVersions(t *testing.T) {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	// The repo has nginx@2.0. The installed list has nginx@1.0.
+	// The repo has repo-a/nginx@2.0. The installed list has repo-a/nginx@1.0.
 	// ListPackages merges both: since both share the name "nginx", the repo
-	// entry (nginx@2.0) is already listed, and the installed entry (nginx@1.0)
+	// entry (repo-a/nginx@2.0) is already listed, and the installed entry (repo-a/nginx@1.0)
 	// has the same name so it should NOT be duplicated (the merge logic dedupes
-	// by package name). Therefore we expect exactly 1 entry: nginx@2.0.
+	// by package name). Therefore we expect exactly 1 entry: repo-a/nginx@2.0.
 	found := map[string]bool{}
 	for _, entry := range pkgs.Entries {
 		found[entry] = true
 	}
 
-	if !found["nginx@2.0"] {
-		t.Fatalf("expected nginx@2.0 in packages list, got: %v", pkgs.Entries)
+	if !found["repo-a/nginx@2.0"] {
+		t.Fatalf("expected repo-a/nginx@2.0 in packages list, got: %v", pkgs.Entries)
 	}
 
 	// The merge logic in listPackages checks by package name, not by
-	// name@version. Since "nginx" is already known from the repo (nginx@2.0),
-	// installed nginx@1.0 is not added again. This test verifies the merge
+	// name@version. Since "nginx" is already known from the repo (repo-a/nginx@2.0),
+	// installed repo-a/nginx@1.0 is not added again. This test verifies the merge
 	// correctly handles the case where an older version is installed.
 	if len(pkgs.Entries) != 1 {
 		t.Fatalf("expected 1 package entry (repo provides latest), got %d: %v", len(pkgs.Entries), pkgs.Entries)
@@ -7612,15 +7613,15 @@ func TestHTTPInstallOlderVersion(t *testing.T) {
 
 	foundInstalled := false
 	for _, pkg := range installed.Entries {
-		if pkg == "nginx@1.0" {
+		if pkg == "repo-a/nginx@1.0" {
 			foundInstalled = true
 		}
-		if pkg == "nginx@2.0" {
-			t.Fatal("nginx@2.0 should NOT be installed")
+		if pkg == "repo-a/nginx@2.0" {
+			t.Fatal("repo-a/nginx@2.0 should NOT be installed")
 		}
 	}
 	if !foundInstalled {
-		t.Fatalf("expected nginx@1.0 in installed list, got: %v", installed.Entries)
+		t.Fatalf("expected repo-a/nginx@1.0 in installed list, got: %v", installed.Entries)
 	}
 }
 
@@ -7761,7 +7762,7 @@ questions: {}
 	}
 
 	// Fetch questions for the older version specifically.
-	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "1.0")
+	questions, err := c.GetPackageQuestionsByIdentity(context.TODO(), "repo-a", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetPackageQuestionsByIdentity 1.0: %v", err)
 	}
@@ -7776,7 +7777,7 @@ questions: {}
 	}
 
 	// Fetch questions for the newer version — should have none.
-	questions20, err := c.GetPackageQuestionsByIdentity(context.TODO(), "nginx", "2.0")
+	questions20, err := c.GetPackageQuestionsByIdentity(context.TODO(), "repo-a", "nginx", "2.0")
 	if err != nil {
 		t.Fatalf("GetPackageQuestionsByIdentity 2.0: %v", err)
 	}
@@ -7865,15 +7866,15 @@ questions: {}
 		volNames[f.Name] = true
 	}
 
-	if !volNames["installed/nginx/1.0/data"] {
-		t.Fatal("expected volume installed/nginx/1.0/data")
+	if !volNames["installed/repo-a/nginx/1.0/data"] {
+		t.Fatal("expected volume installed/repo-a/nginx/1.0/data")
 	}
-	if !volNames["installed/nginx/1.0/logs"] {
-		t.Fatal("expected volume installed/nginx/1.0/logs")
+	if !volNames["installed/repo-a/nginx/1.0/logs"] {
+		t.Fatal("expected volume installed/repo-a/nginx/1.0/logs")
 	}
 	// Verify 2.0 volumes were NOT created.
-	if volNames["installed/nginx/2.0/data"] {
-		t.Fatal("installed/nginx/2.0/data should NOT exist")
+	if volNames["installed/repo-a/nginx/2.0/data"] {
+		t.Fatal("installed/repo-a/nginx/2.0/data should NOT exist")
 	}
 }
 
@@ -8062,5 +8063,237 @@ func TestHTTPListAccountsSearch(t *testing.T) {
 	}
 	if len(result.Entries) != 0 {
 		t.Fatalf("expected 0 results for search 'nope', got %d", len(result.Entries))
+	}
+}
+
+// --- Multi-repo test helpers and tests ---
+
+func initMultiRepoTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+		{Name: "repo-b", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-b", "nginx", "1.0", "image: nginx:1.0-alt\n")
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst
+}
+
+func TestHTTPMultiRepoInstallSameName(t *testing.T) {
+	c, inst := initMultiRepoTestClient(t)
+
+	// Install nginx from repo-a (explicit repo).
+	pr1, pw1 := io.Pipe()
+	go func() {
+		pw1.CloseWithError(json.NewEncoder(pw1).Encode(InstallRequest{
+			Repo: "repo-a", Name: "nginx", Version: "1.0", Responses: packages.Responses{},
+		}))
+	}()
+	resp1, err := c.HTTP.Post(fmt.Sprintf("%s/packages/install", c.BaseURL), "application/json", pr1)
+	if err != nil {
+		t.Fatalf("HTTP POST install repo-a: %v", err)
+	}
+	defer func() {
+		if err := resp1.Body.Close(); err != nil {
+			t.Errorf("resp1.Body.Close: %v", err)
+		}
+	}()
+	if resp1.StatusCode != 200 {
+		body, _ := io.ReadAll(resp1.Body)
+		t.Fatalf("expected 200 for repo-a, got %d: %s", resp1.StatusCode, body)
+	}
+
+	// Install nginx from repo-b (explicit repo).
+	pr, pw := io.Pipe()
+	go func() {
+		pw.CloseWithError(json.NewEncoder(pw).Encode(InstallRequest{
+			Repo: "repo-b", Name: "nginx", Version: "1.0", Responses: packages.Responses{},
+		}))
+	}()
+	resp, err := c.HTTP.Post(fmt.Sprintf("%s/packages/install", c.BaseURL), "application/json", pr)
+	if err != nil {
+		t.Fatalf("HTTP POST install repo-b: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 for repo-b, got %d: %s", resp.StatusCode, body)
+	}
+
+	// MockInstallManager should have 2 installs with distinct repos.
+	installed := inst.Installed
+	if len(installed) != 2 {
+		t.Fatalf("expected 2 installs, got %d", len(installed))
+	}
+
+	repos := map[string]bool{}
+	for _, p := range installed {
+		repos[p.Repo] = true
+	}
+	if !repos["repo-a"] || !repos["repo-b"] {
+		t.Fatalf("expected installs from both repo-a and repo-b, got %v", installed)
+	}
+}
+
+func TestHTTPMultiRepoUninstallIsolation(t *testing.T) {
+	c, inst := initMultiRepoTestClient(t)
+
+	// Pre-seed both repos installed.
+	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install repo-a: %v", err)
+	}
+	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install repo-b: %v", err)
+	}
+
+	// Uninstall repo-a.
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage repo-a: %v", err)
+	}
+
+	// ListInstalled should return only repo-b.
+	page, err := c.ListInstalled(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(page.Entries))
+	}
+	if page.Entries[0] != "repo-b/nginx@1.0" {
+		t.Fatalf("expected repo-b/nginx@1.0, got %s", page.Entries[0])
+	}
+}
+
+func TestHTTPMultiRepoGetResponsesIsolation(t *testing.T) {
+	c, inst := initMultiRepoTestClient(t)
+
+	// Pre-seed with different responses per repo.
+	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{"port": "80"}); err != nil {
+		t.Fatalf("pre-install repo-a: %v", err)
+	}
+	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{"port": "9090"}); err != nil {
+		t.Fatalf("pre-install repo-b: %v", err)
+	}
+
+	respA, err := c.GetResponses(context.TODO(), "repo-a", "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses repo-a: %v", err)
+	}
+	if respA["port"] != "80" {
+		t.Fatalf("expected repo-a port=80, got %s", respA["port"])
+	}
+
+	respB, err := c.GetResponses(context.TODO(), "repo-b", "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("GetResponses repo-b: %v", err)
+	}
+	if respB["port"] != "9090" {
+		t.Fatalf("expected repo-b port=9090, got %s", respB["port"])
+	}
+}
+
+func TestHTTPMultiRepoDisableIsolation(t *testing.T) {
+	c, inst := initMultiRepoTestClient(t)
+
+	// Pre-seed both repos installed.
+	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install repo-a: %v", err)
+	}
+	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install repo-b: %v", err)
+	}
+
+	// Disable only repo-a/nginx.
+	if err := c.DisablePackage(context.TODO(), "repo-a", "nginx"); err != nil {
+		t.Fatalf("DisablePackage repo-a: %v", err)
+	}
+
+	// repo-a should be disabled, repo-b should not.
+	disabledA, err := inst.IsDisabled("repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("IsDisabled repo-a: %v", err)
+	}
+	if !disabledA {
+		t.Fatal("expected repo-a/nginx to be disabled")
+	}
+
+	disabledB, err := inst.IsDisabled("repo-b", "nginx")
+	if err != nil {
+		t.Fatalf("IsDisabled repo-b: %v", err)
+	}
+	if disabledB {
+		t.Fatal("expected repo-b/nginx to NOT be disabled")
+	}
+}
+
+func TestHTTPListPackagesByRepo(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "core", URL: *u},
+		{Name: "extras", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "core", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "core", "redis", "7.0", "image: redis:7.0\n")
+	writeTestPackage(t, rr.BaseDir, "extras", "mosquitto", "2.0", "image: eclipse-mosquitto:2.0\n")
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	groups, err := c.ListPackagesByRepo(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPackagesByRepo: %v", err)
+	}
+
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 repo groups, got %d", len(groups))
+	}
+
+	// Highest-precedence repo comes first (reversed internal order).
+	if groups[0].Repo != "extras" {
+		t.Fatalf("expected first group to be extras, got %s", groups[0].Repo)
+	}
+	if len(groups[0].Packages) != 1 {
+		t.Fatalf("expected 1 package in extras, got %d", len(groups[0].Packages))
+	}
+	if groups[0].Packages[0].Name != "mosquitto" {
+		t.Fatalf("expected mosquitto in extras, got %s", groups[0].Packages[0].Name)
+	}
+
+	if groups[1].Repo != "core" {
+		t.Fatalf("expected second group to be core, got %s", groups[1].Repo)
+	}
+	if len(groups[1].Packages) != 2 {
+		t.Fatalf("expected 2 packages in core, got %d", len(groups[1].Packages))
 	}
 }

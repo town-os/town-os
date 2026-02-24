@@ -305,6 +305,17 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} [search]
+   * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string}>}>>}
+   */
+  async listPackagesByRepo(search) {
+    const params = new URLSearchParams()
+    if (search) params.set('search', search)
+    const qs = params.toString()
+    return this.getJSON(`/packages/by-repo${qs ? `?${qs}` : ''}`)
+  }
+
+  /**
    * @param {string} [sortBy]
    * @param {string} [sortOrder]
    * @param {number} [limit]
@@ -324,21 +335,23 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @param {string} version
    * @returns {Promise<Responses>}
    */
-  async getResponses(name, version) {
-    return this.postJSON('/packages/responses', { name, version })
+  async getResponses(repo, name, version) {
+    return this.postJSON('/packages/responses', { repo, name, version })
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @param {string} version
    * @returns {Promise<InstalledInfo>}
    */
-  async getInstalledInfo(name, version) {
-    return this.postJSON('/packages/installed/info', { name, version })
+  async getInstalledInfo(repo, name, version) {
+    return this.postJSON('/packages/installed/info', { repo, name, version })
   }
 
   /**
@@ -490,12 +503,13 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @param {string} version
    * @returns {Promise<Record<string, Question>>}
    */
-  async getPackageQuestionsByIdentity(name, version) {
-    return this.postJSON('/packages/questions/identity', { name, version })
+  async getPackageQuestionsByIdentity(repo, name, version) {
+    return this.postJSON('/packages/questions/identity', { repo, name, version })
   }
 
   /**
@@ -507,22 +521,25 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @returns {Promise<{has_uninstalled_volumes: boolean, uninstalled_versions?: string[], installed_versions?: string[]}>}
    */
-  async listUninstalledVolumes(name) {
-    return this.postJSON('/packages/uninstalled-volumes', { name })
+  async listUninstalledVolumes(repo, name) {
+    return this.postJSON('/packages/uninstalled-volumes', { repo, name })
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @returns {Promise<void>}
    */
-  async purgeUninstalledVolumes(name) {
-    await this.post('/packages/purge-uninstalled-volumes', { name })
+  async purgeUninstalledVolumes(repo, name) {
+    await this.post('/packages/purge-uninstalled-volumes', { repo, name })
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @param {string} version
    * @param {Responses} responses
@@ -530,29 +547,31 @@ export class SystemControllerClient {
    * @param {string} [importFromVersion]
    * @returns {Promise<void>}
    */
-  async installPackage(name, version, responses, reuseVolumes = false, importFromVersion) {
-    const body = { name, version, responses }
+  async installPackage(repo, name, version, responses, reuseVolumes = false, importFromVersion) {
+    const body = { repo, name, version, responses }
     if (reuseVolumes) body.reuse_volumes = true
     if (importFromVersion) body.import_from_version = importFromVersion
     await this.post('/packages/install', body)
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @param {string} version
    * @param {boolean} [purgeVolumes=false]
    * @returns {Promise<void>}
    */
-  async uninstallPackage(name, version, purgeVolumes = false) {
-    await this.post('/packages/uninstall', { name, version, purge_volumes: purgeVolumes })
+  async uninstallPackage(repo, name, version, purgeVolumes = false) {
+    await this.post('/packages/uninstall', { repo, name, version, purge_volumes: purgeVolumes })
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @returns {Promise<void>}
    */
-  async purgeVolumes(name) {
-    await this.post('/packages/purge-volumes', { name })
+  async purgeVolumes(repo, name) {
+    await this.post('/packages/purge-volumes', { repo, name })
   }
 
   /**
@@ -565,19 +584,21 @@ export class SystemControllerClient {
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @returns {Promise<void>}
    */
-  async disablePackage(name) {
-    await this.post('/packages/disable', { name })
+  async disablePackage(repo, name) {
+    await this.post('/packages/disable', { repo, name })
   }
 
   /**
+   * @param {string} repo
    * @param {string} name
    * @returns {Promise<void>}
    */
-  async enablePackage(name) {
-    await this.post('/packages/enable', { name })
+  async enablePackage(repo, name) {
+    await this.post('/packages/enable', { repo, name })
   }
 
   /**

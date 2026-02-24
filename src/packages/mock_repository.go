@@ -203,6 +203,34 @@ func (m *MockRepositoryManager) ListPackages() ([]string, error) {
 	return out, nil
 }
 
+func (m *MockRepositoryManager) ListPackagesByRepo() ([]RepoPackageGroup, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockRepositoryCall{Method: "ListPackagesByRepo", Args: nil})
+
+	if m.ListPackagesErr != nil {
+		return nil, m.ListPackagesErr
+	}
+
+	best := map[string]string{}
+	for name, versions := range m.Packages {
+		for version := range versions {
+			prev, exists := best[name]
+			if !exists || CompareVersions(version, prev) > 0 {
+				best[name] = version
+			}
+		}
+	}
+
+	pkgs := make([]PackageIdentity, 0, len(best))
+	for name, version := range best {
+		pkgs = append(pkgs, PackageIdentity{Repo: "mock-repo", Name: name, Version: version})
+	}
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Name < pkgs[j].Name })
+
+	return []RepoPackageGroup{{Repo: "mock-repo", Packages: pkgs}}, nil
+}
+
 func (m *MockRepositoryManager) ListPackageVersions(name string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

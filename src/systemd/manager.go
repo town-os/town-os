@@ -145,8 +145,8 @@ func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content s
 	return conn.ReloadContext(ctx)
 }
 
-func (m *SystemdManager) ListPackageUnitFiles(_ context.Context, pkgName string) ([]string, error) {
-	pattern := fmt.Sprintf("/etc/systemd/system/town-os-%s*", pkgName)
+func (m *SystemdManager) ListPackageUnitFiles(_ context.Context, repo, pkgName, version string) ([]string, error) {
+	pattern := fmt.Sprintf("/etc/systemd/system/%s%s-%s-%s*", PackageUnitPrefix, repo, pkgName, version)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, err

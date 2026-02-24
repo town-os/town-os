@@ -236,17 +236,17 @@ func (m *MockManager) UninstallUnit(ctx context.Context, name string) error {
 	return nil
 }
 
-func (m *MockManager) ListPackageUnitFiles(ctx context.Context, pkgName string) ([]string, error) {
+func (m *MockManager) ListPackageUnitFiles(ctx context.Context, repo, pkgName, version string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.Calls = append(m.Calls, MockCall{Method: "ListPackageUnitFiles", Args: []any{pkgName}})
+	m.Calls = append(m.Calls, MockCall{Method: "ListPackageUnitFiles", Args: []any{repo, pkgName, version}})
 
 	if m.ListPackageUnitFilesErr != nil {
 		return nil, m.ListPackageUnitFilesErr
 	}
 
-	prefix := fmt.Sprintf("town-os-%s", pkgName)
+	prefix := fmt.Sprintf("%s%s-%s-%s", PackageUnitPrefix, repo, pkgName, version)
 	var names []string
 	for name := range m.InstalledUnits {
 		if strings.HasPrefix(name, prefix) {

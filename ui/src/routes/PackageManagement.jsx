@@ -28,7 +28,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown } from 'lucide-react'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 
 export default function PackageManagement() {
@@ -46,6 +54,10 @@ export default function PackageManagement() {
   // Repository state
   const [repoDialog, setRepoDialog] = useState(false)
   const [deleteRepoConfirm, setDeleteRepoConfirm] = useState(null)
+
+  // Group by repository toggle
+  const [groupByRepo, setGroupByRepo] = useState(false)
+  const [repoExpanded, setRepoExpanded] = useState({})
 
   // Sort state for packages tab
   const [pkgSortKey, setPkgSortKey] = useState('name')
@@ -76,6 +88,13 @@ export default function PackageManagement() {
   )
   const installed = installedData.entries || []
 
+  const [byRepoData] = usePolling(
+    () => groupByRepo ? getClient().listPackagesByRepo(pkgSearch || undefined) : Promise.resolve([]),
+    [],
+    [refreshKey, groupByRepo, pkgSearch],
+  )
+  const packagesByRepo = byRepoData || []
+
   const [repoData, , repoLoading] = usePolling(
     () => getClient().listRepositories(repoSortKey, repoSortDirection, PAGE_SIZE, repoPage * PAGE_SIZE, repoSearch || undefined),
     { entries: [], has_more: false, total_pages: 1 },
@@ -88,38 +107,39 @@ export default function PackageManagement() {
     setRefreshKey((k) => k + 1)
   }
 
-  function installedVersion(name) {
-    for (const pkg of (installed || [])) {
-      if (pkg === name) return ''
-      if (pkg.startsWith(`${name}@`)) return pkg.slice(name.length + 1)
+  function installedVersion(repo, name) {
+    for (const inst of normalizedInstalled) {
+      if (inst.repo === repo && inst.name === name) return inst.version || ''
     }
     return null
   }
 
-  async function handleStartInstall(name, latestVersion) {
+  async function handleStartInstall(repo, name, latestVersion) {
     try {
       const versions = await getClient().listPackageVersions(name)
       if (versions && versions.length > 1) {
         setVersionSelectDialog({
           open: true,
+          repo,
           name,
           versions,
           selectedVersion: latestVersion,
         })
       } else {
-        await handleCheckVolumes(name, latestVersion)
+        await handleCheckVolumes(repo, name, latestVersion)
       }
     } catch (err) {
       toast.error(err.message)
     }
   }
 
-  async function handleCheckVolumes(name, version, importFromVersion) {
+  async function handleCheckVolumes(repo, name, version, importFromVersion) {
     try {
-      const volInfo = await getClient().listUninstalledVolumes(name)
+      const volInfo = await getClient().listUninstalledVolumes(repo, name)
       if (volInfo.has_uninstalled_volumes) {
         setVolumeReuseDialog({
           open: true,
+          repo,
           name,
           version,
           importFromVersion,
@@ -127,21 +147,21 @@ export default function PackageManagement() {
         })
         return
       }
-      await handleInstall(name, version, false, importFromVersion)
+      await handleInstall(repo, name, version, false, importFromVersion)
     } catch (err) {
-      await handleInstall(name, version, false, importFromVersion)
+      await handleInstall(repo, name, version, false, importFromVersion)
     }
   }
 
-  async function handleInstall(name, version, reuseVolumes = false, importFromVersion) {
+  async function handleInstall(repo, name, version, reuseVolumes = false, importFromVersion) {
     try {
       // Fetch questions for this specific package version.
-      const questions = await getClient().getPackageQuestionsByIdentity(name, version)
+      const questions = await getClient().getPackageQuestionsByIdentity(repo, name, version)
 
       // Get existing responses to use as defaults.
       let existingResponses = {}
       try {
-        existingResponses = await getClient().getResponses(name, version)
+        existingResponses = await getClient().getResponses(repo, name, version)
       } catch {
         // no existing responses
       }
@@ -149,6 +169,7 @@ export default function PackageManagement() {
       if (questions && Object.keys(questions).length > 0) {
         setQuestionsDialog({
           open: true,
+          repo,
           name,
           version,
           questions,
@@ -161,7 +182,7 @@ export default function PackageManagement() {
       }
 
       // No questions — install directly.
-      await getClient().installPackage(name, version, {}, reuseVolumes, importFromVersion)
+      await getClient().installPackage(repo, name, version, {}, reuseVolumes, importFromVersion)
       toast.success(`Package "${name}" installed`)
       doRefresh()
     } catch (err) {
@@ -169,10 +190,10 @@ export default function PackageManagement() {
     }
   }
 
-  async function handleShowInfo(name, version) {
+  async function handleShowInfo(repo, name, version) {
     try {
-      const info = await getClient().getInstalledInfo(name, version)
-      setInfoDialog({ open: true, name, version, ...info })
+      const info = await getClient().getInstalledInfo(repo, name, version)
+      setInfoDialog({ open: true, repo, name, version, ...info })
     } catch (err) {
       toast.error(err.message)
     }
@@ -188,6 +209,7 @@ export default function PackageManagement() {
 
     try {
       await getClient().installPackage(
+        questionsDialog.repo,
         questionsDialog.name,
         questionsDialog.version,
         responses,
@@ -216,6 +238,7 @@ export default function PackageManagement() {
   async function handleUninstall() {
     try {
       await getClient().uninstallPackage(
+        uninstallConfirm.repo,
         uninstallConfirm.name,
         uninstallConfirm.version,
         purgeVolumes,
@@ -285,6 +308,7 @@ export default function PackageManagement() {
   }
 
   const packageColumns = [
+    { key: 'repo', label: 'Repository' },
     { key: 'name', label: 'Name' },
     {
       key: 'version',
@@ -296,7 +320,7 @@ export default function PackageManagement() {
       label: '',
       sortable: false,
       transform: (_, row) => {
-        const instVer = installedVersion(row.name)
+        const instVer = installedVersion(row.repo, row.name)
         if (instVer === null) return null
         return (
           <Tooltip>
@@ -305,7 +329,7 @@ export default function PackageManagement() {
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0"
-                onClick={() => handleShowInfo(row.name, instVer || row.version)}
+                onClick={() => handleShowInfo(row.repo, row.name, instVer || row.version)}
               >
                 <Info className="h-3.5 w-3.5" />
               </Button>
@@ -320,7 +344,7 @@ export default function PackageManagement() {
       label: 'Status',
       sortable: false,
       transform: (_, row) => {
-        const instVer = installedVersion(row.name)
+        const instVer = installedVersion(row.repo, row.name)
         const isInst = instVer !== null
         const hasUpgrade = isInst && instVer !== '' && instVer !== row.version
         return (
@@ -331,7 +355,7 @@ export default function PackageManagement() {
                   <Badge
                     variant="outline"
                     className="cursor-pointer gap-1 text-blue-600 border-blue-600"
-                    onClick={() => handleStartInstall(row.name, row.version)}
+                    onClick={() => handleStartInstall(row.repo, row.name, row.version)}
                   >
                     <ArrowUpCircle className="h-3 w-3" />
                     Upgrade
@@ -351,11 +375,12 @@ export default function PackageManagement() {
                     if (isInst) {
                       setPurgeVolumes(false)
                       setUninstallConfirm({
+                        repo: row.repo,
                         name: row.name,
                         version: instVer || row.version,
                       })
                     } else {
-                      handleStartInstall(row.name, row.version)
+                      handleStartInstall(row.repo, row.name, row.version)
                     }
                   }}
                 >
@@ -452,15 +477,25 @@ export default function PackageManagement() {
     },
   ]
 
-  // Normalize packages: the backend may return either strings like "name@version"
-  // or objects with {name, version}. Handle both.
-  const normalizedPackages = packages.map((pkg) => {
-    if (typeof pkg === 'string') {
-      const [name, version] = pkg.split('@')
-      return { name, version: version || '' }
+  // Parse package identity strings: "repo/name@version" or legacy "name@version".
+  function parseIdentity(s) {
+    if (typeof s !== 'string') return s
+    const slashIdx = s.indexOf('/')
+    if (slashIdx > 0) {
+      const repo = s.slice(0, slashIdx)
+      const rest = s.slice(slashIdx + 1)
+      const [name, version] = rest.split('@')
+      return { repo, name, version: version || '' }
     }
-    return pkg
+    const [name, version] = s.split('@')
+    return { repo: '', name, version: version || '' }
+  }
+
+  const normalizedPackages = packages.map((pkg) => {
+    const p = parseIdentity(pkg)
+    return { ...p, _key: `${p.repo}/${p.name}` }
   })
+  const normalizedInstalled = (installed || []).map(parseIdentity)
 
   return (
     <div className="space-y-6">
@@ -476,37 +511,161 @@ export default function PackageManagement() {
           <TabsTrigger value="packages">Packages</TabsTrigger>
           <TabsTrigger value="repositories">Repositories</TabsTrigger>
         </TabsList>
-        <TabsContent value="packages" className="mt-4">
-          {pkgLoading && packages.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+        <TabsContent value="packages" className="mt-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={groupByRepo}
+                onChange={(e) => setGroupByRepo(e.target.checked)}
+                className="rounded border-input"
+              />
+              Group by repository
+            </label>
+            {groupByRepo && (
+              <Input
+                placeholder="Search packages..."
+                className="max-w-xs"
+                value={pkgSearch}
+                onChange={(e) => {
+                  setPkgSearch(e.target.value)
+                  setPkgPage(0)
+                }}
+              />
+            )}
+          </div>
+          {groupByRepo ? (
+            <div className="space-y-2">
+              {packagesByRepo.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">No packages found</div>
+              )}
+              {packagesByRepo.map((group, groupIdx) => {
+                const isExpanded = repoExpanded[group.repo] ?? (groupIdx === 0)
+                return (
+                  <div key={group.repo} className="rounded-md border">
+                    <Table>
+                      <TableBody>
+                        <TableRow
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => setRepoExpanded((prev) => ({
+                            ...prev,
+                            [group.repo]: !isExpanded,
+                          }))}
+                        >
+                          <TableCell className="font-medium" colSpan={4}>
+                            <div className="flex items-center gap-1">
+                              {isExpanded
+                                ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                              <FolderGit2 className="h-4 w-4 text-muted-foreground" />
+                              <span className="font-semibold">{group.repo}</span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                ({group.packages.length} package{group.packages.length !== 1 ? 's' : ''})
+                              </span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && group.packages.map((pkg) => {
+                          const instVer = installedVersion(pkg.repo, pkg.name)
+                          const isInst = instVer !== null
+                          const hasUpgrade = isInst && instVer !== '' && instVer !== pkg.version
+                          return (
+                            <TableRow key={`${pkg.repo}/${pkg.name}`}>
+                              <TableCell>
+                                <span className="font-mono text-sm pl-6">{pkg.name}</span>
+                              </TableCell>
+                              <TableCell>
+                                <span className="font-mono text-sm">{pkg.version}</span>
+                              </TableCell>
+                              <TableCell>
+                                {isInst && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0"
+                                    onClick={() => handleShowInfo(pkg.repo, pkg.name, instVer || pkg.version)}
+                                  >
+                                    <Info className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  {hasUpgrade && (
+                                    <Badge
+                                      variant="outline"
+                                      className="cursor-pointer gap-1 text-blue-600 border-blue-600"
+                                      onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
+                                    >
+                                      <ArrowUpCircle className="h-3 w-3" />
+                                      Upgrade
+                                    </Badge>
+                                  )}
+                                  <Badge
+                                    variant={isInst ? 'default' : 'secondary'}
+                                    className="cursor-pointer"
+                                    onClick={() => {
+                                      if (isInst) {
+                                        setPurgeVolumes(false)
+                                        setUninstallConfirm({
+                                          repo: pkg.repo,
+                                          name: pkg.name,
+                                          version: instVer || pkg.version,
+                                        })
+                                      } else {
+                                        handleStartInstall(pkg.repo, pkg.name, pkg.version)
+                                      }
+                                    }}
+                                  >
+                                    {isInst
+                                      ? (hasUpgrade ? `Installed (${instVer})` : 'Installed')
+                                      : 'Not Installed'}
+                                  </Badge>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <>
+              {pkgLoading && packages.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+              )}
+              <DataTable
+                data={normalizedPackages}
+                columns={packageColumns}
+                entryKey="_key"
+                page={pkgPage}
+                setPage={setPkgPage}
+                hasMore={pkgData.has_more}
+                totalPages={pkgData.total_pages}
+                totalCount={pkgData.total_count}
+                sortKey={pkgSortKey}
+                sortDirection={pkgSortDirection}
+                onSortChange={(key, dir) => {
+                  setPkgSortKey(key)
+                  setPkgSortDirection(dir)
+                  setPkgPage(0)
+                }}
+                onReset={() => {
+                  setPkgSortKey('name')
+                  setPkgSortDirection('asc')
+                  setPkgSearch('')
+                  setPkgPage(0)
+                }}
+                onSearchChange={(s) => {
+                  setPkgSearch(s)
+                  setPkgPage(0)
+                }}
+              />
+            </>
           )}
-          <DataTable
-            data={normalizedPackages}
-            columns={packageColumns}
-            entryKey="name"
-            page={pkgPage}
-            setPage={setPkgPage}
-            hasMore={pkgData.has_more}
-            totalPages={pkgData.total_pages}
-            totalCount={pkgData.total_count}
-            sortKey={pkgSortKey}
-            sortDirection={pkgSortDirection}
-            onSortChange={(key, dir) => {
-              setPkgSortKey(key)
-              setPkgSortDirection(dir)
-              setPkgPage(0)
-            }}
-            onReset={() => {
-              setPkgSortKey('name')
-              setPkgSortDirection('asc')
-              setPkgSearch('')
-              setPkgPage(0)
-            }}
-            onSearchChange={(s) => {
-              setPkgSearch(s)
-              setPkgPage(0)
-            }}
-          />
         </TabsContent>
         <TabsContent value="repositories" className="mt-4 space-y-4">
           <div className="flex justify-end gap-2">
@@ -747,11 +906,11 @@ export default function PackageManagement() {
             </Button>
             <Button
               onClick={() => {
-                const { name, selectedVersion } = versionSelectDialog
-                const instVer = installedVersion(name)
+                const { repo, name, selectedVersion } = versionSelectDialog
+                const instVer = installedVersion(repo, name)
                 const importFrom = (instVer && instVer !== selectedVersion) ? instVer : undefined
                 setVersionSelectDialog({ open: false })
-                handleCheckVolumes(name, selectedVersion, importFrom)
+                handleCheckVolumes(repo, name, selectedVersion, importFrom)
               }}
             >
               Install
@@ -793,24 +952,24 @@ export default function PackageManagement() {
             <Button
               variant="destructive"
               onClick={async () => {
-                const { name, version, importFromVersion } = volumeReuseDialog
+                const { repo, name, version, importFromVersion } = volumeReuseDialog
                 setVolumeReuseDialog({ open: false })
                 try {
-                  await getClient().purgeUninstalledVolumes(name)
+                  await getClient().purgeUninstalledVolumes(repo, name)
                 } catch (err) {
                   toast.error(err.message)
                   return
                 }
-                await handleInstall(name, version, false, importFromVersion)
+                await handleInstall(repo, name, version, false, importFromVersion)
               }}
             >
               Start Fresh
             </Button>
             <Button
               onClick={() => {
-                const { name, version, importFromVersion } = volumeReuseDialog
+                const { repo, name, version, importFromVersion } = volumeReuseDialog
                 setVolumeReuseDialog({ open: false })
-                handleInstall(name, version, true, importFromVersion)
+                handleInstall(repo, name, version, true, importFromVersion)
               }}
             >
               Reuse Data

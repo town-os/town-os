@@ -23,9 +23,9 @@ func scRepoCredentials() (string, string) {
 	return os.Getenv(packages.EnvRepoUsername), os.Getenv(packages.EnvRepoPassword)
 }
 
-func addRepoWithCreds(c *systemcontroller.SystemdClient, rawURL string) error {
+func addRepoWithCreds(c *systemcontroller.SystemdClient, name, rawURL string) error {
 	user, pass := scRepoCredentials()
-	return c.AddRepository(context.TODO(), "", rawURL, user, pass)
+	return c.AddRepository(context.TODO(), name, rawURL, user, pass)
 }
 
 func initSystemControllerTest(t *testing.T) *systemcontroller.SystemdClient {
@@ -282,7 +282,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemdClient 
 func TestSystemControllerAddAndListRepository(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("error adding repository: %v", err)
 	}
 
@@ -295,8 +295,8 @@ func TestSystemControllerAddAndListRepository(t *testing.T) {
 		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
 	}
 
-	if repos.Entries[0].Name != "test-packages-core" {
-		t.Fatalf("expected name %q, got %q", "test-packages-core", repos.Entries[0].Name)
+	if repos.Entries[0].Name != "core" {
+		t.Fatalf("expected name %q, got %q", "core", repos.Entries[0].Name)
 	}
 
 	if repos.Entries[0].URL != coreURL.String() {
@@ -307,11 +307,11 @@ func TestSystemControllerAddAndListRepository(t *testing.T) {
 func TestSystemControllerRemoveRepository(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("error adding repository: %v", err)
 	}
 
-	if err := c.RemoveRepository(context.TODO(), "test-packages-core"); err != nil {
+	if err := c.RemoveRepository(context.TODO(), "core"); err != nil {
 		t.Fatalf("error removing repository: %v", err)
 	}
 
@@ -328,11 +328,11 @@ func TestSystemControllerRemoveRepository(t *testing.T) {
 func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("error adding core: %v", err)
 	}
 
-	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
 		t.Fatalf("error adding extras: %v", err)
 	}
 
@@ -350,11 +350,11 @@ func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 		names[r.Name] = true
 	}
 
-	if !names["test-packages-core"] {
-		t.Fatal("expected test-packages-core in list")
+	if !names["core"] {
+		t.Fatal("expected core in list")
 	}
-	if !names["test-packages-extras"] {
-		t.Fatal("expected test-packages-extras in list")
+	if !names["extras"] {
+		t.Fatal("expected extras in list")
 	}
 }
 
@@ -374,14 +374,14 @@ func TestSystemControllerListRepositoriesEmpty(t *testing.T) {
 func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
-	if err := c.RemoveRepository(context.TODO(), "test-packages-core"); err != nil {
+	if err := c.RemoveRepository(context.TODO(), "core"); err != nil {
 		t.Fatalf("RemoveRepository core: %v", err)
 	}
 
@@ -394,8 +394,8 @@ func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
 		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
 	}
 
-	if repos.Entries[0].Name != "test-packages-extras" {
-		t.Fatalf("expected test-packages-extras to remain, got %q", repos.Entries[0].Name)
+	if repos.Entries[0].Name != "extras" {
+		t.Fatalf("expected extras to remain, got %q", repos.Entries[0].Name)
 	}
 
 	if repos.Entries[0].URL != extrasURL.String() {
@@ -520,7 +520,7 @@ func TestSystemControllerListPackagesEmpty(t *testing.T) {
 func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -534,14 +534,14 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 	}
 
 	// Results are sorted, latest version only.
-	if pkgs.Entries[0] != "demo-nginx@1.0" {
-		t.Fatalf("expected demo-nginx@1.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "core/demo-nginx@1.0" {
+		t.Fatalf("expected core/demo-nginx@1.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs.Entries[1] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1] != "core/nginx@2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s", pkgs.Entries[1])
 	}
-	if pkgs.Entries[2] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[2])
+	if pkgs.Entries[2] != "core/redis@7.0" {
+		t.Fatalf("expected core/redis@7.0, got %s", pkgs.Entries[2])
 	}
 
 	// Verify round-trip through ParsePackageIdentity.
@@ -559,10 +559,10 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -581,7 +581,7 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		pkgSet[p] = true
 	}
 
-	for _, want := range []string{"demo-nginx@1.0", "nginx@2.0", "redis@7.0", "mosquitto@2.0", "postgres@16.0"} {
+	for _, want := range []string{"core/demo-nginx@1.0", "core/nginx@2.0", "core/redis@7.0", "extras/mosquitto@2.0", "extras/postgres@16.0"} {
 		if !pkgSet[want] {
 			t.Fatalf("expected %s in package list", want)
 		}
@@ -598,15 +598,15 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
 	// Remove extras.
-	if err := c.RemoveRepository(context.TODO(), "test-packages-extras"); err != nil {
+	if err := c.RemoveRepository(context.TODO(), "extras"); err != nil {
 		t.Fatalf("RemoveRepository extras: %v", err)
 	}
 
@@ -620,14 +620,14 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 		t.Fatalf("expected 3 packages after removing extras, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs.Entries[0] != "demo-nginx@1.0" {
-		t.Fatalf("expected demo-nginx@1.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "core/demo-nginx@1.0" {
+		t.Fatalf("expected core/demo-nginx@1.0, got %s", pkgs.Entries[0])
 	}
-	if pkgs.Entries[1] != "nginx@2.0" {
-		t.Fatalf("expected nginx@2.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1] != "core/nginx@2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s", pkgs.Entries[1])
 	}
-	if pkgs.Entries[2] != "redis@7.0" {
-		t.Fatalf("expected redis@7.0, got %s", pkgs.Entries[2])
+	if pkgs.Entries[2] != "core/redis@7.0" {
+		t.Fatalf("expected core/redis@7.0, got %s", pkgs.Entries[2])
 	}
 }
 
@@ -636,7 +636,7 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 func TestSystemControllerGetPackageQuestions(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -673,10 +673,10 @@ func TestSystemControllerGetPackageQuestions(t *testing.T) {
 func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -696,7 +696,7 @@ func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
 func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -773,7 +773,7 @@ func initSystemControllerInstallSystemdTest(t *testing.T) (*systemcontroller.Sys
 func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -789,15 +789,15 @@ func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 	if len(pkgs.Entries) != 1 {
 		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
 	}
-	if pkgs.Entries[0] != "nginx@1.0" {
-		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "core/nginx@1.0" {
+		t.Fatalf("expected core/nginx@1.0, got %s", pkgs.Entries[0])
 	}
 }
 
 func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -806,7 +806,7 @@ func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
-	got, err := c.GetResponses(context.TODO(), "nginx", "1.0")
+	got, err := c.GetResponses(context.TODO(), "core", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetResponses: %v", err)
 	}
@@ -822,7 +822,7 @@ func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -851,7 +851,7 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	}
 
 	// Verify responses.
-	got, err := c.GetResponses(context.TODO(), "nginx", "2.0")
+	got, err := c.GetResponses(context.TODO(), "core", "nginx", "2.0")
 	if err != nil {
 		t.Fatalf("GetResponses: %v", err)
 	}
@@ -860,7 +860,7 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	}
 
 	// Uninstall.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "2.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "core", "nginx", "2.0", false); err != nil {
 		t.Fatalf("UninstallPackage: %v", err)
 	}
 
@@ -874,7 +874,7 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	}
 
 	// Verify responses gone.
-	_, err = c.GetResponses(context.TODO(), "nginx", "2.0")
+	_, err = c.GetResponses(context.TODO(), "core", "nginx", "2.0")
 	if err == nil {
 		t.Fatal("expected error getting responses after uninstall")
 	}
@@ -883,10 +883,10 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -906,7 +906,7 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 	}
 
 	// Each package has its own responses.
-	nginxResp, err := c.GetResponses(context.TODO(), "nginx", "1.0")
+	nginxResp, err := c.GetResponses(context.TODO(), "core", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetResponses nginx@1.0: %v", err)
 	}
@@ -914,7 +914,7 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 		t.Fatalf("expected nginx hostname %q, got %q", "alpha", nginxResp["hostname"])
 	}
 
-	redisResp, err := c.GetResponses(context.TODO(), "redis", "7.0")
+	redisResp, err := c.GetResponses(context.TODO(), "core", "redis", "7.0")
 	if err != nil {
 		t.Fatalf("GetResponses redis@7.0: %v", err)
 	}
@@ -936,10 +936,10 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 
 	// Add two repos
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("add core failed: %v", err)
 	}
-	if err := addRepoWithCreds(c, extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
 		t.Fatalf("add extras failed: %v", err)
 	}
 
@@ -953,7 +953,7 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 
 	// Remove one
-	if err := c.RemoveRepository(context.TODO(), "test-packages-core"); err != nil {
+	if err := c.RemoveRepository(context.TODO(), "core"); err != nil {
 		t.Fatalf("remove core failed: %v", err)
 	}
 
@@ -965,12 +965,12 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	if len(repos.Entries) != 1 {
 		t.Fatalf("expected 1 repository after remove, got %d", len(repos.Entries))
 	}
-	if repos.Entries[0].Name != "test-packages-extras" {
-		t.Fatalf("expected test-packages-extras to remain, got %q", repos.Entries[0].Name)
+	if repos.Entries[0].Name != "extras" {
+		t.Fatalf("expected extras to remain, got %q", repos.Entries[0].Name)
 	}
 
 	// Remove the last one
-	if err := c.RemoveRepository(context.TODO(), "test-packages-extras"); err != nil {
+	if err := c.RemoveRepository(context.TODO(), "extras"); err != nil {
 		t.Fatalf("remove extras failed: %v", err)
 	}
 
@@ -989,7 +989,7 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1008,8 +1008,8 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "town-os-nginx.service" {
-		t.Fatalf("call 0: expected unit %q, got %v", "town-os-nginx.service", calls[0].Args[0])
+	if calls[0].Args[0].(string) != "town-os-package--core-nginx-1.0.service" {
+		t.Fatalf("call 0: expected unit %q, got %v", "town-os-package--core-nginx-1.0.service", calls[0].Args[0])
 	}
 
 	// Last call should be Start for the service.
@@ -1025,7 +1025,7 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1033,7 +1033,7 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "core", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1069,7 +1069,7 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1086,8 +1086,8 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	if len(pkgs.Entries) != 1 {
 		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
 	}
-	if pkgs.Entries[0] != "nginx@1.0" {
-		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "core/nginx@1.0" {
+		t.Fatalf("expected core/nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
 	// Verify 7 systemd calls from install (nginx has 1 ext port, bridge mode).
@@ -1097,7 +1097,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	}
 
 	// Uninstall
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "core", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1121,7 +1121,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1145,16 +1145,16 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "town-os-nginx.service" {
-		t.Fatalf("call 0: expected unit %q, got %q", "town-os-nginx.service", calls[0].Args[0])
+	if calls[0].Args[0].(string) != "town-os-package--core-nginx-1.0.service" {
+		t.Fatalf("call 0: expected unit %q, got %q", "town-os-package--core-nginx-1.0.service", calls[0].Args[0])
 	}
 
 	// Redis service starts at index 7.
 	if calls[7].Method != "InstallUnit" {
 		t.Fatalf("call 7: expected InstallUnit, got %q", calls[7].Method)
 	}
-	if calls[7].Args[0].(string) != "town-os-redis.service" {
-		t.Fatalf("call 7: expected unit %q, got %q", "town-os-redis.service", calls[7].Args[0])
+	if calls[7].Args[0].(string) != "town-os-package--core-redis-7.0.service" {
+		t.Fatalf("call 7: expected unit %q, got %q", "town-os-package--core-redis-7.0.service", calls[7].Args[0])
 	}
 }
 
@@ -1194,14 +1194,14 @@ func initSystemControllerInstallRealSystemdTest(t *testing.T) *systemcontroller.
 func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	c := initSystemControllerInstallRealSystemdTest(t)
 
-	unitName := systemd.UnitName("nginx")
+	unitName := systemd.UnitName("core", "nginx", "1.0")
 	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName)
 
 	// Cleanup: unconditionally stop/disable/remove all units to prevent leaks.
 	t.Cleanup(func() {
 		cleanup := systemd.NewManager()
 		ctx := context.Background()
-		allUnits := systemd.PackageUnitNames("nginx", packages.PortMap{8080: 80}, packages.PortMap{})
+		allUnits := systemd.PackageUnitNames("core", "nginx", "1.0", packages.PortMap{8080: 80}, packages.PortMap{})
 		for _, name := range allUnits {
 			_ = cleanup.SetStatus(ctx, name, systemd.Stop)
 			_ = cleanup.SetStatus(ctx, name, systemd.Disable)
@@ -1210,7 +1210,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	})
 
 	// Add core repo.
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1227,12 +1227,12 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	if len(pkgs.Entries) != 1 {
 		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
 	}
-	if pkgs.Entries[0] != "nginx@1.0" {
-		t.Fatalf("expected nginx@1.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0] != "core/nginx@1.0" {
+		t.Fatalf("expected core/nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
 	// Verify the unit is active via ListUnits.
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-nginx"})
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-package--core-nginx"})
 	if err != nil {
 		t.Fatalf("ListUnits after install: %v", err)
 	}
@@ -1258,7 +1258,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	}
 
 	// Uninstall nginx@1.0.
-	if err := c.UninstallPackage(context.TODO(), "nginx", "1.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "core", "nginx", "1.0", false); err != nil {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1322,27 +1322,26 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 
 // cleanupContainerUnits unconditionally stops, disables, and removes all
 // systemd units for a package plus the podman container itself.
-func cleanupContainerUnits(pkgName string, external, internal packages.PortMap) {
+func cleanupContainerUnits(repo, pkgName, version string, external, internal packages.PortMap) {
 	cleanup := systemd.NewManager()
 	ctx := context.Background()
-	allUnits := systemd.PackageUnitNames(pkgName, external, internal)
+	allUnits := systemd.PackageUnitNames(repo, pkgName, version, external, internal)
 	for _, name := range allUnits {
 		_ = cleanup.SetStatus(ctx, name, systemd.Stop)
 		_ = cleanup.SetStatus(ctx, name, systemd.Disable)
 		_ = cleanup.UninstallUnit(ctx, name)
 	}
-	containerName := fmt.Sprintf("town-os-%s", pkgName)
+	containerName := systemd.ContainerName(repo, pkgName, version)
 	_ = exec.Command("podman", "stop", "-t", "10", containerName).Run()
 	_ = exec.Command("podman", "rm", "-f", containerName).Run()
 }
 
 // waitForContainer polls podman inspect until the container reaches "running"
-// state or the timeout expires. pkgName is the package name (e.g. "nginx");
-// the podman container name is "town-os-<pkgName>".
-func waitForContainer(t *testing.T, pkgName string, timeout time.Duration) {
+// state or the timeout expires.
+func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.Duration) {
 	t.Helper()
-	containerName := fmt.Sprintf("town-os-%s", pkgName)
-	unitName := fmt.Sprintf("town-os-%s.service", pkgName)
+	containerName := systemd.ContainerName(repo, pkgName, version)
+	unitName := systemd.UnitName(repo, pkgName, version)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		out, err := exec.Command("podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
@@ -1360,11 +1359,11 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	c := initSystemControllerRealContainerTest(t)
 
 	t.Cleanup(func() {
-		cleanupContainerUnits("redis", packages.PortMap{}, packages.PortMap{6379: 6379})
+		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{6379: 6379})
 	})
 
 	// Add core repo.
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1377,15 +1376,16 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Wait for the container to start (includes image pull).
-	waitForContainer(t, "redis", 180*time.Second)
+	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
 
 	// Verify the systemd unit is active.
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "town-os-redis"})
+	containerName := systemd.ContainerName("core", "redis", "7.0")
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: containerName})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
 
-	unitName := systemd.UnitName("redis")
+	unitName := systemd.UnitName("core", "redis", "7.0")
 	var found bool
 	for _, u := range units.Entries {
 		if u.Name == unitName {
@@ -1403,7 +1403,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	// Verify port 6379 is accessible via TCP from the host.
 	conn, err := net.DialTimeout("tcp", "127.0.0.1:6379", 10*time.Second)
 	if err != nil {
-		logs, _ := exec.Command("podman", "logs", "--tail", "20", "town-os-redis").CombinedOutput()
+		logs, _ := exec.Command("podman", "logs", "--tail", "20", containerName).CombinedOutput()
 		t.Fatalf("TCP connect to redis on port 6379 failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
@@ -1411,23 +1411,23 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify podman container is listed.
-	out, err := exec.Command("podman", "ps", "--filter", "name=town-os-redis", "--format", "{{.Names}}").Output()
+	out, err := exec.Command("podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output()
 	if err != nil {
 		t.Fatalf("podman ps: %v", err)
 	}
-	if !strings.Contains(string(out), "town-os-redis") {
-		t.Fatalf("expected town-os-redis in podman ps output, got: %s", string(out))
+	if !strings.Contains(string(out), containerName) {
+		t.Fatalf("expected %s in podman ps output, got: %s", containerName, string(out))
 	}
 
 	// Uninstall redis@7.0.
-	if err := c.UninstallPackage(context.TODO(), "redis", "7.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "core", "redis", "7.0", false); err != nil {
 		t.Fatalf("UninstallPackage redis@7.0: %v", err)
 	}
 
 	// Wait for the container to stop.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		inspectOut, inspectErr := exec.Command("podman", "inspect", "--format", "{{.State.Status}}", "town-os-redis").Output()
+		inspectOut, inspectErr := exec.Command("podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
 		if inspectErr != nil || strings.TrimSpace(string(inspectOut)) != "running" {
 			break
 		}
@@ -1441,9 +1441,9 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify the container is no longer running.
-	out, err = exec.Command("podman", "ps", "--filter", "name=town-os-redis", "--format", "{{.Names}}").Output()
-	if err == nil && strings.Contains(string(out), "town-os-redis") {
-		t.Fatal("expected town-os-redis not in podman ps after uninstall")
+	out, err = exec.Command("podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output()
+	if err == nil && strings.Contains(string(out), containerName) {
+		t.Fatalf("expected %s not in podman ps after uninstall", containerName)
 	}
 
 	// Verify port 6379 is no longer accessible.
@@ -1458,11 +1458,11 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	c := initSystemControllerRealContainerTest(t)
 
 	t.Cleanup(func() {
-		cleanupContainerUnits("redis", packages.PortMap{}, packages.PortMap{6379: 6379})
+		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{6379: 6379})
 	})
 
 	// Add core repo.
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1474,7 +1474,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
-	waitForContainer(t, "redis", 180*time.Second)
+	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
 
 	// Reinstall with the same version (same-version reinstall path).
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
@@ -1485,7 +1485,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	// Wait for the new container to come up.
-	waitForContainer(t, "redis", 180*time.Second)
+	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
 
 	// Verify installed list still shows redis@7.0.
 	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
@@ -1495,18 +1495,18 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 
 	var foundRedis bool
 	for _, entry := range pkgs.Entries {
-		if entry == "redis@7.0" {
+		if entry == "core/redis@7.0" {
 			foundRedis = true
 		}
 	}
 	if !foundRedis {
-		t.Fatalf("expected redis@7.0 in installed list, got: %v", pkgs.Entries)
+		t.Fatalf("expected core/redis@7.0 in installed list, got: %v", pkgs.Entries)
 	}
 
 	// Verify port 6379 is accessible via TCP after reinstall.
 	conn, err := net.DialTimeout("tcp", "127.0.0.1:6379", 10*time.Second)
 	if err != nil {
-		logs, _ := exec.Command("podman", "logs", "--tail", "20", "town-os-redis").CombinedOutput()
+		logs, _ := exec.Command("podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
 		t.Fatalf("TCP connect to redis after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
@@ -1514,7 +1514,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	// Uninstall.
-	if err := c.UninstallPackage(context.TODO(), "redis", "7.0", false); err != nil {
+	if err := c.UninstallPackage(context.TODO(), "core", "redis", "7.0", false); err != nil {
 		t.Fatalf("UninstallPackage redis@7.0: %v", err)
 	}
 }
@@ -2045,9 +2045,9 @@ func TestSystemControllerSystemdSetUnitStatusMultipleUnits(t *testing.T) {
 func TestSystemControllerPingUnitCountsFiltersTownOS(t *testing.T) {
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
-		{Name: "town-os-nginx.service", ActiveState: "active"},
-		{Name: "town-os-redis.service", ActiveState: "active"},
-		{Name: "town-os-postgres.service", ActiveState: "failed"},
+		{Name: "town-os-package--core-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--core-redis-7.0.service", ActiveState: "active"},
+		{Name: "town-os-package--extras-postgres-16.0.service", ActiveState: "failed"},
 		{Name: "sshd.service", ActiveState: "active"},
 		{Name: "systemd-journald.service", ActiveState: "active"},
 	}
@@ -2322,8 +2322,8 @@ func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
 func TestSystemControllerPurgeVolumes(t *testing.T) {
 	c, btr := initSystemControllerTestWithStorage(t)
 
-	// Simulate package "sc-purge" with two child volumes via direct storage.
-	children := []string{"installed/sc-purge/data", "installed/sc-purge/logs"}
+	// Simulate package "test-repo/sc-purge" with two child volumes via direct storage.
+	children := []string{"installed/test-repo/sc-purge/data", "installed/test-repo/sc-purge/logs"}
 	for _, name := range children {
 		if err := btr.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
@@ -2335,11 +2335,11 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 		for i := len(children) - 1; i >= 0; i-- {
 			_ = btr.RemoveFilesystem(children[i])
 		}
-		_ = btr.RemoveFilesystem("installed/sc-purge")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-purge")
 	})
 
 	// Verify children exist via direct storage.
-	list, err := btr.ListFilesystems("installed/sc-purge/")
+	list, err := btr.ListFilesystems("installed/test-repo/sc-purge/")
 	if err != nil {
 		t.Fatalf("ListFilesystems before purge: %v", err)
 	}
@@ -2347,13 +2347,13 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 		t.Fatalf("expected 2 filesystems before purge, got %d", len(list))
 	}
 
-	// Purge all volumes for "sc-purge".
-	if err := c.PurgeVolumes(context.TODO(), "sc-purge"); err != nil {
+	// Purge all volumes for "test-repo/sc-purge".
+	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-purge"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
 	// Verify all children are gone.
-	list, err = btr.ListFilesystems("installed/sc-purge/")
+	list, err = btr.ListFilesystems("installed/test-repo/sc-purge/")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2362,7 +2362,7 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 	}
 
 	// Verify the parent intermediate is also gone.
-	list, err = btr.ListFilesystems("installed/sc-purge")
+	list, err = btr.ListFilesystems("installed/test-repo/sc-purge")
 	if err != nil {
 		t.Fatalf("ListFilesystems parent after purge: %v", err)
 	}
@@ -2375,40 +2375,40 @@ func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	// Create two packages with similar prefixes via direct storage.
-	if err := btr.CreateFilesystem(storage.Filesystem{Name: "installed/sc-pfx/data"}); err != nil {
-		t.Fatalf("CreateFilesystem packages/sc-pfx/data: %v", err)
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: "installed/test-repo/sc-pfx/data"}); err != nil {
+		t.Fatalf("CreateFilesystem test-repo/sc-pfx/data: %v", err)
 	}
-	if err := btr.CreateFilesystem(storage.Filesystem{Name: "installed/sc-pfx2/data"}); err != nil {
-		t.Fatalf("CreateFilesystem packages/sc-pfx2/data: %v", err)
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: "installed/test-repo/sc-pfx2/data"}); err != nil {
+		t.Fatalf("CreateFilesystem test-repo/sc-pfx2/data: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = btr.RemoveFilesystem("installed/sc-pfx/data")
-		_ = btr.RemoveFilesystem("installed/sc-pfx")
-		_ = btr.RemoveFilesystem("installed/sc-pfx2/data")
-		_ = btr.RemoveFilesystem("installed/sc-pfx2")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx/data")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx2/data")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx2")
 	})
 
 	// Purge "sc-pfx" only.
-	if err := c.PurgeVolumes(context.TODO(), "sc-pfx"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-pfx"); err != nil {
 		t.Fatalf("PurgeVolumes sc-pfx: %v", err)
 	}
 
 	// sc-pfx should be gone.
-	list, err := btr.ListFilesystems("installed/sc-pfx/")
+	list, err := btr.ListFilesystems("installed/test-repo/sc-pfx/")
 	if err != nil {
-		t.Fatalf("ListFilesystems installed/sc-pfx/: %v", err)
+		t.Fatalf("ListFilesystems installed/test-repo/sc-pfx/: %v", err)
 	}
 	if len(list) != 0 {
-		t.Fatalf("expected 0 filesystems for installed/sc-pfx/, got %d", len(list))
+		t.Fatalf("expected 0 filesystems for installed/test-repo/sc-pfx/, got %d", len(list))
 	}
 
 	// sc-pfx2 should survive.
-	list, err = btr.ListFilesystems("installed/sc-pfx2/")
+	list, err = btr.ListFilesystems("installed/test-repo/sc-pfx2/")
 	if err != nil {
-		t.Fatalf("ListFilesystems installed/sc-pfx2/: %v", err)
+		t.Fatalf("ListFilesystems installed/test-repo/sc-pfx2/: %v", err)
 	}
 	if len(list) != 1 {
-		t.Fatalf("expected 1 filesystem for installed/sc-pfx2/, got %d", len(list))
+		t.Fatalf("expected 1 filesystem for installed/test-repo/sc-pfx2/, got %d", len(list))
 	}
 }
 
@@ -2416,10 +2416,10 @@ func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	names := []string{
-		"installed/sc-dpurge/a",
-		"installed/sc-dpurge/a/b",
-		"installed/sc-dpurge/a/b/c",
-		"installed/sc-dpurge/a/b/c/d",
+		"installed/test-repo/sc-dpurge/a",
+		"installed/test-repo/sc-dpurge/a/b",
+		"installed/test-repo/sc-dpurge/a/b/c",
+		"installed/test-repo/sc-dpurge/a/b/c/d",
 	}
 	for _, name := range names {
 		if err := btr.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
@@ -2430,14 +2430,14 @@ func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
 		for i := len(names) - 1; i >= 0; i-- {
 			_ = btr.RemoveFilesystem(names[i])
 		}
-		_ = btr.RemoveFilesystem("installed/sc-dpurge")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-dpurge")
 	})
 
-	if err := c.PurgeVolumes(context.TODO(), "sc-dpurge"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-dpurge"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	list, err := btr.ListFilesystems("installed/sc-dpurge")
+	list, err := btr.ListFilesystems("installed/test-repo/sc-dpurge")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2458,7 +2458,7 @@ func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
 	})
 
 	// Purge a package that doesn't exist — should succeed.
-	if err := c.PurgeVolumes(context.TODO(), "sc-nonexistent"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-nonexistent"); err != nil {
 		t.Fatalf("PurgeVolumes nonexistent: %v", err)
 	}
 
@@ -2476,8 +2476,8 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	children := []storage.Filesystem{
-		{Name: "installed/sc-pq/data", Quota: 1048576},
-		{Name: "installed/sc-pq/logs", Quota: 2097152},
+		{Name: "installed/test-repo/sc-pq/data", Quota: 1048576},
+		{Name: "installed/test-repo/sc-pq/logs", Quota: 2097152},
 	}
 	for _, f := range children {
 		if err := btr.CreateFilesystem(f); err != nil {
@@ -2488,11 +2488,11 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 		for i := len(children) - 1; i >= 0; i-- {
 			_ = btr.RemoveFilesystem(children[i].Name)
 		}
-		_ = btr.RemoveFilesystem("installed/sc-pq")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-pq")
 	})
 
 	// Verify quotas exist before purge via direct storage.
-	list, err := btr.ListFilesystems("installed/sc-pq/")
+	list, err := btr.ListFilesystems("installed/test-repo/sc-pq/")
 	if err != nil {
 		t.Fatalf("ListFilesystems before purge: %v", err)
 	}
@@ -2505,11 +2505,11 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 		}
 	}
 
-	if err := c.PurgeVolumes(context.TODO(), "sc-pq"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-pq"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	list, err = btr.ListFilesystems("installed/sc-pq")
+	list, err = btr.ListFilesystems("installed/test-repo/sc-pq")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2522,11 +2522,11 @@ func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	names := []string{
-		"installed/sc-pmulti/alpha",
-		"installed/sc-pmulti/bravo",
-		"installed/sc-pmulti/charlie",
-		"installed/sc-pmulti/delta",
-		"installed/sc-pmulti/echo",
+		"installed/test-repo/sc-pmulti/alpha",
+		"installed/test-repo/sc-pmulti/bravo",
+		"installed/test-repo/sc-pmulti/charlie",
+		"installed/test-repo/sc-pmulti/delta",
+		"installed/test-repo/sc-pmulti/echo",
 	}
 	for _, name := range names {
 		if err := btr.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
@@ -2537,14 +2537,14 @@ func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
 		for i := len(names) - 1; i >= 0; i-- {
 			_ = btr.RemoveFilesystem(names[i])
 		}
-		_ = btr.RemoveFilesystem("installed/sc-pmulti")
+		_ = btr.RemoveFilesystem("installed/test-repo/sc-pmulti")
 	})
 
-	if err := c.PurgeVolumes(context.TODO(), "sc-pmulti"); err != nil {
+	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-pmulti"); err != nil {
 		t.Fatalf("PurgeVolumes: %v", err)
 	}
 
-	list, err := btr.ListFilesystems("installed/sc-pmulti")
+	list, err := btr.ListFilesystems("installed/test-repo/sc-pmulti")
 	if err != nil {
 		t.Fatalf("ListFilesystems after purge: %v", err)
 	}
@@ -2789,7 +2789,7 @@ func TestReconcileAfterInstall(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	// Add a repository and install a package via the API.
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -2831,8 +2831,8 @@ func TestReconcileAfterInstall(t *testing.T) {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
 	unitName := calls[0].Args[0].(string)
-	if unitName != "town-os-nginx.service" {
-		t.Fatalf("expected unit town-os-nginx.service, got %s", unitName)
+	if unitName != "town-os-package--core-nginx-1.0.service" {
+		t.Fatalf("expected unit town-os-package--core-nginx-1.0.service, got %s", unitName)
 	}
 
 	// Last call should be Start for the service.
@@ -2846,15 +2846,15 @@ func TestReconcileAfterInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
-	if len(pkgs.Entries) != 1 || pkgs.Entries[0] != "nginx@1.0" {
-		t.Fatalf("expected [nginx@1.0], got %v", pkgs.Entries)
+	if len(pkgs.Entries) != 1 || pkgs.Entries[0] != "core/nginx@1.0" {
+		t.Fatalf("expected [core/nginx@1.0], got %v", pkgs.Entries)
 	}
 }
 
 func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -2891,7 +2891,7 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 func TestReconcilePreservesResponses(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -2913,7 +2913,7 @@ func TestReconcilePreservesResponses(t *testing.T) {
 	}
 
 	// Verify responses are still accessible via the API.
-	resp, err := c.GetResponses(context.TODO(), "nginx", "1.0")
+	resp, err := c.GetResponses(context.TODO(), "core", "nginx", "1.0")
 	if err != nil {
 		t.Fatalf("GetResponses: %v", err)
 	}
@@ -2967,7 +2967,7 @@ func initSystemControllerInstallSystemdTestWithNetworkMode(t *testing.T, network
 func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -2984,7 +2984,7 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-redis.service" {
+			if name == "town-os-package--core-redis-7.0.service" {
 				serviceContent = call.Args[1].(string)
 				break
 			}
@@ -2992,7 +2992,7 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 	}
 
 	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-redis.service")
+		t.Fatal("expected InstallUnit call for town-os-package--core-redis-7.0.service")
 	}
 
 	// Verify command args appear after the image name.
@@ -3020,7 +3020,7 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3038,7 +3038,7 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-redis.service" {
+			if name == "town-os-package--core-redis-7.0.service" {
 				serviceContent = call.Args[1].(string)
 				break
 			}
@@ -3046,7 +3046,7 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	}
 
 	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-redis.service")
+		t.Fatal("expected InstallUnit call for town-os-package--core-redis-7.0.service")
 	}
 
 	// Verify --net host is present.
@@ -3081,7 +3081,7 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3098,7 +3098,7 @@ func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-nginx.service" {
+			if name == "town-os-package--core-nginx-1.0.service" {
 				serviceContent = call.Args[1].(string)
 				break
 			}
@@ -3106,7 +3106,7 @@ func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 	}
 
 	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-nginx.service")
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service")
 	}
 
 	// Nginx has no command field, so command args should not appear after the image.
@@ -3122,7 +3122,7 @@ func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3140,7 +3140,7 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-nginx.service" {
+			if name == "town-os-package--core-nginx-1.0.service" {
 				serviceContent = call.Args[1].(string)
 				break
 			}
@@ -3148,7 +3148,7 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	}
 
 	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-nginx.service")
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service")
 	}
 
 	// Verify --net host is present and -p is not.
@@ -3164,14 +3164,14 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-nginx-fwd-8080-tcp.service" {
+			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" {
 				fwdContent = call.Args[1].(string)
 				break
 			}
 		}
 	}
 	if fwdContent == "" {
-		t.Fatal("expected InstallUnit call for forwarder unit town-os-nginx-fwd-8080-tcp.service")
+		t.Fatal("expected InstallUnit call for forwarder unit town-os-package--core-nginx-1.0-fwd-8080-tcp.service")
 	}
 	if !strings.Contains(fwdContent, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
 		t.Fatalf("forwarder unit missing socat command, got:\n%s", fwdContent)
@@ -3181,7 +3181,7 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3199,22 +3199,22 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-nginx-fwd-8080-tcp.service" {
+			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" {
 				fwdContent = call.Args[1].(string)
 				break
 			}
 		}
 	}
 	if fwdContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-nginx-fwd-8080-tcp.service")
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0-fwd-8080-tcp.service")
 	}
-	if !strings.Contains(fwdContent, "Description=Town OS Port Forwarder: nginx 8080->80/tcp") {
+	if !strings.Contains(fwdContent, "Description=Town OS Port Forwarder: core/nginx@1.0 8080->80/tcp") {
 		t.Fatalf("forwarder missing description, got:\n%s", fwdContent)
 	}
-	if !strings.Contains(fwdContent, "BindsTo=town-os-nginx.service") {
+	if !strings.Contains(fwdContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
 		t.Fatalf("forwarder missing BindsTo, got:\n%s", fwdContent)
 	}
-	if !strings.Contains(fwdContent, "After=town-os-nginx.service") {
+	if !strings.Contains(fwdContent, "After=town-os-package--core-nginx-1.0.service") {
 		t.Fatalf("forwarder missing After, got:\n%s", fwdContent)
 	}
 	if !strings.Contains(fwdContent, "ExecStart=/usr/bin/socat TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
@@ -3227,7 +3227,7 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 		if call.Method == "SetStatus" {
 			name := call.Args[0].(string)
 			action := call.Args[1].(systemd.StatusAction)
-			if name == "town-os-nginx-fwd-8080-tcp.service" && action == systemd.Enable {
+			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" && action == systemd.Enable {
 				fwdEnabled = true
 				break
 			}
@@ -3242,16 +3242,16 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-nginx.service" {
+			if name == "town-os-package--core-nginx-1.0.service" {
 				serviceContent = call.Args[1].(string)
 				break
 			}
 		}
 	}
 	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-nginx.service")
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service")
 	}
-	if !strings.Contains(serviceContent, "Wants=town-os-nginx-fwd-8080-tcp.service") {
+	if !strings.Contains(serviceContent, "Wants=town-os-package--core-nginx-1.0-fwd-8080-tcp.service") {
 		t.Fatalf("service unit missing Wants for forwarder, got:\n%s", serviceContent)
 	}
 
@@ -3260,14 +3260,14 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-nginx-upnp.service" {
+			if name == "town-os-package--core-nginx-1.0-upnp.service" {
 				upnpContent = call.Args[1].(string)
 				break
 			}
 		}
 	}
 	if upnpContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-nginx-upnp.service")
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0-upnp.service")
 	}
 	if !strings.Contains(upnpContent, "--port 8080:8080") {
 		t.Fatalf("UPnP should use --port 8080:8080 in host mode, got:\n%s", upnpContent)
@@ -3280,7 +3280,7 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 func TestReconcileWithNetworkMode(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3311,7 +3311,7 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-redis.service" {
+			if name == "town-os-package--core-redis-7.0.service" {
 				serviceContent = call.Args[1].(string)
 				break
 			}
@@ -3319,7 +3319,7 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 	}
 
 	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-redis.service after reconcile")
+		t.Fatal("expected InstallUnit call for town-os-package--core-redis-7.0.service after reconcile")
 	}
 
 	// Verify --net host and command args after reconcile.
@@ -3347,7 +3347,7 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 func TestReconcileWithNetworkModeNginxForwarder(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3379,7 +3379,7 @@ func TestReconcileWithNetworkModeNginxForwarder(t *testing.T) {
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-nginx-fwd-8080-tcp.service" {
+			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" {
 				fwdContent = call.Args[1].(string)
 				break
 			}
@@ -3398,7 +3398,7 @@ func TestReconcileWithNetworkModeNginxForwarder(t *testing.T) {
 		if call.Method == "SetStatus" {
 			name := call.Args[0].(string)
 			action := call.Args[1].(systemd.StatusAction)
-			if name == "town-os-nginx-fwd-8080-tcp.service" && action == systemd.Enable {
+			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" && action == systemd.Enable {
 				fwdEnabled = true
 				break
 			}
@@ -3659,5 +3659,117 @@ func TestBootstrapPingNeedsSetup(t *testing.T) {
 	}
 	if ping.NeedsSetup {
 		t.Fatal("expected needs_setup=false with active admin session")
+	}
+}
+
+// --- Multi-repo integration tests ---
+
+func TestSystemControllerMultiRepoListInstalled(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	// Install nginx from core and mosquitto from extras.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage mosquitto@2.0: %v", err)
+	}
+
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 installed, got %d", len(pkgs.Entries))
+	}
+
+	found := map[string]bool{}
+	for _, p := range pkgs.Entries {
+		found[p] = true
+	}
+	if !found["core/nginx@1.0"] {
+		t.Fatalf("expected core/nginx@1.0 in installed list, got %v", pkgs.Entries)
+	}
+	if !found["extras/mosquitto@2.0"] {
+		t.Fatalf("expected extras/mosquitto@2.0 in installed list, got %v", pkgs.Entries)
+	}
+}
+
+func TestSystemControllerListPackagesByRepoIntegration(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	groups, err := c.ListPackagesByRepo(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListPackagesByRepo: %v", err)
+	}
+
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
+	}
+
+	// Highest-precedence repo (extras, last added) comes first.
+	if groups[0].Repo != "extras" {
+		t.Fatalf("expected first group to be extras, got %s", groups[0].Repo)
+	}
+	if groups[1].Repo != "core" {
+		t.Fatalf("expected second group to be core, got %s", groups[1].Repo)
+	}
+
+	// Extras has mosquitto and postgres.
+	if len(groups[0].Packages) != 2 {
+		t.Fatalf("expected 2 packages in extras, got %d", len(groups[0].Packages))
+	}
+	// Core has demo-nginx, nginx, redis.
+	if len(groups[1].Packages) != 3 {
+		t.Fatalf("expected 3 packages in core, got %d", len(groups[1].Packages))
+	}
+}
+
+func TestSystemControllerMultiRepoUninstallIsolation(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+		t.Fatalf("AddRepository extras: %v", err)
+	}
+
+	// Install from both repos.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage mosquitto@2.0: %v", err)
+	}
+
+	// Uninstall only core/nginx.
+	if err := c.UninstallPackage(context.TODO(), "core", "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage core/nginx: %v", err)
+	}
+
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled after uninstall: %v", err)
+	}
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed after uninstall, got %d", len(pkgs.Entries))
+	}
+	if pkgs.Entries[0] != "extras/mosquitto@2.0" {
+		t.Fatalf("expected extras/mosquitto@2.0, got %s", pkgs.Entries[0])
 	}
 }

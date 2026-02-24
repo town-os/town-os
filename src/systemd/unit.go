@@ -11,6 +11,7 @@ import (
 // PackageUnitConfig holds all the information needed to generate systemd units
 // for a package's podman container service.
 type PackageUnitConfig struct {
+	RepoName    string
 	PkgName     string
 	Version     string
 	Image       string
@@ -108,11 +109,12 @@ func forwardedPorts(external, internal packages.PortMap) []portPair {
 	return pairs
 }
 
-func generateForwarderUnit(pkgName string, extPort, intPort uint16) UnitFile {
+func generateForwarderUnit(cfg PackageUnitConfig, extPort, intPort uint16) UnitFile {
+	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
 	content := fmt.Sprintf(`[Unit]
-Description=Town OS Port Forwarder: %s %d->%d/tcp
-BindsTo=town-os-%s.service
-After=town-os-%s.service
+Description=Town OS Port Forwarder: %s/%s@%s %d->%d/tcp
+BindsTo=%s
+After=%s
 
 [Service]
 Type=simple
@@ -121,10 +123,10 @@ Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-`, pkgName, extPort, intPort, pkgName, pkgName, extPort, intPort)
+`, cfg.RepoName, cfg.PkgName, cfg.Version, extPort, intPort, svcName, svcName, extPort, intPort)
 
 	return UnitFile{
-		Name:    ForwarderUnitName(pkgName, extPort),
+		Name:    ForwarderUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, extPort),
 		Content: content,
 	}
 }
@@ -151,7 +153,7 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	if hasPorts {
 		units.Sockets = make([]UnitFile, len(ports))
 		for i, port := range ports {
-			units.Sockets[i] = generateSocketUnit(cfg.PkgName, port)
+			units.Sockets[i] = generateSocketUnit(cfg, port)
 		}
 	}
 
@@ -159,7 +161,7 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	if len(fwdPairs) > 0 {
 		units.Forwarders = make([]UnitFile, len(fwdPairs))
 		for i, p := range fwdPairs {
-			units.Forwarders[i] = generateForwarderUnit(cfg.PkgName, p.ext, p.int_)
+			units.Forwarders[i] = generateForwarderUnit(cfg, p.ext, p.int_)
 		}
 	}
 
@@ -167,7 +169,7 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	if hasExternalPorts {
 		svc := generateUPnPServiceUnit(cfg)
 		units.UPnPService = &svc
-		tmr := generateUPnPTimerUnit(cfg.PkgName)
+		tmr := generateUPnPTimerUnit(cfg)
 		units.UPnPTimer = &tmr
 	}
 
@@ -177,28 +179,30 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts bool, fwdPairs []portPair) UnitFile {
 	var b strings.Builder
 
+	containerName := ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
+
 	// [Unit]
 	b.WriteString("[Unit]\n")
-	b.WriteString(fmt.Sprintf("Description=Town OS Package Service: %s@%s\n", cfg.PkgName, cfg.Version))
+	b.WriteString(fmt.Sprintf("Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
 	if hasExternalPorts {
-		b.WriteString(fmt.Sprintf("Wants=%s\n", UPnPTimerUnitName(cfg.PkgName)))
+		b.WriteString(fmt.Sprintf("Wants=%s\n", UPnPTimerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)))
 	}
 	for _, p := range fwdPairs {
-		b.WriteString(fmt.Sprintf("Wants=%s\n", ForwarderUnitName(cfg.PkgName, p.ext)))
+		b.WriteString(fmt.Sprintf("Wants=%s\n", ForwarderUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p.ext)))
 	}
 	b.WriteString("After=network-online.target\n")
 
 	// [Service]
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=simple\n")
-	b.WriteString(fmt.Sprintf("ExecStartPre=-/usr/bin/podman stop -t 10 town-os-%s\n", cfg.PkgName))
-	b.WriteString(fmt.Sprintf("ExecStartPre=-/usr/bin/podman rm -f town-os-%s\n", cfg.PkgName))
+	b.WriteString(fmt.Sprintf("ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName))
+	b.WriteString(fmt.Sprintf("ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName))
 
 	// Stop socket units to free ports before podman binds via -p.
 	if len(ports) > 0 {
 		socketNames := make([]string, len(ports))
 		for i, p := range ports {
-			socketNames[i] = SocketUnitName(cfg.PkgName, p)
+			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
 		}
 		b.WriteString(fmt.Sprintf("ExecStartPre=-/bin/systemctl stop %s\n", strings.Join(socketNames, " ")))
 	}
@@ -213,7 +217,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	}
 
 	// ExecStart: podman run with network configuration.
-	b.WriteString(fmt.Sprintf("ExecStart=/usr/bin/podman run --name town-os-%s --systemd=true", cfg.PkgName))
+	b.WriteString(fmt.Sprintf("ExecStart=/usr/bin/podman run --name %s --systemd=true", containerName))
 
 	if cfg.NetworkMode == "host" {
 		b.WriteString(" --net host")
@@ -241,7 +245,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	sort.Strings(volNames)
 	for _, name := range volNames {
 		vol := cfg.Volumes[name]
-		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s", cfg.BtrfsBase, cfg.PkgName, cfg.Version, name)
+		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
 		b.WriteString(fmt.Sprintf(" \\\n  -v %s:%s:rw,z", hostPath, vol.Mountpoint))
 	}
 
@@ -256,7 +260,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	}
 
 	// ExecStop
-	b.WriteString(fmt.Sprintf("ExecStop=/usr/bin/podman stop -t 10 town-os-%s\n", cfg.PkgName))
+	b.WriteString(fmt.Sprintf("ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName))
 
 	// Firewall: close ports.
 	if len(ports) > 0 {
@@ -271,7 +275,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	if len(ports) > 0 {
 		socketNames := make([]string, len(ports))
 		for i, p := range ports {
-			socketNames[i] = SocketUnitName(cfg.PkgName, p)
+			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
 		}
 		b.WriteString(fmt.Sprintf("ExecStopPost=-/bin/systemctl start %s\n", strings.Join(socketNames, " ")))
 	}
@@ -283,15 +287,16 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	b.WriteString("WantedBy=multi-user.target\n")
 
 	return UnitFile{
-		Name:    UnitName(cfg.PkgName),
+		Name:    UnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
 		Content: b.String(),
 	}
 }
 
-func generateSocketUnit(pkgName string, port uint16) UnitFile {
+func generateSocketUnit(cfg PackageUnitConfig, port uint16) UnitFile {
+	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
 	content := fmt.Sprintf(`[Unit]
-Description=Town OS Socket: %s port %d/tcp
-PartOf=town-os-%s.service
+Description=Town OS Socket: %s/%s@%s port %d/tcp
+PartOf=%s
 
 [Socket]
 ListenStream=%d
@@ -299,19 +304,20 @@ FreeBind=true
 
 [Install]
 WantedBy=sockets.target
-`, pkgName, port, pkgName, port)
+`, cfg.RepoName, cfg.PkgName, cfg.Version, port, svcName, port)
 
 	return UnitFile{
-		Name:    SocketUnitName(pkgName, port),
+		Name:    SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, port),
 		Content: content,
 	}
 }
 
-func generateUPnPTimerUnit(pkgName string) UnitFile {
+func generateUPnPTimerUnit(cfg PackageUnitConfig) UnitFile {
+	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
 	content := fmt.Sprintf(`[Unit]
-Description=Town OS uPnP Renewal: %s
-BindsTo=town-os-%s.service
-After=town-os-%s.service
+Description=Town OS uPnP Renewal: %s/%s@%s
+BindsTo=%s
+After=%s
 
 [Timer]
 OnBootSec=1min
@@ -320,21 +326,22 @@ Persistent=true
 
 [Install]
 WantedBy=timers.target
-`, pkgName, pkgName, pkgName)
+`, cfg.RepoName, cfg.PkgName, cfg.Version, svcName, svcName)
 
 	return UnitFile{
-		Name:    UPnPTimerUnitName(pkgName),
+		Name:    UPnPTimerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
 		Content: content,
 	}
 }
 
 func generateUPnPServiceUnit(cfg PackageUnitConfig) UnitFile {
 	var b strings.Builder
+	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
 
 	b.WriteString("[Unit]\n")
-	b.WriteString(fmt.Sprintf("Description=Town OS uPnP Mapping: %s\n", cfg.PkgName))
-	b.WriteString(fmt.Sprintf("BindsTo=town-os-%s.service\n", cfg.PkgName))
-	b.WriteString(fmt.Sprintf("After=town-os-%s.service\n", cfg.PkgName))
+	b.WriteString(fmt.Sprintf("Description=Town OS uPnP Mapping: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
+	b.WriteString(fmt.Sprintf("BindsTo=%s\n", svcName))
+	b.WriteString(fmt.Sprintf("After=%s\n", svcName))
 
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=oneshot\n")
@@ -360,7 +367,7 @@ func generateUPnPServiceUnit(cfg PackageUnitConfig) UnitFile {
 	b.WriteString(fmt.Sprintf("ExecStart=%s add %s --ttl 600\n", cfg.UPnPBinPath, strings.Join(args, " ")))
 
 	return UnitFile{
-		Name:    UPnPServiceUnitName(cfg.PkgName),
+		Name:    UPnPServiceUnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
 		Content: b.String(),
 	}
 }
@@ -368,24 +375,24 @@ func generateUPnPServiceUnit(cfg PackageUnitConfig) UnitFile {
 // PackageUnitNames returns the list of all systemd unit names that would be
 // generated for a package with the given port maps. This is used during
 // uninstall to know which units to tear down.
-func PackageUnitNames(pkgName string, external, internal packages.PortMap) []string {
-	names := []string{UnitName(pkgName)}
+func PackageUnitNames(repo, pkgName, version string, external, internal packages.PortMap) []string {
+	names := []string{UnitName(repo, pkgName, version)}
 
 	ports := allPorts(external, internal)
 	for _, p := range ports {
-		names = append(names, SocketUnitName(pkgName, p))
+		names = append(names, SocketUnitName(repo, pkgName, version, p))
 	}
 
 	// Include forwarder unit names for mismatched ports. These are safe to
 	// include unconditionally (cleanup handles missing units gracefully).
 	fwdPairs := forwardedPorts(external, internal)
 	for _, p := range fwdPairs {
-		names = append(names, ForwarderUnitName(pkgName, p.ext))
+		names = append(names, ForwarderUnitName(repo, pkgName, version, p.ext))
 	}
 
 	if len(external) > 0 {
-		names = append(names, UPnPServiceUnitName(pkgName))
-		names = append(names, UPnPTimerUnitName(pkgName))
+		names = append(names, UPnPServiceUnitName(repo, pkgName, version))
+		names = append(names, UPnPTimerUnitName(repo, pkgName, version))
 	}
 
 	return names

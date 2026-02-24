@@ -207,6 +207,13 @@ func (m *MockClient) RemoveRepository(_ context.Context, name string) error {
 	return fmt.Errorf("repository %s not found", name)
 }
 
+func (m *MockClient) MoveRepository(_ context.Context, name string, position int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "MoveRepository", Args: []any{name, position}})
+	return nil
+}
+
 func (m *MockClient) RefreshRepositories(_ context.Context) (map[string]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -246,6 +253,14 @@ func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageRe
 	out = filterSearch(out, params.Search)
 	result := paginate(out, params.Limit, params.Offset)
 	return &result, nil
+}
+
+func (m *MockClient) ListPackagesByRepo(_ context.Context, _ ListParams) ([]packages.RepoPackageGroup, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListPackagesByRepo", Args: nil})
+
+	return nil, nil
 }
 
 func (m *MockClient) ListPackageVersions(_ context.Context, name string) ([]string, error) {
@@ -295,10 +310,10 @@ func (m *MockClient) GetPackageQuestions(_ context.Context, name string) (map[st
 	return out, nil
 }
 
-func (m *MockClient) GetPackageQuestionsByIdentity(_ context.Context, name, version string) (map[string]packages.Question, error) {
+func (m *MockClient) GetPackageQuestionsByIdentity(_ context.Context, repo, name, version string) (map[string]packages.Question, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "GetPackageQuestionsByIdentity", Args: []any{name, version}})
+	m.Calls = append(m.Calls, MockCall{Method: "GetPackageQuestionsByIdentity", Args: []any{repo, name, version}})
 
 	if m.QuestionsIdentityErr != nil {
 		return nil, m.QuestionsIdentityErr
@@ -334,10 +349,10 @@ func (m *MockClient) InstallPackage(_ context.Context, name, version string, res
 	return nil
 }
 
-func (m *MockClient) UninstallPackage(_ context.Context, name, version string, purgeVolumes bool) error {
+func (m *MockClient) UninstallPackage(_ context.Context, repo, name, version string, purgeVolumes bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "UninstallPackage", Args: []any{name, version, purgeVolumes}})
+	m.Calls = append(m.Calls, MockCall{Method: "UninstallPackage", Args: []any{repo, name, version, purgeVolumes}})
 
 	if m.UninstallPkgErr != nil {
 		return m.UninstallPkgErr
@@ -350,13 +365,13 @@ func (m *MockClient) UninstallPackage(_ context.Context, name, version string, p
 			delete(m.StoredResponses, key)
 
 			if purgeVolumes {
-				prefix := fmt.Sprintf("installed/%s/", name)
+				prefix := fmt.Sprintf("installed/%s/%s/", repo, name)
 				for fsName := range m.Filesystems {
 					if len(fsName) >= len(prefix) && fsName[:len(prefix)] == prefix {
 						delete(m.Filesystems, fsName)
 					}
 				}
-				delete(m.Filesystems, fmt.Sprintf("installed/%s", name))
+				delete(m.Filesystems, fmt.Sprintf("installed/%s/%s", repo, name))
 			}
 
 			return nil
@@ -366,42 +381,42 @@ func (m *MockClient) UninstallPackage(_ context.Context, name, version string, p
 	return fmt.Errorf("%s: not installed", key)
 }
 
-func (m *MockClient) PurgeVolumes(_ context.Context, name string) error {
+func (m *MockClient) PurgeVolumes(_ context.Context, repo, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "PurgeVolumes", Args: []any{name}})
+	m.Calls = append(m.Calls, MockCall{Method: "PurgeVolumes", Args: []any{repo, name}})
 
-	prefix := fmt.Sprintf("installed/%s/", name)
+	prefix := fmt.Sprintf("installed/%s/%s/", repo, name)
 	for fsName := range m.Filesystems {
 		if len(fsName) >= len(prefix) && fsName[:len(prefix)] == prefix {
 			delete(m.Filesystems, fsName)
 		}
 	}
-	delete(m.Filesystems, fmt.Sprintf("installed/%s", name))
+	delete(m.Filesystems, fmt.Sprintf("installed/%s/%s", repo, name))
 
 	return nil
 }
 
-func (m *MockClient) ListUninstalledVolumes(_ context.Context, name string) (*UninstalledVolumesResponse, error) {
+func (m *MockClient) ListUninstalledVolumes(_ context.Context, repo, name string) (*UninstalledVolumesResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListUninstalledVolumes", Args: []any{name}})
+	m.Calls = append(m.Calls, MockCall{Method: "ListUninstalledVolumes", Args: []any{repo, name}})
 
 	return &UninstalledVolumesResponse{}, nil
 }
 
-func (m *MockClient) PurgeUninstalledVolumes(_ context.Context, name string) error {
+func (m *MockClient) PurgeUninstalledVolumes(_ context.Context, repo, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "PurgeUninstalledVolumes", Args: []any{name}})
+	m.Calls = append(m.Calls, MockCall{Method: "PurgeUninstalledVolumes", Args: []any{repo, name}})
 
 	return nil
 }
 
-func (m *MockClient) DisablePackage(_ context.Context, name string) error {
+func (m *MockClient) DisablePackage(_ context.Context, repo, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "DisablePackage", Args: []any{name}})
+	m.Calls = append(m.Calls, MockCall{Method: "DisablePackage", Args: []any{repo, name}})
 
 	if m.DisablePkgErr != nil {
 		return m.DisablePkgErr
@@ -411,10 +426,10 @@ func (m *MockClient) DisablePackage(_ context.Context, name string) error {
 	return nil
 }
 
-func (m *MockClient) EnablePackage(_ context.Context, name string) error {
+func (m *MockClient) EnablePackage(_ context.Context, repo, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "EnablePackage", Args: []any{name}})
+	m.Calls = append(m.Calls, MockCall{Method: "EnablePackage", Args: []any{repo, name}})
 
 	if m.EnablePkgErr != nil {
 		return m.EnablePkgErr
@@ -440,10 +455,10 @@ func (m *MockClient) ListInstalled(_ context.Context, params ListParams) (*PageR
 	return &result, nil
 }
 
-func (m *MockClient) GetResponses(_ context.Context, name, version string) (packages.Responses, error) {
+func (m *MockClient) GetResponses(_ context.Context, repo, name, version string) (packages.Responses, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "GetResponses", Args: []any{name, version}})
+	m.Calls = append(m.Calls, MockCall{Method: "GetResponses", Args: []any{repo, name, version}})
 
 	if m.GetResponsesErr != nil {
 		return nil, m.GetResponsesErr
@@ -462,10 +477,10 @@ func (m *MockClient) GetResponses(_ context.Context, name, version string) (pack
 	return out, nil
 }
 
-func (m *MockClient) GetInstalledInfo(_ context.Context, name, version string) (*InstalledInfoResponse, error) {
+func (m *MockClient) GetInstalledInfo(_ context.Context, repo, name, version string) (*InstalledInfoResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "GetInstalledInfo", Args: []any{name, version}})
+	m.Calls = append(m.Calls, MockCall{Method: "GetInstalledInfo", Args: []any{repo, name, version}})
 
 	key := fmt.Sprintf("%s@%s", name, version)
 	resp, ok := m.StoredResponses[key]
