@@ -2,7 +2,7 @@
 
 The goal of this system is to build a self-service platform that anyone can run at home, with premier ease of use experience and reliability acceptable for a home user.
 
-Town OS is never installed: it lives on a USB drive and runs entirely in memory. It uses all the storage in your computer for **your stuff**. Upgrade Town OS by powering off and replacing a USB drive, or fixing it to a default state after you made a boo-boo by rebooting it.
+Town OS is never installed: it lives on a USB drive and runs entirely in memory. It uses all the storage in your computer for **your stuff**. Upgrade Town OS by powering off and replacing a USB drive, or reset it to a default state after you made a boo-boo by rebooting it.
 
 This platform manages its own storage, state, and is completely responsible for its own health. A USB drive running squashfs provides the host operating system in ram, and the services that Town OS has running in containers, pulled from the internet, can manage any changes of state that need to occur over the lifetime of the power cycle. Thus, a reboot can be a simple way to allow users to get themselves to a working state, or a user can upgrade simply by replacing the USB drive it boots from.
 
@@ -12,7 +12,7 @@ Packages are able to request input from the user -- similar to debconf -- but th
 
 Services all have adequate logging and supervision. There is a comfortable UI for accessing this information, presented in a way that is intended to be safe for non-technical users to consume. There are separate accounts for admin and normal users: you could help your parents run a Plex (or something similar) if you wanted. You could keep them spyware free.
 
-You also can't lock yourself out. If all accounts become disabled or there are none... it runs behind the firewall. Just create a new one and fix it. Or, if you really get yourself into a bad spot, you can actually nuke the entire SQLite database to recover a system.
+You also can't lock yourself out. If all accounts become disabled or there are none... it runs behind the firewall. Just create a new one and fix it. Or, if you really get yourself into a bad spot, you can actually nuke the entire SQLite database to recover a system. The important storage is all kept in atomically-managed JSON files or is actually the system itself.
 
 Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
 
