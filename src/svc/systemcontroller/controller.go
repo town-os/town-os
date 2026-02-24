@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -89,6 +91,8 @@ type systemControllerBackend interface {
 	GetBtrfsBasePath() string
 	GetUPnPBinPath() string
 	GetNetworkMode() string
+	GetExternalIP() string
+	GetInternalIP() string
 }
 
 type SystemController interface {
@@ -180,6 +184,16 @@ type UninstalledVolumesResponse struct {
 	InstalledVersions     []string `json:"installed_versions,omitempty"`
 }
 
+type PackageListEntry struct {
+	Repo             string   `json:"repo"`
+	Name             string   `json:"name"`
+	Version          string   `json:"version"`
+	Description      string   `json:"description,omitempty"`
+	Supplies         []string `json:"supplies,omitempty"`
+	Installed        bool     `json:"installed"`
+	InstalledVersion string   `json:"installed_version,omitempty"`
+}
+
 type SetStatusRequest struct {
 	Name   string               `json:"name"`
 	Action systemd.StatusAction `json:"action"`
@@ -229,17 +243,28 @@ type SessionUsernameResponse struct {
 	Username string `json:"username"`
 }
 
+// PingMinimalResponse is returned for unauthenticated ping requests.
+type PingMinimalResponse struct {
+	Status     string `json:"status"`
+	NeedsSetup bool   `json:"needs_setup,omitempty"`
+}
+
 type PingResponse struct {
-	Status       string      `json:"status"`
-	Filesystems  int         `json:"filesystems"`
-	Repositories int         `json:"repositories"`
-	Packages     int         `json:"packages"`
-	Installed    int         `json:"installed"`
-	Accounts     int         `json:"accounts"`
-	Admins       int         `json:"admins"`
-	Units        *UnitCounts `json:"units,omitempty"`
-	RecentErrors int         `json:"recent_errors"`
-	NeedsSetup   bool        `json:"needs_setup"`
+	Status             string      `json:"status"`
+	Filesystems        int         `json:"filesystems"`
+	Repositories       int         `json:"repositories"`
+	Packages           int         `json:"packages"`
+	Installed          int         `json:"installed"`
+	Accounts           int         `json:"accounts"`
+	Admins             int         `json:"admins"`
+	Units              *UnitCounts `json:"units,omitempty"`
+	RecentErrors       int         `json:"recent_errors"`
+	NeedsSetup         bool        `json:"needs_setup,omitempty"`
+	ExternalIP         string      `json:"external_ip,omitempty"`
+	InternalIP         string      `json:"internal_ip,omitempty"`
+	Username           string      `json:"username,omitempty"`
+	InstalledVolumes   int         `json:"installed_volumes"`
+	UninstalledVolumes int         `json:"uninstalled_volumes"`
 }
 
 type UnitCounts struct {
@@ -607,12 +632,13 @@ func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 	rr := s.Controller.GetRepositoryRoot()
 
-	pkgs, err := rr.ListPackages()
+	pkgStrings, err := rr.ListPackages()
 	if err != nil {
 		return err
 	}
 
-	// Merge installed packages that may not be the latest version.
+	// Build a map of installed repo/name keys to their installed version.
+	installedVersions := map[string]string{}
 	inst := s.Controller.GetInstaller()
 	if inst != nil {
 		installed, err := inst.ListInstalled()
@@ -620,8 +646,18 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 			return err
 		}
 
+		for _, pkg := range installed {
+			pi, err := packages.ParsePackageIdentity(pkg)
+			if err != nil {
+				continue
+			}
+			key := fmt.Sprintf("%s/%s", pi.Repo, pi.Name)
+			installedVersions[key] = pi.Version
+		}
+
+		// Merge installed packages that may not be the latest version.
 		known := map[string]bool{}
-		for _, pkg := range pkgs {
+		for _, pkg := range pkgStrings {
 			pi, err := packages.ParsePackageIdentity(pkg)
 			if err != nil {
 				continue
@@ -637,20 +673,45 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 			}
 			key := fmt.Sprintf("%s/%s", pi.Repo, pi.Name)
 			if !known[key] {
-				pkgs = append(pkgs, pkg)
+				pkgStrings = append(pkgStrings, pkg)
 				known[key] = true
 			}
 		}
 	}
 
-	p := readListParams(c)
-	pkgs = filterSearch(pkgs, p.Search)
-	sort.Strings(pkgs)
-	if strings.EqualFold(p.SortOrder, "desc") {
-		sort.Sort(sort.Reverse(sort.StringSlice(pkgs)))
+	// Build structured entries with description/supplies from manifest.
+	entries := make([]PackageListEntry, 0, len(pkgStrings))
+	for _, pkg := range pkgStrings {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+
+		key := fmt.Sprintf("%s/%s", pi.Repo, pi.Name)
+		instVer, isInstalled := installedVersions[key]
+		entry := PackageListEntry{
+			Repo:             pi.Repo,
+			Name:             pi.Name,
+			Version:          pi.Version,
+			Installed:        isInstalled,
+			InstalledVersion: instVer,
+		}
+
+		// Try to load manifest for description/supplies.
+		ip, loadErr := rr.LoadPackage(pi.Repo, pi.Name, pi.Version)
+		if loadErr == nil {
+			entry.Description = ip.Description
+			entry.Supplies = ip.Supplies
+		}
+
+		entries = append(entries, entry)
 	}
 
-	return c.JSON(200, paginate(pkgs, p.Limit, p.Offset))
+	p := readListParams(c)
+	entries = filterSearch(entries, p.Search)
+	sortSlice(entries, p.SortBy, p.SortOrder)
+
+	return c.JSON(200, paginate(entries, p.Limit, p.Offset))
 }
 
 func (s *SystemControllerHandlers) listPackagesByRepo(c *echo.Context) error {
@@ -771,11 +832,6 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		return err
 	}
 
-	compiled, err := ip.Compile(req.Responses)
-	if err != nil {
-		return err
-	}
-
 	inst := s.Controller.GetInstaller()
 	ctx := c.Request().Context()
 
@@ -795,6 +851,33 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			activeVersion = pi.Version
 			break
 		}
+	}
+
+	// Carry forward responses from the active version during upgrades.
+	if activeVersion != "" && activeVersion != req.Version {
+		oldResponses, err := inst.GetResponses(repoName, req.Name, activeVersion)
+		if err == nil {
+			for key, val := range oldResponses {
+				// Only carry forward if the question exists in the new version
+				// and the user didn't provide a new response.
+				if _, exists := ip.Questions[key]; exists {
+					if _, provided := req.Responses[key]; !provided {
+						if req.Responses == nil {
+							req.Responses = packages.Responses{}
+						}
+						req.Responses[key] = val
+					}
+				}
+			}
+		}
+	}
+
+	compiled, err := ip.CompileWithContext(req.Responses, packages.CompileContext{
+		ExternalHost: s.Controller.GetExternalIP(),
+		InternalHost: s.Controller.GetInternalIP(),
+	})
+	if err != nil {
+		return err
 	}
 
 	if activeVersion != "" {
@@ -1123,6 +1206,9 @@ func (s *SystemControllerHandlers) getResponses(c *echo.Context) error {
 	inst := s.Controller.GetInstaller()
 	resp, err := inst.GetResponses(req.Repo, req.Name, req.Version)
 	if err != nil {
+		if errors.Is(err, packages.ErrNotInstalled) {
+			return c.JSON(200, packages.Responses{})
+		}
 		return err
 	}
 
@@ -1850,19 +1936,67 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp := PingResponse{Status: "ok"}
 
+	// Always compute NeedsSetup — it must be visible before any user exists.
+	if am := s.Controller.GetAccountManager(); am != nil {
+		accounts, err := am.List()
+		if err != nil {
+			return err
+		}
+		var adminUsernames []string
+		for _, a := range accounts {
+			if !a.Disabled && a.Admin {
+				adminUsernames = append(adminUsernames, a.Username)
+			}
+		}
+		if len(adminUsernames) == 0 {
+			resp.NeedsSetup = true
+		} else if sm := s.Controller.GetSessionManager(); sm != nil {
+			hasActive, err := sm.HasActiveAdminSessions(adminUsernames)
+			if err != nil {
+				return err
+			}
+			resp.NeedsSetup = !hasActive
+		}
+	}
+
+	// Check for optional auth — if a session manager is configured and no
+	// valid token is provided, return minimal response (status + needs_setup).
+	sm := s.Controller.GetSessionManager()
+	if sm != nil {
+		minimal := PingMinimalResponse{Status: resp.Status, NeedsSetup: resp.NeedsSetup}
+		token := extractBearerToken(c.Request())
+		if token == "" {
+			return c.JSON(200, minimal)
+		}
+		sess, _, err := sm.Validate(token)
+		if err != nil {
+			return c.JSON(200, minimal)
+		}
+		resp.Username = sess.Username
+	}
+
 	if st := s.Controller.GetStorage(); st != nil {
 		fs, err := st.ListFilesystems("")
 		if err != nil {
 			return err
 		}
-		count := 0
+		userCount := 0
+		installedVols := 0
+		uninstalledVols := 0
 		for _, f := range fs {
 			state, _ := classifyFilesystem(f.Name)
-			if state == "user" {
-				count++
+			switch state {
+			case "user":
+				userCount++
+			case "installed":
+				installedVols++
+			case "uninstalled":
+				uninstalledVols++
 			}
 		}
-		resp.Filesystems = count
+		resp.Filesystems = userCount
+		resp.InstalledVolumes = installedVols
+		resp.UninstalledVolumes = uninstalledVols
 	}
 
 	if rr := s.Controller.GetRepositoryRoot(); rr != nil {
@@ -1893,22 +2027,10 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 			return err
 		}
 		resp.Accounts = len(accounts)
-		var adminUsernames []string
 		for _, a := range accounts {
 			if !a.Disabled && a.Admin {
 				resp.Admins++
-				adminUsernames = append(adminUsernames, a.Username)
 			}
-		}
-
-		if resp.Admins == 0 {
-			resp.NeedsSetup = true
-		} else if sm := s.Controller.GetSessionManager(); sm != nil {
-			hasActive, err := sm.HasActiveAdminSessions(adminUsernames)
-			if err != nil {
-				return err
-			}
-			resp.NeedsSetup = !hasActive
 		}
 	}
 
@@ -1940,6 +2062,9 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 		resp.RecentErrors = n
 	}
+
+	resp.ExternalIP = s.Controller.GetExternalIP()
+	resp.InternalIP = s.Controller.GetInternalIP()
 
 	return c.JSON(200, resp)
 }
@@ -2035,7 +2160,9 @@ func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type serverBase struct {
 	ServerConfig
-	cancel context.CancelFunc
+	ctx        context.Context
+	cancel     context.CancelFunc
+	externalIP atomic.Value // stores string
 }
 
 func (s *serverBase) GetStorage() storage.Storage                 { return s.Storage }
@@ -2053,6 +2180,73 @@ func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 func (s *serverBase) GetBtrfsBasePath() string { return s.BtrfsBasePath }
 func (s *serverBase) GetUPnPBinPath() string   { return s.UPnPBinPath }
 func (s *serverBase) GetNetworkMode() string   { return s.NetworkMode }
+func (s *serverBase) GetExternalIP() string {
+	v := s.externalIP.Load()
+	if v == nil {
+		return ""
+	}
+	return v.(string)
+}
+
+func (s *serverBase) GetInternalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
+		}
+	}
+	return ""
+}
+
+func (s *serverBase) fetchExternalIP() {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://ipinfo.io/json")
+	if err != nil {
+		slog.Debug(fmt.Sprintf("fetchExternalIP: %v", err))
+		return
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Debug(fmt.Sprintf("fetchExternalIP: close body: %v", err))
+		}
+	}()
+
+	if resp.StatusCode != 200 {
+		slog.Debug(fmt.Sprintf("fetchExternalIP: status %d", resp.StatusCode))
+		return
+	}
+
+	var result struct {
+		IP string `json:"ip"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		slog.Debug(fmt.Sprintf("fetchExternalIP: decode: %v", err))
+		return
+	}
+
+	if result.IP != "" {
+		s.externalIP.Store(result.IP)
+	}
+}
+
+func (s *serverBase) startExternalIPPoller(ctx context.Context) {
+	s.fetchExternalIP()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.fetchExternalIP()
+			}
+		}
+	}()
+}
 
 func parseLogLevel() slog.Level {
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
@@ -2121,7 +2315,8 @@ func NewHandler(cfg ServerConfig) http.Handler {
 	if hostname, err := os.Hostname(); err == nil {
 		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname)
 	}
-	sb := &serverBase{ServerConfig: cfg}
+	ctx, cancel := context.WithCancel(context.Background())
+	sb := &serverBase{ServerConfig: cfg, ctx: ctx, cancel: cancel}
 	return configureRouter(sb)
 }
 
@@ -2136,6 +2331,7 @@ func InitTestServer(cfg ServerConfig) *TestServer {
 	ts := &TestServer{}
 	ts.ServerConfig = cfg
 	ctx, cancel := context.WithCancel(context.Background())
+	ts.ctx = ctx
 	ts.cancel = cancel
 	ts.Server = httptest.NewServer(&contextHandler{ctx: ctx, handler: configureRouter(ts)})
 	return ts
@@ -2167,6 +2363,7 @@ func InitUnixServer(sock string, cfg ServerConfig) *UnixServer {
 	us := &UnixServer{Socket: sock}
 	us.ServerConfig = cfg
 	ctx, cancel := context.WithCancel(context.Background())
+	us.ctx = ctx
 	us.cancel = cancel
 	us.server = &http.Server{Handler: &contextHandler{ctx: ctx, handler: configureRouter(us)}}
 	return us
@@ -2178,6 +2375,7 @@ func (us *UnixServer) Close() error {
 }
 
 func (us *UnixServer) Run() error {
+	us.startExternalIPPoller(us.ctx)
 	lis, err := net.Listen("unix", us.Socket)
 	if err != nil {
 		return fmt.Errorf("could not listen on unix socket %q: %v", us.Socket, err)

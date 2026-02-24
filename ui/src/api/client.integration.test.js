@@ -28,7 +28,15 @@ describe('SystemControllerClient integration', () => {
   // --- Public endpoints ---
 
   describe('ping', () => {
-    it('returns ok status', async () => {
+    it('returns minimal response without auth', async () => {
+      const resp = await client.ping()
+      expect(resp.status).toBe('ok')
+    })
+
+    it('returns full response with auth', async () => {
+      const authResp = await client.authenticate('admin', 'adminpass')
+      client.setToken(authResp.token)
+
       const resp = await client.ping()
       expect(resp.status).toBe('ok')
       expect(typeof resp.filesystems).toBe('number')
@@ -37,7 +45,7 @@ describe('SystemControllerClient integration', () => {
       expect(typeof resp.installed).toBe('number')
       expect(typeof resp.accounts).toBe('number')
       expect(typeof resp.admins).toBe('number')
-      expect(typeof resp.needs_setup).toBe('boolean')
+      expect(resp.username).toBe('admin')
     })
 
     it('includes unit counts from systemd', async () => {

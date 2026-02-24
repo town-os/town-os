@@ -40,7 +40,7 @@ export default function Dashboard({ children }) {
     () => getClient().ping().catch(() => ({ status: 'error' })),
     null,
     [],
-    10000,
+    60000,
   )
 
   return (

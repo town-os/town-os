@@ -534,24 +534,25 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 	}
 
 	// Results are sorted, latest version only.
-	if pkgs.Entries[0] != "core/demo-nginx@1.0" {
-		t.Fatalf("expected core/demo-nginx@1.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0].Repo != "core" || pkgs.Entries[0].Name != "demo-nginx" || pkgs.Entries[0].Version != "1.0" {
+		t.Fatalf("expected core/demo-nginx@1.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
-	if pkgs.Entries[1] != "core/nginx@2.0" {
-		t.Fatalf("expected core/nginx@2.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1].Repo != "core" || pkgs.Entries[1].Name != "nginx" || pkgs.Entries[1].Version != "2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
 	}
-	if pkgs.Entries[2] != "core/redis@7.0" {
-		t.Fatalf("expected core/redis@7.0, got %s", pkgs.Entries[2])
+	if pkgs.Entries[2].Repo != "core" || pkgs.Entries[2].Name != "redis" || pkgs.Entries[2].Version != "7.0" {
+		t.Fatalf("expected core/redis@7.0, got %s/%s@%s", pkgs.Entries[2].Repo, pkgs.Entries[2].Name, pkgs.Entries[2].Version)
 	}
 
-	// Verify round-trip through ParsePackageIdentity.
+	// Verify fields are consistent with PackageIdentity.
 	for _, p := range pkgs.Entries {
-		pi, err := packages.ParsePackageIdentity(p)
+		identity := fmt.Sprintf("%s/%s@%s", p.Repo, p.Name, p.Version)
+		pi, err := packages.ParsePackageIdentity(identity)
 		if err != nil {
-			t.Fatalf("invalid package identity %q: %v", p, err)
+			t.Fatalf("invalid package identity %q: %v", identity, err)
 		}
-		if pi.String() != p {
-			t.Fatalf("round-trip mismatch: %q != %q", pi.String(), p)
+		if pi.String() != identity {
+			t.Fatalf("round-trip mismatch: %q != %q", pi.String(), identity)
 		}
 	}
 }
@@ -575,10 +576,10 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("expected 5 packages, got %d", len(pkgs.Entries))
 	}
 
-	// Verify all expected packages present in name@version format.
+	// Verify all expected packages present.
 	pkgSet := map[string]bool{}
 	for _, p := range pkgs.Entries {
-		pkgSet[p] = true
+		pkgSet[fmt.Sprintf("%s/%s@%s", p.Repo, p.Name, p.Version)] = true
 	}
 
 	for _, want := range []string{"core/demo-nginx@1.0", "core/nginx@2.0", "core/redis@7.0", "extras/mosquitto@2.0", "extras/postgres@16.0"} {
@@ -587,10 +588,14 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		}
 	}
 
-	// Verify sorted order.
-	for i := 1; i < len(pkgs.Entries); i++ {
-		if pkgs.Entries[i-1] >= pkgs.Entries[i] {
-			t.Fatalf("packages not sorted: %q >= %q at index %d", pkgs.Entries[i-1], pkgs.Entries[i], i)
+	// Verify sorted order by name when sort is requested.
+	sortedPkgs, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{SortBy: "name", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListPackages sorted: %v", err)
+	}
+	for i := 1; i < len(sortedPkgs.Entries); i++ {
+		if sortedPkgs.Entries[i-1].Name > sortedPkgs.Entries[i].Name {
+			t.Fatalf("packages not sorted: %q > %q at index %d", sortedPkgs.Entries[i-1].Name, sortedPkgs.Entries[i].Name, i)
 		}
 	}
 }
@@ -620,14 +625,14 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 		t.Fatalf("expected 3 packages after removing extras, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs.Entries[0] != "core/demo-nginx@1.0" {
-		t.Fatalf("expected core/demo-nginx@1.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0].Repo != "core" || pkgs.Entries[0].Name != "demo-nginx" || pkgs.Entries[0].Version != "1.0" {
+		t.Fatalf("expected core/demo-nginx@1.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
-	if pkgs.Entries[1] != "core/nginx@2.0" {
-		t.Fatalf("expected core/nginx@2.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1].Repo != "core" || pkgs.Entries[1].Name != "nginx" || pkgs.Entries[1].Version != "2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
 	}
-	if pkgs.Entries[2] != "core/redis@7.0" {
-		t.Fatalf("expected core/redis@7.0, got %s", pkgs.Entries[2])
+	if pkgs.Entries[2].Repo != "core" || pkgs.Entries[2].Name != "redis" || pkgs.Entries[2].Version != "7.0" {
+		t.Fatalf("expected core/redis@7.0, got %s/%s@%s", pkgs.Entries[2].Repo, pkgs.Entries[2].Name, pkgs.Entries[2].Version)
 	}
 }
 
@@ -873,10 +878,13 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
-	// Verify responses gone.
-	_, err = c.GetResponses(context.TODO(), "core", "nginx", "2.0")
-	if err == nil {
-		t.Fatal("expected error getting responses after uninstall")
+	// Verify responses empty after uninstall.
+	resp, err := c.GetResponses(context.TODO(), "core", "nginx", "2.0")
+	if err != nil {
+		t.Fatalf("GetResponses after uninstall: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Fatalf("expected empty responses after uninstall, got %v", resp)
 	}
 }
 

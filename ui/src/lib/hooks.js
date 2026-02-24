@@ -15,7 +15,7 @@ import { ApiError } from '../api/client.js'
  * @param {number} [interval]
  * @returns {[T, () => void, boolean]}
  */
-export function usePolling(fetcher, defaultValue, deps = [], interval = 5000) {
+export function usePolling(fetcher, defaultValue, deps = [], interval = 60000) {
   const [data, setData] = useState(defaultValue)
   const [loading, setLoading] = useState(true)
   const generationRef = useRef(0)
@@ -59,7 +59,13 @@ export function useRequireAuth() {
 
     const check = () => {
       getClient()
-        .sessionUsername(token)
+        .ping()
+        .then((resp) => {
+          if (!resp.username) {
+            clearToken()
+            navigate('/')
+          }
+        })
         .catch((err) => {
           if (err instanceof ApiError && err.status === 401) {
             clearToken()

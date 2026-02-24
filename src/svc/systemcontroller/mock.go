@@ -239,7 +239,7 @@ func (m *MockClient) ListRepositories(_ context.Context, params ListParams) (*Pa
 
 // --- Packages ---
 
-func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageResult[string], error) {
+func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageResult[PackageListEntry], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListPackages", Args: []any{params}})
@@ -248,10 +248,57 @@ func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageRe
 		return nil, m.ListPkgErr
 	}
 
-	out := make([]string, len(m.Packages))
-	copy(out, m.Packages)
-	out = filterSearch(out, params.Search)
-	result := paginate(out, params.Limit, params.Offset)
+	entries := make([]PackageListEntry, 0, len(m.Packages))
+	for _, pkg := range m.Packages {
+		parts := strings.SplitN(pkg, "/", 2)
+		var repo, rest string
+		if len(parts) == 2 {
+			repo = parts[0]
+			rest = parts[1]
+		} else {
+			rest = parts[0]
+		}
+		nameVer := strings.SplitN(rest, "@", 2)
+		name := nameVer[0]
+		version := ""
+		if len(nameVer) == 2 {
+			version = nameVer[1]
+		}
+
+		isInstalled := false
+		instVersion := ""
+		key := fmt.Sprintf("%s/%s", repo, name)
+		for _, inst := range m.Installed {
+			instParts := strings.SplitN(inst, "/", 2)
+			var instRepo, instRest string
+			if len(instParts) == 2 {
+				instRepo = instParts[0]
+				instRest = instParts[1]
+			} else {
+				instRest = instParts[0]
+			}
+			instNameVer := strings.SplitN(instRest, "@", 2)
+			instName := instNameVer[0]
+			if fmt.Sprintf("%s/%s", instRepo, instName) == key {
+				isInstalled = true
+				if len(instNameVer) == 2 {
+					instVersion = instNameVer[1]
+				}
+				break
+			}
+		}
+
+		entries = append(entries, PackageListEntry{
+			Repo:             repo,
+			Name:             name,
+			Version:          version,
+			Installed:        isInstalled,
+			InstalledVersion: instVersion,
+		})
+	}
+
+	entries = filterSearch(entries, params.Search)
+	result := paginate(entries, params.Limit, params.Offset)
 	return &result, nil
 }
 

@@ -113,6 +113,8 @@ type InputPackage struct {
 	Volumes     map[string]InputPackageVolume `yaml:"volumes"`
 	Questions   map[string]Question           `yaml:"questions"`
 	Notes       map[string]string             `yaml:"notes" json:"notes,omitempty"`
+	Description string                        `yaml:"description" json:"description,omitempty"`
+	Supplies    []string                      `yaml:"supplies" json:"supplies,omitempty"`
 }
 
 // CompileNotes applies template substitution to the Notes map using the
@@ -264,6 +266,26 @@ func (i *InputPackage) Validate() error {
 	}
 
 	return nil
+}
+
+// CompileContext provides built-in template variables that are resolved
+// during compilation, independent of user responses.
+type CompileContext struct {
+	ExternalHost string // Replaces @LOCAL_EXTERNAL_HOST@
+	InternalHost string // Replaces @LOCAL_INTERNAL_HOST@
+}
+
+// CompileWithContext compiles the package with both user responses and
+// built-in template variables from the provided context.
+func (i *InputPackage) CompileWithContext(response Responses, ctx CompileContext) (*Package, error) {
+	// Apply built-in template variables before user responses.
+	if ctx.ExternalHost != "" {
+		i.iterateFields("LOCAL_EXTERNAL_HOST", ctx.ExternalHost)
+	}
+	if ctx.InternalHost != "" {
+		i.iterateFields("LOCAL_INTERNAL_HOST", ctx.InternalHost)
+	}
+	return i.Compile(response)
 }
 
 func (i *InputPackage) Compile(response Responses) (*Package, error) {

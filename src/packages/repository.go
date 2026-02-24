@@ -184,14 +184,38 @@ type Repository struct {
 	Password string
 }
 
+type repositoryJSON struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
 func (r Repository) MarshalJSON() ([]byte, error) {
-	return json.Marshal([2]string{r.Name, r.credentialURL()})
+	return json.Marshal(repositoryJSON{Name: r.Name, URL: r.credentialURL()})
 }
 
 func (r *Repository) UnmarshalJSON(data []byte) error {
+	// Try object format first.
+	var obj repositoryJSON
+	if err := json.Unmarshal(data, &obj); err == nil && obj.Name != "" {
+		parsed, err := url.Parse(obj.URL)
+		if err != nil {
+			return fmt.Errorf("invalid repository URL: %w", err)
+		}
+
+		r.Name = obj.Name
+		if parsed.User != nil {
+			r.Username = parsed.User.Username()
+			r.Password, _ = parsed.User.Password()
+			parsed.User = nil
+		}
+		r.URL = *parsed
+		return nil
+	}
+
+	// Legacy fallback: [name, credentialURL] array format.
 	var pair [2]string
 	if err := json.Unmarshal(data, &pair); err != nil {
-		return err
+		return fmt.Errorf("invalid repository JSON: expected {name, url} object or [name, url] array")
 	}
 
 	parsed, err := url.Parse(pair[1])
@@ -215,8 +239,23 @@ func (r Repository) credentialURL() string {
 	}
 	u := r.URL
 	u.User = url.UserPassword(r.Username, r.Password)
-	logrus.Println(u.String())
+	logrus.Println(SanitizeURL(u.String()))
 	return u.String()
+}
+
+// SanitizeURL replaces userinfo credentials in a URL with placeholders.
+func SanitizeURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.User == nil {
+		return raw
+	}
+	username := parsed.User.Username()
+	_, hasPassword := parsed.User.Password()
+	if username == "" && !hasPassword {
+		return raw
+	}
+	parsed.User = url.UserPassword("USERNAME", "PASSWORD")
+	return parsed.String()
 }
 
 func runGit(dir, home string, args ...string) error {

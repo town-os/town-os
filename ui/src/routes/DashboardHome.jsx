@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
 import { Link } from 'react-router-dom'
@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   HardDrive,
   Users,
@@ -17,6 +18,8 @@ import {
   Cog,
   FolderGit2,
   FileText,
+  Copy,
+  Check,
 } from 'lucide-react'
 
 function StatCard({ to, icon: Icon, label, value, description }) {
@@ -38,9 +41,26 @@ function StatCard({ to, icon: Icon, label, value, description }) {
   )
 }
 
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(() => {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
+    }
+  }, [text])
+  return (
+    <Button variant="ghost" size="sm" className="h-5 w-5 p-0 ml-1" onClick={handleCopy}>
+      {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+    </Button>
+  )
+}
+
 export default function DashboardHome() {
   useEffect(() => { document.title = 'Town OS - Dashboard' }, [])
-  const [ping, , loading] = usePolling(() => getClient().ping(), null, [], 10000)
+  const [ping, , loading] = usePolling(() => getClient().ping(), null, [], 60000)
 
   return (
     <div className="space-y-6">
@@ -49,6 +69,22 @@ export default function DashboardHome() {
         <p className="text-muted-foreground">
           System overview and quick navigation
         </p>
+        {(ping?.external_ip || ping?.internal_ip) && (
+          <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
+            {ping.external_ip && (
+              <span className="flex items-center">
+                External IP: <span className="font-mono ml-1">{ping.external_ip}</span>
+                <CopyButton text={ping.external_ip} />
+              </span>
+            )}
+            {ping.internal_ip && (
+              <span className="flex items-center">
+                Internal IP: <span className="font-mono ml-1">{ping.internal_ip}</span>
+                <CopyButton text={ping.internal_ip} />
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {ping && ping.units && ping.units.failed > 0 && (
@@ -69,7 +105,11 @@ export default function DashboardHome() {
           icon={HardDrive}
           label="Filesystems"
           value={ping?.filesystems}
-          description="Btrfs subvolumes"
+          description={
+            ping && (ping.installed_volumes || ping.uninstalled_volumes)
+              ? `${ping.installed_volumes || 0} installed, ${ping.uninstalled_volumes || 0} uninstalled volumes`
+              : 'Btrfs subvolumes'
+          }
         />
         <StatCard
           to="/dashboard/users"

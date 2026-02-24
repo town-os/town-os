@@ -1345,11 +1345,11 @@ func TestHTTPListPackagesPopulated(t *testing.T) {
 	}
 
 	// results are sorted by name
-	if pkgs.Entries[0] != "repo-a/nginx@2.0" {
-		t.Fatalf("expected repo-a/nginx@2.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0].Repo != "repo-a" || pkgs.Entries[0].Name != "nginx" || pkgs.Entries[0].Version != "2.0" {
+		t.Fatalf("expected repo-a/nginx@2.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
-	if pkgs.Entries[1] != "repo-a/redis@7.0" {
-		t.Fatalf("expected repo-a/redis@7.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1].Repo != "repo-a" || pkgs.Entries[1].Name != "redis" || pkgs.Entries[1].Version != "7.0" {
+		t.Fatalf("expected repo-a/redis@7.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
 	}
 }
 
@@ -1391,11 +1391,11 @@ func TestHTTPListPackagesMultipleRepos(t *testing.T) {
 	}
 
 	// nginx should be 3.0 (higher version from repo-b wins)
-	if pkgs.Entries[0] != "repo-b/nginx@3.0" {
-		t.Fatalf("expected repo-b/nginx@3.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0].Repo != "repo-b" || pkgs.Entries[0].Name != "nginx" || pkgs.Entries[0].Version != "3.0" {
+		t.Fatalf("expected repo-b/nginx@3.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
-	if pkgs.Entries[1] != "repo-b/redis@7.0" {
-		t.Fatalf("expected repo-b/redis@7.0, got %s", pkgs.Entries[1])
+	if pkgs.Entries[1].Repo != "repo-b" || pkgs.Entries[1].Name != "redis" || pkgs.Entries[1].Version != "7.0" {
+		t.Fatalf("expected repo-b/redis@7.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
 	}
 }
 
@@ -1651,8 +1651,8 @@ func TestMockClientListPackages(t *testing.T) {
 		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs.Entries[0] != "mock-repo/nginx@2.0" {
-		t.Fatalf("expected mock-repo/nginx@2.0, got %s", pkgs.Entries[0])
+	if pkgs.Entries[0].Repo != "mock-repo" || pkgs.Entries[0].Name != "nginx" || pkgs.Entries[0].Version != "2.0" {
+		t.Fatalf("expected mock-repo/nginx@2.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
 }
 
@@ -2733,9 +2733,12 @@ func TestHTTPGetResponses(t *testing.T) {
 func TestHTTPGetResponsesNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	_, err := c.GetResponses(context.TODO(), "repo-a", "nginx", "1.0")
-	if err == nil {
-		t.Fatal("expected error getting responses for uninstalled package")
+	resp, err := c.GetResponses(context.TODO(), "repo-a", "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("expected empty responses for uninstalled package, got error: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Fatalf("expected 0 responses, got %d", len(resp))
 	}
 }
 
@@ -7543,21 +7546,12 @@ func TestHTTPListPackagesIncludesInstalledOlderVersions(t *testing.T) {
 	// entry (repo-a/nginx@2.0) is already listed, and the installed entry (repo-a/nginx@1.0)
 	// has the same name so it should NOT be duplicated (the merge logic dedupes
 	// by package name). Therefore we expect exactly 1 entry: repo-a/nginx@2.0.
-	found := map[string]bool{}
-	for _, entry := range pkgs.Entries {
-		found[entry] = true
-	}
-
-	if !found["repo-a/nginx@2.0"] {
-		t.Fatalf("expected repo-a/nginx@2.0 in packages list, got: %v", pkgs.Entries)
-	}
-
-	// The merge logic in listPackages checks by package name, not by
-	// name@version. Since "nginx" is already known from the repo (repo-a/nginx@2.0),
-	// installed repo-a/nginx@1.0 is not added again. This test verifies the merge
-	// correctly handles the case where an older version is installed.
 	if len(pkgs.Entries) != 1 {
 		t.Fatalf("expected 1 package entry (repo provides latest), got %d: %v", len(pkgs.Entries), pkgs.Entries)
+	}
+
+	if pkgs.Entries[0].Repo != "repo-a" || pkgs.Entries[0].Name != "nginx" || pkgs.Entries[0].Version != "2.0" {
+		t.Fatalf("expected repo-a/nginx@2.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
 }
 

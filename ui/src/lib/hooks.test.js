@@ -99,6 +99,55 @@ describe('usePolling', () => {
     expect(result.current[0]).toEqual({ items: [1, 2, 3] })
   })
 
+  it('re-fetches immediately when deps change (evented refresh)', async () => {
+    let callCount = 0
+    const fetcher = vi.fn(() => {
+      callCount++
+      return Promise.resolve(`result-${callCount}`)
+    })
+
+    const { result, rerender } = renderHook(
+      ({ dep }) => usePolling(fetcher, 'default', [dep], 60000),
+      { initialProps: { dep: 0 } },
+    )
+
+    // Initial fetch completes.
+    await act(async () => {})
+    expect(result.current[0]).toBe('result-1')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+
+    // Simulate a mutation by changing the dep (like incrementing refreshKey).
+    rerender({ dep: 1 })
+    await act(async () => {})
+    expect(result.current[0]).toBe('result-2')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+
+    // Without advancing timers — verifies this was immediate, not timer-driven.
+  })
+
+  it('does not re-fetch other pollers when one dep changes', async () => {
+    const fetcherA = vi.fn(() => Promise.resolve('A'))
+    const fetcherB = vi.fn(() => Promise.resolve('B'))
+
+    const { result: resultA, rerender: rerenderA } = renderHook(
+      ({ dep }) => usePolling(fetcherA, null, [dep], 60000),
+      { initialProps: { dep: 0 } },
+    )
+    const { result: resultB } = renderHook(
+      () => usePolling(fetcherB, null, [], 60000),
+    )
+
+    await act(async () => {})
+    expect(fetcherA).toHaveBeenCalledTimes(1)
+    expect(fetcherB).toHaveBeenCalledTimes(1)
+
+    // Changing dep for poller A should not affect poller B.
+    rerenderA({ dep: 1 })
+    await act(async () => {})
+    expect(fetcherA).toHaveBeenCalledTimes(2)
+    expect(fetcherB).toHaveBeenCalledTimes(1)
+  })
+
   it('discards stale responses when deps change', async () => {
     // First fetcher: slow, resolves to 'stale'
     let resolveStale

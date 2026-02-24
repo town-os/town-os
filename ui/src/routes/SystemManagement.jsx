@@ -141,7 +141,7 @@ export default function SystemManagement() {
   const [customLogDialog, setCustomLogDialog] = useState(false)
   const [customLogUnit, setCustomLogUnit] = useState('')
 
-  const effectiveSearch = searchTerm ? `town-os-${searchTerm}` : 'town-os-'
+  const effectiveSearch = searchTerm ? `town-os-package--${searchTerm}` : 'town-os-package--'
 
   const [unitData, , unitsLoading] = usePolling(
     () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, effectiveSearch),
@@ -389,9 +389,19 @@ export default function SystemManagement() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Services</h1>
-        <p className="text-muted-foreground">Manage systemd units</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Services</h1>
+          <p className="text-muted-foreground">Manage systemd units</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => openJournal('town-os-systemcontroller.service')}
+        >
+          <FileText className="h-4 w-4 mr-1" />
+          Controller Logs
+        </Button>
       </div>
 
       {unitsLoading && units.length === 0 && (

@@ -557,8 +557,8 @@ func TestRepositoryJSONRoundTrip(t *testing.T) {
 	})
 }
 
-func TestRepositoryUnmarshalFromPairs(t *testing.T) {
-	t.Run("with credentials", func(t *testing.T) {
+func TestRepositoryUnmarshalLegacyPairs(t *testing.T) {
+	t.Run("legacy pair with credentials", func(t *testing.T) {
 		data := []byte(`[["core","https://user:pass@github.com/town-os/test-packages-core"]]`)
 
 		var repos []Repository
@@ -591,7 +591,7 @@ func TestRepositoryUnmarshalFromPairs(t *testing.T) {
 		}
 	})
 
-	t.Run("without credentials", func(t *testing.T) {
+	t.Run("legacy pair without credentials", func(t *testing.T) {
 		data := []byte(`[["public","https://github.com/town-os/public-repo"]]`)
 
 		var repos []Repository
@@ -610,8 +610,54 @@ func TestRepositoryUnmarshalFromPairs(t *testing.T) {
 			t.Fatalf("Password: expected empty, got %q", r.Password)
 		}
 	})
+}
 
-	t.Run("marshal produces pair format", func(t *testing.T) {
+func TestRepositoryUnmarshalObjectFormat(t *testing.T) {
+	t.Run("object with credentials", func(t *testing.T) {
+		data := []byte(`[{"name":"core","url":"https://user:pass@github.com/town-os/test-packages-core"}]`)
+
+		var repos []Repository
+		if err := json.Unmarshal(data, &repos); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+
+		if len(repos) != 1 {
+			t.Fatalf("expected 1 repo, got %d", len(repos))
+		}
+
+		r := repos[0]
+		if r.Name != "core" {
+			t.Fatalf("Name: expected %q, got %q", "core", r.Name)
+		}
+		if r.URL.Host != "github.com" {
+			t.Fatalf("Host: expected %q, got %q", "github.com", r.URL.Host)
+		}
+		if r.Username != "user" {
+			t.Fatalf("Username: expected %q, got %q", "user", r.Username)
+		}
+		if r.Password != "pass" {
+			t.Fatalf("Password: expected %q, got %q", "pass", r.Password)
+		}
+	})
+
+	t.Run("object without credentials", func(t *testing.T) {
+		data := []byte(`[{"name":"public","url":"https://github.com/town-os/public-repo"}]`)
+
+		var repos []Repository
+		if err := json.Unmarshal(data, &repos); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+
+		r := repos[0]
+		if r.Name != "public" {
+			t.Fatalf("Name: expected %q, got %q", "public", r.Name)
+		}
+		if r.Username != "" {
+			t.Fatalf("Username: expected empty, got %q", r.Username)
+		}
+	})
+
+	t.Run("marshal produces object format", func(t *testing.T) {
 		r := Repository{
 			Name:     "test",
 			URL:      url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"},
@@ -620,7 +666,7 @@ func TestRepositoryUnmarshalFromPairs(t *testing.T) {
 		}
 
 		data := marshalJSON(t, r)
-		want := `["test","https://u:p@example.com/repo.git"]`
+		want := `{"name":"test","url":"https://u:p@example.com/repo.git"}`
 		if string(data) != want {
 			t.Fatalf("expected %s, got %s", want, string(data))
 		}
@@ -1463,6 +1509,58 @@ func TestFindRepoForPackage(t *testing.T) {
 		_, err = root.FindRepoForPackage("nginx", "99.0")
 		if err != ErrPackageNotFound {
 			t.Fatalf("expected ErrPackageNotFound, got %v", err)
+		}
+	})
+}
+
+func TestSanitizeURL(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		want  string
+	}{
+		"with username and password": {
+			input: "https://erikh:ghp_secret123@github.com/org/repo.git",
+			want:  "https://USERNAME:PASSWORD@github.com/org/repo.git",
+		},
+		"without credentials": {
+			input: "https://github.com/org/repo.git",
+			want:  "https://github.com/org/repo.git",
+		},
+		"username only": {
+			input: "https://erikh@github.com/org/repo.git",
+			want:  "https://USERNAME:PASSWORD@github.com/org/repo.git",
+		},
+		"special characters in password": {
+			input: "https://user:p%40ss%3Aw0rd@example.com/repo.git",
+			want:  "https://USERNAME:PASSWORD@example.com/repo.git",
+		},
+		"not a URL": {
+			input: "not-a-url",
+			want:  "not-a-url",
+		},
+		"empty string": {
+			input: "",
+			want:  "",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := SanitizeURL(tt.input)
+			if got != tt.want {
+				t.Fatalf("SanitizeURL(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("never contains original credentials", func(t *testing.T) {
+		input := "https://deploy:ghp_SuperSecretToken123@github.com/org/repo.git"
+		got := SanitizeURL(input)
+		if strings.Contains(got, "deploy") {
+			t.Fatalf("sanitized URL still contains username: %q", got)
+		}
+		if strings.Contains(got, "ghp_SuperSecretToken123") {
+			t.Fatalf("sanitized URL still contains password: %q", got)
 		}
 	})
 }

@@ -58,6 +58,7 @@ export default function PackageManagement() {
   // Group by repository toggle
   const [groupByRepo, setGroupByRepo] = useState(false)
   const [repoExpanded, setRepoExpanded] = useState({})
+  const [showInstalledOnly, setShowInstalledOnly] = useState(false)
 
   // Sort state for packages tab
   const [pkgSortKey, setPkgSortKey] = useState('name')
@@ -81,13 +82,6 @@ export default function PackageManagement() {
   )
   const packages = pkgData.entries || []
 
-  const [installedData, , installedLoading] = usePolling(
-    () => getClient().listInstalled(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined),
-    { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch],
-  )
-  const installed = installedData.entries || []
-
   const [byRepoData] = usePolling(
     () => groupByRepo ? getClient().listPackagesByRepo(pkgSearch || undefined) : Promise.resolve([]),
     [],
@@ -107,10 +101,23 @@ export default function PackageManagement() {
     setRefreshKey((k) => k + 1)
   }
 
-  function installedVersion(repo, name) {
-    for (const inst of normalizedInstalled) {
-      if (inst.repo === repo && inst.name === name) return inst.version || ''
+  // Build installed lookup from the flat packages list (which includes installed status).
+  const installedMap = {}
+  for (const pkg of packages) {
+    if (pkg.installed) {
+      installedMap[`${pkg.repo}/${pkg.name}`] = pkg.installed_version || ''
     }
+  }
+
+  function installedVersion(row) {
+    // If the row has the installed field (from flat list), use it directly.
+    if (row.installed !== undefined) {
+      if (!row.installed) return null
+      return row.installed_version || ''
+    }
+    // Grouped view: look up from the installedMap built from flat data.
+    const key = `${row.repo}/${row.name}`
+    if (key in installedMap) return installedMap[key]
     return null
   }
 
@@ -311,6 +318,12 @@ export default function PackageManagement() {
     { key: 'repo', label: 'Repository' },
     { key: 'name', label: 'Name' },
     {
+      key: 'description',
+      label: 'Description',
+      sortable: false,
+      transform: (v) => v ? <span className="text-sm text-muted-foreground">{v}</span> : null,
+    },
+    {
       key: 'version',
       label: 'Version',
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
@@ -320,7 +333,7 @@ export default function PackageManagement() {
       label: '',
       sortable: false,
       transform: (_, row) => {
-        const instVer = installedVersion(row.repo, row.name)
+        const instVer = installedVersion(row)
         if (instVer === null) return null
         return (
           <Tooltip>
@@ -344,7 +357,7 @@ export default function PackageManagement() {
       label: 'Status',
       sortable: false,
       transform: (_, row) => {
-        const instVer = installedVersion(row.repo, row.name)
+        const instVer = installedVersion(row)
         const isInst = instVer !== null
         const hasUpgrade = isInst && instVer !== '' && instVer !== row.version
         return (
@@ -442,8 +455,8 @@ export default function PackageManagement() {
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0"
-              disabled={idx >= repositories.length - 1}
-              onClick={() => handleMoveRepo(row.name, idx + 1)}
+              disabled={idx <= 0}
+              onClick={() => handleMoveRepo(row.name, idx - 1)}
             >
               <ArrowUp className="h-3 w-3" />
             </Button>
@@ -451,8 +464,8 @@ export default function PackageManagement() {
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0"
-              disabled={idx <= 0}
-              onClick={() => handleMoveRepo(row.name, idx - 1)}
+              disabled={idx >= repositories.length - 1}
+              onClick={() => handleMoveRepo(row.name, idx + 1)}
             >
               <ArrowDown className="h-3 w-3" />
             </Button>
@@ -477,25 +490,12 @@ export default function PackageManagement() {
     },
   ]
 
-  // Parse package identity strings: "repo/name@version" or legacy "name@version".
-  function parseIdentity(s) {
-    if (typeof s !== 'string') return s
-    const slashIdx = s.indexOf('/')
-    if (slashIdx > 0) {
-      const repo = s.slice(0, slashIdx)
-      const rest = s.slice(slashIdx + 1)
-      const [name, version] = rest.split('@')
-      return { repo, name, version: version || '' }
-    }
-    const [name, version] = s.split('@')
-    return { repo: '', name, version: version || '' }
-  }
-
-  const normalizedPackages = packages.map((pkg) => {
-    const p = parseIdentity(pkg)
-    return { ...p, _key: `${p.repo}/${p.name}` }
-  })
-  const normalizedInstalled = (installed || []).map(parseIdentity)
+  const normalizedPackages = packages
+    .filter((pkg) => !showInstalledOnly || pkg.installed)
+    .map((pkg) => ({
+      ...pkg,
+      _key: `${pkg.repo}/${pkg.name}`,
+    }))
 
   return (
     <div className="space-y-6">
@@ -513,15 +513,26 @@ export default function PackageManagement() {
         </TabsList>
         <TabsContent value="packages" className="mt-4 space-y-4">
           <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={groupByRepo}
-                onChange={(e) => setGroupByRepo(e.target.checked)}
-                className="rounded border-input"
-              />
-              Group by repository
-            </label>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={groupByRepo}
+                  onChange={(e) => setGroupByRepo(e.target.checked)}
+                  className="rounded border-input"
+                />
+                Group by repository
+              </label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showInstalledOnly}
+                  onChange={(e) => setShowInstalledOnly(e.target.checked)}
+                  className="rounded border-input"
+                />
+                Installed only
+              </label>
+            </div>
             {groupByRepo && (
               <Input
                 placeholder="Search packages..."
@@ -566,7 +577,7 @@ export default function PackageManagement() {
                           </TableCell>
                         </TableRow>
                         {isExpanded && group.packages.map((pkg) => {
-                          const instVer = installedVersion(pkg.repo, pkg.name)
+                          const instVer = installedVersion(pkg)
                           const isInst = instVer !== null
                           const hasUpgrade = isInst && instVer !== '' && instVer !== pkg.version
                           return (

@@ -31,7 +31,7 @@ type Client interface {
 	RefreshRepositories(ctx context.Context) (map[string]string, error)
 	ListRepositories(ctx context.Context, params ListParams) (*PageResult[RepositoryInfo], error)
 
-	ListPackages(ctx context.Context, params ListParams) (*PageResult[string], error)
+	ListPackages(ctx context.Context, params ListParams) (*PageResult[PackageListEntry], error)
 	ListPackagesByRepo(ctx context.Context, params ListParams) ([]packages.RepoPackageGroup, error)
 	ListPackageVersions(ctx context.Context, name string) ([]string, error)
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
@@ -285,7 +285,7 @@ func (c *SystemdClient) ListRepositories(ctx context.Context, params ListParams)
 
 // --- Packages ---
 
-func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ *PageResult[string], err error) {
+func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ *PageResult[PackageListEntry], err error) {
 	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", params.QueryString()))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPackages: %w", ErrHTTPRequest, err)
@@ -298,7 +298,7 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 		return nil, readProblemDetail(resp, "GET", "packages")
 	}
 
-	var page PageResult[string]
+	var page PageResult[PackageListEntry]
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
