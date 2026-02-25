@@ -18,6 +18,10 @@ You also can't lock yourself out. If all accounts become disabled or there are n
 
 Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
 
+## Requests for Comment
+
+Please the try the development build (`make dev` on any linux; see below for more) and add [issues](https://gitea.com/town-os/town-os/issues) (Gitea account required; GitHub SSO can be used) with features you'd like. I'm trying to be very receptive and open-minded to all possibilities, so please do not feel like your idea is too big or too crazy. Just post it. <3
+
 ## Prerequisites
 
 - Go 1.25+
