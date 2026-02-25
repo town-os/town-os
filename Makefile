@@ -4,6 +4,7 @@ export TOWN_OS_REPO_PASSWORD
 
 PODMAN_IMAGE := town-os
 PODMAN_TEST_IMAGE := town-os-test
+PODMAN_DEV_IMAGE := town-os-dev
 PODMAN_CONTAINER := town-os-test
 
 test: lint
@@ -94,6 +95,10 @@ test-image: production-image
 		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
 		-t $(PODMAN_TEST_IMAGE) -f integration/testdata/Containerfile.systemd .
 
+dev-image: production-image
+	sudo -E podman build --pull=never \
+		-t $(PODMAN_DEV_IMAGE) -f integration/testdata/Containerfile.dev .
+
 PODMAN_DEV_CONTAINER := town-os-dev
 DEV_BTRFS_IMAGE ?= $(shell mktemp btrfs-dev.XXXXXX)
 
@@ -124,7 +129,7 @@ dev-btrfs:
 		$(MAKE) btrfs-dev; \
 	fi
 
-dev: test-image dev-btrfs
+dev: dev-image dev-btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@mkdir -p dev-data dev-repos
 	sudo -E podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
@@ -136,7 +141,7 @@ dev: test-image dev-btrfs
 		-v $$(cat town-os-dev.mount):/data/btrfs:z \
 		-v $$(pwd)/dev-data:/data/db:z \
 		-v $$(pwd)/dev-repos:/data/repos:z \
-		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_TEST_IMAGE)
+		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_DEV_IMAGE)
 	@echo "API server: http://$$(hostname):5309"
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
