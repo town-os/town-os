@@ -2691,8 +2691,12 @@ func TestHTTPListInstalled(t *testing.T) {
 		t.Fatalf("ListInstalled: %v", err)
 	}
 
-	if len(pkgs.Entries) != 2 {
-		t.Fatalf("expected 2 installed, got %d", len(pkgs.Entries))
+	// Upgrade from 1.0 to 2.0 removes the old install record, so only 1 remains.
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
+	}
+	if !strings.Contains(pkgs.Entries[0], "2.0") {
+		t.Fatalf("expected version 2.0 in entry, got %s", pkgs.Entries[0])
 	}
 }
 
@@ -5777,13 +5781,32 @@ func TestHTTPListPackagesPagination(t *testing.T) {
 }
 
 func TestHTTPListInstalledPagination(t *testing.T) {
-	c, _ := initInstallTestClient(t)
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(),"nginx", "2.0", packages.Responses{}, false, ""); err != nil {
-		t.Fatalf("InstallPackage nginx@2.0: %v", err)
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
 	// Limit 1
@@ -7136,7 +7159,7 @@ questions: {}
 	}
 }
 
-func TestHTTPUninstallWithOtherVersionsPreservesAll(t *testing.T) {
+func TestHTTPUpgradeMovesVolumesAndCleansOldRecord(t *testing.T) {
 	mockCtrl := storage.InitBtrFSMockController()
 	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
 	rr := emptyRepoRoot(t)
@@ -7178,35 +7201,35 @@ questions: {}
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
-	// Install nginx 2.0 (upgrade: stops 1.0 unit, keeps old install record).
+	// Upgrade to nginx 2.0 — should auto-move volumes and remove old record.
 	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
 		t.Fatalf("InstallPackage 2.0: %v", err)
 	}
 
-	// Uninstall nginx 1.0 without purge.
-	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
-		t.Fatalf("UninstallPackage 1.0: %v", err)
+	// Only version 2.0 should be in the installed list.
+	pkgs, err := c.ListInstalled(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed, got %d", len(pkgs.Entries))
+	}
+	if !strings.Contains(pkgs.Entries[0], "2.0") {
+		t.Fatalf("expected version 2.0 in entry, got %s", pkgs.Entries[0])
 	}
 
-	// Because nginx 2.0 is still installed, volumes should NOT be renamed.
-	fs := mockCtrl.GetFilesystems()
-	found := map[string]bool{}
-	for _, f := range fs {
-		found[f.Name] = true
-	}
-
-	// installed/repo-a/nginx/... should still exist (not moved to uninstalled).
-	if !found["installed/repo-a/nginx/1.0/data"] {
-		t.Fatalf("expected installed/repo-a/nginx/1.0/data to still exist, got: %v", fs)
-	}
-	if !found["installed/repo-a/nginx/2.0/data"] {
-		t.Fatalf("expected installed/repo-a/nginx/2.0/data to still exist, got: %v", fs)
-	}
-
-	for name := range found {
-		if strings.HasPrefix(name, "uninstalled/") {
-			t.Fatalf("expected no uninstalled volumes, found %q", name)
+	// The data volume should have been renamed from 1.0 path to 2.0 path.
+	calls := mockCtrl.GetLog()
+	foundRename := false
+	for _, call := range calls {
+		if call.Operation == "SubvolRename" && len(call.Arguments) == 2 {
+			if call.Arguments[0] == "installed/repo-a/nginx/1.0/data" && call.Arguments[1] == "installed/repo-a/nginx/2.0/data" {
+				foundRename = true
+			}
 		}
+	}
+	if !foundRename {
+		t.Fatal("expected SubvolRename call to move data volume from 1.0 to 2.0 path")
 	}
 }
 
@@ -8289,5 +8312,332 @@ func TestHTTPListPackagesByRepo(t *testing.T) {
 	}
 	if len(groups[1].Packages) != 2 {
 		t.Fatalf("expected 2 packages in core, got %d", len(groups[1].Packages))
+	}
+}
+
+func TestHTTPUpgradeAutoMovesVolumes(t *testing.T) {
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	nginx10 := `image: nginx:1.0
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 1gb
+`
+	nginx20 := `image: nginx:2.0
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 2gb
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", nginx20)
+
+	inst := packages.InitMockInstallManager()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Install nginx 1.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage 1.0: %v", err)
+	}
+
+	// Verify 1.0 volume was created.
+	fs := mockCtrl.GetFilesystems()
+	found10 := false
+	for _, f := range fs {
+		if f.Name == "installed/repo-a/nginx/1.0/data" {
+			found10 = true
+		}
+	}
+	if !found10 {
+		t.Fatalf("expected installed/repo-a/nginx/1.0/data volume, filesystems: %v", fs)
+	}
+
+	// Upgrade to nginx 2.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage 2.0: %v", err)
+	}
+
+	// Verify volume was moved (renamed) from 1.0 to 2.0.
+	fs = mockCtrl.GetFilesystems()
+	found20 := false
+	still10 := false
+	for _, f := range fs {
+		if f.Name == "installed/repo-a/nginx/2.0/data" {
+			found20 = true
+		}
+		if f.Name == "installed/repo-a/nginx/1.0/data" {
+			still10 = true
+		}
+	}
+	if !found20 {
+		t.Fatalf("expected installed/repo-a/nginx/2.0/data volume after upgrade, filesystems: %v", fs)
+	}
+	if still10 {
+		t.Fatalf("expected installed/repo-a/nginx/1.0/data to be moved, but it still exists")
+	}
+
+	// Verify SubvolRename was called with correct args.
+	calls := mockCtrl.GetLog()
+	foundRename := false
+	for _, call := range calls {
+		if call.Operation == "SubvolRename" {
+			args := call.Arguments
+			if len(args) >= 2 {
+				src, _ := args[0].(string)
+				dst, _ := args[1].(string)
+				if src == "installed/repo-a/nginx/1.0/data" && dst == "installed/repo-a/nginx/2.0/data" {
+					foundRename = true
+				}
+			}
+		}
+	}
+	if !foundRename {
+		t.Fatal("expected SubvolRename call to move volume from 1.0 to 2.0")
+	}
+}
+
+func TestHTTPUpgradeRemovesOldInstallRecord(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Install nginx 1.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage 1.0: %v", err)
+	}
+
+	// Verify 1.0 is installed.
+	installed, err := c.ListInstalled(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(installed.Entries) != 1 || installed.Entries[0] != "repo-a/nginx@1.0" {
+		t.Fatalf("expected [repo-a/nginx@1.0], got %v", installed.Entries)
+	}
+
+	// Upgrade to nginx 2.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage 2.0: %v", err)
+	}
+
+	// Verify only 2.0 is installed (old record removed).
+	installed, err = c.ListInstalled(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(installed.Entries) != 1 {
+		t.Fatalf("expected 1 installed package after upgrade, got %d: %v", len(installed.Entries), installed.Entries)
+	}
+	if installed.Entries[0] != "repo-a/nginx@2.0" {
+		t.Fatalf("expected repo-a/nginx@2.0, got %s", installed.Entries[0])
+	}
+}
+
+func TestHTTPUpgradeNewVolumesCreatedFresh(t *testing.T) {
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	nginx10 := `image: nginx:1.0
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 1gb
+`
+	nginx20 := `image: nginx:2.0
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 2gb
+  cache:
+    mountpoint: /var/cache/nginx
+    quota: 500mb
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", nginx20)
+
+	inst := packages.InitMockInstallManager()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Install nginx 1.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage 1.0: %v", err)
+	}
+
+	// Upgrade to nginx 2.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage 2.0: %v", err)
+	}
+
+	// Verify both volumes exist for version 2.0.
+	fs := mockCtrl.GetFilesystems()
+	foundData := false
+	foundCache := false
+	for _, f := range fs {
+		if f.Name == "installed/repo-a/nginx/2.0/data" {
+			foundData = true
+		}
+		if f.Name == "installed/repo-a/nginx/2.0/cache" {
+			foundCache = true
+		}
+	}
+	if !foundData {
+		t.Fatalf("expected installed/repo-a/nginx/2.0/data volume, filesystems: %v", fs)
+	}
+	if !foundCache {
+		t.Fatalf("expected installed/repo-a/nginx/2.0/cache volume (new in v2), filesystems: %v", fs)
+	}
+
+	// Verify "data" was renamed (moved from 1.0) and "cache" was created fresh.
+	calls := mockCtrl.GetLog()
+	foundRename := false
+	foundCreate := false
+	for _, call := range calls {
+		if call.Operation == "SubvolRename" {
+			args := call.Arguments
+			if len(args) >= 2 {
+				src, _ := args[0].(string)
+				dst, _ := args[1].(string)
+				if src == "installed/repo-a/nginx/1.0/data" && dst == "installed/repo-a/nginx/2.0/data" {
+					foundRename = true
+				}
+			}
+		}
+		if call.Operation == "SubvolCreate" {
+			if len(call.Arguments) > 0 {
+				name, _ := call.Arguments[0].(string)
+				if name == "installed/repo-a/nginx/2.0/cache" {
+					foundCreate = true
+				}
+			}
+		}
+	}
+	if !foundRename {
+		t.Fatal("expected SubvolRename for data volume from 1.0 to 2.0")
+	}
+	if !foundCreate {
+		t.Fatal("expected SubvolCreate for new cache volume in 2.0")
+	}
+}
+
+func TestHTTPUpgradeExplicitImportOverridesAuto(t *testing.T) {
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	nginx10 := `image: nginx:1.0
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 1gb
+`
+	nginx20 := `image: nginx:2.0
+volumes:
+  data:
+    mountpoint: /var/lib/data
+    quota: 2gb
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", nginx20)
+
+	inst := packages.InitMockInstallManager()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Install nginx 1.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+		t.Fatalf("InstallPackage 1.0: %v", err)
+	}
+
+	// Upgrade to 2.0 with explicit ImportFromVersion (should use snapshot, not rename).
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "1.0"); err != nil {
+		t.Fatalf("InstallPackage 2.0 with import: %v", err)
+	}
+
+	// Verify snapshot was used instead of rename.
+	calls := mockCtrl.GetLog()
+	foundSnapshot := false
+	foundRename := false
+	for _, call := range calls {
+		if call.Operation == "SubvolSnapshot" {
+			foundSnapshot = true
+		}
+		if call.Operation == "SubvolRename" {
+			args := call.Arguments
+			if len(args) >= 2 {
+				src, _ := args[0].(string)
+				if src == "installed/repo-a/nginx/1.0/data" {
+					foundRename = true
+				}
+			}
+		}
+	}
+	if !foundSnapshot {
+		t.Fatal("expected SubvolSnapshot when ImportFromVersion is explicit")
+	}
+	if foundRename {
+		t.Fatal("expected no SubvolRename when ImportFromVersion is explicitly set")
 	}
 }

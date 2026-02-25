@@ -918,7 +918,7 @@ export default function PackageManagement() {
             <Button
               onClick={() => {
                 const { repo, name, selectedVersion } = versionSelectDialog
-                const instVer = installedVersion(repo, name)
+                const instVer = installedMap[`${repo}/${name}`] ?? null
                 const importFrom = (instVer && instVer !== selectedVersion) ? instVer : undefined
                 setVersionSelectDialog({ open: false })
                 handleCheckVolumes(repo, name, selectedVersion, importFrom)

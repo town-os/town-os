@@ -3781,3 +3781,53 @@ func TestSystemControllerMultiRepoUninstallIsolation(t *testing.T) {
 		t.Fatalf("expected extras/mosquitto@2.0, got %s", pkgs.Entries[0])
 	}
 }
+
+// TestSystemControllerUpgradeRemovesOldRecord verifies that upgrading from
+// one version to another removes the old install record, leaving only the
+// new version installed.
+func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install nginx 1.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled after install 1.0: %v", err)
+	}
+	if len(pkgs.Entries) != 1 || pkgs.Entries[0] != "core/nginx@1.0" {
+		t.Fatalf("expected [core/nginx@1.0], got %v", pkgs.Entries)
+	}
+
+	// Upgrade to nginx 2.0.
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+		t.Fatalf("InstallPackage nginx@2.0 (upgrade): %v", err)
+	}
+
+	// Verify only 2.0 remains installed.
+	pkgs, err = c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListInstalled after upgrade: %v", err)
+	}
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 installed after upgrade, got %d: %v", len(pkgs.Entries), pkgs.Entries)
+	}
+	if pkgs.Entries[0] != "core/nginx@2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s", pkgs.Entries[0])
+	}
+
+	// Verify responses are accessible for the new version.
+	resp, err := c.GetResponses(context.TODO(), "core", "nginx", "2.0")
+	if err != nil {
+		t.Fatalf("GetResponses nginx@2.0: %v", err)
+	}
+	if resp["hostname"] != "alpha" {
+		t.Fatalf("expected hostname %q, got %q", "alpha", resp["hostname"])
+	}
+}

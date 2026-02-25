@@ -893,8 +893,28 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			if err := inst.Uninstall(repoName, req.Name, req.Version); err != nil {
 				return err
 			}
+		} else {
+			// Different version (upgrade): move matching volumes from old to new
+			// version path and remove the old install record after the new one
+			// is created successfully.
+			if st := s.Controller.GetStorage(); st != nil && req.ImportFromVersion == "" {
+				// Load old package to discover its volume names.
+				oldIP, loadErr := rr.LoadPackage(repoName, req.Name, activeVersion)
+				if loadErr == nil {
+					for volName := range compiled.Volumes {
+						if _, exists := oldIP.Volumes[volName]; exists {
+							src := packageVolumePath(repoName, req.Name, activeVersion, volName)
+							dst := packageVolumePath(repoName, req.Name, req.Version, volName)
+							if err := st.RenameFilesystem(src, dst); err != nil {
+								slog.Debug(fmt.Sprintf("upgrade move volume %s -> %s: %v", src, dst, err))
+							}
+						}
+					}
+				} else {
+					slog.Debug(fmt.Sprintf("upgrade: load old package %s/%s@%s: %v", repoName, req.Name, activeVersion, loadErr))
+				}
+			}
 		}
-		// Different version: keep old install record and volumes; only the unit is stopped.
 	}
 
 	// Handle volume reuse/import and create or adjust storage volumes.
@@ -935,7 +955,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 				}
 			} else {
 				if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-					// Volume already exists — adjust quota if needed.
+					// Volume already exists (e.g. moved from old version) — adjust quota if needed.
 					if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 						return err
 					}
@@ -946,6 +966,13 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	if err := inst.Install(repoName, req.Name, req.Version, req.Responses); err != nil {
 		return err
+	}
+
+	// Clean up old install record after successful new install.
+	if activeVersion != "" && activeVersion != req.Version {
+		if err := inst.Uninstall(repoName, req.Name, activeVersion); err != nil {
+			slog.Debug(fmt.Sprintf("remove old install record %s/%s@%s: %v", repoName, req.Name, activeVersion, err))
+		}
 	}
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
