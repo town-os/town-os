@@ -10,18 +10,17 @@ import (
 
 func TestGeneratePackageUnitsBasic(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "nginx",
-		Version:     "1.0",
-		Image:       "docker.io/library/nginx:1.0",
-		Environment: map[string]string{"NGINX_HOST": "example.com"},
-		External:    packages.PortMap{8080: 80},
-		Internal:    packages.PortMap{},
-		Volumes: map[string]packages.PackageVolume{
-			"data": {Mountpoint: "/var/data"},
-		},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
+		RepoName:                 "test-repo",
+		PkgName:                  "nginx",
+		Version:                  "1.0",
+		Image:                    "docker.io/library/nginx:1.0",
+		Environment:              map[string]string{"NGINX_HOST": "example.com"},
+		External:                 packages.PortMap{8080: 80},
+		Internal:                 packages.PortMap{},
+		Volumes:                  map[string]packages.PackageVolume{"data": {Mountpoint: "/var/data"}},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -56,8 +55,8 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(svc, "firewall-cmd --remove-port=8080/tcp") {
 		t.Fatal("service missing firewall remove-port")
 	}
-	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", UPnPTimerUnitName("test-repo", "nginx", "1.0"))) {
-		t.Fatal("service missing Wants for uPnP timer")
+	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", NetworkControllerUnitName("test-repo", "nginx", "1.0"))) {
+		t.Fatal("service missing Wants for network controller")
 	}
 
 	// Verify socket units.
@@ -78,38 +77,19 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 		t.Fatal("socket missing PartOf")
 	}
 
-	// Verify uPnP units exist.
-	if units.UPnPService == nil {
-		t.Fatal("expected uPnP service unit")
+	// Verify network controller unit exists.
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit")
 	}
-	if units.UPnPTimer == nil {
-		t.Fatal("expected uPnP timer unit")
+	if units.NetworkController.Name != "town-os-package--test-repo-nginx-1.0-network.service" {
+		t.Fatalf("expected network controller name town-os-package--test-repo-nginx-1.0-network.service, got %s", units.NetworkController.Name)
 	}
-	if units.UPnPService.Name != "town-os-package--test-repo-nginx-1.0-upnp.service" {
-		t.Fatalf("expected uPnP service name town-os-package--test-repo-nginx-1.0-upnp.service, got %s", units.UPnPService.Name)
+	nc := units.NetworkController.Content
+	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatal("network controller missing BindsTo")
 	}
-	if !strings.Contains(units.UPnPService.Content, "/town-os-upnp add --port 8080:80 --ttl 600") {
-		t.Fatalf("uPnP service missing correct ExecStart, got:\n%s", units.UPnPService.Content)
-	}
-	if units.UPnPTimer.Name != "town-os-package--test-repo-nginx-1.0-upnp.timer" {
-		t.Fatalf("expected uPnP timer name town-os-package--test-repo-nginx-1.0-upnp.timer, got %s", units.UPnPTimer.Name)
-	}
-	if !strings.Contains(units.UPnPTimer.Content, "OnBootSec=1min") {
-		t.Fatal("uPnP timer missing OnBootSec")
-	}
-	if !strings.Contains(units.UPnPTimer.Content, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("uPnP timer missing BindsTo")
-	}
-	if !strings.Contains(units.UPnPTimer.Content, "After=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("uPnP timer missing After")
-	}
-
-	// Verify uPnP service has BindsTo and After.
-	if !strings.Contains(units.UPnPService.Content, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("uPnP service missing BindsTo")
-	}
-	if !strings.Contains(units.UPnPService.Content, "After=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("uPnP service missing After")
+	if !strings.Contains(nc, "After=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatal("network controller missing After")
 	}
 
 	// Verify socket units still use PartOf (not BindsTo).
@@ -120,16 +100,17 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 
 func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "myapp",
-		Version:     "2.0",
-		Image:       "myapp:2.0",
-		Environment: map[string]string{},
-		External:    packages.PortMap{8080: 80, 8443: 443},
-		Internal:    packages.PortMap{9090: 9090},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
+		RepoName:                 "test-repo",
+		PkgName:                  "myapp",
+		Version:                  "2.0",
+		Image:                    "myapp:2.0",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{8080: 80, 8443: 443},
+		Internal:                 packages.PortMap{9090: 9090},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -159,34 +140,25 @@ func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 		t.Fatal("service missing firewall add-port 9090")
 	}
 
-	// uPnP service should only have external ports.
-	if units.UPnPService == nil {
-		t.Fatal("expected uPnP service unit for external ports")
-	}
-	upnp := units.UPnPService.Content
-	if !strings.Contains(upnp, "--port 8080:80") {
-		t.Fatal("uPnP missing external port 8080:80")
-	}
-	if !strings.Contains(upnp, "--port 8443:443") {
-		t.Fatal("uPnP missing external port 8443:443")
-	}
-	if strings.Contains(upnp, "9090") {
-		t.Fatal("uPnP should NOT contain internal port 9090")
+	// Network controller should be generated for external ports.
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit for external ports")
 	}
 }
 
 func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "redis",
-		Version:     "7.0",
-		Image:       "redis:7.0",
-		Environment: map[string]string{},
-		External:    packages.PortMap{},
-		Internal:    packages.PortMap{6379: 6379},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
+		RepoName:                 "test-repo",
+		PkgName:                  "redis",
+		Version:                  "7.0",
+		Image:                    "redis:7.0",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{6379: 6379},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -203,32 +175,30 @@ func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 		t.Fatal("service missing firewall for internal port")
 	}
 
-	// No uPnP units.
-	if units.UPnPService != nil {
-		t.Fatal("expected no uPnP service unit for internal-only ports")
-	}
-	if units.UPnPTimer != nil {
-		t.Fatal("expected no uPnP timer unit for internal-only ports")
+	// No network controller unit.
+	if units.NetworkController != nil {
+		t.Fatal("expected no network controller unit for internal-only ports")
 	}
 
-	// No Wants line for uPnP timer.
+	// No Wants line for network controller.
 	if strings.Contains(svc, "Wants=") {
-		t.Fatal("service should not have Wants for uPnP timer with no external ports")
+		t.Fatal("service should not have Wants with no external ports")
 	}
 }
 
 func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "worker",
-		Version:     "1.0",
-		Image:       "worker:1.0",
-		Environment: map[string]string{},
-		External:    packages.PortMap{},
-		Internal:    packages.PortMap{},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
+		RepoName:                 "test-repo",
+		PkgName:                  "worker",
+		Version:                  "1.0",
+		Image:                    "worker:1.0",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -238,12 +208,9 @@ func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 		t.Fatalf("expected 0 socket units, got %d", len(units.Sockets))
 	}
 
-	// No uPnP.
-	if units.UPnPService != nil {
-		t.Fatal("expected no uPnP service")
-	}
-	if units.UPnPTimer != nil {
-		t.Fatal("expected no uPnP timer")
+	// No network controller.
+	if units.NetworkController != nil {
+		t.Fatal("expected no network controller")
 	}
 
 	// No firewall commands.
@@ -278,11 +245,12 @@ func TestGeneratePackageUnitsEnvironmentSorted(t *testing.T) {
 			"ALPHA":  "first",
 			"MIDDLE": "mid",
 		},
-		External:    packages.PortMap{},
-		Internal:    packages.PortMap{},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -312,10 +280,7 @@ func TestPackageUnitNames(t *testing.T) {
 		"town-os-package--test-repo-nginx-1.0-8080-tcp.socket",
 		"town-os-package--test-repo-nginx-1.0-8443-tcp.socket",
 		"town-os-package--test-repo-nginx-1.0-9090-tcp.socket",
-		"town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service",
-		"town-os-package--test-repo-nginx-1.0-fwd-8443-tcp.service",
-		"town-os-package--test-repo-nginx-1.0-upnp.service",
-		"town-os-package--test-repo-nginx-1.0-upnp.timer",
+		"town-os-package--test-repo-nginx-1.0-network.service",
 	}
 
 	if len(names) != len(expected) {
@@ -369,33 +334,27 @@ func TestSocketUnitName(t *testing.T) {
 	}
 }
 
-func TestUPnPServiceUnitName(t *testing.T) {
-	name := UPnPServiceUnitName("test-repo", "nginx", "1.0")
-	if name != "town-os-package--test-repo-nginx-1.0-upnp.service" {
-		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-upnp.service, got %s", name)
-	}
-}
-
-func TestUPnPTimerUnitName(t *testing.T) {
-	name := UPnPTimerUnitName("test-repo", "nginx", "1.0")
-	if name != "town-os-package--test-repo-nginx-1.0-upnp.timer" {
-		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-upnp.timer, got %s", name)
+func TestNetworkControllerUnitName(t *testing.T) {
+	name := NetworkControllerUnitName("test-repo", "nginx", "1.0")
+	if name != "town-os-package--test-repo-nginx-1.0-network.service" {
+		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-network.service, got %s", name)
 	}
 }
 
 func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "redis",
-		Version:     "7.0",
-		Image:       "redis:7.0",
-		Environment: map[string]string{},
-		External:    packages.PortMap{},
-		Internal:    packages.PortMap{6379: 6379},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
-		NetworkMode: "host",
+		RepoName:                 "test-repo",
+		PkgName:                  "redis",
+		Version:                  "7.0",
+		Image:                    "redis:7.0",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{6379: 6379},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
+		NetworkMode:              "host",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -407,25 +366,22 @@ func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
 	if strings.Contains(svc, "-p 6379:6379") {
 		t.Fatal("service should not have -p mappings in host network mode")
 	}
-	// Same port (6379->6379) should produce no forwarders.
-	if len(units.Forwarders) != 0 {
-		t.Fatalf("expected 0 forwarders for same-port mapping, got %d", len(units.Forwarders))
-	}
 }
 
 func TestGeneratePackageUnitsCommand(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "redis",
-		Version:     "7.0",
-		Image:       "redis:7.0-alpine",
-		Command:     []string{"redis-server", "--bind", "0.0.0.0"},
-		Environment: map[string]string{},
-		External:    packages.PortMap{},
-		Internal:    packages.PortMap{6379: 6379},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
+		RepoName:                 "test-repo",
+		PkgName:                  "redis",
+		Version:                  "7.0",
+		Image:                    "redis:7.0-alpine",
+		Command:                  []string{"redis-server", "--bind", "0.0.0.0"},
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{6379: 6379},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -454,18 +410,19 @@ func TestGeneratePackageUnitsCommand(t *testing.T) {
 
 func TestGeneratePackageUnitsCommandWithHostNetwork(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "redis",
-		Version:     "7.0",
-		Image:       "redis:7.0-alpine",
-		Command:     []string{"redis-server", "--bind", "0.0.0.0"},
-		Environment: map[string]string{},
-		External:    packages.PortMap{},
-		Internal:    packages.PortMap{6379: 6379},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
-		NetworkMode: "host",
+		RepoName:                 "test-repo",
+		PkgName:                  "redis",
+		Version:                  "7.0",
+		Image:                    "redis:7.0-alpine",
+		Command:                  []string{"redis-server", "--bind", "0.0.0.0"},
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{6379: 6379},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
+		NetworkMode:              "host",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -487,10 +444,10 @@ func TestGeneratePackageUnitsCommandWithHostNetwork(t *testing.T) {
 
 func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName: "test-repo",
-		PkgName:  "myapp",
-		Version:  "1.0",
-		Image:    "myapp:1.0",
+		RepoName:    "test-repo",
+		PkgName:     "myapp",
+		Version:     "1.0",
+		Image:       "myapp:1.0",
 		Environment: map[string]string{},
 		External:    packages.PortMap{},
 		Internal:    packages.PortMap{},
@@ -498,8 +455,9 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 			"data":   {Mountpoint: "/var/lib/data"},
 			"config": {Mountpoint: "/etc/myapp"},
 		},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -521,166 +479,74 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 	}
 }
 
-func TestGeneratePackageUnitsHostModeWithForwarder(t *testing.T) {
+func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "nginx",
-		Version:     "1.0",
-		Image:       "nginx:1.26-alpine",
-		Environment: map[string]string{"NGINX_HOST": "example.com"},
-		External:    packages.PortMap{8080: 80},
-		Internal:    packages.PortMap{},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
-		NetworkMode: "host",
+		RepoName:                 "test-repo",
+		PkgName:                  "nginx",
+		Version:                  "1.0",
+		Image:                    "nginx:1.26-alpine",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{8080: 80},
+		Internal:                 packages.PortMap{},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
 
-	// Should have exactly one forwarder (8080->80).
-	if len(units.Forwarders) != 1 {
-		t.Fatalf("expected 1 forwarder, got %d", len(units.Forwarders))
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit")
 	}
-	fwd := units.Forwarders[0]
-	if fwd.Name != "town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service" {
-		t.Fatalf("expected forwarder name town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service, got %s", fwd.Name)
+	nc := units.NetworkController.Content
+	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatalf("network controller missing BindsTo, got:\n%s", nc)
 	}
-	if !strings.Contains(fwd.Content, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
-		t.Fatalf("forwarder missing socat command, got:\n%s", fwd.Content)
+	if !strings.Contains(nc, "After=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatalf("network controller missing After, got:\n%s", nc)
 	}
-	if !strings.Contains(fwd.Content, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("forwarder missing BindsTo")
+	if !strings.Contains(nc, "ExecStart=/town-os-networkcontroller --state /var/run/town-os/test-repo-nginx-1.0.json") {
+		t.Fatalf("network controller missing ExecStart with correct state path, got:\n%s", nc)
 	}
-	if !strings.Contains(fwd.Content, "After=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("forwarder missing After")
+	if !strings.Contains(nc, "Description=Town OS Network Controller: test-repo/nginx@1.0") {
+		t.Fatalf("network controller missing description, got:\n%s", nc)
 	}
-	if !strings.Contains(fwd.Content, "Description=Town OS Port Forwarder: test-repo/nginx@1.0 8080->80/tcp") {
-		t.Fatalf("forwarder missing description, got:\n%s", fwd.Content)
+}
+
+func TestGeneratePackageUnitsNetworkControllerHostMode(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:                 "test-repo",
+		PkgName:                  "nginx",
+		Version:                  "1.0",
+		Image:                    "nginx:1.26-alpine",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{8080: 80},
+		Internal:                 packages.PortMap{},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
+		NetworkMode:              "host",
 	}
 
-	// Service unit should have Wants= for the forwarder.
+	units := GeneratePackageUnits(cfg)
+
+	// Network controller should still be generated in host mode.
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit in host mode")
+	}
+	nc := units.NetworkController.Content
+	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatalf("network controller missing BindsTo in host mode, got:\n%s", nc)
+	}
+
+	// Service should have --net host.
 	svc := units.Service.Content
-	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", ForwarderUnitName("test-repo", "nginx", "1.0", 8080))) {
-		t.Fatalf("service missing Wants for forwarder, got:\n%s", svc)
+	if !strings.Contains(svc, "--net host") {
+		t.Fatal("service missing --net host")
 	}
-}
-
-func TestGeneratePackageUnitsHostModeNoForwarderSamePort(t *testing.T) {
-	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "redis",
-		Version:     "7.0",
-		Image:       "redis:7.0",
-		Environment: map[string]string{},
-		External:    packages.PortMap{},
-		Internal:    packages.PortMap{6379: 6379},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
-		NetworkMode: "host",
-	}
-
-	units := GeneratePackageUnits(cfg)
-
-	if len(units.Forwarders) != 0 {
-		t.Fatalf("expected 0 forwarders for same-port mapping, got %d", len(units.Forwarders))
-	}
-
-	// Service should not have Wants for any forwarder.
-	svc := units.Service.Content
-	if strings.Contains(svc, "fwd") {
-		t.Fatal("service should not reference forwarder units for same-port mapping")
-	}
-}
-
-func TestGeneratePackageUnitsHostModeUPnPUsesExternalPort(t *testing.T) {
-	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "nginx",
-		Version:     "1.0",
-		Image:       "nginx:1.26-alpine",
-		Environment: map[string]string{},
-		External:    packages.PortMap{8080: 80},
-		Internal:    packages.PortMap{},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
-		NetworkMode: "host",
-	}
-
-	units := GeneratePackageUnits(cfg)
-
-	if units.UPnPService == nil {
-		t.Fatal("expected UPnP service unit")
-	}
-	upnp := units.UPnPService.Content
-	// In host mode UPnP should use ext:ext (8080:8080), not ext:int (8080:80).
-	if !strings.Contains(upnp, "--port 8080:8080") {
-		t.Fatalf("UPnP should use --port 8080:8080 in host mode, got:\n%s", upnp)
-	}
-	if strings.Contains(upnp, "--port 8080:80 ") {
-		t.Fatal("UPnP should NOT use --port 8080:80 in host mode")
-	}
-}
-
-func TestGeneratePackageUnitsBridgeModeNoForwarder(t *testing.T) {
-	cfg := PackageUnitConfig{
-		RepoName:    "test-repo",
-		PkgName:     "nginx",
-		Version:     "1.0",
-		Image:       "nginx:1.26-alpine",
-		Environment: map[string]string{},
-		External:    packages.PortMap{8080: 80},
-		Internal:    packages.PortMap{},
-		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
-		UPnPBinPath: "/town-os-upnp",
-		NetworkMode: "",
-	}
-
-	units := GeneratePackageUnits(cfg)
-
-	if len(units.Forwarders) != 0 {
-		t.Fatalf("expected 0 forwarders in bridge mode, got %d", len(units.Forwarders))
-	}
-
-	// Service should not have Wants for any forwarder.
-	svc := units.Service.Content
-	if strings.Contains(svc, "fwd") {
-		t.Fatal("service should not reference forwarder units in bridge mode")
-	}
-
-	// UPnP should use ext:int in bridge mode.
-	if units.UPnPService == nil {
-		t.Fatal("expected UPnP service unit")
-	}
-	if !strings.Contains(units.UPnPService.Content, "--port 8080:80") {
-		t.Fatalf("UPnP should use --port 8080:80 in bridge mode, got:\n%s", units.UPnPService.Content)
-	}
-}
-
-func TestPackageUnitNamesIncludesForwarders(t *testing.T) {
-	external := packages.PortMap{8080: 80}
-	internal := packages.PortMap{}
-
-	names := PackageUnitNames("test-repo", "nginx", "1.0", external, internal)
-
-	found := false
-	for _, name := range names {
-		if name == "town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected forwarder unit name in PackageUnitNames, got: %v", names)
-	}
-}
-
-func TestForwarderUnitName(t *testing.T) {
-	name := ForwarderUnitName("test-repo", "nginx", "1.0", 8080)
-	if name != "town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service" {
-		t.Fatalf("expected town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service, got %s", name)
+	if strings.Contains(svc, "-p 8080:80") {
+		t.Fatal("service should not have -p mappings in host mode")
 	}
 }

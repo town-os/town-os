@@ -11,18 +11,19 @@ import (
 // PackageUnitConfig holds all the information needed to generate systemd units
 // for a package's podman container service.
 type PackageUnitConfig struct {
-	RepoName    string
-	PkgName     string
-	Version     string
-	Image       string
-	Command     []string
-	Environment map[string]string
-	External    packages.PortMap
-	Internal    packages.PortMap
-	Volumes     map[string]packages.PackageVolume
-	BtrfsBase   string
-	UPnPBinPath string
-	NetworkMode string // "" or "bridge" → -p mappings; "host" → --net host
+	RepoName               string
+	PkgName                string
+	Version                string
+	Image                  string
+	Command                []string
+	Environment            map[string]string
+	External               packages.PortMap
+	Internal               packages.PortMap
+	Volumes                map[string]packages.PackageVolume
+	BtrfsBase              string
+	NetworkControllerBinPath string
+	NetworkStatePath       string
+	NetworkMode            string // "" or "bridge" → -p mappings; "host" → --net host
 }
 
 // UnitFile represents a single systemd unit file with its name and content.
@@ -33,11 +34,9 @@ type UnitFile struct {
 
 // PackageUnits collects all the systemd unit files generated for a package.
 type PackageUnits struct {
-	Service     UnitFile
-	Sockets     []UnitFile
-	Forwarders  []UnitFile // socat port-forwarding units (host mode only)
-	UPnPService *UnitFile
-	UPnPTimer   *UnitFile
+	Service           UnitFile
+	Sockets           []UnitFile
+	NetworkController *UnitFile
 }
 
 // allPorts returns a sorted slice of all unique host ports from both external
@@ -84,53 +83,6 @@ func allPortMappings(external, internal packages.PortMap) []string {
 	return result
 }
 
-// portPair holds an external→internal port mapping where the two differ.
-type portPair struct {
-	ext uint16
-	int_ uint16
-}
-
-// forwardedPorts returns a sorted slice of port pairs where external != internal,
-// collected from both port maps. These are the ports that need socat forwarding
-// in host network mode.
-func forwardedPorts(external, internal packages.PortMap) []portPair {
-	var pairs []portPair
-	for ext, int_ := range external {
-		if ext != int_ {
-			pairs = append(pairs, portPair{ext, int_})
-		}
-	}
-	for ext, int_ := range internal {
-		if ext != int_ {
-			pairs = append(pairs, portPair{ext, int_})
-		}
-	}
-	sort.Slice(pairs, func(i, j int) bool { return pairs[i].ext < pairs[j].ext })
-	return pairs
-}
-
-func generateForwarderUnit(cfg PackageUnitConfig, extPort, intPort uint16) UnitFile {
-	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
-	content := fmt.Sprintf(`[Unit]
-Description=Town OS Port Forwarder: %s/%s@%s %d->%d/tcp
-BindsTo=%s
-After=%s
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/socat TCP-LISTEN:%d,fork,reuseaddr TCP:127.0.0.1:%d
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-`, cfg.RepoName, cfg.PkgName, cfg.Version, extPort, intPort, svcName, svcName, extPort, intPort)
-
-	return UnitFile{
-		Name:    ForwarderUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, extPort),
-		Content: content,
-	}
-}
-
 // GeneratePackageUnits produces the full set of systemd unit files for a
 // package based on its configuration.
 func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
@@ -140,14 +92,8 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	hasExternalPorts := len(cfg.External) > 0
 	hasPorts := len(ports) > 0
 
-	// Compute forwarder pairs early so generateServiceUnit can reference them.
-	var fwdPairs []portPair
-	if cfg.NetworkMode == "host" {
-		fwdPairs = forwardedPorts(cfg.External, cfg.Internal)
-	}
-
 	// --- Main service unit ---
-	units.Service = generateServiceUnit(cfg, ports, hasExternalPorts, fwdPairs)
+	units.Service = generateServiceUnit(cfg, ports, hasExternalPorts)
 
 	// --- Socket units (one per port) ---
 	if hasPorts {
@@ -157,26 +103,16 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 		}
 	}
 
-	// --- Forwarder units (host mode, mismatched ports) ---
-	if len(fwdPairs) > 0 {
-		units.Forwarders = make([]UnitFile, len(fwdPairs))
-		for i, p := range fwdPairs {
-			units.Forwarders[i] = generateForwarderUnit(cfg, p.ext, p.int_)
-		}
-	}
-
-	// --- uPnP units (only if external ports exist) ---
+	// --- Network controller unit (only if external ports exist) ---
 	if hasExternalPorts {
-		svc := generateUPnPServiceUnit(cfg)
-		units.UPnPService = &svc
-		tmr := generateUPnPTimerUnit(cfg)
-		units.UPnPTimer = &tmr
+		nc := generateNetworkControllerUnit(cfg)
+		units.NetworkController = &nc
 	}
 
 	return units
 }
 
-func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts bool, fwdPairs []portPair) UnitFile {
+func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts bool) UnitFile {
 	var b strings.Builder
 
 	containerName := ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
@@ -185,10 +121,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	b.WriteString("[Unit]\n")
 	b.WriteString(fmt.Sprintf("Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
 	if hasExternalPorts {
-		b.WriteString(fmt.Sprintf("Wants=%s\n", UPnPTimerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)))
-	}
-	for _, p := range fwdPairs {
-		b.WriteString(fmt.Sprintf("Wants=%s\n", ForwarderUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p.ext)))
+		b.WriteString(fmt.Sprintf("Wants=%s\n", NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)))
 	}
 	b.WriteString("After=network-online.target\n")
 
@@ -312,63 +245,26 @@ WantedBy=sockets.target
 	}
 }
 
-func generateUPnPTimerUnit(cfg PackageUnitConfig) UnitFile {
+func generateNetworkControllerUnit(cfg PackageUnitConfig) UnitFile {
 	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	statePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, cfg.RepoName, cfg.PkgName, cfg.Version)
 	content := fmt.Sprintf(`[Unit]
-Description=Town OS uPnP Renewal: %s/%s@%s
+Description=Town OS Network Controller: %s/%s@%s
 BindsTo=%s
 After=%s
 
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec=5min
-Persistent=true
+[Service]
+Type=simple
+ExecStart=%s --state %s
+Restart=on-failure
 
 [Install]
-WantedBy=timers.target
-`, cfg.RepoName, cfg.PkgName, cfg.Version, svcName, svcName)
+WantedBy=multi-user.target
+`, cfg.RepoName, cfg.PkgName, cfg.Version, svcName, svcName, cfg.NetworkControllerBinPath, statePath)
 
 	return UnitFile{
-		Name:    UPnPTimerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
+		Name:    NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
 		Content: content,
-	}
-}
-
-func generateUPnPServiceUnit(cfg PackageUnitConfig) UnitFile {
-	var b strings.Builder
-	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
-
-	b.WriteString("[Unit]\n")
-	b.WriteString(fmt.Sprintf("Description=Town OS uPnP Mapping: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
-	b.WriteString(fmt.Sprintf("BindsTo=%s\n", svcName))
-	b.WriteString(fmt.Sprintf("After=%s\n", svcName))
-
-	b.WriteString("\n[Service]\n")
-	b.WriteString("Type=oneshot\n")
-
-	// Build port arguments from external ports only.
-	var pairs []portPair
-	for ext, int_ := range cfg.External {
-		pairs = append(pairs, portPair{ext, int_})
-	}
-	sort.Slice(pairs, func(i, j int) bool { return pairs[i].ext < pairs[j].ext })
-
-	args := make([]string, len(pairs))
-	for i, p := range pairs {
-		// In host mode the socat forwarder makes the external port reachable
-		// on the host, so UPnP should advertise ext:ext (the host-visible port).
-		if cfg.NetworkMode == "host" {
-			args[i] = fmt.Sprintf("--port %d:%d", p.ext, p.ext)
-		} else {
-			args[i] = fmt.Sprintf("--port %d:%d", p.ext, p.int_)
-		}
-	}
-
-	b.WriteString(fmt.Sprintf("ExecStart=%s add %s --ttl 600\n", cfg.UPnPBinPath, strings.Join(args, " ")))
-
-	return UnitFile{
-		Name:    UPnPServiceUnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
-		Content: b.String(),
 	}
 }
 
@@ -383,16 +279,8 @@ func PackageUnitNames(repo, pkgName, version string, external, internal packages
 		names = append(names, SocketUnitName(repo, pkgName, version, p))
 	}
 
-	// Include forwarder unit names for mismatched ports. These are safe to
-	// include unconditionally (cleanup handles missing units gracefully).
-	fwdPairs := forwardedPorts(external, internal)
-	for _, p := range fwdPairs {
-		names = append(names, ForwarderUnitName(repo, pkgName, version, p.ext))
-	}
-
 	if len(external) > 0 {
-		names = append(names, UPnPServiceUnitName(repo, pkgName, version))
-		names = append(names, UPnPTimerUnitName(repo, pkgName, version))
+		names = append(names, NetworkControllerUnitName(repo, pkgName, version))
 	}
 
 	return names

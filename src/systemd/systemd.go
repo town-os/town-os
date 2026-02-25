@@ -111,20 +111,10 @@ func SocketUnitName(repo, pkgName, version string, port uint16) string {
 	return fmt.Sprintf("%s%s-%s-%s-%d-tcp.socket", PackageUnitPrefix, repo, pkgName, version, port)
 }
 
-// UPnPServiceUnitName returns the systemd uPnP service unit name for a given package.
-func UPnPServiceUnitName(repo, pkgName, version string) string {
-	return fmt.Sprintf("%s%s-%s-%s-upnp.service", PackageUnitPrefix, repo, pkgName, version)
-}
-
-// UPnPTimerUnitName returns the systemd uPnP timer unit name for a given package.
-func UPnPTimerUnitName(repo, pkgName, version string) string {
-	return fmt.Sprintf("%s%s-%s-%s-upnp.timer", PackageUnitPrefix, repo, pkgName, version)
-}
-
-// ForwarderUnitName returns the systemd service unit name for a socat port
-// forwarder associated with the given package and external port.
-func ForwarderUnitName(repo, pkgName, version string, port uint16) string {
-	return fmt.Sprintf("%s%s-%s-%s-fwd-%d-tcp.service", PackageUnitPrefix, repo, pkgName, version, port)
+// NetworkControllerUnitName returns the systemd service unit name for the
+// network controller associated with the given package.
+func NetworkControllerUnitName(repo, pkgName, version string) string {
+	return fmt.Sprintf("%s%s-%s-%s-network.service", PackageUnitPrefix, repo, pkgName, version)
 }
 
 // ContainerName returns the podman container name for a package.

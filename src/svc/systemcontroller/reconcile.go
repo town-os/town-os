@@ -2,11 +2,15 @@ package systemcontroller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"sort"
 	"strconv"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -15,14 +19,15 @@ import (
 // ReconcileConfig holds the dependencies needed to reconcile installed packages
 // on startup. Each field mirrors what the system controller uses at runtime.
 type ReconcileConfig struct {
-	Installer      packages.Installer
-	RepositoryRoot *packages.RepositoryRoot
-	Storage        storage.Storage
-	Systemd        systemd.Manager
-	SettingsMgr    account.SettingsManager
-	BtrfsBasePath  string
-	UPnPBinPath    string
-	NetworkMode    string
+	Installer                packages.Installer
+	RepositoryRoot           *packages.RepositoryRoot
+	Storage                  storage.Storage
+	Systemd                  systemd.Manager
+	SettingsMgr              account.SettingsManager
+	BtrfsBasePath            string
+	NetworkControllerBinPath string
+	NetworkStatePath         string
+	NetworkMode              string
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -142,20 +147,28 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		}
 	}
 
+	// Write per-package network state file.
+	if cfg.NetworkStatePath != "" && len(compiled.Network.External) > 0 {
+		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled); err != nil {
+			return fmt.Errorf("write network state: %w", err)
+		}
+	}
+
 	if cfg.Systemd != nil {
 		unitCfg := systemd.PackageUnitConfig{
-			RepoName:    repoName,
-			PkgName:     pi.Name,
-			Version:     pi.Version,
-			Image:       compiled.Image,
-			Command:     compiled.Command,
-			Environment: compiled.Environment,
-			External:    compiled.Network.External,
-			Internal:    compiled.Network.Internal,
-			Volumes:     compiled.Volumes,
-			BtrfsBase:   cfg.BtrfsBasePath,
-			UPnPBinPath: cfg.UPnPBinPath,
-			NetworkMode: cfg.NetworkMode,
+			RepoName:                 repoName,
+			PkgName:                  pi.Name,
+			Version:                  pi.Version,
+			Image:                    compiled.Image,
+			Command:                  compiled.Command,
+			Environment:              compiled.Environment,
+			External:                 compiled.Network.External,
+			Internal:                 compiled.Network.Internal,
+			Volumes:                  compiled.Volumes,
+			BtrfsBase:                cfg.BtrfsBasePath,
+			NetworkControllerBinPath: cfg.NetworkControllerBinPath,
+			NetworkStatePath:         cfg.NetworkStatePath,
+			NetworkMode:              cfg.NetworkMode,
 		}
 		units := systemd.GeneratePackageUnits(unitCfg)
 
@@ -168,36 +181,21 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 				return fmt.Errorf("install socket unit %s: %w", sock.Name, err)
 			}
 		}
-		for _, fwd := range units.Forwarders {
-			if err := cfg.Systemd.InstallUnit(ctx, fwd.Name, fwd.Content); err != nil {
-				return fmt.Errorf("install forwarder unit %s: %w", fwd.Name, err)
-			}
-		}
-		if units.UPnPService != nil {
-			if err := cfg.Systemd.InstallUnit(ctx, units.UPnPService.Name, units.UPnPService.Content); err != nil {
-				return fmt.Errorf("install upnp service unit: %w", err)
-			}
-		}
-		if units.UPnPTimer != nil {
-			if err := cfg.Systemd.InstallUnit(ctx, units.UPnPTimer.Name, units.UPnPTimer.Content); err != nil {
-				return fmt.Errorf("install upnp timer unit: %w", err)
+		if units.NetworkController != nil {
+			if err := cfg.Systemd.InstallUnit(ctx, units.NetworkController.Name, units.NetworkController.Content); err != nil {
+				return fmt.Errorf("install network controller unit: %w", err)
 			}
 		}
 
-		// Enable socket, forwarder, and timer units.
+		// Enable socket and network controller units.
 		for _, sock := range units.Sockets {
 			if err := cfg.Systemd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
 				return fmt.Errorf("enable socket %s: %w", sock.Name, err)
 			}
 		}
-		for _, fwd := range units.Forwarders {
-			if err := cfg.Systemd.SetStatus(ctx, fwd.Name, systemd.Enable); err != nil {
-				return fmt.Errorf("enable forwarder %s: %w", fwd.Name, err)
-			}
-		}
-		if units.UPnPTimer != nil {
-			if err := cfg.Systemd.SetStatus(ctx, units.UPnPTimer.Name, systemd.Enable); err != nil {
-				return fmt.Errorf("enable upnp timer: %w", err)
+		if units.NetworkController != nil {
+			if err := cfg.Systemd.SetStatus(ctx, units.NetworkController.Name, systemd.Enable); err != nil {
+				return fmt.Errorf("enable network controller: %w", err)
 			}
 		}
 
@@ -210,6 +208,47 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 				return fmt.Errorf("start unit: %w", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// reconcileWriteNetworkState writes the per-package network state file during
+// reconciliation.
+func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version string, compiled *packages.Package) error {
+	state := networkcontroller.PackageNetworkState{
+		Repo:        repoName,
+		Package:     pkgName,
+		Version:     version,
+		NetworkMode: cfg.NetworkMode,
+	}
+
+	for ext, int_ := range compiled.Network.External {
+		forward := cfg.NetworkMode == "host" && ext != int_
+		state.Ports = append(state.Ports, networkcontroller.PortConfig{
+			ExternalPort: ext,
+			InternalPort: int_,
+			UPnP:         true,
+			Forward:      forward,
+		})
+	}
+
+	sort.Slice(state.Ports, func(i, j int) bool {
+		return state.Ports[i].ExternalPort < state.Ports[j].ExternalPort
+	})
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal network state: %w", err)
+	}
+
+	if err := os.MkdirAll(cfg.NetworkStatePath, 0755); err != nil {
+		return fmt.Errorf("create network state dir: %w", err)
+	}
+
+	filePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, repoName, pkgName, version)
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("write network state: %w", err)
 	}
 
 	return nil

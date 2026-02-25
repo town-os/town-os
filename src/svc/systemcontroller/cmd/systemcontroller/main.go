@@ -22,7 +22,8 @@ func run() (err error) {
 	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
 	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
 	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
-	upnpBin := flag.String("upnp-bin", "/town-os-upnp", "path to the town-os-upnp binary")
+	networkControllerBin := flag.String("networkcontroller-bin", "/town-os-networkcontroller", "path to the town-os-networkcontroller binary")
+	networkStatePath := flag.String("network-state", "/var/run/town-os", "directory for per-package network state files")
 	networkMode := flag.String("network-mode", "", "container network mode: empty uses -p mappings; host uses --net host")
 	listenAddr := flag.String("listen", ":5309", "address to listen on")
 	flag.Parse()
@@ -134,32 +135,34 @@ func run() (err error) {
 	defer cancel()
 
 	if err := systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
-		Installer:      inst,
-		RepositoryRoot: rr,
-		Storage:        st,
-		Systemd:        sd,
-		SettingsMgr:    settingsMgr,
-		BtrfsBasePath:  *btrfsPath,
-		UPnPBinPath:    *upnpBin,
-		NetworkMode:    *networkMode,
+		Installer:                inst,
+		RepositoryRoot:           rr,
+		Storage:                  st,
+		Systemd:                  sd,
+		SettingsMgr:              settingsMgr,
+		BtrfsBasePath:            *btrfsPath,
+		NetworkControllerBinPath: *networkControllerBin,
+		NetworkStatePath:         *networkStatePath,
+		NetworkMode:              *networkMode,
 	}); err != nil {
 		return fmt.Errorf("reconcile: %w", err)
 	}
 
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
-		Storage:         st,
-		RepositoryRoot:  rr,
-		Installer:       inst,
-		Systemd:         sd,
-		AccountMgr:      acctMgr,
-		SessionMgr:      sessMgr,
-		AuditMgr:        auditMgr,
-		SettingsMgr:     settingsMgr,
-		DefaultRepoUser: os.Getenv(packages.EnvRepoUsername),
-		DefaultRepoPass: os.Getenv(packages.EnvRepoPassword),
-		BtrfsBasePath:   *btrfsPath,
-		UPnPBinPath:     *upnpBin,
-		NetworkMode:     *networkMode,
+		Storage:                  st,
+		RepositoryRoot:           rr,
+		Installer:                inst,
+		Systemd:                  sd,
+		AccountMgr:               acctMgr,
+		SessionMgr:               sessMgr,
+		AuditMgr:                 auditMgr,
+		SettingsMgr:              settingsMgr,
+		DefaultRepoUser:          os.Getenv(packages.EnvRepoUsername),
+		DefaultRepoPass:          os.Getenv(packages.EnvRepoPassword),
+		BtrfsBasePath:            *btrfsPath,
+		NetworkControllerBinPath: *networkControllerBin,
+		NetworkStatePath:         *networkStatePath,
+		NetworkMode:              *networkMode,
 	})
 
 	srv := &http.Server{

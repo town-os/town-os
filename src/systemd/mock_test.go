@@ -465,10 +465,7 @@ func TestMockManagerListPackageUnitFiles(t *testing.T) {
 	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-upnp.service", "content"); err != nil {
-		t.Fatalf("InstallUnit: %v", err)
-	}
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-upnp.timer", "content"); err != nil {
+	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-network.service", "content"); err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
 
@@ -482,15 +479,14 @@ func TestMockManagerListPackageUnitFiles(t *testing.T) {
 		t.Fatalf("ListPackageUnitFiles: %v", err)
 	}
 
-	if len(names) != 4 {
-		t.Fatalf("expected 4 unit files, got %d: %v", len(names), names)
+	if len(names) != 3 {
+		t.Fatalf("expected 3 unit files, got %d: %v", len(names), names)
 	}
 
 	// Should be sorted.
 	expectedNames := []string{
 		"town-os-package--repo-a-nginx-1.0-8080-tcp.socket",
-		"town-os-package--repo-a-nginx-1.0-upnp.service",
-		"town-os-package--repo-a-nginx-1.0-upnp.timer",
+		"town-os-package--repo-a-nginx-1.0-network.service",
 		"town-os-package--repo-a-nginx-1.0.service",
 	}
 	for i, want := range expectedNames {

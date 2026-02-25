@@ -7,10 +7,10 @@ RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
 
 FROM runtime-deps
 COPY --from=town-os /systemcontroller /systemcontroller
-COPY --from=town-os /town-os-upnp /town-os-upnp
+COPY --from=town-os /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=town-os /ui /ui
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 RUN systemctl enable town-os-systemcontroller.service
-RUN mkdir -p /data/btrfs /data/repos /data/db
+RUN mkdir -p /data/btrfs /data/repos /data/db /var/run/town-os
 EXPOSE 5309
 CMD ["/lib/systemd/systemd"]

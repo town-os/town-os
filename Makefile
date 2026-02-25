@@ -177,8 +177,8 @@ auto-test-full:
 	go get github.com/cespare/reflex@latest
 	sudo -E -E $(shell go env GOPATH)/bin/reflex -r '\.(go|js)$$' make test-full
 
-build-upnp:
-	CGO_ENABLED=0 go build -o town-os-upnp ./src/upnp/cmd/town-os-upnp
+build-networkcontroller:
+	CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
 lint:
 	go vet ./...

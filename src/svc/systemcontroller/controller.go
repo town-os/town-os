@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -89,7 +90,8 @@ type systemControllerBackend interface {
 	GetAllowedHosts() []string
 	GetDefaultRepoCredentials() (string, string)
 	GetBtrfsBasePath() string
-	GetUPnPBinPath() string
+	GetNetworkControllerBinPath() string
+	GetNetworkStatePath() string
 	GetNetworkMode() string
 	GetExternalIP() string
 	GetInternalIP() string
@@ -341,7 +343,7 @@ func (s *SystemControllerHandlers) defaultQuota() uint64 {
 }
 
 // installPackageUnits installs all systemd unit files for a package, enables
-// socket and timer units, and starts the main service.
+// socket and network controller units, and starts the main service.
 func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd systemd.Manager, units systemd.PackageUnits) error {
 	// Install all unit files.
 	if err := sd.InstallUnit(ctx, units.Service.Name, units.Service.Content); err != nil {
@@ -352,36 +354,21 @@ func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd s
 			return fmt.Errorf("install socket unit %s: %w", sock.Name, err)
 		}
 	}
-	for _, fwd := range units.Forwarders {
-		if err := sd.InstallUnit(ctx, fwd.Name, fwd.Content); err != nil {
-			return fmt.Errorf("install forwarder unit %s: %w", fwd.Name, err)
-		}
-	}
-	if units.UPnPService != nil {
-		if err := sd.InstallUnit(ctx, units.UPnPService.Name, units.UPnPService.Content); err != nil {
-			return fmt.Errorf("install upnp service unit: %w", err)
-		}
-	}
-	if units.UPnPTimer != nil {
-		if err := sd.InstallUnit(ctx, units.UPnPTimer.Name, units.UPnPTimer.Content); err != nil {
-			return fmt.Errorf("install upnp timer unit: %w", err)
+	if units.NetworkController != nil {
+		if err := sd.InstallUnit(ctx, units.NetworkController.Name, units.NetworkController.Content); err != nil {
+			return fmt.Errorf("install network controller unit: %w", err)
 		}
 	}
 
-	// Enable socket, forwarder, and timer units.
+	// Enable socket and network controller units.
 	for _, sock := range units.Sockets {
 		if err := sd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
 			return fmt.Errorf("enable socket %s: %w", sock.Name, err)
 		}
 	}
-	for _, fwd := range units.Forwarders {
-		if err := sd.SetStatus(ctx, fwd.Name, systemd.Enable); err != nil {
-			return fmt.Errorf("enable forwarder %s: %w", fwd.Name, err)
-		}
-	}
-	if units.UPnPTimer != nil {
-		if err := sd.SetStatus(ctx, units.UPnPTimer.Name, systemd.Enable); err != nil {
-			return fmt.Errorf("enable upnp timer: %w", err)
+	if units.NetworkController != nil {
+		if err := sd.SetStatus(ctx, units.NetworkController.Name, systemd.Enable); err != nil {
+			return fmt.Errorf("enable network controller: %w", err)
 		}
 	}
 
@@ -419,18 +406,78 @@ func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd
 // backend configuration.
 func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version string, compiled *packages.Package) systemd.PackageUnitConfig {
 	return systemd.PackageUnitConfig{
-		RepoName:    repoName,
-		PkgName:     pkgName,
+		RepoName:                 repoName,
+		PkgName:                  pkgName,
+		Version:                  version,
+		Image:                    compiled.Image,
+		Command:                  compiled.Command,
+		Environment:              compiled.Environment,
+		External:                 compiled.Network.External,
+		Internal:                 compiled.Network.Internal,
+		Volumes:                  compiled.Volumes,
+		BtrfsBase:                s.Controller.GetBtrfsBasePath(),
+		NetworkControllerBinPath: s.Controller.GetNetworkControllerBinPath(),
+		NetworkStatePath:         s.Controller.GetNetworkStatePath(),
+		NetworkMode:              s.Controller.GetNetworkMode(),
+	}
+}
+
+// writePackageNetworkState writes the per-package JSON state file consumed by
+// the networkcontroller daemon.
+func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, version string, compiled *packages.Package) error {
+	statePath := s.Controller.GetNetworkStatePath()
+	if statePath == "" {
+		return nil
+	}
+
+	state := networkcontroller.PackageNetworkState{
+		Repo:        repoName,
+		Package:     pkgName,
 		Version:     version,
-		Image:       compiled.Image,
-		Command:     compiled.Command,
-		Environment: compiled.Environment,
-		External:    compiled.Network.External,
-		Internal:    compiled.Network.Internal,
-		Volumes:     compiled.Volumes,
-		BtrfsBase:   s.Controller.GetBtrfsBasePath(),
-		UPnPBinPath: s.Controller.GetUPnPBinPath(),
 		NetworkMode: s.Controller.GetNetworkMode(),
+	}
+
+	for ext, int_ := range compiled.Network.External {
+		forward := s.Controller.GetNetworkMode() == "host" && ext != int_
+		state.Ports = append(state.Ports, networkcontroller.PortConfig{
+			ExternalPort: ext,
+			InternalPort: int_,
+			UPnP:         true,
+			Forward:      forward,
+		})
+	}
+
+	// Sort for deterministic output.
+	sort.Slice(state.Ports, func(i, j int) bool {
+		return state.Ports[i].ExternalPort < state.Ports[j].ExternalPort
+	})
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal network state: %w", err)
+	}
+
+	filePath := fmt.Sprintf("%s/%s-%s-%s.json", statePath, repoName, pkgName, version)
+	if err := os.MkdirAll(statePath, 0755); err != nil {
+		return fmt.Errorf("create network state dir: %w", err)
+	}
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("write network state: %w", err)
+	}
+
+	return nil
+}
+
+// removePackageNetworkState removes the per-package network state file.
+func (s *SystemControllerHandlers) removePackageNetworkState(repoName, pkgName, version string) {
+	statePath := s.Controller.GetNetworkStatePath()
+	if statePath == "" {
+		return
+	}
+
+	filePath := fmt.Sprintf("%s/%s-%s-%s.json", statePath, repoName, pkgName, version)
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		slog.Debug(fmt.Sprintf("remove network state %s: %v", filePath, err))
 	}
 }
 
@@ -1185,6 +1232,9 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		cfg := s.packageUnitConfig(repoName, req.Name, req.Version, compiled)
 		units := systemd.GeneratePackageUnits(cfg)
+		if err := s.writePackageNetworkState(repoName, req.Name, req.Version, compiled); err != nil {
+			return err
+		}
 		if err := s.installPackageUnits(ctx, sd, units); err != nil {
 			return err
 		}
@@ -1210,6 +1260,8 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 			return err
 		}
 	}
+
+	s.removePackageNetworkState(req.Repo, req.Name, req.Version)
 
 	if err := inst.SetDisabled(req.Repo, req.Name, false); err != nil {
 		return err
@@ -2371,20 +2423,21 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 // --- Server infrastructure ---
 
 type ServerConfig struct {
-	Storage            storage.Storage
-	RepositoryRoot     *packages.RepositoryRoot
-	Installer          packages.Installer
-	Systemd            systemd.Manager
-	AccountMgr         account.Manager
-	SessionMgr         account.SessionManager
-	AuditMgr           account.AuditManager
-	SettingsMgr        account.SettingsManager
-	AllowedHosts       []string
-	DefaultRepoUser    string
-	DefaultRepoPass    string
-	BtrfsBasePath      string
-	UPnPBinPath        string
-	NetworkMode        string
+	Storage                  storage.Storage
+	RepositoryRoot           *packages.RepositoryRoot
+	Installer                packages.Installer
+	Systemd                  systemd.Manager
+	AccountMgr               account.Manager
+	SessionMgr               account.SessionManager
+	AuditMgr                 account.AuditManager
+	SettingsMgr              account.SettingsManager
+	AllowedHosts             []string
+	DefaultRepoUser          string
+	DefaultRepoPass          string
+	BtrfsBasePath            string
+	NetworkControllerBinPath string
+	NetworkStatePath         string
+	NetworkMode              string
 }
 
 type contextHandler struct {
@@ -2417,9 +2470,10 @@ func (s *serverBase) GetAllowedHosts() []string                   { return s.All
 func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 	return s.DefaultRepoUser, s.DefaultRepoPass
 }
-func (s *serverBase) GetBtrfsBasePath() string { return s.BtrfsBasePath }
-func (s *serverBase) GetUPnPBinPath() string   { return s.UPnPBinPath }
-func (s *serverBase) GetNetworkMode() string   { return s.NetworkMode }
+func (s *serverBase) GetBtrfsBasePath() string            { return s.BtrfsBasePath }
+func (s *serverBase) GetNetworkControllerBinPath() string { return s.NetworkControllerBinPath }
+func (s *serverBase) GetNetworkStatePath() string         { return s.NetworkStatePath }
+func (s *serverBase) GetNetworkMode() string              { return s.NetworkMode }
 func (s *serverBase) GetExternalIP() string {
 	v := s.externalIP.Load()
 	if v == nil {

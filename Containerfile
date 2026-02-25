@@ -7,7 +7,7 @@ WORKDIR /src
 RUN go mod download
 COPY . /src
 RUN CGO_ENABLED=1 go build -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
-RUN CGO_ENABLED=0 go build -o /town-os-upnp ./src/upnp/cmd/town-os-upnp
+RUN CGO_ENABLED=0 go build -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
 FROM oven/bun:latest AS ui-builder
 COPY ui/package.json ui/bun.lock /ui/
@@ -24,7 +24,8 @@ RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
 
 FROM runtime-deps
 COPY --from=go-builder /systemcontroller /systemcontroller
-COPY --from=go-builder /town-os-upnp /town-os-upnp
+COPY --from=go-builder /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=ui-builder /ui/dist /ui
+RUN mkdir -p /var/run/town-os
 EXPOSE 5309
 CMD ["/systemcontroller"]

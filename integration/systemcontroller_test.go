@@ -1006,11 +1006,11 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 	}
 
 	// nginx has 1 external port (8080->80):
-	//   4 InstallUnit (service, socket, upnp-svc, upnp-timer) +
-	//   2 Enable (socket, upnp-timer) + 1 Start (service) = 7
+	//   3 InstallUnit (service, socket, networkcontroller) +
+	//   2 Enable (socket, networkcontroller) + 1 Start (service) = 6
 	calls := sd.GetCalls()
-	if len(calls) != 7 {
-		t.Fatalf("expected 7 systemd calls, got %d", len(calls))
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls, got %d", len(calls))
 	}
 
 	if calls[0].Method != "InstallUnit" {
@@ -1045,11 +1045,11 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
-	// Install (7) + Uninstall: ListPackageUnitFiles + 4 units * (Stop+Disable+Uninstall) = 13 → total 20
-	// (4 units in bridge mode: service, socket, upnp-service, upnp-timer — no forwarder)
+	// Install (6) + Uninstall: ListPackageUnitFiles + 3 units * (Stop+Disable+Uninstall) = 10 → total 16
+	// (3 units: service, socket, networkcontroller)
 	calls := sd.GetCalls()
-	if len(calls) != 20 {
-		t.Fatalf("expected 20 systemd calls, got %d", len(calls))
+	if len(calls) != 16 {
+		t.Fatalf("expected 16 systemd calls, got %d", len(calls))
 	}
 
 	// Install phase: first call is InstallUnit for service.
@@ -1057,20 +1057,20 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
 
-	// Install phase: last install call (index 6) is Start.
-	if calls[6].Args[1].(systemd.StatusAction) != systemd.Start {
-		t.Fatalf("call 6: expected Start, got %v", calls[6].Args[1])
+	// Install phase: last install call (index 5) is Start.
+	if calls[5].Args[1].(systemd.StatusAction) != systemd.Start {
+		t.Fatalf("call 5: expected Start, got %v", calls[5].Args[1])
 	}
 
-	// Uninstall phase starts at index 7: ListPackageUnitFiles, then Stop, Disable, UninstallUnit per unit.
-	if calls[7].Method != "ListPackageUnitFiles" {
-		t.Fatalf("call 7: expected ListPackageUnitFiles, got %q", calls[7].Method)
+	// Uninstall phase starts at index 6: ListPackageUnitFiles, then Stop, Disable, UninstallUnit per unit.
+	if calls[6].Method != "ListPackageUnitFiles" {
+		t.Fatalf("call 6: expected ListPackageUnitFiles, got %q", calls[6].Method)
 	}
-	if calls[8].Method != "SetStatus" {
-		t.Fatalf("call 8: expected SetStatus, got %q", calls[8].Method)
+	if calls[7].Method != "SetStatus" {
+		t.Fatalf("call 7: expected SetStatus, got %q", calls[7].Method)
 	}
-	if calls[8].Args[1].(systemd.StatusAction) != systemd.Stop {
-		t.Fatalf("call 8: expected Stop, got %v", calls[8].Args[1])
+	if calls[7].Args[1].(systemd.StatusAction) != systemd.Stop {
+		t.Fatalf("call 7: expected Stop, got %v", calls[7].Args[1])
 	}
 }
 
@@ -1098,10 +1098,10 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected core/nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
-	// Verify 7 systemd calls from install (nginx has 1 ext port, bridge mode).
+	// Verify 6 systemd calls from install (nginx has 1 ext port).
 	calls := sd.GetCalls()
-	if len(calls) != 7 {
-		t.Fatalf("expected 7 systemd calls after install, got %d", len(calls))
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls after install, got %d", len(calls))
 	}
 
 	// Uninstall
@@ -1118,11 +1118,11 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
-	// Install (7) + Uninstall: ListPackageUnitFiles + 4 units * 3 ops = 13 → total 20
-	// (4 units in bridge mode: service, socket, upnp-service, upnp-timer — no forwarder)
+	// Install (6) + Uninstall: ListPackageUnitFiles + 3 units * 3 ops = 10 → total 16
+	// (3 units: service, socket, networkcontroller)
 	calls = sd.GetCalls()
-	if len(calls) != 20 {
-		t.Fatalf("expected 20 systemd calls total, got %d", len(calls))
+	if len(calls) != 16 {
+		t.Fatalf("expected 16 systemd calls total, got %d", len(calls))
 	}
 }
 
@@ -1141,12 +1141,12 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
-	// nginx (1 ext port): 4 InstallUnit + 2 Enable + 1 Start = 7
+	// nginx (1 ext port): 3 InstallUnit + 2 Enable + 1 Start = 6
 	// redis (1 int port): 2 InstallUnit + 1 Enable + 1 Start = 4
-	// Total = 11
+	// Total = 10
 	calls := sd.GetCalls()
-	if len(calls) != 11 {
-		t.Fatalf("expected 11 systemd calls, got %d", len(calls))
+	if len(calls) != 10 {
+		t.Fatalf("expected 10 systemd calls, got %d", len(calls))
 	}
 
 	// First call is InstallUnit for nginx service.
@@ -1157,12 +1157,12 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("call 0: expected unit %q, got %q", "town-os-package--core-nginx-1.0.service", calls[0].Args[0])
 	}
 
-	// Redis service starts at index 7.
-	if calls[7].Method != "InstallUnit" {
-		t.Fatalf("call 7: expected InstallUnit, got %q", calls[7].Method)
+	// Redis service starts at index 6.
+	if calls[6].Method != "InstallUnit" {
+		t.Fatalf("call 6: expected InstallUnit, got %q", calls[6].Method)
 	}
-	if calls[7].Args[0].(string) != "town-os-package--core-redis-7.0.service" {
-		t.Fatalf("call 7: expected unit %q, got %q", "town-os-package--core-redis-7.0.service", calls[7].Args[0])
+	if calls[6].Args[0].(string) != "town-os-package--core-redis-7.0.service" {
+		t.Fatalf("call 6: expected unit %q, got %q", "town-os-package--core-redis-7.0.service", calls[6].Args[0])
 	}
 }
 
@@ -1316,7 +1316,8 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 		Installer:      inst,
 		Systemd:        sd,
 		BtrfsBasePath:  "/data/btrfs",
-		UPnPBinPath:    "/town-os-upnp",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -2807,11 +2808,11 @@ func TestReconcileAfterInstall(t *testing.T) {
 
 	// Verify the install created systemd units.
 	// nginx 1.0 has 1 external port (8080->80) and 1 volume:
-	//   InstallUnit(service) + InstallUnit(socket) + InstallUnit(upnp-svc) +
-	//   InstallUnit(upnp-timer) + Enable(socket) + Enable(upnp-timer) + Start(service) = 7
+	//   InstallUnit(service) + InstallUnit(socket) + InstallUnit(networkcontroller) +
+	//   Enable(socket) + Enable(networkcontroller) + Start(service) = 6
 	installCalls := sd.GetCalls()
-	if len(installCalls) != 7 {
-		t.Fatalf("expected 7 systemd calls from install, got %d", len(installCalls))
+	if len(installCalls) != 6 {
+		t.Fatalf("expected 6 systemd calls from install, got %d", len(installCalls))
 	}
 
 	// Simulate a container restart: clear the mock systemd state.
@@ -2829,10 +2830,10 @@ func TestReconcileAfterInstall(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	// Verify reconciliation re-created all units (same 7 calls).
+	// Verify reconciliation re-created all units (same 6 calls).
 	calls := sd.GetCalls()
-	if len(calls) != 7 {
-		t.Fatalf("expected 7 systemd calls from reconcile, got %d: %v", len(calls), calls)
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls from reconcile, got %d: %v", len(calls), calls)
 	}
 
 	if calls[0].Method != "InstallUnit" {
@@ -2888,11 +2889,11 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 	}
 
 	calls := sd.GetCalls()
-	// nginx (1 ext port): 4 InstallUnit + 2 Enable + 1 Start = 7
+	// nginx (1 ext port): 3 InstallUnit + 2 Enable + 1 Start = 6
 	// redis (1 int port): 2 InstallUnit + 1 Enable + 1 Start = 4
-	// Total = 11
-	if len(calls) != 11 {
-		t.Fatalf("expected 11 systemd calls, got %d", len(calls))
+	// Total = 10
+	if len(calls) != 10 {
+		t.Fatalf("expected 10 systemd calls, got %d", len(calls))
 	}
 }
 
@@ -3075,12 +3076,12 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 		t.Fatalf("service unit missing command arg '--bind' in host mode, got:\n%s", serviceContent)
 	}
 
-	// Redis 6379→6379 (same port): no forwarder should be installed.
+	// Redis 6379→6379 (same port, internal only): no network controller should be installed.
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if strings.Contains(name, "fwd") {
-				t.Fatalf("unexpected forwarder unit installed for same-port mapping: %s", name)
+			if strings.Contains(name, "network") {
+				t.Fatalf("unexpected network controller unit installed for internal-only port: %s", name)
 			}
 		}
 	}
@@ -3167,26 +3168,29 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 		t.Fatal("service unit should not have -p mappings in host mode")
 	}
 
-	// Verify forwarder unit was installed (8080→80 mismatch).
-	var fwdContent string
+	// Verify networkcontroller unit was installed.
+	var ncContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" {
-				fwdContent = call.Args[1].(string)
+			if name == "town-os-package--core-nginx-1.0-network.service" {
+				ncContent = call.Args[1].(string)
 				break
 			}
 		}
 	}
-	if fwdContent == "" {
-		t.Fatal("expected InstallUnit call for forwarder unit town-os-package--core-nginx-1.0-fwd-8080-tcp.service")
+	if ncContent == "" {
+		t.Fatal("expected InstallUnit call for network controller unit town-os-package--core-nginx-1.0-network.service")
 	}
-	if !strings.Contains(fwdContent, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
-		t.Fatalf("forwarder unit missing socat command, got:\n%s", fwdContent)
+	if !strings.Contains(ncContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
+		t.Fatalf("network controller missing BindsTo, got:\n%s", ncContent)
+	}
+	if !strings.Contains(ncContent, "After=town-os-package--core-nginx-1.0.service") {
+		t.Fatalf("network controller missing After, got:\n%s", ncContent)
 	}
 }
 
-func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
+func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
 
 	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
@@ -3202,50 +3206,47 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 
 	calls := sd.GetCalls()
 
-	// Full verification of forwarder unit content.
-	var fwdContent string
+	// Verify network controller unit was installed.
+	var ncContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" {
-				fwdContent = call.Args[1].(string)
+			if name == "town-os-package--core-nginx-1.0-network.service" {
+				ncContent = call.Args[1].(string)
 				break
 			}
 		}
 	}
-	if fwdContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0-fwd-8080-tcp.service")
+	if ncContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0-network.service")
 	}
-	if !strings.Contains(fwdContent, "Description=Town OS Port Forwarder: core/nginx@1.0 8080->80/tcp") {
-		t.Fatalf("forwarder missing description, got:\n%s", fwdContent)
+	if !strings.Contains(ncContent, "Description=Town OS Network Controller: core/nginx@1.0") {
+		t.Fatalf("network controller missing description, got:\n%s", ncContent)
 	}
-	if !strings.Contains(fwdContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
-		t.Fatalf("forwarder missing BindsTo, got:\n%s", fwdContent)
+	if !strings.Contains(ncContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
+		t.Fatalf("network controller missing BindsTo, got:\n%s", ncContent)
 	}
-	if !strings.Contains(fwdContent, "After=town-os-package--core-nginx-1.0.service") {
-		t.Fatalf("forwarder missing After, got:\n%s", fwdContent)
-	}
-	if !strings.Contains(fwdContent, "ExecStart=/usr/bin/socat TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
-		t.Fatalf("forwarder missing socat ExecStart, got:\n%s", fwdContent)
+	if !strings.Contains(ncContent, "After=town-os-package--core-nginx-1.0.service") {
+		t.Fatalf("network controller missing After, got:\n%s", ncContent)
 	}
 
-	// Verify the forwarder was enabled.
-	fwdEnabled := false
+	// Verify the network controller was enabled.
+	ncEnabled := false
 	for _, call := range calls {
 		if call.Method == "SetStatus" {
 			name := call.Args[0].(string)
 			action := call.Args[1].(systemd.StatusAction)
-			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" && action == systemd.Enable {
-				fwdEnabled = true
+			if name == "town-os-package--core-nginx-1.0-network.service" && action == systemd.Enable {
+				ncEnabled = true
 				break
 			}
 		}
 	}
-	if !fwdEnabled {
-		t.Fatal("expected forwarder unit to be enabled")
+	if !ncEnabled {
+		t.Fatal("expected network controller unit to be enabled")
 	}
 
-	// Verify the service unit has Wants= for the forwarder.
+	// Verify the service unit has Wants= for the network controller.
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
@@ -3259,29 +3260,8 @@ func TestSystemControllerInstallNginxHostModeForwarder(t *testing.T) {
 	if serviceContent == "" {
 		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service")
 	}
-	if !strings.Contains(serviceContent, "Wants=town-os-package--core-nginx-1.0-fwd-8080-tcp.service") {
-		t.Fatalf("service unit missing Wants for forwarder, got:\n%s", serviceContent)
-	}
-
-	// Verify UPnP uses ext:ext in host mode.
-	var upnpContent string
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
-			if name == "town-os-package--core-nginx-1.0-upnp.service" {
-				upnpContent = call.Args[1].(string)
-				break
-			}
-		}
-	}
-	if upnpContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0-upnp.service")
-	}
-	if !strings.Contains(upnpContent, "--port 8080:8080") {
-		t.Fatalf("UPnP should use --port 8080:8080 in host mode, got:\n%s", upnpContent)
-	}
-	if strings.Contains(upnpContent, "--port 8080:80 ") {
-		t.Fatal("UPnP should NOT use --port 8080:80 in host mode")
+	if !strings.Contains(serviceContent, "Wants=town-os-package--core-nginx-1.0-network.service") {
+		t.Fatalf("service unit missing Wants for network controller, got:\n%s", serviceContent)
 	}
 }
 
@@ -3341,18 +3321,18 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 		t.Fatalf("reconciled unit missing command arg 'redis-server', got:\n%s", serviceContent)
 	}
 
-	// Redis 6379→6379: no forwarder should be installed after reconcile.
+	// Redis 6379→6379 (same port, internal only): no network controller should be installed after reconcile.
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if strings.Contains(name, "fwd") {
-				t.Fatalf("unexpected forwarder unit installed after reconcile for same-port mapping: %s", name)
+			if strings.Contains(name, "network") {
+				t.Fatalf("unexpected network controller unit installed after reconcile for internal-only port: %s", name)
 			}
 		}
 	}
 }
 
-func TestReconcileWithNetworkModeNginxForwarder(t *testing.T) {
+func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
 
 	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
@@ -3382,38 +3362,38 @@ func TestReconcileWithNetworkModeNginxForwarder(t *testing.T) {
 
 	calls := sd.GetCalls()
 
-	// Verify forwarder unit was installed during reconcile.
-	var fwdContent string
+	// Verify network controller unit was installed during reconcile.
+	var ncContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name := call.Args[0].(string)
-			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" {
-				fwdContent = call.Args[1].(string)
+			if name == "town-os-package--core-nginx-1.0-network.service" {
+				ncContent = call.Args[1].(string)
 				break
 			}
 		}
 	}
-	if fwdContent == "" {
-		t.Fatal("expected InstallUnit call for forwarder unit after reconcile")
+	if ncContent == "" {
+		t.Fatal("expected InstallUnit call for network controller unit after reconcile")
 	}
-	if !strings.Contains(fwdContent, "TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:80") {
-		t.Fatalf("forwarder unit missing socat command after reconcile, got:\n%s", fwdContent)
+	if !strings.Contains(ncContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
+		t.Fatalf("network controller missing BindsTo after reconcile, got:\n%s", ncContent)
 	}
 
-	// Verify forwarder was enabled.
-	fwdEnabled := false
+	// Verify network controller was enabled.
+	ncEnabled := false
 	for _, call := range calls {
 		if call.Method == "SetStatus" {
 			name := call.Args[0].(string)
 			action := call.Args[1].(systemd.StatusAction)
-			if name == "town-os-package--core-nginx-1.0-fwd-8080-tcp.service" && action == systemd.Enable {
-				fwdEnabled = true
+			if name == "town-os-package--core-nginx-1.0-network.service" && action == systemd.Enable {
+				ncEnabled = true
 				break
 			}
 		}
 	}
-	if !fwdEnabled {
-		t.Fatal("expected forwarder unit to be enabled after reconcile")
+	if !ncEnabled {
+		t.Fatal("expected network controller unit to be enabled after reconcile")
 	}
 }
 
