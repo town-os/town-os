@@ -21,6 +21,7 @@ var (
 	ErrInvalidType     = errors.New("invalid output type")
 	ErrInvalidPort     = errors.New("invalid port")
 	ErrBytes           = errors.New("invalid byte size")
+	ErrInvalidDuration = errors.New("invalid duration")
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 	Volume   OutputType = "volume"
 	Bytes    OutputType = "bytes"
 	Archive  OutputType = "archive"
+	Duration OutputType = "duration"
 )
 
 func (o OutputType) Output(answer string) (string, error) {
@@ -67,6 +69,12 @@ func (o OutputType) Output(answer string) (string, error) {
 			return "", ErrInvalidType
 		}
 		return answer, nil
+	case Duration:
+		d, err := ParseDuration(answer)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%d", d), nil
 	default:
 		return "", ErrInvalidType
 	}
@@ -108,6 +116,47 @@ func ParseBytes(s string) (uint64, error) {
 	val, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %q", ErrBytes, s)
+	}
+	return val, nil
+}
+
+// ParseDuration parses a human-readable duration string into a uint64 seconds count.
+// Accepted formats: pure integer (seconds), or a number followed by a suffix
+// (s, m, h, d). Suffixes are case-insensitive. Returns 0 for empty strings.
+func ParseDuration(s string) (uint64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0" {
+		return 0, nil
+	}
+
+	lower := strings.ToLower(s)
+
+	type suffix struct {
+		name       string
+		multiplier uint64
+	}
+
+	suffixes := []suffix{
+		{"d", 24 * 60 * 60},
+		{"h", 60 * 60},
+		{"m", 60},
+		{"s", 1},
+	}
+
+	for _, sf := range suffixes {
+		if strings.HasSuffix(lower, sf.name) {
+			numStr := strings.TrimSpace(s[:len(s)-len(sf.name)])
+			val, err := strconv.ParseUint(numStr, 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("%w: %q", ErrInvalidDuration, s)
+			}
+			return val * sf.multiplier, nil
+		}
+	}
+
+	val, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %q", ErrInvalidDuration, s)
 	}
 	return val, nil
 }

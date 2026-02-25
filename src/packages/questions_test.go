@@ -235,6 +235,83 @@ func TestOutput(t *testing.T) {
 		},
 
 
+		// Duration tests
+		"duration_pure_integer": {
+			output:   Duration,
+			input:    "30",
+			expected: "30",
+		},
+		"duration_seconds": {
+			output:   Duration,
+			input:    "30s",
+			expected: "30",
+		},
+		"duration_minutes": {
+			output:   Duration,
+			input:    "5m",
+			expected: "300",
+		},
+		"duration_hours": {
+			output:   Duration,
+			input:    "2h",
+			expected: "7200",
+		},
+		"duration_days": {
+			output:   Duration,
+			input:    "1d",
+			expected: "86400",
+		},
+		"duration_zero": {
+			output:   Duration,
+			input:    "0",
+			expected: "0",
+		},
+		"duration_empty": {
+			output:   Duration,
+			input:    "",
+			expected: "0",
+		},
+		"duration_uppercase_S": {
+			output:   Duration,
+			input:    "30S",
+			expected: "30",
+		},
+		"duration_uppercase_M": {
+			output:   Duration,
+			input:    "5M",
+			expected: "300",
+		},
+		"duration_uppercase_H": {
+			output:   Duration,
+			input:    "2H",
+			expected: "7200",
+		},
+		"duration_uppercase_D": {
+			output:   Duration,
+			input:    "1D",
+			expected: "86400",
+		},
+		"duration_negative": {
+			output: Duration,
+			input:  "-1m",
+			err:    true,
+		},
+		"duration_non_numeric": {
+			output: Duration,
+			input:  "abc",
+			err:    true,
+		},
+		"duration_float": {
+			output: Duration,
+			input:  "1.5h",
+			err:    true,
+		},
+		"duration_invalid_suffix": {
+			output: Duration,
+			input:  "1xyz",
+			err:    true,
+		},
+
 		// Invalid output type
 		"invalid_type": {
 			output: OutputType("bogus"),
