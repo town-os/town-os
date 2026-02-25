@@ -125,7 +125,7 @@ func run() (err error) {
 		return fmt.Errorf("init repository root: %w", err)
 	}
 
-	rr.Refresh()
+	rr.ForceRefresh()
 
 	inst := packages.NewInstallManager(repoBase)
 	st := storage.InitBtrFS(*btrfsPath)

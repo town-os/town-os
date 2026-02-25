@@ -138,6 +138,15 @@
  */
 
 /**
+ * @typedef {Object} PackageUpgrade
+ * @property {string} repo
+ * @property {string} name
+ * @property {string} installed_version
+ * @property {string} latest_version
+ * @property {boolean} changed
+ */
+
+/**
  * @typedef {Object} PingResponse
  * @property {string} status
  * @property {number} filesystems
@@ -149,6 +158,8 @@
  * @property {UnitCounts} [units]
  * @property {number} recent_errors
  * @property {boolean} needs_setup
+ * @property {number} upgrades_available
+ * @property {boolean} [upgrades_dismissed]
  */
 
 /**

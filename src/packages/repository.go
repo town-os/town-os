@@ -12,12 +12,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"go.yaml.in/yaml/v4"
 )
 
 const RepositoriesFile = "repositories.json"
+const LastRefreshedFile = "last_refreshed"
+const DefaultRefreshInterval = 5 * time.Minute
 
 // DefaultRepositories returns the default package repositories to seed when
 // no repositories have been configured.
@@ -44,6 +47,7 @@ type RepositoryManager interface {
 	Get(name string) (Repository, bool)
 	List() ([]Repository, error)
 	Refresh()
+	ForceRefresh()
 	RefreshErrors() map[string]string
 	LoadAllPackages() (PackageTable, error)
 	ListPackages() ([]string, error)
@@ -56,9 +60,11 @@ type RepositoryManager interface {
 }
 
 type RepositoryRoot struct {
-	BaseDir string
-	Items   []Repository
-	Errors  map[string]string
+	BaseDir         string
+	Items           []Repository
+	Errors          map[string]string
+	LastRefreshed   time.Time
+	RefreshInterval time.Duration
 }
 
 func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
@@ -78,10 +84,15 @@ func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 		return nil, err
 	}
 
-	return &RepositoryRoot{
-		BaseDir: baseDir,
-		Items:   items,
-	}, nil
+	rr := &RepositoryRoot{
+		BaseDir:         baseDir,
+		Items:           items,
+		RefreshInterval: DefaultRefreshInterval,
+	}
+
+	rr.loadLastRefreshed()
+
+	return rr, nil
 }
 
 func (rr *RepositoryRoot) save() (err error) {
@@ -164,6 +175,17 @@ func (rr *RepositoryRoot) Get(name string) (Repository, bool) {
 }
 
 func (rr *RepositoryRoot) Refresh() {
+	if time.Since(rr.LastRefreshed) < rr.RefreshInterval {
+		return
+	}
+	rr.forceRefresh()
+}
+
+func (rr *RepositoryRoot) ForceRefresh() {
+	rr.forceRefresh()
+}
+
+func (rr *RepositoryRoot) forceRefresh() {
 	rr.Errors = map[string]string{}
 	for i := range rr.Items {
 		if err := rr.Items[i].init(rr.BaseDir); err != nil {
@@ -171,6 +193,26 @@ func (rr *RepositoryRoot) Refresh() {
 			rr.Errors[rr.Items[i].Name] = err.Error()
 		}
 	}
+	rr.LastRefreshed = time.Now()
+	rr.saveLastRefreshed()
+}
+
+func (rr *RepositoryRoot) loadLastRefreshed() {
+	fn := filepath.Join(rr.BaseDir, LastRefreshedFile)
+	data, err := os.ReadFile(fn)
+	if err != nil {
+		return
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return
+	}
+	rr.LastRefreshed = t
+}
+
+func (rr *RepositoryRoot) saveLastRefreshed() {
+	fn := filepath.Join(rr.BaseDir, LastRefreshedFile)
+	_ = os.WriteFile(fn, []byte(rr.LastRefreshed.Format(time.RFC3339)+"\n"), 0644)
 }
 
 func (rr *RepositoryRoot) RefreshErrors() map[string]string {

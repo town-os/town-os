@@ -74,6 +74,9 @@ type Client interface {
 	GetSetting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
 
+	ListUpgrades(ctx context.Context) ([]PackageUpgrade, error)
+	DismissUpgrades(ctx context.Context) error
+
 	UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename string) (*ArchiveUploadResponse, error)
 	DownloadArchive(ctx context.Context, subvolumes []string, stopService string) (io.ReadCloser, error)
 
@@ -917,6 +920,29 @@ func (c *SystemdClient) SetSetting(ctx context.Context, key, value string) error
 	go pipeEncode(pw, SetSettingRequest{Key: key, Value: value})
 
 	return c.postClient(ctx, "settings/set", pr)
+}
+
+// --- Upgrades ---
+
+func (c *SystemdClient) ListUpgrades(ctx context.Context) (_ []PackageUpgrade, err error) {
+	resp, err := c.getClient(ctx, "packages/upgrades")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListUpgrades: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "GET", "packages/upgrades")
+	}
+
+	var upgrades []PackageUpgrade
+	return upgrades, json.NewDecoder(resp.Body).Decode(&upgrades)
+}
+
+func (c *SystemdClient) DismissUpgrades(ctx context.Context) error {
+	return c.postClient(ctx, "packages/upgrades/dismiss", nil)
 }
 
 // --- Archive ---

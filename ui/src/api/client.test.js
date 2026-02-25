@@ -1263,4 +1263,36 @@ describe('SystemControllerClient', () => {
       )
     })
   })
+
+  describe('listUpgrades', () => {
+    it('returns upgrade list', async () => {
+      const upgrades = [
+        { repo: 'core', name: 'nginx', installed_version: '1.0', latest_version: '2.0', changed: false },
+      ]
+      mockFetch(upgrades)
+
+      const result = await client.listUpgrades()
+      expect(result).toEqual(upgrades)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/upgrades',
+        { headers: {} },
+      )
+    })
+  })
+
+  describe('dismissUpgrades', () => {
+    it('sends POST to dismiss endpoint', async () => {
+      mockFetchEmpty()
+
+      await client.dismissUpgrades()
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/upgrades/dismiss',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      )
+    })
+  })
 })

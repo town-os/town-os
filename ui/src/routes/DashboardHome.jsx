@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
 import { Link } from 'react-router-dom'
@@ -20,6 +20,8 @@ import {
   FileText,
   Copy,
   Check,
+  ArrowUpCircle,
+  X,
 } from 'lucide-react'
 
 function StatCard({ to, icon: Icon, label, value, description }) {
@@ -66,9 +68,55 @@ function formatBytes(bytes) {
   return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
 }
 
+function UpgradeBanner({ count, onDismiss, dismissing }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-4">
+      <div className="flex items-center gap-3">
+        <ArrowUpCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+        <div>
+          <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+            {count} package upgrade{count !== 1 ? 's' : ''} available
+          </p>
+          <Link to="/dashboard/packages" className="text-xs text-blue-700 dark:text-blue-300 underline">
+            View details
+          </Link>
+        </div>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-8 p-0"
+        onClick={onDismiss}
+        disabled={dismissing}
+      >
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+}
+
 export default function DashboardHome() {
   useEffect(() => { document.title = 'Town OS - Dashboard' }, [])
   const [ping, , loading] = usePolling(() => getClient().ping(), null, [], 60000)
+  const [dismissing, setDismissing] = useState(false)
+  const lastDismissedRef = useRef(null)
+
+  const showUpgradeBanner = ping &&
+    ping.upgrades_available > 0 &&
+    !ping.upgrades_dismissed &&
+    lastDismissedRef.current !== ping.upgrades_available
+
+  const handleDismiss = useCallback(async () => {
+    setDismissing(true)
+    try {
+      await getClient().dismissUpgrades()
+      lastDismissedRef.current = ping?.upgrades_available
+    } catch {
+      // ignore
+    } finally {
+      setDismissing(false)
+    }
+  }, [ping?.upgrades_available])
 
   return (
     <div className="space-y-6">
@@ -94,6 +142,14 @@ export default function DashboardHome() {
           </div>
         )}
       </div>
+
+      {showUpgradeBanner && (
+        <UpgradeBanner
+          count={ping.upgrades_available}
+          onDismiss={handleDismiss}
+          dismissing={dismissing}
+        />
+      )}
 
       {ping && ping.units && ping.units.failed > 0 && (
         <div className="flex items-center gap-2">

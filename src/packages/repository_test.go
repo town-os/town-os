@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewRepositoryName(t *testing.T) {
@@ -1563,4 +1564,129 @@ func TestSanitizeURL(t *testing.T) {
 			t.Fatalf("sanitized URL still contains password: %q", got)
 		}
 	})
+}
+
+// --- Refresh caching tests ---
+
+func TestRepositoryRootRefreshCaching(t *testing.T) {
+	t.Run("Refresh skips when recent", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestRepos(t, dir, []Repository{})
+
+		rr, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		rr.RefreshInterval = time.Minute
+		rr.LastRefreshed = time.Now()
+
+		// This should be a no-op since we just set LastRefreshed.
+		rr.Refresh()
+
+		// Verify the timestamp file was NOT written (since refresh was skipped).
+		fn := filepath.Join(dir, LastRefreshedFile)
+		if _, err := os.Stat(fn); err == nil {
+			t.Fatal("expected no last_refreshed file since refresh was skipped")
+		}
+	})
+
+	t.Run("Refresh runs when interval exceeded", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestRepos(t, dir, []Repository{})
+
+		rr, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		rr.RefreshInterval = 0 // Always allow refresh.
+
+		rr.Refresh()
+
+		if rr.LastRefreshed.IsZero() {
+			t.Fatal("expected LastRefreshed to be set after refresh")
+		}
+
+		fn := filepath.Join(dir, LastRefreshedFile)
+		if _, err := os.Stat(fn); err != nil {
+			t.Fatalf("expected last_refreshed file to exist: %v", err)
+		}
+	})
+
+	t.Run("ForceRefresh ignores interval", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestRepos(t, dir, []Repository{})
+
+		rr, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		rr.RefreshInterval = time.Hour
+		rr.LastRefreshed = time.Now()
+
+		rr.ForceRefresh()
+
+		fn := filepath.Join(dir, LastRefreshedFile)
+		if _, err := os.Stat(fn); err != nil {
+			t.Fatalf("expected last_refreshed file to exist after ForceRefresh: %v", err)
+		}
+	})
+
+	t.Run("LastRefreshed persists and loads", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestRepos(t, dir, []Repository{})
+
+		rr, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		rr.RefreshInterval = 0
+		rr.ForceRefresh()
+
+		saved := rr.LastRefreshed
+
+		// Load fresh.
+		rr2, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error on reload: %v", err)
+		}
+
+		if rr2.LastRefreshed.IsZero() {
+			t.Fatal("expected loaded LastRefreshed to be non-zero")
+		}
+
+		// Should be within 1 second of the saved time.
+		diff := saved.Sub(rr2.LastRefreshed)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > time.Second {
+			t.Fatalf("expected loaded time %v to be close to saved time %v", rr2.LastRefreshed, saved)
+		}
+	})
+
+	t.Run("default interval is set", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestRepos(t, dir, []Repository{})
+
+		rr, err := RepositoryRootFromBase(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if rr.RefreshInterval != DefaultRefreshInterval {
+			t.Fatalf("expected default interval %v, got %v", DefaultRefreshInterval, rr.RefreshInterval)
+		}
+	})
+}
+
+func writeTestRepos(t *testing.T, dir string, repos []Repository) {
+	t.Helper()
+	data := marshalJSON(t, repos)
+	if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 }

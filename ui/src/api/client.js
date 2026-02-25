@@ -1,4 +1,4 @@
-/** @import { Filesystem, UnitStatus, JournalEntry, StatusAction, Account, UpdateFields, Session, AuditListOptions, AuditPage, Question, Responses, InstalledInfo, RepositoryInfo, PingResponse, AuthenticateResponse } from './types.js' */
+/** @import { Filesystem, UnitStatus, JournalEntry, StatusAction, Account, UpdateFields, Session, AuditListOptions, AuditPage, Question, Responses, InstalledInfo, RepositoryInfo, PingResponse, AuthenticateResponse, PackageUpgrade } from './types.js' */
 
 export class ApiError extends Error {
   /**
@@ -633,6 +633,18 @@ export class SystemControllerClient {
    */
   async listAuditLog(opts) {
     return this.postJSON('/audit/log', opts)
+  }
+
+  // --- Upgrades ---
+
+  /** @returns {Promise<PackageUpgrade[]>} */
+  async listUpgrades() {
+    return this.getJSON('/packages/upgrades')
+  }
+
+  /** @returns {Promise<void>} */
+  async dismissUpgrades() {
+    await this.post('/packages/upgrades/dismiss', {})
   }
 
   // --- Settings (admin) ---

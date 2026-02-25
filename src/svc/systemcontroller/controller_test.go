@@ -8671,6 +8671,200 @@ volumes:
 	}
 }
 
+// --- Upgrades tests ---
+
+func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.RepositoryRoot, *packages.InstallManager) {
+	t.Helper()
+	dir := t.TempDir()
+
+	// Set up repo with two versions of a package.
+	repoName := "test-repo"
+	pkgName := "nginx"
+	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, pkgName)
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+		t.Fatalf("WriteFile 1.0: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "2.0.yaml"), []byte("image: nginx:2.0\n"), 0644); err != nil {
+		t.Fatalf("WriteFile 2.0: %v", err)
+	}
+
+	// Write repositories file.
+	repos := []packages.Repository{{Name: repoName, URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}}}
+	repoData, _ := json.Marshal(repos)
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil {
+		t.Fatalf("WriteFile repos: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+
+	// Install version 1.0.
+	if err := inst.Install(repoName, pkgName, "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	dbFile := filepath.Join(t.TempDir(), "test.db")
+	db, err := account.OpenDB(dbFile)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	settingsMgr, err := account.InitSettingsManager(db)
+	if err != nil {
+		t.Fatalf("InitSettingsManager: %v", err)
+	}
+
+	ts := InitTestServer(ServerConfig{
+		RepositoryRoot: rr,
+		Installer:      inst,
+		SettingsMgr:    settingsMgr,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+
+	return c, rr, inst
+}
+
+func TestHTTPListUpgradesShowsAvailable(t *testing.T) {
+	c, _, _ := initUpgradesTestServer(t)
+
+	upgrades, err := c.ListUpgrades(context.TODO())
+	if err != nil {
+		t.Fatalf("ListUpgrades: %v", err)
+	}
+
+	if len(upgrades) != 1 {
+		t.Fatalf("expected 1 upgrade, got %d", len(upgrades))
+	}
+
+	u := upgrades[0]
+	if u.Name != "nginx" {
+		t.Fatalf("expected nginx, got %s", u.Name)
+	}
+	if u.InstalledVersion != "1.0" {
+		t.Fatalf("expected installed 1.0, got %s", u.InstalledVersion)
+	}
+	if u.LatestVersion != "2.0" {
+		t.Fatalf("expected latest 2.0, got %s", u.LatestVersion)
+	}
+}
+
+func TestHTTPListUpgradesEmpty(t *testing.T) {
+	dir := t.TempDir()
+	repoName := "test-repo"
+	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, "nginx")
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	repos := []packages.Repository{{Name: repoName, URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}}}
+	repoData, _ := json.Marshal(repos)
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil {
+		t.Fatalf("WriteFile repos: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	if err := inst.Install(repoName, "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	ts := InitTestServer(ServerConfig{RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+
+	upgrades, err := c.ListUpgrades(context.TODO())
+	if err != nil {
+		t.Fatalf("ListUpgrades: %v", err)
+	}
+
+	if len(upgrades) != 0 {
+		t.Fatalf("expected 0 upgrades, got %d", len(upgrades))
+	}
+}
+
+func TestHTTPPingIncludesUpgradesAvailable(t *testing.T) {
+	c, _, _ := initUpgradesTestServer(t)
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.UpgradesAvailable != 1 {
+		t.Fatalf("expected 1 upgrade available, got %d", ping.UpgradesAvailable)
+	}
+	if ping.UpgradesDismissed {
+		t.Fatal("expected upgrades not dismissed initially")
+	}
+}
+
+func TestHTTPDismissUpgrades(t *testing.T) {
+	c, _, _ := initUpgradesTestServer(t)
+
+	if err := c.DismissUpgrades(context.TODO()); err != nil {
+		t.Fatalf("DismissUpgrades: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if !ping.UpgradesDismissed {
+		t.Fatal("expected upgrades to be dismissed after DismissUpgrades")
+	}
+}
+
+func TestHTTPUpgradesChangedFlag(t *testing.T) {
+	c, _, inst := initUpgradesTestServer(t)
+
+	// Break the hard link by removing and recreating the repo file.
+	repoFile := filepath.Join(inst.BaseDir, "test-repo", packages.PackagesDir, "nginx", "1.0.yaml")
+	if err := os.Remove(repoFile); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0-updated\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	upgrades, err := c.ListUpgrades(context.TODO())
+	if err != nil {
+		t.Fatalf("ListUpgrades: %v", err)
+	}
+
+	if len(upgrades) != 1 {
+		t.Fatalf("expected 1 upgrade, got %d", len(upgrades))
+	}
+
+	if !upgrades[0].Changed {
+		t.Fatal("expected Changed=true after repo file was modified")
+	}
+}
+
 // --- Archive tests ---
 
 func TestHTTPUploadArchiveReservedSubvolume(t *testing.T) {

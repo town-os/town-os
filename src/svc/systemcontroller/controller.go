@@ -3,6 +3,8 @@ package systemcontroller
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -248,6 +250,15 @@ type PackageListEntry struct {
 	Installed        bool     `json:"installed"`
 	InstalledVersion string   `json:"installed_version,omitempty"`
 	Featured         bool     `json:"featured,omitempty"`
+	Changed          bool     `json:"changed,omitempty"`
+}
+
+type PackageUpgrade struct {
+	Repo             string `json:"repo"`
+	Name             string `json:"name"`
+	InstalledVersion string `json:"installed_version"`
+	LatestVersion    string `json:"latest_version"`
+	Changed          bool   `json:"changed"`
 }
 
 type ArchiveUploadResponse struct {
@@ -332,6 +343,8 @@ type PingResponse struct {
 	InstalledVolumes   int                `json:"installed_volumes"`
 	UninstalledVolumes int                `json:"uninstalled_volumes"`
 	DiskUsage          *storage.DiskUsage `json:"disk_usage,omitempty"`
+	UpgradesAvailable  int                `json:"upgrades_available"`
+	UpgradesDismissed  bool               `json:"upgrades_dismissed,omitempty"`
 }
 
 type UnitCounts struct {
@@ -663,7 +676,7 @@ func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
 		return err
 	}
 
-	rr.Refresh()
+	rr.ForceRefresh()
 
 	c.Response().WriteHeader(200)
 	return nil
@@ -683,7 +696,7 @@ func (s *SystemControllerHandlers) removeRepository(c *echo.Context) error {
 		return err
 	}
 
-	rr.Refresh()
+	rr.ForceRefresh()
 
 	c.Response().WriteHeader(200)
 	return nil
@@ -709,7 +722,7 @@ func (s *SystemControllerHandlers) moveRepository(c *echo.Context) error {
 
 func (s *SystemControllerHandlers) refreshRepositories(c *echo.Context) error {
 	rr := s.Controller.GetRepositoryRoot()
-	rr.Refresh()
+	rr.ForceRefresh()
 	errs := rr.RefreshErrors()
 	if len(errs) > 0 {
 		return c.JSON(200, errs)
@@ -826,6 +839,14 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 		if loadErr == nil {
 			entry.Description = ip.Description
 			entry.Supplies = ip.Supplies
+		}
+
+		// Check if installed package file has changed.
+		if isInstalled && inst != nil {
+			changed, err := inst.IsPackageChanged(pi.Repo, pi.Name, instVer)
+			if err == nil && changed {
+				entry.Changed = true
+			}
 		}
 
 		entries = append(entries, entry)
@@ -2296,6 +2317,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/packages/timezones":            true,
 			"/packages/children":             true,
 			"/packages/uninstalled-volumes":  true,
+			"/packages/upgrades":             true,
 			"/systemd/units":                 true,
 			"/systemd/logs":                  true,
 			"/systemd/logs/tail":             true,
@@ -2635,7 +2657,103 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp.ExternalIP = s.Controller.GetExternalIP()
 	resp.InternalIP = s.Controller.GetInternalIP()
 
+	// Compute upgrade info.
+	upgrades := s.computeUpgrades()
+	resp.UpgradesAvailable = len(upgrades)
+	if len(upgrades) > 0 {
+		if mgr := s.Controller.GetSettingsManager(); mgr != nil {
+			dismissed, err := mgr.Get("dismissed_upgrades_hash")
+			if err == nil && dismissed == upgradesHash(upgrades) {
+				resp.UpgradesDismissed = true
+			}
+		}
+	}
+
 	return c.JSON(200, resp)
+}
+
+// --- Upgrades handlers ---
+
+func (s *SystemControllerHandlers) computeUpgrades() []PackageUpgrade {
+	inst := s.Controller.GetInstaller()
+	rr := s.Controller.GetRepositoryRoot()
+	if inst == nil || rr == nil {
+		return nil
+	}
+
+	installed, err := inst.ListInstalled()
+	if err != nil {
+		return nil
+	}
+
+	var upgrades []PackageUpgrade
+	for _, pkg := range installed {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+
+		_, latestVersion, err := rr.LatestPackage(pi.Name)
+		if err != nil {
+			continue
+		}
+
+		upgrade := packages.CompareVersions(latestVersion, pi.Version) > 0
+		changed, _ := inst.IsPackageChanged(pi.Repo, pi.Name, pi.Version)
+
+		if upgrade || changed {
+			u := PackageUpgrade{
+				Repo:             pi.Repo,
+				Name:             pi.Name,
+				InstalledVersion: pi.Version,
+				LatestVersion:    latestVersion,
+				Changed:          changed,
+			}
+			upgrades = append(upgrades, u)
+		}
+	}
+
+	sort.Slice(upgrades, func(i, j int) bool {
+		if upgrades[i].Repo != upgrades[j].Repo {
+			return upgrades[i].Repo < upgrades[j].Repo
+		}
+		return upgrades[i].Name < upgrades[j].Name
+	})
+
+	return upgrades
+}
+
+func upgradesHash(upgrades []PackageUpgrade) string {
+	h := sha256.New()
+	for _, u := range upgrades {
+		_, _ = fmt.Fprintf(h, "%s/%s@%s->%s\n", u.Repo, u.Name, u.InstalledVersion, u.LatestVersion)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (s *SystemControllerHandlers) listUpgrades(c *echo.Context) error {
+	upgrades := s.computeUpgrades()
+	if upgrades == nil {
+		upgrades = []PackageUpgrade{}
+	}
+	return c.JSON(200, upgrades)
+}
+
+func (s *SystemControllerHandlers) dismissUpgrades(c *echo.Context) error {
+	upgrades := s.computeUpgrades()
+	hash := upgradesHash(upgrades)
+
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return echo.NewHTTPError(500, "settings manager not available")
+	}
+
+	if err := mgr.Set("dismissed_upgrades_hash", hash); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
 }
 
 // --- Routes ---
@@ -2689,6 +2807,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/purge-volumes", s.purgeVolumes, s.requireAdmin)
 	e.Add("POST", "/packages/uninstalled-volumes", s.listUninstalledVolumes, s.requireAdmin)
 	e.Add("POST", "/packages/purge-uninstalled-volumes", s.purgeUninstalledVolumes, s.requireAdmin)
+	e.Add("GET", "/packages/upgrades", s.listUpgrades, s.requireAuth)
+	e.Add("POST", "/packages/upgrades/dismiss", s.dismissUpgrades, s.requireAdmin)
 	e.Add("POST", "/packages/disable", s.disablePackage, s.requireAdmin)
 	e.Add("POST", "/packages/enable", s.enablePackage, s.requireAdmin)
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)

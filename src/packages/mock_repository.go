@@ -151,6 +151,12 @@ func (m *MockRepositoryManager) Refresh() {
 	m.Calls = append(m.Calls, MockRepositoryCall{Method: "Refresh", Args: nil})
 }
 
+func (m *MockRepositoryManager) ForceRefresh() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockRepositoryCall{Method: "ForceRefresh", Args: nil})
+}
+
 func (m *MockRepositoryManager) RefreshErrors() map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

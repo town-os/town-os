@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 const InstalledDir = "installed"
@@ -31,6 +32,7 @@ type Installer interface {
 	ClearLastResponses(repoName, pkgName string) error
 	SaveChildren(repoName, parentName string, children []string) error
 	LoadChildren(repoName, parentName string) ([]string, error)
+	IsPackageChanged(repoName, pkgName, version string) (bool, error)
 }
 
 type InstallManager struct {
@@ -373,6 +375,39 @@ func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, 
 		return nil, err
 	}
 	return children, nil
+}
+
+// IsPackageChanged compares the inode of the installed package file with the
+// repository copy. If they differ (or the repo file is missing), the package
+// was updated upstream after installation.
+func (m *InstallManager) IsPackageChanged(repoName, pkgName, version string) (bool, error) {
+	installedPath := filepath.Join(m.dir(), repoName, pkgName, fmt.Sprintf("%s.yaml", version))
+	repoPath := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version))
+
+	installedStat, err := os.Stat(installedPath)
+	if err != nil {
+		return false, fmt.Errorf("stat installed file: %w", err)
+	}
+
+	repoStat, err := os.Stat(repoPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, fmt.Errorf("stat repo file: %w", err)
+	}
+
+	installedSys, ok := installedStat.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false, fmt.Errorf("cannot get inode for installed file")
+	}
+
+	repoSys, ok := repoStat.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false, fmt.Errorf("cannot get inode for repo file")
+	}
+
+	return installedSys.Ino != repoSys.Ino, nil
 }
 
 // SaveResponses persists responses to disk using an atomic write under an

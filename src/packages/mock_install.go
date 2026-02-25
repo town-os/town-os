@@ -11,19 +11,21 @@ type MockInstallCall struct {
 }
 
 type MockInstallManager struct {
-	mu               sync.Mutex
-	Installed        []PackageIdentity
-	StoredResponses  map[string]Responses
-	LastResponses    map[string]Responses
-	Children         map[string][]string
-	Disabled         map[string]bool
-	Calls            []MockInstallCall
-	InstallErr       error
-	UninstallErr     error
-	ListErr          error
-	GetResponsesErr  error
-	SetDisabledErr   error
-	IsDisabledErr    error
+	mu                  sync.Mutex
+	Installed           []PackageIdentity
+	StoredResponses     map[string]Responses
+	LastResponses       map[string]Responses
+	Children            map[string][]string
+	Disabled            map[string]bool
+	ChangedPackages     map[string]bool
+	Calls               []MockInstallCall
+	InstallErr          error
+	UninstallErr        error
+	ListErr             error
+	GetResponsesErr     error
+	SetDisabledErr      error
+	IsDisabledErr       error
+	IsPackageChangedErr error
 }
 
 func InitMockInstallManager() *MockInstallManager {
@@ -32,6 +34,7 @@ func InitMockInstallManager() *MockInstallManager {
 		LastResponses:   map[string]Responses{},
 		Children:        map[string][]string{},
 		Disabled:        map[string]bool{},
+		ChangedPackages: map[string]bool{},
 	}
 }
 
@@ -208,4 +211,17 @@ func (m *MockInstallManager) LoadChildren(repoName, parentName string) ([]string
 		return nil, nil
 	}
 	return children, nil
+}
+
+func (m *MockInstallManager) IsPackageChanged(repoName, pkgName, version string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "IsPackageChanged", Args: []any{repoName, pkgName, version}})
+
+	if m.IsPackageChangedErr != nil {
+		return false, m.IsPackageChangedErr
+	}
+
+	key := fmt.Sprintf("%s/%s@%s", repoName, pkgName, version)
+	return m.ChangedPackages[key], nil
 }
