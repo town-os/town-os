@@ -191,9 +191,10 @@ type ListChildrenRequest struct {
 }
 
 type InstalledInfoResponse struct {
-	Questions map[string]packages.Question `json:"questions"`
-	Responses packages.Responses           `json:"responses"`
-	Notes     map[string]string            `json:"notes"`
+	Questions map[string]packages.Question    `json:"questions"`
+	Responses packages.Responses              `json:"responses"`
+	Notes     map[string]string               `json:"notes"`
+	NoteTypes map[string]packages.NoteType    `json:"note_types,omitempty"`
 }
 
 type UninstalledVolumesResponse struct {
@@ -209,13 +210,11 @@ type InstallPreviewRequest struct {
 }
 
 type VolumePreview struct {
-	Name       string  `json:"name"`
-	Mountpoint string  `json:"mountpoint"`
-	Quota      string  `json:"quota,omitempty"`
-	UID        *uint32 `json:"uid,omitempty"`
-	GID        *uint32 `json:"gid,omitempty"`
-	Migrated   bool    `json:"migrated"`
-	Fresh      bool    `json:"fresh"`
+	Name       string `json:"name"`
+	Mountpoint string `json:"mountpoint"`
+	Quota      string `json:"quota,omitempty"`
+	Migrated   bool   `json:"migrated"`
+	Fresh      bool   `json:"fresh"`
 }
 
 type PortPreview struct {
@@ -1007,8 +1006,6 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 			Name:       volName,
 			Mountpoint: vol.Mountpoint,
 			Quota:      vol.Quota,
-			UID:        vol.UID,
-			GID:        vol.GID,
 			Migrated:   migrated,
 			Fresh:      fresh,
 		})
@@ -1786,12 +1783,26 @@ func (s *SystemControllerHandlers) getInstalledInfo(c *echo.Context) error {
 		return err
 	}
 
-	notes := ip.CompileNotes(responses)
+	notes, err := ip.CompileNotes(responses)
+	if err != nil {
+		return err
+	}
+
+	var noteTypes map[string]packages.NoteType
+	for k, note := range ip.Notes {
+		if note.Type != "" {
+			if noteTypes == nil {
+				noteTypes = make(map[string]packages.NoteType)
+			}
+			noteTypes[k] = note.Type
+		}
+	}
 
 	return c.JSON(200, InstalledInfoResponse{
 		Questions: ip.Questions,
 		Responses: responses,
 		Notes:     notes,
+		NoteTypes: noteTypes,
 	})
 }
 

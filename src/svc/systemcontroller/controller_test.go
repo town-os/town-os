@@ -1883,7 +1883,9 @@ questions:
     query: "What external port should nginx listen on?"
     type: port
 notes:
-  URL: "http://@hostname@:@port@"
+  URL:
+    value: "http://@hostname@:@port@"
+    type: url
 `
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
@@ -2811,6 +2813,11 @@ func TestHTTPGetInstalledInfo(t *testing.T) {
 	// Verify compiled notes
 	if info.Notes["URL"] != "http://testhost:8081" {
 		t.Fatalf("expected URL=http://testhost:8081, got %q", info.Notes["URL"])
+	}
+
+	// Verify note types
+	if info.NoteTypes["URL"] != packages.NoteURL {
+		t.Fatalf("expected NoteTypes[URL]=%q, got %q", packages.NoteURL, info.NoteTypes["URL"])
 	}
 }
 

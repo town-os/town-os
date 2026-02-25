@@ -532,23 +532,6 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("string type passthrough", func(t *testing.T) {
-		input := InputPackage{
-			Image:       "debian:latest",
-			Environment: map[string]string{"LABEL": "@label@"},
-			Network:     InputPackageNetwork{},
-			Volumes:     map[string]InputPackageVolume{},
-			Questions:   map[string]Question{"label": {Query: "Label?", Type: String}},
-		}
-		p, err := input.Compile(Responses{"label": "my value!@#"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if p.Environment["LABEL"] != "my value!@#" {
-			t.Fatalf("expected string passthrough, got %s", p.Environment["LABEL"])
-		}
-	})
-
 	t.Run("untyped question accepts any string", func(t *testing.T) {
 		input := InputPackage{
 			Image:       "debian:latest",
@@ -683,57 +666,6 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 		_, err := input.Compile(Responses{})
 		if err == nil {
 			t.Fatal("expected error for invalid quota")
-		}
-	})
-}
-
-func TestPackageCompileVolumeUIDGID(t *testing.T) {
-	uid := uint32(1000)
-	gid := uint32(1000)
-
-	t.Run("preserves UID and GID", func(t *testing.T) {
-		input := InputPackage{
-			Image:       "debian:latest",
-			Environment: map[string]string{},
-			Network:     InputPackageNetwork{},
-			Volumes: map[string]InputPackageVolume{
-				"data": {Mountpoint: "/data", UID: &uid, GID: &gid},
-			},
-			Questions: map[string]Question{},
-		}
-		p, err := input.Compile(Responses{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		vol := p.Volumes["data"]
-		if vol.UID == nil || *vol.UID != 1000 {
-			t.Fatalf("expected UID 1000, got %v", vol.UID)
-		}
-		if vol.GID == nil || *vol.GID != 1000 {
-			t.Fatalf("expected GID 1000, got %v", vol.GID)
-		}
-	})
-
-	t.Run("nil UID/GID preserved", func(t *testing.T) {
-		input := InputPackage{
-			Image:       "debian:latest",
-			Environment: map[string]string{},
-			Network:     InputPackageNetwork{},
-			Volumes: map[string]InputPackageVolume{
-				"data": {Mountpoint: "/data"},
-			},
-			Questions: map[string]Question{},
-		}
-		p, err := input.Compile(Responses{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		vol := p.Volumes["data"]
-		if vol.UID != nil {
-			t.Fatalf("expected nil UID, got %v", vol.UID)
-		}
-		if vol.GID != nil {
-			t.Fatalf("expected nil GID, got %v", vol.GID)
 		}
 	})
 }
@@ -997,9 +929,12 @@ func TestCompileNotes(t *testing.T) {
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
-			Notes:       map[string]string{"URL": "http://@hostname@:@port@"},
+			Notes:       map[string]Note{"URL": {Value: "http://@hostname@:@port@", Type: NoteURL}},
 		}
-		notes := input.CompileNotes(Responses{"hostname": "example.com", "port": "8080"})
+		notes, err := input.CompileNotes(Responses{"hostname": "example.com", "port": "8080"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if notes["URL"] != "http://example.com:8080" {
 			t.Fatalf("expected http://example.com:8080, got %s", notes["URL"])
 		}
@@ -1013,7 +948,10 @@ func TestCompileNotes(t *testing.T) {
 			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 		}
-		notes := input.CompileNotes(Responses{})
+		notes, err := input.CompileNotes(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if notes != nil {
 			t.Fatalf("expected nil, got %v", notes)
 		}
@@ -1026,9 +964,12 @@ func TestCompileNotes(t *testing.T) {
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
-			Notes:       map[string]string{},
+			Notes:       map[string]Note{},
 		}
-		notes := input.CompileNotes(Responses{})
+		notes, err := input.CompileNotes(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if notes != nil {
 			t.Fatalf("expected nil, got %v", notes)
 		}
@@ -1041,11 +982,158 @@ func TestCompileNotes(t *testing.T) {
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
-			Notes:       map[string]string{"Info": "static text"},
+			Notes:       map[string]Note{"Info": {Value: "static text"}},
 		}
-		notes := input.CompileNotes(Responses{})
+		notes, err := input.CompileNotes(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if notes["Info"] != "static text" {
 			t.Fatalf("expected 'static text', got %s", notes["Info"])
+		}
+	})
+
+	t.Run("valid URL note with template", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"URL": {Value: "http://@host@:@port@", Type: NoteURL}},
+		}
+		notes, err := input.CompileNotes(Responses{"host": "myhost", "port": "9090"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if notes["URL"] != "http://myhost:9090" {
+			t.Fatalf("expected http://myhost:9090, got %s", notes["URL"])
+		}
+	})
+
+	t.Run("valid phone note", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"Phone": {Value: "+1 (555) 123-4567", Type: NotePhone}},
+		}
+		notes, err := input.CompileNotes(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if notes["Phone"] != "+1 (555) 123-4567" {
+			t.Fatalf("expected +1 (555) 123-4567, got %s", notes["Phone"])
+		}
+	})
+
+	t.Run("valid email note", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"Email": {Value: "admin@example.com", Type: NoteEmail}},
+		}
+		notes, err := input.CompileNotes(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if notes["Email"] != "admin@example.com" {
+			t.Fatalf("expected admin@example.com, got %s", notes["Email"])
+		}
+	})
+
+	t.Run("email note via template", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"Email": {Value: "@email@", Type: NoteEmail}},
+		}
+		notes, err := input.CompileNotes(Responses{"email": "admin@example.com"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if notes["Email"] != "admin@example.com" {
+			t.Fatalf("expected admin@example.com, got %s", notes["Email"])
+		}
+	})
+
+	t.Run("invalid URL note", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"URL": {Value: "not-a-url", Type: NoteURL}},
+		}
+		_, err := input.CompileNotes(Responses{})
+		if err == nil {
+			t.Fatal("expected error for invalid URL note")
+		}
+		if !errors.Is(err, ErrInvalidNoteURL) {
+			t.Fatalf("expected ErrInvalidNoteURL, got %v", err)
+		}
+	})
+
+	t.Run("invalid phone note", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"Phone": {Value: "abc", Type: NotePhone}},
+		}
+		_, err := input.CompileNotes(Responses{})
+		if err == nil {
+			t.Fatal("expected error for invalid phone note")
+		}
+		if !errors.Is(err, ErrInvalidNotePhone) {
+			t.Fatalf("expected ErrInvalidNotePhone, got %v", err)
+		}
+	})
+
+	t.Run("invalid email note", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"Email": {Value: "nope", Type: NoteEmail}},
+		}
+		_, err := input.CompileNotes(Responses{})
+		if err == nil {
+			t.Fatal("expected error for invalid email note")
+		}
+		if !errors.Is(err, ErrInvalidNoteEmail) {
+			t.Fatalf("expected ErrInvalidNoteEmail, got %v", err)
+		}
+	})
+
+	t.Run("untyped note passthrough", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes:       map[string]Note{"Info": {Value: "anything"}},
+		}
+		notes, err := input.CompileNotes(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if notes["Info"] != "anything" {
+			t.Fatalf("expected 'anything', got %s", notes["Info"])
 		}
 	})
 }

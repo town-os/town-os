@@ -3,6 +3,8 @@ package packages
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -20,6 +22,55 @@ var (
 	ErrMissingResponse     = errors.New("question has no response")
 	ErrEmptyResponse       = errors.New("empty response")
 )
+
+type NoteType string
+
+const (
+	NoteURL   NoteType = "url"
+	NotePhone NoteType = "phone"
+	NoteEmail NoteType = "email"
+)
+
+type Note struct {
+	Value string   `json:"value" yaml:"value"`
+	Type  NoteType `json:"type,omitempty" yaml:"type,omitempty"`
+}
+
+var (
+	ErrInvalidNoteURL   = errors.New("invalid note URL")
+	ErrInvalidNotePhone = errors.New("invalid note phone number")
+	ErrInvalidNoteEmail = errors.New("invalid note email address")
+
+	notePhoneRegexp = regexp.MustCompile(`^\+?[0-9][0-9 .()\-]*$`)
+	noteEmailRegexp = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+)
+
+// ValidateNote validates a compiled note value against its type.
+// Empty or unknown types pass through without validation.
+func ValidateNote(value string, typ NoteType) error {
+	switch typ {
+	case NoteURL:
+		u, err := url.Parse(value)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidNoteURL, err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("%w: scheme must be http or https", ErrInvalidNoteURL)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("%w: missing host", ErrInvalidNoteURL)
+		}
+	case NotePhone:
+		if !notePhoneRegexp.MatchString(value) {
+			return fmt.Errorf("%w: %q", ErrInvalidNotePhone, value)
+		}
+	case NoteEmail:
+		if !noteEmailRegexp.MatchString(value) {
+			return fmt.Errorf("%w: %q", ErrInvalidNoteEmail, value)
+		}
+	}
+	return nil
+}
 
 // ResponseValidationError describes a single response that failed validation.
 type ResponseValidationError struct {
@@ -121,28 +172,32 @@ type InputPackage struct {
 	Network     InputPackageNetwork           `yaml:"network"`
 	Volumes     map[string]InputPackageVolume `yaml:"volumes"`
 	Questions   map[string]Question           `yaml:"questions"`
-	Notes       map[string]string             `yaml:"notes" json:"notes,omitempty"`
+	Notes       map[string]Note               `yaml:"notes" json:"notes,omitempty"`
 	Description string                        `yaml:"description" json:"description,omitempty"`
 	Supplies    []string                      `yaml:"supplies" json:"supplies,omitempty"`
 	Archives    []InputPackageArchive         `yaml:"archives,omitempty"`
 }
 
 // CompileNotes applies template substitution to the Notes map using the
-// provided responses and returns the compiled result.
-func (i *InputPackage) CompileNotes(responses Responses) map[string]string {
+// provided responses, validates typed notes, and returns the compiled result.
+func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, error) {
 	if len(i.Notes) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	compiled := make(map[string]string, len(i.Notes))
-	for k, v := range i.Notes {
+	for k, note := range i.Notes {
+		v := note.Value
 		for rk, rv := range responses {
 			v = applyTemplate(v, rk, rv)
+		}
+		if err := ValidateNote(v, note.Type); err != nil {
+			return nil, fmt.Errorf("note %q: %w", k, err)
 		}
 		compiled[k] = v
 	}
 
-	return compiled
+	return compiled, nil
 }
 
 func applyTemplate(input string, v string, repl string) string {
