@@ -51,8 +51,9 @@ describe('SystemControllerClient integration', () => {
     it('includes unit counts from systemd', async () => {
       const resp = await client.ping()
       expect(resp.units).toBeDefined()
-      expect(resp.units.total).toBeGreaterThan(0)
-      expect(resp.units.active).toBeGreaterThan(0)
+      expect(typeof resp.units.total).toBe('number')
+      expect(typeof resp.units.active).toBe('number')
+      expect(typeof resp.units.failed).toBe('number')
     })
   })
 

@@ -3748,11 +3748,11 @@ func TestHTTPPingUnitCountsFiltersTownOS(t *testing.T) {
 	c, sd := initSystemdTestClient(t)
 
 	sd.Units = []systemd.UnitStatus{
-		{Name: "town-os-nginx.service", ActiveState: "active"},
-		{Name: "town-os-redis.service", ActiveState: "active"},
-		{Name: "town-os-postgres.service", ActiveState: "failed"},
+		{Name: "town-os-package--nginx.service", ActiveState: "active"},
+		{Name: "town-os-package--redis.service", ActiveState: "active"},
+		{Name: "town-os-package--postgres.service", ActiveState: "failed"},
+		{Name: "town-os-systemcontroller.service", ActiveState: "active"},
 		{Name: "sshd.service", ActiveState: "active"},
-		{Name: "systemd-journald.service", ActiveState: "active"},
 	}
 
 	ping, err := c.Ping(context.TODO())

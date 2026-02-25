@@ -50,6 +50,7 @@ export default function PackageManagement() {
   const [infoDialog, setInfoDialog] = useState({ open: false })
   const [versionSelectDialog, setVersionSelectDialog] = useState({ open: false })
   const [volumeReuseDialog, setVolumeReuseDialog] = useState({ open: false })
+  const [previewDialog, setPreviewDialog] = useState({ open: false })
 
   // Repository state
   const [repoDialog, setRepoDialog] = useState(false)
@@ -133,10 +134,20 @@ export default function PackageManagement() {
           selectedVersion: latestVersion,
         })
       } else {
-        await handleCheckVolumes(repo, name, latestVersion)
+        await handleShowPreview(repo, name, latestVersion)
       }
     } catch (err) {
       toast.error(err.message)
+    }
+  }
+
+  async function handleShowPreview(repo, name, version) {
+    try {
+      const preview = await getClient().installPreview(repo, name, version)
+      setPreviewDialog({ open: true, ...preview })
+    } catch {
+      // Preview not available — proceed directly.
+      await handleCheckVolumes(repo, name, version)
     }
   }
 
@@ -727,6 +738,111 @@ export default function PackageManagement() {
         </TabsContent>
       </Tabs>
 
+      {/* Install Preview Dialog */}
+      <Dialog
+        open={previewDialog.open}
+        onOpenChange={(v) => !v && setPreviewDialog({ open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Install {previewDialog.name} {previewDialog.version}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {previewDialog.upgrading_from && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="gap-1 text-blue-600 border-blue-600">
+                  <ArrowUpCircle className="h-3 w-3" />
+                  Upgrading from {previewDialog.upgrading_from}
+                </Badge>
+              </div>
+            )}
+            {previewDialog.description && (
+              <p className="text-sm text-muted-foreground">{previewDialog.description}</p>
+            )}
+            <div className="text-sm">
+              <span className="text-muted-foreground">Image: </span>
+              <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{previewDialog.image}</code>
+            </div>
+            {previewDialog.volumes?.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Volumes</h4>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Mountpoint</TableHead>
+                      <TableHead>Quota</TableHead>
+                      <TableHead className="text-right"><div className="pr-2">Status</div></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewDialog.volumes.map((vol) => (
+                      <TableRow key={vol.name}>
+                        <TableCell className="font-mono text-xs">{vol.name}</TableCell>
+                        <TableCell className="font-mono text-xs">{vol.mountpoint}</TableCell>
+                        <TableCell className="font-mono text-xs">{vol.quota || '-'}</TableCell>
+                        <TableCell className="text-right">
+                          {vol.migrated ? (
+                            <Badge variant="outline" className="text-blue-600 border-blue-600">Migrated</Badge>
+                          ) : (
+                            <Badge variant="secondary">New</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {previewDialog.external_ports?.length > 0 && (
+              <div className="space-y-1">
+                <h4 className="text-sm font-medium">External Ports</h4>
+                <div className="text-sm text-muted-foreground">
+                  {previewDialog.external_ports.map((p) => (
+                    <span key={p.external} className="inline-block mr-3 font-mono text-xs">
+                      {p.external} → {p.internal}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {previewDialog.quota_exceeds_disk && (
+              <div className="rounded-md border border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20 p-3">
+                <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                  <AlertCircle className="h-4 w-4 inline mr-1" />
+                  Total volume quotas may exceed available disk space.
+                </p>
+              </div>
+            )}
+            {previewDialog.has_questions && (
+              <p className="text-xs text-muted-foreground">
+                Configuration questions will follow on the next screen.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPreviewDialog({ open: false })}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const { repo, name, version, upgrading_from } = previewDialog
+                const importFrom = upgrading_from || undefined
+                setPreviewDialog({ open: false })
+                handleCheckVolumes(repo, name, version, importFrom)
+              }}
+            >
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Install Questions Dialog */}
       <Dialog
         open={questionsDialog.open}
@@ -918,10 +1034,8 @@ export default function PackageManagement() {
             <Button
               onClick={() => {
                 const { repo, name, selectedVersion } = versionSelectDialog
-                const instVer = installedMap[`${repo}/${name}`] ?? null
-                const importFrom = (instVer && instVer !== selectedVersion) ? instVer : undefined
                 setVersionSelectDialog({ open: false })
-                handleCheckVolumes(repo, name, selectedVersion, importFrom)
+                handleShowPreview(repo, name, selectedVersion)
               }}
             >
               Install

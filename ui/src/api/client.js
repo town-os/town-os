@@ -542,6 +542,16 @@ export class SystemControllerClient {
    * @param {string} repo
    * @param {string} name
    * @param {string} version
+   * @returns {Promise<object>}
+   */
+  async installPreview(repo, name, version) {
+    return this.postJSON('/packages/install-preview', { repo, name, version })
+  }
+
+  /**
+   * @param {string} repo
+   * @param {string} name
+   * @param {string} version
    * @param {Responses} responses
    * @param {boolean} [reuseVolumes=false]
    * @param {string} [importFromVersion]

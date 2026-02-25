@@ -184,6 +184,41 @@ type UninstalledVolumesResponse struct {
 	InstalledVersions     []string `json:"installed_versions,omitempty"`
 }
 
+type InstallPreviewRequest struct {
+	Repo    string `json:"repo"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type VolumePreview struct {
+	Name       string `json:"name"`
+	Mountpoint string `json:"mountpoint"`
+	Quota      string `json:"quota,omitempty"`
+	Migrated   bool   `json:"migrated"`
+	Fresh      bool   `json:"fresh"`
+}
+
+type PortPreview struct {
+	External uint16 `json:"external"`
+	Internal uint16 `json:"internal"`
+}
+
+type InstallPreview struct {
+	Repo             string             `json:"repo"`
+	Name             string             `json:"name"`
+	Version          string             `json:"version"`
+	Description      string             `json:"description,omitempty"`
+	Image            string             `json:"image"`
+	Volumes          []VolumePreview    `json:"volumes"`
+	ExternalPorts    []PortPreview      `json:"external_ports"`
+	InternalPorts    []PortPreview      `json:"internal_ports"`
+	UpgradingFrom    string             `json:"upgrading_from,omitempty"`
+	HasQuestions     bool               `json:"has_questions"`
+	DiskUsage        *storage.DiskUsage `json:"disk_usage,omitempty"`
+	TotalQuota       uint64             `json:"total_quota"`
+	QuotaExceedsDisk bool               `json:"quota_exceeds_disk"`
+}
+
 type PackageListEntry struct {
 	Repo             string   `json:"repo"`
 	Name             string   `json:"name"`
@@ -808,6 +843,177 @@ func (s *SystemControllerHandlers) getPackageQuestionsByIdentity(c *echo.Context
 }
 
 // --- Install handlers ---
+
+func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := InstallPreviewRequest{}
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+	if rr == nil {
+		return fmt.Errorf("no repository root configured")
+	}
+
+	repoName, err := rr.FindRepoForPackage(req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+	if req.Repo != "" && req.Repo != repoName {
+		repoName = req.Repo
+	}
+
+	ip, err := rr.LoadPackage(repoName, req.Name, req.Version)
+	if err != nil {
+		return err
+	}
+
+	// Find currently installed version.
+	inst := s.Controller.GetInstaller()
+	var activeVersion string
+	if inst != nil {
+		installed, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
+		for _, pkg := range installed {
+			pi, err := packages.ParsePackageIdentity(pkg)
+			if err != nil {
+				continue
+			}
+			if pi.Repo == repoName && pi.Name == req.Name {
+				activeVersion = pi.Version
+				break
+			}
+		}
+	}
+
+	// Load old package volumes for migration detection.
+	var oldVolumes map[string]packages.InputPackageVolume
+	if activeVersion != "" && activeVersion != req.Version {
+		oldIP, err := rr.LoadPackage(repoName, req.Name, activeVersion)
+		if err == nil {
+			oldVolumes = oldIP.Volumes
+		}
+	}
+
+	// Build volume previews.
+	var volumes []VolumePreview
+	var totalQuota uint64
+	for volName, vol := range ip.Volumes {
+		migrated := false
+		fresh := true
+		if oldVolumes != nil {
+			if _, exists := oldVolumes[volName]; exists {
+				migrated = true
+				fresh = false
+			}
+		}
+		volumes = append(volumes, VolumePreview{
+			Name:       volName,
+			Mountpoint: vol.Mountpoint,
+			Quota:      vol.Quota,
+			Migrated:   migrated,
+			Fresh:      fresh,
+		})
+		if vol.Quota != "" {
+			q, err := packages.ParseBytes(vol.Quota)
+			if err == nil {
+				totalQuota += q
+			}
+		}
+	}
+
+	// Sort volumes by name for deterministic output.
+	sort.Slice(volumes, func(i, j int) bool {
+		return volumes[i].Name < volumes[j].Name
+	})
+
+	// Build port previews.
+	var externalPorts []PortPreview
+	for ext, intStr := range ip.Network.External {
+		extPort, err := strconv.ParseUint(ext, 10, 16)
+		if err != nil {
+			continue
+		}
+		intPort, err := strconv.ParseUint(intStr, 10, 16)
+		if err != nil {
+			continue
+		}
+		externalPorts = append(externalPorts, PortPreview{
+			External: uint16(extPort),
+			Internal: uint16(intPort),
+		})
+	}
+	sort.Slice(externalPorts, func(i, j int) bool {
+		return externalPorts[i].External < externalPorts[j].External
+	})
+
+	var internalPorts []PortPreview
+	for ext, intStr := range ip.Network.Internal {
+		extPort, err := strconv.ParseUint(ext, 10, 16)
+		if err != nil {
+			continue
+		}
+		intPort, err := strconv.ParseUint(intStr, 10, 16)
+		if err != nil {
+			continue
+		}
+		internalPorts = append(internalPorts, PortPreview{
+			External: uint16(extPort),
+			Internal: uint16(intPort),
+		})
+	}
+	sort.Slice(internalPorts, func(i, j int) bool {
+		return internalPorts[i].External < internalPorts[j].External
+	})
+
+	preview := InstallPreview{
+		Repo:          repoName,
+		Name:          req.Name,
+		Version:       req.Version,
+		Description:   ip.Description,
+		Image:         ip.Image,
+		Volumes:       volumes,
+		ExternalPorts: externalPorts,
+		InternalPorts: internalPorts,
+		HasQuestions:  len(ip.Questions) > 0,
+		TotalQuota:    totalQuota,
+	}
+
+	if activeVersion != "" && activeVersion != req.Version {
+		preview.UpgradingFrom = activeVersion
+	}
+
+	// Disk usage and quota warning.
+	if st := s.Controller.GetStorage(); st != nil {
+		du, err := st.DiskUsage()
+		if err == nil {
+			preview.DiskUsage = &du
+			reserved := du.Total * 5 / 100
+			var effectiveAvailable uint64
+			if du.Available > reserved {
+				effectiveAvailable = du.Available - reserved
+			}
+			if totalQuota > 0 && totalQuota > effectiveAvailable {
+				preview.QuotaExceedsDisk = true
+			}
+		}
+	}
+
+	if preview.Volumes == nil {
+		preview.Volumes = []VolumePreview{}
+	}
+	if preview.ExternalPorts == nil {
+		preview.ExternalPorts = []PortPreview{}
+	}
+	if preview.InternalPorts == nil {
+		preview.InternalPorts = []PortPreview{}
+	}
+
+	return c.JSON(200, preview)
+}
 
 func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
@@ -2074,7 +2280,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 		counts := &UnitCounts{}
 		for _, u := range units {
-			if !strings.HasPrefix(u.Name, "town-os-") {
+			if !strings.HasPrefix(u.Name, systemd.PackageUnitPrefix) {
 				continue
 			}
 			counts.Total++
@@ -2145,6 +2351,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// Admin (requireAdmin, which implies auth)
 	e.Add("POST", "/packages/questions", s.getPackageQuestions, s.requireAdmin)
 	e.Add("POST", "/packages/questions/identity", s.getPackageQuestionsByIdentity, s.requireAdmin)
+	e.Add("POST", "/packages/install-preview", s.installPreview, s.requireAdmin)
 	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
 	e.Add("POST", "/packages/purge-volumes", s.purgeVolumes, s.requireAdmin)

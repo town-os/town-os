@@ -38,6 +38,8 @@ type MockClient struct {
 	ListPkgVersionsErr   error
 	QuestionsErr         error
 	QuestionsIdentityErr error
+	InstallPreviewErr    error
+	InstallPreviewResult *InstallPreview
 	InstallPkgErr        error
 	UninstallPkgErr error
 	DisablePkgErr   error
@@ -380,6 +382,27 @@ func (m *MockClient) GetPackageQuestionsByIdentity(_ context.Context, repo, name
 }
 
 // --- Install ---
+
+func (m *MockClient) InstallPreview(_ context.Context, repo, name, version string) (*InstallPreview, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "InstallPreview", Args: []any{repo, name, version}})
+
+	if m.InstallPreviewErr != nil {
+		return nil, m.InstallPreviewErr
+	}
+	if m.InstallPreviewResult != nil {
+		return m.InstallPreviewResult, nil
+	}
+	return &InstallPreview{
+		Repo:          repo,
+		Name:          name,
+		Version:       version,
+		Volumes:       []VolumePreview{},
+		ExternalPorts: []PortPreview{},
+		InternalPorts: []PortPreview{},
+	}, nil
+}
 
 func (m *MockClient) InstallPackage(_ context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error {
 	m.mu.Lock()

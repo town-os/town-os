@@ -37,6 +37,7 @@ type Client interface {
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
 	GetPackageQuestionsByIdentity(ctx context.Context, repo, name, version string) (map[string]packages.Question, error)
 
+	InstallPreview(ctx context.Context, repo, name, version string) (*InstallPreview, error)
 	InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error
 	UninstallPackage(ctx context.Context, repo, name, version string, purgeVolumes bool) error
 	PurgeVolumes(ctx context.Context, repo, name string) error
@@ -504,6 +505,26 @@ func (c *SystemdClient) GetInstalledInfo(ctx context.Context, repo, name, versio
 
 	var info InstalledInfoResponse
 	return &info, json.NewDecoder(resp.Body).Decode(&info)
+}
+
+func (c *SystemdClient) InstallPreview(ctx context.Context, repo, name, version string) (_ *InstallPreview, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, InstallPreviewRequest{Repo: repo, Name: name, Version: version})
+
+	resp, err := c.postJSON(ctx, "packages/install-preview", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: InstallPreview: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "POST", "packages/install-preview")
+	}
+
+	var preview InstallPreview
+	return &preview, json.NewDecoder(resp.Body).Decode(&preview)
 }
 
 // --- Systemd ---

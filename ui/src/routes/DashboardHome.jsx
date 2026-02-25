@@ -58,6 +58,14 @@ function CopyButton({ text }) {
   )
 }
 
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const val = bytes / Math.pow(1024, i)
+  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
+}
+
 export default function DashboardHome() {
   useEffect(() => { document.title = 'Town OS - Dashboard' }, [])
   const [ping, , loading] = usePolling(() => getClient().ping(), null, [], 60000)
@@ -106,9 +114,11 @@ export default function DashboardHome() {
           label="Filesystems"
           value={ping?.filesystems}
           description={
-            ping && (ping.installed_volumes || ping.uninstalled_volumes)
-              ? `${ping.installed_volumes || 0} installed, ${ping.uninstalled_volumes || 0} uninstalled volumes`
-              : 'Btrfs subvolumes'
+            ping?.disk_usage
+              ? `${formatBytes(ping.disk_usage.used)} / ${formatBytes(ping.disk_usage.total)} used`
+              : ping && (ping.installed_volumes || ping.uninstalled_volumes)
+                ? `${ping.installed_volumes || 0} installed, ${ping.uninstalled_volumes || 0} uninstalled volumes`
+                : 'Btrfs subvolumes'
           }
         />
         <StatCard
