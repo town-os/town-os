@@ -120,7 +120,7 @@ func (m *SystemdManager) SetStatus(ctx context.Context, unit string, action Stat
 func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content string) (err error) {
 	unitPath := "/etc/systemd/system/" + name
 
-	f, err := os.Create(unitPath)
+	f, err := os.Create(unitPath) //nolint:gosec // path is constructed internally
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,8 @@ func (m *SystemdManager) ListPackageUnitFiles(_ context.Context, repo, pkgName, 
 func (m *SystemdManager) UninstallUnit(ctx context.Context, name string) error {
 	unitPath := "/etc/systemd/system/" + name
 
-	if err := os.Remove(unitPath); err != nil {
+	err := os.Remove(unitPath)
+	if err != nil {
 		return err
 	}
 
@@ -180,7 +181,7 @@ func (m *SystemdManager) UninstallUnit(ctx context.Context, name string) error {
 func journalEntryFromSD(entry *sdjournal.JournalEntry) JournalEntry {
 	return JournalEntry{
 		Cursor:            entry.Cursor,
-		RealtimeTimestamp:  time.UnixMicro(int64(entry.RealtimeTimestamp)),
+		RealtimeTimestamp:  time.UnixMicro(int64(entry.RealtimeTimestamp)), //nolint:gosec // timestamp will not overflow int64 in any realistic scenario
 		MonotonicTimestamp: entry.MonotonicTimestamp,
 
 		Message:          entry.Fields[sdjournal.SD_JOURNAL_FIELD_MESSAGE],
@@ -228,7 +229,8 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 	}()
 
 	if p.Unit != "" {
-		if err := j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", p.Unit)); err != nil {
+		err = j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", p.Unit)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		if err != nil {
 			return LogTailResult{}, err
 		}
 	}
@@ -276,7 +278,8 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 
 	// Timestamp seek mode: get entries from a specific time forward.
 	if !p.Since.IsZero() && p.AfterCursor == "" && p.BeforeCursor == "" {
-		if err := j.SeekRealtimeUsec(uint64(p.Since.UnixMicro())); err != nil {
+		err := j.SeekRealtimeUsec(uint64(p.Since.UnixMicro())) //nolint:gosec // Since is always a valid timestamp; negative values are not expected
+		if err != nil {
 			return LogTailResult{}, err
 		}
 		return collectForward()
@@ -284,11 +287,13 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 
 	// Forward mode: get entries after a given cursor.
 	if p.AfterCursor != "" {
-		if err := j.SeekCursor(p.AfterCursor); err != nil {
+		err = j.SeekCursor(p.AfterCursor)
+		if err != nil {
 			return LogTailResult{}, err
 		}
 		// SeekCursor lands on the cursor entry; advance past it.
-		if _, err := j.Next(); err != nil {
+		_, err = j.Next()
+		if err != nil {
 			return LogTailResult{}, err
 		}
 		return collectForward()
@@ -296,15 +301,18 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 
 	// Backward mode: get entries before a given cursor (or from tail).
 	if p.BeforeCursor != "" {
-		if err := j.SeekCursor(p.BeforeCursor); err != nil {
+		err := j.SeekCursor(p.BeforeCursor)
+		if err != nil {
 			return LogTailResult{}, err
 		}
 		// SeekCursor lands on the cursor entry; move back one so we don't include it.
-		if _, err := j.Previous(); err != nil {
+		_, err = j.Previous()
+		if err != nil {
 			return LogTailResult{}, err
 		}
 	} else {
-		if err := j.SeekTail(); err != nil {
+		err := j.SeekTail()
+		if err != nil {
 			return LogTailResult{}, err
 		}
 	}
@@ -350,7 +358,7 @@ func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan J
 	}
 
 	if unit != "" {
-		err = j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", unit))
+		err = j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", unit)) //nolint:perfsprint // project convention: use fmt.Sprintf
 		if err != nil {
 			return nil, errors.Join(err, j.Close())
 		}

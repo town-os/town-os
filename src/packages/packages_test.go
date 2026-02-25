@@ -359,13 +359,14 @@ func TestPackageCompile(t *testing.T) {
 	for name, data := range table {
 		t.Run(name, func(t *testing.T) {
 			p, err := data.input.Compile(data.responses)
-			if data.err {
+			switch {
+			case data.err:
 				if err == nil {
 					t.Fatal("error was expected but not received")
 				}
-			} else if err != nil {
+			case err != nil:
 				t.Fatalf("error encountered when none was expected: %v", err)
-			} else {
+			default:
 				if !reflect.DeepEqual(*p, data.output) {
 					t.Fatalf("expected output was not equal to compiled output:\n  expected: %#v\n  actual:   %#v", data.output, *p)
 				}

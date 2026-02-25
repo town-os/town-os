@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -18,7 +19,7 @@ func run() error {
 	flag.Parse()
 
 	if *statePath == "" {
-		return fmt.Errorf("--state is required")
+		return errors.New("--state is required")
 	}
 
 	// Attempt to discover UPnP device; log warning if unavailable.
@@ -46,7 +47,8 @@ func run() error {
 }
 
 func main() {
-	if err := run(); err != nil {
+	err := run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "town-os-networkcontroller: %v\n", err)
 		os.Exit(1)
 	}

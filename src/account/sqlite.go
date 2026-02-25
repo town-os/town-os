@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -9,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
 	"golang.org/x/crypto/argon2"
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -42,15 +43,18 @@ func OpenDB(path string) (db *sql.DB, err error) {
 	// SQLITE_BUSY errors from connection pool contention.
 	db.SetMaxOpenConns(1)
 
-	if _, err = db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	_, err = db.ExecContext(context.Background(), "PRAGMA journal_mode=WAL")
+	if err != nil {
 		return db, fmt.Errorf("pragma WAL: %w", err)
 	}
 
-	if _, err = db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+	_, err = db.ExecContext(context.Background(), "PRAGMA busy_timeout=5000")
+	if err != nil {
 		return db, fmt.Errorf("pragma busy_timeout: %w", err)
 	}
 
-	if _, err = db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+	_, err = db.ExecContext(context.Background(), "PRAGMA foreign_keys=ON")
+	if err != nil {
 		return db, fmt.Errorf("pragma foreign_keys: %w", err)
 	}
 
@@ -58,7 +62,7 @@ func OpenDB(path string) (db *sql.DB, err error) {
 }
 
 func InitManager(db *sql.DB) (*SQLiteManager, error) {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS accounts (
+	_, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS accounts (
 		username      TEXT PRIMARY KEY,
 		password_hash TEXT NOT NULL,
 		email         TEXT NOT NULL,
@@ -78,7 +82,8 @@ func InitManager(db *sql.DB) (*SQLiteManager, error) {
 
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, argonSaltLen)
-	if _, err := rand.Read(salt); err != nil {
+	_, err := rand.Read(salt)
+	if err != nil {
 		return "", fmt.Errorf("generate salt: %w", err)
 	}
 
@@ -102,7 +107,8 @@ func verifyPassword(hash, password string) bool {
 
 	var memory, iterations uint32
 	var threads uint8
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &threads); err != nil {
+	_, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &threads)
+	if err != nil {
 		return false
 	}
 
@@ -116,7 +122,7 @@ func verifyPassword(hash, password string) bool {
 		return false
 	}
 
-	key := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(len(expectedKey)))
+	key := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(len(expectedKey))) //nolint:gosec // key length is bounded by argon2 output size
 
 	if len(key) != len(expectedKey) {
 		return false
@@ -130,10 +136,12 @@ func verifyPassword(hash, password string) bool {
 }
 
 func (m *SQLiteManager) Create(username, password, email, phone, realName string, admin bool) (_ *Account, err error) {
-	if err := validatePassword(password); err != nil {
+	err = validatePassword(password)
+	if err != nil {
 		return nil, err
 	}
-	if err := validateContactInfo(email, phone, realName); err != nil {
+	err = validateContactInfo(email, phone, realName)
+	if err != nil {
 		return nil, err
 	}
 
@@ -145,7 +153,7 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	_, err = m.db.Exec(
+	_, err = m.db.ExecContext(context.Background(),
 		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
 		username, hash, email, phone, realName, admin, nowStr, nowStr,
@@ -169,7 +177,7 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 }
 
 func (m *SQLiteManager) Get(username string) (*Account, error) {
-	row := m.db.QueryRow(
+	row := m.db.QueryRowContext(context.Background(),
 		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
 		 FROM accounts WHERE username = ?`, username,
 	)
@@ -202,7 +210,8 @@ func scanAccount(row *sql.Row) (*Account, error) {
 }
 
 func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account, err error) {
-	if err := validateUpdateFields(fields); err != nil {
+	err = validateUpdateFields(fields)
+	if err != nil {
 		return nil, err
 	}
 
@@ -243,7 +252,7 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 	args = append(args, nowStr)
 	args = append(args, username)
 
-	res, err := m.db.Exec(
+	res, err := m.db.ExecContext(context.Background(),
 		fmt.Sprintf("UPDATE accounts SET %s WHERE username = ?", strings.Join(sets, ", ")),
 		args...,
 	)
@@ -264,7 +273,7 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 
 func (m *SQLiteManager) Disable(username string) error {
 	nowStr := time.Now().UTC().Format(time.RFC3339)
-	res, err := m.db.Exec("UPDATE accounts SET disabled = 1, updated_at = ? WHERE username = ?", nowStr, username)
+	res, err := m.db.ExecContext(context.Background(), "UPDATE accounts SET disabled = 1, updated_at = ? WHERE username = ?", nowStr, username)
 	if err != nil {
 		return fmt.Errorf("disable account: %w", err)
 	}
@@ -282,7 +291,7 @@ func (m *SQLiteManager) Disable(username string) error {
 
 func (m *SQLiteManager) Enable(username string) error {
 	nowStr := time.Now().UTC().Format(time.RFC3339)
-	res, err := m.db.Exec("UPDATE accounts SET disabled = 0, updated_at = ? WHERE username = ?", nowStr, username)
+	res, err := m.db.ExecContext(context.Background(), "UPDATE accounts SET disabled = 0, updated_at = ? WHERE username = ?", nowStr, username)
 	if err != nil {
 		return fmt.Errorf("enable account: %w", err)
 	}
@@ -299,7 +308,7 @@ func (m *SQLiteManager) Enable(username string) error {
 }
 
 func (m *SQLiteManager) List() ([]Account, error) {
-	rows, err := m.db.Query(
+	rows, err := m.db.QueryContext(context.Background(),
 		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
 		 FROM accounts ORDER BY username`,
 	)
@@ -315,7 +324,8 @@ func (m *SQLiteManager) List() ([]Account, error) {
 		var acct Account
 		var createdStr, updatedStr string
 
-		if err := rows.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &acct.Admin, &acct.Disabled, &createdStr, &updatedStr); err != nil {
+		err := rows.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &acct.Admin, &acct.Disabled, &createdStr, &updatedStr)
+		if err != nil {
 			return nil, fmt.Errorf("scan account row: %w", err)
 		}
 
@@ -331,7 +341,8 @@ func (m *SQLiteManager) List() ([]Account, error) {
 		out = append(out, acct)
 	}
 
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("rows iteration: %w", err)
 	}
 

@@ -1,6 +1,8 @@
 package upnp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -29,7 +31,7 @@ func NewIGDClient() (_ *IGDClient, err error) {
 		return nil, fmt.Errorf("discover IGD: %w", err)
 	}
 	if len(clients) == 0 {
-		return nil, fmt.Errorf("no IGD device found")
+		return nil, errors.New("no IGD device found")
 	}
 
 	localIP, err := localAddress()
@@ -40,16 +42,22 @@ func NewIGDClient() (_ *IGDClient, err error) {
 	return &IGDClient{client: clients[0], localIP: localIP}, nil
 }
 
-func localAddress() (string, error) {
-	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 0)
+func localAddress() (_ string, err error) {
+	conn, err := (&net.Dialer{Timeout: 0}).DialContext(context.Background(), "udp", "8.8.8.8:80")
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		err = conn.Close()
+		cerr := conn.Close()
+		if cerr != nil && err == nil {
+			err = cerr
+		}
 	}()
 
-	addr := conn.LocalAddr().(*net.UDPAddr)
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", fmt.Errorf("unexpected address type: %T", conn.LocalAddr())
+	}
 	return addr.IP.String(), nil
 }
 

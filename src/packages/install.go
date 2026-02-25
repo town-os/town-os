@@ -14,8 +14,8 @@ import (
 const InstalledDir = "installed"
 
 var (
-	ErrNotInstalled     = fmt.Errorf("package not installed")
-	ErrAlreadyInstalled = fmt.Errorf("package already installed")
+	ErrNotInstalled     = errors.New("package not installed")
+	ErrAlreadyInstalled = errors.New("package already installed")
 )
 
 const ResponsesDir = "responses"
@@ -56,22 +56,26 @@ func (m *InstallManager) responsesDir() string {
 // It also persists the responses to responses/<repoName>/<pkgName>/<version>.json.
 func (m *InstallManager) Install(repoName, pkgName, version string, responses Responses) error {
 	pkgDir := filepath.Join(m.dir(), repoName, pkgName)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	err := os.MkdirAll(pkgDir, 0750)
+	if err != nil {
 		return err
 	}
 
-	link := filepath.Join(pkgDir, fmt.Sprintf("%s.yaml", version))
+	link := filepath.Join(pkgDir, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
 
-	if _, err := os.Lstat(link); err == nil {
+	_, err = os.Lstat(link)
+	if err == nil {
 		return fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrAlreadyInstalled)
 	}
 
-	source := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version))
-	if _, err := os.Stat(source); err != nil {
-		return fmt.Errorf("source package not found: %v", err)
+	source := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	_, err = os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("source package not found: %w", err)
 	}
 
-	if err := os.Link(source, link); err != nil {
+	err = os.Link(source, link)
+	if err != nil {
 		return err
 	}
 
@@ -84,16 +88,18 @@ func (m *InstallManager) SetDisabled(repoName, pkgName string, disabled bool) er
 	marker := filepath.Join(m.dir(), repoName, pkgName, "disabled")
 	if disabled {
 		pkgDir := filepath.Join(m.dir(), repoName, pkgName)
-		if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		err := os.MkdirAll(pkgDir, 0750)
+		if err != nil {
 			return err
 		}
-		f, err := os.Create(marker)
+		f, err := os.Create(marker) //nolint:gosec // path is constructed internally
 		if err != nil {
 			return err
 		}
 		return f.Close()
 	}
-	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+	err := os.Remove(marker)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
@@ -115,7 +121,7 @@ func (m *InstallManager) IsDisabled(repoName, pkgName string) (bool, error) {
 // Uninstall removes the hard link for the given package version. If the package
 // directory becomes empty it is removed as well.
 func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
-	link := filepath.Join(m.dir(), repoName, pkgName, fmt.Sprintf("%s.yaml", version))
+	link := filepath.Join(m.dir(), repoName, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
 
 	fi, err := os.Lstat(link)
 	if os.IsNotExist(err) {
@@ -129,13 +135,15 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 		return fmt.Errorf("%s/%s@%s is not a regular file", repoName, pkgName, version)
 	}
 
-	if err := os.Remove(link); err != nil {
+	err = os.Remove(link)
+	if err != nil {
 		return err
 	}
 
 	// Remove disabled marker so the directory can be cleaned up.
 	marker := filepath.Join(m.dir(), repoName, pkgName, "disabled")
-	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+	err = os.Remove(marker)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
@@ -143,7 +151,8 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	pkgDir := filepath.Join(m.dir(), repoName, pkgName)
 	entries, err := os.ReadDir(pkgDir)
 	if err == nil && len(entries) == 0 {
-		if err := os.Remove(pkgDir); err != nil {
+		err = os.Remove(pkgDir)
+		if err != nil {
 			return err
 		}
 	}
@@ -152,14 +161,16 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	repoDir := filepath.Join(m.dir(), repoName)
 	repoEntries, err := os.ReadDir(repoDir)
 	if err == nil && len(repoEntries) == 0 {
-		if err := os.Remove(repoDir); err != nil {
+		err = os.Remove(repoDir)
+		if err != nil {
 			return err
 		}
 	}
 
 	// Remove response file.
-	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, fmt.Sprintf("%s.json", version))
-	if err := os.Remove(respFile); err != nil && !os.IsNotExist(err) {
+	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, fmt.Sprintf("%s.json", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	err = os.Remove(respFile)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
@@ -167,7 +178,8 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	respPkgDir := filepath.Join(m.responsesDir(), repoName, pkgName)
 	respPkgEntries, err := os.ReadDir(respPkgDir)
 	if err == nil && len(respPkgEntries) == 0 {
-		if err := os.Remove(respPkgDir); err != nil {
+		err = os.Remove(respPkgDir)
+		if err != nil {
 			return err
 		}
 	}
@@ -175,7 +187,8 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	respRepoDir := filepath.Join(m.responsesDir(), repoName)
 	respRepoEntries, err := os.ReadDir(respRepoDir)
 	if err == nil && len(respRepoEntries) == 0 {
-		if err := os.Remove(respRepoDir); err != nil {
+		err = os.Remove(respRepoDir)
+		if err != nil {
 			return err
 		}
 	}
@@ -264,9 +277,9 @@ func (m *InstallManager) ListInstalled() ([]string, error) {
 
 // GetResponses reads the persisted responses for a given package version.
 func (m *InstallManager) GetResponses(repoName, pkgName, version string) (_ Responses, err error) {
-	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, fmt.Sprintf("%s.json", version))
+	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, fmt.Sprintf("%s.json", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
 
-	f, err := os.Open(respFile)
+	f, err := os.Open(respFile) //nolint:gosec // path is constructed internally
 	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrNotInstalled)
 	}
@@ -278,7 +291,8 @@ func (m *InstallManager) GetResponses(repoName, pkgName, version string) (_ Resp
 	}()
 
 	var resp Responses
-	if err := json.NewDecoder(f).Decode(&resp); err != nil {
+	err = json.NewDecoder(f).Decode(&resp)
+	if err != nil {
 		return nil, err
 	}
 
@@ -422,10 +436,11 @@ func (m *InstallManager) SaveResponses(repoName, pkgName, version string, respon
 	}()
 
 	respDir := filepath.Join(m.responsesDir(), repoName, pkgName)
-	if err := os.MkdirAll(respDir, 0755); err != nil {
+	err = os.MkdirAll(respDir, 0750)
+	if err != nil {
 		return err
 	}
 
-	respFile := filepath.Join(respDir, fmt.Sprintf("%s.json", version))
+	respFile := filepath.Join(respDir, fmt.Sprintf("%s.json", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
 	return atomicWriteJSON(respFile, responses)
 }

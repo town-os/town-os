@@ -2,6 +2,7 @@ package systemd
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -55,7 +56,7 @@ func allPorts(external, internal packages.PortMap) []uint16 {
 	for p := range seen {
 		ports = append(ports, p)
 	}
-	sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
+	slices.Sort(ports)
 	return ports
 }
 
@@ -177,7 +178,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 		b.WriteString(" --net host")
 	} else {
 		for _, mapping := range allPortMappings(cfg.External, cfg.Internal) {
-			b.WriteString(fmt.Sprintf(" \\\n  -p %s", mapping))
+			b.WriteString(fmt.Sprintf(" \\\n  -p %s", mapping)) //nolint:perfsprint // project convention: use fmt.Sprintf for string concatenation
 		}
 	}
 
@@ -199,9 +200,9 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	}
 
 	if len(cfg.Command) > 0 {
-		b.WriteString(fmt.Sprintf(" \\\n  %s", cfg.Image))
+		b.WriteString(fmt.Sprintf(" \\\n  %s", cfg.Image)) //nolint:perfsprint // project convention: use fmt.Sprintf for string concatenation
 		for _, arg := range cfg.Command {
-			b.WriteString(fmt.Sprintf(" \\\n  %s", arg))
+			b.WriteString(fmt.Sprintf(" \\\n  %s", arg)) //nolint:perfsprint // project convention: use fmt.Sprintf for string concatenation
 		}
 		b.WriteString("\n")
 	} else {

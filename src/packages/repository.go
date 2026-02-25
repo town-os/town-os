@@ -1,9 +1,11 @@
 package packages
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -69,7 +71,7 @@ type RepositoryRoot struct {
 
 func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 	fn := filepath.Join(baseDir, RepositoriesFile)
-	f, err := os.Open(fn)
+	f, err := os.Open(fn) //nolint:gosec // file path is constructed internally
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +82,8 @@ func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 
 	var items []Repository
 	de := json.NewDecoder(f)
-	if err := de.Decode(&items); err != nil {
+	err = de.Decode(&items)
+	if err != nil {
 		return nil, err
 	}
 
@@ -188,7 +191,8 @@ func (rr *RepositoryRoot) ForceRefresh() {
 func (rr *RepositoryRoot) forceRefresh() {
 	rr.Errors = map[string]string{}
 	for i := range rr.Items {
-		if err := rr.Items[i].init(rr.BaseDir); err != nil {
+		err := rr.Items[i].init(rr.BaseDir)
+		if err != nil {
 			logrus.Warnf("repository %s: %v", rr.Items[i].Name, err)
 			rr.Errors[rr.Items[i].Name] = err.Error()
 		}
@@ -219,7 +223,7 @@ func (rr *RepositoryRoot) RefreshErrors() map[string]string {
 	return rr.Errors
 }
 
-type Repository struct {
+type Repository struct { //nolint:recvcheck // mixed receivers intentional
 	Name     string
 	URL      url.URL
 	Username string
@@ -238,7 +242,8 @@ func (r Repository) MarshalJSON() ([]byte, error) {
 func (r *Repository) UnmarshalJSON(data []byte) error {
 	// Try object format first.
 	var obj repositoryJSON
-	if err := json.Unmarshal(data, &obj); err == nil && obj.Name != "" {
+	err := json.Unmarshal(data, &obj)
+	if err == nil && obj.Name != "" {
 		parsed, err := url.Parse(obj.URL)
 		if err != nil {
 			return fmt.Errorf("invalid repository URL: %w", err)
@@ -256,8 +261,9 @@ func (r *Repository) UnmarshalJSON(data []byte) error {
 
 	// Legacy fallback: [name, credentialURL] array format.
 	var pair [2]string
-	if err := json.Unmarshal(data, &pair); err != nil {
-		return fmt.Errorf("invalid repository JSON: expected {name, url} object or [name, url] array")
+	err = json.Unmarshal(data, &pair)
+	if err != nil {
+		return errors.New("invalid repository JSON: expected {name, url} object or [name, url] array")
 	}
 
 	parsed, err := url.Parse(pair[1])
@@ -301,22 +307,22 @@ func SanitizeURL(raw string) string {
 }
 
 func runGit(dir, home string, args ...string) error {
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", fmt.Sprintf("HOME=%s", home))
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", fmt.Sprintf("HOME=%s", home)) //nolint:perfsprint // project convention: use fmt.Sprintf
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("git %s: %v\n%s", args[0], err, out)
+		return fmt.Errorf("git %s: %w\n%s", args[0], err, out)
 	}
 	return nil
 }
 
 const (
 	EnvRepoUsername = "TOWN_OS_REPO_USERNAME"
-	EnvRepoPassword = "TOWN_OS_REPO_PASSWORD"
+	EnvRepoPassword = "TOWN_OS_REPO_PASSWORD" //nolint:gosec // not credentials, struct field name
 )
 
-var ErrPartialCredentials = fmt.Errorf("both username and password must be provided together")
+var ErrPartialCredentials = errors.New("both username and password must be provided together")
 
 func NewRepository(baseDir, name string, u url.URL, username, password string) (*Repository, error) {
 	if (username == "") != (password == "") {
@@ -333,29 +339,34 @@ func (r *Repository) init(baseDir string) error {
 	target := filepath.Join(baseDir, r.Name)
 
 	s, err := os.Stat(target)
-	if os.IsNotExist(err) {
-		if err := runGit(baseDir, baseDir, "clone", r.credentialURL(), r.Name); err != nil {
+	switch {
+	case os.IsNotExist(err):
+		err := runGit(baseDir, baseDir, "clone", r.credentialURL(), r.Name)
+		if err != nil {
 			return err
 		}
-	} else if err != nil {
+	case err != nil:
 		return err
-	} else if !s.IsDir() {
+	case !s.IsDir():
 		return fmt.Errorf("sub-path %s is not a directory", target)
-	} else {
+	default:
 		needsStash := runGit(target, baseDir, "diff", "--quiet", "HEAD") != nil
 
 		if needsStash {
-			if err := runGit(target, baseDir, "stash"); err != nil {
+			err := runGit(target, baseDir, "stash")
+			if err != nil {
 				return err
 			}
 		}
 
-		if err := runGit(target, baseDir, "pull", "--rebase"); err != nil {
+		err := runGit(target, baseDir, "pull", "--rebase")
+		if err != nil {
 			return err
 		}
 
 		if needsStash {
-			if err := runGit(target, baseDir, "stash", "apply"); err != nil {
+			err := runGit(target, baseDir, "stash", "apply")
+			if err != nil {
 				return err
 			}
 		}
@@ -401,7 +412,7 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 				continue
 			}
 
-			f, err := os.Open(filepath.Join(nameDir, fn))
+			f, err := os.Open(filepath.Join(nameDir, fn)) //nolint:gosec // file path is constructed internally
 			if err != nil {
 				return nil, err
 			}
@@ -410,7 +421,7 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 			de := yaml.NewDecoder(f)
 			err = errors.Join(de.Decode(&ip), f.Close())
 			if err != nil {
-				return nil, fmt.Errorf("decoding %s/%s: %v", name.Name(), fn, err)
+				return nil, fmt.Errorf("decoding %s/%s: %w", name.Name(), fn, err)
 			}
 
 			if pkgs[name.Name()] == nil {
@@ -430,7 +441,7 @@ func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
-			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
 
 		for name, versions := range pkgs {
@@ -438,9 +449,7 @@ func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 				all[name] = map[string]InputPackage{}
 			}
 
-			for version, pkg := range versions {
-				all[name][version] = pkg
-			}
+			maps.Copy(all[name], versions)
 		}
 	}
 
@@ -449,8 +458,8 @@ func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 
 // LoadPackage loads a single InputPackage from a repository by name and version.
 func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ InputPackage, err error) {
-	fn := filepath.Join(rr.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version))
-	f, err := os.Open(fn)
+	fn := filepath.Join(rr.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	f, err := os.Open(fn)                                                                          //nolint:gosec // file path is constructed internally
 	if err != nil {
 		return InputPackage{}, fmt.Errorf("package %s@%s not found: %w", pkgName, version, err)
 	}
@@ -459,7 +468,8 @@ func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ Inpu
 	}()
 
 	var ip InputPackage
-	if err := yaml.NewDecoder(f).Decode(&ip); err != nil {
+	err = yaml.NewDecoder(f).Decode(&ip)
+	if err != nil {
 		return InputPackage{}, fmt.Errorf("decoding %s@%s: %w", pkgName, version, err)
 	}
 
@@ -473,12 +483,9 @@ func CompareVersions(a, b string) int {
 	partsA := strings.Split(a, ".")
 	partsB := strings.Split(b, ".")
 
-	max := len(partsA)
-	if len(partsB) > max {
-		max = len(partsB)
-	}
+	maxParts := max(len(partsA), len(partsB))
 
-	for i := 0; i < max; i++ {
+	for i := range maxParts {
 		var sa, sb string
 		if i < len(partsA) {
 			sa = partsA[i]
@@ -518,7 +525,7 @@ func (rr *RepositoryRoot) ListPackageVersions(name string) ([]string, error) {
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
-			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
 
 		versions, ok := pkgs[name]
@@ -543,7 +550,7 @@ func (rr *RepositoryRoot) ListPackageVersions(name string) ([]string, error) {
 	return out, nil
 }
 
-var ErrPackageNotFound = fmt.Errorf("package not found")
+var ErrPackageNotFound = errors.New("package not found")
 
 // LatestPackage finds the latest version of a named package across all
 // repositories. Repositories are consulted in order; when two repositories
@@ -556,7 +563,7 @@ func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, erro
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
-			return InputPackage{}, "", fmt.Errorf("repository %s: %v", repo.Name, err)
+			return InputPackage{}, "", fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
 
 		versions, ok := pkgs[name]
@@ -595,7 +602,7 @@ func (rr *RepositoryRoot) FindRepoForPackage(name, version string) (string, erro
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
-			return "", fmt.Errorf("repository %s: %v", repo.Name, err)
+			return "", fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
 
 		versions, ok := pkgs[name]
@@ -625,7 +632,7 @@ func (rr *RepositoryRoot) ListPackages() ([]string, error) {
 	for _, repo := range rr.Items {
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
-			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
 
 		for name, versions := range pkgs {
@@ -691,7 +698,7 @@ func (rr *RepositoryRoot) ListPackagesByRepo() ([]RepoPackageGroup, error) {
 		repo := rr.Items[i]
 		pkgs, err := repo.LoadPackages(rr.BaseDir)
 		if err != nil {
-			return nil, fmt.Errorf("repository %s: %v", repo.Name, err)
+			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
 
 		// Pick latest version per package name.

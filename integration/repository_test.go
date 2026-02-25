@@ -34,7 +34,8 @@ func setupRoot(t *testing.T, repos []packages.Repository) *packages.RepositoryRo
 	if err != nil {
 		t.Fatalf("marshal repos: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	err = os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644) //nolint:gosec // test code
+	if err != nil {
 		t.Fatalf("write repositories file: %v", err)
 	}
 
@@ -49,11 +50,12 @@ func TestRepositoryCloneAndLoadPackages(t *testing.T) {
 	root := setupRoot(t, []packages.Repository{})
 
 	repo := packages.Repository{Name: "core", URL: coreURL}
-	if err := root.Add(repo); err != nil {
+	err := root.Add(repo)
+	if err != nil {
 		t.Fatalf("failed to add core repo: %v", err)
 	}
 
-	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	_, err = newRepoWithCreds(root.BaseDir, "core", coreURL)
 	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
@@ -110,10 +112,12 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 		{Name: "extras", URL: extrasURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
-	if _, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL); err != nil {
+	_, err = newRepoWithCreds(root.BaseDir, "extras", extrasURL)
+	if err != nil {
 		t.Fatalf("failed to clone extras repo: %v", err)
 	}
 
@@ -155,7 +159,8 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -195,7 +200,8 @@ func TestRepositoryCompileRedisCommand(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -236,7 +242,8 @@ func TestRepositoryCompileNginxNoCommand(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -268,7 +275,8 @@ func TestGetPackageQuestionsFromRepo(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -311,10 +319,12 @@ func TestGetPackageQuestionsFromMultipleRepos(t *testing.T) {
 		{Name: "extras", URL: extrasURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL); err != nil {
+	_, err = newRepoWithCreds(root.BaseDir, "extras", extrasURL)
+	if err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
@@ -340,7 +350,7 @@ func TestGetPackageQuestionsFromMultipleRepos(t *testing.T) {
 
 	// nonexistent
 	_, err = root.GetPackageQuestions("nonexistent")
-	if err != packages.ErrPackageNotFound {
+	if !errors.Is(err, packages.ErrPackageNotFound) {
 		t.Fatalf("expected ErrPackageNotFound, got %v", err)
 	}
 }
@@ -350,7 +360,8 @@ func TestListPackagesSingleRepo(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -381,10 +392,12 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 		{Name: "extras", URL: extrasURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
-	if _, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL); err != nil {
+	_, err = newRepoWithCreds(root.BaseDir, "extras", extrasURL)
+	if err != nil {
 		t.Fatalf("failed to clone extras repo: %v", err)
 	}
 
@@ -433,10 +446,12 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL)
+	if err != nil {
 		t.Fatalf("failed to clone extras repo: %v", err)
 	}
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err = newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -486,19 +501,21 @@ func TestInstalledInstallFromRepo(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("failed to install nginx 1.0: %v", err)
 	}
 
 	// Verify hard link resolves and the YAML is readable.
 	link := filepath.Join(root.BaseDir, packages.InstalledDir, "core", "nginx", "1.0.yaml")
-	content, err := os.ReadFile(link)
+	content, err := os.ReadFile(link) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("could not read installed hard link: %v", err)
 	}
@@ -512,19 +529,23 @@ func TestInstalledListFromRepo(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := mgr.Install("core", "nginx", "2.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	if err := mgr.Install("core", "redis", "7.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "redis", "7.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
@@ -551,20 +572,24 @@ func TestInstalledUninstallFromRepo(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("core", "nginx", "2.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	if err := mgr.Install("core", "redis", "7.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "redis", "7.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
 
-	if err := mgr.Uninstall("core", "nginx", "2.0"); err != nil {
+	err = mgr.Uninstall("core", "nginx", "2.0")
+	if err != nil {
 		t.Fatalf("failed to uninstall: %v", err)
 	}
 
@@ -595,20 +620,24 @@ func TestInstalledMultipleRepos(t *testing.T) {
 		{Name: "extras", URL: extrasURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL); err != nil {
+	_, err = newRepoWithCreds(root.BaseDir, "extras", extrasURL)
+	if err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Install from different repos.
-	if err := mgr.Install("core", "nginx", "2.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@2.0 from core: %v", err)
 	}
-	if err := mgr.Install("extras", "postgres", "16.0", packages.Responses{}); err != nil {
+	err = mgr.Install("extras", "postgres", "16.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install postgres@16.0 from extras: %v", err)
 	}
 
@@ -639,8 +668,9 @@ func TestInstalledMultipleRepos(t *testing.T) {
 		if err != nil {
 			t.Fatalf("invalid package identity %q: %v", p, err)
 		}
-		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, fmt.Sprintf("%s.yaml", pi.Version))
-		if _, err := os.ReadFile(link); err != nil {
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, fmt.Sprintf("%s.yaml", pi.Version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		_, err = os.ReadFile(link) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("hard link for %s does not resolve: %v", p, err)
 		}
 	}
@@ -651,7 +681,8 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
@@ -667,7 +698,8 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Install.
-	if err := mgr.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
@@ -689,7 +721,8 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Uninstall.
-	if err := mgr.Uninstall("core", "nginx", "1.0"); err != nil {
+	err = mgr.Uninstall("core", "nginx", "1.0")
+	if err != nil {
 		t.Fatalf("Uninstall nginx@1.0: %v", err)
 	}
 
@@ -702,7 +735,8 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Can re-install after uninstall.
-	if err := mgr.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("re-install failed: %v", err)
 	}
 
@@ -728,10 +762,12 @@ func TestRepositoryList(t *testing.T) {
 	}
 
 	// Add repos.
-	if err := root.Add(packages.Repository{Name: "core", URL: coreURL}); err != nil {
+	err = root.Add(packages.Repository{Name: "core", URL: coreURL})
+	if err != nil {
 		t.Fatalf("Add core: %v", err)
 	}
-	if err := root.Add(packages.Repository{Name: "extras", URL: extrasURL}); err != nil {
+	err = root.Add(packages.Repository{Name: "extras", URL: extrasURL})
+	if err != nil {
 		t.Fatalf("Add extras: %v", err)
 	}
 
@@ -755,7 +791,8 @@ func TestRepositoryList(t *testing.T) {
 	}
 
 	// Remove one.
-	if err := root.Remove("core"); err != nil {
+	err = root.Remove("core")
+	if err != nil {
 		t.Fatalf("Remove core: %v", err)
 	}
 
@@ -816,10 +853,12 @@ func TestRepositoryListPersistence(t *testing.T) {
 func TestRepositoryAddAndRemovePersistence(t *testing.T) {
 	root := setupRoot(t, []packages.Repository{})
 
-	if err := root.Add(packages.Repository{Name: "core", URL: coreURL}); err != nil {
+	err := root.Add(packages.Repository{Name: "core", URL: coreURL})
+	if err != nil {
 		t.Fatalf("failed to add core: %v", err)
 	}
-	if err := root.Add(packages.Repository{Name: "extras", URL: extrasURL}); err != nil {
+	err = root.Add(packages.Repository{Name: "extras", URL: extrasURL})
+	if err != nil {
 		t.Fatalf("failed to add extras: %v", err)
 	}
 
@@ -833,7 +872,8 @@ func TestRepositoryAddAndRemovePersistence(t *testing.T) {
 	}
 
 	// remove one
-	if err := reloaded.Remove("extras"); err != nil {
+	err = reloaded.Remove("extras")
+	if err != nil {
 		t.Fatalf("failed to remove extras: %v", err)
 	}
 
@@ -855,26 +895,28 @@ func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
 	// Read through hard link.
 	link := filepath.Join(root.BaseDir, packages.InstalledDir, "core", "nginx", "1.0.yaml")
-	linkContent, err := os.ReadFile(link)
+	linkContent, err := os.ReadFile(link) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("read through hard link: %v", err)
 	}
 
 	// Read source directly.
 	source := filepath.Join(root.BaseDir, "core", packages.PackagesDir, "nginx", "1.0.yaml")
-	sourceContent, err := os.ReadFile(source)
+	sourceContent, err := os.ReadFile(source) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("read source file: %v", err)
 	}
@@ -889,40 +931,48 @@ func TestInstalledEmptyDirCleanupAfterUninstall(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Install two versions of the same package.
-	if err := mgr.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	if err := mgr.Install("core", "nginx", "2.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
 
 	pkgDir := filepath.Join(root.BaseDir, packages.InstalledDir, "core", "nginx")
 
 	// Verify directory exists.
-	if _, err := os.Stat(pkgDir); err != nil {
+	_, err = os.Stat(pkgDir)
+	if err != nil {
 		t.Fatalf("expected nginx directory to exist: %v", err)
 	}
 
 	// Uninstall first version — directory should remain.
-	if err := mgr.Uninstall("core", "nginx", "1.0"); err != nil {
+	err = mgr.Uninstall("core", "nginx", "1.0")
+	if err != nil {
 		t.Fatalf("Uninstall nginx@1.0: %v", err)
 	}
-	if _, err := os.Stat(pkgDir); err != nil {
+	_, err = os.Stat(pkgDir)
+	if err != nil {
 		t.Fatalf("expected nginx directory to still exist after partial uninstall: %v", err)
 	}
 
 	// Uninstall second version — directory should be cleaned up.
-	if err := mgr.Uninstall("core", "nginx", "2.0"); err != nil {
+	err = mgr.Uninstall("core", "nginx", "2.0")
+	if err != nil {
 		t.Fatalf("Uninstall nginx@2.0: %v", err)
 	}
-	if _, err := os.Stat(pkgDir); !os.IsNotExist(err) {
+	_, err = os.Stat(pkgDir)
+	if !os.IsNotExist(err) {
 		t.Fatalf("expected nginx directory to be removed after full uninstall, got err: %v", err)
 	}
 }
@@ -932,24 +982,28 @@ func TestInstalledInstallNonexistentPackage(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Nonexistent package name.
-	if err := mgr.Install("core", "nonexistent", "1.0", packages.Responses{}); err == nil {
+	err = mgr.Install("core", "nonexistent", "1.0", packages.Responses{})
+	if err == nil {
 		t.Fatal("expected error installing nonexistent package")
 	}
 
 	// Existing package, nonexistent version.
-	if err := mgr.Install("core", "nginx", "99.0", packages.Responses{}); err == nil {
+	err = mgr.Install("core", "nginx", "99.0", packages.Responses{})
+	if err == nil {
 		t.Fatal("expected error installing nonexistent version")
 	}
 
 	// Nonexistent repo name.
-	if err := mgr.Install("no-such-repo", "nginx", "1.0", packages.Responses{}); err == nil {
+	err = mgr.Install("no-such-repo", "nginx", "1.0", packages.Responses{})
+	if err == nil {
 		t.Fatal("expected error installing from nonexistent repo")
 	}
 
@@ -969,10 +1023,12 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 		{Name: "extras", URL: extrasURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL); err != nil {
+	_, err = newRepoWithCreds(root.BaseDir, "extras", extrasURL)
+	if err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
@@ -997,7 +1053,8 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 		}
 		for name, versions := range repoPkgs {
 			for version := range versions {
-				if err := mgr.Install(repoName, name, version, packages.Responses{}); err != nil {
+				err = mgr.Install(repoName, name, version, packages.Responses{})
+				if err != nil {
 					t.Fatalf("Install %s@%s from %s: %v", name, version, repoName, err)
 				}
 			}
@@ -1046,8 +1103,8 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 		if err != nil {
 			t.Fatalf("invalid package identity %q: %v", p, err)
 		}
-		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, fmt.Sprintf("%s.yaml", pi.Version))
-		content, err := os.ReadFile(link)
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, fmt.Sprintf("%s.yaml", pi.Version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		content, err := os.ReadFile(link) //nolint:gosec // file path constructed internally
 		if err != nil {
 			t.Fatalf("hard link for %s does not resolve: %v", p, err)
 		}
@@ -1079,7 +1136,8 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
@@ -1087,7 +1145,8 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 	mgr2 := packages.NewInstallManager(root.BaseDir)
 
 	// Install from mgr1.
-	if err := mgr1.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr1.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("mgr1 Install nginx@1.0: %v", err)
 	}
 
@@ -1113,7 +1172,8 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 	}
 
 	// Uninstall from mgr2.
-	if err := mgr2.Uninstall("core", "nginx", "1.0"); err != nil {
+	err = mgr2.Uninstall("core", "nginx", "1.0")
+	if err != nil {
 		t.Fatalf("mgr2 Uninstall nginx@1.0: %v", err)
 	}
 
@@ -1134,7 +1194,8 @@ func TestFindRepoForPackageSingleRepo(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
@@ -1153,10 +1214,12 @@ func TestFindRepoForPackageMultipleRepos(t *testing.T) {
 		{Name: "extras", URL: extrasURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
-	if _, err := newRepoWithCreds(root.BaseDir, "extras", extrasURL); err != nil {
+	_, err = newRepoWithCreds(root.BaseDir, "extras", extrasURL)
+	if err != nil {
 		t.Fatalf("failed to clone extras: %v", err)
 	}
 
@@ -1184,11 +1247,12 @@ func TestFindRepoForPackageNotFound(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
-	_, err := root.FindRepoForPackage("nonexistent", "1.0")
+	_, err = root.FindRepoForPackage("nonexistent", "1.0")
 	if !errors.Is(err, packages.ErrPackageNotFound) {
 		t.Fatalf("expected ErrPackageNotFound, got %v", err)
 	}
@@ -1199,11 +1263,12 @@ func TestFindRepoForPackageVersionNotFound(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core: %v", err)
 	}
 
-	_, err := root.FindRepoForPackage("nginx", "99.0")
+	_, err = root.FindRepoForPackage("nginx", "99.0")
 	if !errors.Is(err, packages.ErrPackageNotFound) {
 		t.Fatalf("expected ErrPackageNotFound, got %v", err)
 	}
@@ -1214,30 +1279,34 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 		{Name: "core", URL: coreURL},
 	})
 
-	if _, err := newRepoWithCreds(root.BaseDir, "core", coreURL); err != nil {
+	_, err := newRepoWithCreds(root.BaseDir, "core", coreURL)
+	if err != nil {
 		t.Fatalf("failed to clone core repo: %v", err)
 	}
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	if err := mgr.Install("core", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
 
 	// Read YAML through the installed hard link.
 	link := filepath.Join(root.BaseDir, packages.InstalledDir, "core", "nginx", "1.0.yaml")
-	f, err := os.Open(link)
+	f, err := os.Open(link) //nolint:gosec // file path constructed internally
 	if err != nil {
 		t.Fatalf("open installed hard link: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := f.Close(); err != nil {
+		err := f.Close()
+		if err != nil {
 			t.Errorf("close installed hard link: %v", err)
 		}
 	})
 
 	var ip packages.InputPackage
-	if err := yaml.NewDecoder(f).Decode(&ip); err != nil {
+	err = yaml.NewDecoder(f).Decode(&ip)
+	if err != nil {
 		t.Fatalf("decode YAML through symlink: %v", err)
 	}
 

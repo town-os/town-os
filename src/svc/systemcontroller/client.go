@@ -104,7 +104,7 @@ func InitClient(sock string) (*SystemdClient, error) {
 			default:
 			}
 
-			return net.Dial("unix", sock)
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
 		}},
 		Timeout: 60 * time.Second,
 	}
@@ -134,13 +134,13 @@ func pipeEncode(pw *io.PipeWriter, v any) {
 }
 
 func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Reader) (err error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", c.route(path), body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route(path), body)
 	if err != nil {
 		return fmt.Errorf("%w: POST %s: %w", ErrNewRequest, path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention: use fmt.Sprintf
 	}
 
 	resp, err := c.HTTP.Do(req)
@@ -151,7 +151,7 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return readProblemDetail(resp, "POST", path)
 	}
 
@@ -159,24 +159,24 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 }
 
 func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Response, err error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.route(path), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.route(path), nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: GET %s: %w", ErrNewRequest, path, err)
 	}
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention: use fmt.Sprintf
 	}
 	return c.HTTP.Do(req)
 }
 
 func (c *SystemdClient) postJSON(ctx context.Context, path string, body io.Reader) (_ *http.Response, err error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", c.route(path), body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route(path), body)
 	if err != nil {
 		return nil, fmt.Errorf("%w: POST %s: %w", ErrNewRequest, path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention: use fmt.Sprintf
 	}
 	return c.HTTP.Do(req)
 }
@@ -224,7 +224,7 @@ func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string, stat
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "storage")
 	}
 
@@ -264,20 +264,20 @@ func (c *SystemdClient) RefreshRepositories(ctx context.Context) (_ map[string]s
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "repository/refresh")
 	}
 
 	var errs map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&errs); err != nil {
-		// empty body means no errors
-		return nil, nil
+	err = json.NewDecoder(resp.Body).Decode(&errs)
+	if err != nil {
+		return nil, nil //nolint:nilnil // intentional: nil list with no error means "not found"
 	}
 	return errs, nil
 }
 
 func (c *SystemdClient) ListRepositories(ctx context.Context, params ListParams) (_ *PageResult[RepositoryInfo], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("repository%s", params.QueryString()))
+	resp, err := c.getClient(ctx, fmt.Sprintf("repository%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListRepositories: %w", ErrHTTPRequest, err)
 	}
@@ -285,7 +285,7 @@ func (c *SystemdClient) ListRepositories(ctx context.Context, params ListParams)
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "repository")
 	}
 
@@ -313,7 +313,7 @@ func (c *SystemdClient) ListTimezones(ctx context.Context) (_ []string, err erro
 }
 
 func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ *PageResult[PackageListEntry], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", params.QueryString()))
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPackages: %w", ErrHTTPRequest, err)
 	}
@@ -321,7 +321,7 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "packages")
 	}
 
@@ -330,7 +330,7 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 }
 
 func (c *SystemdClient) ListPackagesByRepo(ctx context.Context, params ListParams) (_ []packages.RepoPackageGroup, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages/by-repo%s", params.QueryString()))
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages/by-repo%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPackagesByRepo: %w", ErrHTTPRequest, err)
 	}
@@ -338,7 +338,7 @@ func (c *SystemdClient) ListPackagesByRepo(ctx context.Context, params ListParam
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "packages/by-repo")
 	}
 
@@ -358,7 +358,7 @@ func (c *SystemdClient) ListPackageVersions(ctx context.Context, name string) (_
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/versions")
 	}
 
@@ -378,7 +378,7 @@ func (c *SystemdClient) GetPackageQuestions(ctx context.Context, name string) (_
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/questions")
 	}
 
@@ -398,7 +398,7 @@ func (c *SystemdClient) GetPackageQuestionsByIdentity(ctx context.Context, repo,
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/questions/identity")
 	}
 
@@ -448,7 +448,7 @@ func (c *SystemdClient) ListUninstalledVolumes(ctx context.Context, repo, name s
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/uninstalled-volumes")
 	}
 
@@ -478,7 +478,7 @@ func (c *SystemdClient) EnablePackage(ctx context.Context, repo, name string) er
 }
 
 func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_ *PageResult[string], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages/installed%s", params.QueryString()))
+	resp, err := c.getClient(ctx, fmt.Sprintf("packages/installed%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListInstalled: %w", ErrHTTPRequest, err)
 	}
@@ -486,7 +486,7 @@ func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "packages/installed")
 	}
 
@@ -506,7 +506,7 @@ func (c *SystemdClient) GetResponses(ctx context.Context, repo, name, version st
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/responses")
 	}
 
@@ -526,7 +526,7 @@ func (c *SystemdClient) GetInstalledInfo(ctx context.Context, repo, name, versio
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/installed/info")
 	}
 
@@ -566,7 +566,7 @@ func (c *SystemdClient) InstallPreview(ctx context.Context, repo, name, version 
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/install-preview")
 	}
 
@@ -577,7 +577,7 @@ func (c *SystemdClient) InstallPreview(ctx context.Context, repo, name, version 
 // --- Systemd ---
 
 func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *PageResult[UnitListEntry], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/units%s", params.QueryString()))
+	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/units%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListUnits: %w", ErrHTTPRequest, err)
 	}
@@ -585,7 +585,7 @@ func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *Pa
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "systemd/units")
 	}
 
@@ -601,12 +601,15 @@ func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action s
 }
 
 func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/logs?unit=%s", url.QueryEscape(name)))
+	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/logs?unit=%s", url.QueryEscape(name))) //nolint:bodyclose,perfsprint // closed in goroutine defer below; project convention: use fmt.Sprintf
 	if err != nil {
+		if resp != nil {
+			err = errors.Join(err, resp.Body.Close())
+		}
 		return nil, fmt.Errorf("%w: LogReplay: %w", ErrHTTPRequest, err)
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetailAndClose(resp, "GET", "systemd/logs")
 	}
 
@@ -625,7 +628,8 @@ func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan sy
 			}
 
 			var entry systemd.JournalEntry
-			if err := json.NewDecoder(strings.NewReader(strings.TrimPrefix(line, "data: "))).Decode(&entry); err != nil {
+			err := json.NewDecoder(strings.NewReader(strings.TrimPrefix(line, "data: "))).Decode(&entry)
+			if err != nil {
 				return
 			}
 			ch <- entry
@@ -661,7 +665,7 @@ func (c *SystemdClient) LogTail(ctx context.Context, p systemd.LogTailParams) (_
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return systemd.LogTailResult{}, readProblemDetail(resp, "GET", "systemd/logs/tail")
 	}
 
@@ -686,7 +690,7 @@ func (c *SystemdClient) CreateAccount(ctx context.Context, username, password, e
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "account/create")
 	}
 
@@ -706,7 +710,7 @@ func (c *SystemdClient) GetAccount(ctx context.Context, username string) (_ *acc
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "account")
 	}
 
@@ -726,7 +730,7 @@ func (c *SystemdClient) UpdateAccount(ctx context.Context, username string, fiel
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "account/update")
 	}
 
@@ -749,7 +753,7 @@ func (c *SystemdClient) EnableAccount(ctx context.Context, username string) erro
 }
 
 func (c *SystemdClient) ListAccounts(ctx context.Context, params ListParams) (_ *PageResult[account.Account], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("account%s", params.QueryString()))
+	resp, err := c.getClient(ctx, fmt.Sprintf("account%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListAccounts: %w", ErrHTTPRequest, err)
 	}
@@ -757,7 +761,7 @@ func (c *SystemdClient) ListAccounts(ctx context.Context, params ListParams) (_ 
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "account")
 	}
 
@@ -777,7 +781,7 @@ func (c *SystemdClient) Authenticate(ctx context.Context, username, password str
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "account/authenticate")
 	}
 
@@ -793,11 +797,11 @@ func (c *SystemdClient) RevokeSession(ctx context.Context, sessionID string) err
 }
 
 func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []account.Session, err error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.route("account/sessions"), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.route("account/sessions"), nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListSessions: %w", ErrNewRequest, err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token)) //nolint:perfsprint // project convention: use fmt.Sprintf
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -807,7 +811,7 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "account/sessions")
 	}
 
@@ -816,11 +820,11 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 }
 
 func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ string, err error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.route("/account/me"), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.route("/account/me"), nil)
 	if err != nil {
 		return "", fmt.Errorf("%w: SessionUsername: %w", ErrNewRequest, err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token)) //nolint:perfsprint // project convention: use fmt.Sprintf
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -830,12 +834,13 @@ func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ st
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return "", readProblemDetail(resp, "GET", "/account/me")
 	}
 
 	var result SessionUsernameResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
 		return "", err
 	}
 	return result.Username, nil
@@ -847,11 +852,11 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, opts)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.route("audit/log"), pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route("audit/log"), pr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListAuditLog: %w", ErrNewRequest, err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token)) //nolint:perfsprint // project convention: use fmt.Sprintf
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -862,7 +867,7 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "audit/log")
 	}
 
@@ -881,7 +886,7 @@ func (c *SystemdClient) GetSettings(ctx context.Context) (_ map[string]string, e
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "settings")
 	}
 
@@ -901,7 +906,7 @@ func (c *SystemdClient) GetSetting(ctx context.Context, key string) (_ string, e
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return "", readProblemDetail(resp, "POST", "settings/get")
 	}
 
@@ -909,7 +914,8 @@ func (c *SystemdClient) GetSetting(ctx context.Context, key string) (_ string, e
 		Key   string `json:"key"`
 		Value string `json:"value"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
 		return "", err
 	}
 	return result.Value, nil
@@ -1032,7 +1038,7 @@ func (c *SystemdClient) Ping(ctx context.Context) (_ *PingResponse, err error) {
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "status/ping")
 	}
 

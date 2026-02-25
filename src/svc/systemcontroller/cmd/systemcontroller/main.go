@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"time"
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
@@ -46,7 +47,8 @@ func run() (err error) {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
 	defer func() {
-		if rerr := os.RemoveAll(dir); rerr != nil && err == nil {
+		rerr := os.RemoveAll(dir)
+		if rerr != nil && err == nil {
 			err = rerr
 		}
 	}()
@@ -88,13 +90,15 @@ func run() (err error) {
 	repoBase := dir
 	if *repoDir != "" {
 		repoBase = *repoDir
-		if err := os.MkdirAll(repoBase, 0755); err != nil {
+		err := os.MkdirAll(repoBase, 0750)
+		if err != nil {
 			return fmt.Errorf("create repo dir: %w", err)
 		}
 	}
 
 	repoFile := filepath.Join(repoBase, packages.RepositoriesFile)
-	if _, err := os.Stat(repoFile); os.IsNotExist(err) {
+	_, err = os.Stat(repoFile)
+	if os.IsNotExist(err) {
 		var defaults []packages.Repository
 		if os.Getenv("TOWN_OS_TEST") != "" {
 			defaults = packages.TestRepositories()
@@ -116,7 +120,8 @@ func run() (err error) {
 		if err != nil {
 			return fmt.Errorf("marshal default repo list: %w", err)
 		}
-		if err := os.WriteFile(repoFile, repoData, 0644); err != nil {
+		err = os.WriteFile(repoFile, repoData, 0600)
+		if err != nil {
 			return fmt.Errorf("write repositories file: %w", err)
 		}
 	}
@@ -134,7 +139,7 @@ func run() (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
+	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
 		Installer:                inst,
 		RepositoryRoot:           rr,
 		Storage:                  st,
@@ -144,7 +149,8 @@ func run() (err error) {
 		NetworkControllerBinPath: *networkControllerBin,
 		NetworkStatePath:         *networkStatePath,
 		NetworkMode:              *networkMode,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("reconcile: %w", err)
 	}
 
@@ -166,8 +172,9 @@ func run() (err error) {
 	})
 
 	srv := &http.Server{
-		Addr:    *listenAddr,
-		Handler: handler,
+		Addr:              *listenAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	sig := make(chan os.Signal, 1)
@@ -176,13 +183,15 @@ func run() (err error) {
 	go func() {
 		<-sig
 		cancel()
-		if err := srv.Shutdown(context.Background()); err != nil {
-			fmt.Fprintf(os.Stderr, "shutdown: %v\n", err)
+		shutdownErr := srv.Shutdown(context.Background())
+		if shutdownErr != nil {
+			fmt.Fprintf(os.Stderr, "shutdown: %v\n", shutdownErr)
 		}
 	}()
 
 	fmt.Fprintf(os.Stderr, "systemcontroller: listening on %s\n", *listenAddr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	err = srv.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("listen: %w", err)
 	}
 
@@ -190,7 +199,8 @@ func run() (err error) {
 }
 
 func main() {
-	if err := run(); err != nil {
+	err := run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "systemcontroller: %v\n", err)
 		os.Exit(1)
 	}

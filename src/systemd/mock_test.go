@@ -78,11 +78,11 @@ func TestSystemdMockManagerListUnitsReturnsCopy(t *testing.T) {
 
 func TestSystemdMockManagerListUnitsErrorInjection(t *testing.T) {
 	m := InitMockManager()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.ListErr = injected
 	_, err := m.ListUnits(context.Background())
-	if err != injected {
+	if !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -116,22 +116,22 @@ func TestSystemdMockManagerSetStatusInvalidAction(t *testing.T) {
 
 func TestSystemdMockManagerSetStatusErrorInjection(t *testing.T) {
 	m := InitMockManager()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.StatusErr = injected
 	err := m.SetStatus(context.Background(), "nginx.service", Start)
-	if err != injected {
+	if !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
 
 func TestSystemdMockManagerSetStatusErrorInjectionTakesPrecedence(t *testing.T) {
 	m := InitMockManager()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.StatusErr = injected
 	err := m.SetStatus(context.Background(), "nginx.service", StatusAction("bogus"))
-	if err != injected {
+	if !errors.Is(err, injected) {
 		t.Fatalf("expected injected error to take precedence over invalid action, got %v", err)
 	}
 }
@@ -139,7 +139,8 @@ func TestSystemdMockManagerSetStatusErrorInjectionTakesPrecedence(t *testing.T) 
 func TestSystemdMockManagerSetStatusCallArgs(t *testing.T) {
 	m := InitMockManager()
 
-	if err := m.SetStatus(context.Background(), "nginx.service", Restart); err != nil {
+	err := m.SetStatus(context.Background(), "nginx.service", Restart)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -256,11 +257,11 @@ func TestSystemdMockManagerLogReplayContextCancellation(t *testing.T) {
 
 func TestSystemdMockManagerLogReplayErrorInjection(t *testing.T) {
 	m := InitMockManager()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.LogErr = injected
 	_, err := m.LogReplay(context.Background(), "nginx.service")
-	if err != injected {
+	if !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -291,10 +292,12 @@ func TestSystemdMockManagerCallLog(t *testing.T) {
 	m.Units = []UnitStatus{{Name: "nginx.service"}}
 	m.Entries = []JournalEntry{{Message: "hello"}}
 
-	if _, err := m.ListUnits(context.Background()); err != nil {
+	_, err := m.ListUnits(context.Background())
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := m.SetStatus(context.Background(), "nginx.service", Start); err != nil {
+	err = m.SetStatus(context.Background(), "nginx.service", Start)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	ch, err := m.LogReplay(context.Background(), "nginx.service")
@@ -320,7 +323,8 @@ func TestSystemdMockManagerCallLog(t *testing.T) {
 func TestSystemdMockManagerCallLogReturnsCopy(t *testing.T) {
 	m := InitMockManager()
 
-	if _, err := m.ListUnits(context.Background()); err != nil {
+	_, err := m.ListUnits(context.Background())
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -335,7 +339,8 @@ func TestSystemdMockManagerCallLogReturnsCopy(t *testing.T) {
 func TestSystemdMockManagerListUnitsCallLogNilArgs(t *testing.T) {
 	m := InitMockManager()
 
-	if _, err := m.ListUnits(context.Background()); err != nil {
+	_, err := m.ListUnits(context.Background())
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -400,10 +405,12 @@ func TestSystemdMockManagerLifecycle(t *testing.T) {
 	}
 
 	// Enable and start.
-	if err := m.SetStatus(context.Background(), "nginx.service", Enable); err != nil {
+	err = m.SetStatus(context.Background(), "nginx.service", Enable)
+	if err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
-	if err := m.SetStatus(context.Background(), "nginx.service", Start); err != nil {
+	err = m.SetStatus(context.Background(), "nginx.service", Start)
+	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -431,10 +438,12 @@ func TestSystemdMockManagerLifecycle(t *testing.T) {
 	}
 
 	// Stop and disable.
-	if err := m.SetStatus(context.Background(), "nginx.service", Stop); err != nil {
+	err = m.SetStatus(context.Background(), "nginx.service", Stop)
+	if err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if err := m.SetStatus(context.Background(), "nginx.service", Disable); err != nil {
+	err = m.SetStatus(context.Background(), "nginx.service", Disable)
+	if err != nil {
 		t.Fatalf("Disable: %v", err)
 	}
 
@@ -459,18 +468,22 @@ func TestMockManagerListPackageUnitFiles(t *testing.T) {
 	ctx := context.Background()
 
 	// Install several units for repo-a/nginx/1.0.
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service", "content"); err != nil {
+	err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service", "content")
+	if err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket", "content"); err != nil {
+	err = m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket", "content")
+	if err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-network.service", "content"); err != nil {
+	err = m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-network.service", "content")
+	if err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
 
 	// Install a unit for a different package.
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-redis-7.0.service", "content"); err != nil {
+	err = m.InstallUnit(ctx, "town-os-package--repo-a-redis-7.0.service", "content")
+	if err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
 
@@ -500,18 +513,22 @@ func TestMockManagerListPackageUnitFilesAfterUninstall(t *testing.T) {
 	m := InitMockManager()
 	ctx := context.Background()
 
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service", "content"); err != nil {
+	err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service", "content")
+	if err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
-	if err := m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket", "content"); err != nil {
+	err = m.InstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket", "content")
+	if err != nil {
 		t.Fatalf("InstallUnit: %v", err)
 	}
 
 	// Uninstall all.
-	if err := m.UninstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service"); err != nil {
+	err = m.UninstallUnit(ctx, "town-os-package--repo-a-nginx-1.0.service")
+	if err != nil {
 		t.Fatalf("UninstallUnit: %v", err)
 	}
-	if err := m.UninstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket"); err != nil {
+	err = m.UninstallUnit(ctx, "town-os-package--repo-a-nginx-1.0-8080-tcp.socket")
+	if err != nil {
 		t.Fatalf("UninstallUnit: %v", err)
 	}
 

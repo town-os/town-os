@@ -45,10 +45,7 @@ func paginate[T any](items []T, limit, offset int) PageResult[T] {
 		offset = total
 	}
 
-	end := offset + limit
-	if end > total {
-		end = total
-	}
+	end := min(offset+limit, total)
 
 	totalPages := (total + limit - 1) / limit
 	if totalPages == 0 {
@@ -92,10 +89,10 @@ func (p ListParams) QueryString() string {
 		params.Set("sort_order", p.SortOrder)
 	}
 	if p.Limit > 0 {
-		params.Set("limit", fmt.Sprintf("%d", p.Limit))
+		params.Set("limit", strconv.Itoa(p.Limit))
 	}
 	if p.Offset > 0 {
-		params.Set("offset", fmt.Sprintf("%d", p.Offset))
+		params.Set("offset", strconv.Itoa(p.Offset))
 	}
 	if p.Search != "" {
 		params.Set("search", p.Search)
@@ -103,7 +100,7 @@ func (p ListParams) QueryString() string {
 	if len(params) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("?%s", params.Encode())
+	return fmt.Sprintf("?%s", params.Encode()) //nolint:perfsprint // project convention: use fmt.Sprintf
 }
 
 // filterSearch returns items matching the search term by doing a case-insensitive
@@ -143,7 +140,7 @@ func matchesSearchValue(v reflect.Value, term string) bool {
 		return strings.Contains(strings.ToLower(fmt.Sprint(v.Interface())), term)
 	}
 
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		f := v.Field(i)
 		switch f.Kind() {
 		case reflect.String:

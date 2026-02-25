@@ -68,7 +68,7 @@ func ValidateFilesystemName(name string) error {
 		return fmt.Errorf("%w: name must not contain null bytes", ErrInvalidName)
 	}
 
-	for _, part := range strings.Split(name, "/") {
+	for part := range strings.SplitSeq(name, "/") {
 		if part == "" {
 			return fmt.Errorf("%w: name must not contain empty path components", ErrInvalidName)
 		}

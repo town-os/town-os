@@ -2,6 +2,7 @@ package packages
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 )
 
@@ -120,9 +121,7 @@ func (m *MockInstallManager) GetResponses(repoName, pkgName, version string) (Re
 	}
 
 	out := make(Responses, len(resp))
-	for k, v := range resp {
-		out[k] = v
-	}
+	maps.Copy(out, resp)
 	return out, nil
 }
 

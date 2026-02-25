@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -29,7 +30,9 @@ type SQLiteAuditManager struct {
 }
 
 func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS audit_log (
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS audit_log (
 		id         INTEGER PRIMARY KEY AUTOINCREMENT,
 		account    TEXT NOT NULL DEFAULT '',
 		action     TEXT NOT NULL,
@@ -44,13 +47,15 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 	}
 
 	// Migrate: add detail column if it does not exist (for existing databases).
-	_, _ = db.Exec(`ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.ExecContext(ctx, `ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`)
 
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(id DESC)`); err != nil {
+	_, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(id DESC)`)
+	if err != nil {
 		return nil, fmt.Errorf("create idx_audit_created: %w", err)
 	}
 
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_account ON audit_log(account, id DESC)`); err != nil {
+	_, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_account ON audit_log(account, id DESC)`)
+	if err != nil {
 		return nil, fmt.Errorf("create idx_audit_account: %w", err)
 	}
 
@@ -58,7 +63,7 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 }
 
 func (m *SQLiteAuditManager) LogEntry(entry AuditEntry) error {
-	_, err := m.db.Exec(
+	_, err := m.db.ExecContext(context.Background(),
 		`INSERT INTO audit_log (account, action, path, detail, success, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		entry.Account, entry.Action, entry.Path, entry.Detail, entry.Success, entry.Error,
 		entry.CreatedAt.UTC().Format(time.RFC3339),
@@ -79,7 +84,8 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	}
 
 	var args []any
-	query := "SELECT id, account, action, path, detail, success, error, created_at FROM audit_log"
+	var qb strings.Builder
+	qb.WriteString("SELECT id, account, action, path, detail, success, error, created_at FROM audit_log")
 
 	var where []string
 	if opts.BeforeID > 0 {
@@ -97,10 +103,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	}
 
 	if len(where) > 0 {
-		query += " WHERE " + where[0]
-		for _, w := range where[1:] {
-			query += " AND " + w
-		}
+		qb.WriteString(fmt.Sprintf(" WHERE %s", strings.Join(where, " AND "))) //nolint:perfsprint // project convention: use fmt.Sprintf
 	}
 
 	sortCol := "id"
@@ -112,15 +115,16 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		sortDir = "ASC"
 	}
 
-	query += fmt.Sprintf(" ORDER BY %s %s LIMIT ?", sortCol, sortDir)
+	qb.WriteString(fmt.Sprintf(" ORDER BY %s %s LIMIT ?", sortCol, sortDir))
 	args = append(args, limit+1)
 
 	if opts.Offset > 0 {
-		query += " OFFSET ?"
+		qb.WriteString(" OFFSET ?")
 		args = append(args, opts.Offset)
 	}
 
-	rows, err := m.db.Query(query, args...)
+	query := qb.String()
+	rows, err := m.db.QueryContext(context.Background(), query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query audit log: %w", err)
 	}
@@ -133,7 +137,8 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		var e AuditEntry
 		var createdStr string
 
-		if err := rows.Scan(&e.ID, &e.Account, &e.Action, &e.Path, &e.Detail, &e.Success, &e.Error, &createdStr); err != nil {
+		err := rows.Scan(&e.ID, &e.Account, &e.Action, &e.Path, &e.Detail, &e.Success, &e.Error, &createdStr)
+		if err != nil {
 			return nil, fmt.Errorf("scan audit entry: %w", err)
 		}
 
@@ -145,7 +150,8 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		entries = append(entries, e)
 	}
 
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("rows iteration: %w", err)
 	}
 
@@ -167,11 +173,12 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		countArgs = append(countArgs, pattern, pattern, pattern, pattern)
 	}
 	if len(countWhere) > 0 {
-		countQuery += fmt.Sprintf(" WHERE %s", strings.Join(countWhere, " AND "))
+		countQuery += fmt.Sprintf(" WHERE %s", strings.Join(countWhere, " AND ")) //nolint:perfsprint // project convention: use fmt.Sprintf
 	}
 
 	var total int
-	if err := m.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+	err = m.db.QueryRowContext(context.Background(), countQuery, countArgs...).Scan(&total)
+	if err != nil {
 		return nil, fmt.Errorf("count audit entries: %w", err)
 	}
 
@@ -185,7 +192,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 
 func (m *SQLiteAuditManager) CountRecentErrors(since time.Time) (int, error) {
 	var count int
-	err := m.db.QueryRow(
+	err := m.db.QueryRowContext(context.Background(),
 		`SELECT COUNT(*) FROM audit_log WHERE success = 0 AND created_at >= ?`,
 		since.UTC().Format(time.RFC3339),
 	).Scan(&count)

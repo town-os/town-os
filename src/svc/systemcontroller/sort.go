@@ -62,7 +62,7 @@ func sortSlice[T any](slice []T, sortBy, sortOrder string) []T {
 func fieldIndex[T any](key string) (int, bool) {
 	var zero T
 	t := reflect.TypeOf(zero)
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		f := t.Field(i)
 		tag := f.Tag.Get("json")
 		name := tagName(tag)
@@ -119,9 +119,9 @@ func compareValues(a, b reflect.Value) int {
 		}
 		return 1
 	case reflect.Struct:
-		if a.Type() == reflect.TypeOf(time.Time{}) {
-			at := a.Interface().(time.Time)
-			bt := b.Interface().(time.Time)
+		if a.Type() == reflect.TypeFor[time.Time]() {
+			at, _ := a.Interface().(time.Time)
+			bt, _ := b.Interface().(time.Time)
 			if at.Before(bt) {
 				return -1
 			}

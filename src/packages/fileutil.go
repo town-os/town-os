@@ -22,18 +22,21 @@ func atomicWriteJSON(path string, v any) (err error) {
 	tmpPath := f.Name()
 
 	defer func() {
-		if _, statErr := os.Stat(tmpPath); statErr == nil {
+		_, statErr := os.Stat(tmpPath)
+		if statErr == nil {
 			err = errors.Join(err, os.Remove(tmpPath))
 		}
 	}()
 
 	en := json.NewEncoder(f)
 	en.SetIndent("", "  ")
-	if err := en.Encode(v); err != nil {
+	err = en.Encode(v)
+	if err != nil {
 		return errors.Join(err, f.Close())
 	}
 
-	if err := f.Close(); err != nil {
+	err = f.Close()
+	if err != nil {
 		return err
 	}
 
@@ -51,12 +54,13 @@ type fileLock struct {
 func lockDir(dir string) (_ *fileLock, err error) {
 	lockPath := filepath.Join(dir, ".lock")
 
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600) //nolint:gosec // path is constructed internally
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+	if err != nil {
 		return nil, errors.Join(fmt.Errorf("acquire lock: %w", err), f.Close())
 	}
 

@@ -14,7 +14,7 @@ import (
 type ProblemError struct {
 	Method           string
 	Path             string
-	Problem          ProblemDetail
+	Problem          ProblemDetailError
 	ValidationErrors []packages.ResponseValidationError
 }
 
@@ -41,7 +41,7 @@ func readProblemDetail(resp *http.Response, method, path string) error {
 		return &ProblemError{
 			Method: method,
 			Path:   path,
-			Problem: ProblemDetail{
+			Problem: ProblemDetailError{
 				Type:   fmt.Sprintf("about:blank#%d", resp.StatusCode),
 				Title:  http.StatusText(resp.StatusCode),
 				Status: resp.StatusCode,
@@ -52,14 +52,16 @@ func readProblemDetail(resp *http.Response, method, path string) error {
 
 	// Try parsing as InstallProblemDetail (has validation_errors extension).
 	var ipd struct {
-		ProblemDetail
+		ProblemDetailError
+
 		ValidationErrors []packages.ResponseValidationError `json:"validation_errors"`
 	}
-	if err := json.Unmarshal(body, &ipd); err == nil && ipd.Status != 0 && ipd.Detail != "" {
+	err = json.Unmarshal(body, &ipd)
+	if err == nil && ipd.Status != 0 && ipd.Detail != "" {
 		return &ProblemError{
 			Method:           method,
 			Path:             path,
-			Problem:          ipd.ProblemDetail,
+			Problem:          ipd.ProblemDetailError,
 			ValidationErrors: ipd.ValidationErrors,
 		}
 	}
@@ -68,11 +70,12 @@ func readProblemDetail(resp *http.Response, method, path string) error {
 	var legacy struct {
 		Message string `json:"message"`
 	}
-	if err := json.Unmarshal(body, &legacy); err == nil && legacy.Message != "" {
+	err = json.Unmarshal(body, &legacy)
+	if err == nil && legacy.Message != "" {
 		return &ProblemError{
 			Method: method,
 			Path:   path,
-			Problem: ProblemDetail{
+			Problem: ProblemDetailError{
 				Type:   fmt.Sprintf("about:blank#%d", resp.StatusCode),
 				Title:  http.StatusText(resp.StatusCode),
 				Status: resp.StatusCode,
@@ -90,7 +93,7 @@ func readProblemDetail(resp *http.Response, method, path string) error {
 	return &ProblemError{
 		Method: method,
 		Path:   path,
-		Problem: ProblemDetail{
+		Problem: ProblemDetailError{
 			Type:   fmt.Sprintf("about:blank#%d", resp.StatusCode),
 			Title:  http.StatusText(resp.StatusCode),
 			Status: resp.StatusCode,

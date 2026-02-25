@@ -2,6 +2,7 @@ package packages
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -57,7 +58,8 @@ func TestRepositoryRootFromBase(t *testing.T) {
 			{Name: "test", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -83,10 +85,11 @@ func TestRepositoryRootFromBase(t *testing.T) {
 
 	t.Run("invalid json", func(t *testing.T) {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), []byte("{bad json"), 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), []byte("{bad json"), 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
-		_, err := RepositoryRootFromBase(dir)
+		_, err = RepositoryRootFromBase(dir)
 		if err == nil {
 			t.Fatal("expected error for invalid json")
 		}
@@ -109,7 +112,8 @@ func newTestRoot(t *testing.T) *RepositoryRoot {
 		{Name: "existing", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/existing.git"}},
 	}
 	data := marshalJSON(t, repos)
-	if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+	err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+	if err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -125,7 +129,8 @@ func TestRepositoryRootAdd(t *testing.T) {
 		root := newTestRoot(t)
 		repo := Repository{Name: "new-repo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/new-repo.git"}}
 
-		if err := root.Add(repo); err != nil {
+		err := root.Add(repo)
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -147,7 +152,8 @@ func TestRepositoryRootAdd(t *testing.T) {
 		root := newTestRoot(t)
 		repo := Repository{Name: "existing", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/other.git"}}
 
-		if err := root.Add(repo); err == nil {
+		err := root.Add(repo)
+		if err == nil {
 			t.Fatal("expected error for duplicate name")
 		}
 	})
@@ -155,7 +161,8 @@ func TestRepositoryRootAdd(t *testing.T) {
 	t.Run("preserves insertion order", func(t *testing.T) {
 		dir := t.TempDir()
 		data := marshalJSON(t, []Repository{})
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		root, err := RepositoryRootFromBase(dir)
@@ -165,11 +172,12 @@ func TestRepositoryRootAdd(t *testing.T) {
 
 		names := []string{"charlie", "alpha", "bravo"}
 		for _, name := range names {
-			p, err := url.JoinPath("/", fmt.Sprintf("%s.git", name))
+			p, err := url.JoinPath("/", fmt.Sprintf("%s.git", name)) //nolint:perfsprint // project convention: use fmt.Sprintf
 			if err != nil {
 				t.Fatalf("url.JoinPath for %q: %v", name, err)
 			}
-			if err := root.Add(Repository{Name: name, URL: url.URL{Scheme: "https", Host: "example.com", Path: p}}); err != nil {
+			err = root.Add(Repository{Name: name, URL: url.URL{Scheme: "https", Host: "example.com", Path: p}})
+			if err != nil {
 				t.Fatalf("Add(%q): %v", name, err)
 			}
 		}
@@ -190,7 +198,8 @@ func TestRepositoryRootRemove(t *testing.T) {
 	t.Run("remove existing repository", func(t *testing.T) {
 		root := newTestRoot(t)
 
-		if err := root.Remove("existing"); err != nil {
+		err := root.Remove("existing")
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -211,7 +220,8 @@ func TestRepositoryRootRemove(t *testing.T) {
 	t.Run("remove nonexistent name", func(t *testing.T) {
 		root := newTestRoot(t)
 
-		if err := root.Remove("nope"); err == nil {
+		err := root.Remove("nope")
+		if err == nil {
 			t.Fatal("expected error for nonexistent name")
 		}
 	})
@@ -255,7 +265,8 @@ func TestRepositoryRootList(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		dir := t.TempDir()
 		data := marshalJSON(t, []Repository{})
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -292,7 +303,8 @@ func TestRepositoryRootList(t *testing.T) {
 	t.Run("reflects add and remove", func(t *testing.T) {
 		dir := t.TempDir()
 		data := marshalJSON(t, []Repository{})
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		root, err := RepositoryRootFromBase(dir)
@@ -300,10 +312,12 @@ func TestRepositoryRootList(t *testing.T) {
 			t.Fatalf("RepositoryRootFromBase: %v", err)
 		}
 
-		if err := root.Add(Repository{Name: "alpha", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/alpha.git"}}); err != nil {
+		err = root.Add(Repository{Name: "alpha", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/alpha.git"}})
+		if err != nil {
 			t.Fatalf("Add alpha: %v", err)
 		}
-		if err := root.Add(Repository{Name: "bravo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/bravo.git"}}); err != nil {
+		err = root.Add(Repository{Name: "bravo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/bravo.git"}})
+		if err != nil {
 			t.Fatalf("Add bravo: %v", err)
 		}
 
@@ -315,7 +329,8 @@ func TestRepositoryRootList(t *testing.T) {
 			t.Fatalf("expected 2 repos, got %d", len(repos))
 		}
 
-		if err := root.Remove("alpha"); err != nil {
+		err = root.Remove("alpha")
+		if err != nil {
 			t.Fatalf("Remove alpha: %v", err)
 		}
 
@@ -348,7 +363,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 		u := url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}
 
 		_, err := NewRepository(dir, "", u, "user", "")
-		if err != ErrPartialCredentials {
+		if !errors.Is(err, ErrPartialCredentials) {
 			t.Fatalf("expected ErrPartialCredentials, got %v", err)
 		}
 	})
@@ -358,7 +373,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 		u := url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}
 
 		_, err := NewRepository(dir, "", u, "", "pass")
-		if err != ErrPartialCredentials {
+		if !errors.Is(err, ErrPartialCredentials) {
 			t.Fatalf("expected ErrPartialCredentials, got %v", err)
 		}
 	})
@@ -369,7 +384,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 
 		// Will fail at clone, but should not fail at credential validation
 		_, err := NewRepository(dir, "", u, "", "")
-		if err == ErrPartialCredentials {
+		if errors.Is(err, ErrPartialCredentials) {
 			t.Fatal("empty username and password should not trigger partial credentials error")
 		}
 	})
@@ -380,7 +395,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 
 		// Will fail at clone, but should not fail at credential validation
 		_, err := NewRepository(dir, "", u, "user", "pass")
-		if err == ErrPartialCredentials {
+		if errors.Is(err, ErrPartialCredentials) {
 			t.Fatal("providing both username and password should not trigger partial credentials error")
 		}
 	})
@@ -489,7 +504,8 @@ func TestRepositoryJSONRoundTrip(t *testing.T) {
 		data := marshalJSON(t, original)
 
 		var got Repository
-		if err := json.Unmarshal(data, &got); err != nil {
+		err := json.Unmarshal(data, &got)
+		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
 
@@ -516,7 +532,8 @@ func TestRepositoryJSONRoundTrip(t *testing.T) {
 		data := marshalJSON(t, original)
 
 		var got Repository
-		if err := json.Unmarshal(data, &got); err != nil {
+		err := json.Unmarshal(data, &got)
+		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
 
@@ -545,7 +562,8 @@ func TestRepositoryJSONRoundTrip(t *testing.T) {
 		data := marshalJSON(t, original)
 
 		var got Repository
-		if err := json.Unmarshal(data, &got); err != nil {
+		err := json.Unmarshal(data, &got)
+		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
 
@@ -563,7 +581,8 @@ func TestRepositoryUnmarshalLegacyPairs(t *testing.T) {
 		data := []byte(`[["core","https://user:pass@github.com/town-os/test-packages-core"]]`)
 
 		var repos []Repository
-		if err := json.Unmarshal(data, &repos); err != nil {
+		err := json.Unmarshal(data, &repos)
+		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
 
@@ -596,7 +615,8 @@ func TestRepositoryUnmarshalLegacyPairs(t *testing.T) {
 		data := []byte(`[["public","https://github.com/town-os/public-repo"]]`)
 
 		var repos []Repository
-		if err := json.Unmarshal(data, &repos); err != nil {
+		err := json.Unmarshal(data, &repos)
+		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
 
@@ -618,7 +638,8 @@ func TestRepositoryUnmarshalObjectFormat(t *testing.T) {
 		data := []byte(`[{"name":"core","url":"https://user:pass@github.com/town-os/test-packages-core"}]`)
 
 		var repos []Repository
-		if err := json.Unmarshal(data, &repos); err != nil {
+		err := json.Unmarshal(data, &repos)
+		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
 
@@ -645,7 +666,8 @@ func TestRepositoryUnmarshalObjectFormat(t *testing.T) {
 		data := []byte(`[{"name":"public","url":"https://github.com/town-os/public-repo"}]`)
 
 		var repos []Repository
-		if err := json.Unmarshal(data, &repos); err != nil {
+		err := json.Unmarshal(data, &repos)
+		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
 
@@ -677,10 +699,13 @@ func TestRepositoryUnmarshalObjectFormat(t *testing.T) {
 func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content string) {
 	t.Helper()
 	dir := filepath.Join(baseDir, repoName, PackagesDir, pkgName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	err := os.MkdirAll(dir, 0750)
+	if err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.yaml", version)), []byte(content), 0644); err != nil {
+	path := filepath.Join(dir, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	err = os.WriteFile(path, []byte(content), 0644) //nolint:gosec // test code
+	if err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }
@@ -799,7 +824,8 @@ environment:
 
 		// write a non-yaml file that should be ignored
 		notesPath := filepath.Join(dir, "myrepo", PackagesDir, "nginx", "README.md")
-		if err := os.WriteFile(notesPath, []byte("hello"), 0644); err != nil {
+		err := os.WriteFile(notesPath, []byte("hello"), 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -818,7 +844,8 @@ environment:
 		r := &Repository{Name: "myrepo", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/myrepo.git"}}
 
 		// create the repo dir but not the packages subdir
-		if err := os.MkdirAll(filepath.Join(dir, "myrepo"), 0755); err != nil {
+		err := os.MkdirAll(filepath.Join(dir, "myrepo"), 0750)
+		if err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 
@@ -852,7 +879,8 @@ func TestRepositoryRootLoadAllPackages(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -915,7 +943,8 @@ func TestLatestPackage(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -946,7 +975,8 @@ func TestLatestPackage(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -977,7 +1007,8 @@ func TestLatestPackage(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1007,7 +1038,8 @@ func TestLatestPackage(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1019,7 +1051,7 @@ func TestLatestPackage(t *testing.T) {
 		}
 
 		_, _, err = root.LatestPackage("nonexistent")
-		if err != ErrPackageNotFound {
+		if !errors.Is(err, ErrPackageNotFound) {
 			t.Fatalf("expected ErrPackageNotFound, got %v", err)
 		}
 	})
@@ -1032,7 +1064,8 @@ func TestGetPackageQuestions(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1080,7 +1113,8 @@ questions:
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1123,7 +1157,8 @@ questions:
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1135,7 +1170,7 @@ questions:
 		}
 
 		_, err = root.GetPackageQuestions("nonexistent")
-		if err != ErrPackageNotFound {
+		if !errors.Is(err, ErrPackageNotFound) {
 			t.Fatalf("expected ErrPackageNotFound, got %v", err)
 		}
 	})
@@ -1146,7 +1181,8 @@ questions:
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1175,7 +1211,8 @@ func TestListPackages(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1213,7 +1250,8 @@ func TestListPackages(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1254,7 +1292,8 @@ func TestListPackages(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1287,7 +1326,8 @@ func TestListPackages(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1318,12 +1358,14 @@ func TestListPackages(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
 		// create the packages dir but leave it empty
-		if err := os.MkdirAll(filepath.Join(dir, "repo-a", PackagesDir), 0755); err != nil {
+		err = os.MkdirAll(filepath.Join(dir, "repo-a", PackagesDir), 0750)
+		if err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 
@@ -1348,7 +1390,8 @@ func TestListPackages(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1390,7 +1433,8 @@ func TestFindRepoForPackage(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1418,7 +1462,8 @@ func TestFindRepoForPackage(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1446,7 +1491,8 @@ func TestFindRepoForPackage(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1473,7 +1519,8 @@ func TestFindRepoForPackage(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1485,7 +1532,7 @@ func TestFindRepoForPackage(t *testing.T) {
 		}
 
 		_, err = root.FindRepoForPackage("nonexistent", "1.0")
-		if err != ErrPackageNotFound {
+		if !errors.Is(err, ErrPackageNotFound) {
 			t.Fatalf("expected ErrPackageNotFound, got %v", err)
 		}
 	})
@@ -1496,7 +1543,8 @@ func TestFindRepoForPackage(t *testing.T) {
 			{Name: "repo-a", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-a.git"}},
 		}
 		data := marshalJSON(t, repos)
-		if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -1508,7 +1556,7 @@ func TestFindRepoForPackage(t *testing.T) {
 		}
 
 		_, err = root.FindRepoForPackage("nginx", "99.0")
-		if err != ErrPackageNotFound {
+		if !errors.Is(err, ErrPackageNotFound) {
 			t.Fatalf("expected ErrPackageNotFound, got %v", err)
 		}
 	})

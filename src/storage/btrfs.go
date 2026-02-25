@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -74,7 +75,7 @@ func (c BtrFSController) binPath() string {
 }
 
 func (c BtrFSController) IsSubvolume(name string) error {
-	out, err := exec.Command(c.binPath(), "subvolume", "show", name).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "show", name).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume show: %w\n%s", err, string(out))
 	}
@@ -82,7 +83,7 @@ func (c BtrFSController) IsSubvolume(name string) error {
 }
 
 func (c BtrFSController) SubvolCreate(name string) error {
-	out, err := exec.Command(c.binPath(), "subvolume", "create", name).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "create", name).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume create: %w\n%s", err, string(out))
 	}
@@ -90,7 +91,7 @@ func (c BtrFSController) SubvolCreate(name string) error {
 }
 
 func (c BtrFSController) SubvolDelete(name string) error {
-	out, err := exec.Command(c.binPath(), "subvolume", "delete", name).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "delete", name).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume delete: %w\n%s", err, string(out))
 	}
@@ -112,7 +113,7 @@ func (c BtrFSController) SubvolSnapshot(dst, src string, readonly bool) error {
 	}
 	args = append(args, src, dst)
 
-	out, err := exec.Command(c.binPath(), args...).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), args...).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume snapshot: %w\n%s", err, string(out))
 	}
@@ -124,10 +125,10 @@ func parseSubvolShow(output string) (SubvolInfo, error) {
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "Name:") {
-			info.Name = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
-		} else if strings.HasPrefix(line, "Subvolume ID:") {
-			idStr := strings.TrimSpace(strings.TrimPrefix(line, "Subvolume ID:"))
+		if after, ok := strings.CutPrefix(line, "Name:"); ok {
+			info.Name = strings.TrimSpace(after)
+		} else if after, ok := strings.CutPrefix(line, "Subvolume ID:"); ok {
+			idStr := strings.TrimSpace(after)
 			id, err := strconv.ParseUint(idStr, 10, 64)
 			if err != nil {
 				return SubvolInfo{}, fmt.Errorf("parse subvolume ID %q: %w", idStr, err)
@@ -144,7 +145,7 @@ func parseSubvolShow(output string) (SubvolInfo, error) {
 }
 
 func (c BtrFSController) SubvolInfo(name string) (SubvolInfo, error) {
-	out, err := exec.Command(c.binPath(), "subvolume", "show", name).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "show", name).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return SubvolInfo{}, fmt.Errorf("btrfs subvolume show: %w\n%s", err, string(out))
 	}
@@ -193,19 +194,19 @@ func (c BtrFSController) SubvolList(name string) ([]SubvolInfo, error) {
 
 	p, err := filepath.Abs(name)
 	if err != nil {
-		return nil, fmt.Errorf("could not determine absolute path of prefix: %v", err)
+		return nil, fmt.Errorf("could not determine absolute path of prefix: %w", err)
 	}
 
 	s, err := filepath.Rel(mnt, p)
 	if err != nil {
-		return nil, fmt.Errorf("could not determine relative path: %v", err)
+		return nil, fmt.Errorf("could not determine relative path: %w", err)
 	}
 
 	if s == "." {
 		s = ""
 	}
 
-	out, err := exec.Command(c.binPath(), "subvolume", "list", name).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "list", name).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return nil, fmt.Errorf("btrfs subvolume list: %w\n%s", err, string(out))
 	}
@@ -218,7 +219,7 @@ func (BtrFSController) SubvolRename(oldPath, newPath string) error {
 }
 
 func (c BtrFSController) QuotaEnable(path string) error {
-	out, err := exec.Command(c.binPath(), "quota", "enable", path).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "quota", "enable", path).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return fmt.Errorf("btrfs quota enable: %w\n%s", err, string(out))
 	}
@@ -231,10 +232,10 @@ func (c BtrFSController) QGroupLimit(path string, bytes uint64) error {
 	if bytes == 0 {
 		limitArg = "none"
 	} else {
-		limitArg = fmt.Sprintf("%d", bytes)
+		limitArg = strconv.FormatUint(bytes, 10)
 	}
 
-	out, err := exec.Command(c.binPath(), "qgroup", "limit", limitArg, path).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "qgroup", "limit", limitArg, path).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		return fmt.Errorf("btrfs qgroup limit: %w\n%s", err, string(out))
 	}
@@ -247,7 +248,7 @@ func parseQGroupShow(output string, subvolID uint64) (uint64, error) {
 	scanner := bufio.NewScanner(strings.NewReader(output))
 
 	// Skip 2 header lines
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if !scanner.Scan() {
 			return 0, nil
 		}
@@ -283,13 +284,13 @@ func parseQGroupShow(output string, subvolID uint64) (uint64, error) {
 func (c BtrFSController) QGroupShow(path string) (uint64, error) {
 	id, err := c.SubvolID(path)
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
 
-	out, err := exec.Command(c.binPath(), "qgroup", "show", "--raw", "-r", path).CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), c.binPath(), "qgroup", "show", "--raw", "-r", path).CombinedOutput() //nolint:gosec // controlled internal invocation
 	if err != nil {
 		// Quotas not enabled or other failure — not an error, just no quota
-		return 0, nil
+		return 0, nil //nolint:nilerr // intentional: quota absence is not an error
 	}
 
 	return parseQGroupShow(string(out), id)
@@ -319,7 +320,8 @@ func InitBtrFSFromController(basePath string, c Controller) *BtrFS {
 }
 
 func (b *BtrFS) CreateFilesystem(f Filesystem) error {
-	if err := ValidateFilesystemName(f.Name); err != nil {
+	err := ValidateFilesystemName(f.Name)
+	if err != nil {
 		return err
 	}
 
@@ -328,8 +330,10 @@ func (b *BtrFS) CreateFilesystem(f Filesystem) error {
 	if len(parts) > 1 {
 		for i := 1; i < len(parts); i++ {
 			intermediate := filepath.Join(b.BasePath, strings.Join(parts[:i], "/"))
-			if err := b.Controller.IsSubvolume(intermediate); err != nil {
-				if err := b.Controller.SubvolCreate(intermediate); err != nil {
+			err := b.Controller.IsSubvolume(intermediate)
+			if err != nil {
+				err := b.Controller.SubvolCreate(intermediate)
+				if err != nil {
 					return fmt.Errorf("create intermediate subvolume %q: %w", intermediate, err)
 				}
 			}
@@ -337,15 +341,18 @@ func (b *BtrFS) CreateFilesystem(f Filesystem) error {
 	}
 
 	path := filepath.Join(b.BasePath, f.Name)
-	if err := b.Controller.SubvolCreate(path); err != nil {
+	err = b.Controller.SubvolCreate(path)
+	if err != nil {
 		return err
 	}
 
 	if f.Quota > 0 {
-		if err := b.Controller.QuotaEnable(path); err != nil {
+		err = b.Controller.QuotaEnable(path)
+		if err != nil {
 			return fmt.Errorf("enable quota: %w", err)
 		}
-		if err := b.Controller.QGroupLimit(path, f.Quota); err != nil {
+		err = b.Controller.QGroupLimit(path, f.Quota)
+		if err != nil {
 			return err
 		}
 	}
@@ -354,7 +361,8 @@ func (b *BtrFS) CreateFilesystem(f Filesystem) error {
 }
 
 func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
-	if err := ValidateFilesystemName(f.Name); err != nil {
+	err := ValidateFilesystemName(f.Name)
+	if err != nil {
 		return err
 	}
 
@@ -362,17 +370,20 @@ func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
 
 	if name != f.Name {
 		newPath := filepath.Join(b.BasePath, f.Name)
-		if err := b.Controller.SubvolRename(oldPath, newPath); err != nil {
+		err := b.Controller.SubvolRename(oldPath, newPath)
+		if err != nil {
 			return fmt.Errorf("rename subvolume: %w", err)
 		}
 		oldPath = newPath
 	}
 
 	if f.Quota > 0 {
-		if err := b.Controller.QuotaEnable(oldPath); err != nil {
+		err := b.Controller.QuotaEnable(oldPath)
+		if err != nil {
 			return fmt.Errorf("enable quota: %w", err)
 		}
-		if err := b.Controller.QGroupLimit(oldPath, f.Quota); err != nil {
+		err = b.Controller.QGroupLimit(oldPath, f.Quota)
+		if err != nil {
 			return fmt.Errorf("set quota: %w", err)
 		}
 	} else {
@@ -381,7 +392,8 @@ func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
 			return fmt.Errorf("check quota: %w", err)
 		}
 		if current > 0 {
-			if err := b.Controller.QGroupLimit(oldPath, 0); err != nil {
+			err := b.Controller.QGroupLimit(oldPath, 0)
+			if err != nil {
 				return fmt.Errorf("clear quota: %w", err)
 			}
 		}
@@ -395,10 +407,12 @@ func (b *BtrFS) RemoveFilesystem(name string) error {
 }
 
 func (b *BtrFS) RenameFilesystem(oldName, newName string) error {
-	if err := ValidateFilesystemName(oldName); err != nil {
+	err := ValidateFilesystemName(oldName)
+	if err != nil {
 		return err
 	}
-	if err := ValidateFilesystemName(newName); err != nil {
+	err = ValidateFilesystemName(newName)
+	if err != nil {
 		return err
 	}
 
@@ -406,10 +420,12 @@ func (b *BtrFS) RenameFilesystem(oldName, newName string) error {
 }
 
 func (b *BtrFS) SnapshotFilesystem(src, dst string) error {
-	if err := ValidateFilesystemName(src); err != nil {
+	err := ValidateFilesystemName(src)
+	if err != nil {
 		return err
 	}
-	if err := ValidateFilesystemName(dst); err != nil {
+	err = ValidateFilesystemName(dst)
+	if err != nil {
 		return err
 	}
 
@@ -448,10 +464,15 @@ func (b *BtrFS) DiskUsage() (_ DiskUsage, err error) {
 		return *b.DiskUsageOverride, nil
 	}
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs(b.BasePath, &stat); err != nil {
+	err = syscall.Statfs(b.BasePath, &stat)
+	if err != nil {
 		return DiskUsage{}, fmt.Errorf("statfs %s: %w", b.BasePath, err)
 	}
-	total := stat.Blocks * uint64(stat.Bsize)
-	available := stat.Bavail * uint64(stat.Bsize)
+	if stat.Bsize < 0 {
+		return DiskUsage{}, fmt.Errorf("statfs %s: negative block size %d", b.BasePath, stat.Bsize)
+	}
+	bsize := uint64(stat.Bsize)
+	total := stat.Blocks * bsize
+	available := stat.Bavail * bsize
 	return DiskUsage{Total: total, Used: total - available, Available: available}, nil
 }

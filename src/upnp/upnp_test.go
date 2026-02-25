@@ -8,10 +8,12 @@ import (
 func TestMockManagerRecordsCalls(t *testing.T) {
 	m := &MockManager{}
 
-	if err := m.AddPortMapping("TCP", 8080, 80, "test", 600); err != nil {
+	err := m.AddPortMapping("TCP", 8080, 80, "test", 600)
+	if err != nil {
 		t.Fatalf("AddPortMapping: %v", err)
 	}
-	if err := m.RemovePortMapping("TCP", 8080); err != nil {
+	err = m.RemovePortMapping("TCP", 8080)
+	if err != nil {
 		t.Fatalf("RemovePortMapping: %v", err)
 	}
 
@@ -23,30 +25,58 @@ func TestMockManagerRecordsCalls(t *testing.T) {
 	if calls[0].Method != "AddPortMapping" {
 		t.Fatalf("expected AddPortMapping, got %s", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "TCP" {
-		t.Fatalf("expected protocol TCP, got %v", calls[0].Args[0])
+	protocol, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatalf("expected string for protocol, got %T", calls[0].Args[0])
 	}
-	if calls[0].Args[1].(uint16) != 8080 {
-		t.Fatalf("expected external port 8080, got %v", calls[0].Args[1])
+	if protocol != "TCP" {
+		t.Fatalf("expected protocol TCP, got %v", protocol)
 	}
-	if calls[0].Args[2].(uint16) != 80 {
-		t.Fatalf("expected internal port 80, got %v", calls[0].Args[2])
+	extPort, ok := calls[0].Args[1].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16 for external port, got %T", calls[0].Args[1])
 	}
-	if calls[0].Args[3].(string) != "test" {
-		t.Fatalf("expected description test, got %v", calls[0].Args[3])
+	if extPort != 8080 {
+		t.Fatalf("expected external port 8080, got %v", extPort)
 	}
-	if calls[0].Args[4].(uint32) != 600 {
-		t.Fatalf("expected ttl 600, got %v", calls[0].Args[4])
+	intPort, ok := calls[0].Args[2].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16 for internal port, got %T", calls[0].Args[2])
+	}
+	if intPort != 80 {
+		t.Fatalf("expected internal port 80, got %v", intPort)
+	}
+	desc, ok := calls[0].Args[3].(string)
+	if !ok {
+		t.Fatalf("expected string for description, got %T", calls[0].Args[3])
+	}
+	if desc != "test" {
+		t.Fatalf("expected description test, got %v", desc)
+	}
+	ttl, ok := calls[0].Args[4].(uint32)
+	if !ok {
+		t.Fatalf("expected uint32 for ttl, got %T", calls[0].Args[4])
+	}
+	if ttl != 600 {
+		t.Fatalf("expected ttl 600, got %v", ttl)
 	}
 
 	if calls[1].Method != "RemovePortMapping" {
 		t.Fatalf("expected RemovePortMapping, got %s", calls[1].Method)
 	}
-	if calls[1].Args[0].(string) != "TCP" {
-		t.Fatalf("expected protocol TCP, got %v", calls[1].Args[0])
+	protocol, ok = calls[1].Args[0].(string)
+	if !ok {
+		t.Fatalf("expected string for protocol, got %T", calls[1].Args[0])
 	}
-	if calls[1].Args[1].(uint16) != 8080 {
-		t.Fatalf("expected external port 8080, got %v", calls[1].Args[1])
+	if protocol != "TCP" {
+		t.Fatalf("expected protocol TCP, got %v", protocol)
+	}
+	extPort, ok = calls[1].Args[1].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16 for external port, got %T", calls[1].Args[1])
+	}
+	if extPort != 8080 {
+		t.Fatalf("expected external port 8080, got %v", extPort)
 	}
 }
 

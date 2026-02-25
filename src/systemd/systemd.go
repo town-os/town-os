@@ -24,53 +24,53 @@ var (
 )
 
 type UnitStatus struct {
-	Name          string
-	Description   string
-	LoadState     string
-	ActiveState   string
-	SubState      string
-	UnitFileState string
+	Name          string `json:"Name"`
+	Description   string `json:"Description"`
+	LoadState     string `json:"LoadState"`
+	ActiveState   string `json:"ActiveState"`
+	SubState      string `json:"SubState"`
+	UnitFileState string `json:"UnitFileState"`
 }
 
 type JournalEntry struct {
-	Cursor             string
-	RealtimeTimestamp   time.Time
-	MonotonicTimestamp  uint64
+	Cursor             string    `json:"Cursor"`
+	RealtimeTimestamp  time.Time `json:"RealtimeTimestamp"`
+	MonotonicTimestamp uint64    `json:"MonotonicTimestamp"`
 
 	// User fields
-	Message          string
-	MessageID        string
-	Priority         string
-	CodeFile         string
-	CodeLine         string
-	CodeFunc         string
-	Errno            string
-	SyslogFacility   string
-	SyslogIdentifier string
-	SyslogPID        string
+	Message          string `json:"Message"`
+	MessageID        string `json:"MessageID"`
+	Priority         string `json:"Priority"`
+	CodeFile         string `json:"CodeFile"`
+	CodeLine         string `json:"CodeLine"`
+	CodeFunc         string `json:"CodeFunc"`
+	Errno            string `json:"Errno"`
+	SyslogFacility   string `json:"SyslogFacility"`
+	SyslogIdentifier string `json:"SyslogIdentifier"`
+	SyslogPID        string `json:"SyslogPID"`
 
 	// Trusted fields
-	PID                    string
-	UID                    string
-	GID                    string
-	Comm                   string
-	Exe                    string
-	Cmdline                string
-	CapEffective           string
-	AuditSession           string
-	AuditLoginUID          string
-	SystemdCGroup          string
-	SystemdSession         string
-	SystemdUnit            string
-	SystemdUserUnit        string
-	SystemdOwnerUID        string
-	SystemdSlice           string
-	SELinuxContext          string
-	SourceRealtimeTimestamp string
-	BootID                 string
-	MachineID              string
-	Hostname               string
-	Transport              string
+	PID                    string `json:"PID"`
+	UID                    string `json:"UID"`
+	GID                    string `json:"GID"`
+	Comm                   string `json:"Comm"`
+	Exe                    string `json:"Exe"`
+	Cmdline                string `json:"Cmdline"`
+	CapEffective           string `json:"CapEffective"`
+	AuditSession           string `json:"AuditSession"`
+	AuditLoginUID          string `json:"AuditLoginUID"`
+	SystemdCGroup          string `json:"SystemdCGroup"`
+	SystemdSession         string `json:"SystemdSession"`
+	SystemdUnit            string `json:"SystemdUnit"`
+	SystemdUserUnit        string `json:"SystemdUserUnit"`
+	SystemdOwnerUID        string `json:"SystemdOwnerUID"`
+	SystemdSlice           string `json:"SystemdSlice"`
+	SELinuxContext          string `json:"SELinuxContext"`
+	SourceRealtimeTimestamp string `json:"SourceRealtimeTimestamp"`
+	BootID                 string `json:"BootID"`
+	MachineID              string `json:"MachineID"`
+	Hostname               string `json:"Hostname"`
+	Transport              string `json:"Transport"`
 }
 
 type LogTailParams struct {

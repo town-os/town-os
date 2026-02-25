@@ -76,10 +76,12 @@ func validateContactInfo(email, phone, realName string) error {
 	if strings.TrimSpace(email) == "" || strings.TrimSpace(phone) == "" || strings.TrimSpace(realName) == "" {
 		return ErrMissingContactInfo
 	}
-	if err := validateEmail(email); err != nil {
+	err := validateEmail(email)
+	if err != nil {
 		return err
 	}
-	if err := validatePhone(phone); err != nil {
+	err = validatePhone(phone)
+	if err != nil {
 		return err
 	}
 	return nil
@@ -87,17 +89,20 @@ func validateContactInfo(email, phone, realName string) error {
 
 func validateUpdateFields(fields UpdateFields) error {
 	if fields.Password != nil {
-		if err := validatePassword(*fields.Password); err != nil {
+		err := validatePassword(*fields.Password)
+		if err != nil {
 			return err
 		}
 	}
 	if fields.Email != nil {
-		if err := validateEmail(*fields.Email); err != nil {
+		err := validateEmail(*fields.Email)
+		if err != nil {
 			return err
 		}
 	}
 	if fields.Phone != nil {
-		if err := validatePhone(*fields.Phone); err != nil {
+		err := validatePhone(*fields.Phone)
+		if err != nil {
 			return err
 		}
 	}

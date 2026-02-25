@@ -46,7 +46,8 @@ func TestNormalizeImageURL(t *testing.T) {
 
 func TestValidateImageURL(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		if err := ValidateImageURL("nginx:latest"); err != nil {
+		err := ValidateImageURL("nginx:latest")
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -65,7 +66,8 @@ func TestValidateEnvironmentKey(t *testing.T) {
 	valid := []string{"PATH", "HOME", "NGINX_HOST", "a", "_private", "_A1", "lower_case"}
 	for _, key := range valid {
 		t.Run("valid/"+key, func(t *testing.T) {
-			if err := ValidateEnvironmentKey(key); err != nil {
+			err := ValidateEnvironmentKey(key)
+			if err != nil {
 				t.Fatalf("expected %q to be valid: %v", key, err)
 			}
 		})
@@ -102,7 +104,8 @@ func TestValidateQuestionName(t *testing.T) {
 	valid := []string{"hostname", "port", "password", "myVar123", "abc", "A", "x1"}
 	for _, name := range valid {
 		t.Run("valid/"+name, func(t *testing.T) {
-			if err := ValidateQuestionName(name); err != nil {
+			err := ValidateQuestionName(name)
+			if err != nil {
 				t.Fatalf("expected %q to be valid: %v", name, err)
 			}
 		})
@@ -138,7 +141,8 @@ func TestValidateMountpoint(t *testing.T) {
 	valid := []string{"/", "/data", "/usr/share/nginx/html", "/mnt/mydata"}
 	for _, mp := range valid {
 		t.Run("valid/"+mp, func(t *testing.T) {
-			if err := ValidateMountpoint(mp); err != nil {
+			err := ValidateMountpoint(mp)
+			if err != nil {
 				t.Fatalf("expected %q to be valid: %v", mp, err)
 			}
 		})
@@ -166,7 +170,8 @@ func TestValidateVolumeName(t *testing.T) {
 	valid := []string{"data", "my-volume", "my_volume", "Volume1", "a123", "config.d"}
 	for _, name := range valid {
 		t.Run("valid/"+name, func(t *testing.T) {
-			if err := ValidateVolumeName(name); err != nil {
+			err := ValidateVolumeName(name)
+			if err != nil {
 				t.Fatalf("expected %q to be valid: %v", name, err)
 			}
 		})
@@ -403,7 +408,8 @@ volumes: {}
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		if pkg.Environment["SOME_PORT"] != "8080" {
@@ -427,7 +433,8 @@ volumes: {}
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		if pkg.Network.External["80"] != "8080" {
@@ -451,7 +458,8 @@ volumes: {}
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		if pkg.Environment["DEBUG"] != "true" {
@@ -474,7 +482,8 @@ volumes: {}
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		if pkg.Environment["RATIO"] != "3.14" {
@@ -496,7 +505,8 @@ volumes: {}
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		compiled, err := pkg.Compile(Responses{})
@@ -521,7 +531,8 @@ func TestValidateInputPackage(t *testing.T) {
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
 			Questions:   map[string]Question{"hostname": {Query: "hostname?", Type: Hostname}},
 		}
-		if err := pkg.Validate(); err != nil {
+		err := pkg.Validate()
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -534,7 +545,8 @@ func TestValidateInputPackage(t *testing.T) {
 			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 		}
-		if err := pkg.Validate(); err != nil {
+		err := pkg.Validate()
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -547,7 +559,8 @@ func TestValidateInputPackage(t *testing.T) {
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "@prefix@/data"}},
 			Questions:   map[string]Question{"prefix": {Query: "prefix?"}},
 		}
-		if err := pkg.Validate(); err != nil {
+		err := pkg.Validate()
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -646,7 +659,8 @@ func TestCompileDoesNotTemplateImage(t *testing.T) {
 }
 
 func TestValidateImageURLAcceptsTemplateChars(t *testing.T) {
-	if err := ValidateImageURL("debian:@tag@"); err != nil {
+	err := ValidateImageURL("debian:@tag@")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -666,7 +680,8 @@ volumes:
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		if pkg.Volumes["data"].Quota != "1gb" {
@@ -691,7 +706,8 @@ volumes:
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		if pkg.Volumes["data"].Quota != "1073741824" {
@@ -712,7 +728,8 @@ volumes:
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		if pkg.Volumes["data"].Quota != "" {
@@ -734,7 +751,8 @@ volumes:
 questions: {}
 `
 		var pkg InputPackage
-		if err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg); err != nil {
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
 			t.Fatalf("unexpected YAML decode error: %v", err)
 		}
 		compiled, err := pkg.Compile(Responses{})

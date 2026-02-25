@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -11,7 +12,7 @@ type SQLiteSettingsManager struct {
 }
 
 func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (
+	_, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS settings (
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL DEFAULT ''
 	)`)
@@ -21,7 +22,7 @@ func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
 
 	// Seed default values; INSERT OR IGNORE preserves existing rows.
 	for k, v := range DefaultSettings {
-		_, err := db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v)
+		_, err := db.ExecContext(context.Background(), `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v)
 		if err != nil {
 			return nil, fmt.Errorf("seed default setting %q: %w", k, err)
 		}
@@ -32,7 +33,7 @@ func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
 
 func (m *SQLiteSettingsManager) Get(key string) (string, error) {
 	var value string
-	err := m.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	err := m.db.QueryRowContext(context.Background(), `SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("setting %q not found", key)
 	}
@@ -43,7 +44,7 @@ func (m *SQLiteSettingsManager) Get(key string) (string, error) {
 }
 
 func (m *SQLiteSettingsManager) Set(key, value string) error {
-	_, err := m.db.Exec(
+	_, err := m.db.ExecContext(context.Background(),
 		`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		key, value,
 	)
@@ -54,7 +55,7 @@ func (m *SQLiteSettingsManager) Set(key, value string) error {
 }
 
 func (m *SQLiteSettingsManager) List() (_ map[string]string, err error) {
-	rows, err := m.db.Query(`SELECT key, value FROM settings ORDER BY key`)
+	rows, err := m.db.QueryContext(context.Background(), `SELECT key, value FROM settings ORDER BY key`)
 	if err != nil {
 		return nil, fmt.Errorf("list settings: %w", err)
 	}
@@ -65,7 +66,8 @@ func (m *SQLiteSettingsManager) List() (_ map[string]string, err error) {
 	out := make(map[string]string)
 	for rows.Next() {
 		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
+		err := rows.Scan(&key, &value)
+		if err != nil {
 			return nil, fmt.Errorf("scan setting: %w", err)
 		}
 		out[key] = value

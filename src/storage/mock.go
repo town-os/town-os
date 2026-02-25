@@ -99,7 +99,7 @@ func (m *MockBtrFSController) SubvolDelete(name string) error {
 	defer m.Lock.Unlock()
 
 	// Real btrfs refuses to delete a subvolume that contains child subvolumes.
-	childPrefix := fmt.Sprintf("%s/", name)
+	childPrefix := fmt.Sprintf("%s/", name) //nolint:perfsprint // project convention: use fmt.Sprintf
 	for _, fs := range m.Filesystems {
 		if strings.HasPrefix(fs.Name, childPrefix) {
 			err := fmt.Errorf("btrfs subvolume delete: directory not empty: %s", name)
@@ -205,10 +205,10 @@ func (m *MockBtrFSController) SubvolRename(oldPath, newPath string) error {
 	}
 
 	// Also rename children (os.Rename on a real directory moves all contents).
-	childPrefix := fmt.Sprintf("%s/", oldPath)
+	childPrefix := fmt.Sprintf("%s/", oldPath) //nolint:perfsprint // project convention: use fmt.Sprintf
 	for i, fs := range m.Filesystems {
-		if strings.HasPrefix(fs.Name, childPrefix) {
-			newChildName := fmt.Sprintf("%s/%s", newPath, strings.TrimPrefix(fs.Name, childPrefix))
+		if after, ok := strings.CutPrefix(fs.Name, childPrefix); ok {
+			newChildName := fmt.Sprintf("%s/%s", newPath, after)
 			m.Filesystems[i].Name = newChildName
 			if q, ok := m.Quotas[fs.Name]; ok {
 				delete(m.Quotas, fs.Name)

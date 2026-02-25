@@ -26,7 +26,7 @@ type SessionManager interface {
 	Validate(token string) (*Session, *Account, error)
 	Revoke(sessionID string) error
 	RevokeAllForUser(username string) error
-	Cleanup() error
+	Cleanup(ctx context.Context) error
 	List(username string) ([]Session, error)
 	GetUsername(sessionID string) (string, error)
 	HasActiveAdminSessions(adminUsernames []string) (bool, error)

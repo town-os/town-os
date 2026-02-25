@@ -11,16 +11,16 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// ProblemDetail represents an RFC 9457 Problem Details object.
-type ProblemDetail struct {
+// ProblemDetailError represents an RFC 9457 Problem Details object.
+type ProblemDetailError struct {
 	Type   string `json:"type"`
 	Title  string `json:"title"`
 	Status int    `json:"status"`
 	Detail string `json:"detail"`
 }
 
-func NewProblemDetail(status int, detail string) *ProblemDetail {
-	return &ProblemDetail{
+func NewProblemDetail(status int, detail string) *ProblemDetailError {
+	return &ProblemDetailError{
 		Type:   fmt.Sprintf("about:blank#%d", status),
 		Title:  http.StatusText(status),
 		Status: status,
@@ -28,28 +28,29 @@ func NewProblemDetail(status int, detail string) *ProblemDetail {
 	}
 }
 
-func (p *ProblemDetail) Error() string {
+func (p *ProblemDetailError) Error() string {
 	return p.Detail
 }
 
-func (p *ProblemDetail) StatusCode() int {
+func (p *ProblemDetailError) StatusCode() int {
 	return p.Status
 }
 
-// InstallProblemDetail extends ProblemDetail with per-response validation errors.
-type InstallProblemDetail struct {
-	ProblemDetail
+// InstallProblemDetailError extends ProblemDetailError with per-response validation errors.
+type InstallProblemDetailError struct {
+	ProblemDetailError
+
 	ValidationErrors []packages.ResponseValidationError `json:"validation_errors"`
 }
 
-func (p *InstallProblemDetail) MarshalJSON() ([]byte, error) {
-	type alias InstallProblemDetail
+func (p *InstallProblemDetailError) MarshalJSON() ([]byte, error) {
+	type alias InstallProblemDetailError
 	return json.Marshal((*alias)(p))
 }
 
-// errorToProblemDetail converts any error to a ProblemDetail.
-func errorToProblemDetail(err error) *ProblemDetail {
-	var pd *ProblemDetail
+// errorToProblemDetail converts any error to a ProblemDetailError.
+func errorToProblemDetail(err error) *ProblemDetailError {
+	var pd *ProblemDetailError
 	if errors.As(err, &pd) {
 		return pd
 	}
@@ -74,7 +75,7 @@ func errorToProblemDetail(err error) *ProblemDetail {
 var sensitivePattern = regexp.MustCompile(`(?i)(password|credential|secret|token)["']?\s*[:=]\s*["']?[^\s,"'}\]]+`)
 
 // sanitizeProblemDetail scrubs sensitive values from the detail string.
-func sanitizeProblemDetail(pd *ProblemDetail) *ProblemDetail {
+func sanitizeProblemDetail(pd *ProblemDetailError) *ProblemDetailError {
 	pd.Detail = sensitivePattern.ReplaceAllStringFunc(pd.Detail, func(match string) string {
 		idx := -1
 		for i, ch := range match {
@@ -86,7 +87,7 @@ func sanitizeProblemDetail(pd *ProblemDetail) *ProblemDetail {
 		if idx < 0 {
 			return match
 		}
-		return fmt.Sprintf("%s[REDACTED]", match[:idx+1])
+		return fmt.Sprintf("%s[REDACTED]", match[:idx+1]) //nolint:perfsprint // project convention: use fmt.Sprintf
 	})
 	return pd
 }
@@ -102,8 +103,8 @@ func ProblemDetailHTTPErrorHandler() echo.HTTPErrorHandler {
 		// Check for validation errors and produce an extended response.
 		var ve *packages.ValidationError
 		if errors.As(err, &ve) {
-			ipd := &InstallProblemDetail{
-				ProblemDetail: ProblemDetail{
+			ipd := &InstallProblemDetailError{
+				ProblemDetailError: ProblemDetailError{
 					Type:   "about:blank#422",
 					Title:  "Unprocessable Entity",
 					Status: http.StatusUnprocessableEntity,

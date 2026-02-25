@@ -53,7 +53,8 @@ func (m *MockManager) Create(username, password, email, phone, realName string, 
 		return nil, m.CreateErr
 	}
 
-	if err := validateContactInfo(email, phone, realName); err != nil {
+	err := validateContactInfo(email, phone, realName)
+	if err != nil {
 		return nil, err
 	}
 
@@ -105,7 +106,8 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 		return nil, m.UpdateErr
 	}
 
-	if err := validateUpdateFields(fields); err != nil {
+	err := validateUpdateFields(fields)
+	if err != nil {
 		return nil, err
 	}
 
@@ -332,7 +334,7 @@ func (m *MockSessionManager) RevokeAllForUser(username string) error {
 	return nil
 }
 
-func (m *MockSessionManager) Cleanup() error {
+func (m *MockSessionManager) Cleanup(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Cleanup", Args: nil})
@@ -419,7 +421,8 @@ func (m *MockSessionManager) StartCleanup(ctx context.Context, interval time.Dur
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := m.Cleanup(); err != nil {
+				err := m.Cleanup(ctx)
+				if err != nil {
 					slog.Error("session cleanup error", "error", err)
 				}
 			}

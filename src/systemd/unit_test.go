@@ -55,7 +55,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(svc, "firewall-cmd --remove-port=8080/tcp") {
 		t.Fatal("service missing firewall remove-port")
 	}
-	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", NetworkControllerUnitName("test-repo", "nginx", "1.0"))) {
+	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", NetworkControllerUnitName("test-repo", "nginx", "1.0"))) { //nolint:perfsprint // project convention: use fmt.Sprintf
 		t.Fatal("service missing Wants for network controller")
 	}
 

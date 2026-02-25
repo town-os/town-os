@@ -202,8 +202,9 @@ func applyTemplate(input string, v string, repl string) string {
 	tv := ""
 	out := ""
 
-	for x := 0; x < len(input); x++ {
-		if input[x] == TemplateChar {
+	for x := range len(input) {
+		switch {
+		case input[x] == TemplateChar:
 			if inside {
 				inside = false
 
@@ -217,10 +218,10 @@ func applyTemplate(input string, v string, repl string) string {
 			} else {
 				inside = true
 			}
-		} else if inside {
-			tv = string(append([]byte(tv), byte(input[x])))
-		} else {
-			out = string(append([]byte(out), byte(input[x])))
+		case inside:
+			tv = string(append([]byte(tv), input[x]))
+		default:
+			out = string(append([]byte(out), input[x]))
 		}
 	}
 
@@ -299,30 +300,35 @@ func strToPort(input string) (uint16, error) {
 // template substitution so that the raw spec (including template markers) is
 // validated.
 func (i *InputPackage) Validate() error {
-	if err := ValidateImageURL(i.Image); err != nil {
+	err := ValidateImageURL(i.Image)
+	if err != nil {
 		return err
 	}
 
 	for key := range i.Environment {
-		if err := ValidateEnvironmentKey(key); err != nil {
+		err := ValidateEnvironmentKey(key)
+		if err != nil {
 			return err
 		}
 	}
 
 	for name := range i.Questions {
-		if err := ValidateQuestionName(name); err != nil {
+		err := ValidateQuestionName(name)
+		if err != nil {
 			return err
 		}
 	}
 
 	for name, vol := range i.Volumes {
-		if err := ValidateVolumeName(name); err != nil {
+		err := ValidateVolumeName(name)
+		if err != nil {
 			return err
 		}
 		// Mountpoints may contain template variables (e.g. "/mnt/@path@"),
 		// so only validate literal mountpoints here.
 		if !strings.ContainsRune(vol.Mountpoint, TemplateChar) {
-			if err := ValidateMountpoint(vol.Mountpoint); err != nil {
+			err := ValidateMountpoint(vol.Mountpoint)
+			if err != nil {
 				return err
 			}
 		}
@@ -352,7 +358,8 @@ func (i *InputPackage) CompileWithContext(response Responses, ctx CompileContext
 }
 
 func (i *InputPackage) Compile(response Responses) (*Package, error) {
-	if err := i.Validate(); err != nil {
+	err := i.Validate()
+	if err != nil {
 		return nil, err
 	}
 
@@ -395,7 +402,6 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	}
 
 	// All responses are present and non-empty; apply templates.
-	var err error
 	for prompt, resp := range response {
 		q := i.Questions[prompt]
 		if q.Type != "" {
@@ -431,7 +437,8 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	// Validate mountpoints and parse quotas after template substitution.
 	volumes := map[string]PackageVolume{}
 	for name, vol := range i.Volumes {
-		if err := ValidateMountpoint(vol.Mountpoint); err != nil {
+		err := ValidateMountpoint(vol.Mountpoint)
+		if err != nil {
 			return nil, fmt.Errorf("volume %q: %w", name, err)
 		}
 

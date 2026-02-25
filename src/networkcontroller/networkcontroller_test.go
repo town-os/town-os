@@ -3,7 +3,7 @@ package networkcontroller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -111,7 +111,8 @@ func TestStateFileParsing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	err = os.WriteFile(path, data, 0600)
+	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -282,7 +283,10 @@ func TestUPnPDescriptionFormat(t *testing.T) {
 		t.Fatalf("expected 1 UPnP call, got %d", len(upnpCalls))
 	}
 
-	desc := upnpCalls[0].Args[3].(string)
+	desc, ok := upnpCalls[0].Args[3].(string)
+	if !ok {
+		t.Fatalf("expected string for description, got %T", upnpCalls[0].Args[3])
+	}
 	expected := "Town OS: Forward for nginx@1.0 on 8080"
 	if desc != expected {
 		t.Fatalf("expected description %q, got %q", expected, desc)
@@ -308,8 +312,14 @@ func TestUPnPPortLogicForwardTrue(t *testing.T) {
 	}
 
 	// forward=true → AddPortMapping(ext, ext)
-	extPort := upnpCalls[0].Args[1].(uint16)
-	intPort := upnpCalls[0].Args[2].(uint16)
+	extPort, ok := upnpCalls[0].Args[1].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16 for external port, got %T", upnpCalls[0].Args[1])
+	}
+	intPort, ok := upnpCalls[0].Args[2].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16 for internal port, got %T", upnpCalls[0].Args[2])
+	}
 	if extPort != 8080 || intPort != 8080 {
 		t.Fatalf("expected AddPortMapping(8080, 8080), got (%d, %d)", extPort, intPort)
 	}
@@ -334,8 +344,14 @@ func TestUPnPPortLogicForwardFalse(t *testing.T) {
 	}
 
 	// forward=false → AddPortMapping(ext, int)
-	extPort := upnpCalls[0].Args[1].(uint16)
-	intPort := upnpCalls[0].Args[2].(uint16)
+	extPort, ok := upnpCalls[0].Args[1].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16 for external port, got %T", upnpCalls[0].Args[1])
+	}
+	intPort, ok := upnpCalls[0].Args[2].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16 for internal port, got %T", upnpCalls[0].Args[2])
+	}
 	if extPort != 8080 || intPort != 80 {
 		t.Fatalf("expected AddPortMapping(8080, 80), got (%d, %d)", extPort, intPort)
 	}
@@ -512,7 +528,7 @@ func TestNoForwarderWhenForwardFalse(t *testing.T) {
 }
 
 func TestUPnPErrorDoesNotCrash(t *testing.T) {
-	mock := &upnp.MockManager{AddErr: fmt.Errorf("simulated UPnP error")}
+	mock := &upnp.MockManager{AddErr: errors.New("simulated UPnP error")}
 	runner := newMockRunner()
 	ctrl := NewControllerWithRunner(mock, runner)
 
@@ -538,7 +554,8 @@ func writeState(t *testing.T, path string, state PackageNetworkState) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	err = os.WriteFile(path, data, 0600)
+	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }

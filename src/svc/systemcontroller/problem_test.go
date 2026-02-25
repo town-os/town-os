@@ -54,7 +54,8 @@ func TestProblemDetailJSON(t *testing.T) {
 	}
 
 	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+	err = json.Unmarshal(data, &m)
+	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -64,7 +65,11 @@ func TestProblemDetailJSON(t *testing.T) {
 	if m["title"] != "Not Found" {
 		t.Fatalf("expected title %q, got %q", "Not Found", m["title"])
 	}
-	if int(m["status"].(float64)) != 404 {
+	statusVal, ok := m["status"].(float64)
+	if !ok {
+		t.Fatalf("expected status to be float64, got %T", m["status"])
+	}
+	if int(statusVal) != 404 {
 		t.Fatalf("expected status 404, got %v", m["status"])
 	}
 	if m["detail"] != "not found" {
@@ -76,16 +81,21 @@ func TestProblemDetailResponse_ContentType(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	// POST with invalid JSON to trigger a decode error
-	resp, err := c.HTTP.Post(
-		fmt.Sprintf("%s/storage/create", c.BaseURL),
-		"application/json",
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		fmt.Sprintf("%s/storage/create", c.BaseURL), //nolint:perfsprint // project convention: use fmt.Sprintf
 		strings.NewReader("{invalid"),
 	)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
+		closeErr := resp.Body.Close()
+		if closeErr != nil {
 			t.Errorf("close body: %v", closeErr)
 		}
 	}()
@@ -100,16 +110,21 @@ func TestProblemDetailResponse_ErrorBody(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	// POST with invalid JSON to trigger an error
-	resp, err := c.HTTP.Post(
-		fmt.Sprintf("%s/storage/create", c.BaseURL),
-		"application/json",
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		fmt.Sprintf("%s/storage/create", c.BaseURL), //nolint:perfsprint // project convention: use fmt.Sprintf
 		strings.NewReader("{invalid"),
 	)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
+		closeErr := resp.Body.Close()
+		if closeErr != nil {
 			t.Errorf("close body: %v", closeErr)
 		}
 	}()
@@ -118,8 +133,9 @@ func TestProblemDetailResponse_ErrorBody(t *testing.T) {
 		t.Fatalf("expected error status, got %d", resp.StatusCode)
 	}
 
-	var pd ProblemDetail
-	if err := json.NewDecoder(resp.Body).Decode(&pd); err != nil {
+	var pd ProblemDetailError
+	err = json.NewDecoder(resp.Body).Decode(&pd)
+	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
@@ -140,11 +156,12 @@ func TestProblemDetailResponse_ErrorBody(t *testing.T) {
 func TestProblemDetailResponse_InvalidName(t *testing.T) {
 	c, _ := initTestClient(t)
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test-vol"}); err != nil {
+	err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test-vol"})
+	if err != nil {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 
-	err := c.ModifyFilesystem(context.TODO(), "test-vol", storage.Filesystem{Name: "/invalid"})
+	err = c.ModifyFilesystem(context.TODO(), "test-vol", storage.Filesystem{Name: "/invalid"})
 	if err == nil {
 		t.Fatal("expected error for invalid filesystem name")
 	}
@@ -203,20 +220,22 @@ func TestProblemDetailImplementsInterfaces(t *testing.T) {
 
 	// Implements HTTPStatusCoder
 	var _ echo.HTTPStatusCoder = pd
-
 }
 
 // --- Client-side tests ---
 
 func TestReadProblemDetail_ValidJSON(t *testing.T) {
-	pd := NewProblemDetail(500, "disk full")
-	body, _ := json.Marshal(pd)
+	pd := NewProblemDetail(http.StatusInternalServerError, "disk full")
+	body, err := json.Marshal(pd)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
 	resp := &http.Response{
-		StatusCode: 500,
+		StatusCode: http.StatusInternalServerError,
 		Body:       io.NopCloser(strings.NewReader(string(body))),
 	}
 
-	err := readProblemDetail(resp, "POST", "/storage/create")
+	err = readProblemDetail(resp, http.MethodPost, "/storage/create")
 	var pe *ProblemError
 	if !errors.As(err, &pe) {
 		t.Fatalf("expected ProblemError, got %T: %v", err, err)
@@ -224,7 +243,7 @@ func TestReadProblemDetail_ValidJSON(t *testing.T) {
 	if pe.Problem.Detail != "disk full" {
 		t.Fatalf("expected detail %q, got %q", "disk full", pe.Problem.Detail)
 	}
-	if pe.Method != "POST" {
+	if pe.Method != http.MethodPost {
 		t.Fatalf("expected method POST, got %q", pe.Method)
 	}
 	if pe.Path != "/storage/create" {
@@ -234,7 +253,7 @@ func TestReadProblemDetail_ValidJSON(t *testing.T) {
 
 func TestReadProblemDetail_NonJSON(t *testing.T) {
 	resp := &http.Response{
-		StatusCode: 502,
+		StatusCode: http.StatusBadGateway,
 		Body:       io.NopCloser(strings.NewReader("Bad Gateway")),
 	}
 
@@ -243,8 +262,8 @@ func TestReadProblemDetail_NonJSON(t *testing.T) {
 	if !errors.As(err, &pe) {
 		t.Fatalf("expected ProblemError, got %T: %v", err, err)
 	}
-	if pe.Problem.Status != 502 {
-		t.Fatalf("expected status 502, got %d", pe.Problem.Status)
+	if pe.Problem.Status != http.StatusBadGateway {
+		t.Fatalf("expected status %d, got %d", http.StatusBadGateway, pe.Problem.Status)
 	}
 	if pe.Problem.Detail != "Bad Gateway" {
 		t.Fatalf("expected detail %q, got %q", "Bad Gateway", pe.Problem.Detail)
@@ -254,7 +273,7 @@ func TestReadProblemDetail_NonJSON(t *testing.T) {
 func TestReadProblemDetail_LegacyEcho(t *testing.T) {
 	body := `{"message": "missing authorization token"}`
 	resp := &http.Response{
-		StatusCode: 401,
+		StatusCode: http.StatusUnauthorized,
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 
@@ -270,7 +289,7 @@ func TestReadProblemDetail_LegacyEcho(t *testing.T) {
 
 func TestReadProblemDetail_EmptyBody(t *testing.T) {
 	resp := &http.Response{
-		StatusCode: 500,
+		StatusCode: http.StatusInternalServerError,
 		Body:       io.NopCloser(strings.NewReader("")),
 	}
 

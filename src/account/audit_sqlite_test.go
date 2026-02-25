@@ -22,7 +22,8 @@ func initTestAuditDB(t *testing.T) *SQLiteAuditManager {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
+		err := db.Close()
+		if err != nil {
 			t.Errorf("db.Close: %v", err)
 		}
 	})
@@ -47,7 +48,8 @@ func TestAuditLogEntryAndList(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if err := mgr.LogEntry(entry); err != nil {
+	err := mgr.LogEntry(entry)
+	if err != nil {
 		t.Fatalf("LogEntry: %v", err)
 	}
 
@@ -93,7 +95,8 @@ func TestAuditLogEntryWithError(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if err := mgr.LogEntry(entry); err != nil {
+	err := mgr.LogEntry(entry)
+	if err != nil {
 		t.Fatalf("LogEntry: %v", err)
 	}
 
@@ -120,14 +123,15 @@ func TestAuditLogEntryWithError(t *testing.T) {
 func TestAuditListOffsetPagination(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 5; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 5 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}
@@ -182,13 +186,14 @@ func TestAuditListOffsetWithSort(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"charlie", "alice", "bob", "dave", "eve"} {
-		if err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry: %v", err)
 		}
 	}
@@ -223,14 +228,15 @@ func TestAuditListOffsetWithSort(t *testing.T) {
 func TestAuditListCursorPagination(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 5; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 5 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}
@@ -293,13 +299,14 @@ func TestAuditListAccountFilter(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"alice", "bob", "alice"} {
-		if err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry: %v", err)
 		}
 	}
@@ -325,14 +332,15 @@ func TestAuditListAccountFilter(t *testing.T) {
 func TestAuditListDefaultLimit(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 60; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 60 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}
@@ -355,14 +363,15 @@ func TestAuditListDefaultLimit(t *testing.T) {
 func TestAuditListMaxLimitClamping(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 210; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 210 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}
@@ -386,13 +395,14 @@ func TestAuditListSortByAccountAsc(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"charlie", "alice", "bob"} {
-		if err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry: %v", err)
 		}
 	}
@@ -418,13 +428,14 @@ func TestAuditListSortByAccountDesc(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"charlie", "alice", "bob"} {
-		if err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry: %v", err)
 		}
 	}
@@ -449,14 +460,15 @@ func TestAuditListSortByAccountDesc(t *testing.T) {
 func TestAuditListSortByIDAsc(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 3; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 3 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}
@@ -482,13 +494,14 @@ func TestAuditListSortByIDAsc(t *testing.T) {
 func TestAuditListSortByInvalidColumn(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	if err := mgr.LogEntry(AuditEntry{
+	err := mgr.LogEntry(AuditEntry{
 		Account:   "alice",
 		Action:    "test",
 		Path:      "/test",
 		Success:   true,
 		CreatedAt: time.Now().UTC(),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("LogEntry: %v", err)
 	}
 
@@ -507,13 +520,14 @@ func TestAuditListSortByAction(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, action := range []string{"create filesystem", "add repository", "disable account"} {
-		if err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    action,
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry: %v", err)
 		}
 	}
@@ -571,14 +585,15 @@ func TestAuditTotalPagesEmpty(t *testing.T) {
 func TestAuditTotalPagesExactFit(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 4; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 4 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}
@@ -596,14 +611,15 @@ func TestAuditTotalPagesExactFit(t *testing.T) {
 func TestAuditTotalPagesPartialLastPage(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 5; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 5 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "bob",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}
@@ -621,26 +637,28 @@ func TestAuditTotalPagesPartialLastPage(t *testing.T) {
 func TestAuditTotalPagesWithAccountFilter(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 3; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 3 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("alice-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry alice %d: %v", i, err)
 		}
 	}
 
-	for i := 0; i < 7; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 7 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "bob",
 			Action:    fmt.Sprintf("bob-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry bob %d: %v", i, err)
 		}
 	}
@@ -667,14 +685,15 @@ func TestAuditTotalPagesWithAccountFilter(t *testing.T) {
 func TestAuditTotalPagesConsistentAcrossPages(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	for i := 0; i < 5; i++ {
-		if err := mgr.LogEntry(AuditEntry{
+	for i := range 5 {
+		err := mgr.LogEntry(AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
 			Success:   true,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("LogEntry %d: %v", i, err)
 		}
 	}

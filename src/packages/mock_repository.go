@@ -2,6 +2,7 @@ package packages
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 )
@@ -175,9 +176,7 @@ func (m *MockRepositoryManager) LoadAllPackages() (PackageTable, error) {
 	out := PackageTable{}
 	for name, versions := range m.Packages {
 		out[name] = map[string]InputPackage{}
-		for version, pkg := range versions {
-			out[name][version] = pkg
-		}
+		maps.Copy(out[name], versions)
 	}
 
 	return out, nil

@@ -18,10 +18,12 @@ import (
 // setupReconcileRepo creates a temp directory with a repository containing the
 // given packages. Each entry in pkgs maps "name/version" to the YAML content.
 // Returns the RepositoryRoot and InstallManager rooted at that directory.
-func setupReconcileRepo(t *testing.T, repoName string, pkgs map[string]string) (*packages.RepositoryRoot, *packages.InstallManager) {
+func setupReconcileRepo(t *testing.T, pkgs map[string]string) (*packages.RepositoryRoot, *packages.InstallManager) {
 	t.Helper()
 
 	dir := t.TempDir()
+
+	const repoName = "repo-a"
 
 	// Write repositories.json with a single local repo entry.
 	repos := []packages.Repository{{Name: repoName, URL: url.URL{Scheme: "file", Path: dir}}}
@@ -29,18 +31,21 @@ func setupReconcileRepo(t *testing.T, repoName string, pkgs map[string]string) (
 	if err != nil {
 		t.Fatalf("marshal repos: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	err = os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600)
+	if err != nil {
 		t.Fatalf("write repos file: %v", err)
 	}
 
 	// Create package YAML files under <repo>/<packages>/<name>/<version>.yaml.
 	for nameVersion, content := range pkgs {
 		pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, filepath.Dir(nameVersion))
-		if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		err := os.MkdirAll(pkgDir, 0750)
+		if err != nil {
 			t.Fatalf("mkdir %s: %v", pkgDir, err)
 		}
-		fn := fmt.Sprintf("%s.yaml", filepath.Base(nameVersion))
-		if err := os.WriteFile(filepath.Join(pkgDir, fn), []byte(content), 0644); err != nil {
+		fn := fmt.Sprintf("%s.yaml", filepath.Base(nameVersion)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		err = os.WriteFile(filepath.Join(pkgDir, fn), []byte(content), 0600)
+		if err != nil {
 			t.Fatalf("write %s: %v", fn, err)
 		}
 	}
@@ -55,7 +60,7 @@ func setupReconcileRepo(t *testing.T, repoName string, pkgs map[string]string) (
 }
 
 func TestReconcileEmptyInstalled(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", nil)
+	rr, inst := setupReconcileRepo(t, nil)
 	sd := systemd.InitMockManager()
 
 	err := Reconcile(context.Background(), ReconcileConfig{
@@ -74,17 +79,18 @@ func TestReconcileEmptyInstalled(t *testing.T) {
 }
 
 func TestReconcileInstalledPackage(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\n",
 	})
 	sd := systemd.InitMockManager()
 
 	// Pre-install the package so it appears in ListInstalled.
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -103,7 +109,10 @@ func TestReconcileInstalledPackage(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("expected InstallUnit, got %s", calls[0].Method)
 	}
-	unitName := calls[0].Args[0].(string)
+	unitName, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("expected string arg")
+	}
 	if unitName != "town-os-package--repo-a-nginx-1.0.service" {
 		t.Fatalf("expected unit name town-os-package--repo-a-nginx-1.0.service, got %s", unitName)
 	}
@@ -114,20 +123,22 @@ func TestReconcileInstalledPackage(t *testing.T) {
 }
 
 func TestReconcileMultiplePackages(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\n",
 		"redis/7.0": "image: redis:7.0\n",
 	})
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install nginx: %v", err)
 	}
-	if err := inst.Install("repo-a", "redis", "7.0", packages.Responses{}); err != nil {
+	err = inst.Install("repo-a", "redis", "7.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install redis: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -144,18 +155,22 @@ func TestReconcileMultiplePackages(t *testing.T) {
 }
 
 func TestReconcileWithStorageVolumes(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\nvolumes:\n  data:\n    mountpoint: /var/data\n",
 	})
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
-	controller := mock.Controller.(*storage.MockBtrFSController)
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("expected *storage.MockBtrFSController")
+	}
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Storage:        mock,
@@ -193,17 +208,18 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 }
 
 func TestReconcileWithResponses(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:@version@\nquestions:\n  version:\n    query: Version?\n",
 	})
 	sd := systemd.InitMockManager()
 
 	responses := packages.Responses{"version": "1.0"}
-	if err := inst.Install("repo-a", "nginx", "1.0", responses); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", responses)
+	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -222,21 +238,23 @@ func TestReconcilePackageSurvivesRepoRemoval(t *testing.T) {
 	// Package is installed and its repo is removed from Items, but the on-disk
 	// package files remain. LoadPackage reads from disk, so reconcile should
 	// still restore the package.
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\n",
 	})
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
 	// Remove the repo from the RepositoryRoot Items list but leave files on disk.
-	if err := rr.Remove("repo-a"); err != nil {
+	err = rr.Remove("repo-a")
+	if err != nil {
 		t.Fatalf("remove repo: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -255,7 +273,7 @@ func TestReconcilePackageSurvivesRepoRemoval(t *testing.T) {
 func TestReconcilePartialFailureContinues(t *testing.T) {
 	// Two packages installed. First one's repo is missing, second is fine.
 	// Reconcile should skip the broken one and restore the good one.
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"redis/7.0": "image: redis:7.0\n",
 	})
 	sd := systemd.InitMockManager()
@@ -263,19 +281,22 @@ func TestReconcilePartialFailureContinues(t *testing.T) {
 	// Create a regular file in the installed directory to simulate a hard-linked
 	// installed package whose source repo no longer exists on disk.
 	nginxDir := filepath.Join(rr.BaseDir, packages.InstalledDir, "missing-repo", "nginx")
-	if err := os.MkdirAll(nginxDir, 0755); err != nil {
+	err := os.MkdirAll(nginxDir, 0750)
+	if err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(nginxDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+	err = os.WriteFile(filepath.Join(nginxDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0600)
+	if err != nil {
 		t.Fatalf("write installed file: %v", err)
 	}
 
 	// Install redis properly.
-	if err := inst.Install("repo-a", "redis", "7.0", packages.Responses{}); err != nil {
+	err = inst.Install("repo-a", "redis", "7.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install redis: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -290,7 +311,10 @@ func TestReconcilePartialFailureContinues(t *testing.T) {
 		t.Fatalf("expected 2 systemd calls (redis only), got %d", len(calls))
 	}
 
-	unitName := calls[0].Args[0].(string)
+	unitName, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("expected string arg")
+	}
 	if unitName != "town-os-package--repo-a-redis-7.0.service" {
 		t.Fatalf("expected town-os-package--repo-a-redis-7.0.service, got %s", unitName)
 	}
@@ -298,15 +322,16 @@ func TestReconcilePartialFailureContinues(t *testing.T) {
 
 func TestReconcileNilManagers(t *testing.T) {
 	// Reconcile should work when Storage and Systemd are nil.
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\n",
 	})
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 	})
@@ -316,20 +341,22 @@ func TestReconcileNilManagers(t *testing.T) {
 }
 
 func TestReconcileDisabledPackageNotStarted(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\n",
 	})
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
-	if err := inst.SetDisabled("repo-a", "nginx", true); err != nil {
+	err = inst.SetDisabled("repo-a", "nginx", true)
+	if err != nil {
 		t.Fatalf("SetDisabled: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -349,25 +376,28 @@ func TestReconcileDisabledPackageNotStarted(t *testing.T) {
 }
 
 func TestReconcileDisabledAndEnabledMixed(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\n",
 		"redis/7.0": "image: redis:7.0\n",
 	})
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install nginx: %v", err)
 	}
-	if err := inst.Install("repo-a", "redis", "7.0", packages.Responses{}); err != nil {
+	err = inst.Install("repo-a", "redis", "7.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install redis: %v", err)
 	}
 
 	// Disable nginx only.
-	if err := inst.SetDisabled("repo-a", "nginx", true); err != nil {
+	err = inst.SetDisabled("repo-a", "nginx", true)
+	if err != nil {
 		t.Fatalf("SetDisabled: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -386,20 +416,22 @@ func TestReconcileDisabledAndEnabledMixed(t *testing.T) {
 }
 
 func TestReconcileMultiVersionPicksLatest(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", map[string]string{
+	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\n",
 		"nginx/2.0": "image: nginx:2.0\n",
 	})
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install nginx 1.0: %v", err)
 	}
-	if err := inst.Install("repo-a", "nginx", "2.0", packages.Responses{}); err != nil {
+	err = inst.Install("repo-a", "nginx", "2.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install nginx 2.0: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -418,7 +450,10 @@ func TestReconcileMultiVersionPicksLatest(t *testing.T) {
 		t.Fatalf("expected InstallUnit, got %s", calls[0].Method)
 	}
 
-	unitContent := calls[0].Args[1].(string)
+	unitContent, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("expected string arg")
+	}
 	if !strings.Contains(unitContent, "nginx@2.0") {
 		t.Fatalf("expected unit content to reference nginx@2.0, got:\n%s", unitContent)
 	}
@@ -447,18 +482,21 @@ func setupMultiRepoReconcile(t *testing.T, pkgsA, pkgsB map[string]string) (*pac
 	if err != nil {
 		t.Fatalf("marshal repos: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	err = os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600)
+	if err != nil {
 		t.Fatalf("write repos file: %v", err)
 	}
 
 	for repoName, pkgs := range map[string]map[string]string{"repo-a": pkgsA, "repo-b": pkgsB} {
 		for nameVersion, content := range pkgs {
 			pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, filepath.Dir(nameVersion))
-			if err := os.MkdirAll(pkgDir, 0755); err != nil {
+			err := os.MkdirAll(pkgDir, 0750)
+			if err != nil {
 				t.Fatalf("mkdir %s: %v", pkgDir, err)
 			}
-			fn := fmt.Sprintf("%s.yaml", filepath.Base(nameVersion))
-			if err := os.WriteFile(filepath.Join(pkgDir, fn), []byte(content), 0644); err != nil {
+			fn := fmt.Sprintf("%s.yaml", filepath.Base(nameVersion)) //nolint:perfsprint // project convention: use fmt.Sprintf
+			err = os.WriteFile(filepath.Join(pkgDir, fn), []byte(content), 0600)
+			if err != nil {
 				t.Fatalf("write %s: %v", fn, err)
 			}
 		}
@@ -480,14 +518,16 @@ func TestReconcileMultiRepoSamePackageName(t *testing.T) {
 	)
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install repo-a/nginx: %v", err)
 	}
-	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = inst.Install("repo-b", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install repo-b/nginx: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -506,7 +546,11 @@ func TestReconcileMultiRepoSamePackageName(t *testing.T) {
 	unitNames := map[string]bool{}
 	for _, c := range calls {
 		if c.Method == "InstallUnit" {
-			unitNames[c.Args[0].(string)] = true
+			name, ok := c.Args[0].(string)
+			if !ok {
+				t.Fatal("expected string arg")
+			}
+			unitNames[name] = true
 		}
 	}
 
@@ -527,16 +571,21 @@ func TestReconcileMultiRepoVolumePaths(t *testing.T) {
 	)
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
-	controller := mock.Controller.(*storage.MockBtrFSController)
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("expected *storage.MockBtrFSController")
+	}
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install repo-a/nginx: %v", err)
 	}
-	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = inst.Install("repo-b", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install repo-b/nginx: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Storage:        mock,
@@ -573,19 +622,22 @@ func TestReconcileMultiRepoDisabledIsolation(t *testing.T) {
 	)
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install repo-a/nginx: %v", err)
 	}
-	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{}); err != nil {
+	err = inst.Install("repo-b", "nginx", "1.0", packages.Responses{})
+	if err != nil {
 		t.Fatalf("pre-install repo-b/nginx: %v", err)
 	}
 
 	// Disable only repo-a's nginx.
-	if err := inst.SetDisabled("repo-a", "nginx", true); err != nil {
+	err = inst.SetDisabled("repo-a", "nginx", true)
+	if err != nil {
 		t.Fatalf("SetDisabled repo-a/nginx: %v", err)
 	}
 
-	err := Reconcile(context.Background(), ReconcileConfig{
+	err = Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
 		RepositoryRoot: rr,
 		Systemd:        sd,
@@ -606,7 +658,11 @@ func TestReconcileMultiRepoDisabledIsolation(t *testing.T) {
 	startedUnits := map[string]bool{}
 	for _, c := range calls {
 		if c.Method == "SetStatus" && c.Args[1] == systemd.Start {
-			startedUnits[c.Args[0].(string)] = true
+			name, ok := c.Args[0].(string)
+			if !ok {
+				t.Fatal("expected string arg")
+			}
+			startedUnits[name] = true
 		}
 	}
 
@@ -621,10 +677,13 @@ func TestReconcileMultiRepoDisabledIsolation(t *testing.T) {
 }
 
 func TestReconcileCreatesRootVolumes(t *testing.T) {
-	rr, inst := setupReconcileRepo(t, "repo-a", nil)
+	rr, inst := setupReconcileRepo(t, nil)
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
-	controller := mock.Controller.(*storage.MockBtrFSController)
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("expected *storage.MockBtrFSController")
+	}
 
 	err := Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,

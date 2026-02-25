@@ -58,10 +58,11 @@ func (p *osProcess) Pid() int    { return p.cmd.Process.Pid }
 type osRunner struct{}
 
 func (r *osRunner) Start(name string, args ...string) (Process, error) {
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(context.Background(), name, args...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	err := cmd.Start()
+	if err != nil {
 		return nil, err
 	}
 	return &osProcess{cmd: cmd}, nil
@@ -124,12 +125,14 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 		return fmt.Errorf("create watcher: %w", err)
 	}
 	defer func() {
-		if err := watcher.Close(); err != nil {
-			slog.Debug(fmt.Sprintf("close watcher: %v", err))
+		closeErr := watcher.Close()
+		if closeErr != nil {
+			slog.Debug(fmt.Sprintf("close watcher: %v", closeErr))
 		}
 	}()
 
-	if err := watcher.Add(statePath); err != nil {
+	err = watcher.Add(statePath)
+	if err != nil {
 		return fmt.Errorf("watch state file: %w", err)
 	}
 
@@ -239,7 +242,8 @@ func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
 
 	// Reap the child process in the background.
 	go func() {
-		if err := proc.Wait(); err != nil {
+		err := proc.Wait()
+		if err != nil {
 			slog.Debug(fmt.Sprintf("socat %d->%d exited: %v", extPort, intPort, err))
 		}
 	}()
@@ -250,7 +254,8 @@ func (c *Controller) stopForwarderLocked(extPort uint16) {
 	if !ok {
 		return
 	}
-	if err := fwd.proc.Kill(); err != nil {
+	err := fwd.proc.Kill()
+	if err != nil {
 		slog.Debug(fmt.Sprintf("kill socat %d: %v", extPort, err))
 	}
 	delete(c.forwarders, extPort)
@@ -281,7 +286,8 @@ func (c *Controller) addUPnPMappingLocked(cfg PortConfig) {
 	}
 
 	desc := c.upnpDescription(cfg)
-	if err := c.upnp.AddPortMapping("TCP", cfg.ExternalPort, internalPort, desc, 600); err != nil {
+	err := c.upnp.AddPortMapping("TCP", cfg.ExternalPort, internalPort, desc, 600)
+	if err != nil {
 		slog.Warn(fmt.Sprintf("UPnP add %d: %v", cfg.ExternalPort, err))
 	} else {
 		slog.Info(fmt.Sprintf("UPnP mapped %d->%d", cfg.ExternalPort, internalPort))
@@ -296,7 +302,8 @@ func (c *Controller) removeUPnPMappingLocked(extPort uint16) {
 		return
 	}
 
-	if err := c.upnp.RemovePortMapping("TCP", extPort); err != nil {
+	err := c.upnp.RemovePortMapping("TCP", extPort)
+	if err != nil {
 		slog.Warn(fmt.Sprintf("UPnP remove %d: %v", extPort, err))
 	} else {
 		slog.Info(fmt.Sprintf("UPnP removed %d", extPort))
@@ -319,7 +326,8 @@ func (c *Controller) renewUPnP() {
 			internalPort = m.cfg.ExternalPort
 		}
 		desc := c.upnpDescription(m.cfg)
-		if err := c.upnp.AddPortMapping("TCP", m.cfg.ExternalPort, internalPort, desc, 600); err != nil {
+		err := c.upnp.AddPortMapping("TCP", m.cfg.ExternalPort, internalPort, desc, 600)
+		if err != nil {
 			slog.Warn(fmt.Sprintf("UPnP renew %d: %v", m.cfg.ExternalPort, err))
 		}
 	}
@@ -361,18 +369,20 @@ func (c *Controller) GetMappings() map[uint16]PortConfig {
 }
 
 func readState(path string) (_ *PackageNetworkState, err error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path is constructed internally
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
+		cerr := f.Close()
+		if cerr != nil && err == nil {
 			err = cerr
 		}
 	}()
 
 	var state PackageNetworkState
-	if err := json.NewDecoder(f).Decode(&state); err != nil {
+	err = json.NewDecoder(f).Decode(&state)
+	if err != nil {
 		return nil, fmt.Errorf("decode state: %w", err)
 	}
 	return &state, nil

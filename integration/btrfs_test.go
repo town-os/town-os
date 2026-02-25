@@ -15,7 +15,8 @@ func TestBtrFS(t *testing.T) {
 	}
 	baseCount := len(baseList)
 
-	if err := btr.CreateFilesystem(storage.Filesystem{Name: "test"}); err != nil {
+	err = btr.CreateFilesystem(storage.Filesystem{Name: "test"})
+	if err != nil {
 		t.Fatalf("Could not create filesystem test: %v", err)
 	}
 
@@ -37,7 +38,8 @@ func TestBtrFS(t *testing.T) {
 		t.Fatalf("Expected 1 filesystem under test path, got %d", len(list))
 	}
 
-	if err := btr.RemoveFilesystem("test"); err != nil {
+	err = btr.RemoveFilesystem("test")
+	if err != nil {
 		t.Fatalf("Could not remove filesystem test: %v", err)
 	}
 
