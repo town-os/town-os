@@ -52,7 +52,7 @@ type Client interface {
 	GetResponses(ctx context.Context, repo, name, version string) (packages.Responses, error)
 	GetInstalledInfo(ctx context.Context, repo, name, version string) (*InstalledInfoResponse, error)
 
-	ListUnits(ctx context.Context, params ListParams) (*PageResult[systemd.UnitStatus], error)
+	ListUnits(ctx context.Context, params ListParams) (*PageResult[UnitListEntry], error)
 	SetUnitStatus(ctx context.Context, name string, action systemd.StatusAction) error
 	LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error)
 	LogTail(ctx context.Context, params systemd.LogTailParams) (systemd.LogTailResult, error)
@@ -576,7 +576,7 @@ func (c *SystemdClient) InstallPreview(ctx context.Context, repo, name, version 
 
 // --- Systemd ---
 
-func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *PageResult[systemd.UnitStatus], err error) {
+func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *PageResult[UnitListEntry], err error) {
 	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/units%s", params.QueryString()))
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListUnits: %w", ErrHTTPRequest, err)
@@ -589,7 +589,7 @@ func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *Pa
 		return nil, readProblemDetail(resp, "GET", "systemd/units")
 	}
 
-	var page PageResult[systemd.UnitStatus]
+	var page PageResult[UnitListEntry]
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 

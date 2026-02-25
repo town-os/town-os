@@ -272,6 +272,12 @@ type DownloadArchiveRequest struct {
 	StopService string   `json:"stop_service,omitempty"`
 }
 
+type UnitListEntry struct {
+	systemd.UnitStatus
+	PackageIdentifier  string `json:"package_identifier,omitempty"`
+	PackageDescription string `json:"package_description,omitempty"`
+}
+
 type SetStatusRequest struct {
 	Name   string               `json:"name"`
 	Action systemd.StatusAction `json:"action"`
@@ -447,11 +453,12 @@ func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd
 
 // packageUnitConfig builds a PackageUnitConfig from a compiled package and
 // backend configuration.
-func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version string, compiled *packages.Package) systemd.PackageUnitConfig {
+func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version, description string, compiled *packages.Package) systemd.PackageUnitConfig {
 	return systemd.PackageUnitConfig{
 		RepoName:                 repoName,
 		PkgName:                  pkgName,
 		Version:                  version,
+		Description:              description,
 		Image:                    compiled.Image,
 		Command:                  compiled.Command,
 		Environment:              compiled.Environment,
@@ -1464,7 +1471,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, compiled)
+		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, ip.Description, compiled)
 		units := systemd.GeneratePackageUnits(cfg)
 		if err := s.writePackageNetworkState(repoName, req.Name, req.Version, compiled); err != nil {
 			return err
@@ -1836,11 +1843,53 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 		return err
 	}
 
-	p := readListParams(c)
-	units = filterSearch(units, p.Search)
-	sortSlice(units, p.SortBy, p.SortOrder)
+	// Filter to only main package service units.
+	filtered := make([]systemd.UnitStatus, 0, len(units))
+	for _, u := range units {
+		if systemd.IsPackageServiceUnit(u.Name) {
+			filtered = append(filtered, u)
+		}
+	}
 
-	return c.JSON(200, paginate(units, p.Limit, p.Offset))
+	// Build unit name → package identity/description map.
+	identityMap := map[string]string{}
+	descriptionMap := map[string]string{}
+	if inst := s.Controller.GetInstaller(); inst != nil {
+		installed, listErr := inst.ListInstalled()
+		if listErr == nil {
+			rr := s.Controller.GetRepositoryRoot()
+			for _, pkg := range installed {
+				pi, parseErr := packages.ParsePackageIdentity(pkg)
+				if parseErr != nil {
+					continue
+				}
+				unitName := systemd.UnitName(pi.Repo, pi.Name, pi.Version)
+				identityMap[unitName] = fmt.Sprintf("%s/%s@%s", pi.Repo, pi.Name, pi.Version)
+				if rr != nil {
+					ip, loadErr := rr.LoadPackage(pi.Repo, pi.Name, pi.Version)
+					if loadErr == nil {
+						descriptionMap[unitName] = ip.Description
+					}
+				}
+			}
+		}
+	}
+
+	// Enrich with package identity and description.
+	entries := make([]UnitListEntry, len(filtered))
+	for i, u := range filtered {
+		entries[i] = UnitListEntry{
+			UnitStatus:         u,
+			PackageIdentifier:  identityMap[u.Name],
+			PackageDescription: descriptionMap[u.Name],
+		}
+	}
+
+	p := readListParams(c)
+	entries = filterSearch(entries, p.Search)
+	sortSlice(entries, p.SortBy, p.SortOrder)
+
+	return c.JSON(200, paginate(entries, p.Limit, p.Offset))
 }
 
 func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
@@ -2633,7 +2682,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 		counts := &UnitCounts{}
 		for _, u := range units {
-			if !strings.HasPrefix(u.Name, systemd.PackageUnitPrefix) {
+			if !systemd.IsPackageServiceUnit(u.Name) {
 				continue
 			}
 			counts.Total++

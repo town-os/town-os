@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -120,6 +121,24 @@ func NetworkControllerUnitName(repo, pkgName, version string) string {
 // ContainerName returns the podman container name for a package.
 func ContainerName(repo, pkgName, version string) string {
 	return fmt.Sprintf("%s%s-%s-%s", PackageUnitPrefix, repo, pkgName, version)
+}
+
+// IsPackageServiceUnit returns true if the unit name is a main package
+// service unit (not a socket, timer, uPnP, or forwarder unit).
+func IsPackageServiceUnit(name string) bool {
+	if !strings.HasPrefix(name, PackageUnitPrefix) {
+		return false
+	}
+	if !strings.HasSuffix(name, ".service") {
+		return false
+	}
+	if strings.HasSuffix(name, "-upnp.service") {
+		return false
+	}
+	if strings.Contains(name, "-fwd-") {
+		return false
+	}
+	return true
 }
 
 // StubUnitContent returns a simple Type=simple unit file that loops printing

@@ -131,19 +131,27 @@ func filterSearch[T any](items []T, search string) []T {
 
 func matchesSearch[T any](item T, term string) bool {
 	v := reflect.ValueOf(item)
+	return matchesSearchValue(v, term)
+}
 
+func matchesSearchValue(v reflect.Value, term string) bool {
 	if v.Kind() == reflect.String {
 		return strings.Contains(strings.ToLower(v.String()), term)
 	}
 
 	if v.Kind() != reflect.Struct {
-		return strings.Contains(strings.ToLower(fmt.Sprint(item)), term)
+		return strings.Contains(strings.ToLower(fmt.Sprint(v.Interface())), term)
 	}
 
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Field(i)
-		if f.Kind() == reflect.String {
+		switch f.Kind() {
+		case reflect.String:
 			if strings.Contains(strings.ToLower(f.String()), term) {
+				return true
+			}
+		case reflect.Struct:
+			if matchesSearchValue(f, term) {
 				return true
 			}
 		}

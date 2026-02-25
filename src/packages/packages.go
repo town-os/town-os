@@ -50,15 +50,8 @@ var (
 func ValidateNote(value string, typ NoteType) error {
 	switch typ {
 	case NoteURL:
-		u, err := url.Parse(value)
-		if err != nil {
+		if _, err := url.Parse(value); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidNoteURL, err)
-		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return fmt.Errorf("%w: scheme must be http or https", ErrInvalidNoteURL)
-		}
-		if u.Host == "" {
-			return fmt.Errorf("%w: missing host", ErrInvalidNoteURL)
 		}
 	case NotePhone:
 		if !notePhoneRegexp.MatchString(value) {

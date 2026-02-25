@@ -603,3 +603,75 @@ func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
 		}
 	})
 }
+
+func TestIsPackageServiceUnit(t *testing.T) {
+	tests := []struct {
+		name   string
+		expect bool
+	}{
+		{"town-os-package--test-repo-nginx-1.0.service", true},
+		{"town-os-package--core-redis-7.0.service", true},
+		{"town-os-package--test-repo-nginx-1.0-8080-tcp.socket", false},
+		{"town-os-package--test-repo-nginx-1.0-upnp.service", false},
+		{"town-os-package--test-repo-nginx-1.0-upnp.timer", false},
+		{"town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service", false},
+		{"sshd.service", false},
+		{"town-os-systemcontroller.service", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		got := IsPackageServiceUnit(tt.name)
+		if got != tt.expect {
+			t.Errorf("IsPackageServiceUnit(%q) = %v, want %v", tt.name, got, tt.expect)
+		}
+	}
+}
+
+func TestGenerateServiceUnitWithDescription(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
+		PkgName:     "nginx",
+		Version:     "1.0",
+		Description: "High-performance web server",
+		Image:       "nginx:1.0",
+		Environment: map[string]string{},
+		External:    packages.PortMap{},
+		Internal:    packages.PortMap{},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "Description=Town OS: High-performance web server") {
+		t.Fatalf("expected description with 'Town OS:' prefix, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "Town OS Package Service:") {
+		t.Fatal("should not contain fallback description when Description is set")
+	}
+}
+
+func TestGenerateServiceUnitWithoutDescription(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:    "test-repo",
+		PkgName:     "nginx",
+		Version:     "1.0",
+		Image:       "nginx:1.0",
+		Environment: map[string]string{},
+		External:    packages.PortMap{},
+		Internal:    packages.PortMap{},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "Description=Town OS Package Service: test-repo/nginx@1.0") {
+		t.Fatalf("expected fallback description, got:\n%s", svc)
+	}
+}

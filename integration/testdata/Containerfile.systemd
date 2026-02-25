@@ -6,7 +6,7 @@ COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
 COPY . /src
-RUN CGO_ENABLED=1 go test -c -tags podman -o /integration-test ./integration/...
+RUN CGO_ENABLED=1 go test -c -o /integration-test ./integration/...
 
 FROM debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y \
@@ -22,8 +22,8 @@ COPY --from=town-os /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=town-os /ui /ui
 COPY --from=builder /integration-test /integration-test
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
-COPY integration/testdata/town-os-test.service /etc/systemd/system/
-RUN systemctl enable town-os-systemcontroller.service town-os-test.service
+COPY integration/testdata/town-os-package--repo-test-1.0.service /etc/systemd/system/
+RUN systemctl enable town-os-systemcontroller.service town-os-package--repo-test-1.0.service
 RUN mkdir -p /test /data/btrfs /data/repos /data/db /var/run/town-os
 EXPOSE 5309 5310
 CMD ["/lib/systemd/systemd"]

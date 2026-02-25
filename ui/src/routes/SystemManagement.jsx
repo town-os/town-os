@@ -79,7 +79,7 @@ export default function SystemManagement() {
   const [actionConfirm, setActionConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
-  const [sortKey, setSortKey] = useState('Name')
+  const [sortKey, setSortKey] = useState('package_identifier')
   const [sortDirection, setSortDirection] = useState('asc')
   const [journalUnit, setJournalUnit] = useState(null)
   const [journalEntries, setJournalEntries] = useState([])
@@ -141,7 +141,7 @@ export default function SystemManagement() {
   const [customLogDialog, setCustomLogDialog] = useState(false)
   const [customLogUnit, setCustomLogUnit] = useState('')
 
-  const effectiveSearch = searchTerm ? `town-os-package--${searchTerm}` : 'town-os-package--'
+  const effectiveSearch = searchTerm
 
   const [unitData, , unitsLoading] = usePolling(
     () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, effectiveSearch),
@@ -316,15 +316,15 @@ export default function SystemManagement() {
 
   const columns = [
     {
-      key: 'Name',
-      label: 'Service',
+      key: 'package_identifier',
+      label: 'Package',
       transform: (v) => (
         <span className="font-mono text-sm">
-          {v?.replace('.service', '') ?? v}
+          {v || '—'}
         </span>
       ),
     },
-    { key: 'Description', label: 'Description' },
+    { key: 'package_description', label: 'Description' },
     {
       key: 'ActiveState',
       label: 'Status',
@@ -392,7 +392,7 @@ export default function SystemManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Services</h1>
-          <p className="text-muted-foreground">Manage systemd units</p>
+          <p className="text-muted-foreground">Manage installed packages</p>
         </div>
         <Button
           variant="outline"
@@ -425,7 +425,7 @@ export default function SystemManagement() {
           setPage(0)
         }}
         onReset={() => {
-          setSortKey('Name')
+          setSortKey('package_identifier')
           setSortDirection('asc')
           setSearchTerm('')
           setPage(0)

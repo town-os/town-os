@@ -604,7 +604,7 @@ func (m *MockClient) GetInstalledInfo(_ context.Context, repo, name, version str
 
 // --- Systemd ---
 
-func (m *MockClient) ListUnits(_ context.Context, params ListParams) (*PageResult[systemd.UnitStatus], error) {
+func (m *MockClient) ListUnits(_ context.Context, params ListParams) (*PageResult[UnitListEntry], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListUnits", Args: []any{params}})
@@ -613,10 +613,12 @@ func (m *MockClient) ListUnits(_ context.Context, params ListParams) (*PageResul
 		return nil, m.ListUnitsErr
 	}
 
-	out := make([]systemd.UnitStatus, len(m.Units))
-	copy(out, m.Units)
-	out = filterSearch(out, params.Search)
-	result := paginate(out, params.Limit, params.Offset)
+	entries := make([]UnitListEntry, len(m.Units))
+	for i, u := range m.Units {
+		entries[i] = UnitListEntry{UnitStatus: u}
+	}
+	entries = filterSearch(entries, params.Search)
+	result := paginate(entries, params.Limit, params.Offset)
 	return &result, nil
 }
 

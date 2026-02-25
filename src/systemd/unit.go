@@ -11,19 +11,20 @@ import (
 // PackageUnitConfig holds all the information needed to generate systemd units
 // for a package's podman container service.
 type PackageUnitConfig struct {
-	RepoName               string
-	PkgName                string
-	Version                string
-	Image                  string
-	Command                []string
-	Environment            map[string]string
-	External               packages.PortMap
-	Internal               packages.PortMap
-	Volumes                map[string]packages.PackageVolume
-	BtrfsBase              string
+	RepoName                 string
+	PkgName                  string
+	Version                  string
+	Description              string // package description; used in the service unit Description line
+	Image                    string
+	Command                  []string
+	Environment              map[string]string
+	External                 packages.PortMap
+	Internal                 packages.PortMap
+	Volumes                  map[string]packages.PackageVolume
+	BtrfsBase                string
 	NetworkControllerBinPath string
-	NetworkStatePath       string
-	NetworkMode            string // "" or "bridge" → -p mappings; "host" → --net host
+	NetworkStatePath         string
+	NetworkMode              string // "" or "bridge" → -p mappings; "host" → --net host
 }
 
 // UnitFile represents a single systemd unit file with its name and content.
@@ -119,7 +120,11 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 
 	// [Unit]
 	b.WriteString("[Unit]\n")
-	b.WriteString(fmt.Sprintf("Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
+	if cfg.Description != "" {
+		b.WriteString(fmt.Sprintf("Description=Town OS: %s\n", cfg.Description))
+	} else {
+		b.WriteString(fmt.Sprintf("Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
+	}
 	if hasExternalPorts {
 		b.WriteString(fmt.Sprintf("Wants=%s\n", NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)))
 	}

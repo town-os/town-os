@@ -4890,8 +4890,8 @@ func TestHTTPListUnits(t *testing.T) {
 	c, sd := initSystemdTestClient(t)
 
 	sd.Units = []systemd.UnitStatus{
-		{Name: "foo.service", Description: "Foo", LoadState: "loaded", ActiveState: "active", SubState: "running", UnitFileState: "enabled"},
-		{Name: "bar.service", Description: "Bar", LoadState: "loaded", ActiveState: "inactive", SubState: "dead", UnitFileState: "disabled"},
+		{Name: "town-os-package--repo-foo-1.0.service", Description: "Foo", LoadState: "loaded", ActiveState: "active", SubState: "running", UnitFileState: "enabled"},
+		{Name: "town-os-package--repo-bar-2.0.service", Description: "Bar", LoadState: "loaded", ActiveState: "inactive", SubState: "dead", UnitFileState: "disabled"},
 	}
 
 	units, err := c.ListUnits(context.TODO(), ListParams{})
@@ -4903,14 +4903,14 @@ func TestHTTPListUnits(t *testing.T) {
 		t.Fatalf("expected 2 units, got %d", len(units.Entries))
 	}
 
-	if units.Entries[0].Name != "foo.service" {
-		t.Fatalf("expected first unit %q, got %q", "foo.service", units.Entries[0].Name)
+	if units.Entries[0].Name != "town-os-package--repo-foo-1.0.service" {
+		t.Fatalf("expected first unit %q, got %q", "town-os-package--repo-foo-1.0.service", units.Entries[0].Name)
 	}
 	if units.Entries[0].UnitFileState != "enabled" {
 		t.Fatalf("expected first unit UnitFileState %q, got %q", "enabled", units.Entries[0].UnitFileState)
 	}
-	if units.Entries[1].Name != "bar.service" {
-		t.Fatalf("expected second unit %q, got %q", "bar.service", units.Entries[1].Name)
+	if units.Entries[1].Name != "town-os-package--repo-bar-2.0.service" {
+		t.Fatalf("expected second unit %q, got %q", "town-os-package--repo-bar-2.0.service", units.Entries[1].Name)
 	}
 	if units.Entries[1].UnitFileState != "disabled" {
 		t.Fatalf("expected second unit UnitFileState %q, got %q", "disabled", units.Entries[1].UnitFileState)
@@ -4927,6 +4927,32 @@ func TestHTTPListUnitsEmpty(t *testing.T) {
 
 	if len(units.Entries) != 0 {
 		t.Fatalf("expected 0 units, got %d", len(units.Entries))
+	}
+}
+
+func TestHTTPListUnitsFiltersNonPackageServices(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-8080-tcp.socket", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-upnp.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-upnp.timer", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-fwd-8080-tcp.service", ActiveState: "active"},
+		{Name: "sshd.service", ActiveState: "active"},
+		{Name: "town-os-systemcontroller.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit (only main package service), got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-nginx-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-nginx-1.0.service, got %s", units.Entries[0].Name)
 	}
 }
 
@@ -5718,9 +5744,9 @@ func TestHTTPListUnitsPagination(t *testing.T) {
 	c, sd := initSystemdTestClient(t)
 
 	sd.Units = []systemd.UnitStatus{
-		{Name: "a.service", Description: "A", LoadState: "loaded", ActiveState: "active", SubState: "running"},
-		{Name: "b.service", Description: "B", LoadState: "loaded", ActiveState: "active", SubState: "running"},
-		{Name: "c.service", Description: "C", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "town-os-package--repo-a-1.0.service", Description: "A", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "town-os-package--repo-b-1.0.service", Description: "B", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "town-os-package--repo-c-1.0.service", Description: "C", LoadState: "loaded", ActiveState: "active", SubState: "running"},
 	}
 
 	// First page: limit=2, offset=0
@@ -6100,9 +6126,9 @@ func TestHTTPListUnitsSearch(t *testing.T) {
 	c, sd := initSystemdTestClient(t)
 
 	sd.Units = []systemd.UnitStatus{
-		{Name: "nginx.service", Description: "NGINX web server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
-		{Name: "redis.service", Description: "Redis cache", LoadState: "loaded", ActiveState: "active", SubState: "running"},
-		{Name: "postgres.service", Description: "PostgreSQL database", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "town-os-package--repo-nginx-1.0.service", Description: "NGINX web server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "town-os-package--repo-redis-7.0.service", Description: "Redis cache", LoadState: "loaded", ActiveState: "active", SubState: "running"},
+		{Name: "town-os-package--repo-postgres-16.0.service", Description: "PostgreSQL database", LoadState: "loaded", ActiveState: "active", SubState: "running"},
 	}
 
 	// Search for "nginx"
@@ -6113,8 +6139,8 @@ func TestHTTPListUnitsSearch(t *testing.T) {
 	if len(page.Entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
 	}
-	if page.Entries[0].Name != "nginx.service" {
-		t.Fatalf("expected nginx.service, got %s", page.Entries[0].Name)
+	if page.Entries[0].Name != "town-os-package--repo-nginx-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-nginx-1.0.service, got %s", page.Entries[0].Name)
 	}
 
 	// Search with pagination

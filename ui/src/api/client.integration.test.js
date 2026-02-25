@@ -287,33 +287,33 @@ describe('SystemControllerClient integration', () => {
         undefined,
         undefined,
         undefined,
-        'town-os-systemcontroller',
+        'repo-test',
       )
       expect(result.entries.length).toBeGreaterThan(0)
-      const testserver = result.entries.find(
-        (u) => u.Name === 'town-os-systemcontroller.service',
+      const testunit = result.entries.find(
+        (u) => u.Name === 'town-os-package--repo-test-1.0.service',
       )
-      expect(testserver).toBeDefined()
-      expect(testserver.ActiveState).toBe('active')
+      expect(testunit).toBeDefined()
+      expect(testunit.ActiveState).toBe('active')
     })
 
     it('sets unit status', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-test.service', 'restart')
+      await client.setUnitStatus('town-os-package--repo-test-1.0.service', 'restart')
     })
 
     it('starts a unit', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.setUnitStatus('town-os-test.service', 'start')
+      await client.setUnitStatus('town-os-package--repo-test-1.0.service', 'start')
     })
 
     it('rejects enable action', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await expect(
-        client.setUnitStatus('town-os-test.service', 'enable'),
+        client.setUnitStatus('town-os-package--repo-test-1.0.service', 'enable'),
       ).rejects.toThrow()
     })
 
@@ -321,7 +321,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await expect(
-        client.setUnitStatus('town-os-test.service', 'disable'),
+        client.setUnitStatus('town-os-package--repo-test-1.0.service', 'disable'),
       ).rejects.toThrow()
     })
 
@@ -329,7 +329,7 @@ describe('SystemControllerClient integration', () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await expect(
-        client.setUnitStatus('town-os-test.service', 'invalid'),
+        client.setUnitStatus('town-os-package--repo-test-1.0.service', 'invalid'),
       ).rejects.toThrow()
     })
 

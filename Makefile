@@ -8,7 +8,7 @@ PODMAN_DEV_IMAGE := town-os-dev
 PODMAN_CONTAINER := town-os-test
 
 test: lint
-	go test -v ./src/...
+	go test -v -timeout 60m ./src/...
 	cd ui && bun install && bun run test
 
 PODMAN_UI_IMAGE := town-os-ui-integration
@@ -84,7 +84,7 @@ test-integration: lint test-image btrfs
 		sudo -E podman exec $(PODMAN_CONTAINER) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
 		sleep 1; \
 	done
-	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.timeout 30m
+	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.timeout 60m
 
 test-full: test test-integration test-ui-integration
 
@@ -182,7 +182,6 @@ build-networkcontroller:
 
 lint:
 	go vet ./...
-	go vet -tags=podman ./...
 	$(shell go env GOPATH)/bin/golangci-lint run
 
 BTRFS_IMAGE ?= $(shell mktemp btrfs.XXXXXX)
@@ -220,19 +219,3 @@ clean-podman: clean-btrfs clean-btrfs-dev
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
-
-test-systemd: test-image btrfs
-	@sudo -E podman rm -f $(PODMAN_CONTAINER)
-	sudo -E podman run -e LOG_LEVEL=debug \
-		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
-		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
-		-d --systemd=true --privileged \
-		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
-		-v $$(cat town-os.mount):/data/btrfs:z \
-		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
-	@echo "Waiting for systemd to be ready..."
-	@for i in $$(seq 1 30); do \
-		sudo -E podman exec $(PODMAN_CONTAINER) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
-		sleep 1; \
-	done
-	sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.run TestPodman

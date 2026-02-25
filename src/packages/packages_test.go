@@ -1072,7 +1072,7 @@ func TestCompileNotes(t *testing.T) {
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
-			Notes:       map[string]Note{"URL": {Value: "not-a-url", Type: NoteURL}},
+			Notes:       map[string]Note{"URL": {Value: "://missing-scheme", Type: NoteURL}},
 		}
 		_, err := input.CompileNotes(Responses{})
 		if err == nil {
