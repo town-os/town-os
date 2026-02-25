@@ -123,15 +123,19 @@ func ParsePackageIdentity(s string) (PackageIdentity, error) {
 }
 
 type InputPackageVolume struct {
-	Mountpoint string `yaml:"mountpoint"`
-	Quota      string `yaml:"quota,omitempty"`
-	Archive    string `yaml:"archive,omitempty"`
+	Mountpoint string  `yaml:"mountpoint"`
+	Quota      string  `yaml:"quota,omitempty"`
+	Archive    string  `yaml:"archive,omitempty"`
+	UID        *uint32 `yaml:"uid,omitempty"`
+	GID        *uint32 `yaml:"gid,omitempty"`
 }
 
 type PackageVolume struct {
-	Mountpoint string `json:"mountpoint"`
-	Quota      uint64 `json:"quota,omitempty"`
-	Archive    string `json:"archive,omitempty"`
+	Mountpoint string  `json:"mountpoint"`
+	Quota      uint64  `json:"quota,omitempty"`
+	Archive    string  `json:"archive,omitempty"`
+	UID        *uint32 `json:"uid,omitempty"`
+	GID        *uint32 `json:"gid,omitempty"`
 }
 
 type InputPackageArchive struct {
@@ -446,7 +450,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 			}
 		}
 
-		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive}
+		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, UID: vol.UID, GID: vol.GID}
 	}
 
 	p := &Package{

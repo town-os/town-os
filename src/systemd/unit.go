@@ -149,6 +149,22 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 		b.WriteString(fmt.Sprintf("ExecStartPre=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " ")))
 	}
 
+	// Volume names, sorted for deterministic output.
+	volNames := make([]string, 0, len(cfg.Volumes))
+	for name := range cfg.Volumes {
+		volNames = append(volNames, name)
+	}
+	sort.Strings(volNames)
+
+	// Chown volumes when UID/GID is set.
+	for _, name := range volNames {
+		vol := cfg.Volumes[name]
+		if vol.UID != nil && vol.GID != nil {
+			hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
+			b.WriteString(fmt.Sprintf("ExecStartPre=/bin/chown -R %d:%d %s\n", *vol.UID, *vol.GID, hostPath))
+		}
+	}
+
 	// ExecStart: podman run with network configuration.
 	b.WriteString(fmt.Sprintf("ExecStart=/usr/bin/podman run --name %s --systemd=true", containerName))
 
@@ -170,12 +186,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 		b.WriteString(fmt.Sprintf(" \\\n  -e %s=%s", k, cfg.Environment[k]))
 	}
 
-	// Volume mounts, sorted by volume name.
-	volNames := make([]string, 0, len(cfg.Volumes))
-	for name := range cfg.Volumes {
-		volNames = append(volNames, name)
-	}
-	sort.Strings(volNames)
+	// Volume mounts.
 	for _, name := range volNames {
 		vol := cfg.Volumes[name]
 		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
