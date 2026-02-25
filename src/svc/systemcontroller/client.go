@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -70,6 +71,9 @@ type Client interface {
 	GetSettings(ctx context.Context) (map[string]string, error)
 	GetSetting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
+
+	UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename string) (*ArchiveUploadResponse, error)
+	DownloadArchive(ctx context.Context, subvolumes []string, stopService string) (io.ReadCloser, error)
 
 	Ping(ctx context.Context) (*PingResponse, error)
 }
@@ -873,6 +877,82 @@ func (c *SystemdClient) SetSetting(ctx context.Context, key, value string) error
 	go pipeEncode(pw, SetSettingRequest{Key: key, Value: value})
 
 	return c.postClient(ctx, "settings/set", pr)
+}
+
+// --- Archive ---
+
+func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename string) (_ *ArchiveUploadResponse, err error) {
+	pr, pw := io.Pipe()
+
+	writer := multipart.NewWriter(pw)
+	go func() {
+		if err := writer.WriteField("subvolume", subvolume); err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		part, err := writer.CreateFormFile("archive", filename)
+		if err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, archiveReader); err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		pw.CloseWithError(writer.Close())
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.route("storage/upload-archive"), pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: POST storage/upload-archive: %w", ErrNewRequest, err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if c.Token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	}
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: POST storage/upload-archive: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "POST", "storage/upload-archive")
+	}
+
+	var result ArchiveUploadResponse
+	return &result, json.NewDecoder(resp.Body).Decode(&result)
+}
+
+func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolumes []string, stopService string) (_ io.ReadCloser, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, DownloadArchiveRequest{Subvolumes: subvolumes, StopService: stopService})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.route("storage/download-archive"), pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: POST storage/download-archive: %w", ErrNewRequest, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	}
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: POST storage/download-archive: %w", ErrHTTPRequest, err)
+	}
+
+	if resp.StatusCode != 200 {
+		defer func() {
+			err = errors.Join(err, resp.Body.Close())
+		}()
+		return nil, readProblemDetail(resp, "POST", "storage/download-archive")
+	}
+
+	return resp.Body, nil
 }
 
 // --- Status ---

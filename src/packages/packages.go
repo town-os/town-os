@@ -74,11 +74,19 @@ func ParsePackageIdentity(s string) (PackageIdentity, error) {
 type InputPackageVolume struct {
 	Mountpoint string `yaml:"mountpoint"`
 	Quota      string `yaml:"quota,omitempty"`
+	Archive    string `yaml:"archive,omitempty"`
 }
 
 type PackageVolume struct {
 	Mountpoint string `json:"mountpoint"`
 	Quota      uint64 `json:"quota,omitempty"`
+	Archive    string `json:"archive,omitempty"`
+}
+
+type InputPackageArchive struct {
+	Image     string `yaml:"image"`
+	Directory string `yaml:"directory"`
+	Volume    string `yaml:"volume"`
 }
 
 type PackageNetwork struct {
@@ -115,6 +123,7 @@ type InputPackage struct {
 	Notes       map[string]string             `yaml:"notes" json:"notes,omitempty"`
 	Description string                        `yaml:"description" json:"description,omitempty"`
 	Supplies    []string                      `yaml:"supplies" json:"supplies,omitempty"`
+	Archives    []InputPackageArchive         `yaml:"archives,omitempty"`
 }
 
 // CompileNotes applies template substitution to the Notes map using the
@@ -194,6 +203,7 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		pv := i.Volumes[name]
 		pv.Mountpoint = applyTemplate(pv.Mountpoint, iv, response)
 		pv.Quota = applyTemplate(pv.Quota, iv, response)
+		pv.Archive = applyTemplate(pv.Archive, iv, response)
 		i.Volumes[name] = pv
 	}
 }
@@ -293,6 +303,12 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, err
 	}
 
+	for idx, archive := range i.Archives {
+		if err := ValidateArchiveSpec(archive, i.Volumes); err != nil {
+			return nil, fmt.Errorf("archives[%d]: %w", idx, err)
+		}
+	}
+
 	var verrs []ResponseValidationError
 
 	// Check for unknown response keys (question does not exist).
@@ -374,7 +390,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 			}
 		}
 
-		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota}
+		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive}
 	}
 
 	p := &Package{

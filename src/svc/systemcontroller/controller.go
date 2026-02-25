@@ -36,13 +36,16 @@ const (
 // isReservedFilesystem returns true if the given name is one of the
 // system-managed volume prefixes that users must not create, modify, or delete.
 func isReservedFilesystem(name string) bool {
-	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix {
+	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume {
 		return true
 	}
 	if strings.HasPrefix(name, fmt.Sprintf("%s/", PackagesVolumePrefix)) {
 		return true
 	}
 	if strings.HasPrefix(name, fmt.Sprintf("%s/", UninstalledVolumePrefix)) {
+		return true
+	}
+	if strings.HasPrefix(name, fmt.Sprintf("%s/", ArchivesSubvolume)) {
 		return true
 	}
 	return false
@@ -53,7 +56,12 @@ func isReservedFilesystem(name string) bool {
 // display name with internal prefixes stripped. Root subvolumes (installed,
 // uninstalled, empty name) return empty state to signal they should be skipped.
 func classifyFilesystem(name string) (state, displayName string) {
-	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix {
+	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume {
+		return "", name
+	}
+
+	archivesPrefix := fmt.Sprintf("%s/", ArchivesSubvolume)
+	if strings.HasPrefix(name, archivesPrefix) {
 		return "", name
 	}
 
@@ -229,6 +237,16 @@ type PackageListEntry struct {
 	Supplies         []string `json:"supplies,omitempty"`
 	Installed        bool     `json:"installed"`
 	InstalledVersion string   `json:"installed_version,omitempty"`
+}
+
+type ArchiveUploadResponse struct {
+	NeedsRestart bool   `json:"needs_restart"`
+	Message      string `json:"message"`
+}
+
+type DownloadArchiveRequest struct {
+	Subvolumes  []string `json:"subvolumes"`
+	StopService string   `json:"stop_service,omitempty"`
 }
 
 type SetStatusRequest struct {
@@ -1218,6 +1236,16 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
+	// Process auto-archives from package definition.
+	if len(ip.Archives) > 0 {
+		for _, archive := range ip.Archives {
+			volPath := packageVolumePath(repoName, req.Name, req.Version, archive.Volume)
+			if err := s.extractFromContainerImage(ctx, archive.Image, archive.Directory, volPath); err != nil {
+				slog.Debug(fmt.Sprintf("auto-archive %s -> %s: %v", archive.Image, archive.Volume, err))
+			}
+		}
+	}
+
 	if err := inst.Install(repoName, req.Name, req.Version, req.Responses); err != nil {
 		return err
 	}
@@ -2179,7 +2207,8 @@ func (s *SystemControllerHandlers) getSetting(c *echo.Context) error {
 // and should be normalized through ParseBytes so that human-readable
 // strings like "500GB" are stored as numeric byte values.
 var byteValueSettings = map[string]bool{
-	"default_quota": true,
+	"default_quota":    true,
+	"max_archive_size": true,
 }
 
 func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
@@ -2418,6 +2447,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/settings", s.getSettings, s.requireAdmin)
 	e.Add("POST", "/settings/get", s.getSetting, s.requireAdmin)
 	e.Add("POST", "/settings/set", s.setSetting, s.requireAdmin)
+	e.Add("POST", "/storage/upload-archive", s.uploadArchive, s.requireAdmin)
+	e.Add("POST", "/storage/download-archive", s.downloadArchive, s.requireAdmin)
 }
 
 // --- Server infrastructure ---

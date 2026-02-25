@@ -62,7 +62,7 @@ func reconcileDefaultQuota(mgr account.SettingsManager) uint64 {
 func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	// Ensure root subvolumes exist for volume management.
 	if cfg.Storage != nil {
-		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix} {
+		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume} {
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: root}); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile: create root volume %s: %v", root, err))
 			}
@@ -142,6 +142,22 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 				if err := cfg.Storage.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 					return fmt.Errorf("storage volume %s: %w", fsName, err)
+				}
+			}
+		}
+
+		// Auto-archive: if the package defines archives, extract data into
+		// empty volumes during reconciliation.
+		if len(ip.Archives) > 0 {
+			for _, archive := range ip.Archives {
+				volPath := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, archive.Volume)
+				targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
+				entries, err := os.ReadDir(targetPath)
+				if err != nil || len(entries) > 0 {
+					continue
+				}
+				if err := reconcileExtractFromImage(ctx, archive.Image, archive.Directory, targetPath); err != nil {
+					slog.Debug(fmt.Sprintf("reconcile auto-archive %s -> %s: %v", archive.Image, archive.Volume, err))
 				}
 			}
 		}

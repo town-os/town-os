@@ -55,5 +55,7 @@ var RouteActions = map[string]string{
 	"/account/disable":        "disable account",
 	"/account/authenticate":   "authenticate",
 	"/account/session/revoke": "revoke session",
-	"/settings/set":           "update setting",
+	"/settings/set":              "update setting",
+	"/storage/upload-archive":    "upload archive",
+	"/storage/download-archive":  "download archive",
 }

@@ -12,6 +12,7 @@ var (
 	ErrInvalidQuestionName   = fmt.Errorf("invalid question name")
 	ErrInvalidMountpoint     = fmt.Errorf("invalid mountpoint")
 	ErrInvalidVolumeName     = fmt.Errorf("invalid volume name")
+	ErrInvalidArchiveSpec    = fmt.Errorf("invalid archive spec")
 )
 
 var (
@@ -119,6 +120,22 @@ func ValidateMountpoint(path string) error {
 func ValidateVolumeName(name string) error {
 	if !volumeNameRegexp.MatchString(name) {
 		return fmt.Errorf("%w: %q", ErrInvalidVolumeName, name)
+	}
+	return nil
+}
+
+// ValidateArchiveSpec validates an InputPackageArchive entry: the image must
+// be non-empty, the directory must be an absolute path, and the volume must
+// reference an existing volume in the package definition.
+func ValidateArchiveSpec(archive InputPackageArchive, volumes map[string]InputPackageVolume) error {
+	if archive.Image == "" {
+		return fmt.Errorf("%w: image must not be empty", ErrInvalidArchiveSpec)
+	}
+	if !strings.HasPrefix(archive.Directory, "/") {
+		return fmt.Errorf("%w: directory %q must be an absolute path", ErrInvalidArchiveSpec, archive.Directory)
+	}
+	if _, ok := volumes[archive.Volume]; !ok {
+		return fmt.Errorf("%w: volume %q not found in package volumes", ErrInvalidArchiveSpec, archive.Volume)
 	}
 	return nil
 }

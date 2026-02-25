@@ -190,6 +190,52 @@ func TestValidateVolumeName(t *testing.T) {
 	}
 }
 
+func TestValidateArchiveSpec(t *testing.T) {
+	volumes := map[string]InputPackageVolume{
+		"data": {Mountpoint: "/data"},
+	}
+
+	t.Run("valid spec", func(t *testing.T) {
+		spec := InputPackageArchive{Image: "nginx:latest", Directory: "/usr/share/nginx/html", Volume: "data"}
+		if err := ValidateArchiveSpec(spec, volumes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing image", func(t *testing.T) {
+		spec := InputPackageArchive{Image: "", Directory: "/data", Volume: "data"}
+		err := ValidateArchiveSpec(spec, volumes)
+		if err == nil {
+			t.Fatal("expected error for missing image")
+		}
+		if !errors.Is(err, ErrInvalidArchiveSpec) {
+			t.Fatalf("expected ErrInvalidArchiveSpec, got %v", err)
+		}
+	})
+
+	t.Run("non-absolute directory", func(t *testing.T) {
+		spec := InputPackageArchive{Image: "nginx:latest", Directory: "relative/path", Volume: "data"}
+		err := ValidateArchiveSpec(spec, volumes)
+		if err == nil {
+			t.Fatal("expected error for non-absolute directory")
+		}
+		if !errors.Is(err, ErrInvalidArchiveSpec) {
+			t.Fatalf("expected ErrInvalidArchiveSpec, got %v", err)
+		}
+	})
+
+	t.Run("unknown volume", func(t *testing.T) {
+		spec := InputPackageArchive{Image: "nginx:latest", Directory: "/data", Volume: "nonexistent"}
+		err := ValidateArchiveSpec(spec, volumes)
+		if err == nil {
+			t.Fatal("expected error for unknown volume")
+		}
+		if !errors.Is(err, ErrInvalidArchiveSpec) {
+			t.Fatalf("expected ErrInvalidArchiveSpec, got %v", err)
+		}
+	})
+}
+
 func TestCompileNormalizesImage(t *testing.T) {
 	tests := map[string]struct {
 		image string

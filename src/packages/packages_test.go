@@ -832,6 +832,95 @@ func TestPackageCompileCommand(t *testing.T) {
 	}
 }
 
+func TestCompileArchiveFieldPropagation(t *testing.T) {
+	t.Run("archive field propagated through compile", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Archive: "myarchive.tar.gz"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Archive != "myarchive.tar.gz" {
+			t.Fatalf("expected archive myarchive.tar.gz, got %s", p.Volumes["data"].Archive)
+		}
+	})
+
+	t.Run("archive field template substitution", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Archive: "@archivename@"}},
+			Questions:   map[string]Question{"archivename": {Query: "Archive file?"}},
+		}
+		p, err := input.Compile(Responses{"archivename": "custom.tar.gz"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Archive != "custom.tar.gz" {
+			t.Fatalf("expected archive custom.tar.gz, got %s", p.Volumes["data"].Archive)
+		}
+	})
+
+	t.Run("no archive field is empty", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Archive != "" {
+			t.Fatalf("expected empty archive, got %s", p.Volumes["data"].Archive)
+		}
+	})
+}
+
+func TestCompileArchivesField(t *testing.T) {
+	t.Run("archives parsed and validated", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Archives: []InputPackageArchive{
+				{Image: "nginx:latest", Directory: "/usr/share/nginx/html", Volume: "data"},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("archives with invalid volume rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Archives: []InputPackageArchive{
+				{Image: "nginx:latest", Directory: "/data", Volume: "nonexistent"},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for invalid archive volume reference")
+		}
+	})
+}
+
 func TestCompileNotes(t *testing.T) {
 	t.Run("templates notes with responses", func(t *testing.T) {
 		input := InputPackage{

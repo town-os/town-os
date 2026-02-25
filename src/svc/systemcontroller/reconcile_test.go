@@ -166,8 +166,8 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 6 {
-		t.Fatalf("expected 6 filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 7 {
+		t.Fatalf("expected 7 filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -175,17 +175,20 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	if fs[1].Name != "uninstalled" {
 		t.Fatalf("expected root subvolume uninstalled, got %s", fs[1].Name)
 	}
-	if fs[2].Name != "installed/repo-a" {
-		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[2].Name)
+	if fs[2].Name != "archives" {
+		t.Fatalf("expected root subvolume archives, got %s", fs[2].Name)
 	}
-	if fs[3].Name != "installed/repo-a/nginx" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[3].Name)
+	if fs[3].Name != "installed/repo-a" {
+		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[3].Name)
 	}
-	if fs[4].Name != "installed/repo-a/nginx/1.0" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[4].Name)
+	if fs[4].Name != "installed/repo-a/nginx" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[4].Name)
 	}
-	if fs[5].Name != "installed/repo-a/nginx/1.0/data" {
-		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[5].Name)
+	if fs[5].Name != "installed/repo-a/nginx/1.0" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[5].Name)
+	}
+	if fs[6].Name != "installed/repo-a/nginx/1.0/data" {
+		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[6].Name)
 	}
 }
 
@@ -634,14 +637,17 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 2 {
-		t.Fatalf("expected 2 root filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 3 {
+		t.Fatalf("expected 3 root filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
 	}
 	if fs[1].Name != "uninstalled" {
 		t.Fatalf("expected root subvolume uninstalled, got %s", fs[1].Name)
+	}
+	if fs[2].Name != "archives" {
+		t.Fatalf("expected root subvolume archives, got %s", fs[2].Name)
 	}
 
 	// No packages installed, so no systemd calls should have been made.

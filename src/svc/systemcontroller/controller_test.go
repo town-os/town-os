@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -8639,5 +8640,136 @@ volumes:
 	}
 	if foundRename {
 		t.Fatal("expected no SubvolRename when ImportFromVersion is explicitly set")
+	}
+}
+
+// --- Archive tests ---
+
+func TestHTTPUploadArchiveReservedSubvolume(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock})
+	t.Cleanup(ts.Close)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("subvolume", "installed/repo/pkg/1.0/data")
+	part, _ := writer.CreateFormFile("archive", "test.tar.gz")
+	_, _ = part.Write([]byte("fake"))
+	_ = writer.Close()
+
+	req, _ := http.NewRequest("POST", testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := ts.Server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Should fail with reserved filesystem error.
+	if resp.StatusCode == 200 {
+		t.Fatal("expected error for reserved subvolume, got 200")
+	}
+}
+
+func TestHTTPDownloadArchiveReservedSubvolume(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock})
+	t.Cleanup(ts.Close)
+
+	body, _ := json.Marshal(DownloadArchiveRequest{Subvolumes: []string{"installed/repo/pkg/1.0/data"}})
+	req, _ := http.NewRequest("POST", testRoute(t, ts.Server.URL, "/storage/download-archive"), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == 200 {
+		t.Fatal("expected error for reserved subvolume, got 200")
+	}
+}
+
+func TestMockClientUploadArchive(t *testing.T) {
+	m := InitMockClient()
+	result, err := m.UploadArchive(context.TODO(), "my-vol", strings.NewReader("fake"), "test.tar.gz")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.NeedsRestart {
+		t.Fatal("expected NeedsRestart to be true")
+	}
+
+	calls := m.GetCalls()
+	found := false
+	for _, c := range calls {
+		if c.Method == "UploadArchive" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected UploadArchive call logged")
+	}
+}
+
+func TestMockClientUploadArchiveError(t *testing.T) {
+	m := InitMockClient()
+	m.UploadArchiveErr = fmt.Errorf("upload failed")
+	_, err := m.UploadArchive(context.TODO(), "my-vol", strings.NewReader("fake"), "test.tar.gz")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestMockClientDownloadArchive(t *testing.T) {
+	m := InitMockClient()
+	reader, err := m.DownloadArchive(context.TODO(), []string{"my-vol"}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	data, _ := io.ReadAll(reader)
+	if len(data) == 0 {
+		t.Fatal("expected non-empty data")
+	}
+}
+
+func TestMockClientDownloadArchiveError(t *testing.T) {
+	m := InitMockClient()
+	m.DownloadArchiveErr = fmt.Errorf("download failed")
+	_, err := m.DownloadArchive(context.TODO(), []string{"my-vol"}, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestHTTPSettingsIncludesArchiveDefaults(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+	settings, err := c.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+
+	if _, ok := settings["max_archive_size"]; !ok {
+		t.Fatal("expected max_archive_size in settings")
+	}
+	if _, ok := settings["archive_unpack_timeout"]; !ok {
+		t.Fatal("expected archive_unpack_timeout in settings")
+	}
+}
+
+func TestHTTPSettingsMaxArchiveSizeHumanReadable(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+	if err := c.SetSetting(context.TODO(), "max_archive_size", "100MB"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "max_archive_size")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "104857600" {
+		t.Fatalf("expected 104857600, got %q", val)
 	}
 }

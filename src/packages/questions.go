@@ -28,6 +28,7 @@ const (
 	Hostname OutputType = "hostname"
 	Volume   OutputType = "volume"
 	Bytes    OutputType = "bytes"
+	Archive  OutputType = "archive"
 )
 
 func (o OutputType) Output(answer string) (string, error) {
@@ -61,6 +62,11 @@ func (o OutputType) Output(answer string) (string, error) {
 			return "", err
 		}
 		return fmt.Sprintf("%d", b), nil
+	case Archive:
+		if answer == "" {
+			return "", ErrInvalidType
+		}
+		return answer, nil
 	default:
 		return "", ErrInvalidType
 	}

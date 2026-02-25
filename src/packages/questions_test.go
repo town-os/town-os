@@ -217,6 +217,23 @@ func TestOutput(t *testing.T) {
 			err:    true,
 		},
 
+		// Archive tests
+		"archive_nonempty": {
+			output:   Archive,
+			input:    "myfile.tar.gz",
+			expected: "myfile.tar.gz",
+		},
+		"archive_skip": {
+			output:   Archive,
+			input:    "skip",
+			expected: "skip",
+		},
+		"archive_empty": {
+			output: Archive,
+			input:  "",
+			err:    true,
+		},
+
 		// Invalid output type
 		"invalid_type": {
 			output: OutputType("bogus"),

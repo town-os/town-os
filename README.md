@@ -109,6 +109,67 @@ The dev and integration test environments use separate btrfs volumes so they can
 | ----------- | --------------------------------- |
 | `make lint` | Run `go vet` and `golangci-lint`. |
 
+## Archive Upload / Download
+
+Subvolume data can be populated from archive files or container images, and exported on demand.
+
+### Archive Upload API
+
+`POST /storage/upload-archive` (admin required) accepts a multipart form with:
+
+- `subvolume` -- target subvolume path (must not be a reserved filesystem)
+- `archive` -- archive file (supported formats: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, `.tar`, `.zip`, `.7z`)
+
+The archive is unpacked into the target subvolume. A restart of the associated service is typically needed afterward. The response includes `{"needs_restart": true}`.
+
+The maximum upload size is controlled by the `max_archive_size` setting (default 20 MB). Unpacking is bounded by the `archive_unpack_timeout` setting (default 120 seconds). Both can be changed via the settings API and accept human-readable byte values (e.g. `100MB`, `1GB`).
+
+### Archive Download API
+
+`POST /storage/download-archive` (admin required) accepts a JSON body:
+
+```json
+{
+  "subvolumes": ["installed/repo/pkg/1.0/data"],
+  "stop_service": "pkg.service"
+}
+```
+
+Returns a 7z archive of the requested subvolume contents. If `stop_service` is set, the unit is stopped before archiving and restarted afterward.
+
+### Auto-Archive from Container Images
+
+Package definitions can include an `archives` section to automatically populate volumes from container images at install time:
+
+```yaml
+archives:
+  - image: docker.io/library/nginx:latest
+    directory: /usr/share/nginx/html
+    volume: data
+```
+
+If the target volume is empty during install or reconcile, `podman` is used to pull the image, create a temporary container, and copy the specified directory into the volume.
+
+### Archive Question Type
+
+Packages can prompt users to upload an archive during installation using the `archive` output type in questions:
+
+```yaml
+questions:
+  backup:
+    query: "Upload a backup archive (or type 'skip'):"
+    output: archive
+```
+
+The response must be non-empty. `skip` is accepted as a valid value.
+
+### Settings
+
+| Key                      | Default    | Description                          |
+| ------------------------ | ---------- | ------------------------------------ |
+| `max_archive_size`       | `20971520` | Maximum upload size in bytes (20 MB) |
+| `archive_unpack_timeout` | `120`      | Unpack timeout in seconds            |
+
 ### License
 
 GNU Affero GPL 3.0

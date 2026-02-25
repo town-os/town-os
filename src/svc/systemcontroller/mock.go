@@ -1,8 +1,10 @@
 package systemcontroller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -64,7 +66,11 @@ type MockClient struct {
 	AuthToken          string
 	AuditEntries       []account.AuditEntry
 	ListAuditErr       error
-	Settings           map[string]string
+	Settings             map[string]string
+	UploadArchiveErr     error
+	UploadArchiveResult  *ArchiveUploadResponse
+	DownloadArchiveErr   error
+	DownloadArchiveData  []byte
 }
 
 type MockCall struct {
@@ -912,6 +918,39 @@ func (m *MockClient) SetSetting(_ context.Context, key, value string) error {
 }
 
 // --- Status ---
+
+func (m *MockClient) UploadArchive(_ context.Context, subvolume string, archiveReader io.Reader, filename string) (*ArchiveUploadResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "UploadArchive", Args: []any{subvolume, filename}})
+
+	if m.UploadArchiveErr != nil {
+		return nil, m.UploadArchiveErr
+	}
+
+	if m.UploadArchiveResult != nil {
+		return m.UploadArchiveResult, nil
+	}
+
+	return &ArchiveUploadResponse{NeedsRestart: true, Message: "archive unpacked successfully"}, nil
+}
+
+func (m *MockClient) DownloadArchive(_ context.Context, subvolumes []string, stopService string) (io.ReadCloser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "DownloadArchive", Args: []any{subvolumes, stopService}})
+
+	if m.DownloadArchiveErr != nil {
+		return nil, m.DownloadArchiveErr
+	}
+
+	data := m.DownloadArchiveData
+	if data == nil {
+		data = []byte("mock-7z-data")
+	}
+
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
 
 func (m *MockClient) Ping(_ context.Context) (*PingResponse, error) {
 	m.mu.Lock()
