@@ -167,6 +167,8 @@ type InstallRequest struct {
 	Responses         packages.Responses `json:"responses"`
 	ReuseVolumes      bool               `json:"reuse_volumes"`
 	ImportFromVersion string             `json:"import_from_version,omitempty"`
+	SkipResponseReuse bool               `json:"skip_response_reuse,omitempty"`
+	Instance          string             `json:"instance,omitempty"`
 }
 
 type UninstallRequest struct {
@@ -174,12 +176,18 @@ type UninstallRequest struct {
 	Name         string `json:"name"`
 	Version      string `json:"version"`
 	PurgeVolumes bool   `json:"purge_volumes"`
+	Instance     string `json:"instance,omitempty"`
 }
 
 type GetResponsesRequest struct {
 	Repo    string `json:"repo"`
 	Name    string `json:"name"`
 	Version string `json:"version"`
+}
+
+type ListChildrenRequest struct {
+	Repo string `json:"repo"`
+	Name string `json:"name"`
 }
 
 type InstalledInfoResponse struct {
@@ -201,11 +209,13 @@ type InstallPreviewRequest struct {
 }
 
 type VolumePreview struct {
-	Name       string `json:"name"`
-	Mountpoint string `json:"mountpoint"`
-	Quota      string `json:"quota,omitempty"`
-	Migrated   bool   `json:"migrated"`
-	Fresh      bool   `json:"fresh"`
+	Name       string  `json:"name"`
+	Mountpoint string  `json:"mountpoint"`
+	Quota      string  `json:"quota,omitempty"`
+	UID        *uint32 `json:"uid,omitempty"`
+	GID        *uint32 `json:"gid,omitempty"`
+	Migrated   bool    `json:"migrated"`
+	Fresh      bool    `json:"fresh"`
 }
 
 type PortPreview struct {
@@ -227,6 +237,7 @@ type InstallPreview struct {
 	DiskUsage        *storage.DiskUsage `json:"disk_usage,omitempty"`
 	TotalQuota       uint64             `json:"total_quota"`
 	QuotaExceedsDisk bool               `json:"quota_exceeds_disk"`
+	Summary          string             `json:"summary"`
 }
 
 type PackageListEntry struct {
@@ -237,6 +248,7 @@ type PackageListEntry struct {
 	Supplies         []string `json:"supplies,omitempty"`
 	Installed        bool     `json:"installed"`
 	InstalledVersion string   `json:"installed_version,omitempty"`
+	Featured         bool     `json:"featured,omitempty"`
 }
 
 type ArchiveUploadResponse struct {
@@ -780,6 +792,17 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 		}
 	}
 
+	// Build a set of featured packages per repo.
+	featuredSet := map[string]bool{}
+	groups, grpErr := rr.ListPackagesByRepo()
+	if grpErr == nil {
+		for _, g := range groups {
+			for _, f := range g.Featured {
+				featuredSet[fmt.Sprintf("%s/%s", g.Repo, f)] = true
+			}
+		}
+	}
+
 	// Build structured entries with description/supplies from manifest.
 	entries := make([]PackageListEntry, 0, len(pkgStrings))
 	for _, pkg := range pkgStrings {
@@ -796,6 +819,7 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 			Version:          pi.Version,
 			Installed:        isInstalled,
 			InstalledVersion: instVer,
+			Featured:         featuredSet[key],
 		}
 
 		// Try to load manifest for description/supplies.
@@ -860,6 +884,10 @@ func (s *SystemControllerHandlers) listPackageVersions(c *echo.Context) error {
 	}
 
 	return c.JSON(200, versions)
+}
+
+func (s *SystemControllerHandlers) listTimezones(c *echo.Context) error {
+	return c.JSON(200, packages.ListTimezones())
 }
 
 func (s *SystemControllerHandlers) getPackageQuestions(c *echo.Context) error {
@@ -979,6 +1007,8 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 			Name:       volName,
 			Mountpoint: vol.Mountpoint,
 			Quota:      vol.Quota,
+			UID:        vol.UID,
+			GID:        vol.GID,
 			Migrated:   migrated,
 			Fresh:      fresh,
 		})
@@ -1077,7 +1107,59 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 		preview.InternalPorts = []PortPreview{}
 	}
 
+	preview.Summary = buildInstallSummary(&preview)
+
 	return c.JSON(200, preview)
+}
+
+// buildInstallSummary generates a human-readable summary of the install operation.
+func buildInstallSummary(p *InstallPreview) string {
+	var parts []string
+
+	if p.UpgradingFrom != "" {
+		parts = append(parts, fmt.Sprintf("Upgrade %s from %s to %s", p.Name, p.UpgradingFrom, p.Version))
+	} else {
+		parts = append(parts, fmt.Sprintf("Install %s %s", p.Name, p.Version))
+	}
+
+	parts = append(parts, fmt.Sprintf("Image: %s", p.Image))
+
+	if len(p.Volumes) > 0 {
+		fresh := 0
+		migrated := 0
+		for _, v := range p.Volumes {
+			if v.Migrated {
+				migrated++
+			}
+			if v.Fresh {
+				fresh++
+			}
+		}
+		volParts := []string{fmt.Sprintf("%d volume(s)", len(p.Volumes))}
+		if fresh > 0 {
+			volParts = append(volParts, fmt.Sprintf("%d new", fresh))
+		}
+		if migrated > 0 {
+			volParts = append(volParts, fmt.Sprintf("%d migrated", migrated))
+		}
+		parts = append(parts, strings.Join(volParts, ", "))
+	} else {
+		parts = append(parts, "No volumes")
+	}
+
+	if len(p.ExternalPorts) > 0 {
+		portStrs := make([]string, len(p.ExternalPorts))
+		for i, port := range p.ExternalPorts {
+			portStrs[i] = fmt.Sprintf("%d->%d", port.External, port.Internal)
+		}
+		parts = append(parts, fmt.Sprintf("External ports: %s", strings.Join(portStrs, ", ")))
+	}
+
+	if p.HasQuestions {
+		parts = append(parts, "Configuration required")
+	}
+
+	return strings.Join(parts, ". ") + "."
 }
 
 func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
@@ -1098,8 +1180,16 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
+	// When Instance is set, the effective name becomes parentName-instance.
+	parentName := req.Name
+	effectiveName := req.Name
+	if req.Instance != "" {
+		effectiveName = fmt.Sprintf("%s-%s", parentName, req.Instance)
+	}
+
 	// Load and compile the package to resolve volume definitions.
-	ip, err := rr.LoadPackage(repoName, req.Name, req.Version)
+	// Always load from the parent package name.
+	ip, err := rr.LoadPackage(repoName, parentName, req.Version)
 	if err != nil {
 		return err
 	}
@@ -1119,7 +1209,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		if err != nil {
 			continue
 		}
-		if pi.Repo == repoName && pi.Name == req.Name {
+		if pi.Repo == repoName && pi.Name == effectiveName {
 			activeVersion = pi.Version
 			break
 		}
@@ -1127,7 +1217,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	// Carry forward responses from the active version during upgrades.
 	if activeVersion != "" && activeVersion != req.Version {
-		oldResponses, err := inst.GetResponses(repoName, req.Name, activeVersion)
+		oldResponses, err := inst.GetResponses(repoName, effectiveName, activeVersion)
 		if err == nil {
 			for key, val := range oldResponses {
 				// Only carry forward if the question exists in the new version
@@ -1138,6 +1228,80 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 							req.Responses = packages.Responses{}
 						}
 						req.Responses[key] = val
+					}
+				}
+			}
+		}
+	}
+
+	// Load last responses when reusing volumes from a previous uninstall.
+	if req.ReuseVolumes && !req.SkipResponseReuse {
+		lastResp, err := inst.LoadLastResponses(repoName, effectiveName)
+		if err == nil && len(lastResp) > 0 {
+			for key, val := range lastResp {
+				if _, exists := ip.Questions[key]; exists {
+					if _, provided := req.Responses[key]; !provided {
+						if req.Responses == nil {
+							req.Responses = packages.Responses{}
+						}
+						req.Responses[key] = val
+					}
+				}
+			}
+		}
+	}
+
+	// Auto-generate port/hostname values for empty or "auto" responses.
+	{
+		excludedPorts := map[uint16]bool{}
+		if inst != nil {
+			allInstalled, _ := inst.ListInstalled()
+			for _, pkg := range allInstalled {
+				pi, err := packages.ParsePackageIdentity(pkg)
+				if err != nil {
+					continue
+				}
+				resp, err := inst.GetResponses(pi.Repo, pi.Name, pi.Version)
+				if err != nil {
+					continue
+				}
+				for _, v := range resp {
+					if p, err := strconv.ParseUint(v, 10, 16); err == nil && p > 0 {
+						excludedPorts[uint16(p)] = true
+					}
+				}
+			}
+		}
+
+		for name, q := range ip.Questions {
+			resp := req.Responses[name]
+			if resp != "" && resp != "auto" {
+				continue
+			}
+
+			switch q.Type {
+			case packages.Port:
+				port, err := packages.FindAvailablePort(excludedPorts)
+				if err != nil {
+					continue
+				}
+				if req.Responses == nil {
+					req.Responses = packages.Responses{}
+				}
+				req.Responses[name] = strconv.FormatUint(uint64(port), 10)
+				excludedPorts[port] = true
+			case packages.Hostname:
+				if req.Responses == nil {
+					req.Responses = packages.Responses{}
+				}
+				req.Responses[name] = packages.GenerateHostname(effectiveName)
+			default:
+				if resp == "auto" || resp == "" {
+					if q.Default != "" {
+						if req.Responses == nil {
+							req.Responses = packages.Responses{}
+						}
+						req.Responses[name] = q.Default
 					}
 				}
 			}
@@ -1155,14 +1319,14 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	if activeVersion != "" {
 		// Stop and remove all systemd units for the currently active version.
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
-			if err := s.uninstallPackageUnits(ctx, sd, repoName, req.Name, activeVersion); err != nil {
+			if err := s.uninstallPackageUnits(ctx, sd, repoName, effectiveName, activeVersion); err != nil {
 				return err
 			}
 		}
 
 		if activeVersion == req.Version {
 			// Same version reinstall: remove the install record (but not volumes).
-			if err := inst.Uninstall(repoName, req.Name, req.Version); err != nil {
+			if err := inst.Uninstall(repoName, effectiveName, req.Version); err != nil {
 				return err
 			}
 		} else {
@@ -1171,19 +1335,19 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			// is created successfully.
 			if st := s.Controller.GetStorage(); st != nil && req.ImportFromVersion == "" {
 				// Load old package to discover its volume names.
-				oldIP, loadErr := rr.LoadPackage(repoName, req.Name, activeVersion)
+				oldIP, loadErr := rr.LoadPackage(repoName, parentName, activeVersion)
 				if loadErr == nil {
 					for volName := range compiled.Volumes {
 						if _, exists := oldIP.Volumes[volName]; exists {
-							src := packageVolumePath(repoName, req.Name, activeVersion, volName)
-							dst := packageVolumePath(repoName, req.Name, req.Version, volName)
+							src := packageVolumePath(repoName, effectiveName, activeVersion, volName)
+							dst := packageVolumePath(repoName, effectiveName, req.Version, volName)
 							if err := st.RenameFilesystem(src, dst); err != nil {
 								slog.Debug(fmt.Sprintf("upgrade move volume %s -> %s: %v", src, dst, err))
 							}
 						}
 					}
 				} else {
-					slog.Debug(fmt.Sprintf("upgrade: load old package %s/%s@%s: %v", repoName, req.Name, activeVersion, loadErr))
+					slog.Debug(fmt.Sprintf("upgrade: load old package %s/%s@%s: %v", repoName, parentName, activeVersion, loadErr))
 				}
 			}
 		}
@@ -1193,8 +1357,8 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	if st := s.Controller.GetStorage(); st != nil {
 		// If reusing volumes, rename uninstalled/<repo>/<name> → installed/<repo>/<name>.
 		if req.ReuseVolumes {
-			src := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repoName, req.Name)
-			dst := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repoName, req.Name)
+			src := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repoName, effectiveName)
+			dst := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repoName, effectiveName)
 			if err := st.RenameFilesystem(src, dst); err != nil {
 				slog.Debug(fmt.Sprintf("reuse volumes: rename %s -> %s: %v", src, dst, err))
 			}
@@ -1206,11 +1370,11 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			if quota == 0 {
 				quota = defQuota
 			}
-			fsName := packageVolumePath(repoName, req.Name, req.Version, volName)
+			fsName := packageVolumePath(repoName, effectiveName, req.Version, volName)
 
 			if req.ImportFromVersion != "" {
 				// Import from another version: snapshot from the source version's volume.
-				srcVol := packageVolumePath(repoName, req.Name, req.ImportFromVersion, volName)
+				srcVol := packageVolumePath(repoName, effectiveName, req.ImportFromVersion, volName)
 				if err := st.SnapshotFilesystem(srcVol, fsName); err != nil {
 					slog.Debug(fmt.Sprintf("import snapshot %s -> %s: %v", srcVol, fsName, err))
 					// Fall through to create if snapshot fails.
@@ -1246,19 +1410,42 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
-	if err := inst.Install(repoName, req.Name, req.Version, req.Responses); err != nil {
+	if err := inst.Install(repoName, effectiveName, req.Version, req.Responses); err != nil {
 		return err
+	}
+
+	// Clear last responses after successful install.
+	if err := inst.ClearLastResponses(repoName, effectiveName); err != nil {
+		slog.Debug(fmt.Sprintf("clear last responses %s/%s: %v", repoName, effectiveName, err))
 	}
 
 	// Clean up old install record after successful new install.
 	if activeVersion != "" && activeVersion != req.Version {
-		if err := inst.Uninstall(repoName, req.Name, activeVersion); err != nil {
-			slog.Debug(fmt.Sprintf("remove old install record %s/%s@%s: %v", repoName, req.Name, activeVersion, err))
+		if err := inst.Uninstall(repoName, effectiveName, activeVersion); err != nil {
+			slog.Debug(fmt.Sprintf("remove old install record %s/%s@%s: %v", repoName, effectiveName, activeVersion, err))
+		}
+	}
+
+	// Track child in parent's children list when installing an instance.
+	if req.Instance != "" {
+		children, _ := inst.LoadChildren(repoName, parentName)
+		found := false
+		for _, ch := range children {
+			if ch == req.Instance {
+				found = true
+				break
+			}
+		}
+		if !found {
+			children = append(children, req.Instance)
+			if err := inst.SaveChildren(repoName, parentName, children); err != nil {
+				slog.Debug(fmt.Sprintf("save children %s/%s: %v", repoName, parentName, err))
+			}
 		}
 	}
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		cfg := s.packageUnitConfig(repoName, req.Name, req.Version, compiled)
+		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, compiled)
 		units := systemd.GeneratePackageUnits(cfg)
 		if err := s.writePackageNetworkState(repoName, req.Name, req.Version, compiled); err != nil {
 			return err
@@ -1280,27 +1467,56 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		return err
 	}
 
+	// When Instance is set, the effective name becomes parentName-instance.
+	parentName := req.Name
+	effectiveName := req.Name
+	if req.Instance != "" {
+		effectiveName = fmt.Sprintf("%s-%s", parentName, req.Instance)
+	}
+
 	ctx := c.Request().Context()
 	inst := s.Controller.GetInstaller()
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		if err := s.uninstallPackageUnits(ctx, sd, req.Repo, req.Name, req.Version); err != nil {
+		if err := s.uninstallPackageUnits(ctx, sd, req.Repo, effectiveName, req.Version); err != nil {
 			return err
 		}
 	}
 
-	s.removePackageNetworkState(req.Repo, req.Name, req.Version)
+	s.removePackageNetworkState(req.Repo, effectiveName, req.Version)
 
-	if err := inst.SetDisabled(req.Repo, req.Name, false); err != nil {
+	// Save last responses before uninstall for potential reuse.
+	lastResp, err := inst.GetResponses(req.Repo, effectiveName, req.Version)
+	if err == nil && len(lastResp) > 0 {
+		if err := inst.SaveLastResponses(req.Repo, effectiveName, lastResp); err != nil {
+			slog.Debug(fmt.Sprintf("save last responses %s/%s: %v", req.Repo, effectiveName, err))
+		}
+	}
+
+	if err := inst.SetDisabled(req.Repo, effectiveName, false); err != nil {
 		return err
 	}
-	if err := inst.Uninstall(req.Repo, req.Name, req.Version); err != nil {
+	if err := inst.Uninstall(req.Repo, effectiveName, req.Version); err != nil {
 		return err
+	}
+
+	// Remove child from parent's children list when uninstalling an instance.
+	if req.Instance != "" {
+		children, _ := inst.LoadChildren(req.Repo, parentName)
+		for i, ch := range children {
+			if ch == req.Instance {
+				children = append(children[:i], children[i+1:]...)
+				break
+			}
+		}
+		if err := inst.SaveChildren(req.Repo, parentName, children); err != nil {
+			slog.Debug(fmt.Sprintf("save children %s/%s: %v", req.Repo, parentName, err))
+		}
 	}
 
 	// Volume handling after uninstall.
 	if req.PurgeVolumes {
-		if err := s.purgePackageVolumes(req.Repo, req.Name); err != nil {
+		if err := s.purgePackageVolumes(req.Repo, effectiveName); err != nil {
 			return err
 		}
 	} else if st := s.Controller.GetStorage(); st != nil {
@@ -1316,7 +1532,7 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 			if err != nil {
 				continue
 			}
-			if pi.Repo == req.Repo && pi.Name == req.Name {
+			if pi.Repo == req.Repo && pi.Name == effectiveName {
 				otherVersionInstalled = true
 				break
 			}
@@ -1324,8 +1540,8 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 
 		if !otherVersionInstalled {
 			// Move installed/<repo>/<name> → uninstalled/<repo>/<name>.
-			src := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, req.Repo, req.Name)
-			dst := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, req.Name)
+			src := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, req.Repo, effectiveName)
+			dst := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, effectiveName)
 			if err := st.RenameFilesystem(src, dst); err != nil {
 				slog.Debug(fmt.Sprintf("preserve volumes: rename %s -> %s: %v", src, dst, err))
 			}
@@ -1334,6 +1550,26 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 
 	c.Response().WriteHeader(200)
 	return nil
+}
+
+func (s *SystemControllerHandlers) listChildren(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := ListChildrenRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	children, err := inst.LoadChildren(req.Repo, req.Name)
+	if err != nil {
+		return err
+	}
+	if children == nil {
+		children = []string{}
+	}
+
+	return c.JSON(200, children)
 }
 
 func (s *SystemControllerHandlers) purgePackageVolumes(repo, name string) error {
@@ -2046,6 +2282,8 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/packages/versions":             true,
 			"/packages/questions":            true,
 			"/packages/questions/identity":   true,
+			"/packages/timezones":            true,
+			"/packages/children":             true,
 			"/packages/uninstalled-volumes":  true,
 			"/systemd/units":                 true,
 			"/systemd/logs":                  true,
@@ -2413,6 +2651,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/repository/refresh", s.refreshRepositories, s.requireAuth)
 	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
 
+	e.Add("GET", "/packages/timezones", s.listTimezones, s.requireAuth)
 	e.Add("GET", "/packages", s.listPackages, s.requireAuth)
 	e.Add("GET", "/packages/by-repo", s.listPackagesByRepo, s.requireAuth)
 	e.Add("POST", "/packages/versions", s.listPackageVersions, s.requireAuth)
@@ -2432,6 +2671,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// Admin (requireAdmin, which implies auth)
 	e.Add("POST", "/packages/questions", s.getPackageQuestions, s.requireAdmin)
 	e.Add("POST", "/packages/questions/identity", s.getPackageQuestionsByIdentity, s.requireAdmin)
+	e.Add("POST", "/packages/children", s.listChildren, s.requireAuth)
 	e.Add("POST", "/packages/install-preview", s.installPreview, s.requireAdmin)
 	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)

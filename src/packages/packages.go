@@ -109,8 +109,9 @@ type InputPackageNetwork struct {
 }
 
 type Question struct {
-	Query string     `json:"query" yaml:"query"`
-	Type  OutputType `json:"type,omitempty" yaml:"type,omitempty"`
+	Query   string     `json:"query" yaml:"query"`
+	Type    OutputType `json:"type,omitempty" yaml:"type,omitempty"`
+	Default string     `json:"default,omitempty" yaml:"default,omitempty"`
 }
 
 type InputPackage struct {

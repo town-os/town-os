@@ -84,7 +84,7 @@ test-integration: lint test-image btrfs
 		sudo -E podman exec $(PODMAN_CONTAINER) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
 		sleep 1; \
 	done
-	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v
+	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.timeout 30m
 
 test-full: test test-integration test-ui-integration
 

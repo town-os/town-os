@@ -550,3 +550,56 @@ func TestGeneratePackageUnitsNetworkControllerHostMode(t *testing.T) {
 		t.Fatal("service should not have -p mappings in host mode")
 	}
 }
+
+func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
+	uid := uint32(1000)
+	gid := uint32(1000)
+
+	t.Run("chown when UID/GID set", func(t *testing.T) {
+		cfg := PackageUnitConfig{
+			RepoName:    "test-repo",
+			PkgName:     "mattermost",
+			Version:     "1.0",
+			Image:       "mattermost:1.0",
+			Environment: map[string]string{},
+			External:    packages.PortMap{},
+			Internal:    packages.PortMap{},
+			Volumes: map[string]packages.PackageVolume{
+				"data": {Mountpoint: "/data", UID: &uid, GID: &gid},
+			},
+			BtrfsBase:                "/data/btrfs",
+			NetworkControllerBinPath: "/town-os-networkcontroller",
+		}
+
+		units := GeneratePackageUnits(cfg)
+		svc := units.Service.Content
+
+		if !strings.Contains(svc, "ExecStartPre=/bin/chown -R 1000:1000 /data/btrfs/installed/test-repo/mattermost/1.0/data") {
+			t.Fatalf("service missing chown ExecStartPre, got:\n%s", svc)
+		}
+	})
+
+	t.Run("no chown when UID/GID nil", func(t *testing.T) {
+		cfg := PackageUnitConfig{
+			RepoName:    "test-repo",
+			PkgName:     "nginx",
+			Version:     "1.0",
+			Image:       "nginx:1.0",
+			Environment: map[string]string{},
+			External:    packages.PortMap{},
+			Internal:    packages.PortMap{},
+			Volumes: map[string]packages.PackageVolume{
+				"data": {Mountpoint: "/data"},
+			},
+			BtrfsBase:                "/data/btrfs",
+			NetworkControllerBinPath: "/town-os-networkcontroller",
+		}
+
+		units := GeneratePackageUnits(cfg)
+		svc := units.Service.Content
+
+		if strings.Contains(svc, "chown") {
+			t.Fatalf("service should not have chown when UID/GID is nil, got:\n%s", svc)
+		}
+	})
+}

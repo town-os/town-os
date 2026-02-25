@@ -32,14 +32,16 @@ type Client interface {
 	RefreshRepositories(ctx context.Context) (map[string]string, error)
 	ListRepositories(ctx context.Context, params ListParams) (*PageResult[RepositoryInfo], error)
 
+	ListTimezones(ctx context.Context) ([]string, error)
 	ListPackages(ctx context.Context, params ListParams) (*PageResult[PackageListEntry], error)
 	ListPackagesByRepo(ctx context.Context, params ListParams) ([]packages.RepoPackageGroup, error)
 	ListPackageVersions(ctx context.Context, name string) ([]string, error)
 	GetPackageQuestions(ctx context.Context, name string) (map[string]packages.Question, error)
 	GetPackageQuestionsByIdentity(ctx context.Context, repo, name, version string) (map[string]packages.Question, error)
 
+	ListChildren(ctx context.Context, repo, name string) ([]string, error)
 	InstallPreview(ctx context.Context, repo, name, version string) (*InstallPreview, error)
-	InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error
+	InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string, skipResponseReuse bool) error
 	UninstallPackage(ctx context.Context, repo, name, version string, purgeVolumes bool) error
 	PurgeVolumes(ctx context.Context, repo, name string) error
 	ListUninstalledVolumes(ctx context.Context, repo, name string) (*UninstalledVolumesResponse, error)
@@ -290,6 +292,23 @@ func (c *SystemdClient) ListRepositories(ctx context.Context, params ListParams)
 
 // --- Packages ---
 
+func (c *SystemdClient) ListTimezones(ctx context.Context) (_ []string, err error) {
+	resp, err := c.getClient(ctx, "packages/timezones")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListTimezones: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "GET", "packages/timezones")
+	}
+
+	var zones []string
+	return zones, json.NewDecoder(resp.Body).Decode(&zones)
+}
+
 func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ *PageResult[PackageListEntry], err error) {
 	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", params.QueryString()))
 	if err != nil {
@@ -386,7 +405,7 @@ func (c *SystemdClient) GetPackageQuestionsByIdentity(ctx context.Context, repo,
 
 // --- Install ---
 
-func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error {
+func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string, skipResponseReuse bool) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, InstallRequest{
 		Name:              name,
@@ -394,6 +413,7 @@ func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string
 		Responses:         responses,
 		ReuseVolumes:      reuseVolumes,
 		ImportFromVersion: importFromVersion,
+		SkipResponseReuse: skipResponseReuse,
 	})
 
 	return c.postClient(ctx, "packages/install", pr)
@@ -509,6 +529,26 @@ func (c *SystemdClient) GetInstalledInfo(ctx context.Context, repo, name, versio
 
 	var info InstalledInfoResponse
 	return &info, json.NewDecoder(resp.Body).Decode(&info)
+}
+
+func (c *SystemdClient) ListChildren(ctx context.Context, repo, name string) (_ []string, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, ListChildrenRequest{Repo: repo, Name: name})
+
+	resp, err := c.postJSON(ctx, "packages/children", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListChildren: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		return nil, readProblemDetail(resp, "POST", "packages/children")
+	}
+
+	var children []string
+	return children, json.NewDecoder(resp.Body).Decode(&children)
 }
 
 func (c *SystemdClient) InstallPreview(ctx context.Context, repo, name, version string) (_ *InstallPreview, err error) {

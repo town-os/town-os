@@ -234,6 +234,7 @@ func TestOutput(t *testing.T) {
 			err:    true,
 		},
 
+
 		// Invalid output type
 		"invalid_type": {
 			output: OutputType("bogus"),

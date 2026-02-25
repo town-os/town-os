@@ -14,6 +14,8 @@ type MockInstallManager struct {
 	mu               sync.Mutex
 	Installed        []PackageIdentity
 	StoredResponses  map[string]Responses
+	LastResponses    map[string]Responses
+	Children         map[string][]string
 	Disabled         map[string]bool
 	Calls            []MockInstallCall
 	InstallErr       error
@@ -27,6 +29,8 @@ type MockInstallManager struct {
 func InitMockInstallManager() *MockInstallManager {
 	return &MockInstallManager{
 		StoredResponses: map[string]Responses{},
+		LastResponses:   map[string]Responses{},
+		Children:        map[string][]string{},
 		Disabled:        map[string]bool{},
 	}
 }
@@ -148,4 +152,60 @@ func (m *MockInstallManager) IsDisabled(repoName, pkgName string) (bool, error) 
 
 	key := fmt.Sprintf("%s/%s", repoName, pkgName)
 	return m.Disabled[key], nil
+}
+
+func (m *MockInstallManager) SaveLastResponses(repoName, pkgName string, responses Responses) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "SaveLastResponses", Args: []any{repoName, pkgName, responses}})
+
+	key := fmt.Sprintf("%s/%s", repoName, pkgName)
+	m.LastResponses[key] = responses
+	return nil
+}
+
+func (m *MockInstallManager) LoadLastResponses(repoName, pkgName string) (Responses, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "LoadLastResponses", Args: []any{repoName, pkgName}})
+
+	key := fmt.Sprintf("%s/%s", repoName, pkgName)
+	resp, ok := m.LastResponses[key]
+	if !ok {
+		return nil, fmt.Errorf("no last responses for %s", key)
+	}
+	return resp, nil
+}
+
+func (m *MockInstallManager) ClearLastResponses(repoName, pkgName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "ClearLastResponses", Args: []any{repoName, pkgName}})
+
+	key := fmt.Sprintf("%s/%s", repoName, pkgName)
+	delete(m.LastResponses, key)
+	return nil
+}
+
+func (m *MockInstallManager) SaveChildren(repoName, parentName string, children []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "SaveChildren", Args: []any{repoName, parentName, children}})
+
+	key := fmt.Sprintf("%s/%s", repoName, parentName)
+	m.Children[key] = children
+	return nil
+}
+
+func (m *MockInstallManager) LoadChildren(repoName, parentName string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "LoadChildren", Args: []any{repoName, parentName}})
+
+	key := fmt.Sprintf("%s/%s", repoName, parentName)
+	children, ok := m.Children[key]
+	if !ok {
+		return nil, nil
+	}
+	return children, nil
 }

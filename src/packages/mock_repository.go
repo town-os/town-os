@@ -15,6 +15,7 @@ type MockRepositoryManager struct {
 	mu                     sync.Mutex
 	Items                  []Repository
 	Packages               PackageTable
+	FeaturedMap            map[string][]string
 	Calls                  []MockRepositoryCall
 	AddErr                 error
 	RemoveErr              error
@@ -228,7 +229,11 @@ func (m *MockRepositoryManager) ListPackagesByRepo() ([]RepoPackageGroup, error)
 	}
 	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Name < pkgs[j].Name })
 
-	return []RepoPackageGroup{{Repo: "mock-repo", Packages: pkgs}}, nil
+	var featured []string
+	if m.FeaturedMap != nil {
+		featured = m.FeaturedMap["mock-repo"]
+	}
+	return []RepoPackageGroup{{Repo: "mock-repo", Packages: pkgs, Featured: featured}}, nil
 }
 
 func (m *MockRepositoryManager) ListPackageVersions(name string) ([]string, error) {

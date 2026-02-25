@@ -782,7 +782,7 @@ func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -807,7 +807,7 @@ func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 	}
 
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -842,7 +842,7 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 
 	// Install with responses.
 	responses := packages.Responses{"hostname": "webserver", "port": "9090"}
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@2.0: %v", err)
 	}
 
@@ -898,10 +898,10 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1001,7 +1001,7 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1037,7 +1037,7 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1082,7 +1082,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	}
 
 	// Install nginx@1.0
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1133,11 +1133,11 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1223,7 +1223,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	}
 
 	// Install nginx@1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -1380,7 +1380,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "testpass",
 		"maxmemory": "100mb",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1479,7 +1479,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "testpass",
 		"maxmemory": "100mb",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1489,7 +1489,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "newpass",
 		"maxmemory": "200mb",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("Reinstall redis@7.0: %v", err)
 	}
 
@@ -2802,7 +2802,7 @@ func TestReconcileAfterInstall(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -2867,11 +2867,11 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -2905,7 +2905,7 @@ func TestReconcilePreservesResponses(t *testing.T) {
 	}
 
 	responses := packages.Responses{"hostname": "myhost", "port": "9090"}
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2983,7 +2983,7 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "testpass",
 		"maxmemory": "100mb",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -3036,7 +3036,7 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "testpass",
 		"maxmemory": "100mb",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -3097,7 +3097,7 @@ func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
 		"hostname": "example",
 		"port":     "8080",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -3138,7 +3138,7 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
 		"hostname": "example",
 		"port":     "8080",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -3200,7 +3200,7 @@ func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
 		"hostname": "example",
 		"port":     "8080",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -3275,7 +3275,7 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "testpass",
 		"maxmemory": "100mb",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -3342,7 +3342,7 @@ func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
 		"hostname": "example",
 		"port":     "8080",
-	}, false, ""); err != nil {
+	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -3663,10 +3663,10 @@ func TestSystemControllerMultiRepoListInstalled(t *testing.T) {
 	}
 
 	// Install nginx from core and mosquitto from extras.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage mosquitto@2.0: %v", err)
 	}
 
@@ -3738,10 +3738,10 @@ func TestSystemControllerMultiRepoUninstallIsolation(t *testing.T) {
 	}
 
 	// Install from both repos.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage mosquitto@2.0: %v", err)
 	}
 
@@ -3773,7 +3773,7 @@ func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
 	}
 
 	// Install nginx 1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
@@ -3786,7 +3786,7 @@ func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
 	}
 
 	// Upgrade to nginx 2.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@2.0 (upgrade): %v", err)
 	}
 

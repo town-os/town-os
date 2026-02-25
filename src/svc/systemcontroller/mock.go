@@ -40,6 +40,8 @@ type MockClient struct {
 	ListPkgVersionsErr   error
 	QuestionsErr         error
 	QuestionsIdentityErr error
+	ListChildrenErr      error
+	ChildrenMap          map[string][]string
 	InstallPreviewErr    error
 	InstallPreviewResult *InstallPreview
 	InstallPkgErr        error
@@ -247,6 +249,14 @@ func (m *MockClient) ListRepositories(_ context.Context, params ListParams) (*Pa
 
 // --- Packages ---
 
+func (m *MockClient) ListTimezones(_ context.Context) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListTimezones", Args: nil})
+
+	return packages.ListTimezones(), nil
+}
+
 func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageResult[PackageListEntry], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -387,6 +397,26 @@ func (m *MockClient) GetPackageQuestionsByIdentity(_ context.Context, repo, name
 	return out, nil
 }
 
+// --- Children ---
+
+func (m *MockClient) ListChildren(_ context.Context, repo, name string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListChildren", Args: []any{repo, name}})
+
+	if m.ListChildrenErr != nil {
+		return nil, m.ListChildrenErr
+	}
+
+	key := fmt.Sprintf("%s/%s", repo, name)
+	if m.ChildrenMap != nil {
+		if children, ok := m.ChildrenMap[key]; ok {
+			return children, nil
+		}
+	}
+	return []string{}, nil
+}
+
 // --- Install ---
 
 func (m *MockClient) InstallPreview(_ context.Context, repo, name, version string) (*InstallPreview, error) {
@@ -410,10 +440,10 @@ func (m *MockClient) InstallPreview(_ context.Context, repo, name, version strin
 	}, nil
 }
 
-func (m *MockClient) InstallPackage(_ context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string) error {
+func (m *MockClient) InstallPackage(_ context.Context, name, version string, responses packages.Responses, reuseVolumes bool, importFromVersion string, skipResponseReuse bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "InstallPackage", Args: []any{name, version, responses, reuseVolumes, importFromVersion}})
+	m.Calls = append(m.Calls, MockCall{Method: "InstallPackage", Args: []any{name, version, responses, reuseVolumes, importFromVersion, skipResponseReuse}})
 
 	if m.InstallPkgErr != nil {
 		return m.InstallPkgErr

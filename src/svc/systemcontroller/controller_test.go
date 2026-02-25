@@ -1904,35 +1904,41 @@ func TestHTTPInstallPackage(t *testing.T) {
 	c, inst := initInstallTestClient(t)
 
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
 	calls := inst.GetCalls()
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(calls))
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 calls, got %d", len(calls))
 	}
 	if calls[0].Method != "ListInstalled" {
 		t.Fatalf("expected ListInstalled call, got %q", calls[0].Method)
 	}
-	if calls[1].Method != "Install" {
-		t.Fatalf("expected Install call, got %q", calls[1].Method)
+	if calls[1].Method != "ListInstalled" {
+		t.Fatalf("expected ListInstalled call (port exclusion), got %q", calls[1].Method)
 	}
-	if calls[1].Args[0].(string) != "repo-a" {
-		t.Fatalf("expected repoName %q, got %v", "repo-a", calls[1].Args[0])
+	if calls[2].Method != "Install" {
+		t.Fatalf("expected Install call, got %q", calls[2].Method)
 	}
-	if calls[1].Args[1].(string) != "nginx" {
-		t.Fatalf("expected pkgName %q, got %v", "nginx", calls[1].Args[1])
+	if calls[2].Args[0].(string) != "repo-a" {
+		t.Fatalf("expected repoName %q, got %v", "repo-a", calls[2].Args[0])
 	}
-	if calls[1].Args[2].(string) != "1.0" {
-		t.Fatalf("expected version %q, got %v", "1.0", calls[1].Args[2])
+	if calls[2].Args[1].(string) != "nginx" {
+		t.Fatalf("expected pkgName %q, got %v", "nginx", calls[2].Args[1])
+	}
+	if calls[2].Args[2].(string) != "1.0" {
+		t.Fatalf("expected version %q, got %v", "1.0", calls[2].Args[2])
+	}
+	if calls[3].Method != "ClearLastResponses" {
+		t.Fatalf("expected ClearLastResponses call, got %q", calls[3].Method)
 	}
 }
 
 func TestHTTPInstallPackageNotFound(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	err := c.InstallPackage(context.TODO(),"nonexistent", "1.0", packages.Responses{}, false, "")
+	err := c.InstallPackage(context.TODO(),"nonexistent", "1.0", packages.Responses{}, false, "", false)
 	if err == nil {
 		t.Fatal("expected error installing nonexistent package")
 	}
@@ -1962,7 +1968,7 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	c, inst := initInstallTestClient(t)
 
 	// Install first so uninstall can succeed.
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -1971,18 +1977,23 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	}
 
 	calls := inst.GetCalls()
-	// ListInstalled + Install + SetDisabled + Uninstall + ListInstalled = 5 calls
-	if len(calls) != 5 {
-		t.Fatalf("expected 5 calls, got %d: %v", len(calls), calls)
+	// Install phase: ListInstalled + ListInstalled + Install + ClearLastResponses = 4
+	// Uninstall phase: GetResponses + SaveLastResponses + SetDisabled + Uninstall + ListInstalled = 5
+	// Total = 9
+	if len(calls) != 9 {
+		t.Fatalf("expected 9 calls, got %d: %v", len(calls), calls)
 	}
-	if calls[2].Method != "SetDisabled" {
-		t.Fatalf("expected SetDisabled call, got %q", calls[2].Method)
+	if calls[2].Method != "Install" {
+		t.Fatalf("expected Install call, got %q", calls[2].Method)
 	}
-	if calls[3].Method != "Uninstall" {
-		t.Fatalf("expected Uninstall call, got %q", calls[3].Method)
+	if calls[6].Method != "SetDisabled" {
+		t.Fatalf("expected SetDisabled call, got %q", calls[6].Method)
 	}
-	if calls[4].Method != "ListInstalled" {
-		t.Fatalf("expected ListInstalled call, got %q", calls[4].Method)
+	if calls[7].Method != "Uninstall" {
+		t.Fatalf("expected Uninstall call, got %q", calls[7].Method)
+	}
+	if calls[8].Method != "ListInstalled" {
+		t.Fatalf("expected ListInstalled call, got %q", calls[8].Method)
 	}
 }
 
@@ -1998,7 +2009,7 @@ func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
 func TestHTTPUninstallPackageWithPurge(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2056,7 +2067,7 @@ func TestHTTPUninstallPackagePurgesVolumes(t *testing.T) {
 	c, controller := initInstallWithVolumesTestClient(t)
 
 	// Install a package that defines volumes.
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2090,7 +2101,7 @@ func TestHTTPUninstallPackagePurgesVolumes(t *testing.T) {
 func TestHTTPUninstallPackageWithoutPurgePreservesVolumes(t *testing.T) {
 	c, controller := initInstallWithVolumesTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2394,7 +2405,7 @@ questions:
 func TestHTTPInstallPackageCreatesSystemdUnit(t *testing.T) {
 	c, _, sd := initInstallWithSystemdTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2424,7 +2435,7 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	c, _, sd := initInstallWithSystemdTestClient(t)
 
 	// Install first so uninstall can succeed.
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2512,7 +2523,7 @@ questions: {}
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(),"myapp", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"myapp", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2572,7 +2583,7 @@ questions: {}
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(),"myapp", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"myapp", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2606,7 +2617,7 @@ func TestHTTPInstallPackageNoVolumes(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2654,7 +2665,7 @@ questions:
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(),"postgres", "16.0", packages.Responses{"size": "10gb"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"postgres", "16.0", packages.Responses{"size": "10gb"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2680,10 +2691,10 @@ questions:
 func TestHTTPListInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(),"nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "2.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@2.0: %v", err)
 	}
 
@@ -2718,7 +2729,7 @@ func TestHTTPGetResponses(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2772,7 +2783,7 @@ func TestHTTPGetInstalledInfo(t *testing.T) {
 
 	// Install nginx with responses
 	responses := packages.Responses{"hostname": "testhost", "port": "8081"}
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2818,7 +2829,7 @@ func TestMockClientInstallPackage(t *testing.T) {
 	m := InitMockClient()
 
 	responses := packages.Responses{"hostname": "example"}
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("MockClient.InstallPackage: %v", err)
 	}
 
@@ -2838,7 +2849,7 @@ func TestMockClientInstallPackageErrorInjection(t *testing.T) {
 	injected := fmt.Errorf("injected error")
 
 	m.InstallPkgErr = injected
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != injected {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != injected {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -2846,7 +2857,7 @@ func TestMockClientInstallPackageErrorInjection(t *testing.T) {
 func TestMockClientInstallPackageCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"k": "v"}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"k": "v"}, false, "", false); err != nil {
 		t.Fatalf("MockClient.InstallPackage: %v", err)
 	}
 
@@ -2857,8 +2868,8 @@ func TestMockClientInstallPackageCallLog(t *testing.T) {
 	if calls[0].Method != "InstallPackage" {
 		t.Fatalf("expected method InstallPackage, got %q", calls[0].Method)
 	}
-	if len(calls[0].Args) != 5 {
-		t.Fatalf("expected 5 args, got %d", len(calls[0].Args))
+	if len(calls[0].Args) != 6 {
+		t.Fatalf("expected 6 args, got %d", len(calls[0].Args))
 	}
 	if calls[0].Args[0].(string) != "nginx" {
 		t.Fatalf("expected arg 0 %q, got %v", "nginx", calls[0].Args[0])
@@ -2873,7 +2884,7 @@ func TestMockClientInstallPackageCallLog(t *testing.T) {
 func TestMockClientUninstallPackage(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2908,7 +2919,7 @@ func TestMockClientUninstallPackageErrorInjection(t *testing.T) {
 func TestMockClientUninstallPackageCallLog(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2933,7 +2944,7 @@ func TestMockClientUninstallPackageCallLog(t *testing.T) {
 func TestMockClientUninstallPackagePurgesVolumes(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -2967,7 +2978,7 @@ func TestMockClientUninstallPackagePurgesVolumes(t *testing.T) {
 func TestMockClientUninstallPackageNoPurge(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -3020,10 +3031,10 @@ func TestMockClientPurgeVolumes(t *testing.T) {
 func TestMockClientListInstalled(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
-	if err := m.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -3066,7 +3077,7 @@ func TestMockClientGetResponses(t *testing.T) {
 	m := InitMockClient()
 
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -3105,7 +3116,7 @@ func TestMockClientGetResponsesErrorInjection(t *testing.T) {
 func TestMockClientGetResponsesReturnsCopy(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example"}, false, ""); err != nil {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -5007,7 +5018,7 @@ func TestHTTPSetUnitStatusInvalidAction(t *testing.T) {
 func TestHTTPDisablePackage(t *testing.T) {
 	c, inst, sd := initInstallWithSystemdTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -5037,7 +5048,7 @@ func TestHTTPDisablePackage(t *testing.T) {
 func TestHTTPEnablePackage(t *testing.T) {
 	c, inst, sd := initInstallWithSystemdTestClient(t)
 
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -5803,10 +5814,10 @@ func TestHTTPListInstalledPagination(t *testing.T) {
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -6450,68 +6461,69 @@ func TestHTTPAuditDetailNeverContainsPassword(t *testing.T) {
 // --- Install validation errors ---
 
 func TestHTTPInstallValidationErrors(t *testing.T) {
-	c, _ := initInstallTestClient(t)
+	c, inst := initInstallTestClient(t)
 
 	// nginx@1.0 has questions: hostname (hostname type) and port (port type).
-	// Send empty responses to trigger missing errors for both.
-	err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{}, false, "")
-	if err == nil {
-		t.Fatal("expected error from validation")
+	// Empty responses are now auto-generated for hostname and port types,
+	// so the install should succeed. Verify the auto-generated values were used.
+	err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{}, false, "", false)
+	if err != nil {
+		t.Fatalf("expected install to succeed with auto-generated responses, got: %v", err)
 	}
 
-	var pe *ProblemError
-	if !errors.As(err, &pe) {
-		t.Fatalf("expected *ProblemError, got %T: %v", err, err)
+	calls := inst.GetCalls()
+	// Find the Install call and verify responses were auto-generated.
+	var installCall *packages.MockInstallCall
+	for i := range calls {
+		if calls[i].Method == "Install" {
+			installCall = &calls[i]
+			break
+		}
+	}
+	if installCall == nil {
+		t.Fatal("expected an Install call")
 	}
 
-	if pe.Problem.Status != 422 {
-		t.Fatalf("expected status 422, got %d", pe.Problem.Status)
+	resp := installCall.Args[3].(packages.Responses)
+	if resp["hostname"] == "" {
+		t.Fatal("expected auto-generated hostname, got empty string")
 	}
-
-	if len(pe.ValidationErrors) != 2 {
-		t.Fatalf("expected 2 validation errors, got %d: %v", len(pe.ValidationErrors), pe.ValidationErrors)
-	}
-
-	errMap := map[string]string{}
-	for _, ve := range pe.ValidationErrors {
-		errMap[ve.Name] = ve.Error
-	}
-	if errMap["hostname"] != packages.ErrMissingResponse.Error() {
-		t.Fatalf("expected missing response for hostname, got %q", errMap["hostname"])
-	}
-	if errMap["port"] != packages.ErrMissingResponse.Error() {
-		t.Fatalf("expected missing response for port, got %q", errMap["port"])
+	if resp["port"] == "" {
+		t.Fatal("expected auto-generated port, got empty string")
 	}
 }
 
 func TestHTTPInstallValidationErrorsEmptyResponse(t *testing.T) {
-	c, _ := initInstallTestClient(t)
+	c, inst := initInstallTestClient(t)
 
+	// Empty string responses for hostname and port types are now auto-generated,
+	// so the install should succeed. Verify auto-generated values replaced the empties.
 	err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{
 		"hostname": "",
 		"port":     "",
-	}, false, "")
-	if err == nil {
-		t.Fatal("expected error from validation")
+	}, false, "", false)
+	if err != nil {
+		t.Fatalf("expected install to succeed with auto-generated responses, got: %v", err)
 	}
 
-	var pe *ProblemError
-	if !errors.As(err, &pe) {
-		t.Fatalf("expected *ProblemError, got %T: %v", err, err)
-	}
-
-	if pe.Problem.Status != 422 {
-		t.Fatalf("expected status 422, got %d", pe.Problem.Status)
-	}
-
-	if len(pe.ValidationErrors) != 2 {
-		t.Fatalf("expected 2 validation errors, got %d: %v", len(pe.ValidationErrors), pe.ValidationErrors)
-	}
-
-	for _, ve := range pe.ValidationErrors {
-		if ve.Error != packages.ErrEmptyResponse.Error() {
-			t.Fatalf("expected empty response error for %q, got %q", ve.Name, ve.Error)
+	calls := inst.GetCalls()
+	var installCall *packages.MockInstallCall
+	for i := range calls {
+		if calls[i].Method == "Install" {
+			installCall = &calls[i]
+			break
 		}
+	}
+	if installCall == nil {
+		t.Fatal("expected an Install call")
+	}
+
+	resp := installCall.Args[3].(packages.Responses)
+	if resp["hostname"] == "" {
+		t.Fatal("expected auto-generated hostname, got empty string")
+	}
+	if resp["port"] == "" {
+		t.Fatal("expected auto-generated port, got empty string")
 	}
 }
 
@@ -6522,7 +6534,7 @@ func TestHTTPInstallValidationErrorsUnknownQuestion(t *testing.T) {
 		"hostname": "example",
 		"port":     "8080",
 		"bogus":    "value",
-	}, false, "")
+	}, false, "", false)
 	if err == nil {
 		t.Fatal("expected error from validation")
 	}
@@ -6551,41 +6563,50 @@ func TestHTTPReinstallPackage(t *testing.T) {
 
 	// Install first time.
 	responses := packages.Responses{"hostname": "example", "port": "8080"}
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
 
 	// Reinstall with different responses.
 	responses2 := packages.Responses{"hostname": "newhost", "port": "9090"}
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses2, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", responses2, false, "", false); err != nil {
 		t.Fatalf("reinstall: %v", err)
 	}
 
 	calls := inst.GetCalls()
-	// First install: ListInstalled + Install = 2
-	// Reinstall: ListInstalled + Uninstall + Install = 3
-	// Total = 5
-	if len(calls) != 5 {
+	// First install: ListInstalled + ListInstalled + Install + ClearLastResponses = 4
+	// Reinstall: ListInstalled + ListInstalled + GetResponses + Uninstall + Install + ClearLastResponses = 6
+	// Total = 10
+	if len(calls) != 10 {
 		methods := make([]string, len(calls))
 		for i, c := range calls {
 			methods[i] = c.Method
 		}
-		t.Fatalf("expected 5 calls, got %d: %v", len(calls), methods)
+		t.Fatalf("expected 10 calls, got %d: %v", len(calls), methods)
 	}
 
-	// Reinstall should: ListInstalled, Uninstall, Install
-	if calls[2].Method != "ListInstalled" {
-		t.Fatalf("call 2: expected ListInstalled, got %q", calls[2].Method)
+	// Reinstall phase starts at index 4.
+	if calls[4].Method != "ListInstalled" {
+		t.Fatalf("call 4: expected ListInstalled, got %q", calls[4].Method)
 	}
-	if calls[3].Method != "Uninstall" {
-		t.Fatalf("call 3: expected Uninstall, got %q", calls[3].Method)
+	if calls[5].Method != "ListInstalled" {
+		t.Fatalf("call 5: expected ListInstalled (port exclusion), got %q", calls[5].Method)
 	}
-	if calls[4].Method != "Install" {
-		t.Fatalf("call 4: expected Install, got %q", calls[4].Method)
+	if calls[6].Method != "GetResponses" {
+		t.Fatalf("call 6: expected GetResponses, got %q", calls[6].Method)
+	}
+	if calls[7].Method != "Uninstall" {
+		t.Fatalf("call 7: expected Uninstall, got %q", calls[7].Method)
+	}
+	if calls[8].Method != "Install" {
+		t.Fatalf("call 8: expected Install, got %q", calls[8].Method)
+	}
+	if calls[9].Method != "ClearLastResponses" {
+		t.Fatalf("call 9: expected ClearLastResponses, got %q", calls[9].Method)
 	}
 
 	// Verify new responses were used.
-	newResp := calls[4].Args[3].(packages.Responses)
+	newResp := calls[8].Args[3].(packages.Responses)
 	if newResp["hostname"] != "newhost" {
 		t.Fatalf("expected hostname %q, got %q", "newhost", newResp["hostname"])
 	}
@@ -6595,12 +6616,12 @@ func TestHTTPReinstallPackageWithSystemd(t *testing.T) {
 	c, _, sd := initInstallWithSystemdTestClient(t)
 
 	// Install first.
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
 
 	// Reinstall.
-	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "newhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(),"nginx", "1.0", packages.Responses{"hostname": "newhost"}, false, "", false); err != nil {
 		t.Fatalf("reinstall: %v", err)
 	}
 
@@ -7076,7 +7097,7 @@ questions: {}
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -7129,7 +7150,7 @@ questions: {}
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 
@@ -7198,12 +7219,12 @@ questions: {}
 	}
 
 	// Install nginx 1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
 	// Upgrade to nginx 2.0 — should auto-move volumes and remove old record.
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 2.0: %v", err)
 	}
 
@@ -7268,7 +7289,7 @@ questions: {}
 	}
 
 	// Install, then uninstall without purge (volumes move to uninstalled).
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage: %v", err)
 	}
 	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
@@ -7286,7 +7307,7 @@ questions: {}
 	}
 
 	// Reinstall with reuseVolumes=true.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, true, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, true, "", false); err != nil {
 		t.Fatalf("InstallPackage with reuse: %v", err)
 	}
 
@@ -7346,12 +7367,12 @@ questions: {}
 	}
 
 	// Install nginx 1.0 first.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
 	// Install nginx 2.0 with importFromVersion="1.0".
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "1.0"); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "1.0", false); err != nil {
 		t.Fatalf("InstallPackage 2.0 with import: %v", err)
 	}
 
@@ -7481,12 +7502,12 @@ questions:
 	}
 
 	// Install nginx 1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
 	// Upgrade to nginx 2.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 2.0: %v", err)
 	}
 
@@ -7605,7 +7626,7 @@ func TestHTTPInstallOlderVersion(t *testing.T) {
 	}
 
 	// Explicitly install the older version 1.0 (not the latest 2.0).
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
@@ -7680,12 +7701,12 @@ questions:
 	}
 
 	// Install the newer version first.
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 2.0: %v", err)
 	}
 
 	// Now downgrade to the older version.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "testhost"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0 (downgrade): %v", err)
 	}
 
@@ -7805,7 +7826,7 @@ questions: {}
 
 	// Install the older version with responses.
 	responses := packages.Responses{"hostname": "myhost", "port": "9090"}
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
@@ -7874,7 +7895,7 @@ questions: {}
 	}
 
 	// Install the older version 1.0 which has two volumes (data + logs).
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
@@ -7920,7 +7941,7 @@ func TestHTTPInstallOlderVersionNotFound(t *testing.T) {
 	}
 
 	// Try to install a version that doesn't exist.
-	err = c.InstallPackage(context.TODO(), "nginx", "3.0", packages.Responses{}, false, "")
+	err = c.InstallPackage(context.TODO(), "nginx", "3.0", packages.Responses{}, false, "", false)
 	if err == nil {
 		t.Fatal("expected error installing nonexistent version 3.0")
 	}
@@ -8354,7 +8375,7 @@ volumes:
 	}
 
 	// Install nginx 1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
@@ -8371,7 +8392,7 @@ volumes:
 	}
 
 	// Upgrade to nginx 2.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 2.0: %v", err)
 	}
 
@@ -8438,7 +8459,7 @@ func TestHTTPUpgradeRemovesOldInstallRecord(t *testing.T) {
 	}
 
 	// Install nginx 1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
@@ -8452,7 +8473,7 @@ func TestHTTPUpgradeRemovesOldInstallRecord(t *testing.T) {
 	}
 
 	// Upgrade to nginx 2.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 2.0: %v", err)
 	}
 
@@ -8510,12 +8531,12 @@ volumes:
 	}
 
 	// Install nginx 1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
 	// Upgrade to nginx 2.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 2.0: %v", err)
 	}
 
@@ -8608,12 +8629,12 @@ volumes:
 	}
 
 	// Install nginx 1.0.
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, ""); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage 1.0: %v", err)
 	}
 
 	// Upgrade to 2.0 with explicit ImportFromVersion (should use snapshot, not rename).
-	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "1.0"); err != nil {
+	if err := c.InstallPackage(context.TODO(), "nginx", "2.0", packages.Responses{}, false, "1.0", false); err != nil {
 		t.Fatalf("InstallPackage 2.0 with import: %v", err)
 	}
 

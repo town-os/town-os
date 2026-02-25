@@ -611,6 +611,30 @@ func (rr *RepositoryRoot) ListPackages() ([]string, error) {
 type RepoPackageGroup struct {
 	Repo     string            `json:"repo"`
 	Packages []PackageIdentity `json:"packages"`
+	Featured []string          `json:"featured,omitempty"`
+}
+
+const FeaturedFile = "featured.json"
+
+// LoadFeatured reads the featured.json file from a repository directory.
+func (r *Repository) LoadFeatured(baseDir string) (_ []string, err error) {
+	fn := filepath.Join(baseDir, r.Name, FeaturedFile)
+	f, err := os.Open(fn)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
+
+	var featured []string
+	if err := json.NewDecoder(f).Decode(&featured); err != nil {
+		return nil, err
+	}
+	return featured, nil
 }
 
 // ListPackagesByRepo returns packages grouped by repository in precedence
@@ -654,7 +678,8 @@ func (rr *RepositoryRoot) ListPackagesByRepo() ([]RepoPackageGroup, error) {
 			pkgList[j] = PackageIdentity{Repo: repo.Name, Name: name, Version: best[name]}
 		}
 
-		groups = append(groups, RepoPackageGroup{Repo: repo.Name, Packages: pkgList})
+		featured, _ := repo.LoadFeatured(rr.BaseDir)
+		groups = append(groups, RepoPackageGroup{Repo: repo.Name, Packages: pkgList, Featured: featured})
 	}
 
 	return groups, nil

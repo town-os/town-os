@@ -532,6 +532,23 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("string type passthrough", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{"LABEL": "@label@"},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{"label": {Query: "Label?", Type: String}},
+		}
+		p, err := input.Compile(Responses{"label": "my value!@#"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Environment["LABEL"] != "my value!@#" {
+			t.Fatalf("expected string passthrough, got %s", p.Environment["LABEL"])
+		}
+	})
+
 	t.Run("untyped question accepts any string", func(t *testing.T) {
 		input := InputPackage{
 			Image:       "debian:latest",
@@ -666,6 +683,57 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 		_, err := input.Compile(Responses{})
 		if err == nil {
 			t.Fatal("expected error for invalid quota")
+		}
+	})
+}
+
+func TestPackageCompileVolumeUIDGID(t *testing.T) {
+	uid := uint32(1000)
+	gid := uint32(1000)
+
+	t.Run("preserves UID and GID", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes: map[string]InputPackageVolume{
+				"data": {Mountpoint: "/data", UID: &uid, GID: &gid},
+			},
+			Questions: map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		vol := p.Volumes["data"]
+		if vol.UID == nil || *vol.UID != 1000 {
+			t.Fatalf("expected UID 1000, got %v", vol.UID)
+		}
+		if vol.GID == nil || *vol.GID != 1000 {
+			t.Fatalf("expected GID 1000, got %v", vol.GID)
+		}
+	})
+
+	t.Run("nil UID/GID preserved", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes: map[string]InputPackageVolume{
+				"data": {Mountpoint: "/data"},
+			},
+			Questions: map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		vol := p.Volumes["data"]
+		if vol.UID != nil {
+			t.Fatalf("expected nil UID, got %v", vol.UID)
+		}
+		if vol.GID != nil {
+			t.Fatalf("expected nil GID, got %v", vol.GID)
 		}
 	})
 }

@@ -149,6 +149,30 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 		b.WriteString(fmt.Sprintf("ExecStartPre=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " ")))
 	}
 
+	// Chown volumes with UID/GID set (before container start).
+	{
+		chownVolNames := make([]string, 0, len(cfg.Volumes))
+		for name := range cfg.Volumes {
+			chownVolNames = append(chownVolNames, name)
+		}
+		sort.Strings(chownVolNames)
+		for _, name := range chownVolNames {
+			vol := cfg.Volumes[name]
+			if vol.UID != nil || vol.GID != nil {
+				hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
+				uid := uint32(0)
+				gid := uint32(0)
+				if vol.UID != nil {
+					uid = *vol.UID
+				}
+				if vol.GID != nil {
+					gid = *vol.GID
+				}
+				b.WriteString(fmt.Sprintf("ExecStartPre=/bin/chown -R %d:%d %s\n", uid, gid, hostPath))
+			}
+		}
+	}
+
 	// ExecStart: podman run with network configuration.
 	b.WriteString(fmt.Sprintf("ExecStart=/usr/bin/podman run --name %s --systemd=true", containerName))
 

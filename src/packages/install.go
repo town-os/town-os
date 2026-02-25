@@ -26,6 +26,11 @@ type Installer interface {
 	GetResponses(repoName, pkgName, version string) (Responses, error)
 	SetDisabled(repoName, pkgName string, disabled bool) error
 	IsDisabled(repoName, pkgName string) (bool, error)
+	SaveLastResponses(repoName, pkgName string, responses Responses) error
+	LoadLastResponses(repoName, pkgName string) (Responses, error)
+	ClearLastResponses(repoName, pkgName string) error
+	SaveChildren(repoName, parentName string, children []string) error
+	LoadChildren(repoName, parentName string) ([]string, error)
 }
 
 type InstallManager struct {
@@ -276,6 +281,98 @@ func (m *InstallManager) GetResponses(repoName, pkgName, version string) (_ Resp
 	}
 
 	return resp, nil
+}
+
+const LastResponsesDir = "responses/last"
+
+func (m *InstallManager) lastResponsesDir() string {
+	return filepath.Join(m.BaseDir, LastResponsesDir)
+}
+
+// SaveLastResponses persists the last responses for a package (keyed by repo/name).
+func (m *InstallManager) SaveLastResponses(repoName, pkgName string, responses Responses) (err error) {
+	lock, err := lockDir(m.BaseDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, lock.Unlock())
+	}()
+
+	dir := filepath.Join(m.lastResponsesDir(), repoName)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	return atomicWriteJSON(filepath.Join(dir, fmt.Sprintf("%s.json", pkgName)), responses)
+}
+
+// LoadLastResponses reads the last saved responses for a package.
+func (m *InstallManager) LoadLastResponses(repoName, pkgName string) (_ Responses, err error) {
+	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName))
+	f, err := os.Open(fn)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
+
+	var resp Responses
+	if err := json.NewDecoder(f).Decode(&resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// ClearLastResponses removes the last saved responses for a package.
+func (m *InstallManager) ClearLastResponses(repoName, pkgName string) error {
+	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName))
+	if err := os.Remove(fn); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+const ChildrenFile = "children.json"
+
+// SaveChildren persists the list of child instance names for a parent package.
+func (m *InstallManager) SaveChildren(repoName, parentName string, children []string) (err error) {
+	lock, err := lockDir(m.BaseDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, lock.Unlock())
+	}()
+
+	dir := filepath.Join(m.dir(), repoName, parentName)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	return atomicWriteJSON(filepath.Join(dir, ChildrenFile), children)
+}
+
+// LoadChildren reads the list of child instance names for a parent package.
+func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, err error) {
+	fn := filepath.Join(m.dir(), repoName, parentName, ChildrenFile)
+	f, err := os.Open(fn)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
+
+	var children []string
+	if err := json.NewDecoder(f).Decode(&children); err != nil {
+		return nil, err
+	}
+	return children, nil
 }
 
 // SaveResponses persists responses to disk using an atomic write under an

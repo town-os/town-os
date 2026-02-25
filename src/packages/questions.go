@@ -16,11 +16,11 @@ var (
 type OutputType string
 
 var (
-	ErrHostname    = errors.New("invalid hostname")
-	ErrVolume      = errors.New("invalid volume name")
-	ErrInvalidType = errors.New("invalid output type")
-	ErrInvalidPort = errors.New("invalid port")
-	ErrBytes       = errors.New("invalid byte size")
+	ErrHostname        = errors.New("invalid hostname")
+	ErrVolume          = errors.New("invalid volume name")
+	ErrInvalidType     = errors.New("invalid output type")
+	ErrInvalidPort     = errors.New("invalid port")
+	ErrBytes           = errors.New("invalid byte size")
 )
 
 const (
