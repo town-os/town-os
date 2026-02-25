@@ -23,6 +23,12 @@ type SubvolInfo struct {
 	ID   uint64
 }
 
+type DiskUsage struct {
+	Total     uint64 `json:"total"`
+	Used      uint64 `json:"used"`
+	Available uint64 `json:"available"`
+}
+
 type Storage interface {
 	CreateFilesystem(Filesystem) error
 	ModifyFilesystem(string, Filesystem) error
@@ -30,6 +36,7 @@ type Storage interface {
 	ListFilesystems(string) ([]Filesystem, error)
 	RenameFilesystem(oldName, newName string) error
 	SnapshotFilesystem(src, dst string) error
+	DiskUsage() (DiskUsage, error)
 }
 
 type Controller interface {

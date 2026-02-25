@@ -250,21 +250,22 @@ type PingMinimalResponse struct {
 }
 
 type PingResponse struct {
-	Status             string      `json:"status"`
-	Filesystems        int         `json:"filesystems"`
-	Repositories       int         `json:"repositories"`
-	Packages           int         `json:"packages"`
-	Installed          int         `json:"installed"`
-	Accounts           int         `json:"accounts"`
-	Admins             int         `json:"admins"`
-	Units              *UnitCounts `json:"units,omitempty"`
-	RecentErrors       int         `json:"recent_errors"`
-	NeedsSetup         bool        `json:"needs_setup,omitempty"`
-	ExternalIP         string      `json:"external_ip,omitempty"`
-	InternalIP         string      `json:"internal_ip,omitempty"`
-	Username           string      `json:"username,omitempty"`
-	InstalledVolumes   int         `json:"installed_volumes"`
-	UninstalledVolumes int         `json:"uninstalled_volumes"`
+	Status             string             `json:"status"`
+	Filesystems        int                `json:"filesystems"`
+	Repositories       int                `json:"repositories"`
+	Packages           int                `json:"packages"`
+	Installed          int                `json:"installed"`
+	Accounts           int                `json:"accounts"`
+	Admins             int                `json:"admins"`
+	Units              *UnitCounts        `json:"units,omitempty"`
+	RecentErrors       int                `json:"recent_errors"`
+	NeedsSetup         bool               `json:"needs_setup,omitempty"`
+	ExternalIP         string             `json:"external_ip,omitempty"`
+	InternalIP         string             `json:"internal_ip,omitempty"`
+	Username           string             `json:"username,omitempty"`
+	InstalledVolumes   int                `json:"installed_volumes"`
+	UninstalledVolumes int                `json:"uninstalled_volumes"`
+	DiskUsage          *storage.DiskUsage `json:"disk_usage,omitempty"`
 }
 
 type UnitCounts struct {
@@ -2024,6 +2025,11 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		resp.Filesystems = userCount
 		resp.InstalledVolumes = installedVols
 		resp.UninstalledVolumes = uninstalledVols
+
+		du, err := st.DiskUsage()
+		if err == nil {
+			resp.DiskUsage = &du
+		}
 	}
 
 	if rr := s.Controller.GetRepositoryRoot(); rr != nil {

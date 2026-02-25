@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 var ErrMountNotFound = errors.New("mount point not found")
@@ -295,9 +296,10 @@ func (c BtrFSController) QGroupShow(path string) (uint64, error) {
 }
 
 type BtrFS struct {
-	BasePath   string
-	BinPath    string
-	Controller Controller
+	BasePath          string
+	BinPath           string
+	Controller        Controller
+	DiskUsageOverride *DiskUsage
 }
 
 func InitBtrFS(basePath string) *BtrFS {
@@ -439,4 +441,17 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 	}
 
 	return fs, nil
+}
+
+func (b *BtrFS) DiskUsage() (_ DiskUsage, err error) {
+	if b.DiskUsageOverride != nil {
+		return *b.DiskUsageOverride, nil
+	}
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(b.BasePath, &stat); err != nil {
+		return DiskUsage{}, fmt.Errorf("statfs %s: %w", b.BasePath, err)
+	}
+	total := stat.Blocks * uint64(stat.Bsize)
+	available := stat.Bavail * uint64(stat.Bsize)
+	return DiskUsage{Total: total, Used: total - available, Available: available}, nil
 }
