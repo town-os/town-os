@@ -3,7 +3,6 @@ package systemcontroller
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -79,7 +78,7 @@ func TestHTTPLogReplayEmptyUnit(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
 	t.Cleanup(ts.Close)
 
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, fmt.Sprintf("%s/systemd/logs", ts.Server.URL), nil) //nolint:perfsprint // project convention
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, ts.Server.URL+"/systemd/logs", nil)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}
@@ -195,7 +194,7 @@ func TestHTTPLogTailEmptyUnit(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
 	t.Cleanup(ts.Close)
 
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, fmt.Sprintf("%s/systemd/logs/tail", ts.Server.URL), nil) //nolint:perfsprint // project convention
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, ts.Server.URL+"/systemd/logs/tail", nil)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}

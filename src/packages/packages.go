@@ -181,7 +181,7 @@ type InputPackage struct {
 // provided responses, validates typed notes, and returns the compiled result.
 func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, error) {
 	if len(i.Notes) == 0 {
-		return nil, nil //nolint:nilnil // no notes to compile
+		return map[string]string{}, nil
 	}
 
 	compiled := make(map[string]string, len(i.Notes))

@@ -1,7 +1,6 @@
 package systemd
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -55,7 +54,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(svc, "firewall-cmd --remove-port=8080/tcp") {
 		t.Fatal("service missing firewall remove-port")
 	}
-	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", NetworkControllerUnitName("test-repo", "nginx", "1.0"))) { //nolint:perfsprint // project convention: use fmt.Sprintf
+	if !strings.Contains(svc, "Wants="+NetworkControllerUnitName("test-repo", "nginx", "1.0")) {
 		t.Fatal("service missing Wants for network controller")
 	}
 
@@ -626,7 +625,7 @@ func TestGeneratePackageUnitsInternalPortForwardingHostMode(t *testing.T) {
 
 	// Service should have Wants= for network controller.
 	svc := units.Service.Content
-	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", NetworkControllerUnitName("test-repo", "gitea", "1.0"))) { //nolint:perfsprint // project convention
+	if !strings.Contains(svc, "Wants="+NetworkControllerUnitName("test-repo", "gitea", "1.0")) {
 		t.Fatalf("service missing Wants for network controller, got:\n%s", svc)
 	}
 

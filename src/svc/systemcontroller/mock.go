@@ -240,7 +240,7 @@ func (m *MockClient) RefreshRepositories(_ context.Context) (map[string]string, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RefreshRepositories", Args: nil})
-	return nil, nil //nolint:nilnil // mock stub
+	return map[string]string{}, nil
 }
 
 func (m *MockClient) ListRepositories(_ context.Context, params ListParams) (*PageResult[RepositoryInfo], error) {

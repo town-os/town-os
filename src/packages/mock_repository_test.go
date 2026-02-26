@@ -2,7 +2,6 @@ package packages
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"testing"
 )
@@ -21,7 +20,7 @@ func TestMockRepositoryManagerImplementsRepositoryManager(t *testing.T) {
 
 func testRepo(t *testing.T, name string) Repository {
 	t.Helper()
-	p, err := url.JoinPath("/", fmt.Sprintf("%s.git", name)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	p, err := url.JoinPath("/", name+".git")
 	if err != nil {
 		t.Fatalf("url.JoinPath for %q: %v", name, err)
 	}

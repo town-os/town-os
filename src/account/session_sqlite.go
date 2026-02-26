@@ -246,10 +246,7 @@ func (s *SQLiteSessionManager) HasActiveAdminSessions(adminUsernames []string) (
 		placeholders[i] = "?"
 		args[i] = u
 	}
-	query := fmt.Sprintf( //nolint:gosec // placeholders are generated internally, not user input
-		"SELECT COUNT(*) FROM sessions WHERE username IN (%s)",
-		strings.Join(placeholders, ","),
-	)
+	query := "SELECT COUNT(*) FROM sessions WHERE username IN (" + strings.Join(placeholders, ",") + ")"
 	var count int
 	err = s.db.QueryRowContext(context.Background(), query, args...).Scan(&count)
 	if err != nil {

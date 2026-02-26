@@ -61,14 +61,14 @@ func (m *InstallManager) Install(repoName, pkgName, version string, responses Re
 		return err
 	}
 
-	link := filepath.Join(pkgDir, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	link := filepath.Join(pkgDir, version+".yaml")
 
 	_, err = os.Lstat(link)
 	if err == nil {
 		return fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrAlreadyInstalled)
 	}
 
-	source := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	source := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, version+".yaml")
 	_, err = os.Stat(source)
 	if err != nil {
 		return fmt.Errorf("source package not found: %w", err)
@@ -121,7 +121,7 @@ func (m *InstallManager) IsDisabled(repoName, pkgName string) (bool, error) {
 // Uninstall removes the hard link for the given package version. If the package
 // directory becomes empty it is removed as well.
 func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
-	link := filepath.Join(m.dir(), repoName, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	link := filepath.Join(m.dir(), repoName, pkgName, version+".yaml")
 
 	fi, err := os.Lstat(link)
 	if os.IsNotExist(err) {
@@ -168,7 +168,7 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	}
 
 	// Remove response file.
-	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, fmt.Sprintf("%s.json", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, version+".json")
 	err = os.Remove(respFile)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -277,7 +277,7 @@ func (m *InstallManager) ListInstalled() ([]string, error) {
 
 // GetResponses reads the persisted responses for a given package version.
 func (m *InstallManager) GetResponses(repoName, pkgName, version string) (_ Responses, err error) {
-	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, fmt.Sprintf("%s.json", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, version+".json")
 
 	f, err := os.Open(respFile) //nolint:gosec // path is constructed internally
 	if os.IsNotExist(err) {
@@ -316,7 +316,7 @@ func (m *InstallManager) SaveLastResponses(repoName, pkgName string, responses R
 	}()
 
 	dir := filepath.Join(m.lastResponsesDir(), repoName)
-	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // package data directory
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 
@@ -325,8 +325,8 @@ func (m *InstallManager) SaveLastResponses(repoName, pkgName string, responses R
 
 // LoadLastResponses reads the last saved responses for a package.
 func (m *InstallManager) LoadLastResponses(repoName, pkgName string) (_ Responses, err error) {
-	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName)) //nolint:perfsprint // project convention
-	f, err := os.Open(fn)                                                                 //nolint:gosec // opening known package file
+	fn := filepath.Join(m.lastResponsesDir(), repoName, pkgName+".json")
+	f, err := os.Open(fn) //nolint:gosec // opening known package file
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +343,7 @@ func (m *InstallManager) LoadLastResponses(repoName, pkgName string) (_ Response
 
 // ClearLastResponses removes the last saved responses for a package.
 func (m *InstallManager) ClearLastResponses(repoName, pkgName string) error {
-	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName)) //nolint:perfsprint // project convention
+	fn := filepath.Join(m.lastResponsesDir(), repoName, pkgName+".json")
 	if err := os.Remove(fn); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -363,7 +363,7 @@ func (m *InstallManager) SaveChildren(repoName, parentName string, children []st
 	}()
 
 	dir := filepath.Join(m.dir(), repoName, parentName)
-	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // children data directory
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 
@@ -395,8 +395,8 @@ func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, 
 // repository copy. If they differ (or the repo file is missing), the package
 // was updated upstream after installation.
 func (m *InstallManager) IsPackageChanged(repoName, pkgName, version string) (bool, error) {
-	installedPath := filepath.Join(m.dir(), repoName, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention
-	repoPath := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version))
+	installedPath := filepath.Join(m.dir(), repoName, pkgName, version+".yaml")
+	repoPath := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, version+".yaml")
 
 	installedStat, err := os.Stat(installedPath)
 	if err != nil {
@@ -441,6 +441,6 @@ func (m *InstallManager) SaveResponses(repoName, pkgName, version string, respon
 		return err
 	}
 
-	respFile := filepath.Join(respDir, fmt.Sprintf("%s.json", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	respFile := filepath.Join(respDir, version+".json")
 	return atomicWriteJSON(respFile, responses)
 }

@@ -235,14 +235,14 @@ func (rr *RepositoryRoot) loadLastRefreshed() {
 
 func (rr *RepositoryRoot) saveLastRefreshed() {
 	fn := filepath.Join(rr.BaseDir, LastRefreshedFile)
-	_ = os.WriteFile(fn, []byte(rr.LastRefreshed.Format(time.RFC3339)+"\n"), 0644) //nolint:gosec // cache timestamp file
+	_ = os.WriteFile(fn, []byte(rr.LastRefreshed.Format(time.RFC3339)+"\n"), 0600)
 }
 
 func (rr *RepositoryRoot) RefreshErrors() map[string]string {
 	return rr.Errors
 }
 
-type Repository struct { //nolint:recvcheck // mixed receivers intentional
+type Repository struct {
 	Name     string
 	URL      url.URL
 	Username string
@@ -254,7 +254,7 @@ type repositoryJSON struct {
 	URL  string `json:"url"`
 }
 
-func (r Repository) MarshalJSON() ([]byte, error) {
+func (r *Repository) MarshalJSON() ([]byte, error) {
 	return json.Marshal(repositoryJSON{Name: r.Name, URL: r.credentialURL()})
 }
 
@@ -300,7 +300,7 @@ func (r *Repository) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (r Repository) credentialURL() string {
+func (r *Repository) credentialURL() string {
 	if r.Username == "" {
 		return r.URL.String()
 	}
@@ -476,8 +476,8 @@ func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 
 // LoadPackage loads a single InputPackage from a repository by name and version.
 func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ InputPackage, err error) {
-	fn := filepath.Join(rr.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
-	f, err := os.Open(fn)                                                                          //nolint:gosec // file path is constructed internally
+	fn := filepath.Join(rr.BaseDir, repoName, PackagesDir, pkgName, version+".yaml")
+	f, err := os.Open(fn) //nolint:gosec // file path is constructed internally
 	if err != nil {
 		return InputPackage{}, fmt.Errorf("package %s@%s not found: %w", pkgName, version, err)
 	}

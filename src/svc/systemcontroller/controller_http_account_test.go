@@ -3,7 +3,6 @@ package systemcontroller
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -106,7 +105,7 @@ func TestHTTPDisableAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+adminResp.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -160,7 +159,7 @@ func TestHTTPEnableAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestWithContext disable: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+adminResp.Token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -187,7 +186,7 @@ func TestHTTPEnableAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestWithContext enable: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+adminResp.Token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = c.HTTP.Do(req)
 	if err != nil {
@@ -309,7 +308,7 @@ func TestHTTPListAccountsSortByUsername(t *testing.T) {
 
 	// Create accounts in non-alphabetical order
 	for _, name := range []string{"charlie", "alice", "bob"} {
-		if _, err := c.CreateAccount(context.TODO(), name, "password1", fmt.Sprintf("%s@test.com", name), "555", name, false); err != nil { //nolint:perfsprint // project convention
+		if _, err := c.CreateAccount(context.TODO(), name, "password1", name+"@test.com", "555", name, false); err != nil {
 			t.Fatalf("CreateAccount %q: %v", name, err)
 		}
 	}
@@ -554,7 +553,7 @@ func TestHTTPCreateAccountNonAdminForbidden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -580,7 +579,7 @@ func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -618,7 +617,7 @@ func TestHTTPCreateAccountBootstrapNoAdmins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -706,7 +705,7 @@ func TestHTTPCreateAccountBootstrapAllDisabledWithStaleToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)

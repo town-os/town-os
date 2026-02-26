@@ -801,8 +801,8 @@ func TestCompileNotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if notes != nil {
-			t.Fatalf("expected nil, got %v", notes)
+		if len(notes) != 0 {
+			t.Fatalf("expected empty, got %v", notes)
 		}
 	})
 
@@ -819,8 +819,8 @@ func TestCompileNotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if notes != nil {
-			t.Fatalf("expected nil, got %v", notes)
+		if len(notes) != 0 {
+			t.Fatalf("expected empty, got %v", notes)
 		}
 	})
 

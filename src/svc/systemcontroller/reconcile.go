@@ -106,7 +106,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 			continue
 		}
 
-		slog.Info(fmt.Sprintf("reconcile: restored %s", identity)) //nolint:perfsprint // project convention
+		slog.Info("reconcile: restored " + identity)
 	}
 
 	return nil
@@ -294,12 +294,12 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 		return fmt.Errorf("marshal network state: %w", err)
 	}
 
-	if err := os.MkdirAll(cfg.NetworkStatePath, 0755); err != nil { //nolint:gosec // network state directory
+	if err := os.MkdirAll(cfg.NetworkStatePath, 0700); err != nil {
 		return fmt.Errorf("create network state dir: %w", err)
 	}
 
 	filePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, repoName, pkgName, version)
-	if err := os.WriteFile(filePath, data, 0644); err != nil { //nolint:gosec // state file
+	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("write network state: %w", err)
 	}
 

@@ -52,9 +52,9 @@ func NormalizeImageURL(image string) string {
 	case 1:
 		// Single name: "nginx" or "nginx:1.0"
 		if !hasTag {
-			image = fmt.Sprintf("docker.io/library/%s:latest", image)
+			image = "docker.io/library/" + image + ":latest"
 		} else {
-			image = fmt.Sprintf("docker.io/library/%s", image) //nolint:perfsprint // project convention
+			image = "docker.io/library/" + image
 		}
 	case 2:
 		// Two components: "user/app" or "user/app:v1"
@@ -62,20 +62,20 @@ func NormalizeImageURL(image string) string {
 		// indicate a registry hostname like "ghcr.io").
 		if !strings.Contains(parts[0], ".") && !strings.Contains(parts[0], ":") {
 			if !hasTag {
-				image = fmt.Sprintf("docker.io/%s:latest", image)
+				image = "docker.io/" + image + ":latest"
 			} else {
-				image = fmt.Sprintf("docker.io/%s", image) //nolint:perfsprint // project convention
+				image = "docker.io/" + image
 			}
 		} else {
 			// Registry/image with no namespace (e.g. "ghcr.io/app")
 			if !hasTag {
-				image = fmt.Sprintf("%s:latest", image) //nolint:perfsprint // project convention
+				image += ":latest"
 			}
 		}
 	default:
 		// Full reference: leave unchanged except for tag
 		if !hasTag {
-			image = fmt.Sprintf("%s:latest", image) //nolint:perfsprint // project convention
+			image += ":latest"
 		}
 	}
 

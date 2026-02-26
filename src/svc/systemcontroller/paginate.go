@@ -100,7 +100,7 @@ func (p ListParams) QueryString() string {
 	if len(params) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("?%s", params.Encode()) //nolint:perfsprint // project convention: use fmt.Sprintf
+	return "?" + params.Encode()
 }
 
 // filterSearch returns items matching the search term by doing a case-insensitive

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 
@@ -87,7 +88,7 @@ func sanitizeProblemDetail(pd *ProblemDetailError) *ProblemDetailError {
 		if idx < 0 {
 			return match
 		}
-		return fmt.Sprintf("%s[REDACTED]", match[:idx+1]) //nolint:perfsprint // project convention: use fmt.Sprintf
+		return match[:idx+1] + "[REDACTED]"
 	})
 	return pd
 }
@@ -114,7 +115,9 @@ func ProblemDetailHTTPErrorHandler() echo.HTTPErrorHandler {
 			}
 			c.Response().Header().Set("Content-Type", "application/problem+json")
 			c.Response().WriteHeader(ipd.Status)
-			_ = json.NewEncoder(c.Response()).Encode(ipd)
+			if err := json.NewEncoder(c.Response()).Encode(ipd); err != nil {
+				slog.Debug("encode problem detail", "error", err)
+			}
 			return
 		}
 
@@ -123,6 +126,8 @@ func ProblemDetailHTTPErrorHandler() echo.HTTPErrorHandler {
 
 		c.Response().Header().Set("Content-Type", "application/problem+json")
 		c.Response().WriteHeader(pd.Status)
-		_ = json.NewEncoder(c.Response()).Encode(pd)
+		if err := json.NewEncoder(c.Response()).Encode(pd); err != nil {
+			slog.Debug("encode problem detail", "error", err)
+		}
 	}
 }

@@ -1,7 +1,6 @@
 package packages
 
 import (
-	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -102,7 +101,7 @@ func TestRepositoryRootAdd(t *testing.T) {
 
 		names := []string{"charlie", "alpha", "bravo"}
 		for _, name := range names {
-			p, err := url.JoinPath("/", fmt.Sprintf("%s.git", name)) //nolint:perfsprint // project convention: use fmt.Sprintf
+			p, err := url.JoinPath("/", name+".git")
 			if err != nil {
 				t.Fatalf("url.JoinPath for %q: %v", name, err)
 			}

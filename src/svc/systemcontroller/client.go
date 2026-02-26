@@ -246,7 +246,7 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
 	resp, err := c.HTTP.Do(req)
@@ -272,7 +272,7 @@ func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Res
 		return nil, fmt.Errorf("%w: GET %s: %w", ErrNewRequest, path, err)
 	}
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	return c.HTTP.Do(req)
 }
@@ -286,7 +286,7 @@ func (c *SystemdClient) postJSON(ctx context.Context, path string, body io.Reade
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	return c.HTTP.Do(req)
 }
@@ -391,14 +391,14 @@ func (c *SystemdClient) RefreshRepositories(ctx context.Context) (_ map[string]s
 	var errs map[string]string
 	err = json.NewDecoder(resp.Body).Decode(&errs)
 	if err != nil {
-		return nil, nil //nolint:nilnil // intentional: nil list with no error means "not found"
+		return map[string]string{}, nil
 	}
 	return errs, nil
 }
 
 // ListRepositories returns a paginated list of configured repositories.
 func (c *SystemdClient) ListRepositories(ctx context.Context, params ListParams) (_ *PageResult[RepositoryInfo], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("repository%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "repository"+params.QueryString())
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListRepositories: %w", ErrHTTPRequest, err)
 	}
@@ -436,7 +436,7 @@ func (c *SystemdClient) ListTimezones(ctx context.Context) (_ []string, err erro
 
 // ListPackages returns a paginated list of available packages across all repos.
 func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ *PageResult[PackageListEntry], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "packages"+params.QueryString())
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPackages: %w", ErrHTTPRequest, err)
 	}
@@ -454,7 +454,7 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 
 // ListPackagesByRepo returns packages grouped by their source repository.
 func (c *SystemdClient) ListPackagesByRepo(ctx context.Context, params ListParams) (_ []packages.RepoPackageGroup, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages/by-repo%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "packages/by-repo"+params.QueryString())
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPackagesByRepo: %w", ErrHTTPRequest, err)
 	}
@@ -617,7 +617,7 @@ func (c *SystemdClient) EnablePackage(ctx context.Context, repo, name string) er
 
 // ListInstalled returns a paginated list of installed package identifiers.
 func (c *SystemdClient) ListInstalled(ctx context.Context, params ListParams) (_ *PageResult[string], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("packages/installed%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "packages/installed"+params.QueryString())
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListInstalled: %w", ErrHTTPRequest, err)
 	}
@@ -722,7 +722,7 @@ func (c *SystemdClient) InstallPreview(ctx context.Context, repo, name, version 
 
 // ListUnits returns a paginated list of systemd service units.
 func (c *SystemdClient) ListUnits(ctx context.Context, params ListParams) (_ *PageResult[UnitListEntry], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/units%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "systemd/units"+params.QueryString())
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListUnits: %w", ErrHTTPRequest, err)
 	}
@@ -749,7 +749,7 @@ func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action s
 // LogReplay streams historical journal entries for a unit via server-sent
 // events. The returned channel is closed when the replay completes.
 func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("systemd/logs?unit=%s", url.QueryEscape(name))) //nolint:bodyclose,perfsprint // closed in goroutine defer below; project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "systemd/logs?unit="+url.QueryEscape(name)) //nolint:bodyclose // closed in goroutine defer below
 	if err != nil {
 		if resp != nil {
 			err = errors.Join(err, resp.Body.Close())
@@ -913,7 +913,7 @@ func (c *SystemdClient) EnableAccount(ctx context.Context, username string) erro
 
 // ListAccounts returns a paginated list of all user accounts.
 func (c *SystemdClient) ListAccounts(ctx context.Context, params ListParams) (_ *PageResult[account.Account], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("account%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "account"+params.QueryString())
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListAccounts: %w", ErrHTTPRequest, err)
 	}
@@ -965,7 +965,7 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListSessions: %w", ErrNewRequest, err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -989,7 +989,7 @@ func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ st
 	if err != nil {
 		return "", fmt.Errorf("%w: SessionUsername: %w", ErrNewRequest, err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -1024,7 +1024,7 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListAuditLog: %w", ErrNewRequest, err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -1173,7 +1173,7 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
+		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
 	resp, err := c.HTTP.Do(req)
@@ -1207,7 +1207,7 @@ func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, p
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
+		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
 	resp, err := c.HTTP.Do(req)

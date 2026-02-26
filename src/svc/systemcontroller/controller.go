@@ -43,13 +43,13 @@ func isReservedFilesystem(name string) bool {
 	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume {
 		return true
 	}
-	if strings.HasPrefix(name, fmt.Sprintf("%s/", PackagesVolumePrefix)) { //nolint:perfsprint // project convention
+	if strings.HasPrefix(name, PackagesVolumePrefix+"/") {
 		return true
 	}
-	if strings.HasPrefix(name, fmt.Sprintf("%s/", UninstalledVolumePrefix)) { //nolint:perfsprint // project convention
+	if strings.HasPrefix(name, UninstalledVolumePrefix+"/") {
 		return true
 	}
-	if strings.HasPrefix(name, fmt.Sprintf("%s/", ArchivesSubvolume)) { //nolint:perfsprint // project convention
+	if strings.HasPrefix(name, ArchivesSubvolume+"/") {
 		return true
 	}
 	return false
@@ -64,13 +64,13 @@ func classifyFilesystem(name string) (state, displayName string) {
 		return "", name
 	}
 
-	archivesPrefix := fmt.Sprintf("%s/", ArchivesSubvolume) //nolint:perfsprint // project convention
+	archivesPrefix := ArchivesSubvolume + "/"
 	if strings.HasPrefix(name, archivesPrefix) {
 		return "", name
 	}
 
-	installedPrefix := fmt.Sprintf("%s/", PackagesVolumePrefix)   //nolint:perfsprint // project convention
-	uninstalledPrefix := fmt.Sprintf("%s/", UninstalledVolumePrefix) //nolint:perfsprint // project convention
+	installedPrefix := PackagesVolumePrefix + "/"
+	uninstalledPrefix := UninstalledVolumePrefix + "/"
 
 	if after, ok := strings.CutPrefix(name, installedPrefix); ok {
 		return "installed", after
@@ -539,10 +539,10 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 	}
 
 	filePath := fmt.Sprintf("%s/%s-%s-%s.json", statePath, repoName, pkgName, version)
-	if err := os.MkdirAll(statePath, 0755); err != nil { //nolint:gosec // state directory
+	if err := os.MkdirAll(statePath, 0700); err != nil {
 		return fmt.Errorf("create network state dir: %w", err)
 	}
-	if err := os.WriteFile(filePath, data, 0644); err != nil { //nolint:gosec // state file
+	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("write network state: %w", err)
 	}
 
@@ -1171,7 +1171,7 @@ func buildInstallSummary(p *InstallPreview) string {
 		parts = append(parts, fmt.Sprintf("Install %s %s", p.Name, p.Version))
 	}
 
-	parts = append(parts, fmt.Sprintf("Image: %s", p.Image)) //nolint:perfsprint // project convention
+	parts = append(parts, "Image: "+p.Image)
 
 	if len(p.Volumes) > 0 {
 		fresh := 0
@@ -1201,7 +1201,7 @@ func buildInstallSummary(p *InstallPreview) string {
 		for i, port := range p.ExternalPorts {
 			portStrs[i] = fmt.Sprintf("%d->%d", port.External, port.Internal)
 		}
-		parts = append(parts, fmt.Sprintf("External ports: %s", strings.Join(portStrs, ", "))) //nolint:perfsprint // project convention
+		parts = append(parts, "External ports: "+strings.Join(portStrs, ", "))
 	}
 
 	if p.HasQuestions {
@@ -1936,7 +1936,7 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 		}
 
 		// Check if the corresponding network controller unit has failed.
-		ncName := fmt.Sprintf("%s-network.service", strings.TrimSuffix(u.Name, ".service")) //nolint:perfsprint // project convention
+		ncName := strings.TrimSuffix(u.Name, ".service") + "-network.service"
 		if ncUnit, ok := ncUnitMap[ncName]; ok && ncUnit.ActiveState == "failed" {
 			entry.NCFailed = true
 			if entry.ActiveState != "failed" {
@@ -2494,7 +2494,9 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		}
 
 		// Best-effort audit logging; don't fail the request if logging fails
-		_ = am.LogEntry(entry)
+		if err := am.LogEntry(entry); err != nil {
+			slog.Debug("audit log error", "error", err)
+		}
 
 		return handlerErr
 	}
@@ -2980,8 +2982,6 @@ func withContext(parent context.Context, handler http.Handler) http.Handler {
 type serverBase struct {
 	ServerConfig
 
-	ctx        context.Context //nolint:containedctx // server lifecycle context
-	cancel     context.CancelFunc
 	externalIP atomic.Value // stores string
 }
 
@@ -3144,8 +3144,7 @@ func NewHandler(cfg ServerConfig) http.Handler {
 	if hostname, err := os.Hostname(); err == nil {
 		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	sb := &serverBase{ServerConfig: cfg, ctx: ctx, cancel: cancel}
+	sb := &serverBase{ServerConfig: cfg}
 	return configureRouter(sb)
 }
 
@@ -3155,13 +3154,13 @@ type TestServer struct {
 	serverBase
 
 	Server *httptest.Server
+	cancel context.CancelFunc
 }
 
 func InitTestServer(cfg ServerConfig) *TestServer {
 	ts := &TestServer{}
 	ts.ServerConfig = cfg
 	ctx, cancel := context.WithCancel(context.Background())
-	ts.ctx = ctx
 	ts.cancel = cancel
 	ts.Server = httptest.NewServer(withContext(ctx, configureRouter(ts)))
 	return ts
@@ -3188,6 +3187,8 @@ type UnixServer struct {
 
 	Socket string
 	server *http.Server
+	ctx    context.Context //nolint:containedctx // server lifecycle context stored for Run()
+	cancel context.CancelFunc
 }
 
 func InitUnixServer(sock string, cfg ServerConfig) *UnixServer {

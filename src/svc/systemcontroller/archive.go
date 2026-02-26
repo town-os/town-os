@@ -305,7 +305,7 @@ func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, 
 	targetPath := filepath.Join(basePath, targetSubvol)
 	if subpath != "" {
 		targetPath = filepath.Join(targetPath, subpath)
-		if err := os.MkdirAll(targetPath, 0755); err != nil { //nolint:gosec // admin-only endpoint
+		if err := os.MkdirAll(targetPath, 0700); err != nil {
 			return fmt.Errorf("create subpath directory: %w", err)
 		}
 	}

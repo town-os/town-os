@@ -161,7 +161,9 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 				// State file removed — tear down everything.
 				c.reconcile(&PackageNetworkState{})
 				// Re-add watch in case the file is recreated.
-				_ = watcher.Add(statePath)
+				if err := watcher.Add(statePath); err != nil {
+					slog.Debug("re-add watcher", "error", err)
+				}
 			}
 
 		case err, ok := <-watcher.Errors:

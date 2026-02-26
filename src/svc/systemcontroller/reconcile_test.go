@@ -3,7 +3,6 @@ package systemcontroller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -43,7 +42,7 @@ func setupReconcileRepo(t *testing.T, pkgs map[string]string) (*packages.Reposit
 		if err != nil {
 			t.Fatalf("mkdir %s: %v", pkgDir, err)
 		}
-		fn := fmt.Sprintf("%s.yaml", filepath.Base(nameVersion)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		fn := filepath.Base(nameVersion) + ".yaml"
 		err = os.WriteFile(filepath.Join(pkgDir, fn), []byte(content), 0600)
 		if err != nil {
 			t.Fatalf("write %s: %v", fn, err)
@@ -494,7 +493,7 @@ func setupMultiRepoReconcile(t *testing.T, pkgsA, pkgsB map[string]string) (*pac
 			if err != nil {
 				t.Fatalf("mkdir %s: %v", pkgDir, err)
 			}
-			fn := fmt.Sprintf("%s.yaml", filepath.Base(nameVersion)) //nolint:perfsprint // project convention: use fmt.Sprintf
+			fn := filepath.Base(nameVersion) + ".yaml"
 			err = os.WriteFile(filepath.Join(pkgDir, fn), []byte(content), 0600)
 			if err != nil {
 				t.Fatalf("write %s: %v", fn, err)

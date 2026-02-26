@@ -230,7 +230,7 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 	}()
 
 	if p.Unit != "" {
-		err = j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", p.Unit)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		err = j.AddMatch("_SYSTEMD_UNIT=" + p.Unit)
 		if err != nil {
 			return LogTailResult{}, err
 		}
@@ -365,7 +365,7 @@ func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan J
 	}
 
 	if unit != "" {
-		err = j.AddMatch(fmt.Sprintf("_SYSTEMD_UNIT=%s", unit)) //nolint:perfsprint // project convention: use fmt.Sprintf
+		err = j.AddMatch("_SYSTEMD_UNIT=" + unit)
 		if err != nil {
 			return nil, errors.Join(err, j.Close())
 		}

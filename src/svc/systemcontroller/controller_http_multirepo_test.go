@@ -3,7 +3,6 @@ package systemcontroller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -21,7 +20,7 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 			Repo: "repo-a", Name: "nginx", Version: "1.0", Responses: packages.Responses{},
 		}))
 	}()
-	req1, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, fmt.Sprintf("%s/packages/install", c.BaseURL), pr1) //nolint:perfsprint // project convention
+	req1, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.BaseURL+"/packages/install", pr1)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -48,7 +47,7 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 			Repo: "repo-b", Name: "nginx", Version: "1.0", Responses: packages.Responses{},
 		}))
 	}()
-	req2, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, fmt.Sprintf("%s/packages/install", c.BaseURL), pr) //nolint:perfsprint // project convention
+	req2, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.BaseURL+"/packages/install", pr)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}

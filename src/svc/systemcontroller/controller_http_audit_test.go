@@ -32,7 +32,7 @@ func TestHTTPAuditLogLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -115,7 +115,7 @@ func TestHTTPAuditLogPagination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewRequestWithContext: %v", err)
 		}
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
 		req.Header.Set("Content-Type", "application/json")
 
 		httpResp, err := c.HTTP.Do(req)
@@ -306,7 +306,7 @@ func TestHTTPAuditLogSortByIDASc(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewRequest: %v", err)
 		}
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
 		req.Header.Set("Content-Type", "application/json")
 
 		httpResp, err := c.HTTP.Do(req)
@@ -430,7 +430,7 @@ func TestHTTPAuditDetailCaptured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
 	req.Header.Set("Content-Type", "application/json")
 	httpResp, err := c.HTTP.Do(req)
 	if err != nil {

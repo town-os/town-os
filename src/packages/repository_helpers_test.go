@@ -2,7 +2,6 @@ package packages
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -44,7 +43,7 @@ func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content
 	if err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	path := filepath.Join(dir, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention: use fmt.Sprintf
+	path := filepath.Join(dir, version+".yaml")
 	err = os.WriteFile(path, []byte(content), 0644) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("WriteFile: %v", err)

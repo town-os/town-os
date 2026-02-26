@@ -15,7 +15,7 @@ func TestRepositoryJSONRoundTrip(t *testing.T) {
 			Password: "token123",
 		}
 
-		data := marshalJSON(t, original)
+		data := marshalJSON(t, &original)
 
 		var got Repository
 		err := json.Unmarshal(data, &got)
@@ -43,7 +43,7 @@ func TestRepositoryJSONRoundTrip(t *testing.T) {
 			URL:  url.URL{Scheme: "https", Host: "github.com", Path: "/org/public-repo"},
 		}
 
-		data := marshalJSON(t, original)
+		data := marshalJSON(t, &original)
 
 		var got Repository
 		err := json.Unmarshal(data, &got)
@@ -73,7 +73,7 @@ func TestRepositoryJSONRoundTrip(t *testing.T) {
 			Password: "p@ss:w0rd/special",
 		}
 
-		data := marshalJSON(t, original)
+		data := marshalJSON(t, &original)
 
 		var got Repository
 		err := json.Unmarshal(data, &got)
@@ -202,7 +202,7 @@ func TestRepositoryUnmarshalObjectFormat(t *testing.T) {
 			Password: "p",
 		}
 
-		data := marshalJSON(t, r)
+		data := marshalJSON(t, &r)
 		want := `{"name":"test","url":"https://u:p@example.com/repo.git"}`
 		if string(data) != want {
 			t.Fatalf("expected %s, got %s", want, string(data))

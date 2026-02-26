@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -82,7 +81,7 @@ func TestProblemDetailResponse_ContentType(t *testing.T) {
 
 	// POST with invalid JSON to trigger a decode error
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		fmt.Sprintf("%s/storage/create", c.BaseURL), //nolint:perfsprint // project convention: use fmt.Sprintf
+		c.BaseURL+"/storage/create",
 		strings.NewReader("{invalid"),
 	)
 	if err != nil {
@@ -111,7 +110,7 @@ func TestProblemDetailResponse_ErrorBody(t *testing.T) {
 
 	// POST with invalid JSON to trigger an error
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		fmt.Sprintf("%s/storage/create", c.BaseURL), //nolint:perfsprint // project convention: use fmt.Sprintf
+		c.BaseURL+"/storage/create",
 		strings.NewReader("{invalid"),
 	)
 	if err != nil {

@@ -47,7 +47,10 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 	}
 
 	// Migrate: add detail column if it does not exist (for existing databases).
-	_, _ = db.ExecContext(ctx, `ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`)
+	_, err = db.ExecContext(ctx, `ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, fmt.Errorf("add detail column: %w", err)
+	}
 
 	_, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(id DESC)`)
 	if err != nil {
@@ -103,7 +106,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	}
 
 	if len(where) > 0 {
-		qb.WriteString(fmt.Sprintf(" WHERE %s", strings.Join(where, " AND "))) //nolint:perfsprint // project convention: use fmt.Sprintf
+		qb.WriteString(" WHERE " + strings.Join(where, " AND "))
 	}
 
 	sortCol := "id"
@@ -173,7 +176,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		countArgs = append(countArgs, pattern, pattern, pattern, pattern)
 	}
 	if len(countWhere) > 0 {
-		countQuery += fmt.Sprintf(" WHERE %s", strings.Join(countWhere, " AND ")) //nolint:perfsprint // project convention: use fmt.Sprintf
+		countQuery += " WHERE " + strings.Join(countWhere, " AND ")
 	}
 
 	var total int

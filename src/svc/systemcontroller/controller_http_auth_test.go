@@ -3,7 +3,6 @@ package systemcontroller
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -92,7 +91,7 @@ func TestHTTPSessionLifecycle(t *testing.T) {
 func TestHTTPSessionUsernameUnauthenticated(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, fmt.Sprintf("%s/account/me", c.BaseURL), nil) //nolint:perfsprint // project convention
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, c.BaseURL+"/account/me", nil)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}
@@ -153,7 +152,7 @@ func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -233,7 +232,7 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -321,7 +320,7 @@ func TestHTTPRequireAuthAllowsAuthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
+	req.Header.Set("Authorization", "Bearer "+resp.Token)
 
 	httpResp, err := c.HTTP.Do(req)
 	if err != nil {
