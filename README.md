@@ -78,6 +78,26 @@ Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the ho
 | `make auto-test`           | Watch for `.go`/`.js` file changes and re-run `make test` automatically. Reflex is automatically installed when needed. |
 | `make auto-test-full`      | Watch for file changes and re-run `make test-full` automatically. Reflex is automatically installed when needed.        |
 
+### Local Registry
+
+Integration tests use a local `registry:2` container to avoid Docker Hub rate limits. When you run `make test-integration` or `make test-ui-integration`, the build automatically:
+
+1. Discovers all `docker.io` images referenced by test package repositories (`discover-images` tool)
+2. Starts a local registry on a random port
+3. Pulls each image and pushes it to the local registry
+4. Generates a `registries.conf` that redirects `docker.io` pulls to the local mirror
+5. Mounts the config into the test container
+
+This is transparent -- no code changes are needed. The local registry falls back to Docker Hub for any images not in the mirror.
+
+| Target                   | Description                                               |
+| ------------------------ | --------------------------------------------------------- |
+| `make registry`          | Start the local registry container.                       |
+| `make registry-populate` | Mirror discovered docker.io images to the local registry. |
+| `make registry-stop`     | Stop and remove the local registry container.             |
+
+Each working directory gets its own registry instance (via `INSTANCE_ID`), so concurrent test runs do not conflict.
+
 ### Building
 
 | Target                       | Description                                                        |

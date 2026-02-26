@@ -1,4 +1,6 @@
 /.integration-port
+/.registry-port
+/discover-images
 /.claude
 /btrfs-dev.*
 /town-os-dev.*

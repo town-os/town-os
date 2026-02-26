@@ -27,6 +27,6 @@ COPY --from=builder /integration-test /integration-test
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 COPY integration/testdata/town-os-package--repo-test-1.0.service /etc/systemd/system/
 RUN systemctl enable town-os-systemcontroller.service town-os-package--repo-test-1.0.service
-RUN mkdir -p /test /data/btrfs /data/repos /data/db /var/run/town-os
+RUN mkdir -p /test /data/btrfs /data/repos /data/db /var/run/town-os /etc/containers/registries.conf.d
 EXPOSE 5309 5310
 CMD ["/lib/systemd/systemd"]

@@ -1,5 +1,7 @@
 .git
 .claude
+.registry-port
+discover-images
 .gitignore
 .golangci.yml
 .git*.tmp

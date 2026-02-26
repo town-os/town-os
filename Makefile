@@ -22,6 +22,7 @@ PODMAN_UI_CONTAINER  := town-os-ui-integration-$(INSTANCE_ID)
 PODMAN_UI_BACKEND    := town-os-ui-backend-$(INSTANCE_ID)
 PODMAN_DEV_CONTAINER := town-os-dev
 PREFLIGHT_CONTAINER  := preflight-test-$(INSTANCE_ID)
+REGISTRY_CONTAINER   := town-os-registry-$(INSTANCE_ID)
 
 test: lint
 	go test -v -timeout 60m ./src/...
@@ -43,6 +44,7 @@ pull-images: docker-login
 	sudo -E podman pull docker.io/library/golang:1.25-bookworm
 	sudo -E podman pull docker.io/oven/bun:latest
 	sudo -E podman pull docker.io/library/debian:bookworm-slim
+	sudo -E podman pull docker.io/library/registry:2
 	@mkdir -p .cache
 	@touch .cache/.images-pulled
 
@@ -63,7 +65,49 @@ production-image: .cache/.images-pulled
 	@python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' > $@
 	@echo "Integration port: $$(cat $@)"
 
-test-ui-integration: test-image ui-integration-image btrfs .integration-port
+# Allocate a random available port for the local registry.
+.registry-port:
+	@python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' > $@
+	@echo "Registry port: $$(cat $@)"
+
+# Discover docker.io images from test package repositories.
+.cache/.registry-images:
+	@mkdir -p .cache
+	go run ./src/registry/cmd/discover-images/ > $@
+	@echo "Discovered $$(wc -l < $@) images"
+
+# Start a local registry:2 container.
+registry: .registry-port
+	@sudo -E podman rm -f $(REGISTRY_CONTAINER) 2>/dev/null || true
+	sudo -E podman run -d --name $(REGISTRY_CONTAINER) \
+		-p $$(cat .registry-port):5000 \
+		docker.io/library/registry:2
+	@echo "Registry running on port $$(cat .registry-port)"
+
+# Pull each discovered image, re-tag for the local registry, and push.
+registry-populate: registry .cache/.registry-images
+	@port=$$(cat .registry-port); \
+	while IFS= read -r image; do \
+		local_tag="localhost:$$port/$${image#docker.io/}"; \
+		echo "Mirroring $$image -> $$local_tag"; \
+		sudo -E podman pull "$$image" && \
+		sudo -E podman tag "$$image" "$$local_tag" && \
+		sudo -E podman push --tls-verify=false "$$local_tag" || \
+		{ echo "WARNING: failed to mirror $$image"; }; \
+	done < .cache/.registry-images
+
+# Generate registries.conf that redirects docker.io to the local registry.
+.cache/registries.conf: .registry-port
+	@mkdir -p .cache
+	@printf '[[registry]]\nprefix = "docker.io"\nlocation = "docker.io"\n\n[[registry.mirror]]\nlocation = "localhost:%s"\ninsecure = true\n' "$$(cat .registry-port)" > $@
+	@echo "Generated registries.conf (mirror on port $$(cat .registry-port))"
+
+# Stop and remove the local registry container.
+registry-stop:
+	@sudo -E podman rm -f $(REGISTRY_CONTAINER) 2>/dev/null || true
+	@rm -f .registry-port
+
+test-ui-integration: test-image ui-integration-image btrfs .integration-port registry-populate .cache/registries.conf
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 -e TOWN_OS_TEST=1 \
@@ -74,6 +118,7 @@ test-ui-integration: test-image ui-integration-image btrfs .integration-port
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
+		-v $$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z \
 		--name=$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
 	@echo "Waiting for systemd to be ready..."
 	@for i in $$(seq 1 30); do \
@@ -94,7 +139,7 @@ test-ui-integration: test-image ui-integration-image btrfs .integration-port
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
 		bun run test:integration -- --reporter=verbose
 
-test-integration: lint test-image btrfs .integration-port
+test-integration: lint test-image btrfs .integration-port registry-populate .cache/registries.conf
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} -e TOWN_OS_TEST=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
@@ -104,6 +149,7 @@ test-integration: lint test-image btrfs .integration-port
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
 		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
+		-v $$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "Waiting for systemd to be ready..."
 	@for i in $$(seq 1 30); do \
@@ -239,7 +285,7 @@ clean-btrfs:
 	fi
 	rm -f btrfs.* town-os.disk town-os.loop town-os.mount
 
-clean-integration:
+clean-integration: registry-stop
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
