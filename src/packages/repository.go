@@ -217,7 +217,9 @@ func (rr *RepositoryRoot) forceRefresh() {
 		}
 	}
 	rr.LastRefreshed = time.Now()
-	rr.saveLastRefreshed()
+	if err := rr.saveLastRefreshed(); err != nil {
+		logrus.Warnf("failed to save last-refreshed timestamp: %v", err)
+	}
 }
 
 func (rr *RepositoryRoot) loadLastRefreshed() {
@@ -233,9 +235,9 @@ func (rr *RepositoryRoot) loadLastRefreshed() {
 	rr.LastRefreshed = t
 }
 
-func (rr *RepositoryRoot) saveLastRefreshed() {
+func (rr *RepositoryRoot) saveLastRefreshed() error {
 	fn := filepath.Join(rr.BaseDir, LastRefreshedFile)
-	_ = os.WriteFile(fn, []byte(rr.LastRefreshed.Format(time.RFC3339)+"\n"), 0600)
+	return os.WriteFile(fn, []byte(rr.LastRefreshed.Format(time.RFC3339)+"\n"), 0600)
 }
 
 func (rr *RepositoryRoot) RefreshErrors() map[string]string {

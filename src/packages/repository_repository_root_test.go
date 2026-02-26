@@ -432,3 +432,61 @@ func TestRepositoryRootRefreshCaching(t *testing.T) {
 		}
 	})
 }
+
+func TestSaveLastRefreshedSuccess(t *testing.T) {
+	dir := t.TempDir()
+	rr := &RepositoryRoot{
+		BaseDir:       dir,
+		LastRefreshed: time.Now(),
+	}
+
+	err := rr.saveLastRefreshed()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify the file was created with restricted permissions.
+	fn := filepath.Join(dir, LastRefreshedFile)
+	fi, err := os.Stat(fn)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if fi.Mode().Perm() != 0600 {
+		t.Fatalf("expected permission 0600, got %o", fi.Mode().Perm())
+	}
+}
+
+func TestSaveLastRefreshedError(t *testing.T) {
+	rr := &RepositoryRoot{
+		BaseDir:       "/nonexistent/path/that/does/not/exist",
+		LastRefreshed: time.Now(),
+	}
+
+	err := rr.saveLastRefreshed()
+	if err == nil {
+		t.Fatal("expected error writing to nonexistent directory")
+	}
+}
+
+func TestForceRefreshContinuesOnSaveTimestampError(t *testing.T) {
+	// Use a read-only directory so saveLastRefreshed fails.
+	dir := t.TempDir()
+	writeTestRepos(t, dir, []Repository{})
+
+	rr, err := RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+
+	// Point BaseDir at a nonexistent path so saveLastRefreshed fails,
+	// but keep Items empty so init() is never called.
+	rr.BaseDir = "/nonexistent/path/that/does/not/exist"
+	rr.Items = nil
+
+	rr.ForceRefresh()
+
+	// Refresh should still have updated LastRefreshed despite the save error.
+	if rr.LastRefreshed.IsZero() {
+		t.Fatal("expected LastRefreshed to be set even when save fails")
+	}
+}

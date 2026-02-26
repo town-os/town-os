@@ -283,6 +283,13 @@ func TestValidateGitURL(t *testing.T) {
 		}
 	})
 
+	t.Run("file URL without host accepted", func(t *testing.T) {
+		err := ValidateGitURL("file:///home/user/repo")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("SSH URL accepted", func(t *testing.T) {
 		err := ValidateGitURL("ssh://git@github.com/example/repo.git")
 		if err != nil {
@@ -308,6 +315,16 @@ func TestValidateGitURL(t *testing.T) {
 		err := ValidateGitURL("https://")
 		if err == nil {
 			t.Fatal("expected error for scheme-only URL")
+		}
+		if !errors.Is(err, ErrInvalidGitURL) {
+			t.Fatalf("expected ErrInvalidGitURL, got %v", err)
+		}
+	})
+
+	t.Run("non-file scheme without host rejected", func(t *testing.T) {
+		err := ValidateGitURL("https:///no-host-repo")
+		if err == nil {
+			t.Fatal("expected error for https URL without host")
 		}
 		if !errors.Is(err, ErrInvalidGitURL) {
 			t.Fatalf("expected ErrInvalidGitURL, got %v", err)

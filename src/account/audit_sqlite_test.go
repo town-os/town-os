@@ -549,6 +549,68 @@ func TestAuditListSortByAction(t *testing.T) {
 	}
 }
 
+// --- Migration: duplicate column ---
+
+func TestInitAuditManagerTwice(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		err := db.Close()
+		if err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	// First init creates the table and columns.
+	_, err = InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("first InitAuditManager: %v", err)
+	}
+
+	// Second init should succeed: the "duplicate column" error from
+	// ALTER TABLE ADD COLUMN should be silently tolerated.
+	_, err = InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("second InitAuditManager: %v", err)
+	}
+}
+
+// --- Detail field ---
+
+func TestAuditLogEntryDetail(t *testing.T) {
+	mgr := initTestAuditDB(t)
+
+	entry := AuditEntry{
+		Account:   "alice",
+		Action:    "disable account",
+		Path:      "/account/disable",
+		Detail:    `{"username":"bob"}`,
+		Success:   true,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	err := mgr.LogEntry(entry)
+	if err != nil {
+		t.Fatalf("LogEntry: %v", err)
+	}
+
+	page, err := mgr.List(AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+
+	got := page.Entries[0]
+	if got.Detail != `{"username":"bob"}` {
+		t.Fatalf("expected detail %q, got %q", `{"username":"bob"}`, got.Detail)
+	}
+}
+
 // --- Empty results ---
 
 func TestAuditListEmpty(t *testing.T) {

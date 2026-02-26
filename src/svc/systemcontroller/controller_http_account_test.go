@@ -861,11 +861,10 @@ func TestHTTPCreateAccountRejectsWithActiveSession(t *testing.T) {
 	}
 
 	// Authenticate to create an active session.
-	resp, err := c.Authenticate(context.TODO(), "first", "password1")
+	_, err = c.Authenticate(context.TODO(), "first", "password1")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	_ = resp
 
 	// Clear token — active session exists, should require auth.
 	c.Token = ""

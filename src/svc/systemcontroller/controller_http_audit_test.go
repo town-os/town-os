@@ -422,7 +422,9 @@ func TestHTTPAuditDetailCaptured(t *testing.T) {
 	}
 
 	// Disable a user - this should capture detail
-	_, _ = c.CreateAccount(context.TODO(), "user1", "password1", "u@b.com", "555", "User", false)
+	if _, err := c.CreateAccount(context.TODO(), "user1", "password1", "u@b.com", "555", "User", false); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
 
 	// The disable call has a simple body: {"username":"user1"}
 	body := `{"username":"user1"}`
@@ -576,7 +578,9 @@ func TestHTTPAuditDetailNeverContainsPassword(t *testing.T) {
 
 	// Update account with password change
 	newpw := "newpassword"
-	_, _ = c.UpdateAccount(context.TODO(), "admin", account.UpdateFields{Password: &newpw})
+	if _, err := c.UpdateAccount(context.TODO(), "admin", account.UpdateFields{Password: &newpw}); err != nil {
+		t.Fatalf("UpdateAccount: %v", err)
+	}
 
 	page, err := auditMgr.List(account.AuditListOptions{})
 	if err != nil {
