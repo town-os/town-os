@@ -626,3 +626,145 @@ func TestHTTPListUnitsDegenerateVariations(t *testing.T) {
 		t.Fatalf("expected town-os-package--repo-valid-1.0.service, got %s", units.Entries[0].Name)
 	}
 }
+
+func TestHTTPListUnitsSortExcludesDegenerateUnits(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "beta", Version: "1.0"},
+		{Repo: "repo", Name: "alpha", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-beta-1.0.service", ActiveState: "active"},
+		// Degenerate units interspersed — should not affect sort results.
+		{Name: "town-os-package--.service", ActiveState: "active"},
+		{Name: "town-os-package--x.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-alpha-1.0.service", ActiveState: "inactive"},
+	}
+
+	// Sort by package_identifier ascending: alpha should come before beta.
+	page, err := c.ListUnits(context.TODO(), ListParams{SortBy: "package_identifier", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(page.Entries) != 2 {
+		t.Fatalf("expected 2 entries after filtering degenerate units, got %d", len(page.Entries))
+	}
+	if page.Entries[0].PackageIdentifier != "repo/alpha@1.0" {
+		t.Fatalf("expected alpha first in asc sort, got %s", page.Entries[0].PackageIdentifier)
+	}
+	if page.Entries[1].PackageIdentifier != "repo/beta@1.0" {
+		t.Fatalf("expected beta second in asc sort, got %s", page.Entries[1].PackageIdentifier)
+	}
+}
+
+func TestHTTPListUnitsSearchDoubleDashOnlyReturnsInstalled(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		// Degenerate units contain "--" in their name but should be excluded.
+		{Name: "town-os-package--.service", ActiveState: "active"},
+		{Name: "town-os-package----.service", ActiveState: "active"},
+	}
+
+	// Search for "--" — all units structurally match, but only the installed one should appear.
+	page, err := c.ListUnits(context.TODO(), ListParams{Search: "--"})
+	if err != nil {
+		t.Fatalf("ListUnits search: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry when searching for '--', got %d", len(page.Entries))
+	}
+	if page.Entries[0].Name != "town-os-package--repo-nginx-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-nginx-1.0.service, got %s", page.Entries[0].Name)
+	}
+}
+
+func TestHTTPListUnitsMultipleValidWithDegenerateMixed(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "alpha", Version: "1.0"},
+		{Repo: "repo", Name: "beta", Version: "2.0"},
+		{Repo: "repo", Name: "gamma", Version: "3.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-alpha-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-beta-2.0.service", ActiveState: "inactive"},
+		{Name: "town-os-package--x.service", ActiveState: "active"},
+		{Name: "town-os-package----.service", ActiveState: "failed"},
+		{Name: "town-os-package--repo-gamma-3.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 3 {
+		t.Fatalf("expected 3 units (all degenerate filtered), got %d", len(units.Entries))
+	}
+
+	// Verify all valid units have correct package identifiers.
+	expected := map[string]string{
+		"town-os-package--repo-alpha-1.0.service": "repo/alpha@1.0",
+		"town-os-package--repo-beta-2.0.service":  "repo/beta@2.0",
+		"town-os-package--repo-gamma-3.0.service": "repo/gamma@3.0",
+	}
+	for _, e := range units.Entries {
+		wantID, ok := expected[e.Name]
+		if !ok {
+			t.Fatalf("unexpected unit in results: %s", e.Name)
+		}
+		if e.PackageIdentifier != wantID {
+			t.Fatalf("unit %s: expected PackageIdentifier %q, got %q", e.Name, wantID, e.PackageIdentifier)
+		}
+	}
+}
+
+func TestHTTPListUnitsDegenerateNCDoesNotCorruptValidNC(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "app", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-app-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-app-1.0-network.service", ActiveState: "active"},
+		// Degenerate main unit and its degenerate NC, both failed.
+		{Name: "town-os-package--.service", ActiveState: "failed"},
+		{Name: "town-os-package---network.service", ActiveState: "failed"},
+		// Another degenerate with a different NC pattern.
+		{Name: "town-os-package--x.service", ActiveState: "active"},
+		{Name: "town-os-package--x-network.service", ActiveState: "failed"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-app-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-app-1.0.service, got %s", units.Entries[0].Name)
+	}
+	// The valid unit's NC is active, so NCFailed should be false despite degenerate NCs being failed.
+	if units.Entries[0].NCFailed {
+		t.Fatal("expected NCFailed=false — degenerate NC failures should not affect valid unit")
+	}
+	if units.Entries[0].ActiveState != "active" {
+		t.Fatalf("expected ActiveState %q, got %q", "active", units.Entries[0].ActiveState)
+	}
+}
