@@ -289,6 +289,54 @@ func TestValidateGitURL(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+
+	t.Run("HTTP URL accepted", func(t *testing.T) {
+		err := ValidateGitURL("http://github.com/example/repo.git")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("HTTPS with credentials accepted", func(t *testing.T) {
+		err := ValidateGitURL("https://user:pass@github.com/example/repo.git")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("scheme only rejected", func(t *testing.T) {
+		err := ValidateGitURL("https://")
+		if err == nil {
+			t.Fatal("expected error for scheme-only URL")
+		}
+		if !errors.Is(err, ErrInvalidGitURL) {
+			t.Fatalf("expected ErrInvalidGitURL, got %v", err)
+		}
+	})
+}
+
+func TestValidateDoesNotCheckGitURLs(t *testing.T) {
+	// Validate() does not check git URLs — that happens in Compile().
+	// This verifies the boundary: invalid git URL passes Validate but fails Compile.
+	pkg := InputPackage{
+		Image:       "nginx",
+		Environment: map[string]string{},
+		Network:     InputPackageNetwork{},
+		Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "not-a-url"}},
+		Questions:   map[string]Question{},
+	}
+	err := pkg.Validate()
+	if err != nil {
+		t.Fatalf("Validate should accept invalid git URL, got: %v", err)
+	}
+
+	_, err = pkg.Compile(Responses{})
+	if err == nil {
+		t.Fatal("Compile should reject invalid git URL")
+	}
+	if !errors.Is(err, ErrInvalidGitURL) {
+		t.Fatalf("expected ErrInvalidGitURL, got %v", err)
+	}
 }
 
 func TestYAMLVolumeGitParsing(t *testing.T) {

@@ -750,3 +750,133 @@ func TestReconcileWithGitSeedVolume(t *testing.T) {
 		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
 	}
 }
+
+func TestReconcileWithMultipleGitSeedVolumes(t *testing.T) {
+	// Package with multiple git seed volumes reconciles without error.
+	pkgYAML := `image: nginx:1.0
+volumes:
+  config:
+    mountpoint: /config
+    git: https://invalid.example.com/config.git
+  templates:
+    mountpoint: /templates
+    git: https://invalid.example.com/templates.git
+  data:
+    mountpoint: /data
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"webapp/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+
+	err := inst.Install("repo-a", "webapp", "1.0", packages.Responses{})
+	if err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	err = Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	// InstallUnit + Start = 2
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
+	}
+}
+
+func TestReconcileGitSeedSkipsNonEmptyDir(t *testing.T) {
+	// When the volume directory already has contents, git seed should be
+	// skipped (clone only into empty directories).
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"myapp/1.0": "image: nginx:1.0\nvolumes:\n  config:\n    mountpoint: /config\n    git: https://invalid.example.com/nonexistent/repo.git\n",
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+
+	err := inst.Install("repo-a", "myapp", "1.0", packages.Responses{})
+	if err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// Create the target volume directory with a file so it is non-empty.
+	btrfsBase := t.TempDir()
+	volDir := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "myapp", "1.0", "config")
+	if err := os.MkdirAll(volDir, 0755); err != nil { //nolint:gosec // test directory
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(volDir, "existing.txt"), []byte("data"), 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Reconcile should succeed because it skips non-empty dirs rather than
+	// attempting to clone into them.
+	err = Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  btrfsBase,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Verify the existing file was not overwritten.
+	data, err := os.ReadFile(filepath.Join(volDir, "existing.txt")) //nolint:gosec // test code
+	if err != nil {
+		t.Fatalf("expected existing.txt to remain: %v", err)
+	}
+	if string(data) != "data" {
+		t.Fatalf("expected 'data', got %q", data)
+	}
+}
+
+func TestReconcileGitSeedVolumeWithoutGitSkipped(t *testing.T) {
+	// Volumes without a git field are not cloned.
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"myapp/1.0": "image: nginx:1.0\nvolumes:\n  data:\n    mountpoint: /data\n",
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+
+	err := inst.Install("repo-a", "myapp", "1.0", packages.Responses{})
+	if err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	btrfsBase := t.TempDir()
+	// Create an empty volume dir — without git field, no clone should happen.
+	volDir := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "myapp", "1.0", "data")
+	if err := os.MkdirAll(volDir, 0755); err != nil { //nolint:gosec // test directory
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	err = Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  btrfsBase,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Volume should still be empty — no clone was attempted.
+	entries, err := os.ReadDir(volDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty dir, got %d entries", len(entries))
+	}
+}

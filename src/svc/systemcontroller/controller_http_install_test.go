@@ -2107,3 +2107,171 @@ questions:
 		t.Fatalf("call 7: expected Start, got %v", sdCalls[7].Args[1])
 	}
 }
+
+func TestHTTPInstallPackageWithGitSeedVolume(t *testing.T) {
+	// Installing a package with a git seed volume should succeed. The git
+	// clone will fail (invalid URL) but is non-fatal and logged.
+	mockCtrl := storage.InitBtrFSMockController()
+	mockStorage := storage.InitBtrFSFromController("", mockCtrl)
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	pkgYAML := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  config:
+    mountpoint: /etc/nginx/conf.d
+    git: https://invalid.example.com/nonexistent/config.git
+  html:
+    mountpoint: /var/www/html
+questions: {}
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "mysite", "1.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mockStorage, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Install should succeed even though git clone will fail.
+	if err := c.InstallPackage(context.TODO(), "mysite", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify volumes were created.
+	fs := mockCtrl.GetFilesystems()
+	foundConfig := false
+	foundHTML := false
+	for _, f := range fs {
+		if f.Name == "installed/repo-a/mysite/1.0/config" {
+			foundConfig = true
+		}
+		if f.Name == "installed/repo-a/mysite/1.0/html" {
+			foundHTML = true
+		}
+	}
+	if !foundConfig {
+		t.Fatalf("expected config volume, got: %v", fs)
+	}
+	if !foundHTML {
+		t.Fatalf("expected html volume, got: %v", fs)
+	}
+
+	// Verify Install was called.
+	calls := inst.GetCalls()
+	found := false
+	for _, call := range calls {
+		if call.Method == "Install" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected Install call in mock installer")
+	}
+}
+
+func TestHTTPInstallPackageGitSeedOnlyVolume(t *testing.T) {
+	// Package with only a git volume (no archive, no other volumes).
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	pkgYAML := `image: debian:latest
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  site:
+    mountpoint: /var/www
+    git: https://github.com/example/static-site.git
+questions: {}
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "static", "1.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "static", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify the install succeeded.
+	calls := inst.GetCalls()
+	installFound := false
+	for _, call := range calls {
+		if call.Method == "Install" {
+			installFound = true
+		}
+	}
+	if !installFound {
+		t.Fatal("expected Install call")
+	}
+}
+
+func TestHTTPInstallPackageRejectsInvalidGitURL(t *testing.T) {
+	// Package with an invalid git URL should fail at compile time.
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	// "not-a-url" has no scheme, so ValidateGitURL rejects it during Compile.
+	pkgYAML := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  config:
+    mountpoint: /config
+    git: not-a-url
+questions: {}
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "badgit", "1.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	err = c.InstallPackage(context.TODO(), "badgit", "1.0", packages.Responses{}, false, "", false)
+	if err == nil {
+		t.Fatal("expected error installing package with invalid git URL")
+	}
+}

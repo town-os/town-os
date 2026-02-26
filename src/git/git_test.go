@@ -1029,3 +1029,92 @@ func TestGoGitClientRunInitNonBare(t *testing.T) {
 		t.Fatalf("expected .git directory: %v", err)
 	}
 }
+
+func TestGoGitClientPullWithNewCommit(t *testing.T) {
+	// Create a source repo with a commit, clone it, then add a commit
+	// directly to the source and pull from the clone.
+	source, c := initTestRepoWithCommit(t)
+	ctx := context.Background()
+
+	target := t.TempDir()
+	if err := c.Clone(ctx, target, source, "cloned"); err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+	clonedDir := filepath.Join(target, "cloned")
+
+	// Add a new commit directly to the source repo.
+	if err := os.WriteFile(filepath.Join(source, "update.txt"), []byte("new"), 0644); err != nil { //nolint:gosec // test code
+		t.Fatalf("write: %v", err)
+	}
+	if err := c.Add(ctx, source, "."); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := c.Commit(ctx, source, "update"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Pull from clone and verify the update arrived.
+	if err := c.Pull(ctx, clonedDir); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(clonedDir, "update.txt")); err != nil {
+		t.Fatalf("expected update.txt after pull: %v", err)
+	}
+}
+
+func TestGoGitClientFetchWithNewCommit(t *testing.T) {
+	source, c := initTestRepoWithCommit(t)
+	ctx := context.Background()
+
+	target := t.TempDir()
+	if err := c.Clone(ctx, target, source, "cloned"); err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+	clonedDir := filepath.Join(target, "cloned")
+
+	sha1, err := c.RevParse(ctx, clonedDir, "HEAD")
+	if err != nil {
+		t.Fatalf("RevParse HEAD: %v", err)
+	}
+
+	// Add a new commit directly to the source repo.
+	if err := os.WriteFile(filepath.Join(source, "extra.txt"), []byte("extra"), 0644); err != nil { //nolint:gosec // test code
+		t.Fatalf("write: %v", err)
+	}
+	if err := c.Add(ctx, source, "."); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := c.Commit(ctx, source, "extra"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Fetch from clone, then pull to advance HEAD.
+	if err := c.Fetch(ctx, clonedDir); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if err := c.Pull(ctx, clonedDir); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+
+	sha2, err := c.RevParse(ctx, clonedDir, "HEAD")
+	if err != nil {
+		t.Fatalf("RevParse HEAD after fetch+pull: %v", err)
+	}
+
+	if sha1 == sha2 {
+		t.Fatal("expected HEAD SHA to change after fetch+pull")
+	}
+}
+
+func TestGoGitClientRunErrorForNonexistentRef(t *testing.T) {
+	dir, c := initTestRepoWithCommit(t)
+
+	// Checkout a nonexistent branch should fail.
+	err := c.Checkout(context.Background(), dir, "nonexistent-branch-xyz")
+	if err == nil {
+		t.Fatal("expected error for checkout of nonexistent branch")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected error to mention 'not found', got: %v", err)
+	}
+}

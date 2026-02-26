@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +160,86 @@ func TestGitCloneIntoPath(t *testing.T) {
 		err := gitCloneIntoPath(context.Background(), "https://invalid.example.com/nonexistent/repo.git", dir)
 		if err == nil {
 			t.Fatal("expected error for invalid git URL")
+		}
+	})
+
+	t.Run("error includes URL", func(t *testing.T) {
+		dir := t.TempDir()
+		err := gitCloneIntoPath(context.Background(), "https://invalid.example.com/nonexistent/repo.git", dir)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "invalid.example.com") {
+			t.Fatalf("expected error to include URL, got: %v", err)
+		}
+	})
+
+	t.Run("successful clone from local bare repo", func(t *testing.T) {
+		ctx := context.Background()
+
+		// Create a bare repo with one commit.
+		bare := t.TempDir()
+		cmd := exec.CommandContext(ctx, "git", "init", "--bare", bare) //nolint:gosec // test code
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("init bare: %v: %s", err, out)
+		}
+
+		// Clone, seed a file, push back.
+		work := t.TempDir()
+		cmd = exec.CommandContext(ctx, "git", "clone", bare, work) //nolint:gosec // test code
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("clone: %v: %s", err, out)
+		}
+		for _, args := range [][]string{
+			{"config", "user.email", "test@test.com"},
+			{"config", "user.name", "Test"},
+			{"config", "commit.gpgSign", "false"},
+		} {
+			cmd = exec.CommandContext(ctx, "git", append([]string{"-C", work}, args...)...) //nolint:gosec // test code
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("config: %v: %s", err, out)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(work, "hello.txt"), []byte("world"), 0644); err != nil { //nolint:gosec // test code
+			t.Fatalf("write: %v", err)
+		}
+		cmd = exec.CommandContext(ctx, "git", "-C", work, "add", ".") //nolint:gosec // test code
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("add: %v: %s", err, out)
+		}
+		cmd = exec.CommandContext(ctx, "git", "-C", work, "commit", "-m", "init") //nolint:gosec // test code
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("commit: %v: %s", err, out)
+		}
+		cmd = exec.CommandContext(ctx, "git", "-C", work, "push") //nolint:gosec // test code
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("push: %v: %s", err, out)
+		}
+
+		// Clone into a fresh target using gitCloneIntoPath.
+		target := filepath.Join(t.TempDir(), "cloned")
+		err := gitCloneIntoPath(ctx, bare, target)
+		if err != nil {
+			t.Fatalf("gitCloneIntoPath: %v", err)
+		}
+
+		// Verify the file exists.
+		data, err := os.ReadFile(filepath.Join(target, "hello.txt")) //nolint:gosec // test code
+		if err != nil {
+			t.Fatalf("expected hello.txt in cloned repo: %v", err)
+		}
+		if string(data) != "world" {
+			t.Fatalf("expected 'world', got %q", data)
+		}
+	})
+
+	t.Run("cancelled context fails", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		dir := filepath.Join(t.TempDir(), "cloned")
+		err := gitCloneIntoPath(ctx, "https://example.com/repo.git", dir)
+		if err == nil {
+			t.Fatal("expected error for cancelled context")
 		}
 	})
 }
