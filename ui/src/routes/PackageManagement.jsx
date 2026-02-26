@@ -466,8 +466,8 @@ export default function PackageManagement() {
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0"
-              disabled={idx <= 0}
-              onClick={() => handleMoveRepo(row.name, idx - 1)}
+              disabled={idx >= repositories.length - 1}
+              onClick={() => handleMoveRepo(row.name, idx + 1)}
             >
               <ArrowUp className="h-3 w-3" />
             </Button>
@@ -475,8 +475,8 @@ export default function PackageManagement() {
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0"
-              disabled={idx >= repositories.length - 1}
-              onClick={() => handleMoveRepo(row.name, idx + 1)}
+              disabled={idx <= 0}
+              onClick={() => handleMoveRepo(row.name, idx - 1)}
             >
               <ArrowDown className="h-3 w-3" />
             </Button>

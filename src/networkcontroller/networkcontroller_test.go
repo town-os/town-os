@@ -548,6 +548,90 @@ func TestUPnPErrorDoesNotCrash(t *testing.T) {
 	}
 }
 
+func TestReconcileInternalPortForward(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunner(mock, runner)
+
+	// Internal port forward: Forward=true, UPnP=false.
+	state := &PackageNetworkState{
+		Package: "gitea",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 9999, InternalPort: 3000, UPnP: false, Forward: true},
+		},
+	}
+
+	ctrl.reconcile(state)
+
+	// Verify socat was started.
+	calls := runner.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(calls))
+	}
+	if calls[0].Args[0] != "TCP-LISTEN:9999,fork,reuseaddr" {
+		t.Fatalf("expected TCP-LISTEN:9999,fork,reuseaddr, got %s", calls[0].Args[0])
+	}
+	if calls[0].Args[1] != "TCP:127.0.0.1:3000" {
+		t.Fatalf("expected TCP:127.0.0.1:3000, got %s", calls[0].Args[1])
+	}
+
+	// Verify UPnP mapping was NOT added.
+	upnpCalls := mock.GetCalls()
+	if len(upnpCalls) != 0 {
+		t.Fatalf("expected 0 UPnP calls for internal port forward, got %d", len(upnpCalls))
+	}
+
+	fwds := ctrl.GetForwarders()
+	if len(fwds) != 1 {
+		t.Fatalf("expected 1 forwarder, got %d", len(fwds))
+	}
+	if fwds[9999] != 3000 {
+		t.Fatalf("expected forwarder 9999->3000, got 9999->%d", fwds[9999])
+	}
+}
+
+func TestUPnPTTLAndRefreshInterval(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunner(mock, runner)
+
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: false},
+		},
+	})
+
+	upnpCalls := mock.GetCalls()
+	if len(upnpCalls) != 1 {
+		t.Fatalf("expected 1 UPnP call, got %d", len(upnpCalls))
+	}
+
+	// Verify TTL is 1800 (30 minutes).
+	ttl, ok := upnpCalls[0].Args[4].(uint32)
+	if !ok {
+		t.Fatalf("expected uint32 for TTL, got %T", upnpCalls[0].Args[4])
+	}
+	if ttl != 1800 {
+		t.Fatalf("expected TTL 1800, got %d", ttl)
+	}
+
+	// Trigger renewal and verify TTL is also 1800.
+	ctrl.renewUPnP()
+
+	upnpCalls = mock.GetCalls()
+	lastCall := upnpCalls[len(upnpCalls)-1]
+	renewTTL, ok := lastCall.Args[4].(uint32)
+	if !ok {
+		t.Fatalf("expected uint32 for renewal TTL, got %T", lastCall.Args[4])
+	}
+	if renewTTL != 1800 {
+		t.Fatalf("expected renewal TTL 1800, got %d", renewTTL)
+	}
+}
+
 func writeState(t *testing.T, path string, state PackageNetworkState) {
 	t.Helper()
 	data, err := json.Marshal(state)

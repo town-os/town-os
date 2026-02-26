@@ -136,7 +136,7 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 		return fmt.Errorf("watch state file: %w", err)
 	}
 
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -286,7 +286,7 @@ func (c *Controller) addUPnPMappingLocked(cfg PortConfig) {
 	}
 
 	desc := c.upnpDescription(cfg)
-	err := c.upnp.AddPortMapping("TCP", cfg.ExternalPort, internalPort, desc, 600)
+	err := c.upnp.AddPortMapping("TCP", cfg.ExternalPort, internalPort, desc, 1800)
 	if err != nil {
 		slog.Warn(fmt.Sprintf("UPnP add %d: %v", cfg.ExternalPort, err))
 	} else {
@@ -326,7 +326,7 @@ func (c *Controller) renewUPnP() {
 			internalPort = m.cfg.ExternalPort
 		}
 		desc := c.upnpDescription(m.cfg)
-		err := c.upnp.AddPortMapping("TCP", m.cfg.ExternalPort, internalPort, desc, 600)
+		err := c.upnp.AddPortMapping("TCP", m.cfg.ExternalPort, internalPort, desc, 1800)
 		if err != nil {
 			slog.Warn(fmt.Sprintf("UPnP renew %d: %v", m.cfg.ExternalPort, err))
 		}

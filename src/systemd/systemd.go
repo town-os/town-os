@@ -135,6 +135,9 @@ func IsPackageServiceUnit(name string) bool {
 	if strings.HasSuffix(name, "-upnp.service") {
 		return false
 	}
+	if strings.HasSuffix(name, "-network.service") {
+		return false
+	}
 	if strings.Contains(name, "-fwd-") {
 		return false
 	}

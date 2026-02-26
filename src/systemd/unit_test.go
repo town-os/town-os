@@ -273,7 +273,7 @@ func TestPackageUnitNames(t *testing.T) {
 	external := packages.PortMap{8080: 80, 8443: 443}
 	internal := packages.PortMap{9090: 9090}
 
-	names := PackageUnitNames("test-repo", "nginx", "1.0", external, internal)
+	names := PackageUnitNames("test-repo", "nginx", "1.0", "", external, internal)
 
 	expected := []string{
 		"town-os-package--test-repo-nginx-1.0.service",
@@ -298,7 +298,7 @@ func TestPackageUnitNamesNoExternalPorts(t *testing.T) {
 	external := packages.PortMap{}
 	internal := packages.PortMap{6379: 6379}
 
-	names := PackageUnitNames("test-repo", "redis", "7.0", external, internal)
+	names := PackageUnitNames("test-repo", "redis", "7.0", "", external, internal)
 
 	expected := []string{
 		"town-os-package--test-repo-redis-7.0.service",
@@ -317,13 +317,59 @@ func TestPackageUnitNamesNoExternalPorts(t *testing.T) {
 }
 
 func TestPackageUnitNamesNoPorts(t *testing.T) {
-	names := PackageUnitNames("test-repo", "worker", "1.0", packages.PortMap{}, packages.PortMap{})
+	names := PackageUnitNames("test-repo", "worker", "1.0", "", packages.PortMap{}, packages.PortMap{})
 
 	if len(names) != 1 {
 		t.Fatalf("expected 1 name, got %d: %v", len(names), names)
 	}
 	if names[0] != "town-os-package--test-repo-worker-1.0.service" {
 		t.Fatalf("expected town-os-package--test-repo-worker-1.0.service, got %s", names[0])
+	}
+}
+
+func TestPackageUnitNamesInternalPortForwardingHostMode(t *testing.T) {
+	external := packages.PortMap{}
+	internal := packages.PortMap{9999: 3000}
+
+	names := PackageUnitNames("test-repo", "gitea", "1.0", "host", external, internal)
+
+	expected := []string{
+		"town-os-package--test-repo-gitea-1.0.service",
+		"town-os-package--test-repo-gitea-1.0-9999-tcp.socket",
+		"town-os-package--test-repo-gitea-1.0-network.service",
+	}
+
+	if len(names) != len(expected) {
+		t.Fatalf("expected %d names, got %d: %v", len(expected), len(names), names)
+	}
+
+	for i, name := range names {
+		if name != expected[i] {
+			t.Fatalf("expected names[%d] = %q, got %q", i, expected[i], name)
+		}
+	}
+}
+
+func TestPackageUnitNamesInternalSamePortHostMode(t *testing.T) {
+	external := packages.PortMap{}
+	internal := packages.PortMap{6379: 6379}
+
+	names := PackageUnitNames("test-repo", "redis", "7.0", "host", external, internal)
+
+	// Same port: no network controller needed.
+	expected := []string{
+		"town-os-package--test-repo-redis-7.0.service",
+		"town-os-package--test-repo-redis-7.0-6379-tcp.socket",
+	}
+
+	if len(names) != len(expected) {
+		t.Fatalf("expected %d names, got %d: %v", len(expected), len(names), names)
+	}
+
+	for i, name := range names {
+		if name != expected[i] {
+			t.Fatalf("expected names[%d] = %q, got %q", i, expected[i], name)
+		}
 	}
 }
 
@@ -551,6 +597,104 @@ func TestGeneratePackageUnitsNetworkControllerHostMode(t *testing.T) {
 	}
 }
 
+func TestGeneratePackageUnitsInternalPortForwardingHostMode(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:                 "test-repo",
+		PkgName:                  "gitea",
+		Version:                  "1.0",
+		Image:                    "gitea:1.0",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{9999: 3000},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
+		NetworkMode:              "host",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	// Network controller should be generated for internal port forwarding in host mode.
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit for internal port forwarding in host mode")
+	}
+	nc := units.NetworkController.Content
+	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-gitea-1.0.service") {
+		t.Fatalf("network controller missing BindsTo, got:\n%s", nc)
+	}
+
+	// Service should have Wants= for network controller.
+	svc := units.Service.Content
+	if !strings.Contains(svc, fmt.Sprintf("Wants=%s", NetworkControllerUnitName("test-repo", "gitea", "1.0"))) { //nolint:perfsprint // project convention
+		t.Fatalf("service missing Wants for network controller, got:\n%s", svc)
+	}
+
+	// Should have --net host.
+	if !strings.Contains(svc, "--net host") {
+		t.Fatal("service missing --net host")
+	}
+}
+
+func TestGeneratePackageUnitsInternalSamePortHostMode(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:                 "test-repo",
+		PkgName:                  "redis",
+		Version:                  "7.0",
+		Image:                    "redis:7.0",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{6379: 6379},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
+		NetworkMode:              "host",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	// No network controller needed when host == container.
+	if units.NetworkController != nil {
+		t.Fatal("expected no network controller unit for same-port internal mapping in host mode")
+	}
+
+	// No Wants line.
+	svc := units.Service.Content
+	if strings.Contains(svc, "Wants=") {
+		t.Fatal("service should not have Wants with same-port internal mapping")
+	}
+}
+
+func TestGeneratePackageUnitsInternalPortForwardingBridgeMode(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:                 "test-repo",
+		PkgName:                  "gitea",
+		Version:                  "1.0",
+		Image:                    "gitea:1.0",
+		Environment:              map[string]string{},
+		External:                 packages.PortMap{},
+		Internal:                 packages.PortMap{9999: 3000},
+		Volumes:                  map[string]packages.PackageVolume{},
+		BtrfsBase:                "/data/btrfs",
+		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkStatePath:         "/var/run/town-os",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	// No network controller in bridge mode (podman uses -p).
+	if units.NetworkController != nil {
+		t.Fatal("expected no network controller unit for internal port forwarding in bridge mode")
+	}
+
+	// Should have -p mapping instead.
+	svc := units.Service.Content
+	if !strings.Contains(svc, "-p 9999:3000") {
+		t.Fatalf("service missing -p 9999:3000 in bridge mode, got:\n%s", svc)
+	}
+}
+
 func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
 	uid := uint32(1000)
 	gid := uint32(1000)
@@ -615,6 +759,7 @@ func TestIsPackageServiceUnit(t *testing.T) {
 		{"town-os-package--test-repo-nginx-1.0-upnp.service", false},
 		{"town-os-package--test-repo-nginx-1.0-upnp.timer", false},
 		{"town-os-package--test-repo-nginx-1.0-fwd-8080-tcp.service", false},
+		{"town-os-package--test-repo-nginx-1.0-network.service", false},
 		{"sshd.service", false},
 		{"town-os-systemcontroller.service", false},
 		{"", false},

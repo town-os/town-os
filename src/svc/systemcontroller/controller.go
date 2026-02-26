@@ -278,6 +278,7 @@ type UnitListEntry struct {
 
 	PackageIdentifier  string `json:"package_identifier,omitempty"`
 	PackageDescription string `json:"package_description,omitempty"`
+	NCFailed           bool   `json:"nc_failed,omitempty"`
 }
 
 type SetStatusRequest struct {
@@ -497,6 +498,21 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 			UPnP:         true,
 			Forward:      forward,
 		})
+	}
+
+	for intHost, intContainer := range compiled.Network.Internal {
+		if s.Controller.GetNetworkMode() == "host" && intHost != intContainer {
+			state.Ports = append(state.Ports, networkcontroller.PortConfig{
+				ExternalPort: intHost,
+				InternalPort: intContainer,
+				UPnP:         false,
+				Forward:      true,
+			})
+		}
+	}
+
+	if len(state.Ports) == 0 {
+		return nil
 	}
 
 	// Sort for deterministic output.
@@ -1838,11 +1854,15 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 		return err
 	}
 
-	// Filter to only main package service units.
+	// Build lookup maps: filter main service units and index NC units.
 	filtered := make([]systemd.UnitStatus, 0, len(units))
+	ncUnitMap := map[string]systemd.UnitStatus{}
 	for _, u := range units {
 		if systemd.IsPackageServiceUnit(u.Name) {
 			filtered = append(filtered, u)
+		}
+		if strings.HasSuffix(u.Name, "-network.service") && strings.HasPrefix(u.Name, systemd.PackageUnitPrefix) {
+			ncUnitMap[u.Name] = u
 		}
 	}
 
@@ -1870,14 +1890,25 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 		}
 	}
 
-	// Enrich with package identity and description.
+	// Enrich with package identity, description, and NC failure status.
 	entries := make([]UnitListEntry, len(filtered))
 	for i, u := range filtered {
-		entries[i] = UnitListEntry{
+		entry := UnitListEntry{
 			UnitStatus:         u,
 			PackageIdentifier:  identityMap[u.Name],
 			PackageDescription: descriptionMap[u.Name],
 		}
+
+		// Check if the corresponding network controller unit has failed.
+		ncName := fmt.Sprintf("%s-network.service", strings.TrimSuffix(u.Name, ".service")) //nolint:perfsprint // project convention
+		if ncUnit, ok := ncUnitMap[ncName]; ok && ncUnit.ActiveState == "failed" {
+			entry.NCFailed = true
+			if entry.ActiveState != "failed" {
+				entry.ActiveState = "failed"
+			}
+		}
+
+		entries[i] = entry
 	}
 
 	p := readListParams(c)

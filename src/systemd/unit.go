@@ -94,8 +94,18 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	hasExternalPorts := len(cfg.External) > 0
 	hasPorts := len(ports) > 0
 
+	needsNetworkController := hasExternalPorts
+	if !needsNetworkController && cfg.NetworkMode == "host" {
+		for host, container := range cfg.Internal {
+			if host != container {
+				needsNetworkController = true
+				break
+			}
+		}
+	}
+
 	// --- Main service unit ---
-	units.Service = generateServiceUnit(cfg, ports, hasExternalPorts)
+	units.Service = generateServiceUnit(cfg, ports, needsNetworkController)
 
 	// --- Socket units (one per port) ---
 	if hasPorts {
@@ -105,8 +115,8 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 		}
 	}
 
-	// --- Network controller unit (only if external ports exist) ---
-	if hasExternalPorts {
+	// --- Network controller unit (if external ports or internal port forwarding needed) ---
+	if needsNetworkController {
 		nc := generateNetworkControllerUnit(cfg)
 		units.NetworkController = &nc
 	}
@@ -114,7 +124,7 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	return units
 }
 
-func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts bool) UnitFile {
+func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkController bool) UnitFile {
 	var b strings.Builder
 
 	containerName := ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
@@ -126,7 +136,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, hasExternalPorts
 	} else {
 		b.WriteString(fmt.Sprintf("Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
 	}
-	if hasExternalPorts {
+	if needsNetworkController {
 		b.WriteString(fmt.Sprintf("Wants=%s\n", NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)))
 	}
 	b.WriteString("After=network-online.target\n")
@@ -288,7 +298,7 @@ WantedBy=multi-user.target
 // PackageUnitNames returns the list of all systemd unit names that would be
 // generated for a package with the given port maps. This is used during
 // uninstall to know which units to tear down.
-func PackageUnitNames(repo, pkgName, version string, external, internal packages.PortMap) []string {
+func PackageUnitNames(repo, pkgName, version, networkMode string, external, internal packages.PortMap) []string {
 	names := []string{UnitName(repo, pkgName, version)}
 
 	ports := allPorts(external, internal)
@@ -296,7 +306,16 @@ func PackageUnitNames(repo, pkgName, version string, external, internal packages
 		names = append(names, SocketUnitName(repo, pkgName, version, p))
 	}
 
-	if len(external) > 0 {
+	needsNC := len(external) > 0
+	if !needsNC && networkMode == "host" {
+		for host, container := range internal {
+			if host != container {
+				needsNC = true
+				break
+			}
+		}
+	}
+	if needsNC {
 		names = append(names, NetworkControllerUnitName(repo, pkgName, version))
 	}
 

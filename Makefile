@@ -196,8 +196,8 @@ build-networkcontroller:
 	CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
 lint:
-	go vet ./...
-	$(shell go env GOPATH)/bin/golangci-lint run
+	go vet ./src/... ./integration/...
+	$(shell go env GOPATH)/bin/golangci-lint run ./src/... ./integration/...
 
 BTRFS_IMAGE ?= $(shell mktemp btrfs.XXXXXX)
 

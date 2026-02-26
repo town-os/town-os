@@ -329,14 +329,15 @@ export default function SystemManagement() {
       key: 'ActiveState',
       label: 'Status',
       sortValues: ['active', 'inactive', 'failed'],
-      transform: (v) => {
+      transform: (v, row) => {
         const variant =
           v === 'active'
             ? 'default'
             : v === 'failed'
               ? 'destructive'
               : 'secondary'
-        return <Badge variant={variant}>{v}</Badge>
+        const label = row.nc_failed ? 'failed (NC)' : v
+        return <Badge variant={variant}>{label}</Badge>
       },
     },
     {
@@ -380,6 +381,13 @@ export default function SystemManagement() {
             <DropdownMenuItem onClick={() => openJournal(row.Name)}>
               <FileText className="h-3 w-3 mr-2" />
               View Journal
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              const ncUnit = row.Name.replace('.service', '-network.service')
+              openJournal(ncUnit)
+            }}>
+              <FileText className="h-3 w-3 mr-2" />
+              NC Logs
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

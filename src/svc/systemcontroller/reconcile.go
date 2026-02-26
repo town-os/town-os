@@ -164,7 +164,16 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	}
 
 	// Write per-package network state file.
-	if cfg.NetworkStatePath != "" && len(compiled.Network.External) > 0 {
+	needsNetworkState := len(compiled.Network.External) > 0
+	if !needsNetworkState && cfg.NetworkMode == "host" {
+		for intHost, intContainer := range compiled.Network.Internal {
+			if intHost != intContainer {
+				needsNetworkState = true
+				break
+			}
+		}
+	}
+	if cfg.NetworkStatePath != "" && needsNetworkState {
 		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled); err != nil {
 			return fmt.Errorf("write network state: %w", err)
 		}
@@ -247,6 +256,17 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 			UPnP:         true,
 			Forward:      forward,
 		})
+	}
+
+	for intHost, intContainer := range compiled.Network.Internal {
+		if cfg.NetworkMode == "host" && intHost != intContainer {
+			state.Ports = append(state.Ports, networkcontroller.PortConfig{
+				ExternalPort: intHost,
+				InternalPort: intContainer,
+				UPnP:         false,
+				Forward:      true,
+			})
+		}
 	}
 
 	sort.Slice(state.Ports, func(i, j int) bool {
