@@ -1920,11 +1920,17 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 	}
 
 	// Enrich with package identity, description, and NC failure status.
-	entries := make([]UnitListEntry, len(filtered))
-	for i, u := range filtered {
+	// Skip units that have no matching installed package identity.
+	entries := make([]UnitListEntry, 0, len(filtered))
+	for _, u := range filtered {
+		pkgID, ok := identityMap[u.Name]
+		if !ok {
+			continue
+		}
+
 		entry := UnitListEntry{
 			UnitStatus:         u,
-			PackageIdentifier:  identityMap[u.Name],
+			PackageIdentifier:  pkgID,
 			PackageDescription: descriptionMap[u.Name],
 		}
 
@@ -1937,7 +1943,7 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 			}
 		}
 
-		entries[i] = entry
+		entries = append(entries, entry)
 	}
 
 	p := readListParams(c)

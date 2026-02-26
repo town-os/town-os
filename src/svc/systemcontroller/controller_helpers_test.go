@@ -269,11 +269,12 @@ func initAccountTestClient(t *testing.T) (*SystemdClient, account.AuditManager) 
 	return c, auditMgr
 }
 
-func initSystemdTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager) {
+func initSystemdTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager, *packages.MockInstallManager) {
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
-	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd, Installer: inst})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -281,7 +282,7 @@ func initSystemdTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager) 
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	return c, sd
+	return c, sd, inst
 }
 
 func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {

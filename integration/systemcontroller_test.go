@@ -1583,7 +1583,11 @@ func initRealSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
 
 	sd := systemd.NewManager()
 	mock := storage.InitBtrFSMock()
-	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, Systemd: sd})
+	inst := packages.InitMockInstallManager()
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "test", Version: "1.0"},
+	}
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, Systemd: sd, Installer: inst})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -1594,26 +1598,13 @@ func initRealSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
 	return c
 }
 
-func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager) *systemcontroller.SystemdClient {
+func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager, installed ...packages.PackageIdentity) *systemcontroller.SystemdClient {
 	t.Helper()
 
-	dir := t.TempDir()
-	data, err := json.Marshal([]packages.Repository{})
-	if err != nil {
-		t.Fatalf("json.Marshal empty repository list: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
-		t.Fatalf("WriteFile repositories file: %v", err)
-	}
-
-	rr, err := packages.RepositoryRootFromBase(dir)
-	if err != nil {
-		t.Fatalf("failed to load repository root: %v", err)
-	}
-
 	btr := storage.InitBtrFS("/data/btrfs")
-	inst := packages.NewInstallManager(dir)
-	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	inst := packages.InitMockInstallManager()
+	inst.Installed = installed
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr, Installer: inst, Systemd: sd})
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -1645,7 +1636,11 @@ func TestSystemControllerSystemdListUnitsPopulated(t *testing.T) {
 		{Name: "town-os-package--repo-redis-2.0.service", Description: "Redis", LoadState: "loaded", ActiveState: "inactive", SubState: "dead"},
 		{Name: "town-os-package--repo-postgres-16.0.service", Description: "PostgreSQL", LoadState: "loaded", ActiveState: "active", SubState: "running"},
 	}
-	c := initSystemControllerSystemdTest(t, sd)
+	c := initSystemControllerSystemdTest(t, sd,
+		packages.PackageIdentity{Repo: "repo", Name: "nginx", Version: "1.0"},
+		packages.PackageIdentity{Repo: "repo", Name: "redis", Version: "2.0"},
+		packages.PackageIdentity{Repo: "repo", Name: "postgres", Version: "16.0"},
+	)
 
 	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
@@ -1686,7 +1681,9 @@ func TestSystemControllerSystemdListUnitsPreservesAllFields(t *testing.T) {
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-test-1.0.service", Description: "Test Unit", LoadState: "loaded", ActiveState: "activating", SubState: "start-pre"},
 	}
-	c := initSystemControllerSystemdTest(t, sd)
+	c := initSystemControllerSystemdTest(t, sd,
+		packages.PackageIdentity{Repo: "repo", Name: "test", Version: "1.0"},
+	)
 
 	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
@@ -2043,7 +2040,9 @@ func TestSystemControllerSystemdLogTailPriorityEmptyPriority(t *testing.T) {
 
 func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
 	sd := systemd.InitMockManager()
-	c := initSystemControllerSystemdTest(t, sd)
+	c := initSystemControllerSystemdTest(t, sd,
+		packages.PackageIdentity{Repo: "repo", Name: "nginx", Version: "1.0"},
+	)
 
 	// Start with no units.
 	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})

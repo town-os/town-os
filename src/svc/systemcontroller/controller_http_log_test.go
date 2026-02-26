@@ -13,7 +13,7 @@ import (
 )
 
 func TestHTTPLogReplay(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -45,7 +45,7 @@ func TestHTTPLogReplay(t *testing.T) {
 }
 
 func TestHTTPLogReplayEmpty(t *testing.T) {
-	c, _ := initSystemdTestClient(t)
+	c, _, _ := initSystemdTestClient(t)
 
 	ch, err := c.LogReplay(context.TODO(), "test.service")
 	if err != nil {
@@ -63,7 +63,7 @@ func TestHTTPLogReplayEmpty(t *testing.T) {
 }
 
 func TestHTTPLogReplayError(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	sd.LogErr = errors.New("injected log error")
 
@@ -100,7 +100,7 @@ func TestHTTPLogReplayEmptyUnit(t *testing.T) {
 }
 
 func TestHTTPLogTail(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -136,7 +136,7 @@ func TestHTTPLogTail(t *testing.T) {
 }
 
 func TestHTTPLogTailWithCursor(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -166,7 +166,7 @@ func TestHTTPLogTailWithCursor(t *testing.T) {
 }
 
 func TestHTTPLogTailEmpty(t *testing.T) {
-	c, _ := initSystemdTestClient(t)
+	c, _, _ := initSystemdTestClient(t)
 
 	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100})
 	if err != nil {
@@ -179,7 +179,7 @@ func TestHTTPLogTailEmpty(t *testing.T) {
 }
 
 func TestHTTPLogTailError(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	sd.LogErr = errors.New("injected log error")
 
@@ -216,7 +216,7 @@ func TestHTTPLogTailEmptyUnit(t *testing.T) {
 }
 
 func TestHTTPLogTailGrep(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -245,7 +245,7 @@ func TestHTTPLogTailGrep(t *testing.T) {
 }
 
 func TestHTTPLogTailGrepCaseInsensitive(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -265,7 +265,7 @@ func TestHTTPLogTailGrepCaseInsensitive(t *testing.T) {
 }
 
 func TestHTTPLogTailGrepNoMatch(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -283,7 +283,7 @@ func TestHTTPLogTailGrepNoMatch(t *testing.T) {
 }
 
 func TestHTTPLogTailAfterCursor(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -320,7 +320,7 @@ func TestHTTPLogTailAfterCursor(t *testing.T) {
 }
 
 func TestHTTPLogTailAfterCursorEmpty(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -340,7 +340,7 @@ func TestHTTPLogTailAfterCursorEmpty(t *testing.T) {
 }
 
 func TestHTTPLogTailAfterCursorWithLimit(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -374,7 +374,7 @@ func TestHTTPLogTailAfterCursorWithLimit(t *testing.T) {
 }
 
 func TestHTTPLogTailAfterCursorWithGrep(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -404,7 +404,7 @@ func TestHTTPLogTailAfterCursorWithGrep(t *testing.T) {
 }
 
 func TestHTTPLogTailSince(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -439,7 +439,7 @@ func TestHTTPLogTailSince(t *testing.T) {
 }
 
 func TestHTTPLogTailSinceWithGrep(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -466,7 +466,7 @@ func TestHTTPLogTailSinceWithGrep(t *testing.T) {
 }
 
 func TestHTTPLogTailSinceEmpty(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -486,7 +486,7 @@ func TestHTTPLogTailSinceEmpty(t *testing.T) {
 }
 
 func TestHTTPLogTailSinceWithLimit(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -516,7 +516,7 @@ func TestHTTPLogTailSinceWithLimit(t *testing.T) {
 }
 
 func TestHTTPLogTailSinceUntil(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -547,7 +547,7 @@ func TestHTTPLogTailSinceUntil(t *testing.T) {
 }
 
 func TestHTTPLogTailSinceUntilEmpty(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -569,7 +569,7 @@ func TestHTTPLogTailSinceUntilEmpty(t *testing.T) {
 }
 
 func TestHTTPLogTailSinceUntilWithGrep(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -596,7 +596,7 @@ func TestHTTPLogTailSinceUntilWithGrep(t *testing.T) {
 }
 
 func TestHTTPLogTailUntilBeforeAllEntries(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -618,7 +618,7 @@ func TestHTTPLogTailUntilBeforeAllEntries(t *testing.T) {
 }
 
 func TestHTTPLogTailSinceUntilWithLimit(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{

@@ -5,11 +5,17 @@ import (
 	"errors"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
 func TestHTTPListUnits(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "foo", Version: "1.0"},
+		{Repo: "repo", Name: "bar", Version: "2.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-foo-1.0.service", Description: "Foo", LoadState: "loaded", ActiveState: "active", SubState: "running", UnitFileState: "enabled"},
@@ -40,7 +46,7 @@ func TestHTTPListUnits(t *testing.T) {
 }
 
 func TestHTTPListUnitsEmpty(t *testing.T) {
-	c, _ := initSystemdTestClient(t)
+	c, _, _ := initSystemdTestClient(t)
 
 	units, err := c.ListUnits(context.TODO(), ListParams{})
 	if err != nil {
@@ -53,7 +59,11 @@ func TestHTTPListUnitsEmpty(t *testing.T) {
 }
 
 func TestHTTPListUnitsFiltersNonPackageServices(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
@@ -78,8 +88,37 @@ func TestHTTPListUnitsFiltersNonPackageServices(t *testing.T) {
 	}
 }
 
+func TestHTTPListUnitsFiltersUninstalledUnits(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	// Only foo is installed; bar has a matching systemd unit but no install record.
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "foo", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-foo-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-bar-2.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit (only installed package), got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-foo-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-foo-1.0.service, got %s", units.Entries[0].Name)
+	}
+	if units.Entries[0].PackageIdentifier != "repo/foo@1.0" {
+		t.Fatalf("expected package_identifier %q, got %q", "repo/foo@1.0", units.Entries[0].PackageIdentifier)
+	}
+}
+
 func TestHTTPSetUnitStatusStart(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Start); err != nil {
 		t.Fatalf("SetUnitStatus(start): %v", err)
@@ -109,7 +148,7 @@ func TestHTTPSetUnitStatusStart(t *testing.T) {
 }
 
 func TestHTTPSetUnitStatusStop(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Stop); err != nil {
 		t.Fatalf("SetUnitStatus(stop): %v", err)
@@ -129,7 +168,7 @@ func TestHTTPSetUnitStatusStop(t *testing.T) {
 }
 
 func TestHTTPSetUnitStatusRestart(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	if err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Restart); err != nil {
 		t.Fatalf("SetUnitStatus(restart): %v", err)
@@ -149,7 +188,7 @@ func TestHTTPSetUnitStatusRestart(t *testing.T) {
 }
 
 func TestHTTPSetUnitStatusEnableRejected(t *testing.T) {
-	c, _ := initSystemdTestClient(t)
+	c, _, _ := initSystemdTestClient(t)
 
 	err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Enable)
 	if err == nil {
@@ -158,7 +197,7 @@ func TestHTTPSetUnitStatusEnableRejected(t *testing.T) {
 }
 
 func TestHTTPSetUnitStatusDisableRejected(t *testing.T) {
-	c, _ := initSystemdTestClient(t)
+	c, _, _ := initSystemdTestClient(t)
 
 	err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Disable)
 	if err == nil {
@@ -167,7 +206,7 @@ func TestHTTPSetUnitStatusDisableRejected(t *testing.T) {
 }
 
 func TestHTTPSetUnitStatusStopSystemcontrollerRejected(t *testing.T) {
-	c, _ := initSystemdTestClient(t)
+	c, _, _ := initSystemdTestClient(t)
 
 	err := c.SetUnitStatus(context.TODO(), "town-os-systemcontroller.service", systemd.Stop)
 	if err == nil {
@@ -176,7 +215,7 @@ func TestHTTPSetUnitStatusStopSystemcontrollerRejected(t *testing.T) {
 }
 
 func TestHTTPSetUnitStatusInvalidAction(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	sd.StatusErr = errors.New("injected error")
 
@@ -187,7 +226,13 @@ func TestHTTPSetUnitStatusInvalidAction(t *testing.T) {
 }
 
 func TestHTTPListUnitsPagination(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "a", Version: "1.0"},
+		{Repo: "repo", Name: "b", Version: "1.0"},
+		{Repo: "repo", Name: "c", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-a-1.0.service", Description: "A", LoadState: "loaded", ActiveState: "active", SubState: "running"},
@@ -224,7 +269,13 @@ func TestHTTPListUnitsPagination(t *testing.T) {
 }
 
 func TestHTTPListUnitsSearch(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+		{Repo: "repo", Name: "redis", Version: "7.0"},
+		{Repo: "repo", Name: "postgres", Version: "16.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-nginx-1.0.service", Description: "NGINX web server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
@@ -263,5 +314,52 @@ func TestHTTPListUnitsSearch(t *testing.T) {
 	}
 	if len(page.Entries) != 0 {
 		t.Fatalf("expected 0 entries, got %d", len(page.Entries))
+	}
+}
+
+func TestHTTPListUnitsNCFailedPropagation(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-network.service", ActiveState: "failed"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
+	}
+	if !units.Entries[0].NCFailed {
+		t.Fatal("expected NCFailed=true when network controller unit has failed")
+	}
+	if units.Entries[0].ActiveState != "failed" {
+		t.Fatalf("expected ActiveState %q when NC failed, got %q", "failed", units.Entries[0].ActiveState)
+	}
+}
+
+func TestHTTPListUnitsAllUninstalledReturnsEmpty(t *testing.T) {
+	c, sd, _ := initSystemdTestClient(t)
+
+	// No packages installed, but systemd units exist.
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-orphan-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-stale-2.0.service", ActiveState: "failed"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 0 {
+		t.Fatalf("expected 0 units when nothing is installed, got %d", len(units.Entries))
 	}
 }

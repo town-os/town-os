@@ -34,7 +34,7 @@ func TestHTTPPingIncludesAccountCount(t *testing.T) {
 }
 
 func TestHTTPPingUnitCountsFiltersTownOS(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--nginx.service", ActiveState: "active"},
