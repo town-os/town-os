@@ -607,6 +607,99 @@ func TestCompileArchiveFieldPropagation(t *testing.T) {
 	})
 }
 
+func TestCompileGitFieldPropagation(t *testing.T) {
+	t.Run("git field propagated through compile", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "https://github.com/example/repo.git"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["config"].Git != "https://github.com/example/repo.git" {
+			t.Fatalf("expected git URL, got %s", p.Volumes["config"].Git)
+		}
+	})
+
+	t.Run("git field template substitution", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "@giturl@"}},
+			Questions:   map[string]Question{"giturl": {Query: "Git repo URL?"}},
+		}
+		p, err := input.Compile(Responses{"giturl": "https://github.com/example/custom.git"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["config"].Git != "https://github.com/example/custom.git" {
+			t.Fatalf("expected custom git URL, got %s", p.Volumes["config"].Git)
+		}
+	})
+
+	t.Run("no git field is empty", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Git != "" {
+			t.Fatalf("expected empty git, got %s", p.Volumes["data"].Git)
+		}
+	})
+
+	t.Run("invalid git URL rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "not-a-url"}},
+			Questions:   map[string]Question{},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for invalid git URL")
+		}
+		if !errors.Is(err, ErrInvalidGitURL) {
+			t.Fatalf("expected ErrInvalidGitURL, got %v", err)
+		}
+	})
+
+	t.Run("git coexists with archive", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes: map[string]InputPackageVolume{
+				"data":   {Mountpoint: "/data", Archive: "backup.tar.gz"},
+				"config": {Mountpoint: "/config", Git: "https://github.com/example/config.git"},
+			},
+			Questions: map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["data"].Archive != "backup.tar.gz" {
+			t.Fatalf("expected archive backup.tar.gz, got %s", p.Volumes["data"].Archive)
+		}
+		if p.Volumes["config"].Git != "https://github.com/example/config.git" {
+			t.Fatalf("expected git URL, got %s", p.Volumes["config"].Git)
+		}
+	})
+}
+
 func TestCompileArchivesField(t *testing.T) {
 	t.Run("archives parsed and validated", func(t *testing.T) {
 		input := InputPackage{

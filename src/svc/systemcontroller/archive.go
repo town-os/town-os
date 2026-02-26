@@ -333,6 +333,20 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	return nil
 }
 
+// gitCloneIntoPath clones a git repository into targetPath. The clone is run
+// with a 5-minute timeout. This is used for git-based volume seed data during
+// install and reconcile, mirroring reconcileExtractFromImage.
+func gitCloneIntoPath(ctx context.Context, gitURL, targetPath string) error {
+	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(cloneCtx, "git", "clone", gitURL, targetPath) //nolint:gosec // git clone with user-provided URL validated upstream
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git clone %s: %w: %s", gitURL, err, string(output))
+	}
+	return nil
+}
+
 // reconcileExtractFromImage is a standalone function for extracting data from
 // a container image into a target path, used during both install and reconcile.
 func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath string) error {

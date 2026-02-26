@@ -4684,6 +4684,111 @@ loop:
 	}
 }
 
+func TestInstallPackageWithGitSeed(t *testing.T) {
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+	inst := packages.NewInstallManager(dir)
+	mock := storage.InitBtrFSMock()
+
+	// Create a local bare git repo to use as the seed source.
+	seedRepo := filepath.Join(t.TempDir(), "seed.git")
+	for _, args := range [][]string{
+		{"init", "--bare", seedRepo},
+	} {
+		cmd := exec.Command("git", args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+
+	// Clone, add a file, push to seed.
+	workDir := filepath.Join(t.TempDir(), "work")
+	for _, args := range [][]string{
+		{"clone", seedRepo, workDir},
+	} {
+		cmd := exec.Command("git", args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello from seed"), 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile: %v", err)
+	}
+	for _, args := range [][]string{
+		{"-C", workDir, "add", "hello.txt"},
+		{"-C", workDir, "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "seed"},
+		{"-C", workDir, "push", "origin", "HEAD:main"},
+	} {
+		cmd := exec.Command("git", args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+
+	// BtrfsBasePath points to a real temp dir so git clone can write files.
+	btrfsBase := t.TempDir()
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:        mock,
+		RepositoryRoot: rr,
+		Installer:      inst,
+		BtrfsBasePath:  btrfsBase,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+
+	// Create a local file-based repo with a package that has a git seed volume.
+	seedURL := fmt.Sprintf("file://%s", seedRepo)
+	localRepoDir := filepath.Join(dir, "local")
+	pkgDir := filepath.Join(localRepoDir, packages.PackagesDir, "myapp")
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	pkgYAML := fmt.Sprintf("image: nginx:1.0\nvolumes:\n  config:\n    mountpoint: /config\n    git: %s\n", seedURL)
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte(pkgYAML), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := c.AddRepository(context.TODO(), "local", "file://"+localRepoDir, "", ""); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// Pre-create the volume directory (mock storage doesn't create real dirs).
+	volDir := filepath.Join(btrfsBase, "installed", "local", "myapp", "1.0", "config")
+	if err := os.MkdirAll(volDir, 0750); err != nil {
+		t.Fatalf("MkdirAll volume dir: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "myapp", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify git cloned files exist in the volume.
+	helloPath := filepath.Join(volDir, "hello.txt")
+	content, err := os.ReadFile(helloPath)
+	if err != nil {
+		t.Fatalf("expected hello.txt in git seed volume: %v", err)
+	}
+	if string(content) != "hello from seed" {
+		t.Fatalf("expected 'hello from seed', got %q", string(content))
+	}
+}
+
 func TestRealSystemdLogReplayFields(t *testing.T) {
 	c := initRealSystemdTest(t)
 

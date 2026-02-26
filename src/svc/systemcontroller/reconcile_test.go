@@ -715,3 +715,38 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 		t.Fatalf("expected no systemd calls, got %d", len(calls))
 	}
 }
+
+func TestReconcileWithGitSeedVolume(t *testing.T) {
+	// Package with a git seed volume compiles and reconciles without error.
+	// The git clone will fail (invalid URL / no git in test env) but should
+	// be logged and skipped, matching auto-archive behavior.
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"myapp/1.0": "image: nginx:1.0\nvolumes:\n  config:\n    mountpoint: /config\n    git: https://invalid.example.com/nonexistent/repo.git\n",
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+
+	err := inst.Install("repo-a", "myapp", "1.0", packages.Responses{})
+	if err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// BtrfsBasePath points to a temp dir so the git clone target won't exist
+	// (ReadDir will fail), which means the clone is skipped gracefully.
+	err = Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	// InstallUnit + Start = 2
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
+	}
+}

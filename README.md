@@ -161,6 +161,31 @@ archives:
 
 If the target volume is empty during install or reconcile, `podman` is used to pull the image, create a temporary container, and copy the specified directory into the volume.
 
+### Git Volume Seed
+
+Volumes can specify a `git` field containing a repository URL. During install and reconcile, empty volumes are seeded by cloning the repository:
+
+```yaml
+volumes:
+  config:
+    mountpoint: /etc/myapp
+    git: https://github.com/example/default-config.git
+```
+
+The URL can be overridden via a question using template substitution:
+
+```yaml
+volumes:
+  config:
+    mountpoint: /etc/myapp
+    git: "@configrepo@"
+questions:
+  configrepo:
+    query: "Git repository for default config:"
+```
+
+The clone only runs when the target volume is empty, so existing data is never overwritten. Clone failures are logged and skipped (non-fatal).
+
 ### Archive Question Type
 
 Packages can prompt users to upload an archive during installation using the `archive` output type in questions:

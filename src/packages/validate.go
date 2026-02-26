@@ -3,6 +3,7 @@ package packages
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -14,6 +15,7 @@ var (
 	ErrInvalidMountpoint     = errors.New("invalid mountpoint")
 	ErrInvalidVolumeName     = errors.New("invalid volume name")
 	ErrInvalidArchiveSpec    = errors.New("invalid archive spec")
+	ErrInvalidGitURL         = errors.New("invalid git URL")
 )
 
 var (
@@ -137,6 +139,22 @@ func ValidateArchiveSpec(archive InputPackageArchive, volumes map[string]InputPa
 	}
 	if _, ok := volumes[archive.Volume]; !ok {
 		return fmt.Errorf("%w: volume %q not found in package volumes", ErrInvalidArchiveSpec, archive.Volume)
+	}
+	return nil
+}
+
+// ValidateGitURL validates a git repository URL. Empty strings are accepted
+// (no git seed). Non-empty values must have a valid scheme and host.
+func ValidateGitURL(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidGitURL, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("%w: %q (must include scheme and host)", ErrInvalidGitURL, rawURL)
 	}
 	return nil
 }

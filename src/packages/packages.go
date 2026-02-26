@@ -119,6 +119,7 @@ type InputPackageVolume struct {
 	Mountpoint string  `yaml:"mountpoint"`
 	Quota      string  `yaml:"quota,omitempty"`
 	Archive    string  `yaml:"archive,omitempty"`
+	Git        string  `yaml:"git,omitempty"`
 	UID        *uint32 `yaml:"uid,omitempty"`
 	GID        *uint32 `yaml:"gid,omitempty"`
 }
@@ -127,6 +128,7 @@ type PackageVolume struct {
 	Mountpoint string  `json:"mountpoint"`
 	Quota      uint64  `json:"quota,omitempty"`
 	Archive    string  `json:"archive,omitempty"`
+	Git        string  `json:"git,omitempty"`
 	UID        *uint32 `json:"uid,omitempty"`
 	GID        *uint32 `json:"gid,omitempty"`
 }
@@ -258,6 +260,7 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		pv.Mountpoint = applyTemplate(pv.Mountpoint, iv, response)
 		pv.Quota = applyTemplate(pv.Quota, iv, response)
 		pv.Archive = applyTemplate(pv.Archive, iv, response)
+		pv.Git = applyTemplate(pv.Git, iv, response)
 		i.Volumes[name] = pv
 	}
 }
@@ -450,7 +453,13 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 			}
 		}
 
-		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, UID: vol.UID, GID: vol.GID}
+		if vol.Git != "" {
+			if err := ValidateGitURL(vol.Git); err != nil {
+				return nil, fmt.Errorf("volume %q: %w", name, err)
+			}
+		}
+
+		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, Git: vol.Git, UID: vol.UID, GID: vol.GID}
 	}
 
 	p := &Package{

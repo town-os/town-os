@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -1451,6 +1452,22 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			if err := s.extractFromContainerImage(ctx, archive.Image, archive.Directory, volPath); err != nil {
 				slog.Debug(fmt.Sprintf("auto-archive %s -> %s: %v", archive.Image, archive.Volume, err))
 			}
+		}
+	}
+
+	// Clone git seed repositories into empty volumes.
+	for volName, vol := range compiled.Volumes {
+		if vol.Git == "" {
+			continue
+		}
+		volPath := packageVolumePath(repoName, effectiveName, req.Version, volName)
+		targetPath := filepath.Join(s.Controller.GetBtrfsBasePath(), volPath)
+		entries, err := os.ReadDir(targetPath)
+		if err != nil || len(entries) > 0 {
+			continue
+		}
+		if err := gitCloneIntoPath(ctx, vol.Git, targetPath); err != nil {
+			slog.Debug(fmt.Sprintf("git-seed %s -> %s: %v", vol.Git, volName, err))
 		}
 	}
 

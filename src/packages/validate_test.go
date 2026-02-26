@@ -241,6 +241,116 @@ func TestValidateArchiveSpec(t *testing.T) {
 	})
 }
 
+func TestValidateGitURL(t *testing.T) {
+	t.Run("valid HTTPS URL", func(t *testing.T) {
+		err := ValidateGitURL("https://github.com/example/repo.git")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty string accepted", func(t *testing.T) {
+		err := ValidateGitURL("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing scheme rejected", func(t *testing.T) {
+		err := ValidateGitURL("github.com/example/repo.git")
+		if err == nil {
+			t.Fatal("expected error for missing scheme")
+		}
+		if !errors.Is(err, ErrInvalidGitURL) {
+			t.Fatalf("expected ErrInvalidGitURL, got %v", err)
+		}
+	})
+
+	t.Run("bare string rejected", func(t *testing.T) {
+		err := ValidateGitURL("not-a-url")
+		if err == nil {
+			t.Fatal("expected error for bare string")
+		}
+		if !errors.Is(err, ErrInvalidGitURL) {
+			t.Fatalf("expected ErrInvalidGitURL, got %v", err)
+		}
+	})
+}
+
+func TestYAMLVolumeGitParsing(t *testing.T) {
+	t.Run("YAML with git field", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  config:
+    mountpoint: /config
+    git: https://github.com/example/config.git
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Volumes["config"].Git != "https://github.com/example/config.git" {
+			t.Fatalf("expected git URL, got %q", pkg.Volumes["config"].Git)
+		}
+	})
+
+	t.Run("YAML without git field", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /data
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Volumes["data"].Git != "" {
+			t.Fatalf("expected empty git, got %q", pkg.Volumes["data"].Git)
+		}
+	})
+
+	t.Run("compile from YAML with git", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  config:
+    mountpoint: /config
+    git: https://github.com/example/config.git
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		compiled, err := pkg.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected compile error: %v", err)
+		}
+		if compiled.Volumes["config"].Git != "https://github.com/example/config.git" {
+			t.Fatalf("expected git URL in compiled output, got %q", compiled.Volumes["config"].Git)
+		}
+	})
+}
+
 func TestCompileNormalizesImage(t *testing.T) {
 	tests := map[string]struct {
 		image string

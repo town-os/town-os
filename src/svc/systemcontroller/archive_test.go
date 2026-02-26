@@ -1,6 +1,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -142,6 +143,16 @@ func TestValidateUnpackedPaths(t *testing.T) {
 		dir := t.TempDir()
 		if err := validateUnpackedPaths(dir); err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestGitCloneIntoPath(t *testing.T) {
+	t.Run("invalid URL fails gracefully", func(t *testing.T) {
+		dir := t.TempDir()
+		err := gitCloneIntoPath(context.Background(), "https://invalid.example.com/nonexistent/repo.git", dir)
+		if err == nil {
+			t.Fatal("expected error for invalid git URL")
 		}
 	})
 }

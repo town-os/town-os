@@ -161,6 +161,22 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 				}
 			}
 		}
+
+		// Git seed: clone git repositories into empty volumes.
+		for volName, vol := range compiled.Volumes {
+			if vol.Git == "" {
+				continue
+			}
+			volPath := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, volName)
+			targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
+			entries, err := os.ReadDir(targetPath)
+			if err != nil || len(entries) > 0 {
+				continue
+			}
+			if err := gitCloneIntoPath(ctx, vol.Git, targetPath); err != nil {
+				slog.Debug(fmt.Sprintf("reconcile git-seed %s -> %s: %v", vol.Git, volName, err))
+			}
+		}
 	}
 
 	// Write per-package network state file.
