@@ -949,6 +949,94 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('uploadArchive', () => {
+    it('sends FormData with auth header and no Content-Type', async () => {
+      mockFetch({ needs_restart: true, message: 'archive unpacked successfully' })
+      client.setToken('tok')
+
+      const file = new File(['data'], 'backup.tar.gz', { type: 'application/gzip' })
+      const result = await client.uploadArchive('my-data', file)
+      expect(result).toEqual({ needs_restart: true, message: 'archive unpacked successfully' })
+
+      const [url, opts] = globalThis.fetch.mock.calls[0]
+      expect(url).toBe('http://localhost:5309/storage/upload-archive')
+      expect(opts.method).toBe('POST')
+      expect(opts.headers['Authorization']).toBe('Bearer tok')
+      expect(opts.headers['Content-Type']).toBeUndefined()
+      expect(opts.body).toBeInstanceOf(FormData)
+      expect(opts.body.get('subvolume')).toBe('my-data')
+      expect(opts.body.get('archive')).toBeInstanceOf(File)
+    })
+
+    it('throws ApiError on non-200', async () => {
+      mockFetchEmpty(403)
+      client.setToken('tok')
+
+      const file = new File(['data'], 'backup.tar.gz')
+      await expect(client.uploadArchive('reserved', file)).rejects.toThrow(ApiError)
+    })
+  })
+
+  describe('downloadArchive', () => {
+    it('sends JSON body with subvolume and returns raw Response', async () => {
+      const mockResponse = {
+        status: 200,
+        json: () => Promise.resolve(null),
+        text: () => Promise.resolve(''),
+        body: 'mock-stream',
+      }
+      globalThis.fetch = vi.fn().mockResolvedValue(mockResponse)
+      client.setToken('tok')
+
+      const resp = await client.downloadArchive('data')
+      expect(resp).toBe(mockResponse)
+
+      const [url, opts] = globalThis.fetch.mock.calls[0]
+      expect(url).toBe('http://localhost:5309/storage/download-archive')
+      expect(opts.method).toBe('POST')
+      expect(opts.headers['Content-Type']).toBe('application/json')
+      expect(opts.headers['Authorization']).toBe('Bearer tok')
+      expect(JSON.parse(opts.body)).toEqual({ subvolume: 'data' })
+    })
+
+    it('includes paths when provided', async () => {
+      const mockResponse = {
+        status: 200,
+        json: () => Promise.resolve(null),
+        text: () => Promise.resolve(''),
+        body: 'mock-stream',
+      }
+      globalThis.fetch = vi.fn().mockResolvedValue(mockResponse)
+      client.setToken('tok')
+
+      await client.downloadArchive('data', ['config', 'logs'])
+      const [, opts] = globalThis.fetch.mock.calls[0]
+      expect(JSON.parse(opts.body)).toEqual({ subvolume: 'data', paths: ['config', 'logs'] })
+    })
+
+    it('includes stop_service when provided', async () => {
+      const mockResponse = {
+        status: 200,
+        json: () => Promise.resolve(null),
+        text: () => Promise.resolve(''),
+        body: 'mock-stream',
+      }
+      globalThis.fetch = vi.fn().mockResolvedValue(mockResponse)
+      client.setToken('tok')
+
+      await client.downloadArchive('data', undefined, 'my-app.service')
+      const [, opts] = globalThis.fetch.mock.calls[0]
+      expect(JSON.parse(opts.body)).toEqual({ subvolume: 'data', stop_service: 'my-app.service' })
+    })
+
+    it('throws ApiError on non-200', async () => {
+      mockFetchEmpty(500)
+      client.setToken('tok')
+
+      await expect(client.downloadArchive('data')).rejects.toThrow(ApiError)
+    })
+  })
+
   describe('getPackageQuestionsByIdentity', () => {
     it('sends name and version and returns questions', async () => {
       const questions = {

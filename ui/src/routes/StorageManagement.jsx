@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Trash2, Pencil, HardDrive, ChevronRight, ChevronDown, Package } from 'lucide-react'
+import { Plus, Trash2, Pencil, HardDrive, ChevronRight, ChevronDown, Package, Upload, Download } from 'lucide-react'
 
 const UNITS = {
   B: 1,
@@ -173,6 +173,8 @@ function VolumeTreeSection({ title, state, filesystems, badge }) {
 export default function StorageManagement() {
   useEffect(() => { document.title = 'Town OS - Storage' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
+  const [uploadDialog, setUploadDialog] = useState({ open: false })
+  const [downloadDialog, setDownloadDialog] = useState({ open: false })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
@@ -251,6 +253,63 @@ export default function StorageManagement() {
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
+  async function handleUpload(e) {
+    e.preventDefault()
+    const form = e.target.elements
+    try {
+      const file = form.archive.files[0]
+      if (!file) {
+        toast.error('Please select an archive file')
+        return
+      }
+      const result = await getClient().uploadArchive(form.subvolume.value, file)
+      toast.success(result.message || 'Archive uploaded')
+      setUploadDialog({ open: false })
+      doRefresh()
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
+  async function handleDownload(e) {
+    e.preventDefault()
+    const form = e.target.elements
+    const subvolume = form.subvolume.value.trim()
+    if (!subvolume) {
+      toast.error('Enter a subvolume name')
+      return
+    }
+    const paths = (form.paths?.value || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const stopService = form.stopService?.value || ''
+    try {
+      const resp = await getClient().downloadArchive(subvolume, paths.length > 0 ? paths : undefined, stopService)
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'download.tar.gz',
+          types: [{ description: 'Gzip Archive', accept: { 'application/gzip': ['.tar.gz'] } }],
+        })
+        const writable = await handle.createWritable()
+        await resp.body.pipeTo(writable)
+      } else {
+        const blob = await resp.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'download.tar.gz'
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+      toast.success('Archive downloaded')
+      setDownloadDialog({ open: false })
+    } catch (err) {
+      if (err.name === 'AbortError') return
       toast.error(err.message)
     }
   }
@@ -336,6 +395,14 @@ export default function StorageManagement() {
             />
             Show uninstalled volumes
           </label>
+          <Button variant="outline" onClick={() => setUploadDialog({ open: true })}>
+            <Upload className="h-4 w-4 mr-1" />
+            Upload Archive
+          </Button>
+          <Button variant="outline" onClick={() => setDownloadDialog({ open: true })}>
+            <Download className="h-4 w-4 mr-1" />
+            Download Archive
+          </Button>
           <Button
             onClick={() =>
               setEditDialog({ open: true, create: true, name: '', quotaValue: '', quotaUnit: 'GB' })
@@ -486,6 +553,109 @@ export default function StorageManagement() {
         </code>
         ? This cannot be undone.
       </ConfirmDialog>
+
+      <Dialog
+        open={uploadDialog.open}
+        onOpenChange={(v) => !v && setUploadDialog({ open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              <Upload className="h-4 w-4 inline mr-2" />
+              Upload Archive
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpload}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="subvolume">Target Subvolume</Label>
+                <Input
+                  id="subvolume"
+                  name="subvolume"
+                  placeholder="my-data"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="archive">Archive File</Label>
+                <Input
+                  id="archive"
+                  name="archive"
+                  type="file"
+                  accept=".tar,.tar.gz,.tgz,.tar.bz2,.tbz2,.tar.xz,.txz"
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setUploadDialog({ open: false })}
+              >
+                Cancel
+              </Button>
+              <Button type="submit">Upload</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={downloadDialog.open}
+        onOpenChange={(v) => !v && setDownloadDialog({ open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              <Download className="h-4 w-4 inline mr-2" />
+              Download Archive
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleDownload}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="subvolume">Subvolume</Label>
+                <Input
+                  id="subvolume"
+                  name="subvolume"
+                  placeholder="my-data"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paths">Paths (optional, comma-separated)</Label>
+                <Input
+                  id="paths"
+                  name="paths"
+                  placeholder="data, config"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Leave empty to archive the entire subvolume
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="stopService">Stop Service (optional)</Label>
+                <Input
+                  id="stopService"
+                  name="stopService"
+                  placeholder="my-app.service"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setDownloadDialog({ open: false })}
+              >
+                Cancel
+              </Button>
+              <Button type="submit">Download</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

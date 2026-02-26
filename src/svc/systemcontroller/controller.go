@@ -267,7 +267,8 @@ type ArchiveUploadResponse struct {
 }
 
 type DownloadArchiveRequest struct {
-	Subvolumes  []string `json:"subvolumes"`
+	Subvolume   string   `json:"subvolume"`
+	Paths       []string `json:"paths,omitempty"`
 	StopService string   `json:"stop_service,omitempty"`
 }
 

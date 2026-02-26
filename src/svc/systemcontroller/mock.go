@@ -995,10 +995,10 @@ func (m *MockClient) UploadArchive(_ context.Context, subvolume string, archiveR
 	return &ArchiveUploadResponse{NeedsRestart: true, Message: "archive unpacked successfully"}, nil
 }
 
-func (m *MockClient) DownloadArchive(_ context.Context, subvolumes []string, stopService string) (io.ReadCloser, error) {
+func (m *MockClient) DownloadArchive(_ context.Context, subvolume string, paths []string, stopService string) (io.ReadCloser, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "DownloadArchive", Args: []any{subvolumes, stopService}})
+	m.Calls = append(m.Calls, MockCall{Method: "DownloadArchive", Args: []any{subvolume, paths, stopService}})
 
 	if m.DownloadArchiveErr != nil {
 		return nil, m.DownloadArchiveErr

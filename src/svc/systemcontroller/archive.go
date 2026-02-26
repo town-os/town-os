@@ -46,31 +46,23 @@ func archiveFormat(filename string) (string, error) {
 		return "tar.xz", nil
 	case strings.HasSuffix(lower, ".tar"):
 		return "tar", nil
-	case strings.HasSuffix(lower, ".zip"):
-		return "zip", nil
-	case strings.HasSuffix(lower, ".7z"):
-		return "7z", nil
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupportedArchive, filename)
 	}
 }
 
-// unpackCommand returns an exec.Cmd that unpacks archivePath into destDir
-// using the appropriate tool for the given format.
-func unpackCommand(ctx context.Context, archivePath, destDir, format string) *exec.Cmd {
+// streamUnpackCommand returns an exec.Cmd that reads a tar archive from stdin
+// and unpacks it into destDir using the appropriate decompressor for the given format.
+func streamUnpackCommand(ctx context.Context, destDir, format string) *exec.Cmd {
 	switch format {
 	case "tar.gz":
-		return exec.CommandContext(ctx, "tar", "--use-compress-program=pigz", "-xf", archivePath, "-C", destDir)
+		return exec.CommandContext(ctx, "tar", "--use-compress-program=pigz", "-xf", "-", "-C", destDir)
 	case "tar.bz2":
-		return exec.CommandContext(ctx, "tar", "--use-compress-program=lbzip2", "-xf", archivePath, "-C", destDir)
+		return exec.CommandContext(ctx, "tar", "--use-compress-program=lbzip2", "-xf", "-", "-C", destDir)
 	case "tar.xz":
-		return exec.CommandContext(ctx, "tar", "--use-compress-program=xz", "-xf", archivePath, "-C", destDir)
+		return exec.CommandContext(ctx, "tar", "--use-compress-program=xz", "-xf", "-", "-C", destDir)
 	case "tar":
-		return exec.CommandContext(ctx, "tar", "-xf", archivePath, "-C", destDir)
-	case "zip":
-		return exec.CommandContext(ctx, "unzip", "-o", archivePath, "-d", destDir)
-	case "7z":
-		return exec.CommandContext(ctx, "7z", "x", "-y", fmt.Sprintf("-o%s", destDir), archivePath)
+		return exec.CommandContext(ctx, "tar", "-xf", "-", "-C", destDir)
 	default:
 		return exec.CommandContext(ctx, "false")
 	}
@@ -147,67 +139,69 @@ func (s *SystemControllerHandlers) archiveUnpackTimeout() time.Duration {
 	return time.Duration(n) * time.Second
 }
 
-// unpackArchiveToSubvolume writes an archive to a staging area and unpacks it
-// into the target subvolume. The staging area is cleaned up on completion.
-func (s *SystemControllerHandlers) unpackArchiveToSubvolume(ctx context.Context, archiveReader io.Reader, filename, targetSubvol string) error {
+// countingReader wraps a reader and tracks total bytes read.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (cr *countingReader) Read(p []byte) (int, error) {
+	n, err := cr.r.Read(p)
+	cr.n += int64(n)
+	return n, err
+}
+
+// streamUnpackToSubvolume streams an archive directly from the reader into
+// the target subvolume via tar's stdin, with no temp files or staging.
+func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, filename, targetSubvol string) error {
 	format, err := archiveFormat(filename)
 	if err != nil {
 		return err
 	}
 
-	st := s.Controller.GetStorage()
-	if st == nil {
-		return fmt.Errorf("storage not available")
-	}
-
-	// Create a staging subvolume for the archive file.
-	stagingName := fmt.Sprintf("%s/staging-%d", ArchivesSubvolume, time.Now().UnixNano())
-	if err := st.CreateFilesystem(storage.Filesystem{Name: stagingName}); err != nil {
-		return fmt.Errorf("create staging subvolume: %w", err)
-	}
-	defer func() {
-		if err := st.RemoveFilesystem(stagingName); err != nil {
-			slog.Debug(fmt.Sprintf("cleanup staging subvolume %s: %v", stagingName, err))
-		}
-	}()
-
 	basePath := s.Controller.GetBtrfsBasePath()
-	stagingPath := filepath.Join(basePath, stagingName)
-	archivePath := filepath.Join(stagingPath, filepath.Base(filename))
+	targetPath := filepath.Join(basePath, targetSubvol)
 
-	// Write archive to staging, enforcing size limit.
+	// Enforce size limit: LimitReader caps at maxSize+1 so we can detect overflow.
 	maxSize := s.maxArchiveSize()
-	limited := io.LimitReader(archiveReader, maxSize+1)
-
-	f, err := os.Create(archivePath)
-	if err != nil {
-		return fmt.Errorf("create archive file: %w", err)
-	}
-
-	n, err := io.Copy(f, limited)
-	if closeErr := f.Close(); closeErr != nil && err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return fmt.Errorf("write archive: %w", err)
-	}
-	if n > maxSize {
-		return ErrArchiveTooLarge
-	}
+	cr := &countingReader{r: io.LimitReader(archiveReader, maxSize+1)}
 
 	// Unpack with timeout.
 	timeout := s.archiveUnpackTimeout()
 	unpackCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	targetPath := filepath.Join(basePath, targetSubvol)
-	cmd := unpackCommand(unpackCtx, archivePath, targetPath, format)
-	output, err := cmd.CombinedOutput()
-	if unpackCtx.Err() == context.DeadlineExceeded {
-		return ErrUnpackTimeout
-	}
+	cmd := streamUnpackCommand(unpackCtx, targetPath, format)
+	cmd.Stdin = cr
+
+	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("unpack archive: %w: %s", err, string(output))
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start unpack: %w", err)
+	}
+
+	stderrOut, readErr := io.ReadAll(stderrPipe)
+
+	if err := cmd.Wait(); err != nil {
+		if unpackCtx.Err() == context.DeadlineExceeded {
+			return ErrUnpackTimeout
+		}
+		// Check if the archive exceeded the size limit.
+		if cr.n > maxSize {
+			return ErrArchiveTooLarge
+		}
+		return fmt.Errorf("unpack archive: %w: %s", err, string(stderrOut))
+	}
+
+	if cr.n > maxSize {
+		return ErrArchiveTooLarge
+	}
+
+	if readErr != nil {
+		return fmt.Errorf("read stderr: %w", readErr)
 	}
 
 	// Validate unpacked paths.
@@ -258,7 +252,7 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 	}()
 
 	ctx := c.Request().Context()
-	if err := s.unpackArchiveToSubvolume(ctx, file, header.Filename, subvolume); err != nil {
+	if err := s.streamUnpackToSubvolume(ctx, file, header.Filename, subvolume); err != nil {
 		if errors.Is(err, ErrArchiveTooLarge) {
 			return echo.NewHTTPError(http.StatusForbidden, err.Error())
 		}
@@ -271,8 +265,8 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 	return c.JSON(200, ArchiveUploadResponse{NeedsRestart: true, Message: "archive unpacked successfully"})
 }
 
-// downloadArchive creates a 7z archive of the specified subvolumes and streams
-// it back to the client.
+// downloadArchive creates a tar.gz archive of the specified subvolumes and
+// streams it directly to the client with no temp files.
 func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	req := DownloadArchiveRequest{}
@@ -280,14 +274,12 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		return err
 	}
 
-	if len(req.Subvolumes) == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "at least one subvolume is required")
+	if req.Subvolume == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "subvolume is required")
 	}
 
-	for _, sv := range req.Subvolumes {
-		if isReservedFilesystem(sv) {
-			return storage.ErrReservedFilesystem
-		}
+	if isReservedFilesystem(req.Subvolume) {
+		return storage.ErrReservedFilesystem
 	}
 
 	ctx := c.Request().Context()
@@ -305,53 +297,37 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		}()
 	}
 
-	st := s.Controller.GetStorage()
-	if st == nil {
-		return fmt.Errorf("storage not available")
-	}
-
-	// Create staging for the archive.
-	stagingName := fmt.Sprintf("%s/download-%d", ArchivesSubvolume, time.Now().UnixNano())
-	if err := st.CreateFilesystem(storage.Filesystem{Name: stagingName}); err != nil {
-		return fmt.Errorf("create staging subvolume: %w", err)
-	}
-	defer func() {
-		if err := st.RemoveFilesystem(stagingName); err != nil {
-			slog.Debug(fmt.Sprintf("cleanup download staging %s: %v", stagingName, err))
-		}
-	}()
-
 	basePath := s.Controller.GetBtrfsBasePath()
-	archivePath := filepath.Join(basePath, stagingName, "download.7z")
+	subvolPath := filepath.Join(basePath, req.Subvolume)
 
-	// Build 7z command with all subvolume paths.
-	args := []string{"a", "-y", archivePath}
-	for _, sv := range req.Subvolumes {
-		args = append(args, filepath.Join(basePath, sv))
+	// Build tar command rooted at the subvolume, archiving specific paths or everything.
+	args := []string{"--use-compress-program=pigz", "-cf", "-", "-C", subvolPath}
+	if len(req.Paths) > 0 {
+		args = append(args, req.Paths...)
+	} else {
+		args = append(args, ".")
 	}
 
-	cmd := exec.CommandContext(ctx, "7z", args...)
-	output, err := cmd.CombinedOutput()
+	cmd := exec.CommandContext(ctx, "tar", args...)
+	cmd.Stdout = c.Response()
+
+	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("create 7z archive: %w: %s", err, string(output))
+		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	c.Response().Header().Set("Content-Type", "application/x-7z-compressed")
-	c.Response().Header().Set("Content-Disposition", "attachment; filename=download.7z")
-
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return fmt.Errorf("open archive: %w", err)
-	}
-	defer func() {
-		if err := f.Close(); err != nil {
-			slog.Debug(fmt.Sprintf("close archive file: %v", err))
-		}
-	}()
-
+	c.Response().Header().Set("Content-Type", "application/gzip")
+	c.Response().Header().Set("Content-Disposition", "attachment; filename=download.tar.gz")
 	c.Response().WriteHeader(200)
-	if _, err := io.Copy(c.Response(), f); err != nil {
-		return fmt.Errorf("stream archive: %w", err)
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start archive: %w", err)
+	}
+
+	stderrOut, _ := io.ReadAll(stderrPipe)
+
+	if err := cmd.Wait(); err != nil {
+		slog.Debug(fmt.Sprintf("archive tar: %v: %s", err, string(stderrOut)))
 	}
 
 	return nil

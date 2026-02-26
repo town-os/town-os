@@ -78,7 +78,7 @@ type Client interface {
 	DismissUpgrades(ctx context.Context) error
 
 	UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename string) (*ArchiveUploadResponse, error)
-	DownloadArchive(ctx context.Context, subvolumes []string, stopService string) (io.ReadCloser, error)
+	DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService string) (io.ReadCloser, error)
 
 	Ping(ctx context.Context) (*PingResponse, error)
 }
@@ -993,9 +993,9 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 	return &result, json.NewDecoder(resp.Body).Decode(&result)
 }
 
-func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolumes []string, stopService string) (_ io.ReadCloser, err error) {
+func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService string) (_ io.ReadCloser, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, DownloadArchiveRequest{Subvolumes: subvolumes, StopService: stopService})
+	go pipeEncode(pw, DownloadArchiveRequest{Subvolume: subvolume, Paths: paths, StopService: stopService})
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.route("storage/download-archive"), pr)
 	if err != nil {

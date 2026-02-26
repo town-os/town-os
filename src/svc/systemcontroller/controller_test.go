@@ -8898,7 +8898,7 @@ func TestHTTPDownloadArchiveReservedSubvolume(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	body, _ := json.Marshal(DownloadArchiveRequest{Subvolumes: []string{"installed/repo/pkg/1.0/data"}})
+	body, _ := json.Marshal(DownloadArchiveRequest{Subvolume: "installed/repo/pkg/1.0/data"})
 	req, _ := http.NewRequest("POST", testRoute(t, ts.Server.URL, "/storage/download-archive"), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := ts.Server.Client().Do(req)
@@ -8945,7 +8945,7 @@ func TestMockClientUploadArchiveError(t *testing.T) {
 
 func TestMockClientDownloadArchive(t *testing.T) {
 	m := InitMockClient()
-	reader, err := m.DownloadArchive(context.TODO(), []string{"my-vol"}, "")
+	reader, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -8960,7 +8960,7 @@ func TestMockClientDownloadArchive(t *testing.T) {
 func TestMockClientDownloadArchiveError(t *testing.T) {
 	m := InitMockClient()
 	m.DownloadArchiveErr = fmt.Errorf("download failed")
-	_, err := m.DownloadArchive(context.TODO(), []string{"my-vol"}, "")
+	_, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "")
 	if err == nil {
 		t.Fatal("expected error")
 	}

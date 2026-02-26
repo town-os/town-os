@@ -867,9 +867,15 @@ export default function PackageManagement() {
                           id={key}
                           name={key}
                           type={question.type === 'password' ? 'password' : 'text'}
+                          placeholder={question.type === 'duration' ? 'e.g. 30s, 5m, 2h, 1d' : undefined}
                           defaultValue={questionsDialog.responses?.[key] || ''}
                           className={fieldError ? 'border-destructive' : ''}
                         />
+                        {question.type === 'duration' && (
+                          <p className="text-sm text-muted-foreground">
+                            Duration format: use s (seconds), m (minutes), h (hours), or d (days)
+                          </p>
+                        )}
                         {fieldError && (
                           <p className="text-sm text-destructive">{fieldError}</p>
                         )}

@@ -1,9 +1,13 @@
 package integration_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -3810,4 +3814,229 @@ func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
 	if resp["hostname"] != "alpha" {
 		t.Fatalf("expected hostname %q, got %q", "alpha", resp["hostname"])
 	}
+}
+
+func initSystemControllerTestWithBtrfsBase(t *testing.T) (*systemcontroller.SystemdClient, *storage.BtrFS) {
+	t.Helper()
+	btr := storage.InitBtrFS("/data/btrfs")
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:       btr,
+		BtrfsBasePath: "/data/btrfs",
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+	return c, btr
+}
+
+// makeTarGz builds a tar.gz archive in memory from a map of filename -> content.
+func makeTarGz(t *testing.T, files map[string]string) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	for name, content := range files {
+		hdr := &tar.Header{
+			Name: name,
+			Mode: 0644,
+			Size: int64(len(content)),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("tar write header %s: %v", name, err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatalf("tar write body %s: %v", name, err)
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return &buf
+}
+
+// extractTarGz reads a tar.gz stream and returns a map of filename -> content.
+func extractTarGz(t *testing.T, r io.Reader) map[string]string {
+	t.Helper()
+	gr, err := gzip.NewReader(r)
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	defer func() {
+		if err := gr.Close(); err != nil {
+			t.Errorf("gzip close: %v", err)
+		}
+	}()
+
+	result := make(map[string]string)
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("tar next: %v", err)
+		}
+		if hdr.Typeflag == tar.TypeDir {
+			continue
+		}
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatalf("tar read %s: %v", hdr.Name, err)
+		}
+		result[hdr.Name] = string(data)
+	}
+	return result
+}
+
+func TestArchiveUploadAndDownload(t *testing.T) {
+	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-upload"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	// Build and upload a tar.gz containing hello.txt.
+	archive := makeTarGz(t, map[string]string{"hello.txt": "hello world"})
+	resp, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz")
+	if err != nil {
+		t.Fatalf("UploadArchive: %v", err)
+	}
+	if resp.Message == "" {
+		t.Fatal("expected non-empty upload response message")
+	}
+
+	// Verify the file was unpacked on disk.
+	got, err := os.ReadFile(filepath.Join("/data/btrfs", subvol, "hello.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile hello.txt: %v", err)
+	}
+	if string(got) != "hello world" {
+		t.Fatalf("expected %q, got %q", "hello world", string(got))
+	}
+
+	// Download the archive and verify contents.
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "")
+	if err != nil {
+		t.Fatalf("DownloadArchive: %v", err)
+	}
+	defer func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("close download body: %v", err)
+		}
+	}()
+
+	files := extractTarGz(t, rc)
+	content, ok := files["hello.txt"]
+	if !ok {
+		// tar may prefix with "./"
+		content, ok = files["./hello.txt"]
+	}
+	if !ok {
+		t.Fatalf("hello.txt not found in downloaded archive, got keys: %v", mapKeys(files))
+	}
+	if content != "hello world" {
+		t.Fatalf("downloaded hello.txt: expected %q, got %q", "hello world", content)
+	}
+}
+
+func TestArchiveDownloadWithPaths(t *testing.T) {
+	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-paths"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	// Upload archive with two files.
+	archive := makeTarGz(t, map[string]string{
+		"a.txt": "content-a",
+		"b.txt": "content-b",
+	})
+	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz"); err != nil {
+		t.Fatalf("UploadArchive: %v", err)
+	}
+
+	// Download with only a.txt requested.
+	rc, err := c.DownloadArchive(ctx, subvol, []string{"a.txt"}, "")
+	if err != nil {
+		t.Fatalf("DownloadArchive: %v", err)
+	}
+	defer func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("close download body: %v", err)
+		}
+	}()
+
+	files := extractTarGz(t, rc)
+	if _, ok := files["a.txt"]; !ok {
+		t.Fatalf("expected a.txt in archive, got keys: %v", mapKeys(files))
+	}
+	if _, ok := files["b.txt"]; ok {
+		t.Fatal("b.txt should not be in the filtered archive")
+	}
+}
+
+func TestArchiveUploadUnsupportedFormat(t *testing.T) {
+	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-unsupported"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	_, err := c.UploadArchive(ctx, subvol, strings.NewReader("not a real archive"), "test.zip")
+	if err == nil {
+		t.Fatal("expected error for unsupported format, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("expected unsupported error, got: %v", err)
+	}
+}
+
+func TestArchiveDownloadReservedSubvolume(t *testing.T) {
+	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+
+	_, err := c.DownloadArchive(ctx, "installed/repo/pkg/1.0/data", nil, "")
+	if err == nil {
+		t.Fatal("expected error for reserved subvolume, got nil")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("expected reserved filesystem error, got: %v", err)
+	}
+}
+
+func mapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

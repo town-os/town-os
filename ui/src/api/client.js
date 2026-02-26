@@ -647,6 +647,70 @@ export class SystemControllerClient {
     await this.post('/packages/upgrades/dismiss', {})
   }
 
+  // --- Archives ---
+
+  /**
+   * Upload an archive to a subvolume.
+   * Uses FormData with fetch() directly (not this.post()) so the browser
+   * sets the multipart boundary automatically.
+   * @param {string} subvolume
+   * @param {File} file
+   * @returns {Promise<{needs_restart: boolean, message: string}>}
+   */
+  async uploadArchive(subvolume, file) {
+    const form = new FormData()
+    form.append('subvolume', subvolume)
+    form.append('archive', file)
+
+    /** @type {HeadersInit} */
+    const headers = {}
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+
+    const resp = await fetch(`${this.baseURL}/storage/upload-archive`, {
+      method: 'POST',
+      headers,
+      body: form,
+    })
+    if (resp.status !== 200) {
+      const text = await resp.text().catch(() => '')
+      throw new ApiError('POST', '/storage/upload-archive', resp.status, text)
+    }
+    return resp.json()
+  }
+
+  /**
+   * Download an archive of the specified subvolume.
+   * Returns the raw Response so the caller can stream resp.body to disk.
+   * @param {string} subvolume
+   * @param {string[]} [paths]
+   * @param {string} [stopService]
+   * @returns {Promise<Response>}
+   */
+  async downloadArchive(subvolume, paths, stopService) {
+    /** @type {HeadersInit} */
+    const headers = { 'Content-Type': 'application/json' }
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+
+    const body = { subvolume }
+    if (paths && paths.length > 0) body.paths = paths
+    if (stopService) body.stop_service = stopService
+
+    const resp = await fetch(`${this.baseURL}/storage/download-archive`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    })
+    if (resp.status !== 200) {
+      const text = await resp.text().catch(() => '')
+      throw new ApiError('POST', '/storage/download-archive', resp.status, text)
+    }
+    return resp
+  }
+
   // --- Settings (admin) ---
 
   /** @returns {Promise<Record<string, string>>} */
