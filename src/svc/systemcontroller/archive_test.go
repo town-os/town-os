@@ -166,6 +166,29 @@ func TestIsReservedFilesystemIncludesArchives(t *testing.T) {
 	}
 }
 
+func TestServiceNameFromVolumePath(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		want  string
+	}{
+		"full path":    {"repo/nginx/1.0/data", "town-os-package--repo-nginx-1.0.service"},
+		"no vol name":  {"repo/nginx/1.0", "town-os-package--repo-nginx-1.0.service"},
+		"deep path":    {"myrepo/app/2.5/logs/sub", "town-os-package--myrepo-app-2.5.service"},
+		"too short":    {"repo/name", ""},
+		"single":       {"repo", ""},
+		"empty":        {"", ""},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := serviceNameFromVolumePath(tt.input)
+			if got != tt.want {
+				t.Fatalf("serviceNameFromVolumePath(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClassifyFilesystemSkipsArchives(t *testing.T) {
 	state, _ := classifyFilesystem(ArchivesSubvolume)
 	if state != "" {

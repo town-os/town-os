@@ -4378,7 +4378,7 @@ func TestArchiveUploadAndDownload(t *testing.T) {
 
 	// Build and upload a tar.gz containing hello.txt.
 	archive := makeTarGz(t, map[string]string{"hello.txt": "hello world"})
-	resp, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz")
+	resp, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz", "", "")
 	if err != nil {
 		t.Fatalf("UploadArchive: %v", err)
 	}
@@ -4439,7 +4439,7 @@ func TestArchiveDownloadWithPaths(t *testing.T) {
 		"a.txt": "content-a",
 		"b.txt": "content-b",
 	})
-	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz"); err != nil {
+	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz", "", ""); err != nil {
 		t.Fatalf("UploadArchive: %v", err)
 	}
 
@@ -4477,7 +4477,7 @@ func TestArchiveUploadUnsupportedFormat(t *testing.T) {
 		}
 	})
 
-	_, err := c.UploadArchive(ctx, subvol, strings.NewReader("not a real archive"), "test.zip")
+	_, err := c.UploadArchive(ctx, subvol, strings.NewReader("not a real archive"), "test.zip", "", "")
 	if err == nil {
 		t.Fatal("expected error for unsupported format, got nil")
 	}
@@ -4486,16 +4486,159 @@ func TestArchiveUploadUnsupportedFormat(t *testing.T) {
 	}
 }
 
-func TestArchiveDownloadReservedSubvolume(t *testing.T) {
+func TestArchiveUploadWithSubpath(t *testing.T) {
+	c := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-subpath"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	archive := makeTarGz(t, map[string]string{"nested.txt": "nested content"})
+	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz", "deep/sub", ""); err != nil {
+		t.Fatalf("UploadArchive with subpath: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join("/data/btrfs", subvol, "deep/sub/nested.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile nested.txt: %v", err)
+	}
+	if string(got) != "nested content" {
+		t.Fatalf("expected %q, got %q", "nested content", string(got))
+	}
+}
+
+func initSystemControllerTestWithStorageAndBtrfsBase(t *testing.T) (*systemcontroller.SystemdClient, *storage.BtrFS) {
+	t.Helper()
+
+	btr := storage.InitBtrFS("/data/btrfs")
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:       btr,
+		BtrfsBasePath: "/data/btrfs",
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, btr
+}
+
+func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
+	c, btr := initSystemControllerTestWithStorageAndBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "installed/testrepo/testpkg/1.0/data"
+
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = btr.RemoveFilesystem(subvol)
+		_ = btr.RemoveFilesystem("installed/testrepo/testpkg/1.0")
+		_ = btr.RemoveFilesystem("installed/testrepo/testpkg")
+		_ = btr.RemoveFilesystem("installed/testrepo")
+	})
+
+	archive := makeTarGz(t, map[string]string{"pkg-data.txt": "package data"})
+	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz", "", ""); err != nil {
+		t.Fatalf("UploadArchive on installed volume: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join("/data/btrfs", subvol, "pkg-data.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile pkg-data.txt: %v", err)
+	}
+	if string(got) != "package data" {
+		t.Fatalf("expected %q, got %q", "package data", string(got))
+	}
+
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "")
+	if err != nil {
+		t.Fatalf("DownloadArchive on installed volume: %v", err)
+	}
+	defer func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("close download body: %v", err)
+		}
+	}()
+
+	files := extractTarGz(t, rc)
+	content, ok := files["pkg-data.txt"]
+	if !ok {
+		content, ok = files["./pkg-data.txt"]
+	}
+	if !ok {
+		t.Fatalf("pkg-data.txt not found in downloaded archive, got keys: %v", mapKeys(files))
+	}
+	if content != "package data" {
+		t.Fatalf("downloaded pkg-data.txt: expected %q, got %q", "package data", content)
+	}
+}
+
+func TestModifyInstalledVolumeQuota(t *testing.T) {
+	c, btr := initSystemControllerTestWithStorageAndBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "installed/testrepo/quotapkg/1.0/data"
+
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = btr.RemoveFilesystem(subvol)
+		_ = btr.RemoveFilesystem("installed/testrepo/quotapkg/1.0")
+		_ = btr.RemoveFilesystem("installed/testrepo/quotapkg")
+		_ = btr.RemoveFilesystem("installed/testrepo")
+	})
+
+	if err := c.ModifyFilesystem(ctx, subvol, storage.Filesystem{
+		Name:  subvol,
+		Quota: 1073741824,
+	}); err != nil {
+		t.Fatalf("ModifyFilesystem quota on installed volume: %v", err)
+	}
+
+	result, err := c.ListFilesystems(ctx, "", "installed", systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	found := false
+	for _, f := range result.Entries {
+		if f.Name == "testrepo/quotapkg/1.0/data" {
+			found = true
+			if f.Quota != 1073741824 {
+				t.Fatalf("expected quota 1073741824, got %d", f.Quota)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("installed volume not found in listing after quota modification")
+	}
+}
+
+func TestArchiveDownloadInstalledSubvolume(t *testing.T) {
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 
+	// Installed volumes are now allowed for archive operations.
+	// This will fail with a tar error (directory doesn't exist) rather
+	// than a reserved filesystem error.
 	_, err := c.DownloadArchive(ctx, "installed/repo/pkg/1.0/data", nil, "")
 	if err == nil {
-		t.Fatal("expected error for reserved subvolume, got nil")
+		// If the directory happens to exist, the download would succeed.
+		return
 	}
-	if !strings.Contains(err.Error(), "reserved") {
-		t.Fatalf("expected reserved filesystem error, got: %v", err)
+	if strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("installed volumes should not be rejected as reserved: %v", err)
 	}
 }
 

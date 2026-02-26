@@ -77,7 +77,7 @@ type Client interface {
 	ListUpgrades(ctx context.Context) ([]PackageUpgrade, error)
 	DismissUpgrades(ctx context.Context) error
 
-	UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename string) (*ArchiveUploadResponse, error)
+	UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename, subpath, stopService string) (*ArchiveUploadResponse, error)
 	DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService string) (io.ReadCloser, error)
 
 	Ping(ctx context.Context) (*PingResponse, error)
@@ -956,7 +956,7 @@ func (c *SystemdClient) DismissUpgrades(ctx context.Context) error {
 
 // --- Archive ---
 
-func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename string) (_ *ArchiveUploadResponse, err error) {
+func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename, subpath, stopService string) (_ *ArchiveUploadResponse, err error) {
 	pr, pw := io.Pipe()
 
 	writer := multipart.NewWriter(pw)
@@ -964,6 +964,18 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 		if err := writer.WriteField("subvolume", subvolume); err != nil {
 			pw.CloseWithError(err)
 			return
+		}
+		if subpath != "" {
+			if err := writer.WriteField("subpath", subpath); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+		if stopService != "" {
+			if err := writer.WriteField("stop_service", stopService); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
 		}
 		part, err := writer.CreateFormFile("archive", filename)
 		if err != nil {

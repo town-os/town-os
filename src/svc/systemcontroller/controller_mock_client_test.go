@@ -872,7 +872,7 @@ func TestMockClientGetSettingNotFound(t *testing.T) {
 
 func TestMockClientUploadArchive(t *testing.T) {
 	m := InitMockClient()
-	result, err := m.UploadArchive(context.TODO(), "my-vol", strings.NewReader("fake"), "test.tar.gz")
+	result, err := m.UploadArchive(context.TODO(), "my-vol", strings.NewReader("fake"), "test.tar.gz", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -895,7 +895,7 @@ func TestMockClientUploadArchive(t *testing.T) {
 func TestMockClientUploadArchiveError(t *testing.T) {
 	m := InitMockClient()
 	m.UploadArchiveErr = errors.New("upload failed")
-	_, err := m.UploadArchive(context.TODO(), "my-vol", strings.NewReader("fake"), "test.tar.gz")
+	_, err := m.UploadArchive(context.TODO(), "my-vol", strings.NewReader("fake"), "test.tar.gz", "", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}

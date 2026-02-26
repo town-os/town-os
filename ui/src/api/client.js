@@ -657,11 +657,15 @@ export class SystemControllerClient {
    * sets the multipart boundary automatically.
    * @param {string} subvolume
    * @param {File} file
+   * @param {string} [subpath]
+   * @param {string} [stopService]
    * @returns {Promise<{needs_restart: boolean, message: string}>}
    */
-  async uploadArchive(subvolume, file) {
+  async uploadArchive(subvolume, file, subpath, stopService) {
     const form = new FormData()
     form.append('subvolume', subvolume)
+    if (subpath) form.append('subpath', subpath)
+    if (stopService) form.append('stop_service', stopService)
     form.append('archive', file)
 
     /** @type {HeadersInit} */

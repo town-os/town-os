@@ -55,40 +55,65 @@ function decomposeQuota(bytes) {
 }
 
 /**
- * Build a tree structure from package volume names.
- * Names are like "repo/nginx/1.0/data" -> repo "repo", package "nginx", version "1.0", volume "data".
- * The tree groups by "repo/name" as the top-level key.
- * Returns { [repo/name]: { [version]: Filesystem[] } }
+ * Derive the systemd service unit name from a volume display name.
+ * e.g. "repo/name/version/volName" -> "town-os-package--repo-name-version.service"
  */
-function buildVolumeTree(filesystems) {
+function deriveServiceName(volumeName) {
+  const parts = volumeName.split('/')
+  if (parts.length < 3) return ''
+  return `town-os-package--${parts[0]}-${parts[1]}-${parts[2]}.service`
+}
+
+/**
+ * Build a unified tree structure from package volume names with state info.
+ * Merges installed and uninstalled volumes into a single tree.
+ * Returns { [repo/name]: { [version]: { state, volumes: Filesystem[] } } }
+ */
+function buildUnifiedVolumeTree(installedFilesystems, uninstalledFilesystems) {
   const tree = {}
-  for (const fs of filesystems) {
-    const parts = fs.name.split('/')
-    // 4-part: repo/name/version/volName
-    if (parts.length >= 4) {
-      const pkgKey = `${parts[0]}/${parts[1]}`
-      const version = parts[2]
-      const volName = parts.slice(3).join('/')
-      if (!tree[pkgKey]) tree[pkgKey] = {}
-      if (!tree[pkgKey][version]) tree[pkgKey][version] = []
-      tree[pkgKey][version].push({ ...fs, volumeName: volName })
-    } else {
-      // Legacy 3-part: name/version/volName
-      const pkgName = parts[0] || fs.name
-      const version = parts.length > 1 ? parts[1] : ''
-      const volName = parts.length > 2 ? parts.slice(2).join('/') : ''
-      if (!tree[pkgName]) tree[pkgName] = {}
-      if (!tree[pkgName][version]) tree[pkgName][version] = []
-      tree[pkgName][version].push({ ...fs, volumeName: volName })
+
+  function addToTree(filesystems, state) {
+    for (const fs of filesystems) {
+      const parts = fs.name.split('/')
+      if (parts.length >= 4) {
+        const pkgKey = `${parts[0]}/${parts[1]}`
+        const version = parts[2]
+        const volName = parts.slice(3).join('/')
+        if (!tree[pkgKey]) tree[pkgKey] = {}
+        if (!tree[pkgKey][version]) tree[pkgKey][version] = { state, volumes: [] }
+        tree[pkgKey][version].volumes.push({ ...fs, volumeName: volName, state })
+      } else {
+        const pkgName = parts[0] || fs.name
+        const version = parts.length > 1 ? parts[1] : ''
+        const volName = parts.length > 2 ? parts.slice(2).join('/') : ''
+        if (!tree[pkgName]) tree[pkgName] = {}
+        if (!tree[pkgName][version]) tree[pkgName][version] = { state, volumes: [] }
+        tree[pkgName][version].volumes.push({ ...fs, volumeName: volName, state })
+      }
     }
   }
+
+  addToTree(installedFilesystems, 'installed')
+  addToTree(uninstalledFilesystems, 'uninstalled')
   return tree
 }
 
-function VolumeTreeSection({ title, state, filesystems, badge }) {
+/**
+ * Compute total quota across all volumes in a version group or package group.
+ */
+function sumQuota(volumes) {
+  return volumes.reduce((sum, v) => sum + (v.quota || 0), 0)
+}
+
+function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showUninstalled, onModifyVolume, onDownloadVolume, onUploadVolume }) {
   const [expanded, setExpanded] = useState({})
-  const tree = useMemo(() => buildVolumeTree(filesystems), [filesystems])
+  const tree = useMemo(
+    () => buildUnifiedVolumeTree(installedFilesystems, showUninstalled ? uninstalledFilesystems : []),
+    [installedFilesystems, uninstalledFilesystems, showUninstalled],
+  )
   const packageNames = Object.keys(tree).sort()
+
+  const totalVolumes = installedFilesystems.length + (showUninstalled ? uninstalledFilesystems.length : 0)
 
   if (packageNames.length === 0) return null
 
@@ -100,28 +125,29 @@ function VolumeTreeSection({ title, state, filesystems, badge }) {
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Package className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-lg font-semibold">{title}</h3>
-        {badge}
+        <h3 className="text-lg font-semibold">Package Volumes</h3>
         <span className="text-sm text-muted-foreground ml-auto">
-          {filesystems.length} volume{filesystems.length !== 1 ? 's' : ''}
+          {totalVolumes} volume{totalVolumes !== 1 ? 's' : ''}
         </span>
       </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead style={{ width: '50%' }}>Name</TableHead>
-              <TableHead style={{ width: '25%' }}>Quota</TableHead>
-              <TableHead className="text-right" style={{ width: '25%' }}>
-                <div className="flex items-center justify-end pr-2">State</div>
-              </TableHead>
+              <TableHead style={{ width: '40%' }}>Name</TableHead>
+              <TableHead style={{ width: '20%' }}>Quota</TableHead>
+              <TableHead style={{ width: '15%' }}>State</TableHead>
+              <TableHead className="text-right" style={{ width: '25%' }}>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {packageNames.map((pkg) => {
               const versions = Object.keys(tree[pkg]).sort()
               const isExpanded = !!expanded[pkg]
-              const totalVols = versions.reduce((sum, v) => sum + tree[pkg][v].length, 0)
+              const allVolumes = versions.flatMap((v) => tree[pkg][v].volumes)
+              const totalVols = allVolumes.length
+              const totalQ = sumQuota(allVolumes)
+              const states = [...new Set(versions.map((v) => tree[pkg][v].state))]
               return (
                 <>{/* Fragment for package group */}
                   <TableRow
@@ -140,26 +166,101 @@ function VolumeTreeSection({ title, state, filesystems, badge }) {
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell />
-                    <TableCell className="text-right">
-                      <Badge variant={state === 'installed' ? 'default' : 'secondary'}>
-                        {state}
-                      </Badge>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {totalQ > 0 ? formatQuotaText(totalQ) : ''}
                     </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        {states.map((s) => (
+                          <Badge key={s} variant={s === 'installed' ? 'default' : 'secondary'}>{s}</Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell />
                   </TableRow>
-                  {isExpanded && versions.map((version) =>
-                    tree[pkg][version].map((vol) => (
-                      <TableRow key={`${pkg}/${version}/${vol.volumeName}`}>
-                        <TableCell>
-                          <span className="font-mono text-sm pl-8 text-muted-foreground">
-                            {version}{vol.volumeName ? `/${vol.volumeName}` : ''}
-                          </span>
-                        </TableCell>
-                        <TableCell>{formatQuota(vol.quota)}</TableCell>
-                        <TableCell />
-                      </TableRow>
-                    ))
-                  )}
+                  {isExpanded && versions.map((version) => {
+                    const versionState = tree[pkg][version].state
+                    const versionVolumes = tree[pkg][version].volumes
+                    const versionQ = sumQuota(versionVolumes)
+                    return (
+                      <>{/* Version header */}
+                        {versions.length > 1 && (
+                          <TableRow key={`${pkg}/${version}`} className="bg-muted/30">
+                            <TableCell>
+                              <span className="font-mono text-sm pl-6 font-medium text-muted-foreground">
+                                v{version}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {versionQ > 0 ? formatQuotaText(versionQ) : ''}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={versionState === 'installed' ? 'default' : 'secondary'}>
+                                {versionState}
+                              </Badge>
+                            </TableCell>
+                            <TableCell />
+                          </TableRow>
+                        )}
+                        {versionVolumes.map((vol) => (
+                          <TableRow key={`${pkg}/${version}/${vol.volumeName}`}>
+                            <TableCell>
+                              <span className="font-mono text-sm pl-8 text-muted-foreground">
+                                {versions.length > 1 ? '' : `${version}/`}{vol.volumeName}
+                              </span>
+                            </TableCell>
+                            <TableCell>{formatQuota(vol.quota)}</TableCell>
+                            <TableCell>
+                              {versions.length <= 1 && (
+                                <Badge variant={vol.state === 'installed' ? 'default' : 'secondary'}>
+                                  {vol.state}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  title="Download archive"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    onDownloadVolume(vol, pkg, version)
+                                  }}
+                                >
+                                  <Download className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  title="Upload archive"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    onUploadVolume(vol, pkg, version)
+                                  }}
+                                >
+                                  <Upload className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    onModifyVolume(vol, pkg, version)
+                                  }}
+                                >
+                                  <Pencil className="h-3 w-3 mr-1" />
+                                  Modify
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </>
+                    )
+                  })}
                 </>
               )
             })}
@@ -173,8 +274,9 @@ function VolumeTreeSection({ title, state, filesystems, badge }) {
 export default function StorageManagement() {
   useEffect(() => { document.title = 'Town OS - Storage' }, [])
   const [editDialog, setEditDialog] = useState({ open: false })
-  const [uploadDialog, setUploadDialog] = useState({ open: false })
+  const [volumeModifyDialog, setVolumeModifyDialog] = useState({ open: false })
   const [downloadDialog, setDownloadDialog] = useState({ open: false })
+  const [uploadDialog, setUploadDialog] = useState({ open: false })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
@@ -257,37 +359,68 @@ export default function StorageManagement() {
     }
   }
 
-  async function handleUpload(e) {
-    e.preventDefault()
-    const form = e.target.elements
+  async function handleDelete() {
     try {
-      const file = form.archive.files[0]
-      if (!file) {
-        toast.error('Please select an archive file')
-        return
-      }
-      const result = await getClient().uploadArchive(form.subvolume.value, file)
-      toast.success(result.message || 'Archive uploaded')
-      setUploadDialog({ open: false })
+      await getClient().removeFilesystem(deleteConfirm)
+      toast.success(`Filesystem "${deleteConfirm}" removed`)
+      setDeleteConfirm(null)
       doRefresh()
     } catch (err) {
       toast.error(err.message)
+      setDeleteConfirm(null)
     }
+  }
+
+  function volumeInternalName(vol) {
+    const prefix = vol.state === 'installed' ? 'installed/' : 'uninstalled/'
+    return prefix + vol.name
+  }
+
+  function openDownloadDialog(vol) {
+    setDownloadDialog({
+      open: true,
+      displayName: vol.name,
+      internalName: volumeInternalName(vol),
+      serviceName: deriveServiceName(vol.name),
+    })
+  }
+
+  function openUploadDialog(vol) {
+    setUploadDialog({
+      open: true,
+      displayName: vol.name,
+      internalName: volumeInternalName(vol),
+      serviceName: deriveServiceName(vol.name),
+    })
+  }
+
+  function openVolumeModifyDialog(vol, pkg, version) {
+    const [qv, qu] = decomposeQuota(vol.quota)
+    const serviceName = deriveServiceName(vol.name)
+    setVolumeModifyDialog({
+      open: true,
+      displayName: vol.name,
+      internalName: volumeInternalName(vol),
+      volumeName: vol.volumeName,
+      pkg,
+      version,
+      state: vol.state,
+      quota: vol.quota,
+      quotaValue: qv,
+      quotaUnit: qu,
+      serviceName,
+    })
   }
 
   async function handleDownload(e) {
     e.preventDefault()
     const form = e.target.elements
-    const subvolume = form.subvolume.value.trim()
-    if (!subvolume) {
-      toast.error('Enter a subvolume name')
-      return
-    }
-    const paths = (form.paths?.value || '')
+    const subvolume = downloadDialog.internalName
+    const paths = (form.downloadPaths?.value || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
-    const stopService = form.stopService?.value || ''
+    const stopService = form.downloadStopService?.checked ? downloadDialog.serviceName : ''
     try {
       const resp = await getClient().downloadArchive(subvolume, paths.length > 0 ? paths : undefined, stopService)
       if (window.showSaveFilePicker) {
@@ -314,15 +447,44 @@ export default function StorageManagement() {
     }
   }
 
-  async function handleDelete() {
+  async function handleUpload(e) {
+    e.preventDefault()
+    const form = e.target.elements
+    const file = form.uploadArchive.files[0]
+    if (!file) {
+      toast.error('Please select an archive file')
+      return
+    }
+    const subvolume = uploadDialog.internalName
+    const subpath = form.uploadSubpath?.value || ''
+    const stopService = form.uploadStopService?.checked ? uploadDialog.serviceName : ''
     try {
-      await getClient().removeFilesystem(deleteConfirm)
-      toast.success(`Filesystem "${deleteConfirm}" removed`)
-      setDeleteConfirm(null)
+      const result = await getClient().uploadArchive(subvolume, file, subpath, stopService)
+      toast.success(result.message || 'Archive uploaded')
+      setUploadDialog({ open: false })
       doRefresh()
     } catch (err) {
       toast.error(err.message)
-      setDeleteConfirm(null)
+    }
+  }
+
+  async function handleVolumeModifyProps(e) {
+    e.preventDefault()
+    const form = e.target.elements
+    try {
+      const raw = form.modifyQuota?.value ? parseFloat(form.modifyQuota.value) : 0
+      const unit = form.modifyQuotaUnit?.value || 'GB'
+      const quota = raw === 0 ? 0 : Math.round(raw * (UNITS[unit] || 1))
+      const newName = form.modifyName?.value || volumeModifyDialog.displayName
+      await getClient().modifyFilesystem(volumeModifyDialog.internalName, {
+        name: newName,
+        quota,
+      })
+      toast.success('Volume modified')
+      setVolumeModifyDialog({ open: false })
+      doRefresh()
+    } catch (err) {
+      toast.error(err.message)
     }
   }
 
@@ -395,14 +557,6 @@ export default function StorageManagement() {
             />
             Show uninstalled volumes
           </label>
-          <Button variant="outline" onClick={() => setUploadDialog({ open: true })}>
-            <Upload className="h-4 w-4 mr-1" />
-            Upload Archive
-          </Button>
-          <Button variant="outline" onClick={() => setDownloadDialog({ open: true })}>
-            <Download className="h-4 w-4 mr-1" />
-            Download Archive
-          </Button>
           <Button
             onClick={() =>
               setEditDialog({ open: true, create: true, name: '', quotaValue: '', quotaUnit: 'GB' })
@@ -457,24 +611,17 @@ export default function StorageManagement() {
         />
       </div>
 
-      {/* Installed package volumes section */}
-      <VolumeTreeSection
-        title="Installed Package Volumes"
-        state="installed"
-        filesystems={installedFilesystems}
-        badge={<Badge variant="default">installed</Badge>}
+      {/* Unified package volumes section */}
+      <PackageVolumeTree
+        installedFilesystems={installedFilesystems}
+        uninstalledFilesystems={uninstalledFilesystems}
+        showUninstalled={showAll}
+        onModifyVolume={openVolumeModifyDialog}
+        onDownloadVolume={(vol) => openDownloadDialog(vol)}
+        onUploadVolume={(vol) => openUploadDialog(vol)}
       />
 
-      {/* Uninstalled package volumes section (only when showAll is checked) */}
-      {showAll && (
-        <VolumeTreeSection
-          title="Uninstalled Package Volumes"
-          state="uninstalled"
-          filesystems={uninstalledFilesystems}
-          badge={<Badge variant="secondary">uninstalled</Badge>}
-        />
-      )}
-
+      {/* Create/Modify user filesystem dialog */}
       <Dialog
         open={editDialog.open}
         onOpenChange={(v) => !v && setEditDialog({ open: false })}
@@ -554,53 +701,7 @@ export default function StorageManagement() {
         ? This cannot be undone.
       </ConfirmDialog>
 
-      <Dialog
-        open={uploadDialog.open}
-        onOpenChange={(v) => !v && setUploadDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              <Upload className="h-4 w-4 inline mr-2" />
-              Upload Archive
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleUpload}>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="subvolume">Target Subvolume</Label>
-                <Input
-                  id="subvolume"
-                  name="subvolume"
-                  placeholder="my-data"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="archive">Archive File</Label>
-                <Input
-                  id="archive"
-                  name="archive"
-                  type="file"
-                  accept=".tar,.tar.gz,.tgz,.tar.bz2,.tbz2,.tar.xz,.txz"
-                  required
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => setUploadDialog({ open: false })}
-              >
-                Cancel
-              </Button>
-              <Button type="submit">Upload</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
+      {/* Download Archive confirmation dialog */}
       <Dialog
         open={downloadDialog.open}
         onOpenChange={(v) => !v && setDownloadDialog({ open: false })}
@@ -612,46 +713,148 @@ export default function StorageManagement() {
               Download Archive
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleDownload}>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="subvolume">Subvolume</Label>
+          <div className="text-sm text-muted-foreground pb-2">
+            <span className="font-medium text-foreground">Volume:</span>{' '}
+            <code className="text-xs bg-muted px-1 rounded">{downloadDialog.displayName}</code>
+          </div>
+          <form onSubmit={handleDownload} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="downloadPaths">Paths (optional, comma-separated)</Label>
+              <Input id="downloadPaths" name="downloadPaths" placeholder="data, config" />
+              <p className="text-xs text-muted-foreground">Leave empty to archive the entire volume</p>
+            </div>
+            {downloadDialog.serviceName && (
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" name="downloadStopService" className="rounded border-input" />
+                Stop service during download
+              </label>
+            )}
+            <DialogFooter>
+              <Button variant="outline" type="button" onClick={() => setDownloadDialog({ open: false })}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                <Download className="h-3 w-3 mr-1" />
+                Download
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Archive dialog */}
+      <Dialog
+        open={uploadDialog.open}
+        onOpenChange={(v) => !v && setUploadDialog({ open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              <Upload className="h-4 w-4 inline mr-2" />
+              Upload Archive
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground pb-2">
+            <span className="font-medium text-foreground">Volume:</span>{' '}
+            <code className="text-xs bg-muted px-1 rounded">{uploadDialog.displayName}</code>
+          </div>
+          <form onSubmit={handleUpload} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="uploadArchive">Archive File</Label>
+              <Input
+                id="uploadArchive"
+                name="uploadArchive"
+                type="file"
+                accept=".tar,.tar.gz,.tgz,.tar.bz2,.tbz2,.tar.xz,.txz"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="uploadSubpath">Subpath (optional)</Label>
+              <Input id="uploadSubpath" name="uploadSubpath" placeholder="relative/path" />
+              <p className="text-xs text-muted-foreground">Unpack into a subdirectory within the volume</p>
+            </div>
+            {uploadDialog.serviceName && (
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" name="uploadStopService" className="rounded border-input" />
+                Stop service during upload
+              </label>
+            )}
+            <DialogFooter>
+              <Button variant="outline" type="button" onClick={() => setUploadDialog({ open: false })}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                <Upload className="h-3 w-3 mr-1" />
+                Upload
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Volume Modify dialog (name & quota for package volumes) */}
+      <Dialog
+        open={volumeModifyDialog.open}
+        onOpenChange={(v) => !v && setVolumeModifyDialog({ open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              <Pencil className="h-4 w-4 inline mr-2" />
+              Modify Volume
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 text-sm text-muted-foreground pb-2">
+            <div><span className="font-medium text-foreground">Volume:</span> {volumeModifyDialog.displayName}</div>
+            <div><span className="font-medium text-foreground">State:</span>{' '}
+              <Badge variant={volumeModifyDialog.state === 'installed' ? 'default' : 'secondary'}>
+                {volumeModifyDialog.state}
+              </Badge>
+            </div>
+            {volumeModifyDialog.serviceName && (
+              <div><span className="font-medium text-foreground">Service:</span> <code className="text-xs bg-muted px-1 rounded">{volumeModifyDialog.serviceName}</code></div>
+            )}
+          </div>
+          <form onSubmit={handleVolumeModifyProps} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="modifyName">Name</Label>
+              <Input
+                id="modifyName"
+                name="modifyName"
+                defaultValue={volumeModifyDialog.displayName || ''}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="modifyQuota">Quota (0 = unlimited)</Label>
+              <div className="flex gap-2">
                 <Input
-                  id="subvolume"
-                  name="subvolume"
-                  placeholder="my-data"
-                  required
+                  id="modifyQuota"
+                  name="modifyQuota"
+                  type="number"
+                  min="0"
+                  step="any"
+                  defaultValue={volumeModifyDialog.quotaValue || ''}
+                  placeholder="0"
+                  className="flex-1"
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="paths">Paths (optional, comma-separated)</Label>
-                <Input
-                  id="paths"
-                  name="paths"
-                  placeholder="data, config"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Leave empty to archive the entire subvolume
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="stopService">Stop Service (optional)</Label>
-                <Input
-                  id="stopService"
-                  name="stopService"
-                  placeholder="my-app.service"
-                />
+                <select
+                  name="modifyQuotaUnit"
+                  defaultValue={volumeModifyDialog.quotaUnit || 'GB'}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="B">B</option>
+                  <option value="MB">MB</option>
+                  <option value="GB">GB</option>
+                  <option value="TB">TB</option>
+                </select>
               </div>
             </div>
             <DialogFooter>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => setDownloadDialog({ open: false })}
-              >
+              <Button variant="outline" type="button" onClick={() => setVolumeModifyDialog({ open: false })}>
                 Cancel
               </Button>
-              <Button type="submit">Download</Button>
+              <Button type="submit">Save Changes</Button>
             </DialogFooter>
           </form>
         </DialogContent>

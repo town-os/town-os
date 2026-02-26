@@ -129,20 +129,31 @@ func TestModifyFilesystemBadJSON(t *testing.T) {
 	}
 }
 
-func TestModifyFilesystemRejectsReserved(t *testing.T) {
-	c, _ := initTestClient(t)
+func TestModifyInstalledFilesystemQuota(t *testing.T) {
+	c, controller := initTestClient(t)
 
-	for _, name := range []string{
-		"installed",
-		"installed/nginx",
-		"uninstalled",
-		"uninstalled/nginx",
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := c.ModifyFilesystem(context.TODO(), name, storage.Filesystem{Name: "renamed"})
-			if err == nil {
-				t.Fatalf("expected error when modifying reserved filesystem %q", name)
-			}
-		})
+	injectSubvol(t, controller, "installed/repo/pkg/1.0/data", 0)
+
+	if err := c.ModifyFilesystem(context.TODO(), "installed/repo/pkg/1.0/data", storage.Filesystem{
+		Name:  "installed/repo/pkg/1.0/data",
+		Quota: 4096,
+	}); err != nil {
+		t.Fatalf("ModifyFilesystem quota on installed volume: %v", err)
+	}
+
+	if controller.Quotas["installed/repo/pkg/1.0/data"] != 4096 {
+		t.Fatalf("expected quota 4096, got %d", controller.Quotas["installed/repo/pkg/1.0/data"])
+	}
+}
+
+func TestModifyInstalledFilesystemRename(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	injectSubvol(t, controller, "installed/repo/pkg/1.0/data", 0)
+
+	if err := c.ModifyFilesystem(context.TODO(), "installed/repo/pkg/1.0/data", storage.Filesystem{
+		Name: "installed/repo/pkg/1.0/renamed",
+	}); err != nil {
+		t.Fatalf("ModifyFilesystem rename on installed volume: %v", err)
 	}
 }

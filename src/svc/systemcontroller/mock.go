@@ -970,10 +970,10 @@ func (m *MockClient) DismissUpgrades(_ context.Context) error {
 
 // --- Status ---
 
-func (m *MockClient) UploadArchive(_ context.Context, subvolume string, archiveReader io.Reader, filename string) (*ArchiveUploadResponse, error) {
+func (m *MockClient) UploadArchive(_ context.Context, subvolume string, archiveReader io.Reader, filename, subpath, stopService string) (*ArchiveUploadResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "UploadArchive", Args: []any{subvolume, filename}})
+	m.Calls = append(m.Calls, MockCall{Method: "UploadArchive", Args: []any{subvolume, filename, subpath, stopService}})
 
 	if m.UploadArchiveErr != nil {
 		return nil, m.UploadArchiveErr

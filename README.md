@@ -128,10 +128,12 @@ Subvolume data can be populated from archive files or container images, and expo
 
 `POST /storage/upload-archive` (admin required) accepts a multipart form with:
 
-- `subvolume` -- target subvolume path (must not be a reserved filesystem)
-- `archive` -- archive file (supported formats: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, `.tar`, `.zip`, `.7z`)
+- `subvolume` -- target subvolume path (any subvolume, including `installed/*` and `uninstalled/*`)
+- `archive` -- archive file (supported formats: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, `.tar`)
+- `subpath` (optional) -- relative path within the subvolume where the archive should be unpacked; the directory is created if it does not exist
+- `stop_service` (optional) -- a systemd unit name to stop before unpacking and restart after
 
-The archive is unpacked into the target subvolume. A restart of the associated service is typically needed afterward. The response includes `{"needs_restart": true}`.
+The archive is unpacked into the target subvolume (or subpath within it). A restart of the associated service is typically needed afterward. The response includes `{"needs_restart": true}`.
 
 The maximum upload size is controlled by the `max_archive_size` setting (default 20 MB). Unpacking is bounded by the `archive_unpack_timeout` setting (default 120 seconds). Both can be changed via the settings API and accept human-readable byte values (e.g. `100MB`, `1GB`).
 
@@ -141,12 +143,26 @@ The maximum upload size is controlled by the `max_archive_size` setting (default
 
 ```json
 {
-  "subvolumes": ["installed/repo/pkg/1.0/data"],
+  "subvolume": "installed/repo/pkg/1.0/data",
+  "paths": ["data", "config"],
   "stop_service": "pkg.service"
 }
 ```
 
-Returns a 7z archive of the requested subvolume contents. If `stop_service` is set, the unit is stopped before archiving and restarted afterward.
+Returns a tar.gz archive of the requested subvolume contents. All subvolumes are allowed, including `installed/*` and `uninstalled/*`. If `stop_service` is set, the unit is stopped before archiving and restarted afterward. If `paths` is provided, only those paths within the subvolume are included.
+
+### Volume Modification
+
+`POST /storage/modify` (auth required) allows modifying any volume, including installed package volumes. The request body is:
+
+```json
+{
+  "name": "installed/repo/pkg/1.0/data",
+  "filesystem": { "name": "installed/repo/pkg/1.0/data", "quota": 1073741824 }
+}
+```
+
+This can be used to change the quota or rename installed/uninstalled package volumes.
 
 ### Auto-Archive from Container Images
 

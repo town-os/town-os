@@ -82,6 +82,17 @@ func classifyFilesystem(name string) (state, displayName string) {
 	return "user", name
 }
 
+// serviceNameFromVolumePath derives the systemd service unit name from a
+// volume display name like "repo/name/version/volName". Returns empty string
+// if the path does not have enough components.
+func serviceNameFromVolumePath(volumePath string) string {
+	parts := strings.SplitN(volumePath, "/", 4)
+	if len(parts) < 3 {
+		return ""
+	}
+	return systemd.UnitName(parts[0], parts[1], parts[2])
+}
+
 func packageVolumePath(repo, name, version, volName string) string {
 	return fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repo, name, version, volName)
 }
@@ -618,16 +629,8 @@ func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
 		return err
 	}
 
-	if req.Filesystem.State == "installed" || req.Filesystem.State == "uninstalled" {
-		return storage.ErrReservedFilesystem
-	}
-
 	if req.Name == "" {
 		return storage.ErrRootFilesystem
-	}
-
-	if isReservedFilesystem(req.Name) {
-		return storage.ErrReservedFilesystem
 	}
 
 	req.Filesystem.State = ""

@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 )
@@ -153,7 +152,9 @@ func (cr *countingReader) Read(p []byte) (int, error) {
 
 // streamUnpackToSubvolume streams an archive directly from the reader into
 // the target subvolume via tar's stdin, with no temp files or staging.
-func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, filename, targetSubvol string) error {
+// If subpath is non-empty, the archive is unpacked into that subdirectory
+// within the subvolume (created with MkdirAll if it does not exist).
+func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, filename, targetSubvol, subpath string) error {
 	format, err := archiveFormat(filename)
 	if err != nil {
 		return err
@@ -161,6 +162,12 @@ func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, 
 
 	basePath := s.Controller.GetBtrfsBasePath()
 	targetPath := filepath.Join(basePath, targetSubvol)
+	if subpath != "" {
+		targetPath = filepath.Join(targetPath, subpath)
+		if err := os.MkdirAll(targetPath, 0755); err != nil { //nolint:gosec // admin-only endpoint
+			return fmt.Errorf("create subpath directory: %w", err)
+		}
+	}
 
 	// Enforce size limit: LimitReader caps at maxSize+1 so we can detect overflow.
 	maxSize := s.maxArchiveSize()
@@ -229,9 +236,8 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "subvolume field is required")
 	}
 
-	if isReservedFilesystem(subvolume) {
-		return storage.ErrReservedFilesystem
-	}
+	subpath := c.FormValue("subpath")
+	stopService := c.FormValue("stop_service")
 
 	// Check Content-Length against max size.
 	if c.Request().ContentLength > 0 {
@@ -252,7 +258,21 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 	}()
 
 	ctx := c.Request().Context()
-	if err := s.streamUnpackToSubvolume(ctx, file, header.Filename, subvolume); err != nil {
+	sd := s.Controller.GetSystemdManager()
+
+	// Stop service if requested.
+	if stopService != "" && sd != nil {
+		if err := sd.SetStatus(ctx, stopService, systemd.Stop); err != nil {
+			return fmt.Errorf("stop service %s: %w", stopService, err)
+		}
+		defer func() {
+			if err := sd.SetStatus(ctx, stopService, systemd.Start); err != nil {
+				slog.Debug(fmt.Sprintf("restart service %s: %v", stopService, err))
+			}
+		}()
+	}
+
+	if err := s.streamUnpackToSubvolume(ctx, file, header.Filename, subvolume, subpath); err != nil {
 		if errors.Is(err, ErrArchiveTooLarge) {
 			return echo.NewHTTPError(http.StatusForbidden, err.Error())
 		}
@@ -276,10 +296,6 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 
 	if req.Subvolume == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "subvolume is required")
-	}
-
-	if isReservedFilesystem(req.Subvolume) {
-		return storage.ErrReservedFilesystem
 	}
 
 	ctx := c.Request().Context()
