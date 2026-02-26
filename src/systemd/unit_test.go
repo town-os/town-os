@@ -763,6 +763,14 @@ func TestIsPackageServiceUnit(t *testing.T) {
 		{"sshd.service", false},
 		{"town-os-systemcontroller.service", false},
 		{"", false},
+		// Degenerate: bare prefix with no repo/name/version still matches
+		// structurally, but listUnits filters it via the installed-package check.
+		{"town-os-package--.service", true},
+		// Additional degenerate variations that pass structural check.
+		{"town-os-package--x.service", true},
+		{"town-os-package----.service", true},
+		// Degenerate network controller unit is correctly excluded.
+		{"town-os-package---network.service", false},
 	}
 
 	for _, tt := range tests {

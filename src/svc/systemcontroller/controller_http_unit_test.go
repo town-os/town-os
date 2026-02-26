@@ -458,3 +458,171 @@ func TestHTTPListUnitsPaginationAfterFiltering(t *testing.T) {
 		t.Fatal("expected has_more=false")
 	}
 }
+
+func TestHTTPListUnitsFiltersDegenerateDoubleDashUnits(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		// Valid unit with a matching installed package.
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		// Degenerate unit: bare prefix with no repo/name/version.
+		// Passes IsPackageServiceUnit but has no installed package match.
+		{Name: "town-os-package--.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit (degenerate double-dash unit filtered), got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-nginx-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-nginx-1.0.service, got %s", units.Entries[0].Name)
+	}
+	if units.Entries[0].PackageIdentifier == "" {
+		t.Fatal("expected non-empty PackageIdentifier for valid unit")
+	}
+}
+
+func TestHTTPListUnitsFiltersAllDegenerateDoubleDashUnits(t *testing.T) {
+	c, sd, _ := initSystemdTestClient(t)
+
+	// No packages installed. Only degenerate units exist.
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--.service", ActiveState: "active"},
+		{Name: "town-os-package--x.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 0 {
+		t.Fatalf("expected 0 units when only degenerate units exist, got %d", len(units.Entries))
+	}
+}
+
+func TestHTTPListUnitsPaginationExcludesDegenerateUnits(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "a", Version: "1.0"},
+		{Repo: "repo", Name: "b", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-a-1.0.service", ActiveState: "active"},
+		// Degenerate unit interspersed between valid units.
+		{Name: "town-os-package--.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-b-1.0.service", ActiveState: "active"},
+	}
+
+	// Paginate with limit=1: total should be 2 (not 3).
+	page, err := c.ListUnits(context.TODO(), ListParams{Limit: 1, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListUnits page 0: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+	if page.TotalPages != 2 {
+		t.Fatalf("expected 2 total pages, got %d", page.TotalPages)
+	}
+}
+
+func TestHTTPListUnitsSearchExcludesDegenerateUnits(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		// Degenerate unit whose name contains "package" which could match a broad search.
+		{Name: "town-os-package--.service", ActiveState: "active"},
+	}
+
+	// Search for "package" — the degenerate unit structurally matches but should be excluded.
+	page, err := c.ListUnits(context.TODO(), ListParams{Search: "package"})
+	if err != nil {
+		t.Fatalf("ListUnits search: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry (degenerate excluded from search results), got %d", len(page.Entries))
+	}
+	if page.Entries[0].Name != "town-os-package--repo-nginx-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-nginx-1.0.service, got %s", page.Entries[0].Name)
+	}
+}
+
+func TestHTTPListUnitsDegenerateWithNCUnit(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-network.service", ActiveState: "active"},
+		// Degenerate main unit and a degenerate NC-like unit.
+		{Name: "town-os-package--.service", ActiveState: "active"},
+		{Name: "town-os-package---network.service", ActiveState: "failed"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-nginx-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-nginx-1.0.service, got %s", units.Entries[0].Name)
+	}
+	// The valid unit's NC is active (not failed), so NCFailed should be false.
+	if units.Entries[0].NCFailed {
+		t.Fatal("expected NCFailed=false for valid unit with active NC")
+	}
+}
+
+func TestHTTPListUnitsDegenerateVariations(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "valid", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-valid-1.0.service", ActiveState: "active"},
+		// Various degenerate patterns that pass IsPackageServiceUnit but have no install record.
+		{Name: "town-os-package--.service", ActiveState: "active"},
+		{Name: "town-os-package--x.service", ActiveState: "active"},
+		{Name: "town-os-package----.service", ActiveState: "active"},
+		{Name: "town-os-package--unknown-pkg-0.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit (all degenerate variations filtered), got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-valid-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-valid-1.0.service, got %s", units.Entries[0].Name)
+	}
+}
