@@ -693,7 +693,7 @@ func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
 
 	rr := s.Controller.GetRepositoryRoot()
 
-	repo, err := packages.NewRepository(rr.BaseDir, req.Name, *u, req.Username, req.Password)
+	repo, err := packages.NewRepository(rr.BaseDir, req.Name, *u, req.Username, req.Password, rr.Git)
 	if err != nil {
 		return err
 	}

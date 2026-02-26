@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/packages"
 	"go.yaml.in/yaml/v4"
 )
@@ -24,7 +25,7 @@ func repoCredentials() (string, string) {
 
 func newRepoWithCreds(baseDir, name string, u url.URL) (*packages.Repository, error) {
 	user, pass := repoCredentials()
-	return packages.NewRepository(baseDir, name, u, user, pass)
+	return packages.NewRepository(baseDir, name, u, user, pass, &git.ExecClient{Home: baseDir})
 }
 
 func setupRoot(t *testing.T, repos []packages.Repository) *packages.RepositoryRoot {

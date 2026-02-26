@@ -8,7 +8,6 @@ import (
 	"maps"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -16,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"gitea.com/town-os/town-os/src/git"
 	"github.com/sirupsen/logrus"
 	"go.yaml.in/yaml/v4"
 )
@@ -67,6 +67,7 @@ type RepositoryRoot struct {
 	Errors          map[string]string
 	LastRefreshed   time.Time
 	RefreshInterval time.Duration
+	Git             git.Client
 }
 
 func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
@@ -91,6 +92,7 @@ func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 		BaseDir:         baseDir,
 		Items:           items,
 		RefreshInterval: DefaultRefreshInterval,
+		Git:             &git.ExecClient{Home: baseDir},
 	}
 
 	rr.loadLastRefreshed()
@@ -191,7 +193,7 @@ func (rr *RepositoryRoot) ForceRefresh() {
 func (rr *RepositoryRoot) forceRefresh() {
 	rr.Errors = map[string]string{}
 	for i := range rr.Items {
-		err := rr.Items[i].init(rr.BaseDir)
+		err := rr.Items[i].init(rr.BaseDir, rr.Git)
 		if err != nil {
 			logrus.Warnf("repository %s: %v", rr.Items[i].Name, err)
 			rr.Errors[rr.Items[i].Name] = err.Error()
@@ -306,16 +308,6 @@ func SanitizeURL(raw string) string {
 	return parsed.String()
 }
 
-func runGit(dir, home string, args ...string) error {
-	cmd := exec.CommandContext(context.Background(), "git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", fmt.Sprintf("HOME=%s", home)) //nolint:perfsprint // project convention: use fmt.Sprintf
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git %s: %w\n%s", args[0], err, out)
-	}
-	return nil
-}
 
 const (
 	EnvRepoUsername = "TOWN_OS_REPO_USERNAME"
@@ -324,7 +316,7 @@ const (
 
 var ErrPartialCredentials = errors.New("both username and password must be provided together")
 
-func NewRepository(baseDir, name string, u url.URL, username, password string) (*Repository, error) {
+func NewRepository(baseDir, name string, u url.URL, username, password string, g git.Client) (*Repository, error) {
 	if (username == "") != (password == "") {
 		return nil, ErrPartialCredentials
 	}
@@ -332,17 +324,17 @@ func NewRepository(baseDir, name string, u url.URL, username, password string) (
 		name = strings.TrimSuffix(path.Base(u.Path), ".git")
 	}
 	r := &Repository{Name: name, URL: u, Username: username, Password: password}
-	return r, r.init(baseDir)
+	return r, r.init(baseDir, g)
 }
 
-func (r *Repository) init(baseDir string) error {
+func (r *Repository) init(baseDir string, g git.Client) error {
 	target := filepath.Join(baseDir, r.Name)
+	ctx := context.Background()
 
 	s, err := os.Stat(target)
 	switch {
 	case os.IsNotExist(err):
-		err := runGit(baseDir, baseDir, "clone", r.credentialURL(), r.Name)
-		if err != nil {
+		if err := g.Clone(ctx, baseDir, r.credentialURL(), r.Name); err != nil {
 			return err
 		}
 	case err != nil:
@@ -350,23 +342,23 @@ func (r *Repository) init(baseDir string) error {
 	case !s.IsDir():
 		return fmt.Errorf("sub-path %s is not a directory", target)
 	default:
-		needsStash := runGit(target, baseDir, "diff", "--quiet", "HEAD") != nil
-
-		if needsStash {
-			err := runGit(target, baseDir, "stash")
-			if err != nil {
-				return err
-			}
-		}
-
-		err := runGit(target, baseDir, "pull", "--rebase")
+		needsStash, err := g.Diff(ctx, target)
 		if err != nil {
 			return err
 		}
 
 		if needsStash {
-			err := runGit(target, baseDir, "stash", "apply")
-			if err != nil {
+			if err := g.Stash(ctx, target); err != nil {
+				return err
+			}
+		}
+
+		if err := g.Pull(ctx, target); err != nil {
+			return err
+		}
+
+		if needsStash {
+			if err := g.StashApply(ctx, target); err != nil {
 				return err
 			}
 		}

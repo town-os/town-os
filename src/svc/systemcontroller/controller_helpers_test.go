@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -73,7 +74,8 @@ func injectSubvol(t *testing.T, ctrl *storage.MockBtrFSController, name string, 
 
 func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
 	t.Helper()
-	return &packages.RepositoryRoot{BaseDir: t.TempDir()}
+	dir := t.TempDir()
+	return &packages.RepositoryRoot{BaseDir: dir, Git: &git.ExecClient{Home: dir}}
 }
 
 func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content string) {
