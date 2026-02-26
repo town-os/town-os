@@ -356,7 +356,7 @@ func gitCloneIntoPath(ctx context.Context, gitURL, targetPath string) error {
 	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(cloneCtx, "git", "clone", gitURL, targetPath) //nolint:gosec // git clone with user-provided URL validated upstream
+	cmd := exec.CommandContext(cloneCtx, "git", "clone", gitURL, targetPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git clone %s: %w: %s", gitURL, err, string(output))
 	}

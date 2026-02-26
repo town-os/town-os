@@ -4849,7 +4849,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	for _, args := range [][]string{
 		{"init", "--bare", seedRepo},
 	} {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -4860,7 +4860,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	for _, args := range [][]string{
 		{"clone", seedRepo, workDir},
 	} {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -4873,7 +4873,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		{"-C", workDir, "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "seed"},
 		{"-C", workDir, "push", "origin", "HEAD:main"},
 	} {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -4896,7 +4896,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	}
 
 	// Create a local file-based repo with a package that has a git seed volume.
-	seedURL := fmt.Sprintf("file://%s", seedRepo)
+	seedURL := fmt.Sprintf("file://%s", seedRepo) //nolint:perfsprint // project convention
 	localRepoDir := filepath.Join(dir, "local")
 	pkgDir := filepath.Join(localRepoDir, packages.PackagesDir, "myapp")
 	if err := os.MkdirAll(pkgDir, 0750); err != nil {
@@ -4923,7 +4923,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 
 	// Verify git cloned files exist in the volume.
 	helloPath := filepath.Join(volDir, "hello.txt")
-	content, err := os.ReadFile(helloPath)
+	content, err := os.ReadFile(helloPath) //nolint:gosec // test reads from controlled temp dir
 	if err != nil {
 		t.Fatalf("expected hello.txt in git seed volume: %v", err)
 	}
