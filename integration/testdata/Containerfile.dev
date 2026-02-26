@@ -1,3 +1,4 @@
+ARG TOWN_OS_IMAGE=town-os
 FROM debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y \
     btrfs-progs libsystemd0 podman runc socat \
@@ -5,6 +6,8 @@ RUN apt-get update && apt-get install -y \
     pigz lbzip2 p7zip-full xz-utils unzip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
+
+FROM ${TOWN_OS_IMAGE} AS town-os
 
 FROM runtime-deps
 COPY --from=town-os /systemcontroller /systemcontroller

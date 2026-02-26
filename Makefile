@@ -2,18 +2,25 @@
 export TOWN_OS_REPO_USERNAME
 export TOWN_OS_REPO_PASSWORD
 
-PODMAN_IMAGE := town-os
-PODMAN_TEST_IMAGE := town-os-test
-PODMAN_DEV_IMAGE := town-os-dev
-PODMAN_CONTAINER := town-os-test
+# Unique instance ID from working directory path.
+INSTANCE_ID := $(shell echo -n "$(CURDIR)" | md5sum | cut -c1-8)
+
+# Image names (unique per working directory).
+PODMAN_IMAGE      := town-os-$(INSTANCE_ID)
+PODMAN_TEST_IMAGE := town-os-test-$(INSTANCE_ID)
+PODMAN_DEV_IMAGE  := town-os-dev-$(INSTANCE_ID)
+PODMAN_UI_IMAGE   := town-os-ui-integration-$(INSTANCE_ID)
+
+# Container names (unique per working directory).
+PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
+PODMAN_UI_CONTAINER  := town-os-ui-integration-$(INSTANCE_ID)
+PODMAN_UI_BACKEND    := town-os-ui-backend-$(INSTANCE_ID)
+PODMAN_DEV_CONTAINER := town-os-dev
+PREFLIGHT_CONTAINER  := preflight-test-$(INSTANCE_ID)
 
 test: lint
 	go test -v -timeout 60m ./src/...
 	cd ui && bun install && bun run test
-
-PODMAN_UI_IMAGE := town-os-ui-integration
-PODMAN_UI_CONTAINER := town-os-ui-integration
-PODMAN_UI_BACKEND := town-os-ui-backend
 
 .cache/.images-pulled:
 	sudo -E podman pull golang:1.25-bookworm
@@ -40,13 +47,19 @@ production-image: .cache/.images-pulled
 		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
 		-t $(PODMAN_IMAGE) -f Containerfile .
 
-test-ui-integration: test-image ui-integration-image btrfs
+# Allocate a random available port and write it to .integration-port.
+# Uses Python to bind port 0 (kernel picks a free port), then records it.
+.integration-port:
+	@python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' > $@
+	@echo "Integration port: $$(cat $@)"
+
+test-ui-integration: test-image ui-integration-image btrfs .integration-port
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 -e TOWN_OS_TEST=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
-		-e TOWN_OS_LISTEN=:5310 \
+		-e TOWN_OS_LISTEN=:$$(cat .integration-port) \
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
@@ -58,23 +71,24 @@ test-ui-integration: test-image ui-integration-image btrfs
 	done
 	@echo "Waiting for systemcontroller API to be ready..."
 	@for i in $$(seq 1 30); do \
-		curl -sf http://localhost:5310/ >/dev/null 2>&1 && break; \
+		curl -sf http://localhost:$$(cat .integration-port)/ >/dev/null 2>&1 && break; \
 		sleep 1; \
 	done
 	sudo -E podman run \
 		--net host \
-		-e INTEGRATION_URL=http://localhost:5310 \
-		-e VITE_API_URL=http://localhost:5310 \
+		-e INTEGRATION_URL=http://localhost:$$(cat .integration-port) \
+		-e VITE_API_URL=http://localhost:$$(cat .integration-port) \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
 		bun run test:integration -- --reporter=verbose
 
-test-integration: lint test-image btrfs
+test-integration: lint test-image btrfs .integration-port
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} -e TOWN_OS_TEST=1 \
 		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
 		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-e TOWN_OS_LISTEN=:$$(cat .integration-port) \
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
@@ -91,15 +105,16 @@ test-full: test test-integration test-ui-integration
 test-image: production-image
 	mkdir -p .cache/go-mod .cache/go-build
 	sudo -E podman build --pull=never \
+		--build-arg TOWN_OS_IMAGE=$(PODMAN_IMAGE) \
 		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
 		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
 		-t $(PODMAN_TEST_IMAGE) -f integration/testdata/Containerfile.systemd .
 
 dev-image: production-image
 	sudo -E podman build --pull=never \
+		--build-arg TOWN_OS_IMAGE=$(PODMAN_IMAGE) \
 		-t $(PODMAN_DEV_IMAGE) -f integration/testdata/Containerfile.dev .
 
-PODMAN_DEV_CONTAINER := town-os-dev
 DEV_BTRFS_IMAGE ?= $(shell mktemp btrfs-dev.XXXXXX)
 
 dev-logs:
@@ -146,7 +161,7 @@ dev: dev-image dev-btrfs
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
-preflight-dev:
+preflight-dev: .integration-port
 	@echo "Checking podman..."
 	@command -v podman >/dev/null 2>&1 || { echo "ERROR: podman not found"; exit 1; }
 	@echo "Checking btrfs-progs..."
@@ -155,12 +170,12 @@ preflight-dev:
 	@test -n "$(TOWN_OS_REPO_USERNAME)" || { echo "ERROR: TOWN_OS_REPO_USERNAME not set"; exit 1; }
 	@test -n "$(TOWN_OS_REPO_PASSWORD)" || { echo "ERROR: TOWN_OS_REPO_PASSWORD not set"; exit 1; }
 	@echo "Checking bridge networking..."
-	@sudo podman run --rm -d --name preflight-test -p 18273:80 docker.io/library/nginx:alpine >/dev/null 2>&1 && \
+	@sudo podman run --rm -d --name $(PREFLIGHT_CONTAINER) -p $$(cat .integration-port):80 docker.io/library/nginx:alpine >/dev/null 2>&1 && \
 		sleep 2 && \
-		curl -sf http://127.0.0.1:18273/ >/dev/null 2>&1 && \
+		curl -sf http://127.0.0.1:$$(cat .integration-port)/ >/dev/null 2>&1 && \
 		echo "Bridge networking: OK" && \
-		sudo podman rm -f preflight-test >/dev/null 2>&1 || \
-		{ sudo podman rm -f preflight-test >/dev/null 2>&1; echo "ERROR: bridge networking (-p) not working"; exit 1; }
+		sudo podman rm -f $(PREFLIGHT_CONTAINER) >/dev/null 2>&1 || \
+		{ sudo podman rm -f $(PREFLIGHT_CONTAINER) >/dev/null 2>&1; echo "ERROR: bridge networking (-p) not working"; exit 1; }
 	@echo "All preflight checks passed."
 
 dev-clean: dev-stop clean-integration clean-btrfs clean-btrfs-dev
@@ -209,6 +224,7 @@ clean-integration:
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
+	@rm -f .integration-port
 
 clean: clean-podman
 	rm -rf dev-data
