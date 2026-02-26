@@ -363,3 +363,98 @@ func TestHTTPListUnitsAllUninstalledReturnsEmpty(t *testing.T) {
 		t.Fatalf("expected 0 units when nothing is installed, got %d", len(units.Entries))
 	}
 }
+
+func TestHTTPListUnitsNCFailedExcludedForUninstalledUnit(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	// Only foo is installed; bar is not.
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "foo", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-foo-1.0.service", ActiveState: "active"},
+		// Uninstalled unit with a failed NC should not appear at all.
+		{Name: "town-os-package--repo-bar-2.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-bar-2.0-network.service", ActiveState: "failed"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-foo-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-foo-1.0.service, got %s", units.Entries[0].Name)
+	}
+	if units.Entries[0].NCFailed {
+		t.Fatal("expected NCFailed=false for installed unit without failed NC")
+	}
+}
+
+func TestHTTPListUnitsListInstalledErrorReturnsEmpty(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.ListErr = errors.New("disk error")
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-foo-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-bar-2.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 0 {
+		t.Fatalf("expected 0 units when ListInstalled fails, got %d", len(units.Entries))
+	}
+}
+
+func TestHTTPListUnitsPaginationAfterFiltering(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	// Only 2 of 4 units are installed.
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "a", Version: "1.0"},
+		{Repo: "repo", Name: "c", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-a-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-b-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-c-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-d-1.0.service", ActiveState: "active"},
+	}
+
+	// Request page with limit=1: should see 2 total entries (after filtering).
+	page, err := c.ListUnits(context.TODO(), ListParams{Limit: 1, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListUnits page 0: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more=true")
+	}
+	if page.TotalPages != 2 {
+		t.Fatalf("expected 2 total pages, got %d", page.TotalPages)
+	}
+
+	// Second page.
+	page, err = c.ListUnits(context.TODO(), ListParams{Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("ListUnits page 1: %v", err)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(page.Entries))
+	}
+	if page.HasMore {
+		t.Fatal("expected has_more=false")
+	}
+}
