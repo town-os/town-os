@@ -147,6 +147,7 @@ func (b *archiveTestBackend) GetBtrfsBasePath() string                          
 func (b *archiveTestBackend) GetNetworkControllerBinPath() string                 { return "" }
 func (b *archiveTestBackend) GetNetworkStatePath() string                         { return "" }
 func (b *archiveTestBackend) GetNetworkMode() string                              { return "" }
+func (b *archiveTestBackend) GetGitCloner() packages.GitCloner                    { return nil }
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
 

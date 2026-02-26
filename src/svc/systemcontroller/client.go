@@ -183,6 +183,9 @@ type Client interface {
 	// Calls POST /storage/download-archive on the Control Plane Service.
 	DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService, format, filename string) (io.ReadCloser, error)
 
+	// RebuildGitSources pulls and updates git sources for an installed package.
+	RebuildGitSources(ctx context.Context, repo, name, version string) error
+
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)
 }

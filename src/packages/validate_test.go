@@ -854,6 +854,101 @@ func TestValidateImageURLAcceptsTemplateChars(t *testing.T) {
 	}
 }
 
+func TestValidateGitSource(t *testing.T) {
+	volumes := map[string]InputPackageVolume{
+		"site": {Mountpoint: "/var/www/html"},
+	}
+
+	t.Run("valid git source", func(t *testing.T) {
+		gs := InputPackageGitSource{URL: "https://example.com/repo.git", Branch: "main", Volume: "site"}
+		if err := ValidateGitSource(gs, volumes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing URL", func(t *testing.T) {
+		gs := InputPackageGitSource{URL: "", Branch: "main", Volume: "site"}
+		err := ValidateGitSource(gs, volumes)
+		if err == nil {
+			t.Fatal("expected error for missing URL")
+		}
+		if !errors.Is(err, ErrInvalidGitSource) {
+			t.Fatalf("expected ErrInvalidGitSource, got %v", err)
+		}
+	})
+
+	t.Run("missing volume", func(t *testing.T) {
+		gs := InputPackageGitSource{URL: "https://example.com/repo.git", Branch: "main", Volume: ""}
+		err := ValidateGitSource(gs, volumes)
+		if err == nil {
+			t.Fatal("expected error for missing volume")
+		}
+		if !errors.Is(err, ErrInvalidGitSource) {
+			t.Fatalf("expected ErrInvalidGitSource, got %v", err)
+		}
+	})
+
+	t.Run("volume not found", func(t *testing.T) {
+		gs := InputPackageGitSource{URL: "https://example.com/repo.git", Branch: "main", Volume: "nonexistent"}
+		err := ValidateGitSource(gs, volumes)
+		if err == nil {
+			t.Fatal("expected error for volume not found")
+		}
+		if !errors.Is(err, ErrInvalidGitSource) {
+			t.Fatalf("expected ErrInvalidGitSource, got %v", err)
+		}
+	})
+
+	t.Run("volume with template chars skips lookup", func(t *testing.T) {
+		gs := InputPackageGitSource{URL: "https://example.com/repo.git", Branch: "main", Volume: "@volname@"}
+		if err := ValidateGitSource(gs, volumes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestCompileWithGitSources(t *testing.T) {
+	t.Run("template substitution in URL and branch", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"site": {Mountpoint: "/var/www/html"}},
+			Questions:   map[string]Question{"repo": {Query: "Repo URL?"}, "branch": {Query: "Branch?"}},
+			GitSources:  []InputPackageGitSource{{URL: "@repo@", Branch: "@branch@", Volume: "site"}},
+		}
+		_, err := input.Compile(Responses{"repo": "https://github.com/user/site.git", "branch": "production"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// After Compile, iterateFields has mutated the GitSources in place.
+		if input.GitSources[0].URL != "https://github.com/user/site.git" {
+			t.Fatalf("expected URL to be substituted, got %q", input.GitSources[0].URL)
+		}
+		if input.GitSources[0].Branch != "production" {
+			t.Fatalf("expected branch to be substituted, got %q", input.GitSources[0].Branch)
+		}
+	})
+
+	t.Run("validates volume reference", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "nginx",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			GitSources:  []InputPackageGitSource{{URL: "https://example.com/repo.git", Branch: "main", Volume: "missing"}},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for git_source referencing missing volume")
+		}
+		if !errors.Is(err, ErrInvalidGitSource) {
+			t.Fatalf("expected ErrInvalidGitSource, got %v", err)
+		}
+	})
+}
+
 func TestYAMLVolumeQuotaParsing(t *testing.T) {
 	t.Run("string quota", func(t *testing.T) {
 		input := `

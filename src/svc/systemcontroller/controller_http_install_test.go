@@ -2503,3 +2503,197 @@ func TestHTTPInstallPreviewNotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent package preview")
 	}
 }
+
+// --- Git Sources ---
+
+func TestHTTPInstallPackageWithGitSources(t *testing.T) {
+	c, _, gitCloner := initInstallWithGitTestClient(t)
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	gitCalls := gitCloner.GetCalls()
+	if len(gitCalls) != 1 {
+		t.Fatalf("expected 1 git call, got %d", len(gitCalls))
+	}
+	if gitCalls[0].Method != "Clone" {
+		t.Fatalf("expected Clone, got %q", gitCalls[0].Method)
+	}
+	// targetDir should contain the volume path.
+	targetDir, ok := gitCalls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed for targetDir")
+	}
+	if !strings.Contains(targetDir, "installed/repo-a/nginx/1.0/site") {
+		t.Fatalf("expected target dir to contain volume path, got %q", targetDir)
+	}
+	repoURL, ok := gitCalls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("type assertion failed for repoURL")
+	}
+	if repoURL != "https://example.com/repo.git" {
+		t.Fatalf("expected repo URL %q, got %q", "https://example.com/repo.git", repoURL)
+	}
+	branch, ok := gitCalls[0].Args[2].(string)
+	if !ok {
+		t.Fatal("type assertion failed for branch")
+	}
+	if branch != "main" {
+		t.Fatalf("expected branch %q, got %q", "main", branch)
+	}
+}
+
+func TestHTTPInstallPackageWithGitSourcesTemplateSub(t *testing.T) {
+	c, _, gitCloner := initInstallWithGitTemplateTestClient(t)
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"repourl": "https://github.com/user/site.git"}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	gitCalls := gitCloner.GetCalls()
+	if len(gitCalls) != 1 {
+		t.Fatalf("expected 1 git call, got %d", len(gitCalls))
+	}
+	repoURL, ok := gitCalls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("type assertion failed for repoURL")
+	}
+	if repoURL != "https://github.com/user/site.git" {
+		t.Fatalf("expected template-substituted URL %q, got %q", "https://github.com/user/site.git", repoURL)
+	}
+}
+
+func TestHTTPInstallPackageWithGitSourcesCloneError(t *testing.T) {
+	c, _, gitCloner := initInstallWithGitTestClient(t)
+
+	// Inject a clone error -- install should still succeed (errors are logged, not fatal).
+	gitCloner.CloneErr = errors.New("network unreachable")
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage should succeed despite clone error: %v", err)
+	}
+
+	gitCalls := gitCloner.GetCalls()
+	if len(gitCalls) != 1 {
+		t.Fatalf("expected 1 git call even on error, got %d", len(gitCalls))
+	}
+}
+
+func TestHTTPRebuildGitSources(t *testing.T) {
+	c, inst, gitCloner, sd := initInstallWithGitAndSystemdTestClient(t)
+
+	// Install first.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Reset git calls so we only see rebuild calls.
+	gitCloner.Calls = nil
+
+	// Rebuild.
+	if err := c.RebuildGitSources(context.TODO(), "repo-a", "nginx", "1.0"); err != nil {
+		t.Fatalf("RebuildGitSources: %v", err)
+	}
+
+	gitCalls := gitCloner.GetCalls()
+	if len(gitCalls) != 1 {
+		t.Fatalf("expected 1 git Update call, got %d", len(gitCalls))
+	}
+	if gitCalls[0].Method != "Update" {
+		t.Fatalf("expected Update, got %q", gitCalls[0].Method)
+	}
+
+	// Verify systemd Restart was called.
+	sdCalls := sd.GetCalls()
+	foundRestart := false
+	for _, call := range sdCalls {
+		if call.Method == "SetStatus" {
+			action, ok := call.Args[1].(systemd.StatusAction)
+			if ok && action == systemd.Restart {
+				foundRestart = true
+				break
+			}
+		}
+	}
+	if !foundRestart {
+		t.Fatal("expected systemd Restart call after rebuild")
+	}
+
+	// Check that the installer recorded GetResponses call for the package.
+	instCalls := inst.GetCalls()
+	foundGetResponses := false
+	for _, call := range instCalls {
+		if call.Method == "GetResponses" {
+			foundGetResponses = true
+			break
+		}
+	}
+	if !foundGetResponses {
+		t.Fatal("expected GetResponses call to verify package is installed")
+	}
+}
+
+func TestHTTPRebuildGitSourcesNoGitSources(t *testing.T) {
+	// Use a package without git_sources.
+	c, inst := initInstallTestClient(t)
+
+	responses := packages.Responses{"hostname": "example", "port": "8080"}
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Rebuild should return 200 with no work since there are no git_sources.
+	if err := c.RebuildGitSources(context.TODO(), "repo-a", "nginx", "1.0"); err != nil {
+		t.Fatalf("RebuildGitSources: %v", err)
+	}
+
+	// Verify no extra error; just GetResponses was called.
+	instCalls := inst.GetCalls()
+	foundGetResponses := false
+	for _, call := range instCalls {
+		if call.Method == "GetResponses" {
+			foundGetResponses = true
+			break
+		}
+	}
+	if !foundGetResponses {
+		t.Fatal("expected GetResponses call during rebuild")
+	}
+}
+
+func TestHTTPRebuildGitSourcesNotInstalled(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	// Package not installed -- should fail.
+	err := c.RebuildGitSources(context.TODO(), "repo-a", "nginx", "1.0")
+	if err == nil {
+		t.Fatal("expected error rebuilding git sources for uninstalled package")
+	}
+}
+
+func TestHTTPRebuildGitSourcesBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
+	t.Cleanup(ts.Close)
+
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages/rebuild-git"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}

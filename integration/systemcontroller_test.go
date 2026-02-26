@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -5317,6 +5318,155 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	}
 	if string(content) != "hello from seed" {
 		t.Fatalf("expected 'hello from seed', got %q", string(content))
+	}
+}
+
+func TestGitSourceInstallAndRebuild(t *testing.T) {
+	// Create a local bare git repo to serve as the git source.
+	bareDir := filepath.Join(t.TempDir(), "bare.git")
+	if out, err := exec.CommandContext(context.TODO(), "git", "init", "--bare", "--initial-branch=main", bareDir).CombinedOutput(); err != nil { //nolint:gosec // test helper
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+
+	// Clone the bare repo, add a file, and push.
+	workDir := filepath.Join(t.TempDir(), "work")
+	if out, err := exec.CommandContext(context.TODO(), "git", "clone", bareDir, workDir).CombinedOutput(); err != nil { //nolint:gosec // test helper
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	testContent := "hello from git source"
+	if err := os.WriteFile(filepath.Join(workDir, "index.html"), []byte(testContent), 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile index.html: %v", err)
+	}
+
+	for _, args := range [][]string{
+		{"git", "-C", workDir, "config", "user.email", "test@test.com"},
+		{"git", "-C", workDir, "config", "user.name", "Test"},
+		{"git", "-C", workDir, "add", "."},
+		{"git", "-C", workDir, "commit", "-m", "initial"},
+		{"git", "-C", workDir, "push", "origin", "main"},
+	} {
+		if out, err := exec.CommandContext(context.TODO(), args[0], args[1:]...).CombinedOutput(); err != nil { //nolint:gosec // test helper
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Set up the system controller with BtrfsBasePath and a package referencing the local git repo.
+	dir := t.TempDir()
+	data, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile repositories: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+
+	pkgYAML := fmt.Sprintf(`image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  site:
+    mountpoint: /var/www/html
+questions: {}
+git_sources:
+  - url: %s
+    branch: main
+    volume: site
+`, bareDir)
+
+	repoName := "test-repo"
+	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, "mysite")
+	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte(pkgYAML), 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile package yaml: %v", err)
+	}
+
+	repoURL, err := url.Parse("https://example.com/test-repo.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	if err := rr.Add(packages.Repository{Name: repoName, URL: *repoURL}); err != nil {
+		t.Fatalf("Add repo: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	btr := storage.InitBtrFS("/data/btrfs")
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:        btr,
+		RepositoryRoot: rr,
+		Installer:      inst,
+		BtrfsBasePath:  "/data/btrfs",
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+
+	// Create the volume subvolume before install.
+	volPath := fmt.Sprintf("installed/%s/mysite/1.0/site", repoName)
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: volPath}); err != nil {
+		t.Fatalf("CreateFilesystem %s: %v", volPath, err)
+	}
+	t.Cleanup(func() {
+		_ = c.RemoveFilesystem(context.TODO(), volPath)
+		_ = c.RemoveFilesystem(context.TODO(), fmt.Sprintf("installed/%s/mysite/1.0", repoName))
+		_ = c.RemoveFilesystem(context.TODO(), fmt.Sprintf("installed/%s/mysite", repoName))
+		_ = c.RemoveFilesystem(context.TODO(), "installed/"+repoName)
+	})
+
+	// Install the package.
+	if err := c.InstallPackage(context.TODO(), "mysite", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Verify the cloned file exists in the volume.
+	clonedFile := filepath.Join("/data/btrfs", volPath, "index.html")
+	content, err := os.ReadFile(clonedFile) //nolint:gosec // test file
+	if err != nil {
+		t.Fatalf("ReadFile after clone: %v", err)
+	}
+	if string(content) != testContent {
+		t.Fatalf("expected %q, got %q", testContent, string(content))
+	}
+
+	// Push a new commit to the bare repo.
+	updatedContent := "updated content"
+	if err := os.WriteFile(filepath.Join(workDir, "index.html"), []byte(updatedContent), 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile updated: %v", err)
+	}
+	for _, args := range [][]string{
+		{"git", "-C", workDir, "add", "."},
+		{"git", "-C", workDir, "commit", "-m", "update"},
+		{"git", "-C", workDir, "push", "origin", "main"},
+	} {
+		if out, err := exec.CommandContext(context.TODO(), args[0], args[1:]...).CombinedOutput(); err != nil { //nolint:gosec // test helper
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Call rebuild-git.
+	if err := c.RebuildGitSources(context.TODO(), repoName, "mysite", "1.0"); err != nil {
+		t.Fatalf("RebuildGitSources: %v", err)
+	}
+
+	// Verify the updated file content.
+	content, err = os.ReadFile(clonedFile) //nolint:gosec // test file
+	if err != nil {
+		t.Fatalf("ReadFile after rebuild: %v", err)
+	}
+	if string(content) != updatedContent {
+		t.Fatalf("expected %q after rebuild, got %q", updatedContent, string(content))
 	}
 }
 

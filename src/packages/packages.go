@@ -21,6 +21,7 @@ var (
 	ErrInvalidResponseType = errors.New("response does not match the expected type")
 	ErrMissingResponse     = errors.New("question has no response")
 	ErrEmptyResponse       = errors.New("empty response")
+	ErrInvalidGitSource    = errors.New("invalid git source")
 )
 
 type NoteType string
@@ -139,6 +140,12 @@ type InputPackageArchive struct {
 	Volume    string `yaml:"volume"`
 }
 
+type InputPackageGitSource struct {
+	URL    string `yaml:"url"`
+	Branch string `yaml:"branch"`
+	Volume string `yaml:"volume"`
+}
+
 type PackageNetwork struct {
 	External PortMap
 	Internal PortMap
@@ -175,6 +182,7 @@ type InputPackage struct {
 	Description string                        `yaml:"description" json:"description,omitempty"`
 	Supplies    []string                      `yaml:"supplies" json:"supplies,omitempty"`
 	Archives    []InputPackageArchive         `yaml:"archives,omitempty"`
+	GitSources  []InputPackageGitSource       `yaml:"git_sources,omitempty"`
 }
 
 // CompileNotes applies template substitution to the Notes map using the
@@ -262,6 +270,11 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		pv.Archive = applyTemplate(pv.Archive, iv, response)
 		pv.Git = applyTemplate(pv.Git, iv, response)
 		i.Volumes[name] = pv
+	}
+
+	for idx := range i.GitSources {
+		i.GitSources[idx].URL = applyTemplate(i.GitSources[idx].URL, iv, response)
+		i.GitSources[idx].Branch = applyTemplate(i.GitSources[idx].Branch, iv, response)
 	}
 }
 
@@ -369,6 +382,12 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	for idx, archive := range i.Archives {
 		if err := ValidateArchiveSpec(archive, i.Volumes); err != nil {
 			return nil, fmt.Errorf("archives[%d]: %w", idx, err)
+		}
+	}
+
+	for idx, gs := range i.GitSources {
+		if err := ValidateGitSource(gs, i.Volumes); err != nil {
+			return nil, fmt.Errorf("git_sources[%d]: %w", idx, err)
 		}
 	}
 

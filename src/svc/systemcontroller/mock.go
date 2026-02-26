@@ -75,6 +75,7 @@ type MockClient struct {
 	UploadArchiveResult  *ArchiveUploadResponse
 	DownloadArchiveErr   error
 	DownloadArchiveData  []byte
+	RebuildGitErr        error
 }
 
 // MockCall records a single method invocation on [MockClient], including

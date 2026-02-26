@@ -127,6 +127,24 @@ func ValidateVolumeName(name string) error {
 	return nil
 }
 
+// ValidateGitSource validates an InputPackageGitSource entry: the URL and
+// Volume must be non-empty, and the Volume must reference an existing volume
+// in the package definition (unless the volume name contains template chars).
+func ValidateGitSource(gs InputPackageGitSource, volumes map[string]InputPackageVolume) error {
+	if gs.URL == "" {
+		return fmt.Errorf("%w: url must not be empty", ErrInvalidGitSource)
+	}
+	if gs.Volume == "" {
+		return fmt.Errorf("%w: volume must not be empty", ErrInvalidGitSource)
+	}
+	if !strings.ContainsRune(gs.Volume, TemplateChar) {
+		if _, ok := volumes[gs.Volume]; !ok {
+			return fmt.Errorf("%w: volume %q not found in package volumes", ErrInvalidGitSource, gs.Volume)
+		}
+	}
+	return nil
+}
+
 // ValidateArchiveSpec validates an InputPackageArchive entry: the image must
 // be non-empty, the directory must be an absolute path, and the volume must
 // reference an existing volume in the package definition.

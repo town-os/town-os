@@ -42,6 +42,7 @@ type systemControllerBackend interface {
 	GetNetworkMode() string
 	GetExternalIP() string
 	GetInternalIP() string
+	GetGitCloner() packages.GitCloner
 }
 
 type SystemController interface {
@@ -152,6 +153,7 @@ type ServerConfig struct {
 	NetworkControllerBinPath string
 	NetworkStatePath         string
 	NetworkMode              string
+	GitCloner                packages.GitCloner
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {
@@ -193,6 +195,7 @@ func (s *serverBase) GetBtrfsBasePath() string            { return s.BtrfsBasePa
 func (s *serverBase) GetNetworkControllerBinPath() string { return s.NetworkControllerBinPath }
 func (s *serverBase) GetNetworkStatePath() string         { return s.NetworkStatePath }
 func (s *serverBase) GetNetworkMode() string              { return s.NetworkMode }
+func (s *serverBase) GetGitCloner() packages.GitCloner    { return s.GitCloner }
 func (s *serverBase) GetExternalIP() string {
 	v := s.externalIP.Load()
 	if v == nil {

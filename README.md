@@ -297,6 +297,46 @@ When the response is empty or omitted, a 64-character hex string is generated us
 | `max_archive_size`       | `20971520` | Maximum upload size in bytes (20 MB) |
 | `archive_unpack_timeout` | `120`      | Unpack timeout in seconds            |
 
+## Git Sources
+
+Package definitions can include a `git_sources` section to clone a git repository into a volume at install time. This is useful for static sites or any content managed in a git repository.
+
+### Package YAML Format
+
+```yaml
+volumes:
+  site:
+    mountpoint: /var/www/html
+git_sources:
+  - url: https://github.com/user/my-site.git
+    branch: main
+    volume: site
+```
+
+Each entry requires:
+
+- `url` -- Git repository URL (HTTPS). Template variables (e.g. `@repourl@`) are supported.
+- `branch` -- Branch to clone/track. Template variables are supported. If empty, the repository default branch is used.
+- `volume` -- Name of a volume defined in the package's `volumes` section.
+
+During install, the repository is shallow-cloned (`--depth 1`) into the target volume directory. Clone errors are logged but do not fail the install.
+
+### Rebuild API
+
+`POST /packages/rebuild-git` (admin required) pulls the latest changes for all git sources in an installed package:
+
+```json
+{
+  "repo": "my-repo",
+  "name": "my-site",
+  "version": "1.0"
+}
+```
+
+For each git source, the endpoint runs `git fetch` + `git reset --hard` to update the volume contents, then restarts the package's systemd service. This can be called from a webhook to auto-deploy on push.
+
+If the package has no git sources, the endpoint returns 200 with no work performed.
+
 ### License
 
 GNU Affero GPL 3.0

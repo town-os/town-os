@@ -390,6 +390,129 @@ func initMultiRepoTestClient(t *testing.T) (*SystemdClient, *packages.MockInstal
 	return c, inst
 }
 
+func initInstallWithGitTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, *packages.MockGitCloner) { //nolint:unparam // consistent with other init helpers
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  site:
+    mountpoint: /var/www/html
+questions: {}
+git_sources:
+  - url: https://example.com/repo.git
+    branch: main
+    volume: site
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+
+	inst := packages.InitMockInstallManager()
+	gitCloner := &packages.MockGitCloner{}
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, GitCloner: gitCloner})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst, gitCloner
+}
+
+func initInstallWithGitAndSystemdTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, *packages.MockGitCloner, *systemd.MockManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  site:
+    mountpoint: /var/www/html
+questions: {}
+git_sources:
+  - url: https://example.com/repo.git
+    branch: main
+    volume: site
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+
+	inst := packages.InitMockInstallManager()
+	gitCloner := &packages.MockGitCloner{}
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, GitCloner: gitCloner, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst, gitCloner, sd
+}
+
+func initInstallWithGitTemplateTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, *packages.MockGitCloner) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  site:
+    mountpoint: /var/www/html
+questions:
+  repourl:
+    query: "Git repository URL?"
+git_sources:
+  - url: "@repourl@"
+    branch: main
+    volume: site
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+
+	inst := packages.InitMockInstallManager()
+	gitCloner := &packages.MockGitCloner{}
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, GitCloner: gitCloner})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst, gitCloner
+}
+
 func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallManager) {
 	t.Helper()
 	dir := t.TempDir()
