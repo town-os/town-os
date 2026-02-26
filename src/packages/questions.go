@@ -31,6 +31,7 @@ const (
 	Bytes    OutputType = "bytes"
 	Archive  OutputType = "archive"
 	Duration OutputType = "duration"
+	Secret   OutputType = "secret"
 )
 
 func (o OutputType) Output(answer string) (string, error) {
@@ -65,6 +66,11 @@ func (o OutputType) Output(answer string) (string, error) {
 		}
 		return strconv.FormatUint(b, 10), nil
 	case Archive:
+		if answer == "" {
+			return "", ErrInvalidType
+		}
+		return answer, nil
+	case Secret:
 		if answer == "" {
 			return "", ErrInvalidType
 		}

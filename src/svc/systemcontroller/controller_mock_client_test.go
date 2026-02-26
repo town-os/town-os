@@ -343,6 +343,31 @@ func TestMockClientListPackagesCallLog(t *testing.T) {
 	}
 }
 
+func TestMockClientGetPackageQuestionsWithSecret(t *testing.T) {
+	m := InitMockClient()
+	m.Questions = map[string]map[string]packages.Question{
+		"myapp": {
+			"dbpass": {Query: "Database password?", Type: packages.Secret},
+		},
+	}
+
+	questions, err := m.GetPackageQuestions(context.TODO(), "myapp")
+	if err != nil {
+		t.Fatalf("MockClient.GetPackageQuestions: %v", err)
+	}
+
+	if len(questions) != 1 {
+		t.Fatalf("expected 1 question, got %d", len(questions))
+	}
+
+	if questions["dbpass"].Type != packages.Secret {
+		t.Fatalf("expected secret type, got %q", questions["dbpass"].Type)
+	}
+	if questions["dbpass"].Query != "Database password?" {
+		t.Fatalf("expected %q, got %q", "Database password?", questions["dbpass"].Query)
+	}
+}
+
 func TestMockClientGetPackageQuestions(t *testing.T) {
 	m := InitMockClient()
 	m.Questions = map[string]map[string]packages.Question{

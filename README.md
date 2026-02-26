@@ -199,6 +199,19 @@ questions:
 
 The response must be non-empty. `skip` is accepted as a valid value.
 
+### Secret Question Type
+
+Packages can define questions that auto-generate cryptographically secure secrets when the user omits a response:
+
+```yaml
+questions:
+  db_password:
+    query: "Database password (leave empty to auto-generate):"
+    type: secret
+```
+
+When the response is empty or omitted, a 64-character hex string is generated using `crypto/rand` (256 bits of entropy). The value is safe for use in environment variables and shell contexts. Users can override the generated value by providing an explicit response.
+
 ### Settings
 
 | Key                      | Default    | Description                          |

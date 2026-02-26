@@ -1340,6 +1340,15 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 					req.Responses = packages.Responses{}
 				}
 				req.Responses[name] = packages.GenerateHostname(effectiveName)
+			case packages.Secret:
+				secret, err := packages.GenerateSecret()
+				if err != nil {
+					continue
+				}
+				if req.Responses == nil {
+					req.Responses = packages.Responses{}
+				}
+				req.Responses[name] = secret
 			default:
 				if resp == "auto" || resp == "" {
 					if q.Default != "" {

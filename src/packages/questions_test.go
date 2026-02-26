@@ -234,6 +234,23 @@ func TestOutput(t *testing.T) {
 			err:    true,
 		},
 
+		// Secret tests
+		"secret_nonempty": {
+			output:   Secret,
+			input:    "my-custom-secret",
+			expected: "my-custom-secret",
+		},
+		"secret_hex_value": {
+			output:   Secret,
+			input:    "deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
+			expected: "deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
+		},
+		"secret_empty": {
+			output: Secret,
+			input:  "",
+			err:    true,
+		},
+
 
 		// Duration tests
 		"duration_pure_integer": {

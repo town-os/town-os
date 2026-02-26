@@ -254,6 +254,23 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("valid secret type", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{"DB_PASSWORD": "@dbpass@"},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{"dbpass": {Query: "Database password?", Type: Secret}},
+		}
+		p, err := input.Compile(Responses{"dbpass": "s3cret"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Environment["DB_PASSWORD"] != "s3cret" {
+			t.Fatalf("expected DB_PASSWORD=s3cret, got %s", p.Environment["DB_PASSWORD"])
+		}
+	})
+
 	t.Run("untyped question accepts any string", func(t *testing.T) {
 		input := InputPackage{
 			Image:       "debian:latest",

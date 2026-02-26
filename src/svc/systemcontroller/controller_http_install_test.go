@@ -62,6 +62,131 @@ func TestHTTPInstallPackage(t *testing.T) {
 	}
 }
 
+func TestHTTPInstallPackageAutoGeneratesSecret(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	pkgYAML := `image: myapp:1.0
+environment:
+  DB_PASSWORD: "@dbpass@"
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions:
+  dbpass:
+    query: "Database password:"
+    type: secret
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "myapp", "1.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Install with empty responses — secret should be auto-generated.
+	if err := c.InstallPackage(context.TODO(), "myapp", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	calls := inst.GetCalls()
+	var installCall *packages.MockInstallCall
+	for i := range calls {
+		if calls[i].Method == "Install" {
+			installCall = &calls[i]
+			break
+		}
+	}
+	if installCall == nil {
+		t.Fatal("expected an Install call")
+	}
+
+	resp, ok := installCall.Args[3].(packages.Responses)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	secret := resp["dbpass"]
+	if secret == "" {
+		t.Fatal("expected auto-generated secret, got empty string")
+	}
+	if len(secret) != 64 {
+		t.Fatalf("expected 64-char hex secret, got %d chars: %q", len(secret), secret)
+	}
+}
+
+func TestHTTPInstallPackageSecretUserOverride(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+
+	pkgYAML := `image: myapp:1.0
+environment:
+  DB_PASSWORD: "@dbpass@"
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions:
+  dbpass:
+    query: "Database password:"
+    type: secret
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "myapp", "1.0", pkgYAML)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Install with explicit secret — should pass through unchanged.
+	userSecret := "my-custom-password-value"
+	if err := c.InstallPackage(context.TODO(), "myapp", "1.0", packages.Responses{"dbpass": userSecret}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	calls := inst.GetCalls()
+	var installCall *packages.MockInstallCall
+	for i := range calls {
+		if calls[i].Method == "Install" {
+			installCall = &calls[i]
+			break
+		}
+	}
+	if installCall == nil {
+		t.Fatal("expected an Install call")
+	}
+
+	resp, ok := installCall.Args[3].(packages.Responses)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if resp["dbpass"] != userSecret {
+		t.Fatalf("expected user-provided secret %q, got %q", userSecret, resp["dbpass"])
+	}
+}
+
 func TestHTTPInstallPackageNotFound(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 
