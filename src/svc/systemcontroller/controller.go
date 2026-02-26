@@ -275,6 +275,7 @@ type DownloadArchiveRequest struct {
 
 type UnitListEntry struct {
 	systemd.UnitStatus
+
 	PackageIdentifier  string `json:"package_identifier,omitempty"`
 	PackageDescription string `json:"package_description,omitempty"`
 }
