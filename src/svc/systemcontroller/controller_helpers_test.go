@@ -1,0 +1,432 @@
+package systemcontroller
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/systemd"
+)
+
+func testRoute(t *testing.T, base, path string) string {
+	t.Helper()
+	u, err := url.JoinPath(base, path)
+	if err != nil {
+		t.Fatalf("url.JoinPath(%q, %q): %v", base, path, err)
+	}
+	return u
+}
+
+func initTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	ts := InitTestServer(ServerConfig{Storage: mock})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, controller
+}
+
+// injectSubvol creates a subvolume and all intermediate parents in the mock
+// controller, mimicking what storage.CreateFilesystem does automatically.
+// Existing subvolumes are not duplicated.
+func injectSubvol(t *testing.T, ctrl *storage.MockBtrFSController, name string, quota uint64) {
+	t.Helper()
+	parts := strings.Split(name, "/")
+	for i := 1; i <= len(parts); i++ {
+		intermediate := strings.Join(parts[:i], "/")
+		exists := false
+		for _, fs := range ctrl.GetFilesystems() {
+			if fs.Name == intermediate {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			if err := ctrl.SubvolCreate(intermediate); err != nil {
+				t.Fatalf("SubvolCreate %q: %v", intermediate, err)
+			}
+		}
+	}
+	if quota > 0 {
+		if err := ctrl.QGroupLimit(name, quota); err != nil {
+			t.Fatalf("QGroupLimit %q: %v", name, err)
+		}
+	}
+}
+
+func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
+	t.Helper()
+	return &packages.RepositoryRoot{BaseDir: t.TempDir()}
+}
+
+func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content string) {
+	t.Helper()
+	dir := filepath.Join(baseDir, repoName, packages.PackagesDir, pkgName)
+	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // test directory
+		t.Fatalf("os.MkdirAll %q: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.yaml", version)), []byte(content), 0644); err != nil { //nolint:gosec,perfsprint // test file, project convention
+		t.Fatalf("os.WriteFile %s/%s.yaml: %v", dir, version, err)
+	}
+}
+
+func initInstallTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external:
+    "@port@": "80"
+  internal: {}
+volumes: {}
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+  port:
+    query: "What external port should nginx listen on?"
+    type: port
+notes:
+  URL:
+    value: "http://@hostname@:@port@"
+    type: url
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst
+}
+
+func initInstallWithVolumesTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external: {}
+  internal: {}
+volumes:
+  html:
+    mountpoint: /var/www/html
+  logs:
+    mountpoint: /var/log/nginx
+    quota: 2048
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, controller
+}
+
+func initInstallWithSystemdTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, *systemd.MockManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+
+	inst := packages.InitMockInstallManager()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst, sd
+}
+
+func initAccountTestClient(t *testing.T) (*SystemdClient, account.AuditManager) {
+	t.Helper()
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr, AuditMgr: auditMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap: create admin account (no auth required on empty DB) and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "testadmin", "adminpass", "admin@test.com", "555-0000", "Test Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "testadmin", "adminpass")
+	if err != nil {
+		t.Fatalf("bootstrap Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	return c, auditMgr
+}
+
+func initSystemdTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, sd
+}
+
+func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
+	t.Helper()
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
+	settingsMgr, err := account.InitSettingsManager(db)
+	if err != nil {
+		t.Fatalf("InitSettingsManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, AccountMgr: mgr, SessionMgr: sessMgr, AuditMgr: auditMgr, SettingsMgr: settingsMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap: create admin account and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "testadmin", "adminpass", "admin@test.com", "555-0000", "Test Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "testadmin", "adminpass")
+	if err != nil {
+		t.Fatalf("bootstrap Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	return c, resp.Token
+}
+
+func initMultiRepoTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+		{Name: "repo-b", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-b", "nginx", "1.0", "image: nginx:1.0-alt\n")
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst
+}
+
+func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallManager) {
+	t.Helper()
+	dir := t.TempDir()
+
+	// Set up repo with two versions of a package.
+	repoName := "test-repo"
+	pkgName := "nginx"
+	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, pkgName)
+	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile 1.0: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "2.0.yaml"), []byte("image: nginx:2.0\n"), 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile 2.0: %v", err)
+	}
+
+	// Write repositories file.
+	repos := []packages.Repository{{Name: repoName, URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}}}
+	repoData, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatalf("json.Marshal repos: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil { //nolint:gosec // test file
+		t.Fatalf("WriteFile repos: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+
+	// Install version 1.0.
+	if err := inst.Install(repoName, pkgName, "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	dbFile := filepath.Join(t.TempDir(), "test.db")
+	db, err := account.OpenDB(dbFile)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	settingsMgr, err := account.InitSettingsManager(db)
+	if err != nil {
+		t.Fatalf("InitSettingsManager: %v", err)
+	}
+
+	ts := InitTestServer(ServerConfig{
+		RepositoryRoot: rr,
+		Installer:      inst,
+		SettingsMgr:    settingsMgr,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+
+	return c, inst
+}
