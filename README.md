@@ -1,4 +1,8 @@
-# Town OS
+[![Town OS](./banner.png)](https://town-os.github.io)
+
+**Home: <https://town-os.github.io>** | [Source (Gitea)](https://gitea.com/town-os/town-os) | [Mirror (GitHub)](https://github.com/town-os/town-os)
+
+> **Your Cloud in Your Closet, easy enough for anyone.**
 
 **GITHUB USERS:** Please note the source repository is <https://gitea.com/town-os/town-os> -- the package repositories are kept here for simplicity's sake. Issues and Pull Requests must be filed there, as well as any other interactivity with the repository. This repository may also occasionally be out of data or missing other data the Gitea repository has. Do not rely on it.
 
