@@ -380,14 +380,14 @@ export default function SystemManagement() {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openJournal(row.Name)}>
               <FileText className="h-3 w-3 mr-2" />
-              View Journal
+              Service Logs
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => {
               const ncUnit = row.Name.replace('.service', '-network.service')
               openJournal(ncUnit)
             }}>
               <FileText className="h-3 w-3 mr-2" />
-              NC Logs
+              Network Logs
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
