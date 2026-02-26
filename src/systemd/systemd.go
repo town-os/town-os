@@ -81,6 +81,7 @@ type LogTailParams struct {
 	Grep         string
 	Since        time.Time
 	Until        time.Time
+	Priority     int // 0 = no filter; 1–7 = include entries with priority <= this value
 }
 
 type LogTailResult struct {

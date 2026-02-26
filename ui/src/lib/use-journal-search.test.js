@@ -40,7 +40,7 @@ describe('useJournalSearch', () => {
 
     vi.advanceTimersByTime(1)
     expect(loadEntries).toHaveBeenCalledTimes(1)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'error', undefined, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'error', undefined, undefined, undefined)
   })
 
   it('calls loadEntries after 300ms when sinceTime changes', () => {
@@ -57,7 +57,7 @@ describe('useJournalSearch', () => {
     vi.advanceTimersByTime(1)
     expect(loadEntries).toHaveBeenCalledTimes(1)
     const sinceUnix = Math.floor(new Date('2026-02-19T14:00').getTime() / 1000)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, undefined, undefined)
   })
 
   it('calls loadEntries after 300ms when untilTime changes', () => {
@@ -74,7 +74,7 @@ describe('useJournalSearch', () => {
     vi.advanceTimersByTime(1)
     expect(loadEntries).toHaveBeenCalledTimes(1)
     const untilUnix = Math.floor(new Date('2026-02-19T15:00').getTime() / 1000)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, untilUnix)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, untilUnix, undefined)
   })
 
   it('passes both sinceUnix and untilUnix when both are set', () => {
@@ -89,7 +89,7 @@ describe('useJournalSearch', () => {
     expect(loadEntries).toHaveBeenCalledTimes(1)
     const sinceUnix = Math.floor(new Date('2026-02-19T10:00').getTime() / 1000)
     const untilUnix = Math.floor(new Date('2026-02-19T14:00').getTime() / 1000)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, untilUnix)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, untilUnix, undefined)
   })
 
   it('debounces rapid sinceTime changes and only fires once', () => {
@@ -107,7 +107,7 @@ describe('useJournalSearch', () => {
 
     expect(loadEntries).toHaveBeenCalledTimes(1)
     const sinceUnix = Math.floor(new Date('2026-02-19T15:00').getTime() / 1000)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', sinceUnix, undefined, undefined)
   })
 
   it('converts sinceTime to unix seconds', () => {
@@ -133,7 +133,7 @@ describe('useJournalSearch', () => {
     rerender({ unit: 'nginx.service', query: 'test', since: '', until: '' })
     vi.advanceTimersByTime(300)
 
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'test', undefined, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'test', undefined, undefined, undefined)
   })
 
   it('resets on journalUnit change to null and skips next initial render', () => {
@@ -156,7 +156,7 @@ describe('useJournalSearch', () => {
     rerender({ unit: 'redis.service', query: 'started', since: '', until: '' })
     vi.advanceTimersByTime(300)
     expect(loadEntries).toHaveBeenCalledTimes(1)
-    expect(loadEntries).toHaveBeenCalledWith('redis.service', undefined, 'started', undefined, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('redis.service', undefined, 'started', undefined, undefined, undefined)
   })
 
   it('clears sinceTime by setting it back to empty and triggers search', () => {
@@ -175,7 +175,7 @@ describe('useJournalSearch', () => {
     rerender({ unit: 'nginx.service', query: '', since: '', until: '' })
     vi.advanceTimersByTime(300)
     expect(loadEntries).toHaveBeenCalledTimes(1)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined, undefined)
   })
 
   it('clears searchQuery and triggers search', () => {
@@ -194,7 +194,7 @@ describe('useJournalSearch', () => {
     rerender({ unit: 'nginx.service', query: '', since: '', until: '' })
     vi.advanceTimersByTime(300)
     expect(loadEntries).toHaveBeenCalledTimes(1)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined, undefined)
   })
 
   it('clears untilTime by setting it back to empty and triggers search', () => {
@@ -213,7 +213,33 @@ describe('useJournalSearch', () => {
     rerender({ unit: 'nginx.service', query: '', since: '', until: '' })
     vi.advanceTimersByTime(300)
     expect(loadEntries).toHaveBeenCalledTimes(1)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, undefined, undefined)
+  })
+
+  it('passes priority when set', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until, priority }) => useJournalSearch(unit, query, since, until, loadEntries, priority),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '', priority: 3 } },
+    )
+
+    rerender({ unit: 'nginx.service', query: 'error', since: '', until: '', priority: 3 })
+
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'error', undefined, undefined, 3)
+  })
+
+  it('passes undefined priority when priority is 0', () => {
+    const { rerender } = renderHook(
+      ({ unit, query, since, until, priority }) => useJournalSearch(unit, query, since, until, loadEntries, priority),
+      { initialProps: { unit: 'nginx.service', query: '', since: '', until: '', priority: 0 } },
+    )
+
+    rerender({ unit: 'nginx.service', query: 'test', since: '', until: '', priority: 0 })
+
+    vi.advanceTimersByTime(300)
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, 'test', undefined, undefined, undefined)
   })
 
   it('debounces rapid untilTime changes and only fires once', () => {
@@ -231,6 +257,6 @@ describe('useJournalSearch', () => {
 
     expect(loadEntries).toHaveBeenCalledTimes(1)
     const untilUnix = Math.floor(new Date('2026-02-19T15:00').getTime() / 1000)
-    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, untilUnix)
+    expect(loadEntries).toHaveBeenCalledWith('nginx.service', undefined, '', undefined, untilUnix, undefined)
   })
 })

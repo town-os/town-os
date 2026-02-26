@@ -2099,6 +2099,14 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 		params.Until = time.Unix(untilUnix, 0)
 	}
 
+	if v := c.QueryParam("priority"); v != "" {
+		pri, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid priority parameter: %w", err)
+		}
+		params.Priority = pri
+	}
+
 	result, err := s.Controller.GetSystemdManager().LogTail(c.Request().Context(), params)
 	if err != nil {
 		return err

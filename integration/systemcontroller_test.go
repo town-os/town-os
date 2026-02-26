@@ -1932,6 +1932,97 @@ func TestSystemControllerSystemdLogReplayCallLog(t *testing.T) {
 	}
 }
 
+func TestSystemControllerSystemdLogTailPriority(t *testing.T) {
+	sd := systemd.InitMockManager()
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "debug msg", Priority: "7", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "info msg", Priority: "6", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "error msg", Priority: "3", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "critical msg", Priority: "2", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail with priority: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries with priority <= 3, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "error msg" {
+		t.Fatalf("expected first entry %q, got %q", "error msg", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "critical msg" {
+		t.Fatalf("expected second entry %q, got %q", "critical msg", result.Entries[1].Message)
+	}
+}
+
+func TestSystemControllerSystemdLogTailPriorityNoFilter(t *testing.T) {
+	sd := systemd.InitMockManager()
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "debug msg", Priority: "7", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c2", Message: "error msg", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100})
+	if err != nil {
+		t.Fatalf("LogTail without priority: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries without priority filter, got %d", len(result.Entries))
+	}
+}
+
+func TestSystemControllerSystemdLogTailPriorityWithGrep(t *testing.T) {
+	sd := systemd.InitMockManager()
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "error: disk full", Priority: "3", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c2", Message: "info: disk ok", Priority: "6", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c3", Message: "error: memory low", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Priority: 3, Grep: "disk"})
+	if err != nil {
+		t.Fatalf("LogTail with priority+grep: %v", err)
+	}
+
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "error: disk full" {
+		t.Fatalf("expected entry %q, got %q", "error: disk full", result.Entries[0].Message)
+	}
+}
+
+func TestSystemControllerSystemdLogTailPriorityEmptyPriority(t *testing.T) {
+	sd := systemd.InitMockManager()
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "no priority", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c2", Message: "has priority", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c3", Message: "high priority", Priority: "7", RealtimeTimestamp: now},
+	}
+	c := initSystemControllerSystemdTest(t, sd)
+
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail with priority: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries (empty + pri 3), got %d", len(result.Entries))
+	}
+}
+
 func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd)

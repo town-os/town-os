@@ -647,3 +647,108 @@ func TestHTTPLogTailSinceUntilWithLimit(t *testing.T) {
 		t.Fatalf("expected second %q, got %q", "b", result.Entries[1].Message)
 	}
 }
+
+func TestHTTPLogTailPriority(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "debug msg", Priority: "7", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "info msg", Priority: "6", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "error msg", Priority: "3", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "critical msg", Priority: "2", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c5", Message: "warning msg", Priority: "4", RealtimeTimestamp: now},
+	}
+
+	// Priority 3 = error and above (emergency=0, alert=1, crit=2, err=3)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail with priority: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries with priority <= 3, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "error msg" {
+		t.Fatalf("expected first entry %q, got %q", "error msg", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "critical msg" {
+		t.Fatalf("expected second entry %q, got %q", "critical msg", result.Entries[1].Message)
+	}
+}
+
+func TestHTTPLogTailPriorityNoFilter(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "debug msg", Priority: "7", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c2", Message: "error msg", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c3", Message: "info msg", Priority: "6", RealtimeTimestamp: now},
+	}
+
+	// Priority 0 means no filter
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Priority: 0})
+	if err != nil {
+		t.Fatalf("LogTail with no priority filter: %v", err)
+	}
+
+	if len(result.Entries) != 3 {
+		t.Fatalf("expected 3 entries with no priority filter, got %d", len(result.Entries))
+	}
+}
+
+func TestHTTPLogTailPriorityWithGrep(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "error: disk full", Priority: "3", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "info: disk ok", Priority: "6", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "error: disk timeout", Priority: "3", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "debug: disk check", Priority: "7", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+
+	// Priority 3 + grep "disk full"
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Priority: 3, Grep: "disk full"})
+	if err != nil {
+		t.Fatalf("LogTail with priority+grep: %v", err)
+	}
+
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry matching priority+grep, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "error: disk full" {
+		t.Fatalf("expected entry %q, got %q", "error: disk full", result.Entries[0].Message)
+	}
+}
+
+func TestHTTPLogTailPriorityEmptyPriority(t *testing.T) {
+	c, sd := initSystemdTestClient(t)
+
+	now := time.Now()
+	sd.Entries = []systemd.JournalEntry{
+		{Cursor: "c1", Message: "no priority", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c2", Message: "has priority", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c3", Message: "high priority", Priority: "7", RealtimeTimestamp: now},
+	}
+
+	// Entries with empty priority should pass through (no priority field to filter on)
+	result, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100, Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail with priority: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries (empty priority + priority 3), got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "no priority" {
+		t.Fatalf("expected first entry %q, got %q", "no priority", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "has priority" {
+		t.Fatalf("expected second entry %q, got %q", "has priority", result.Entries[1].Message)
+	}
+}

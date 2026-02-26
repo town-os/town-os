@@ -1,7 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { TooltipProvider } from '@/components/ui/tooltip'
 import SystemManagement from './SystemManagement.jsx'
 
 const mockListUnits = vi.fn(() =>
@@ -31,7 +30,7 @@ const mockListUnits = vi.fn(() =>
 )
 
 const mockLogTail = vi.fn(() =>
-  Promise.resolve({ entries: [], cursor: null, end_cursor: null }),
+  Promise.resolve({ entries: [], cursor: '', end_cursor: '' }),
 )
 
 vi.mock('@/lib/client-instance.js', () => ({
@@ -45,9 +44,7 @@ vi.mock('@/lib/client-instance.js', () => ({
 function renderSystemManagement() {
   return render(
     <MemoryRouter>
-      <TooltipProvider>
-        <SystemManagement />
-      </TooltipProvider>
+      <SystemManagement />
     </MemoryRouter>,
   )
 }
@@ -63,6 +60,10 @@ async function openDropdown(container, index = 0) {
 }
 
 describe('SystemManagement', () => {
+  beforeEach(() => {
+    mockLogTail.mockClear()
+  })
+
   it('renders the Services heading', async () => {
     renderSystemManagement()
     await waitFor(() => {
@@ -114,7 +115,7 @@ describe('SystemManagement', () => {
     })
     fireEvent.click(screen.getByText('Service Logs'))
     await waitFor(() => {
-      expect(mockLogTail).toHaveBeenCalledWith('town-os-foo.service', 200, undefined, undefined, undefined, undefined, undefined)
+      expect(mockLogTail).toHaveBeenCalledWith('town-os-foo.service', 200, undefined, undefined, undefined, undefined, undefined, undefined)
     })
   })
 
@@ -130,21 +131,160 @@ describe('SystemManagement', () => {
     })
     fireEvent.click(screen.getByText('Network Logs'))
     await waitFor(() => {
-      expect(mockLogTail).toHaveBeenCalledWith('town-os-foo-network.service', 200, undefined, undefined, undefined, undefined, undefined)
+      expect(mockLogTail).toHaveBeenCalledWith('town-os-foo-network.service', 200, undefined, undefined, undefined, undefined, undefined, undefined)
     })
   })
 
-  it('renders Controller Logs button', async () => {
+  it('does not show Controller Logs button on main page', async () => {
     renderSystemManagement()
     await waitFor(() => {
-      expect(screen.getByText('Controller Logs')).toBeTruthy()
+      expect(screen.getByText('Services')).toBeTruthy()
+    })
+    // Controller Logs is inside the Advanced Logs modal, not on the main page
+    expect(screen.queryByRole('button', { name: /Controller Logs/ })).toBeNull()
+  })
+
+  it('shows Advanced Logs button', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
     })
   })
 
-  it('renders Advanced Logs button', async () => {
+  it('opens advanced logs modal with quick-access buttons', async () => {
     renderSystemManagement()
     await waitFor(() => {
-      expect(screen.getByText('Advanced Logs')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
     })
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Controller Logs/ })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /System Logs/ })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Journal Errors/ })).toBeTruthy()
+    })
+  })
+
+  it('opens controller logs from advanced modal', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Controller Logs/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Controller Logs/ }))
+
+    await waitFor(() => {
+      expect(mockLogTail).toHaveBeenCalledWith(
+        'town-os-systemcontroller.service',
+        200,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      )
+    })
+  })
+
+  it('opens system logs from advanced modal', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /System Logs/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /System Logs/ }))
+
+    await waitFor(() => {
+      // System logs use empty string for unit
+      expect(mockLogTail).toHaveBeenCalledWith(
+        '',
+        200,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      )
+    })
+  })
+
+  it('opens journal errors with priority filter from advanced modal', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Journal Errors/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Journal Errors/ }))
+
+    await waitFor(() => {
+      // Journal errors use empty unit with priority=3
+      expect(mockLogTail).toHaveBeenCalledWith(
+        '',
+        200,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        3,
+      )
+    })
+  })
+
+  it('shows Journal Errors title when priority is set', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Journal Errors/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Journal Errors/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Journal Errors')).toBeTruthy()
+    })
+  })
+
+  it('has custom service name input in advanced modal', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Custom service name')).toBeTruthy()
+    })
+
+    // View button is disabled when input is empty
+    const viewBtn = screen.getByRole('button', { name: 'View' })
+    expect(viewBtn.disabled).toBe(true)
   })
 })

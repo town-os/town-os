@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -237,11 +238,17 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 
 	grepLower := strings.ToLower(p.Grep)
 
-	matchesGrep := func(je JournalEntry) bool {
-		if p.Grep == "" {
-			return true
+	matchesFilter := func(je JournalEntry) bool {
+		if p.Grep != "" && !strings.Contains(strings.ToLower(je.Message), grepLower) {
+			return false
 		}
-		return strings.Contains(strings.ToLower(je.Message), grepLower)
+		if p.Priority > 0 && je.Priority != "" {
+			pri, err := strconv.Atoi(je.Priority)
+			if err == nil && pri > p.Priority {
+				return false
+			}
+		}
+		return true
 	}
 
 	collectForward := func() (LogTailResult, error) {
@@ -262,7 +269,7 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 			if !p.Until.IsZero() && !je.RealtimeTimestamp.Before(p.Until) {
 				break
 			}
-			if !matchesGrep(je) {
+			if !matchesFilter(je) {
 				continue
 			}
 			entries = append(entries, je)
@@ -331,7 +338,7 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 			return LogTailResult{}, err
 		}
 		je := journalEntryFromSD(entry)
-		if !matchesGrep(je) {
+		if !matchesFilter(je) {
 			continue
 		}
 		entries = append(entries, je)

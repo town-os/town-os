@@ -642,6 +642,37 @@ describe('SystemControllerClient', () => {
         expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
       )
     })
+
+    it('includes priority parameter when provided', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 200, undefined, undefined, undefined, undefined, undefined, 3)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=200&priority=3',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('includes priority with grep and since when all provided', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 100, undefined, undefined, 'error', 1700000000, undefined, 3)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/systemd/logs/tail?unit=nginx.service&lines=100&grep=error&since=1700000000&priority=3',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('omits priority when not provided', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTail('nginx.service', 100)
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).not.toContain('priority')
+    })
   })
 
   describe('removeFilesystem', () => {

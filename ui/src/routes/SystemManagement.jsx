@@ -140,6 +140,7 @@ export default function SystemManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [customLogDialog, setCustomLogDialog] = useState(false)
   const [customLogUnit, setCustomLogUnit] = useState('')
+  const [journalPriority, setJournalPriority] = useState(0)
 
   const effectiveSearch = searchTerm
 
@@ -175,6 +176,7 @@ export default function SystemManagement() {
     setPendingUntilDate('')
     setPendingUntilHour('')
     setTimeFilterOpen(false)
+    setJournalPriority(0)
     followAppendRef.current = false
     wasAtBottomRef.current = true
   }
@@ -217,11 +219,11 @@ export default function SystemManagement() {
     }
   }
 
-  const loadEntries = useCallback(async (unitName, beforeCursor, grep, since, until) => {
+  const loadEntries = useCallback(async (unitName, beforeCursor, grep, since, until, priority) => {
     setJournalLoading(true)
     const apiUnit = unitName === '__system__' ? '' : unitName
     try {
-      const result = await getClient().logTail(apiUnit, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined)
+      const result = await getClient().logTail(apiUnit, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined, priority || undefined)
       const entries = result.entries || []
       if (beforeCursor) {
         setJournalEntries((prev) => [...entries, ...prev])
@@ -240,17 +242,18 @@ export default function SystemManagement() {
     }
   }, [])
 
-  function openJournal(unitName) {
+  function openJournal(unitName, priority = 0) {
     closeJournal()
     setJournalUnit(unitName)
-    loadEntries(unitName, undefined, '')
+    setJournalPriority(priority)
+    loadEntries(unitName, undefined, '', undefined, undefined, priority)
   }
 
   function loadMore() {
     if (journalUnit && journalCursor) {
       const el = scrollRef.current
       const prevHeight = el?.scrollHeight ?? 0
-      loadEntries(journalUnit, journalCursor, searchQuery).then(() => {
+      loadEntries(journalUnit, journalCursor, searchQuery, undefined, undefined, journalPriority).then(() => {
         requestAnimationFrame(() => {
           if (el) {
             el.scrollTop = el.scrollHeight - prevHeight
@@ -276,7 +279,7 @@ export default function SystemManagement() {
   }
 
   // Re-fetch when search query or since time changes (debounced).
-  useJournalSearch(journalUnit, searchQuery, sinceTime, untilTime, loadEntries)
+  useJournalSearch(journalUnit, searchQuery, sinceTime, untilTime, loadEntries, journalPriority)
 
   // Follow mode: poll for new entries.
   useEffect(() => {
@@ -284,7 +287,7 @@ export default function SystemManagement() {
     const apiUnit = journalUnit === '__system__' ? '' : journalUnit
     const timer = setInterval(async () => {
       try {
-        const result = await getClient().logTail(apiUnit, 200, undefined, journalEndCursor, searchQuery || undefined)
+        const result = await getClient().logTail(apiUnit, 200, undefined, journalEndCursor, searchQuery || undefined, undefined, undefined, journalPriority || undefined)
         const entries = result.entries || []
         if (entries.length > 0) {
           const el = scrollRef.current
@@ -300,7 +303,7 @@ export default function SystemManagement() {
       }
     }, 2000)
     return () => clearInterval(timer)
-  }, [journalUnit, followMode, journalEndCursor, searchQuery])
+  }, [journalUnit, followMode, journalEndCursor, searchQuery, journalPriority])
 
   useEffect(() => {
     if (journalUnit && scrollRef.current && !journalLoading && journalInitial) {
@@ -402,14 +405,6 @@ export default function SystemManagement() {
           <h1 className="text-3xl font-bold tracking-tight">Services</h1>
           <p className="text-muted-foreground">Manage installed packages</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => openJournal('town-os-systemcontroller.service')}
-        >
-          <FileText className="h-4 w-4 mr-1" />
-          Controller Logs
-        </Button>
       </div>
 
       {unitsLoading && units.length === 0 && (
@@ -451,41 +446,58 @@ export default function SystemManagement() {
         </Button>
       </div>
 
-      {/* Custom/System Log Dialog */}
+      {/* Advanced Logs Dialog */}
       <Dialog open={customLogDialog} onOpenChange={(v) => !v && setCustomLogDialog(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>View Service Logs</DialogTitle>
+            <DialogTitle>Advanced Logs</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
-              View logs for the overall system journal or any specific systemd service.
+              Quick access to common log views or enter a custom service name.
             </p>
+            <div className="flex flex-col gap-2">
+              <Button variant="outline" className="justify-start" onClick={() => {
+                setCustomLogDialog(false)
+                openJournal('town-os-systemcontroller.service')
+              }}>
+                <FileText className="h-4 w-4 mr-2" />
+                Controller Logs
+              </Button>
+              <Button variant="outline" className="justify-start" onClick={() => {
+                setCustomLogDialog(false)
+                openJournal('__system__')
+              }}>
+                <Terminal className="h-4 w-4 mr-2" />
+                System Logs
+              </Button>
+              <Button variant="outline" className="justify-start" onClick={() => {
+                setCustomLogDialog(false)
+                openJournal('__system__', 3)
+              }}>
+                <X className="h-4 w-4 mr-2" />
+                Journal Errors
+              </Button>
+            </div>
             <div className="space-y-2">
-              <Label htmlFor="custom-log-unit">Service name</Label>
-              <Input
-                id="custom-log-unit"
-                placeholder="e.g. sshd.service or leave blank for system logs"
-                value={customLogUnit}
-                onChange={(e) => setCustomLogUnit(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Leave blank to view system-wide logs. Enter a full unit name for a specific service.
-              </p>
+              <Label htmlFor="custom-log-unit">Custom service name</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="custom-log-unit"
+                  placeholder="e.g. sshd.service"
+                  value={customLogUnit}
+                  onChange={(e) => setCustomLogUnit(e.target.value)}
+                />
+                <Button disabled={!customLogUnit.trim()} onClick={() => {
+                  const unit = customLogUnit.trim()
+                  setCustomLogDialog(false)
+                  openJournal(unit)
+                }}>
+                  View
+                </Button>
+              </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCustomLogDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => {
-              const unit = customLogUnit.trim() || '__system__'
-              setCustomLogDialog(false)
-              openJournal(unit)
-            }}>
-              View Logs
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -507,7 +519,7 @@ export default function SystemManagement() {
         <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <span>{journalUnit === '__system__' ? 'System Logs' : journalUnit?.replace('.service', '')}</span>
+              <span>{journalUnit === '__system__' ? (journalPriority > 0 ? 'Journal Errors' : 'System Logs') : journalUnit?.replace('.service', '')}</span>
               {journalUnit && (() => {
                 const unit = units.find((u) => u.Name === journalUnit)
                 if (!unit) return null

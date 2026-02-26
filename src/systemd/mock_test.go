@@ -461,6 +461,140 @@ func TestSystemdMockManagerLifecycle(t *testing.T) {
 	}
 }
 
+// --- LogTail priority tests ---
+
+func TestSystemdMockManagerLogTailPriority(t *testing.T) {
+	m := InitMockManager()
+	now := time.Now()
+	m.Entries = []JournalEntry{
+		{Cursor: "c1", Message: "debug msg", Priority: "7", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c2", Message: "error msg", Priority: "3", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c3", Message: "critical msg", Priority: "2", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+
+	result, err := m.LogTail(context.Background(), LogTailParams{Lines: 100, Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail with priority: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries with priority <= 3, got %d", len(result.Entries))
+	}
+
+	if result.Entries[0].Message != "error msg" {
+		t.Fatalf("expected first entry %q, got %q", "error msg", result.Entries[0].Message)
+	}
+	if result.Entries[1].Message != "critical msg" {
+		t.Fatalf("expected second entry %q, got %q", "critical msg", result.Entries[1].Message)
+	}
+}
+
+func TestSystemdMockManagerLogTailPriorityNoFilter(t *testing.T) {
+	m := InitMockManager()
+	now := time.Now()
+	m.Entries = []JournalEntry{
+		{Cursor: "c1", Message: "debug msg", Priority: "7", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c2", Message: "error msg", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+
+	result, err := m.LogTail(context.Background(), LogTailParams{Lines: 100, Priority: 0})
+	if err != nil {
+		t.Fatalf("LogTail with no priority filter: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries with no filter, got %d", len(result.Entries))
+	}
+}
+
+func TestSystemdMockManagerLogTailPriorityEmptyString(t *testing.T) {
+	m := InitMockManager()
+	now := time.Now()
+	m.Entries = []JournalEntry{
+		{Cursor: "c1", Message: "no priority", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c2", Message: "has priority", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+		{Cursor: "c3", Message: "high priority", Priority: "7", RealtimeTimestamp: now},
+	}
+
+	result, err := m.LogTail(context.Background(), LogTailParams{Lines: 100, Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail with priority: %v", err)
+	}
+
+	// Empty priority should pass through
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries (empty + pri 3), got %d", len(result.Entries))
+	}
+}
+
+func TestSystemdMockManagerLogTailPriorityWithGrep(t *testing.T) {
+	m := InitMockManager()
+	now := time.Now()
+	m.Entries = []JournalEntry{
+		{Cursor: "c1", Message: "error: disk", Priority: "3", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c2", Message: "info: disk", Priority: "6", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c3", Message: "error: memory", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+
+	result, err := m.LogTail(context.Background(), LogTailParams{Lines: 100, Priority: 3, Grep: "disk"})
+	if err != nil {
+		t.Fatalf("LogTail with priority+grep: %v", err)
+	}
+
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
+	}
+	if result.Entries[0].Message != "error: disk" {
+		t.Fatalf("expected %q, got %q", "error: disk", result.Entries[0].Message)
+	}
+}
+
+func TestSystemdMockManagerLogTailPriorityForward(t *testing.T) {
+	m := InitMockManager()
+	now := time.Now()
+	m.Entries = []JournalEntry{
+		{Cursor: "c1", Message: "start", Priority: "6", RealtimeTimestamp: now.Add(-4 * time.Second)},
+		{Cursor: "c2", Message: "error one", Priority: "3", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "debug", Priority: "7", RealtimeTimestamp: now.Add(-2 * time.Second)},
+		{Cursor: "c4", Message: "error two", Priority: "3", RealtimeTimestamp: now.Add(-time.Second)},
+	}
+
+	result, err := m.LogTail(context.Background(), LogTailParams{Lines: 100, AfterCursor: "c1", Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail forward with priority: %v", err)
+	}
+
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result.Entries))
+	}
+	if result.Entries[0].Message != "error one" {
+		t.Fatalf("expected %q, got %q", "error one", result.Entries[0].Message)
+	}
+}
+
+func TestSystemdMockManagerLogTailPrioritySince(t *testing.T) {
+	m := InitMockManager()
+	now := time.Now()
+	m.Entries = []JournalEntry{
+		{Cursor: "c1", Message: "old error", Priority: "3", RealtimeTimestamp: now.Add(-10 * time.Second)},
+		{Cursor: "c2", Message: "recent error", Priority: "3", RealtimeTimestamp: now.Add(-3 * time.Second)},
+		{Cursor: "c3", Message: "recent info", Priority: "6", RealtimeTimestamp: now.Add(-2 * time.Second)},
+	}
+
+	since := now.Add(-5 * time.Second)
+	result, err := m.LogTail(context.Background(), LogTailParams{Lines: 100, Since: since, Priority: 3})
+	if err != nil {
+		t.Fatalf("LogTail since with priority: %v", err)
+	}
+
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
+	}
+	if result.Entries[0].Message != "recent error" {
+		t.Fatalf("expected %q, got %q", "recent error", result.Entries[0].Message)
+	}
+}
+
 // --- ListPackageUnitFiles tests ---
 
 func TestMockManagerListPackageUnitFiles(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -88,11 +89,17 @@ func (m *MockManager) LogTail(_ context.Context, p LogTailParams) (LogTailResult
 	copy(entries, m.Entries)
 
 	grepLower := strings.ToLower(p.Grep)
-	matchesGrep := func(e JournalEntry) bool {
-		if p.Grep == "" {
-			return true
+	matchesFilter := func(e JournalEntry) bool {
+		if p.Grep != "" && !strings.Contains(strings.ToLower(e.Message), grepLower) {
+			return false
 		}
-		return strings.Contains(strings.ToLower(e.Message), grepLower)
+		if p.Priority > 0 && e.Priority != "" {
+			pri, err := strconv.Atoi(e.Priority)
+			if err == nil && pri > p.Priority {
+				return false
+			}
+		}
+		return true
 	}
 
 	// Timestamp seek mode: entries from 'since' time forward, up to 'until'.
@@ -105,7 +112,7 @@ func (m *MockManager) LogTail(_ context.Context, p LogTailParams) (LogTailResult
 			if !p.Until.IsZero() && !e.RealtimeTimestamp.Before(p.Until) {
 				break
 			}
-			if !matchesGrep(e) {
+			if !matchesFilter(e) {
 				continue
 			}
 			page = append(page, e)
@@ -132,7 +139,7 @@ func (m *MockManager) LogTail(_ context.Context, p LogTailParams) (LogTailResult
 		}
 		page := make([]JournalEntry, 0, p.Lines)
 		for i := startIdx; i < len(entries) && len(page) < p.Lines; i++ {
-			if !matchesGrep(entries[i]) {
+			if !matchesFilter(entries[i]) {
 				continue
 			}
 			page = append(page, entries[i])
@@ -158,7 +165,7 @@ func (m *MockManager) LogTail(_ context.Context, p LogTailParams) (LogTailResult
 
 	page := make([]JournalEntry, 0, p.Lines)
 	for i := endIdx - 1; i >= 0 && len(page) < p.Lines; i-- {
-		if !matchesGrep(entries[i]) {
+		if !matchesFilter(entries[i]) {
 			continue
 		}
 		page = append(page, entries[i])

@@ -656,6 +656,9 @@ func (c *SystemdClient) LogTail(ctx context.Context, p systemd.LogTailParams) (_
 	if !p.Until.IsZero() {
 		q = fmt.Sprintf("%s&until=%d", q, p.Until.Unix())
 	}
+	if p.Priority > 0 {
+		q = fmt.Sprintf("%s&priority=%d", q, p.Priority)
+	}
 
 	resp, err := c.getClient(ctx, q)
 	if err != nil {
