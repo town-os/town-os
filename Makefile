@@ -6,10 +6,13 @@ export TOWN_OS_REPO_PASSWORD
 INSTANCE_ID := $(shell echo -n "$(CURDIR)" | md5sum | cut -c1-8)
 
 # Image names (unique per working directory).
-PODMAN_IMAGE      := town-os-$(INSTANCE_ID)
-PODMAN_TEST_IMAGE := town-os-test-$(INSTANCE_ID)
-PODMAN_DEV_IMAGE  := town-os-dev-$(INSTANCE_ID)
-PODMAN_UI_IMAGE   := town-os-ui-integration-$(INSTANCE_ID)
+# Integration and dev use separate production base images so builds
+# cannot interfere with each other.
+PODMAN_IMAGE         := town-os-$(INSTANCE_ID)
+PODMAN_DEV_BASE      := town-os-dev-base-$(INSTANCE_ID)
+PODMAN_TEST_IMAGE    := town-os-test-$(INSTANCE_ID)
+PODMAN_DEV_IMAGE     := town-os-dev-$(INSTANCE_ID)
+PODMAN_UI_IMAGE      := town-os-ui-integration-$(INSTANCE_ID)
 
 # Container names (unique per working directory).
 PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
@@ -110,9 +113,16 @@ test-image: production-image
 		--volume $$(pwd)/.cache/go-build:/root/.cache/go-build:z \
 		-t $(PODMAN_TEST_IMAGE) -f integration/testdata/Containerfile.systemd .
 
-dev-image: production-image
+dev-production-image: .cache/.images-pulled
+	mkdir -p .cache/dev-go-mod .cache/dev-go-build
 	sudo -E podman build --pull=never \
-		--build-arg TOWN_OS_IMAGE=$(PODMAN_IMAGE) \
+		--volume $$(pwd)/.cache/dev-go-mod:/go/pkg/mod:z \
+		--volume $$(pwd)/.cache/dev-go-build:/root/.cache/go-build:z \
+		-t $(PODMAN_DEV_BASE) -f Containerfile .
+
+dev-image: dev-production-image
+	sudo -E podman build --pull=never \
+		--build-arg TOWN_OS_IMAGE=$(PODMAN_DEV_BASE) \
 		-t $(PODMAN_DEV_IMAGE) -f integration/testdata/Containerfile.dev .
 
 DEV_BTRFS_IMAGE ?= $(shell mktemp btrfs-dev.XXXXXX)
@@ -178,8 +188,7 @@ preflight-dev: .integration-port
 		{ sudo podman rm -f $(PREFLIGHT_CONTAINER) >/dev/null 2>&1; echo "ERROR: bridge networking (-p) not working"; exit 1; }
 	@echo "All preflight checks passed."
 
-dev-clean: dev-stop clean-integration clean-btrfs clean-btrfs-dev
-	@sudo rm -rf dev-data dev-repos
+clean-dev: clean-cache
 
 dev-stop:
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
@@ -226,12 +235,10 @@ clean-integration:
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@rm -f .integration-port
 
-clean: clean-podman
-	rm -rf dev-data
+clean: clean-cache
 	rm -rf .cache
 
-clean-podman: clean-btrfs clean-btrfs-dev
-	@sudo -E podman rm -f $(PODMAN_CONTAINER)
-	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
-	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
-	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
+clean-cache: dev-stop clean-btrfs-dev
+	@sudo rm -rf dev-data dev-repos
+
+clean-all: clean clean-dev clean-integration clean-btrfs

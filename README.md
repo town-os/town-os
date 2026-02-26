@@ -58,7 +58,7 @@ Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the ho
 | `make dev`       | Start the full dev environment (backend + Vite dev server).                     |
 | `make dev-stop`  | Stop and remove the dev backend container.                                      |
 | `make dev-logs`  | Tail journalctl inside the running dev container.                               |
-| `make dev-clean` | Stop the dev container and tear down the dev btrfs volume. Removes `dev-data/`. |
+| `make clean-dev` | Stop the dev container and tear down the dev btrfs volume. Removes `dev-data/`. |
 
 ## Makefile Targets
 
@@ -76,12 +76,16 @@ Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the ho
 
 ### Building
 
-| Target                      | Description                                                        |
-| --------------------------- | ------------------------------------------------------------------ |
-| `make production-image`     | Build the production container image.                              |
-| `make test-image`           | Build the test container image (includes integration test binary). |
-| `make ui-integration-image` | Build the UI integration test container image.                     |
-| `make pull-images`          | Pull base container images from Docker Hub.                        |
+| Target                       | Description                                                        |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `make production-image`      | Build the production base image (for integration tests).           |
+| `make dev-production-image`  | Build the production base image (for dev).                         |
+| `make test-image`            | Build the test container image (includes integration test binary). |
+| `make dev-image`             | Build the dev container image.                                     |
+| `make ui-integration-image`  | Build the UI integration test container image.                     |
+| `make pull-images`           | Pull base container images from Docker Hub.                        |
+
+Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
 
 ### Btrfs Management
 
@@ -93,15 +97,18 @@ Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the ho
 | `make clean-btrfs-dev` | Unmount and remove the dev btrfs volume.                       |
 | `make dev-btrfs`       | Create the dev btrfs volume only if one isn't already mounted. |
 
-The dev and integration test environments use separate btrfs volumes so they can run concurrently without conflict.
+The dev and integration test environments use separate btrfs volumes, container images, and build caches so they can run concurrently without conflict.
 
 ### Cleanup
 
-| Target                   | Description                                                 |
-| ------------------------ | ----------------------------------------------------------- |
-| `make clean`             | Remove all containers, btrfs volumes, caches, and dev data. |
-| `make clean-podman`      | Remove all containers and btrfs volumes.                    |
-| `make clean-integration` | Remove only the integration test containers.                |
+| Target                   | Description                                                              |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `make clean`             | Clean dev resources (containers, btrfs, dev-data, dev-repos) and caches. |
+| `make clean-dev`         | Stop the dev container, tear down dev btrfs, remove dev-data/dev-repos.  |
+| `make clean-cache`       | Same as `clean-dev` (used as a dependency by `clean`).                   |
+| `make clean-integration` | Remove only the integration test containers and port file.               |
+| `make clean-btrfs`       | Unmount and remove the integration test btrfs volume.                    |
+| `make clean-all`         | Clean everything: dev, integration containers, and integration btrfs.    |
 
 ### Linting
 
