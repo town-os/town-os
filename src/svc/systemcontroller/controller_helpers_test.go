@@ -75,7 +75,7 @@ func injectSubvol(t *testing.T, ctrl *storage.MockBtrFSController, name string, 
 func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
 	t.Helper()
 	dir := t.TempDir()
-	return &packages.RepositoryRoot{BaseDir: dir, Git: &git.ExecClient{Home: dir}}
+	return &packages.RepositoryRoot{BaseDir: dir, Git: &git.GoGitClient{Home: dir}}
 }
 
 func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content string) {

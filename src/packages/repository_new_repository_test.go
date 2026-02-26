@@ -53,7 +53,7 @@ func TestNewRepositoryBadCredentials(t *testing.T) {
 	dir := t.TempDir()
 	u := url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/does-not-exist.git"}
 
-	_, err := NewRepository(dir, "", u, "", "", &git.ExecClient{Home: dir})
+	_, err := NewRepository(dir, "", u, "", "", &git.GoGitClient{Home: dir})
 	if err == nil {
 		t.Fatal("expected error for inaccessible repository")
 	}
@@ -85,7 +85,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 		u := url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/does-not-exist.git"}
 
 		// Will fail at clone, but should not fail at credential validation
-		_, err := NewRepository(dir, "", u, "", "", &git.ExecClient{Home: dir})
+		_, err := NewRepository(dir, "", u, "", "", &git.GoGitClient{Home: dir})
 		if errors.Is(err, ErrPartialCredentials) {
 			t.Fatal("empty username and password should not trigger partial credentials error")
 		}
@@ -96,7 +96,7 @@ func TestNewRepositoryPartialCredentials(t *testing.T) {
 		u := url.URL{Scheme: "https", Host: "github.com", Path: "/town-os/does-not-exist.git"}
 
 		// Will fail at clone, but should not fail at credential validation
-		_, err := NewRepository(dir, "", u, "user", "pass", &git.ExecClient{Home: dir})
+		_, err := NewRepository(dir, "", u, "user", "pass", &git.GoGitClient{Home: dir})
 		if errors.Is(err, ErrPartialCredentials) {
 			t.Fatal("providing both username and password should not trigger partial credentials error")
 		}

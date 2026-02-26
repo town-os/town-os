@@ -10,8 +10,8 @@ import (
 
 // --- Interface conformance ---
 
-func TestExecClientImplementsClient(t *testing.T) {
-	var _ Client = (*ExecClient)(nil)
+func TestGoGitClientImplementsClient(t *testing.T) {
+	var _ Client = (*GoGitClient)(nil)
 }
 
 func TestMockClientImplementsClient(t *testing.T) {
@@ -20,10 +20,10 @@ func TestMockClientImplementsClient(t *testing.T) {
 
 // initTestRepo creates an initialized git repo in a temp directory with
 // user config and GPG signing disabled so commits work in any environment.
-func initTestRepo(t *testing.T) (string, *ExecClient) {
+func initTestRepo(t *testing.T) (string, *GoGitClient) {
 	t.Helper()
 	dir := t.TempDir()
-	c := &ExecClient{}
+	c := &GoGitClient{}
 	ctx := context.Background()
 
 	if err := c.Init(ctx, dir); err != nil {
@@ -43,7 +43,7 @@ func initTestRepo(t *testing.T) (string, *ExecClient) {
 }
 
 // initTestRepoWithCommit creates a test repo and adds an initial commit.
-func initTestRepoWithCommit(t *testing.T) (string, *ExecClient) {
+func initTestRepoWithCommit(t *testing.T) (string, *GoGitClient) {
 	t.Helper()
 	dir, c := initTestRepo(t)
 	ctx := context.Background()
@@ -60,11 +60,11 @@ func initTestRepoWithCommit(t *testing.T) (string, *ExecClient) {
 	return dir, c
 }
 
-// --- ExecClient unit tests (real git commands on local repos) ---
+// --- GoGitClient unit tests (real git operations on local repos) ---
 
-func TestExecClientInit(t *testing.T) {
+func TestGoGitClientInit(t *testing.T) {
 	dir := t.TempDir()
-	c := &ExecClient{}
+	c := &GoGitClient{}
 
 	if err := c.Init(context.Background(), dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -75,7 +75,7 @@ func TestExecClientInit(t *testing.T) {
 	}
 }
 
-func TestExecClientAddAndCommit(t *testing.T) {
+func TestGoGitClientAddAndCommit(t *testing.T) {
 	dir, c := initTestRepo(t)
 	ctx := context.Background()
 
@@ -100,7 +100,7 @@ func TestExecClientAddAndCommit(t *testing.T) {
 	}
 }
 
-func TestExecClientDiffClean(t *testing.T) {
+func TestGoGitClientDiffClean(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 
 	dirty, err := c.Diff(context.Background(), dir)
@@ -112,7 +112,7 @@ func TestExecClientDiffClean(t *testing.T) {
 	}
 }
 
-func TestExecClientDiffDirty(t *testing.T) {
+func TestGoGitClientDiffDirty(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed"), 0644); err != nil { //nolint:gosec // test code
@@ -128,23 +128,14 @@ func TestExecClientDiffDirty(t *testing.T) {
 	}
 }
 
-func TestExecClientCloneLocal(t *testing.T) {
-	bare := t.TempDir()
-	c := &ExecClient{}
+func TestGoGitClientCloneLocal(t *testing.T) {
+	// Create a non-bare repo with a commit, then clone from it.
+	source, c := initTestRepoWithCommit(t)
 	ctx := context.Background()
-
-	if _, err := c.Run(ctx, bare, "init", "--bare"); err != nil {
-		t.Fatalf("init bare: %v", err)
-	}
-
-	work := t.TempDir()
-	if err := c.Clone(ctx, filepath.Dir(work), bare, filepath.Base(work)); err != nil {
-		t.Skipf("clone from bare failed (expected on some git versions): %v", err)
-	}
 
 	target := t.TempDir()
 	name := "cloned"
-	if err := c.Clone(ctx, target, bare, name); err != nil {
+	if err := c.Clone(ctx, target, source, name); err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 
@@ -153,7 +144,7 @@ func TestExecClientCloneLocal(t *testing.T) {
 	}
 }
 
-func TestExecClientStash(t *testing.T) {
+func TestGoGitClientStash(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 	ctx := context.Background()
 
@@ -193,7 +184,7 @@ func TestExecClientStash(t *testing.T) {
 	}
 }
 
-func TestExecClientRevParse(t *testing.T) {
+func TestGoGitClientRevParse(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 
 	sha, err := c.RevParse(context.Background(), dir, "HEAD")
@@ -206,9 +197,9 @@ func TestExecClientRevParse(t *testing.T) {
 	}
 }
 
-func TestExecClientRunArbitraryCommand(t *testing.T) {
+func TestGoGitClientRunStatus(t *testing.T) {
 	dir := t.TempDir()
-	c := &ExecClient{}
+	c := &GoGitClient{}
 	ctx := context.Background()
 
 	if err := c.Init(ctx, dir); err != nil {
@@ -220,15 +211,14 @@ func TestExecClientRunArbitraryCommand(t *testing.T) {
 		t.Fatalf("Run status: %v", err)
 	}
 
-	if len(out) == 0 {
-		t.Fatal("expected non-empty output from git status")
-	}
+	// Empty repo status returns empty string from go-git, which is valid.
+	_ = out
 }
 
-func TestExecClientHomeOverride(t *testing.T) {
+func TestGoGitClientHomeOverride(t *testing.T) {
 	dir := t.TempDir()
 	home := t.TempDir()
-	c := &ExecClient{Home: home}
+	c := &GoGitClient{Home: home}
 	ctx := context.Background()
 
 	if err := c.Init(ctx, dir); err != nil {
@@ -240,7 +230,7 @@ func TestExecClientHomeOverride(t *testing.T) {
 	}
 }
 
-func TestExecClientCheckout(t *testing.T) {
+func TestGoGitClientCheckout(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 	ctx := context.Background()
 
@@ -259,4 +249,56 @@ func TestExecClientCheckout(t *testing.T) {
 	if branch != "feature" {
 		t.Fatalf("expected branch feature, got %q", branch)
 	}
+}
+
+func TestGoGitClientRunLog(t *testing.T) {
+	dir, c := initTestRepoWithCommit(t)
+	ctx := context.Background()
+
+	out, err := c.Run(ctx, dir, "log", "--oneline", "-1")
+	if err != nil {
+		t.Fatalf("Run log: %v", err)
+	}
+
+	if len(out) == 0 {
+		t.Fatal("expected non-empty output from git log")
+	}
+}
+
+func TestExtractAuth(t *testing.T) {
+	t.Run("no credentials", func(t *testing.T) {
+		url, auth := extractAuth("https://github.com/user/repo.git")
+		if auth != nil {
+			t.Fatal("expected no auth")
+		}
+		if url != "https://github.com/user/repo.git" {
+			t.Fatalf("expected unchanged URL, got %s", url)
+		}
+	})
+
+	t.Run("with credentials", func(t *testing.T) {
+		url, auth := extractAuth("https://user:pass@github.com/user/repo.git")
+		if auth == nil {
+			t.Fatal("expected auth")
+		}
+		if auth.Username != "user" {
+			t.Fatalf("expected username user, got %s", auth.Username)
+		}
+		if auth.Password != "pass" {
+			t.Fatalf("expected password pass, got %s", auth.Password)
+		}
+		if url != "https://github.com/user/repo.git" {
+			t.Fatalf("expected cleaned URL, got %s", url)
+		}
+	})
+
+	t.Run("no scheme", func(t *testing.T) {
+		url, auth := extractAuth("github.com/user/repo.git")
+		if auth != nil {
+			t.Fatal("expected no auth for schemeless URL")
+		}
+		if url != "github.com/user/repo.git" {
+			t.Fatalf("expected unchanged URL, got %s", url)
+		}
+	})
 }

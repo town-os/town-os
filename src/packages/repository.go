@@ -92,7 +92,7 @@ func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 		BaseDir:         baseDir,
 		Items:           items,
 		RefreshInterval: DefaultRefreshInterval,
-		Git:             &git.ExecClient{Home: baseDir},
+		Git:             &git.GoGitClient{Home: baseDir},
 	}
 
 	rr.loadLastRefreshed()
@@ -342,6 +342,15 @@ func (r *Repository) init(baseDir string, g git.Client) error {
 	case !s.IsDir():
 		return fmt.Errorf("sub-path %s is not a directory", target)
 	default:
+		// Check if this is a valid git repository by looking for .git.
+		if _, err := os.Stat(filepath.Join(target, ".git")); os.IsNotExist(err) {
+			// Directory exists but is not a git repo; remove and clone fresh.
+			if err := os.RemoveAll(target); err != nil {
+				return fmt.Errorf("remove non-git directory %s: %w", target, err)
+			}
+			return g.Clone(ctx, baseDir, r.credentialURL(), r.Name)
+		}
+
 		needsStash, err := g.Diff(ctx, target)
 		if err != nil {
 			return err

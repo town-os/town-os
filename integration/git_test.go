@@ -12,7 +12,7 @@ import (
 
 func TestGitClientClonePublicRepo(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
@@ -31,7 +31,7 @@ func TestGitClientCloneWithCredentials(t *testing.T) {
 	pass := os.Getenv("TOWN_OS_REPO_PASSWORD")
 
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	// Build credential URL if credentials are available.
@@ -52,7 +52,7 @@ func TestGitClientCloneWithCredentials(t *testing.T) {
 
 func TestGitClientPullAfterClone(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
@@ -69,7 +69,7 @@ func TestGitClientPullAfterClone(t *testing.T) {
 
 func TestGitClientDiffCloneIsClean(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
@@ -89,7 +89,7 @@ func TestGitClientDiffCloneIsClean(t *testing.T) {
 
 func TestGitClientDiffAfterModification(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
@@ -125,7 +125,7 @@ func TestGitClientDiffAfterModification(t *testing.T) {
 
 func TestGitClientStashAndApply(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
@@ -178,7 +178,7 @@ func TestGitClientStashAndApply(t *testing.T) {
 
 func TestGitClientRevParseOnClone(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
@@ -198,7 +198,7 @@ func TestGitClientRevParseOnClone(t *testing.T) {
 
 func TestGitClientFetchOnClone(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
@@ -214,7 +214,7 @@ func TestGitClientFetchOnClone(t *testing.T) {
 
 func TestGitClientCloneFailsBadURL(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/does-not-exist-12345.git", "bad")
@@ -223,9 +223,9 @@ func TestGitClientCloneFailsBadURL(t *testing.T) {
 	}
 }
 
-func TestGitClientRunArbitraryOnClone(t *testing.T) {
+func TestGitClientRunLogOnClone(t *testing.T) {
 	dir := t.TempDir()
-	c := &git.ExecClient{Home: dir}
+	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
 	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")

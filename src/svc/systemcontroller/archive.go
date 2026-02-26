@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 )
@@ -356,11 +357,10 @@ func gitCloneIntoPath(ctx context.Context, gitURL, targetPath string) error {
 	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(cloneCtx, "git", "clone", gitURL, targetPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git clone %s: %w: %s", gitURL, err, string(output))
-	}
-	return nil
+	g := &git.GoGitClient{}
+	parent := filepath.Dir(targetPath)
+	name := filepath.Base(targetPath)
+	return g.Clone(cloneCtx, parent, gitURL, name)
 }
 
 // reconcileExtractFromImage is a standalone function for extracting data from

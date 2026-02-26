@@ -4878,6 +4878,13 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
+	// Ensure bare repo HEAD points to main (default may be master on some systems).
+	{
+		cmd := exec.CommandContext(context.TODO(), "git", "-C", seedRepo, "symbolic-ref", "HEAD", "refs/heads/main") //nolint:gosec // test helper
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git symbolic-ref HEAD (seed): %v: %s", err, out)
+		}
+	}
 
 	// BtrfsBasePath points to a real temp dir so git clone can write files.
 	btrfsBase := t.TempDir()
@@ -4895,11 +4902,22 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		t.Fatalf("Client: %v", err)
 	}
 
-	// Create a local bare git repo that serves as the package repository source.
-	// It must be separate from dir so the clone target (dir/<name>) does not collide.
+	// Create a local file-based package repository as a bare git repo so go-git
+	// can clone it. We build the content in a working copy, push to a bare repo,
+	// then point AddRepository at the bare repo URL.
 	seedURL := fmt.Sprintf("file://%s", seedRepo) //nolint:perfsprint // project convention
-	localRepoSource := filepath.Join(t.TempDir(), "local-source")
-	pkgDir := filepath.Join(localRepoSource, packages.PackagesDir, "myapp")
+	localBareRepo := filepath.Join(t.TempDir(), "local.git")
+	localWork := filepath.Join(t.TempDir(), "local-work")
+	for _, args := range [][]string{
+		{"init", "--bare", localBareRepo},
+		{"clone", localBareRepo, localWork},
+	} {
+		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	pkgDir := filepath.Join(localWork, packages.PackagesDir, "myapp")
 	if err := os.MkdirAll(pkgDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -4907,20 +4925,23 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte(pkgYAML), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-
-	// Initialise localRepoSource as a git repository so AddRepository can clone from it.
 	for _, args := range [][]string{
-		{"-C", localRepoSource, "init"},
-		{"-C", localRepoSource, "add", "."},
-		{"-C", localRepoSource, "-c", "user.name=test", "-c", "user.email=test@test", "-c", "commit.gpgsign=false", "commit", "-m", "init"},
+		{"-C", localWork, "add", "."},
+		{"-C", localWork, "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "init"},
+		{"-C", localWork, "push", "origin", "HEAD:main"},
 	} {
 		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
+	// Ensure bare repo HEAD points to main (default may be master on some systems).
+	cmd := exec.CommandContext(context.TODO(), "git", "-C", localBareRepo, "symbolic-ref", "HEAD", "refs/heads/main") //nolint:gosec // test helper
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git symbolic-ref HEAD: %v: %s", err, out)
+	}
 
-	if err := c.AddRepository(context.TODO(), "local", "file://"+localRepoSource, "", ""); err != nil {
+	if err := c.AddRepository(context.TODO(), "local", "file://"+localBareRepo, "", ""); err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
