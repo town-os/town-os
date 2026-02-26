@@ -693,6 +693,23 @@ func TestCompileGitFieldPropagation(t *testing.T) {
 		}
 	})
 
+	t.Run("file URL accepted", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "file:///tmp/repo.git"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Volumes["config"].Git != "file:///tmp/repo.git" {
+			t.Fatalf("expected file URL, got %s", p.Volumes["config"].Git)
+		}
+	})
+
 	t.Run("git coexists with archive", func(t *testing.T) {
 		input := InputPackage{
 			Image:       "debian:latest",

@@ -4847,7 +4847,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	// Create a local bare git repo to use as the seed source.
 	seedRepo := filepath.Join(t.TempDir(), "seed.git")
 	for _, args := range [][]string{
-		{"init", "--bare", seedRepo},
+		{"init", "--bare", "-b", "main", seedRepo},
 	} {
 		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -4870,7 +4870,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"-C", workDir, "add", "hello.txt"},
-		{"-C", workDir, "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "seed"},
+		{"-C", workDir, "-c", "user.name=test", "-c", "user.email=test@test", "-c", "commit.gpgsign=false", "commit", "-m", "seed"},
 		{"-C", workDir, "push", "origin", "HEAD:main"},
 	} {
 		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
@@ -4895,10 +4895,11 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		t.Fatalf("Client: %v", err)
 	}
 
-	// Create a local file-based repo with a package that has a git seed volume.
+	// Create a local bare git repo that serves as the package repository source.
+	// It must be separate from dir so the clone target (dir/<name>) does not collide.
 	seedURL := fmt.Sprintf("file://%s", seedRepo) //nolint:perfsprint // project convention
-	localRepoDir := filepath.Join(dir, "local")
-	pkgDir := filepath.Join(localRepoDir, packages.PackagesDir, "myapp")
+	localRepoSource := filepath.Join(t.TempDir(), "local-source")
+	pkgDir := filepath.Join(localRepoSource, packages.PackagesDir, "myapp")
 	if err := os.MkdirAll(pkgDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -4907,7 +4908,19 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if err := c.AddRepository(context.TODO(), "local", "file://"+localRepoDir, "", ""); err != nil {
+	// Initialise localRepoSource as a git repository so AddRepository can clone from it.
+	for _, args := range [][]string{
+		{"-C", localRepoSource, "init"},
+		{"-C", localRepoSource, "add", "."},
+		{"-C", localRepoSource, "-c", "user.name=test", "-c", "user.email=test@test", "-c", "commit.gpgsign=false", "commit", "-m", "init"},
+	} {
+		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+
+	if err := c.AddRepository(context.TODO(), "local", "file://"+localRepoSource, "", ""); err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
 

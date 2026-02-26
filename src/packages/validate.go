@@ -153,7 +153,7 @@ func ValidateGitURL(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidGitURL, err)
 	}
-	if u.Scheme == "" || u.Host == "" {
+	if u.Scheme == "" || (u.Host == "" && u.Scheme != "file") {
 		return fmt.Errorf("%w: %q (must include scheme and host)", ErrInvalidGitURL, rawURL)
 	}
 	return nil

@@ -275,6 +275,20 @@ func TestValidateGitURL(t *testing.T) {
 			t.Fatalf("expected ErrInvalidGitURL, got %v", err)
 		}
 	})
+
+	t.Run("file URL accepted", func(t *testing.T) {
+		err := ValidateGitURL("file:///tmp/repo.git")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("SSH URL accepted", func(t *testing.T) {
+		err := ValidateGitURL("ssh://git@github.com/example/repo.git")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestYAMLVolumeGitParsing(t *testing.T) {
