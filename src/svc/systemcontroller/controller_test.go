@@ -34,7 +34,10 @@ func testRoute(t *testing.T, base, path string) string {
 func initTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController) {
 	t.Helper()
 	mock := storage.InitBtrFSMock()
-	controller := mock.Controller.(*storage.MockBtrFSController)
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
@@ -114,7 +117,13 @@ func TestCreateFilesystemBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "storage/create"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -124,7 +133,7 @@ func TestCreateFilesystemBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -230,7 +239,13 @@ func TestModifyFilesystemBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/modify"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "storage/modify"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -240,7 +255,7 @@ func TestModifyFilesystemBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -293,7 +308,13 @@ func TestRemoveFilesystemBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/remove"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "storage/remove"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -303,7 +324,7 @@ func TestRemoveFilesystemBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -415,7 +436,13 @@ func TestListFilesystemsBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "storage"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -425,7 +452,7 @@ func TestListFilesystemsBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -669,7 +696,7 @@ func TestBulkCreateAndRemove(t *testing.T) {
 	c, _ := initTestClient(t)
 
 	count := 10
-	for i := 0; i < count; i++ {
+	for i := range count {
 		name := fmt.Sprintf("vol-%d", i)
 		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
 			t.Fatalf("CreateFilesystem %q: %v", name, err)
@@ -810,28 +837,28 @@ func TestMockClientListWithPrefix(t *testing.T) {
 
 func TestMockClientErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.CreateErr = injected
-	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test"}); err != injected {
+	if err := m.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "test"}); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.CreateErr = nil
 	m.ListErr = injected
-	if _, err := m.ListFilesystems(context.TODO(), "", "", ListParams{}); err != injected {
+	if _, err := m.ListFilesystems(context.TODO(), "", "", ListParams{}); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.ListErr = nil
 	m.RemoveErr = injected
-	if err := m.RemoveFilesystem(context.TODO(), "test"); err != injected {
+	if err := m.RemoveFilesystem(context.TODO(), "test"); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.RemoveErr = nil
 	m.ModifyErr = injected
-	if err := m.ModifyFilesystem(context.TODO(), "test", storage.Filesystem{}); err != injected {
+	if err := m.ModifyFilesystem(context.TODO(), "test", storage.Filesystem{}); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -872,7 +899,12 @@ func TestWrongHTTPMethod(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	resp, err := http.Get(testRoute(t, ts.Server.URL, "storage/create"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, testRoute(t, ts.Server.URL, "storage/create"), nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -882,7 +914,7 @@ func TestWrongHTTPMethod(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 for GET on POST-only route")
 	}
 }
@@ -892,7 +924,13 @@ func TestNonexistentRoute(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "nonexistent"), "application/json", bytes.NewBufferString("{}"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "nonexistent"), bytes.NewBufferString("{}"))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -902,7 +940,7 @@ func TestNonexistentRoute(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 for nonexistent route")
 	}
 }
@@ -912,7 +950,13 @@ func TestEmptyBody(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "storage/create"), "application/json", bytes.NewBufferString(""))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "storage/create"), bytes.NewBufferString(""))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -922,7 +966,7 @@ func TestEmptyBody(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 for empty body")
 	}
 }
@@ -995,22 +1039,22 @@ func TestMockClientRemoveRepositoryNotFound(t *testing.T) {
 
 func TestMockClientRepositoryErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.AddRepoErr = injected
-	if err := m.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", ""); err != injected {
+	if err := m.AddRepository(context.TODO(), "", "https://example.com/repo.git", "", ""); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.AddRepoErr = nil
 	m.RemRepoErr = injected
-	if err := m.RemoveRepository(context.TODO(), "test"); err != injected {
+	if err := m.RemoveRepository(context.TODO(), "test"); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 
 	m.RemRepoErr = nil
 	m.ListRepoErr = injected
-	if _, err := m.ListRepositories(context.TODO(), ListParams{}); err != injected {
+	if _, err := m.ListRepositories(context.TODO(), ListParams{}); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1056,7 +1100,13 @@ func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/add"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "repository/add"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -1066,7 +1116,7 @@ func TestHTTPAddRepositoryBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -1076,7 +1126,13 @@ func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "repository/remove"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "repository/remove"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -1086,7 +1142,7 @@ func TestHTTPRemoveRepositoryBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -1172,7 +1228,12 @@ func TestHTTPRepositoryWrongMethod(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
-	resp, err := http.Get(testRoute(t, ts.Server.URL, "repository/add"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, testRoute(t, ts.Server.URL, "repository/add"), nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -1182,7 +1243,7 @@ func TestHTTPRepositoryWrongMethod(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 for GET on POST-only route")
 	}
 }
@@ -1270,10 +1331,10 @@ func TestHTTPAddRepositoryPartialCredentials(t *testing.T) {
 func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content string) {
 	t.Helper()
 	dir := filepath.Join(baseDir, repoName, packages.PackagesDir, pkgName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // test directory
 		t.Fatalf("os.MkdirAll %q: %v", dir, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.yaml", version)), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.yaml", version)), []byte(content), 0644); err != nil { //nolint:gosec,perfsprint // test file, project convention
 		t.Fatalf("os.WriteFile %s/%s.yaml: %v", dir, version, err)
 	}
 }
@@ -1291,7 +1352,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 
 	// create empty packages dir
 	pkgDir := filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
 		t.Fatalf("os.MkdirAll %q: %v", pkgDir, err)
 	}
 
@@ -1406,7 +1467,13 @@ func TestHTTPListPackagesWrongMethod(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages"), "application/json", nil)
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages"), nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -1416,7 +1483,7 @@ func TestHTTPListPackagesWrongMethod(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 for POST on GET-only route")
 	}
 }
@@ -1487,7 +1554,7 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 
 	// create empty packages dir
 	pkgDir := filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
 		t.Fatalf("os.MkdirAll: %v", err)
 	}
 
@@ -1511,7 +1578,13 @@ func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/questions"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages/questions"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -1521,7 +1594,7 @@ func TestHTTPGetPackageQuestionsBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -1532,7 +1605,12 @@ func TestHTTPGetPackageQuestionsWrongMethod(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
-	resp, err := http.Get(testRoute(t, ts.Server.URL, "packages/questions"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, testRoute(t, ts.Server.URL, "packages/questions"), nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -1542,7 +1620,7 @@ func TestHTTPGetPackageQuestionsWrongMethod(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 for GET on POST-only route")
 	}
 }
@@ -1672,10 +1750,10 @@ func TestMockClientListPackagesEmpty(t *testing.T) {
 
 func TestMockClientListPackagesErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.ListPkgErr = injected
-	if _, err := m.ListPackages(context.TODO(), ListParams{}); err != injected {
+	if _, err := m.ListPackages(context.TODO(), ListParams{}); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1742,7 +1820,7 @@ func TestMockClientGetPackageQuestionsNotFound(t *testing.T) {
 
 func TestMockClientGetPackageQuestionsErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.Questions = map[string]map[string]packages.Question{
 		"nginx": {
@@ -1751,7 +1829,7 @@ func TestMockClientGetPackageQuestionsErrorInjection(t *testing.T) {
 	}
 
 	m.QuestionsErr = injected
-	if _, err := m.GetPackageQuestions(context.TODO(), "nginx"); err != injected {
+	if _, err := m.GetPackageQuestions(context.TODO(), "nginx"); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1781,7 +1859,11 @@ func TestMockClientGetPackageQuestionsCallLog(t *testing.T) {
 	if len(args) != 1 {
 		t.Fatalf("expected 1 arg, got %d", len(args))
 	}
-	if args[0].(string) != "nginx" {
+	argStr, ok := args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if argStr != "nginx" {
 		t.Fatalf("expected arg %q, got %v", "nginx", args[0])
 	}
 }
@@ -1840,7 +1922,7 @@ func TestMockClientGetPackageQuestionsByIdentityNotFound(t *testing.T) {
 
 func TestMockClientGetPackageQuestionsByIdentityErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.Questions = map[string]map[string]packages.Question{
 		"nginx@1.0": {
@@ -1849,7 +1931,7 @@ func TestMockClientGetPackageQuestionsByIdentityErrorInjection(t *testing.T) {
 	}
 
 	m.QuestionsIdentityErr = injected
-	if _, err := m.GetPackageQuestionsByIdentity(context.TODO(), "mock-repo", "nginx", "1.0"); err != injected {
+	if _, err := m.GetPackageQuestionsByIdentity(context.TODO(), "mock-repo", "nginx", "1.0"); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -1923,13 +2005,25 @@ func TestHTTPInstallPackage(t *testing.T) {
 	if calls[2].Method != "Install" {
 		t.Fatalf("expected Install call, got %q", calls[2].Method)
 	}
-	if calls[2].Args[0].(string) != "repo-a" {
+	repoArg, ok := calls[2].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if repoArg != "repo-a" {
 		t.Fatalf("expected repoName %q, got %v", "repo-a", calls[2].Args[0])
 	}
-	if calls[2].Args[1].(string) != "nginx" {
+	nameArg, ok := calls[2].Args[1].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if nameArg != "nginx" {
 		t.Fatalf("expected pkgName %q, got %v", "nginx", calls[2].Args[1])
 	}
-	if calls[2].Args[2].(string) != "1.0" {
+	verArg, ok := calls[2].Args[2].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if verArg != "1.0" {
 		t.Fatalf("expected version %q, got %v", "1.0", calls[2].Args[2])
 	}
 	if calls[3].Method != "ClearLastResponses" {
@@ -1951,7 +2045,13 @@ func TestHTTPInstallPackageBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/install"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages/install"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -1961,7 +2061,7 @@ func TestHTTPInstallPackageBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -2025,7 +2125,10 @@ func TestHTTPUninstallPackageWithPurge(t *testing.T) {
 func initInstallWithVolumesTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController) {
 	t.Helper()
 	mock := storage.InitBtrFSMock()
-	controller := mock.Controller.(*storage.MockBtrFSController)
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
 	rr := emptyRepoRoot(t)
 	u, err := url.Parse("https://example.com/repo-a.git")
 	if err != nil {
@@ -2349,7 +2452,13 @@ func TestHTTPUninstallPackageBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/uninstall"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages/uninstall"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -2359,7 +2468,7 @@ func TestHTTPUninstallPackageBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -2420,7 +2529,11 @@ func TestHTTPInstallPackageCreatesSystemdUnit(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "town-os-package--repo-a-nginx-1.0.service" {
+	unitName, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if unitName != "town-os-package--repo-a-nginx-1.0.service" {
 		t.Fatalf("call 0: expected unit name %q, got %v", "town-os-package--repo-a-nginx-1.0.service", calls[0].Args[0])
 	}
 
@@ -2428,7 +2541,11 @@ func TestHTTPInstallPackageCreatesSystemdUnit(t *testing.T) {
 	if calls[1].Method != "SetStatus" {
 		t.Fatalf("call 1: expected SetStatus, got %q", calls[1].Method)
 	}
-	if calls[1].Args[1].(systemd.StatusAction) != systemd.Start {
+	startAction, ok := calls[1].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if startAction != systemd.Start {
 		t.Fatalf("call 1: expected action %q, got %v", systemd.Start, calls[1].Args[1])
 	}
 }
@@ -2466,7 +2583,11 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	if calls[3].Method != "SetStatus" {
 		t.Fatalf("call 3: expected SetStatus, got %q", calls[3].Method)
 	}
-	if calls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
+	stopAction, ok := calls[3].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if stopAction != systemd.Stop {
 		t.Fatalf("call 3: expected action %q, got %v", systemd.Stop, calls[3].Args[1])
 	}
 
@@ -2474,7 +2595,11 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	if calls[4].Method != "SetStatus" {
 		t.Fatalf("call 4: expected SetStatus, got %q", calls[4].Method)
 	}
-	if calls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
+	disableAction, ok := calls[4].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if disableAction != systemd.Disable {
 		t.Fatalf("call 4: expected action %q, got %v", systemd.Disable, calls[4].Args[1])
 	}
 
@@ -2482,7 +2607,11 @@ func TestHTTPUninstallPackageRemovesSystemdUnit(t *testing.T) {
 	if calls[5].Method != "UninstallUnit" {
 		t.Fatalf("call 5: expected UninstallUnit, got %q", calls[5].Method)
 	}
-	if calls[5].Args[0].(string) != "town-os-package--repo-a-nginx-1.0.service" {
+	uninstallUnitName, ok := calls[5].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if uninstallUnitName != "town-os-package--repo-a-nginx-1.0.service" {
 		t.Fatalf("call 5: expected unit name %q, got %v", "town-os-package--repo-a-nginx-1.0.service", calls[5].Args[0])
 	}
 }
@@ -2765,7 +2894,13 @@ func TestHTTPGetResponsesBadJSON(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Post(testRoute(t, ts.Server.URL, "packages/responses"), "application/json", bytes.NewBufferString("{bad"))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages/responses"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -2775,7 +2910,7 @@ func TestHTTPGetResponsesBadJSON(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected non-200 status for bad JSON")
 	}
 }
@@ -2853,10 +2988,10 @@ func TestMockClientInstallPackage(t *testing.T) {
 
 func TestMockClientInstallPackageErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.InstallPkgErr = injected
-	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); err != injected {
+	if err := m.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{}, false, "", false); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -2878,10 +3013,18 @@ func TestMockClientInstallPackageCallLog(t *testing.T) {
 	if len(calls[0].Args) != 6 {
 		t.Fatalf("expected 6 args, got %d", len(calls[0].Args))
 	}
-	if calls[0].Args[0].(string) != "nginx" {
+	arg0, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if arg0 != "nginx" {
 		t.Fatalf("expected arg 0 %q, got %v", "nginx", calls[0].Args[0])
 	}
-	if calls[0].Args[1].(string) != "1.0" {
+	arg1, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if arg1 != "1.0" {
 		t.Fatalf("expected arg 1 %q, got %v", "1.0", calls[0].Args[1])
 	}
 }
@@ -2915,10 +3058,10 @@ func TestMockClientUninstallPackageNotInstalled(t *testing.T) {
 
 func TestMockClientUninstallPackageErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.UninstallPkgErr = injected
-	if err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", false); err != injected {
+	if err := m.UninstallPackage(context.TODO(), "mock-repo", "nginx", "1.0", false); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -3070,10 +3213,10 @@ func TestMockClientListInstalledEmpty(t *testing.T) {
 
 func TestMockClientListInstalledErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.ListInstalledErr = injected
-	if _, err := m.ListInstalled(context.TODO(), ListParams{}); err != injected {
+	if _, err := m.ListInstalled(context.TODO(), ListParams{}); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -3112,10 +3255,10 @@ func TestMockClientGetResponsesNotInstalled(t *testing.T) {
 
 func TestMockClientGetResponsesErrorInjection(t *testing.T) {
 	m := InitMockClient()
-	injected := fmt.Errorf("injected error")
+	injected := errors.New("injected error")
 
 	m.GetResponsesErr = injected
-	if _, err := m.GetResponses(context.TODO(), "mock-repo", "nginx", "1.0"); err != injected {
+	if _, err := m.GetResponses(context.TODO(), "mock-repo", "nginx", "1.0"); !errors.Is(err, injected) {
 		t.Fatalf("expected injected error, got %v", err)
 	}
 }
@@ -3281,11 +3424,11 @@ func TestHTTPDisableAccount(t *testing.T) {
 	}
 
 	// disable alice using admin token
-	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"alice"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/disable"), bytes.NewBufferString(`{"username":"alice"}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -3298,7 +3441,7 @@ func TestHTTPDisableAccount(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
@@ -3335,11 +3478,11 @@ func TestHTTPEnableAccount(t *testing.T) {
 		t.Fatalf("CreateAccount alice: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"alice"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/disable"), bytes.NewBufferString(`{"username":"alice"}`))
 	if err != nil {
-		t.Fatalf("NewRequest disable: %v", err)
+		t.Fatalf("NewRequestWithContext disable: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -3348,7 +3491,7 @@ func TestHTTPEnableAccount(t *testing.T) {
 	if err := resp.Body.Close(); err != nil {
 		t.Errorf("resp.Body.Close: %v", err)
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("disable: expected 200, got %d", resp.StatusCode)
 	}
 
@@ -3362,11 +3505,11 @@ func TestHTTPEnableAccount(t *testing.T) {
 	}
 
 	// enable alice
-	req, err = http.NewRequest("POST", c.route("account/enable"), bytes.NewBufferString(`{"username":"alice"}`))
+	req, err = http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/enable"), bytes.NewBufferString(`{"username":"alice"}`))
 	if err != nil {
-		t.Fatalf("NewRequest enable: %v", err)
+		t.Fatalf("NewRequestWithContext enable: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", adminResp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = c.HTTP.Do(req)
 	if err != nil {
@@ -3375,7 +3518,7 @@ func TestHTTPEnableAccount(t *testing.T) {
 	if err := resp.Body.Close(); err != nil {
 		t.Errorf("resp.Body.Close: %v", err)
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("enable: expected 200, got %d", resp.StatusCode)
 	}
 
@@ -3561,7 +3704,12 @@ func TestHTTPSessionLifecycle(t *testing.T) {
 func TestHTTPSessionUsernameUnauthenticated(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
-	resp, err := c.HTTP.Get(fmt.Sprintf("%s/account/me", c.BaseURL))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, fmt.Sprintf("%s/account/me", c.BaseURL), nil) //nolint:perfsprint // project convention
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		t.Fatalf("GET /account/me: %v", err)
 	}
@@ -3571,7 +3719,7 @@ func TestHTTPSessionUsernameUnauthenticated(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode != 401 {
+	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d", resp.StatusCode)
 	}
 }
@@ -3613,11 +3761,11 @@ func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
 	}
 
 	// try to install a package (admin-only)
-	req, err := http.NewRequest("POST", c.route("packages/install"), bytes.NewBufferString(`{"name":"test","version":"1.0"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("packages/install"), bytes.NewBufferString(`{"name":"test","version":"1.0"}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -3630,7 +3778,7 @@ func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 403 {
+	if httpResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 for non-admin, got %d", httpResp.StatusCode)
 	}
 }
@@ -3693,11 +3841,11 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 	}
 
 	// admin should be able to install
-	req, err := http.NewRequest("POST", c.route("packages/install"), bytes.NewBufferString(`{"name":"nginx","version":"1.0","responses":{}}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("packages/install"), bytes.NewBufferString(`{"name":"nginx","version":"1.0","responses":{}}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -3710,7 +3858,7 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 200 {
+	if httpResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for admin, got %d", httpResp.StatusCode)
 	}
 }
@@ -3719,7 +3867,7 @@ func TestAdminMiddlewareNoToken(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// try without any token
-	req, err := http.NewRequest("POST", c.route("packages/install"), bytes.NewBufferString(`{"name":"test","version":"1.0"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("packages/install"), bytes.NewBufferString(`{"name":"test","version":"1.0"}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -3735,7 +3883,7 @@ func TestAdminMiddlewareNoToken(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 401 {
+	if httpResp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for missing token, got %d", httpResp.StatusCode)
 	}
 }
@@ -3812,11 +3960,11 @@ func TestHTTPAuditLogLifecycle(t *testing.T) {
 	}
 
 	// perform an action (create another account) using admin token
-	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"alice","password":"password1","email":"a@b.com","phone":"555","real_name":"Alice","admin":false}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(`{"username":"alice","password":"password1","email":"a@b.com","phone":"555","real_name":"Alice","admin":false}`))
 	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
+		t.Fatalf("NewRequestWithContext: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -3826,7 +3974,7 @@ func TestHTTPAuditLogLifecycle(t *testing.T) {
 	if err := httpResp.Body.Close(); err != nil {
 		t.Errorf("resp.Body.Close: %v", err)
 	}
-	if httpResp.StatusCode != 200 {
+	if httpResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", httpResp.StatusCode)
 	}
 
@@ -3892,14 +4040,14 @@ func TestHTTPAuditLogPagination(t *testing.T) {
 	}
 
 	// perform multiple actions via authenticated requests
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		username := fmt.Sprintf("user%d", i)
 		body := fmt.Sprintf(`{"username":"%s","password":"password1","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
-		req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(body))
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(body))
 		if err != nil {
-			t.Fatalf("NewRequest: %v", err)
+			t.Fatalf("NewRequestWithContext: %v", err)
 		}
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 		req.Header.Set("Content-Type", "application/json")
 
 		httpResp, err := c.HTTP.Do(req)
@@ -4018,9 +4166,9 @@ func TestHTTPRequireAuthBlocksUnauthenticated(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// try accessing a protected route without a token
-	req, err := http.NewRequest("POST", c.route("storage/create"), bytes.NewBufferString(`{"name":"test"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("storage/create"), bytes.NewBufferString(`{"name":"test"}`))
 	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
+		t.Fatalf("NewRequestWithContext: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -4034,7 +4182,7 @@ func TestHTTPRequireAuthBlocksUnauthenticated(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 401 {
+	if httpResp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for unauthenticated request, got %d", httpResp.StatusCode)
 	}
 }
@@ -4053,11 +4201,11 @@ func TestHTTPRequireAuthAllowsAuthenticated(t *testing.T) {
 	}
 
 	// access a non-admin protected route (list accounts)
-	req, err := http.NewRequest("GET", c.route("account"), nil)
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, c.route("account"), nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 
 	httpResp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -4069,7 +4217,7 @@ func TestHTTPRequireAuthAllowsAuthenticated(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 200 {
+	if httpResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for authenticated non-admin, got %d", httpResp.StatusCode)
 	}
 }
@@ -4123,7 +4271,7 @@ func TestHTTPCreateAccountRequiresAuthWhenAccountsExist(t *testing.T) {
 	// Clear the token — unauthenticated request
 	c.Token = ""
 
-	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"password1","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"password1","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -4139,7 +4287,7 @@ func TestHTTPCreateAccountRequiresAuthWhenAccountsExist(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 401 {
+	if httpResp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for unauthenticated create, got %d", httpResp.StatusCode)
 	}
 }
@@ -4158,11 +4306,11 @@ func TestHTTPCreateAccountNonAdminForbidden(t *testing.T) {
 	}
 
 	// try to create account with non-admin token
-	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"password1","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(`{"username":"mallory","password":"password1","email":"m@b.com","phone":"555","real_name":"Mallory","admin":false}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -4175,7 +4323,7 @@ func TestHTTPCreateAccountNonAdminForbidden(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 403 {
+	if httpResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 for non-admin create, got %d", httpResp.StatusCode)
 	}
 }
@@ -4184,11 +4332,11 @@ func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// disable the bootstrap admin
-	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -4198,7 +4346,7 @@ func TestHTTPCreateAccountBootstrapAllDisabled(t *testing.T) {
 	if err := httpResp.Body.Close(); err != nil {
 		t.Errorf("resp.Body.Close: %v", err)
 	}
-	if httpResp.StatusCode != 200 {
+	if httpResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for disable, got %d", httpResp.StatusCode)
 	}
 
@@ -4222,11 +4370,11 @@ func TestHTTPCreateAccountBootstrapNoAdmins(t *testing.T) {
 	}
 
 	// Disable the only admin
-	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -4236,7 +4384,7 @@ func TestHTTPCreateAccountBootstrapNoAdmins(t *testing.T) {
 	if err := httpResp.Body.Close(); err != nil {
 		t.Errorf("resp.Body.Close: %v", err)
 	}
-	if httpResp.StatusCode != 200 {
+	if httpResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for disable, got %d", httpResp.StatusCode)
 	}
 
@@ -4310,11 +4458,11 @@ func TestHTTPCreateAccountBootstrapAllDisabledWithStaleToken(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// Disable the bootstrap admin.
-	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/disable"), bytes.NewBufferString(`{"username":"testadmin"}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.HTTP.Do(req)
@@ -4324,7 +4472,7 @@ func TestHTTPCreateAccountBootstrapAllDisabledWithStaleToken(t *testing.T) {
 	if err := httpResp.Body.Close(); err != nil {
 		t.Errorf("resp.Body.Close: %v", err)
 	}
-	if httpResp.StatusCode != 200 {
+	if httpResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for disable, got %d", httpResp.StatusCode)
 	}
 
@@ -4479,7 +4627,7 @@ func TestHTTPCreateAccountRejectsWithActiveSession(t *testing.T) {
 	// Clear token — active session exists, should require auth.
 	c.Token = ""
 
-	req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(`{"username":"intruder","password":"password1","email":"i@b.com","phone":"555","real_name":"Intruder","admin":false}`))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(`{"username":"intruder","password":"password1","email":"i@b.com","phone":"555","real_name":"Intruder","admin":false}`))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -4495,7 +4643,7 @@ func TestHTTPCreateAccountRejectsWithActiveSession(t *testing.T) {
 		}
 	}()
 
-	if httpResp.StatusCode != 401 {
+	if httpResp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for unauthenticated create with active admin session, got %d", httpResp.StatusCode)
 	}
 }
@@ -4577,7 +4725,7 @@ func TestHTTPListAccountsSortByUsername(t *testing.T) {
 
 	// Create accounts in non-alphabetical order
 	for _, name := range []string{"charlie", "alice", "bob"} {
-		if _, err := c.CreateAccount(context.TODO(), name, "password1", fmt.Sprintf("%s@test.com", name), "555", name, false); err != nil {
+		if _, err := c.CreateAccount(context.TODO(), name, "password1", fmt.Sprintf("%s@test.com", name), "555", name, false); err != nil { //nolint:perfsprint // project convention
 			t.Fatalf("CreateAccount %q: %v", name, err)
 		}
 	}
@@ -4675,7 +4823,7 @@ func TestHTTPListFilesystemsSorted(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
@@ -4721,7 +4869,7 @@ func TestHTTPListFilesystemsSortedDesc(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
@@ -4813,14 +4961,14 @@ func TestHTTPAuditLogSortByIDASc(t *testing.T) {
 	}
 
 	// Perform a few actions to create audit entries
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		username := fmt.Sprintf("sortuser%d", i)
 		body := fmt.Sprintf(`{"username":"%s","password":"password1","email":"%s@b.com","phone":"555","real_name":"User %d","admin":false}`, username, username, i)
-		req, err := http.NewRequest("POST", c.route("account/create"), bytes.NewBufferString(body))
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(body))
 		if err != nil {
 			t.Fatalf("NewRequest: %v", err)
 		}
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 		req.Header.Set("Content-Type", "application/json")
 
 		httpResp, err := c.HTTP.Do(req)
@@ -4970,10 +5118,18 @@ func TestHTTPSetUnitStatusStart(t *testing.T) {
 	if calls[0].Method != "SetStatus" {
 		t.Fatalf("expected method SetStatus, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "test.service" {
+	unitName, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if unitName != "test.service" {
 		t.Fatalf("expected unit %q, got %v", "test.service", calls[0].Args[0])
 	}
-	if calls[0].Args[1].(systemd.StatusAction) != systemd.Start {
+	startAction, ok := calls[0].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if startAction != systemd.Start {
 		t.Fatalf("expected action %q, got %v", systemd.Start, calls[0].Args[1])
 	}
 }
@@ -4989,7 +5145,11 @@ func TestHTTPSetUnitStatusStop(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
-	if calls[0].Args[1].(systemd.StatusAction) != systemd.Stop {
+	stopAction, ok := calls[0].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if stopAction != systemd.Stop {
 		t.Fatalf("expected action %q, got %v", systemd.Stop, calls[0].Args[1])
 	}
 }
@@ -5005,7 +5165,11 @@ func TestHTTPSetUnitStatusRestart(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
-	if calls[0].Args[1].(systemd.StatusAction) != systemd.Restart {
+	restartAction, ok := calls[0].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if restartAction != systemd.Restart {
 		t.Fatalf("expected action %q, got %v", systemd.Restart, calls[0].Args[1])
 	}
 }
@@ -5040,7 +5204,7 @@ func TestHTTPSetUnitStatusStopSystemcontrollerRejected(t *testing.T) {
 func TestHTTPSetUnitStatusInvalidAction(t *testing.T) {
 	c, sd := initSystemdTestClient(t)
 
-	sd.StatusErr = fmt.Errorf("injected error")
+	sd.StatusErr = errors.New("injected error")
 
 	err := c.SetUnitStatus(context.TODO(), "test.service", systemd.Start)
 	if err == nil {
@@ -5062,7 +5226,22 @@ func TestHTTPDisablePackage(t *testing.T) {
 	instCalls := inst.GetCalls()
 	found := false
 	for _, call := range instCalls {
-		if call.Method == "SetDisabled" && call.Args[0].(string) == "repo-a" && call.Args[1].(string) == "nginx" && call.Args[2].(bool) == true {
+		if call.Method != "SetDisabled" {
+			continue
+		}
+		disRepo, ok := call.Args[0].(string)
+		if !ok {
+			continue
+		}
+		disPkg, ok := call.Args[1].(string)
+		if !ok {
+			continue
+		}
+		disFlag, ok := call.Args[2].(bool)
+		if !ok {
+			continue
+		}
+		if disRepo == "repo-a" && disPkg == "nginx" && disFlag {
 			found = true
 			break
 		}
@@ -5073,7 +5252,11 @@ func TestHTTPDisablePackage(t *testing.T) {
 
 	sdCalls := sd.GetCalls()
 	lastCall := sdCalls[len(sdCalls)-1]
-	if lastCall.Method != "SetStatus" || lastCall.Args[1].(systemd.StatusAction) != systemd.Stop {
+	lastAction, ok := lastCall.Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if lastCall.Method != "SetStatus" || lastAction != systemd.Stop {
 		t.Fatalf("expected last systemd call to be Stop, got %s %v", lastCall.Method, lastCall.Args)
 	}
 }
@@ -5096,7 +5279,22 @@ func TestHTTPEnablePackage(t *testing.T) {
 	instCalls := inst.GetCalls()
 	found := false
 	for _, call := range instCalls {
-		if call.Method == "SetDisabled" && call.Args[0].(string) == "repo-a" && call.Args[1].(string) == "nginx" && call.Args[2].(bool) == false {
+		if call.Method != "SetDisabled" {
+			continue
+		}
+		enRepo, ok := call.Args[0].(string)
+		if !ok {
+			continue
+		}
+		enPkg, ok := call.Args[1].(string)
+		if !ok {
+			continue
+		}
+		enFlag, ok := call.Args[2].(bool)
+		if !ok {
+			continue
+		}
+		if enRepo == "repo-a" && enPkg == "nginx" && !enFlag {
 			found = true
 			break
 		}
@@ -5107,7 +5305,11 @@ func TestHTTPEnablePackage(t *testing.T) {
 
 	sdCalls := sd.GetCalls()
 	lastCall := sdCalls[len(sdCalls)-1]
-	if lastCall.Method != "SetStatus" || lastCall.Args[1].(systemd.StatusAction) != systemd.Start {
+	lastAction, ok := lastCall.Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if lastCall.Method != "SetStatus" || lastAction != systemd.Start {
 		t.Fatalf("expected last systemd call to be Start, got %s %v", lastCall.Method, lastCall.Args)
 	}
 }
@@ -5165,7 +5367,7 @@ func TestHTTPLogReplayEmpty(t *testing.T) {
 func TestHTTPLogReplayError(t *testing.T) {
 	c, sd := initSystemdTestClient(t)
 
-	sd.LogErr = fmt.Errorf("injected log error")
+	sd.LogErr = errors.New("injected log error")
 
 	_, err := c.LogReplay(context.TODO(), "test.service")
 	if err == nil {
@@ -5179,7 +5381,12 @@ func TestHTTPLogReplayEmptyUnit(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Get(fmt.Sprintf("%s/systemd/logs", ts.Server.URL))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, fmt.Sprintf("%s/systemd/logs", ts.Server.URL), nil) //nolint:perfsprint // project convention
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -5189,7 +5396,7 @@ func TestHTTPLogReplayEmptyUnit(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for system-wide log replay (empty unit), got %d", resp.StatusCode)
 	}
 }
@@ -5276,7 +5483,7 @@ func TestHTTPLogTailEmpty(t *testing.T) {
 func TestHTTPLogTailError(t *testing.T) {
 	c, sd := initSystemdTestClient(t)
 
-	sd.LogErr = fmt.Errorf("injected log error")
+	sd.LogErr = errors.New("injected log error")
 
 	_, err := c.LogTail(context.TODO(), systemd.LogTailParams{Unit: "test.service", Lines: 100})
 	if err == nil {
@@ -5290,7 +5497,12 @@ func TestHTTPLogTailEmptyUnit(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd})
 	t.Cleanup(ts.Close)
 
-	resp, err := ts.Server.Client().Get(fmt.Sprintf("%s/systemd/logs/tail", ts.Server.URL))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, fmt.Sprintf("%s/systemd/logs/tail", ts.Server.URL), nil) //nolint:perfsprint // project convention
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -5300,7 +5512,7 @@ func TestHTTPLogTailEmptyUnit(t *testing.T) {
 		}
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for system-wide log tail (empty unit), got %d", resp.StatusCode)
 	}
 }
@@ -6318,11 +6530,11 @@ func TestHTTPAuditDetailCaptured(t *testing.T) {
 
 	// The disable call has a simple body: {"username":"user1"}
 	body := `{"username":"user1"}`
-	req, err := http.NewRequest("POST", c.route("account/disable"), bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/disable"), bytes.NewBufferString(body))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", resp.Token)) //nolint:perfsprint // project convention
 	req.Header.Set("Content-Type", "application/json")
 	httpResp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -6517,7 +6729,10 @@ func TestHTTPInstallValidationErrors(t *testing.T) {
 		t.Fatal("expected an Install call")
 	}
 
-	resp := installCall.Args[3].(packages.Responses)
+	resp, ok := installCall.Args[3].(packages.Responses)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
 	if resp["hostname"] == "" {
 		t.Fatal("expected auto-generated hostname, got empty string")
 	}
@@ -6551,7 +6766,10 @@ func TestHTTPInstallValidationErrorsEmptyResponse(t *testing.T) {
 		t.Fatal("expected an Install call")
 	}
 
-	resp := installCall.Args[3].(packages.Responses)
+	resp, ok := installCall.Args[3].(packages.Responses)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
 	if resp["hostname"] == "" {
 		t.Fatal("expected auto-generated hostname, got empty string")
 	}
@@ -6639,7 +6857,10 @@ func TestHTTPReinstallPackage(t *testing.T) {
 	}
 
 	// Verify new responses were used.
-	newResp := calls[8].Args[3].(packages.Responses)
+	newResp, ok := calls[8].Args[3].(packages.Responses)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
 	if newResp["hostname"] != "newhost" {
 		t.Fatalf("expected hostname %q, got %q", "newhost", newResp["hostname"])
 	}
@@ -6675,10 +6896,18 @@ func TestHTTPReinstallPackageWithSystemd(t *testing.T) {
 	if calls[2].Method != "ListPackageUnitFiles" {
 		t.Fatalf("call 2: expected ListPackageUnitFiles, got %q", calls[2].Method)
 	}
-	if calls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
+	reinstallStop, ok := calls[3].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if reinstallStop != systemd.Stop {
 		t.Fatalf("call 3: expected Stop, got %v", calls[3].Args[1])
 	}
-	if calls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
+	reinstallDisable, ok := calls[4].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if reinstallDisable != systemd.Disable {
 		t.Fatalf("call 4: expected Disable, got %v", calls[4].Args[1])
 	}
 	if calls[5].Method != "UninstallUnit" {
@@ -6689,7 +6918,11 @@ func TestHTTPReinstallPackageWithSystemd(t *testing.T) {
 	if calls[6].Method != "InstallUnit" {
 		t.Fatalf("call 6: expected InstallUnit, got %q", calls[6].Method)
 	}
-	if calls[7].Args[1].(systemd.StatusAction) != systemd.Start {
+	reinstallStart, ok := calls[7].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if reinstallStart != systemd.Start {
 		t.Fatalf("call 7: expected Start, got %v", calls[7].Args[1])
 	}
 }
@@ -7560,7 +7793,11 @@ questions:
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[1].Args[1].(systemd.StatusAction) != systemd.Start {
+	upgradeFirstStart, ok := calls[1].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if upgradeFirstStart != systemd.Start {
 		t.Fatalf("call 1: expected Start, got %v", calls[1].Args[1])
 	}
 
@@ -7568,10 +7805,18 @@ questions:
 	if calls[2].Method != "ListPackageUnitFiles" {
 		t.Fatalf("call 2: expected ListPackageUnitFiles, got %q", calls[2].Method)
 	}
-	if calls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
+	upgradeStop, ok := calls[3].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if upgradeStop != systemd.Stop {
 		t.Fatalf("call 3: expected Stop, got %v", calls[3].Args[1])
 	}
-	if calls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
+	upgradeDisable, ok := calls[4].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if upgradeDisable != systemd.Disable {
 		t.Fatalf("call 4: expected Disable, got %v", calls[4].Args[1])
 	}
 	if calls[5].Method != "UninstallUnit" {
@@ -7582,7 +7827,11 @@ questions:
 	if calls[6].Method != "InstallUnit" {
 		t.Fatalf("call 6: expected InstallUnit, got %q", calls[6].Method)
 	}
-	if calls[7].Args[1].(systemd.StatusAction) != systemd.Start {
+	upgradeNewStart, ok := calls[7].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if upgradeNewStart != systemd.Start {
 		t.Fatalf("call 7: expected Start, got %v", calls[7].Args[1])
 	}
 }
@@ -7668,7 +7917,11 @@ func TestHTTPInstallOlderVersion(t *testing.T) {
 	found := false
 	for _, call := range calls {
 		if call.Method == "Install" {
-			if call.Args[2].(string) != "1.0" {
+			installVer, ok := call.Args[2].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			if installVer != "1.0" {
 				t.Fatalf("expected install version %q, got %v", "1.0", call.Args[2])
 			}
 			found = true
@@ -7761,11 +8014,19 @@ questions:
 		t.Fatalf("call 2: expected ListPackageUnitFiles, got %q", sdCalls[2].Method)
 	}
 	// Downgrade teardown: Stop old unit
-	if sdCalls[3].Args[1].(systemd.StatusAction) != systemd.Stop {
+	downgradeStop, ok := sdCalls[3].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if downgradeStop != systemd.Stop {
 		t.Fatalf("call 3: expected Stop, got %v", sdCalls[3].Args[1])
 	}
 	// Downgrade teardown: Disable old unit
-	if sdCalls[4].Args[1].(systemd.StatusAction) != systemd.Disable {
+	downgradeDisable, ok := sdCalls[4].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if downgradeDisable != systemd.Disable {
 		t.Fatalf("call 4: expected Disable, got %v", sdCalls[4].Args[1])
 	}
 	// Downgrade teardown: UninstallUnit
@@ -7776,12 +8037,19 @@ questions:
 	if sdCalls[6].Method != "InstallUnit" {
 		t.Fatalf("call 6: expected InstallUnit, got %q", sdCalls[6].Method)
 	}
-	unitContent := sdCalls[6].Args[1].(string)
+	unitContent, ok := sdCalls[6].Args[1].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
 	if !strings.Contains(unitContent, "1.0") {
 		t.Fatalf("expected unit content to reference version 1.0, got: %s", unitContent)
 	}
 	// Downgrade setup: Start new unit
-	if sdCalls[7].Args[1].(systemd.StatusAction) != systemd.Start {
+	downgradeStart, ok := sdCalls[7].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if downgradeStart != systemd.Start {
 		t.Fatalf("call 7: expected Start, got %v", sdCalls[7].Args[1])
 	}
 }
@@ -7867,10 +8135,17 @@ questions: {}
 	calls := inst.GetCalls()
 	for _, call := range calls {
 		if call.Method == "Install" {
-			if call.Args[2].(string) != "1.0" {
+			questionsVer, ok := call.Args[2].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			if questionsVer != "1.0" {
 				t.Fatalf("expected version 1.0, got %v", call.Args[2])
 			}
-			r := call.Args[3].(packages.Responses)
+			r, ok := call.Args[3].(packages.Responses)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if r["hostname"] != "myhost" {
 				t.Fatalf("expected hostname=myhost, got %v", r["hostname"])
 			}
@@ -8177,7 +8452,13 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 			Repo: "repo-a", Name: "nginx", Version: "1.0", Responses: packages.Responses{},
 		}))
 	}()
-	resp1, err := c.HTTP.Post(fmt.Sprintf("%s/packages/install", c.BaseURL), "application/json", pr1)
+	req1, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, fmt.Sprintf("%s/packages/install", c.BaseURL), pr1) //nolint:perfsprint // project convention
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req1.Header.Set("Content-Type", "application/json")
+
+	resp1, err := c.HTTP.Do(req1)
 	if err != nil {
 		t.Fatalf("HTTP POST install repo-a: %v", err)
 	}
@@ -8186,7 +8467,7 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 			t.Errorf("resp1.Body.Close: %v", err)
 		}
 	}()
-	if resp1.StatusCode != 200 {
+	if resp1.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp1.Body)
 		t.Fatalf("expected 200 for repo-a, got %d: %s", resp1.StatusCode, body)
 	}
@@ -8198,7 +8479,13 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 			Repo: "repo-b", Name: "nginx", Version: "1.0", Responses: packages.Responses{},
 		}))
 	}()
-	resp, err := c.HTTP.Post(fmt.Sprintf("%s/packages/install", c.BaseURL), "application/json", pr)
+	req2, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, fmt.Sprintf("%s/packages/install", c.BaseURL), pr) //nolint:perfsprint // project convention
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req2.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req2)
 	if err != nil {
 		t.Fatalf("HTTP POST install repo-b: %v", err)
 	}
@@ -8207,7 +8494,7 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 			t.Errorf("resp.Body.Close: %v", err)
 		}
 	}()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("expected 200 for repo-b, got %d: %s", resp.StatusCode, body)
 	}
@@ -8455,8 +8742,14 @@ volumes:
 		if call.Operation == "SubvolRename" {
 			args := call.Arguments
 			if len(args) >= 2 {
-				src, _ := args[0].(string)
-				dst, _ := args[1].(string)
+				src, ok := args[0].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				dst, ok := args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
 				if src == "installed/repo-a/nginx/1.0/data" && dst == "installed/repo-a/nginx/2.0/data" {
 					foundRename = true
 				}
@@ -8600,8 +8893,14 @@ volumes:
 		if call.Operation == "SubvolRename" {
 			args := call.Arguments
 			if len(args) >= 2 {
-				src, _ := args[0].(string)
-				dst, _ := args[1].(string)
+				src, ok := args[0].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				dst, ok := args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
 				if src == "installed/repo-a/nginx/1.0/data" && dst == "installed/repo-a/nginx/2.0/data" {
 					foundRename = true
 				}
@@ -8609,7 +8908,10 @@ volumes:
 		}
 		if call.Operation == "SubvolCreate" {
 			if len(call.Arguments) > 0 {
-				name, _ := call.Arguments[0].(string)
+				name, ok := call.Arguments[0].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
 				if name == "installed/repo-a/nginx/2.0/cache" {
 					foundCreate = true
 				}
@@ -8682,7 +8984,10 @@ volumes:
 		if call.Operation == "SubvolRename" {
 			args := call.Arguments
 			if len(args) >= 2 {
-				src, _ := args[0].(string)
+				src, ok := args[0].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
 				if src == "installed/repo-a/nginx/1.0/data" {
 					foundRename = true
 				}
@@ -8699,7 +9004,7 @@ volumes:
 
 // --- Upgrades tests ---
 
-func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.RepositoryRoot, *packages.InstallManager) {
+func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallManager) {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -8707,20 +9012,23 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.RepositoryR
 	repoName := "test-repo"
 	pkgName := "nginx"
 	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, pkgName)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile 1.0: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "2.0.yaml"), []byte("image: nginx:2.0\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "2.0.yaml"), []byte("image: nginx:2.0\n"), 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile 2.0: %v", err)
 	}
 
 	// Write repositories file.
 	repos := []packages.Repository{{Name: repoName, URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}}}
-	repoData, _ := json.Marshal(repos)
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil {
+	repoData, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatalf("json.Marshal repos: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repos: %v", err)
 	}
 
@@ -8760,11 +9068,11 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.RepositoryR
 		t.Fatalf("Client: %v", err)
 	}
 
-	return c, rr, inst
+	return c, inst
 }
 
 func TestHTTPListUpgradesShowsAvailable(t *testing.T) {
-	c, _, _ := initUpgradesTestServer(t)
+	c, _ := initUpgradesTestServer(t)
 
 	upgrades, err := c.ListUpgrades(context.TODO())
 	if err != nil {
@@ -8791,16 +9099,19 @@ func TestHTTPListUpgradesEmpty(t *testing.T) {
 	dir := t.TempDir()
 	repoName := "test-repo"
 	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, "nginx")
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile: %v", err)
 	}
 
 	repos := []packages.Repository{{Name: repoName, URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}}}
-	repoData, _ := json.Marshal(repos)
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil {
+	repoData, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatalf("json.Marshal repos: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repos: %v", err)
 	}
 
@@ -8833,7 +9144,7 @@ func TestHTTPListUpgradesEmpty(t *testing.T) {
 }
 
 func TestHTTPPingIncludesUpgradesAvailable(t *testing.T) {
-	c, _, _ := initUpgradesTestServer(t)
+	c, _ := initUpgradesTestServer(t)
 
 	ping, err := c.Ping(context.TODO())
 	if err != nil {
@@ -8849,7 +9160,7 @@ func TestHTTPPingIncludesUpgradesAvailable(t *testing.T) {
 }
 
 func TestHTTPDismissUpgrades(t *testing.T) {
-	c, _, _ := initUpgradesTestServer(t)
+	c, _ := initUpgradesTestServer(t)
 
 	if err := c.DismissUpgrades(context.TODO()); err != nil {
 		t.Fatalf("DismissUpgrades: %v", err)
@@ -8866,14 +9177,14 @@ func TestHTTPDismissUpgrades(t *testing.T) {
 }
 
 func TestHTTPUpgradesChangedFlag(t *testing.T) {
-	c, _, inst := initUpgradesTestServer(t)
+	c, inst := initUpgradesTestServer(t)
 
 	// Break the hard link by removing and recreating the repo file.
 	repoFile := filepath.Join(inst.BaseDir, "test-repo", packages.PackagesDir, "nginx", "1.0.yaml")
 	if err := os.Remove(repoFile); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0-updated\n"), 0644); err != nil {
+	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0-updated\n"), 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -8905,7 +9216,10 @@ func TestHTTPUploadArchiveReservedSubvolume(t *testing.T) {
 	_, _ = part.Write([]byte("fake"))
 	_ = writer.Close()
 
-	req, _ := http.NewRequest("POST", testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
@@ -8914,7 +9228,7 @@ func TestHTTPUploadArchiveReservedSubvolume(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 
 	// Should fail with reserved filesystem error.
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected error for reserved subvolume, got 200")
 	}
 }
@@ -8924,8 +9238,14 @@ func TestHTTPDownloadArchiveReservedSubvolume(t *testing.T) {
 	ts := InitTestServer(ServerConfig{Storage: mock})
 	t.Cleanup(ts.Close)
 
-	body, _ := json.Marshal(DownloadArchiveRequest{Subvolume: "installed/repo/pkg/1.0/data"})
-	req, _ := http.NewRequest("POST", testRoute(t, ts.Server.URL, "/storage/download-archive"), bytes.NewReader(body))
+	body, err := json.Marshal(DownloadArchiveRequest{Subvolume: "installed/repo/pkg/1.0/data"})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/download-archive"), bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
@@ -8933,7 +9253,7 @@ func TestHTTPDownloadArchiveReservedSubvolume(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		t.Fatal("expected error for reserved subvolume, got 200")
 	}
 }
@@ -8962,7 +9282,7 @@ func TestMockClientUploadArchive(t *testing.T) {
 
 func TestMockClientUploadArchiveError(t *testing.T) {
 	m := InitMockClient()
-	m.UploadArchiveErr = fmt.Errorf("upload failed")
+	m.UploadArchiveErr = errors.New("upload failed")
 	_, err := m.UploadArchive(context.TODO(), "my-vol", strings.NewReader("fake"), "test.tar.gz")
 	if err == nil {
 		t.Fatal("expected error")
@@ -8985,7 +9305,7 @@ func TestMockClientDownloadArchive(t *testing.T) {
 
 func TestMockClientDownloadArchiveError(t *testing.T) {
 	m := InitMockClient()
-	m.DownloadArchiveErr = fmt.Errorf("download failed")
+	m.DownloadArchiveErr = errors.New("download failed")
 	_, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "")
 	if err == nil {
 		t.Fatal("expected error")

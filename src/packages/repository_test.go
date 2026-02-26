@@ -1734,7 +1734,7 @@ func TestRepositoryRootRefreshCaching(t *testing.T) {
 func writeTestRepos(t *testing.T, dir string, repos []Repository) {
 	t.Helper()
 	data := marshalJSON(t, repos)
-	if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile: %v", err)
 	}
 }

@@ -308,7 +308,7 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		args = append(args, ".")
 	}
 
-	cmd := exec.CommandContext(ctx, "tar", args...)
+	cmd := exec.CommandContext(ctx, "tar", args...) //nolint:gosec // tar command with controlled args
 	cmd.Stdout = c.Response()
 
 	stderrPipe, err := cmd.StderrPipe()
@@ -350,7 +350,7 @@ func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath
 	}
 	containerID := strings.TrimSpace(string(output))
 	defer func() {
-		rmCmd := exec.CommandContext(ctx, "podman", "rm", "-f", containerID)
+		rmCmd := exec.CommandContext(ctx, "podman", "rm", "-f", containerID) //nolint:gosec // podman cleanup
 		if out, err := rmCmd.CombinedOutput(); err != nil {
 			slog.Debug(fmt.Sprintf("podman rm %s: %v: %s", containerID, err, string(out)))
 		}
@@ -358,7 +358,7 @@ func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath
 
 	// Copy from container to target path.
 	src := fmt.Sprintf("%s:%s", containerID, directory)
-	cpCmd := exec.CommandContext(ctx, "podman", "cp", src, targetPath)
+	cpCmd := exec.CommandContext(ctx, "podman", "cp", src, targetPath) //nolint:gosec // podman cp
 	if output, err := cpCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman cp %s -> %s: %w: %s", src, targetPath, err, string(output))
 	}

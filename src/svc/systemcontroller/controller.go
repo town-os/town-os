@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,13 +42,13 @@ func isReservedFilesystem(name string) bool {
 	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume {
 		return true
 	}
-	if strings.HasPrefix(name, fmt.Sprintf("%s/", PackagesVolumePrefix)) {
+	if strings.HasPrefix(name, fmt.Sprintf("%s/", PackagesVolumePrefix)) { //nolint:perfsprint // project convention
 		return true
 	}
-	if strings.HasPrefix(name, fmt.Sprintf("%s/", UninstalledVolumePrefix)) {
+	if strings.HasPrefix(name, fmt.Sprintf("%s/", UninstalledVolumePrefix)) { //nolint:perfsprint // project convention
 		return true
 	}
-	if strings.HasPrefix(name, fmt.Sprintf("%s/", ArchivesSubvolume)) {
+	if strings.HasPrefix(name, fmt.Sprintf("%s/", ArchivesSubvolume)) { //nolint:perfsprint // project convention
 		return true
 	}
 	return false
@@ -62,19 +63,19 @@ func classifyFilesystem(name string) (state, displayName string) {
 		return "", name
 	}
 
-	archivesPrefix := fmt.Sprintf("%s/", ArchivesSubvolume)
+	archivesPrefix := fmt.Sprintf("%s/", ArchivesSubvolume) //nolint:perfsprint // project convention
 	if strings.HasPrefix(name, archivesPrefix) {
 		return "", name
 	}
 
-	installedPrefix := fmt.Sprintf("%s/", PackagesVolumePrefix)
-	uninstalledPrefix := fmt.Sprintf("%s/", UninstalledVolumePrefix)
+	installedPrefix := fmt.Sprintf("%s/", PackagesVolumePrefix)   //nolint:perfsprint // project convention
+	uninstalledPrefix := fmt.Sprintf("%s/", UninstalledVolumePrefix) //nolint:perfsprint // project convention
 
-	if strings.HasPrefix(name, installedPrefix) {
-		return "installed", strings.TrimPrefix(name, installedPrefix)
+	if after, ok := strings.CutPrefix(name, installedPrefix); ok {
+		return "installed", after
 	}
-	if strings.HasPrefix(name, uninstalledPrefix) {
-		return "uninstalled", strings.TrimPrefix(name, uninstalledPrefix)
+	if after, ok := strings.CutPrefix(name, uninstalledPrefix); ok {
+		return "uninstalled", after
 	}
 
 	return "user", name
@@ -508,10 +509,10 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 	}
 
 	filePath := fmt.Sprintf("%s/%s-%s-%s.json", statePath, repoName, pkgName, version)
-	if err := os.MkdirAll(statePath, 0755); err != nil {
+	if err := os.MkdirAll(statePath, 0755); err != nil { //nolint:gosec // state directory
 		return fmt.Errorf("create network state dir: %w", err)
 	}
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0644); err != nil { //nolint:gosec // state file
 		return fmt.Errorf("write network state: %w", err)
 	}
 
@@ -666,7 +667,7 @@ func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
 
 	u, err := url.Parse(req.URL)
 	if err != nil {
-		return fmt.Errorf("invalid url: %v", err)
+		return fmt.Errorf("invalid url: %w", err)
 	}
 
 	if req.Username == "" && req.Password == "" {
@@ -974,7 +975,7 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 
 	rr := s.Controller.GetRepositoryRoot()
 	if rr == nil {
-		return fmt.Errorf("no repository root configured")
+		return errors.New("no repository root configured")
 	}
 
 	repoName, err := rr.FindRepoForPackage(req.Name, req.Version)
@@ -1148,7 +1149,7 @@ func buildInstallSummary(p *InstallPreview) string {
 		parts = append(parts, fmt.Sprintf("Install %s %s", p.Name, p.Version))
 	}
 
-	parts = append(parts, fmt.Sprintf("Image: %s", p.Image))
+	parts = append(parts, fmt.Sprintf("Image: %s", p.Image)) //nolint:perfsprint // project convention
 
 	if len(p.Volumes) > 0 {
 		fresh := 0
@@ -1178,7 +1179,7 @@ func buildInstallSummary(p *InstallPreview) string {
 		for i, port := range p.ExternalPorts {
 			portStrs[i] = fmt.Sprintf("%d->%d", port.External, port.Internal)
 		}
-		parts = append(parts, fmt.Sprintf("External ports: %s", strings.Join(portStrs, ", ")))
+		parts = append(parts, fmt.Sprintf("External ports: %s", strings.Join(portStrs, ", "))) //nolint:perfsprint // project convention
 	}
 
 	if p.HasQuestions {
@@ -1455,14 +1456,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	// Track child in parent's children list when installing an instance.
 	if req.Instance != "" {
 		children, _ := inst.LoadChildren(repoName, parentName)
-		found := false
-		for _, ch := range children {
-			if ch == req.Instance {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(children, req.Instance) {
 			children = append(children, req.Instance)
 			if err := inst.SaveChildren(repoName, parentName, children); err != nil {
 				slog.Debug(fmt.Sprintf("save children %s/%s: %v", repoName, parentName, err))
@@ -2892,20 +2886,25 @@ type ServerConfig struct {
 	NetworkMode              string
 }
 
-type contextHandler struct {
-	ctx     context.Context
-	handler http.Handler
-}
-
-func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithCancel(h.ctx)
-	defer cancel()
-	h.handler.ServeHTTP(w, r.WithContext(ctx))
+func withContext(parent context.Context, handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		go func() {
+			select {
+			case <-parent.Done():
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		handler.ServeHTTP(w, r.WithContext(ctx)) //nolint:contextcheck // merging server lifecycle with request context
+	})
 }
 
 type serverBase struct {
 	ServerConfig
-	ctx        context.Context
+
+	ctx        context.Context //nolint:containedctx // server lifecycle context
 	cancel     context.CancelFunc
 	externalIP atomic.Value // stores string
 }
@@ -2931,7 +2930,8 @@ func (s *serverBase) GetExternalIP() string {
 	if v == nil {
 		return ""
 	}
-	return v.(string)
+	ip, _ := v.(string)
+	return ip
 }
 
 func (s *serverBase) GetInternalIP() string {
@@ -2947,9 +2947,16 @@ func (s *serverBase) GetInternalIP() string {
 	return ""
 }
 
-func (s *serverBase) fetchExternalIP() {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://ipinfo.io/json")
+func (s *serverBase) fetchExternalIP(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, "https://ipinfo.io/json", nil)
+	if reqErr != nil {
+		slog.Debug(fmt.Sprintf("fetchExternalIP: %v", reqErr))
+		return
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("fetchExternalIP: %v", err))
 		return
@@ -2960,7 +2967,7 @@ func (s *serverBase) fetchExternalIP() {
 		}
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		slog.Debug(fmt.Sprintf("fetchExternalIP: status %d", resp.StatusCode))
 		return
 	}
@@ -2979,7 +2986,7 @@ func (s *serverBase) fetchExternalIP() {
 }
 
 func (s *serverBase) startExternalIPPoller(ctx context.Context) {
-	s.fetchExternalIP()
+	s.fetchExternalIP(ctx)
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -2988,7 +2995,7 @@ func (s *serverBase) startExternalIPPoller(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.fetchExternalIP()
+				s.fetchExternalIP(ctx)
 			}
 		}
 	}()
@@ -3025,7 +3032,7 @@ func configureRouter(sc systemControllerBackend) http.Handler {
 			}
 			u, err := url.Parse(origin)
 			if err != nil {
-				return "", false, nil
+				return "", false, nil //nolint:nilerr // unparseable origin is simply rejected
 			}
 			host := u.Hostname()
 			for _, h := range allowedHosts {
@@ -3070,6 +3077,7 @@ func NewHandler(cfg ServerConfig) http.Handler {
 
 type TestServer struct {
 	serverBase
+
 	Server *httptest.Server
 }
 
@@ -3079,7 +3087,7 @@ func InitTestServer(cfg ServerConfig) *TestServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	ts.ctx = ctx
 	ts.cancel = cancel
-	ts.Server = httptest.NewServer(&contextHandler{ctx: ctx, handler: configureRouter(ts)})
+	ts.Server = httptest.NewServer(withContext(ctx, configureRouter(ts)))
 	return ts
 }
 
@@ -3101,6 +3109,7 @@ func (ts *TestServer) Client() (*SystemdClient, error) {
 
 type UnixServer struct {
 	serverBase
+
 	Socket string
 	server *http.Server
 }
@@ -3111,7 +3120,7 @@ func InitUnixServer(sock string, cfg ServerConfig) *UnixServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	us.ctx = ctx
 	us.cancel = cancel
-	us.server = &http.Server{Handler: &contextHandler{ctx: ctx, handler: configureRouter(us)}}
+	us.server = &http.Server{Handler: withContext(ctx, configureRouter(us)), ReadHeaderTimeout: 10 * time.Second}
 	return us
 }
 
@@ -3122,9 +3131,10 @@ func (us *UnixServer) Close() error {
 
 func (us *UnixServer) Run() error {
 	us.startExternalIPPoller(us.ctx)
-	lis, err := net.Listen("unix", us.Socket)
+	lc := net.ListenConfig{}
+	lis, err := lc.Listen(us.ctx, "unix", us.Socket)
 	if err != nil {
-		return fmt.Errorf("could not listen on unix socket %q: %v", us.Socket, err)
+		return fmt.Errorf("could not listen on unix socket %q: %w", us.Socket, err)
 	}
 	return us.server.Serve(lis)
 }

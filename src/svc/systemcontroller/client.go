@@ -304,7 +304,7 @@ func (c *SystemdClient) ListTimezones(ctx context.Context) (_ []string, err erro
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "packages/timezones")
 	}
 
@@ -546,7 +546,7 @@ func (c *SystemdClient) ListChildren(ctx context.Context, repo, name string) (_ 
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "packages/children")
 	}
 
@@ -939,7 +939,7 @@ func (c *SystemdClient) ListUpgrades(ctx context.Context) (_ []PackageUpgrade, e
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "GET", "packages/upgrades")
 	}
 
@@ -974,13 +974,13 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 		pw.CloseWithError(writer.Close())
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.route("storage/upload-archive"), pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route("storage/upload-archive"), pr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: POST storage/upload-archive: %w", ErrNewRequest, err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
 	}
 
 	resp, err := c.HTTP.Do(req)
@@ -991,7 +991,7 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 		err = errors.Join(err, resp.Body.Close())
 	}()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, readProblemDetail(resp, "POST", "storage/upload-archive")
 	}
 
@@ -1003,13 +1003,13 @@ func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, p
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, DownloadArchiveRequest{Subvolume: subvolume, Paths: paths, StopService: stopService})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.route("storage/download-archive"), pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route("storage/download-archive"), pr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: POST storage/download-archive: %w", ErrNewRequest, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token)) //nolint:perfsprint // project convention
 	}
 
 	resp, err := c.HTTP.Do(req)
@@ -1017,7 +1017,7 @@ func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, p
 		return nil, fmt.Errorf("%w: POST storage/download-archive: %w", ErrHTTPRequest, err)
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		defer func() {
 			err = errors.Join(err, resp.Body.Close())
 		}()

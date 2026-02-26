@@ -1,18 +1,19 @@
 package packages
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 )
 
 var (
-	ErrInvalidImage          = fmt.Errorf("invalid container image")
-	ErrInvalidEnvironmentKey = fmt.Errorf("invalid environment key")
-	ErrInvalidQuestionName   = fmt.Errorf("invalid question name")
-	ErrInvalidMountpoint     = fmt.Errorf("invalid mountpoint")
-	ErrInvalidVolumeName     = fmt.Errorf("invalid volume name")
-	ErrInvalidArchiveSpec    = fmt.Errorf("invalid archive spec")
+	ErrInvalidImage          = errors.New("invalid container image")
+	ErrInvalidEnvironmentKey = errors.New("invalid environment key")
+	ErrInvalidQuestionName   = errors.New("invalid question name")
+	ErrInvalidMountpoint     = errors.New("invalid mountpoint")
+	ErrInvalidVolumeName     = errors.New("invalid volume name")
+	ErrInvalidArchiveSpec    = errors.New("invalid archive spec")
 )
 
 var (
@@ -51,7 +52,7 @@ func NormalizeImageURL(image string) string {
 		if !hasTag {
 			image = fmt.Sprintf("docker.io/library/%s:latest", image)
 		} else {
-			image = fmt.Sprintf("docker.io/library/%s", image)
+			image = fmt.Sprintf("docker.io/library/%s", image) //nolint:perfsprint // project convention
 		}
 	case 2:
 		// Two components: "user/app" or "user/app:v1"
@@ -61,18 +62,18 @@ func NormalizeImageURL(image string) string {
 			if !hasTag {
 				image = fmt.Sprintf("docker.io/%s:latest", image)
 			} else {
-				image = fmt.Sprintf("docker.io/%s", image)
+				image = fmt.Sprintf("docker.io/%s", image) //nolint:perfsprint // project convention
 			}
 		} else {
 			// Registry/image with no namespace (e.g. "ghcr.io/app")
 			if !hasTag {
-				image = fmt.Sprintf("%s:latest", image)
+				image = fmt.Sprintf("%s:latest", image) //nolint:perfsprint // project convention
 			}
 		}
 	default:
 		// Full reference: leave unchanged except for tag
 		if !hasTag {
-			image = fmt.Sprintf("%s:latest", image)
+			image = fmt.Sprintf("%s:latest", image) //nolint:perfsprint // project convention
 		}
 	}
 

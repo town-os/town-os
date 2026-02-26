@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -262,7 +263,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemdClient 
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -725,7 +726,7 @@ func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemdCli
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -756,7 +757,7 @@ func initSystemControllerInstallSystemdTest(t *testing.T) (*systemcontroller.Sys
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -1020,7 +1021,11 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "town-os-package--core-nginx-1.0.service" {
+	unitArg, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if unitArg != "town-os-package--core-nginx-1.0.service" {
 		t.Fatalf("call 0: expected unit %q, got %v", "town-os-package--core-nginx-1.0.service", calls[0].Args[0])
 	}
 
@@ -1029,7 +1034,11 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 	if lastCall.Method != "SetStatus" {
 		t.Fatalf("last call: expected SetStatus, got %q", lastCall.Method)
 	}
-	if lastCall.Args[1].(systemd.StatusAction) != systemd.Start {
+	lastAction, ok := lastCall.Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if lastAction != systemd.Start {
 		t.Fatalf("last call: expected Start, got %v", lastCall.Args[1])
 	}
 }
@@ -1062,7 +1071,11 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 	}
 
 	// Install phase: last install call (index 5) is Start.
-	if calls[5].Args[1].(systemd.StatusAction) != systemd.Start {
+	call5Action, ok := calls[5].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if call5Action != systemd.Start {
 		t.Fatalf("call 5: expected Start, got %v", calls[5].Args[1])
 	}
 
@@ -1073,7 +1086,11 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 	if calls[7].Method != "SetStatus" {
 		t.Fatalf("call 7: expected SetStatus, got %q", calls[7].Method)
 	}
-	if calls[7].Args[1].(systemd.StatusAction) != systemd.Stop {
+	stopAction, ok := calls[7].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if stopAction != systemd.Stop {
 		t.Fatalf("call 7: expected Stop, got %v", calls[7].Args[1])
 	}
 }
@@ -1157,7 +1174,11 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	if calls[0].Args[0].(string) != "town-os-package--core-nginx-1.0.service" {
+	unitArg, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if unitArg != "town-os-package--core-nginx-1.0.service" {
 		t.Fatalf("call 0: expected unit %q, got %q", "town-os-package--core-nginx-1.0.service", calls[0].Args[0])
 	}
 
@@ -1165,7 +1186,11 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 	if calls[6].Method != "InstallUnit" {
 		t.Fatalf("call 6: expected InstallUnit, got %q", calls[6].Method)
 	}
-	if calls[6].Args[0].(string) != "town-os-package--core-redis-7.0.service" {
+	unitArg2, ok := calls[6].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if unitArg2 != "town-os-package--core-redis-7.0.service" {
 		t.Fatalf("call 6: expected unit %q, got %q", "town-os-package--core-redis-7.0.service", calls[6].Args[0])
 	}
 }
@@ -1180,7 +1205,7 @@ func initSystemControllerInstallRealSystemdTest(t *testing.T) *systemcontroller.
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -1207,7 +1232,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	c := initSystemControllerInstallRealSystemdTest(t)
 
 	unitName := systemd.UnitName("core", "nginx", "1.0")
-	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName)
+	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName) //nolint:perfsprint // project convention
 
 	// Cleanup: unconditionally stop/disable/remove all units to prevent leaks.
 	t.Cleanup(func() {
@@ -1302,7 +1327,7 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -1345,8 +1370,8 @@ func cleanupContainerUnits(repo, pkgName, version string, external, internal pac
 		_ = cleanup.UninstallUnit(ctx, name)
 	}
 	containerName := systemd.ContainerName(repo, pkgName, version)
-	_ = exec.Command("podman", "stop", "-t", "10", containerName).Run()
-	_ = exec.Command("podman", "rm", "-f", containerName).Run()
+	_ = exec.CommandContext(context.TODO(), "podman", "stop", "-t", "10", containerName).Run()   //nolint:gosec // test helper
+	_ = exec.CommandContext(context.TODO(), "podman", "rm", "-f", containerName).Run()            //nolint:gosec // test helper
 }
 
 // waitForContainer polls podman inspect until the container reaches "running"
@@ -1357,14 +1382,14 @@ func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.
 	unitName := systemd.UnitName(repo, pkgName, version)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		out, err := exec.Command("podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
+		out, err := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output() //nolint:gosec // test helper
 		if err == nil && strings.TrimSpace(string(out)) == "running" {
 			return
 		}
 		time.Sleep(2 * time.Second)
 	}
 	// Log the systemd journal for debugging before failing.
-	journal, _ := exec.Command("journalctl", "-u", unitName, "--no-pager", "-n", "50").Output()
+	journal, _ := exec.CommandContext(context.TODO(), "journalctl", "-u", unitName, "--no-pager", "-n", "50").Output() //nolint:gosec // test helper
 	t.Fatalf("container %q did not reach running state within %v\njournal:\n%s", containerName, timeout, string(journal))
 }
 
@@ -1414,9 +1439,9 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify port 6379 is accessible via TCP from the host.
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:6379", 10*time.Second)
+	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
 	if err != nil {
-		logs, _ := exec.Command("podman", "logs", "--tail", "20", containerName).CombinedOutput()
+		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput() //nolint:gosec // test helper
 		t.Fatalf("TCP connect to redis on port 6379 failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
@@ -1424,7 +1449,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify podman container is listed.
-	out, err := exec.Command("podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output()
+	out, err := exec.CommandContext(context.TODO(), "podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output() //nolint:gosec,perfsprint // test helper
 	if err != nil {
 		t.Fatalf("podman ps: %v", err)
 	}
@@ -1440,7 +1465,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	// Wait for the container to stop.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		inspectOut, inspectErr := exec.Command("podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
+		inspectOut, inspectErr := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output() //nolint:gosec // test helper
 		if inspectErr != nil || strings.TrimSpace(string(inspectOut)) != "running" {
 			break
 		}
@@ -1448,19 +1473,19 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify the unit file is gone.
-	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName)
+	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName) //nolint:perfsprint // project convention
 	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
 		t.Fatalf("expected unit file %q removed after uninstall, got err: %v", unitPath, err)
 	}
 
 	// Verify the container is no longer running.
-	out, err = exec.Command("podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output()
+	out, err = exec.CommandContext(context.TODO(), "podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output() //nolint:gosec,perfsprint // test helper
 	if err == nil && strings.Contains(string(out), containerName) {
 		t.Fatalf("expected %s not in podman ps after uninstall", containerName)
 	}
 
 	// Verify port 6379 is no longer accessible.
-	postConn, postErr := net.DialTimeout("tcp", "127.0.0.1:6379", 2*time.Second)
+	postConn, postErr := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
 	if postErr == nil {
 		_ = postConn.Close()
 		t.Fatal("expected port 6379 to be unreachable after uninstall")
@@ -1517,9 +1542,9 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	// Verify port 6379 is accessible via TCP after reinstall.
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:6379", 10*time.Second)
+	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
 	if err != nil {
-		logs, _ := exec.Command("podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
+		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput() //nolint:gosec // test helper
 		t.Fatalf("TCP connect to redis after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
@@ -1558,7 +1583,7 @@ func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager) *sys
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -2025,10 +2050,18 @@ func TestSystemControllerSystemdSetUnitStatusCallLog(t *testing.T) {
 	if len(calls[0].Args) != 2 {
 		t.Fatalf("expected 2 args, got %d", len(calls[0].Args))
 	}
-	if calls[0].Args[0].(string) != "nginx.service" {
+	unitStr, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if unitStr != "nginx.service" {
 		t.Fatalf("expected unit %q, got %v", "nginx.service", calls[0].Args[0])
 	}
-	if calls[0].Args[1].(systemd.StatusAction) != systemd.Restart {
+	action, ok := calls[0].Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if action != systemd.Restart {
 		t.Fatalf("expected action %q, got %v", systemd.Restart, calls[0].Args[1])
 	}
 }
@@ -2062,10 +2095,18 @@ func TestSystemControllerSystemdSetUnitStatusMultipleUnits(t *testing.T) {
 		{"postgres.service", systemd.Restart},
 	}
 	for i, w := range want {
-		if calls[i].Args[0].(string) != w.unit {
+		unitName, ok := calls[i].Args[0].(string)
+		if !ok {
+			t.Fatal("type assertion failed")
+		}
+		if unitName != w.unit {
 			t.Fatalf("call %d: expected unit %q, got %v", i, w.unit, calls[i].Args[0])
 		}
-		if calls[i].Args[1].(systemd.StatusAction) != w.action {
+		actionVal, ok := calls[i].Args[1].(systemd.StatusAction)
+		if !ok {
+			t.Fatal("type assertion failed")
+		}
+		if actionVal != w.action {
 			t.Fatalf("call %d: expected action %q, got %v", i, w.action, calls[i].Args[1])
 		}
 	}
@@ -2768,6 +2809,7 @@ func initReconcileTest(t *testing.T) (
 	*systemd.MockManager,
 	storage.Storage,
 ) {
+	t.Helper()
 	return initReconcileTestWithNetworkMode(t, "")
 }
 
@@ -2785,7 +2827,7 @@ func initReconcileTestWithNetworkMode(t *testing.T, networkMode string) (
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -2859,14 +2901,21 @@ func TestReconcileAfterInstall(t *testing.T) {
 	if calls[0].Method != "InstallUnit" {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
-	unitName := calls[0].Args[0].(string)
+	unitName, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
 	if unitName != "town-os-package--core-nginx-1.0.service" {
 		t.Fatalf("expected unit town-os-package--core-nginx-1.0.service, got %s", unitName)
 	}
 
 	// Last call should be Start for the service.
 	lastCall := calls[len(calls)-1]
-	if lastCall.Method != "SetStatus" || lastCall.Args[1].(systemd.StatusAction) != systemd.Start {
+	lastAction, ok := lastCall.Args[1].(systemd.StatusAction)
+	if !ok {
+		t.Fatal("type assertion failed")
+	}
+	if lastCall.Method != "SetStatus" || lastAction != systemd.Start {
 		t.Fatalf("last call: expected SetStatus Start, got %s %v", lastCall.Method, lastCall.Args)
 	}
 
@@ -2964,7 +3013,7 @@ func initSystemControllerInstallSystemdTestWithNetworkMode(t *testing.T, network
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -3012,9 +3061,16 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-redis-7.0.service" {
-				serviceContent = call.Args[1].(string)
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
 				break
 			}
 		}
@@ -3066,9 +3122,16 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-redis-7.0.service" {
-				serviceContent = call.Args[1].(string)
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
 				break
 			}
 		}
@@ -3099,7 +3162,10 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	// Redis 6379→6379 (same port, internal only): no network controller should be installed.
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if strings.Contains(name, "network") {
 				t.Fatalf("unexpected network controller unit installed for internal-only port: %s", name)
 			}
@@ -3126,9 +3192,16 @@ func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0.service" {
-				serviceContent = call.Args[1].(string)
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
 				break
 			}
 		}
@@ -3168,9 +3241,16 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0.service" {
-				serviceContent = call.Args[1].(string)
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
 				break
 			}
 		}
@@ -3192,9 +3272,16 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	var ncContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0-network.service" {
-				ncContent = call.Args[1].(string)
+				nc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				ncContent = nc
 				break
 			}
 		}
@@ -3230,9 +3317,16 @@ func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 	var ncContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0-network.service" {
-				ncContent = call.Args[1].(string)
+				nc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				ncContent = nc
 				break
 			}
 		}
@@ -3254,8 +3348,14 @@ func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 	ncEnabled := false
 	for _, call := range calls {
 		if call.Method == "SetStatus" {
-			name := call.Args[0].(string)
-			action := call.Args[1].(systemd.StatusAction)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			action, ok := call.Args[1].(systemd.StatusAction)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0-network.service" && action == systemd.Enable {
 				ncEnabled = true
 				break
@@ -3270,9 +3370,16 @@ func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0.service" {
-				serviceContent = call.Args[1].(string)
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
 				break
 			}
 		}
@@ -3318,9 +3425,16 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-redis-7.0.service" {
-				serviceContent = call.Args[1].(string)
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
 				break
 			}
 		}
@@ -3344,7 +3458,10 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 	// Redis 6379→6379 (same port, internal only): no network controller should be installed after reconcile.
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if strings.Contains(name, "network") {
 				t.Fatalf("unexpected network controller unit installed after reconcile for internal-only port: %s", name)
 			}
@@ -3386,9 +3503,16 @@ func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 	var ncContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
-			name := call.Args[0].(string)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0-network.service" {
-				ncContent = call.Args[1].(string)
+				nc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				ncContent = nc
 				break
 			}
 		}
@@ -3404,8 +3528,14 @@ func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 	ncEnabled := false
 	for _, call := range calls {
 		if call.Method == "SetStatus" {
-			name := call.Args[0].(string)
-			action := call.Args[1].(systemd.StatusAction)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			action, ok := call.Args[1].(systemd.StatusAction)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
 			if name == "town-os-package--core-nginx-1.0-network.service" && action == systemd.Enable {
 				ncEnabled = true
 				break
@@ -3832,7 +3962,7 @@ func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
 	}
 }
 
-func initSystemControllerTestWithBtrfsBase(t *testing.T) (*systemcontroller.SystemdClient, *storage.BtrFS) {
+func initSystemControllerTestWithBtrfsBase(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
 	btr := storage.InitBtrFS("/data/btrfs")
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
@@ -3844,7 +3974,7 @@ func initSystemControllerTestWithBtrfsBase(t *testing.T) (*systemcontroller.Syst
 	if err != nil {
 		t.Fatalf("could not create client: %v", err)
 	}
-	return c, btr
+	return c
 }
 
 // makeTarGz builds a tar.gz archive in memory from a map of filename -> content.
@@ -3894,7 +4024,7 @@ func extractTarGz(t *testing.T, r io.Reader) map[string]string {
 	tr := tar.NewReader(gr)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -3913,7 +4043,7 @@ func extractTarGz(t *testing.T, r io.Reader) map[string]string {
 }
 
 func TestArchiveUploadAndDownload(t *testing.T) {
-	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-upload"
 
@@ -3971,7 +4101,7 @@ func TestArchiveUploadAndDownload(t *testing.T) {
 }
 
 func TestArchiveDownloadWithPaths(t *testing.T) {
-	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-paths"
 
@@ -4014,7 +4144,7 @@ func TestArchiveDownloadWithPaths(t *testing.T) {
 }
 
 func TestArchiveUploadUnsupportedFormat(t *testing.T) {
-	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-unsupported"
 
@@ -4037,7 +4167,7 @@ func TestArchiveUploadUnsupportedFormat(t *testing.T) {
 }
 
 func TestArchiveDownloadReservedSubvolume(t *testing.T) {
-	c, _ := initSystemControllerTestWithBtrfsBase(t)
+	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 
 	_, err := c.DownloadArchive(ctx, "installed/repo/pkg/1.0/data", nil, "")

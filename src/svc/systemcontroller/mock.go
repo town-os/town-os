@@ -3,8 +3,10 @@ package systemcontroller
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -84,10 +86,8 @@ type MockCall struct {
 }
 
 func InitMockClient() *MockClient {
-	settings := make(map[string]string)
-	for k, v := range account.DefaultSettings {
-		settings[k] = v
-	}
+	settings := make(map[string]string, len(account.DefaultSettings))
+	maps.Copy(settings, account.DefaultSettings)
 
 	return &MockClient{
 		Filesystems:      map[string]storage.Filesystem{},
@@ -231,7 +231,7 @@ func (m *MockClient) RefreshRepositories(_ context.Context) (map[string]string, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RefreshRepositories", Args: nil})
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock stub
 }
 
 func (m *MockClient) ListRepositories(_ context.Context, params ListParams) (*PageResult[RepositoryInfo], error) {
@@ -372,9 +372,7 @@ func (m *MockClient) GetPackageQuestions(_ context.Context, name string) (map[st
 	}
 
 	out := make(map[string]packages.Question, len(questions))
-	for k, v := range questions {
-		out[k] = v
-	}
+	maps.Copy(out, questions)
 	return out, nil
 }
 
@@ -394,9 +392,7 @@ func (m *MockClient) GetPackageQuestionsByIdentity(_ context.Context, repo, name
 	}
 
 	out := make(map[string]packages.Question, len(questions))
-	for k, v := range questions {
-		out[k] = v
-	}
+	maps.Copy(out, questions)
 	return out, nil
 }
 
@@ -580,9 +576,7 @@ func (m *MockClient) GetResponses(_ context.Context, repo, name, version string)
 	}
 
 	out := make(packages.Responses, len(resp))
-	for k, v := range resp {
-		out[k] = v
-	}
+	maps.Copy(out, resp)
 	return out, nil
 }
 
@@ -684,10 +678,7 @@ func (m *MockClient) LogTail(_ context.Context, p systemd.LogTailParams) (system
 		}
 	}
 
-	startIdx := endIdx - p.Lines
-	if startIdx < 0 {
-		startIdx = 0
-	}
+	startIdx := max(endIdx-p.Lines, 0)
 
 	page := entries[startIdx:endIdx]
 
@@ -837,7 +828,7 @@ func (m *MockClient) Authenticate(_ context.Context, username, password string) 
 
 	acct, ok := m.Accounts[username]
 	if !ok {
-		return nil, fmt.Errorf("invalid credentials")
+		return nil, errors.New("invalid credentials")
 	}
 
 	out := *acct
@@ -885,7 +876,7 @@ func (m *MockClient) SessionUsername(_ context.Context, token string) (string, e
 	for _, sess := range m.Sessions {
 		return sess.Username, nil
 	}
-	return "", fmt.Errorf("no sessions")
+	return "", errors.New("no sessions")
 }
 
 // --- Audit ---
@@ -922,9 +913,7 @@ func (m *MockClient) GetSettings(_ context.Context) (map[string]string, error) {
 	m.Calls = append(m.Calls, MockCall{Method: "GetSettings", Args: nil})
 
 	out := make(map[string]string)
-	for k, v := range m.Settings {
-		out[k] = v
-	}
+	maps.Copy(out, m.Settings)
 	return out, nil
 }
 

@@ -1,6 +1,8 @@
 package packages
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -14,12 +16,13 @@ func FindAvailablePort(excluded map[uint16]bool) (_ uint16, err error) {
 	const maxPort = 60000
 
 	for range 100 {
-		port := uint16(minPort + rand.IntN(maxPort-minPort+1))
+		port := uint16(minPort + rand.IntN(maxPort-minPort+1)) //nolint:gosec // port selection doesn't need crypto rand
 		if excluded[port] {
 			continue
 		}
 
-		ln, listenErr := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		lc := net.ListenConfig{}
+		ln, listenErr := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
 		if listenErr != nil {
 			continue
 		}
@@ -29,13 +32,13 @@ func FindAvailablePort(excluded map[uint16]bool) (_ uint16, err error) {
 		return port, nil
 	}
 
-	return 0, fmt.Errorf("could not find available port after 100 attempts")
+	return 0, errors.New("could not find available port after 100 attempts")
 }
 
 // GenerateHostname returns a hostname for the given package name. If the name
 // is already unique, it returns the name as-is. Otherwise it appends a random
 // 4-character hex suffix.
 func GenerateHostname(pkgName string) string {
-	suffix := fmt.Sprintf("%04x", rand.IntN(0x10000))
+	suffix := fmt.Sprintf("%04x", rand.IntN(0x10000)) //nolint:gosec // hostname suffix doesn't need crypto rand
 	return fmt.Sprintf("%s-%s", pkgName, suffix)
 }

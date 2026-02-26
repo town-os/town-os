@@ -63,7 +63,7 @@ func (o OutputType) Output(answer string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%d", b), nil
+		return strconv.FormatUint(b, 10), nil
 	case Archive:
 		if answer == "" {
 			return "", ErrInvalidType
@@ -74,7 +74,7 @@ func (o OutputType) Output(answer string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%d", d), nil
+		return strconv.FormatUint(d, 10), nil
 	default:
 		return "", ErrInvalidType
 	}

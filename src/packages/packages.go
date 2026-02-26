@@ -51,7 +51,7 @@ func ValidateNote(value string, typ NoteType) error {
 	switch typ {
 	case NoteURL:
 		if _, err := url.Parse(value); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidNoteURL, err)
+			return fmt.Errorf("%w: %w", ErrInvalidNoteURL, err)
 		}
 	case NotePhone:
 		if !notePhoneRegexp.MatchString(value) {
@@ -179,7 +179,7 @@ type InputPackage struct {
 // provided responses, validates typed notes, and returns the compiled result.
 func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, error) {
 	if len(i.Notes) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no notes to compile
 	}
 
 	compiled := make(map[string]string, len(i.Notes))

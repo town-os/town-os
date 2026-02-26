@@ -203,7 +203,7 @@ func (rr *RepositoryRoot) forceRefresh() {
 
 func (rr *RepositoryRoot) loadLastRefreshed() {
 	fn := filepath.Join(rr.BaseDir, LastRefreshedFile)
-	data, err := os.ReadFile(fn)
+	data, err := os.ReadFile(fn) //nolint:gosec // reading known cache file
 	if err != nil {
 		return
 	}
@@ -216,7 +216,7 @@ func (rr *RepositoryRoot) loadLastRefreshed() {
 
 func (rr *RepositoryRoot) saveLastRefreshed() {
 	fn := filepath.Join(rr.BaseDir, LastRefreshedFile)
-	_ = os.WriteFile(fn, []byte(rr.LastRefreshed.Format(time.RFC3339)+"\n"), 0644)
+	_ = os.WriteFile(fn, []byte(rr.LastRefreshed.Format(time.RFC3339)+"\n"), 0644) //nolint:gosec // cache timestamp file
 }
 
 func (rr *RepositoryRoot) RefreshErrors() map[string]string {
@@ -668,7 +668,7 @@ const FeaturedFile = "featured.json"
 // LoadFeatured reads the featured.json file from a repository directory.
 func (r *Repository) LoadFeatured(baseDir string) (_ []string, err error) {
 	fn := filepath.Join(baseDir, r.Name, FeaturedFile)
-	f, err := os.Open(fn)
+	f, err := os.Open(fn) //nolint:gosec // reading known package file
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

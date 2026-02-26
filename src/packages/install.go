@@ -316,17 +316,17 @@ func (m *InstallManager) SaveLastResponses(repoName, pkgName string, responses R
 	}()
 
 	dir := filepath.Join(m.lastResponsesDir(), repoName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // package data directory
 		return err
 	}
 
-	return atomicWriteJSON(filepath.Join(dir, fmt.Sprintf("%s.json", pkgName)), responses)
+	return atomicWriteJSON(filepath.Join(dir, pkgName+".json"), responses)
 }
 
 // LoadLastResponses reads the last saved responses for a package.
 func (m *InstallManager) LoadLastResponses(repoName, pkgName string) (_ Responses, err error) {
-	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName))
-	f, err := os.Open(fn)
+	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName)) //nolint:perfsprint // project convention
+	f, err := os.Open(fn)                                                                 //nolint:gosec // opening known package file
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +343,7 @@ func (m *InstallManager) LoadLastResponses(repoName, pkgName string) (_ Response
 
 // ClearLastResponses removes the last saved responses for a package.
 func (m *InstallManager) ClearLastResponses(repoName, pkgName string) error {
-	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName))
+	fn := filepath.Join(m.lastResponsesDir(), repoName, fmt.Sprintf("%s.json", pkgName)) //nolint:perfsprint // project convention
 	if err := os.Remove(fn); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -363,7 +363,7 @@ func (m *InstallManager) SaveChildren(repoName, parentName string, children []st
 	}()
 
 	dir := filepath.Join(m.dir(), repoName, parentName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // children data directory
 		return err
 	}
 
@@ -373,7 +373,7 @@ func (m *InstallManager) SaveChildren(repoName, parentName string, children []st
 // LoadChildren reads the list of child instance names for a parent package.
 func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, err error) {
 	fn := filepath.Join(m.dir(), repoName, parentName, ChildrenFile)
-	f, err := os.Open(fn)
+	f, err := os.Open(fn) //nolint:gosec // opening known children file
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -395,7 +395,7 @@ func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, 
 // repository copy. If they differ (or the repo file is missing), the package
 // was updated upstream after installation.
 func (m *InstallManager) IsPackageChanged(repoName, pkgName, version string) (bool, error) {
-	installedPath := filepath.Join(m.dir(), repoName, pkgName, fmt.Sprintf("%s.yaml", version))
+	installedPath := filepath.Join(m.dir(), repoName, pkgName, fmt.Sprintf("%s.yaml", version)) //nolint:perfsprint // project convention
 	repoPath := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, fmt.Sprintf("%s.yaml", version))
 
 	installedStat, err := os.Stat(installedPath)
@@ -413,12 +413,12 @@ func (m *InstallManager) IsPackageChanged(repoName, pkgName, version string) (bo
 
 	installedSys, ok := installedStat.Sys().(*syscall.Stat_t)
 	if !ok {
-		return false, fmt.Errorf("cannot get inode for installed file")
+		return false, errors.New("cannot get inode for installed file")
 	}
 
 	repoSys, ok := repoStat.Sys().(*syscall.Stat_t)
 	if !ok {
-		return false, fmt.Errorf("cannot get inode for repo file")
+		return false, errors.New("cannot get inode for repo file")
 	}
 
 	return installedSys.Ino != repoSys.Ino, nil
