@@ -246,7 +246,7 @@ clean-integration:
 	@rm -f .integration-port
 
 clean: clean-cache
-	rm -rf .cache
+	sudo rm -rf .cache
 
 clean-cache: dev-stop clean-btrfs-dev
 	@sudo rm -rf dev-data dev-repos
