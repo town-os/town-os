@@ -1,6 +1,8 @@
 -include .env
 export TOWN_OS_REPO_USERNAME
 export TOWN_OS_REPO_PASSWORD
+export DOCKER_USERNAME
+export DOCKER_PASSWORD
 
 # Unique instance ID from working directory path.
 INSTANCE_ID := $(shell echo -n "$(CURDIR)" | md5sum | cut -c1-8)
@@ -25,14 +27,19 @@ test: lint
 	go test -v -timeout 60m ./src/...
 	cd ui && bun install && bun run test
 
-.cache/.images-pulled:
+docker-login:
+	@if [ -n "$(DOCKER_USERNAME)" ] && [ -n "$(DOCKER_PASSWORD)" ]; then \
+		echo "$(DOCKER_PASSWORD)" | sudo -E podman login -u "$(DOCKER_USERNAME)" --password-stdin docker.io; \
+	fi
+
+.cache/.images-pulled: docker-login
 	sudo -E podman pull golang:1.25-bookworm
 	sudo -E podman pull oven/bun:latest
 	sudo -E podman pull debian:bookworm-slim
 	@mkdir -p .cache
 	@touch .cache/.images-pulled
 
-pull-images:
+pull-images: docker-login
 	sudo -E podman pull docker.io/library/golang:1.25-bookworm
 	sudo -E podman pull docker.io/oven/bun:latest
 	sudo -E podman pull docker.io/library/debian:bookworm-slim
@@ -66,6 +73,7 @@ test-ui-integration: test-image ui-integration-image btrfs .integration-port
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
+		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
 		--name=$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
 	@echo "Waiting for systemd to be ready..."
 	@for i in $$(seq 1 30); do \
@@ -95,6 +103,7 @@ test-integration: lint test-image btrfs .integration-port
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
+		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "Waiting for systemd to be ready..."
 	@for i in $$(seq 1 30); do \
@@ -166,12 +175,13 @@ dev: dev-image dev-btrfs
 		-v $$(cat town-os-dev.mount):/data/btrfs:z \
 		-v $$(pwd)/dev-data:/data/db:z \
 		-v $$(pwd)/dev-repos:/data/repos:z \
+		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_DEV_IMAGE)
 	@echo "API server: http://$$(hostname):5309"
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
-preflight-dev: .integration-port
+preflight-dev: docker-login .integration-port
 	@echo "Checking podman..."
 	@command -v podman >/dev/null 2>&1 || { echo "ERROR: podman not found"; exit 1; }
 	@echo "Checking btrfs-progs..."
