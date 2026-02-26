@@ -1543,7 +1543,16 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	// Verify port 6379 is accessible via TCP after reinstall.
-	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+	// Retry because the container may be "running" before Redis binds the port.
+	var conn net.Conn
+	tcpDeadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(tcpDeadline) {
+		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+		if err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
 		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput() //nolint:gosec // test helper
 		t.Fatalf("TCP connect to redis after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
