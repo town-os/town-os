@@ -485,8 +485,11 @@ export default function StorageManagement() {
       const raw = form.modifyQuota?.value ? parseFloat(form.modifyQuota.value) : 0
       const unit = form.modifyQuotaUnit?.value || 'GB'
       const quota = raw === 0 ? 0 : Math.round(raw * (UNITS[unit] || 1))
+      const newName = volumeModifyDialog.state === 'user'
+        ? (form.modifyName?.value || volumeModifyDialog.displayName)
+        : volumeModifyDialog.internalName
       await getClient().modifyFilesystem(volumeModifyDialog.internalName, {
-        name: volumeModifyDialog.internalName,
+        name: newName,
         quota,
       })
       toast.success('Volume modified')
@@ -850,6 +853,16 @@ export default function StorageManagement() {
             )}
           </div>
           <form onSubmit={handleVolumeModifyProps} className="space-y-4">
+            {volumeModifyDialog.state === 'user' && (
+              <div className="space-y-2">
+                <Label htmlFor="modifyName">Name</Label>
+                <Input
+                  id="modifyName"
+                  name="modifyName"
+                  defaultValue={volumeModifyDialog.displayName || ''}
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="modifyQuota">Quota (0 = unlimited)</Label>
               <div className="flex gap-2">
