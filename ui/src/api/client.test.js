@@ -1528,4 +1528,169 @@ describe('SystemControllerClient', () => {
       )
     })
   })
+
+  describe('createPage', () => {
+    it('sends correct POST body with all fields', async () => {
+      const pageData = {
+        name: 'my-site',
+        repo_url: 'https://github.com/user/site.git',
+        branch: 'main',
+        domain: 'site.example.com',
+        status: 'pending',
+      }
+      mockFetch(pageData)
+      client.setToken('tok')
+
+      const result = await client.createPage('my-site', 'https://github.com/user/site.git', 'main', 'site.example.com')
+      expect(result).toEqual(pageData)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/pages/create',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({
+            name: 'my-site',
+            repo_url: 'https://github.com/user/site.git',
+            branch: 'main',
+            domain: 'site.example.com',
+          }),
+        },
+      )
+    })
+
+    it('defaults domain to empty string when not provided', async () => {
+      mockFetch({ name: 'my-site', domain: 'my-site' })
+      client.setToken('tok')
+
+      await client.createPage('my-site', 'https://github.com/user/site.git', 'main')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/pages/create',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({
+            name: 'my-site',
+            repo_url: 'https://github.com/user/site.git',
+            branch: 'main',
+            domain: '',
+          }),
+        },
+      )
+    })
+  })
+
+  describe('updatePage', () => {
+    it('sends name and fields', async () => {
+      const pageData = {
+        name: 'my-site',
+        repo_url: 'https://github.com/user/site.git',
+        branch: 'main',
+        domain: 'new.example.com',
+        status: 'active',
+      }
+      mockFetch(pageData)
+      client.setToken('tok')
+
+      const result = await client.updatePage('my-site', { domain: 'new.example.com' })
+      expect(result).toEqual(pageData)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/pages/update',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({
+            name: 'my-site',
+            fields: { domain: 'new.example.com' },
+          }),
+        },
+      )
+    })
+  })
+
+  describe('removePage', () => {
+    it('sends name in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.removePage('my-site')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/pages/remove',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'my-site' }),
+        },
+      )
+    })
+  })
+
+  describe('listPages', () => {
+    it('returns paginated response', async () => {
+      const page = {
+        entries: [{ name: 'my-site', domain: 'my-site', status: 'active' }],
+        has_more: false,
+        total_pages: 1,
+        total_count: 1,
+      }
+      mockFetch(page)
+      client.setToken('tok')
+
+      const result = await client.listPages()
+      expect(result).toEqual(page)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/pages',
+        { headers: { Authorization: 'Bearer tok' } },
+      )
+    })
+
+    it('sends sort, limit, offset, and search params', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listPages('name', 'desc', 20, 40, 'alpha')
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('sort_by=name')
+      expect(url).toContain('sort_order=desc')
+      expect(url).toContain('limit=20')
+      expect(url).toContain('offset=40')
+      expect(url).toContain('search=alpha')
+    })
+  })
+
+  describe('rebuildPage', () => {
+    it('sends name and returns updated page', async () => {
+      const pageData = {
+        name: 'my-site',
+        status: 'active',
+      }
+      mockFetch(pageData)
+      client.setToken('tok')
+
+      const result = await client.rebuildPage('my-site')
+      expect(result).toEqual(pageData)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/pages/rebuild',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'my-site' }),
+        },
+      )
+    })
+  })
 })

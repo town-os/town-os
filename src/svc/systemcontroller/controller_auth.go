@@ -187,6 +187,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/account":                      true,
 			"/settings":                     true,
 			"/settings/get":                 true,
+			"/pages":                        true,
 		}
 
 		if excluded[path] {

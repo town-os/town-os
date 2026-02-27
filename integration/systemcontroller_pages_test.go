@@ -14,6 +14,12 @@ import (
 
 func initSystemControllerPagesTest(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
+	c, _ := initSystemControllerPagesTestWithAudit(t)
+	return c
+}
+
+func initSystemControllerPagesTestWithAudit(t *testing.T) (*systemcontroller.SystemdClient, account.AuditManager) {
+	t.Helper()
 
 	dir := t.TempDir()
 	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
@@ -73,7 +79,7 @@ func initSystemControllerPagesTest(t *testing.T) *systemcontroller.SystemdClient
 	}
 	c.Token = resp.Token
 
-	return c
+	return c, auditMgr
 }
 
 func TestPagesCreateAndList(t *testing.T) {
@@ -226,5 +232,121 @@ func TestPagesRequireAuth(t *testing.T) {
 	_, err := c.ListPages(context.TODO(), systemcontroller.ListParams{})
 	if err == nil {
 		t.Fatal("expected auth error for ListPages without token")
+	}
+}
+
+func TestPagesAuditCreateLogged(t *testing.T) {
+	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "create page" && e.Path == "/pages/create" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			if e.Account != "admin" {
+				t.Fatalf("expected account %q, got %q", "admin", e.Account)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'create page' audit entry")
+	}
+}
+
+func TestPagesAuditUpdateLogged(t *testing.T) {
+	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	newDomain := "updated.example.com"
+	if _, err := c.UpdatePage(context.TODO(), "audit-site", account.PageSiteUpdate{Domain: &newDomain}); err != nil {
+		t.Fatalf("UpdatePage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "update page" && e.Path == "/pages/update" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'update page' audit entry")
+	}
+}
+
+func TestPagesAuditRemoveLogged(t *testing.T) {
+	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	if err := c.RemovePage(context.TODO(), "audit-site"); err != nil {
+		t.Fatalf("RemovePage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "remove page" && e.Path == "/pages/remove" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'remove page' audit entry")
+	}
+}
+
+func TestPagesAuditListExcluded(t *testing.T) {
+	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
+
+	// Call list pages multiple times - should NOT be audit logged.
+	if _, err := c.ListPages(context.TODO(), systemcontroller.ListParams{}); err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if _, err := c.ListPages(context.TODO(), systemcontroller.ListParams{Search: "test"}); err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		if e.Path == "/pages" {
+			t.Fatal("expected /pages (list) to be excluded from audit log")
+		}
 	}
 }

@@ -13,6 +13,12 @@ import (
 
 func initPagesTestClient(t *testing.T) (*SystemdClient, *git.MockClient) { //nolint:unparam // consistent with other init helpers
 	t.Helper()
+	c, gitClient, _ := initPagesTestClientWithAudit(t)
+	return c, gitClient
+}
+
+func initPagesTestClientWithAudit(t *testing.T) (*SystemdClient, *git.MockClient, account.AuditManager) {
+	t.Helper()
 	mock := storage.InitBtrFSMock()
 
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
@@ -70,7 +76,7 @@ func initPagesTestClient(t *testing.T) (*SystemdClient, *git.MockClient) { //nol
 	}
 	c.Token = resp.Token
 
-	return c, gitClient
+	return c, gitClient, auditMgr
 }
 
 func TestHTTPCreatePageReturnsAsyncPending(t *testing.T) {
@@ -294,5 +300,155 @@ func TestHTTPPagesRequireAuth(t *testing.T) {
 	_, err := c.ListPages(context.TODO(), ListParams{})
 	if err == nil {
 		t.Fatal("expected auth error for ListPages without token")
+	}
+}
+
+func TestHTTPPagesAuditCreatePage(t *testing.T) {
+	c, _, auditMgr := initPagesTestClientWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "create page" && e.Path == "/pages/create" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			if e.Account != "testadmin" {
+				t.Fatalf("expected account %q, got %q", "testadmin", e.Account)
+			}
+			if e.Detail == "" {
+				t.Fatal("expected non-empty detail")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'create page' audit entry")
+	}
+}
+
+func TestHTTPPagesAuditUpdatePage(t *testing.T) {
+	c, _, auditMgr := initPagesTestClientWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	newDomain := "updated.example.com"
+	if _, err := c.UpdatePage(context.TODO(), "audit-site", account.PageSiteUpdate{Domain: &newDomain}); err != nil {
+		t.Fatalf("UpdatePage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "update page" && e.Path == "/pages/update" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'update page' audit entry")
+	}
+}
+
+func TestHTTPPagesAuditRemovePage(t *testing.T) {
+	c, _, auditMgr := initPagesTestClientWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	if err := c.RemovePage(context.TODO(), "audit-site"); err != nil {
+		t.Fatalf("RemovePage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "remove page" && e.Path == "/pages/remove" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'remove page' audit entry")
+	}
+}
+
+func TestHTTPPagesAuditRebuildPage(t *testing.T) {
+	c, _, auditMgr := initPagesTestClientWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// Wait for async clone to complete before rebuilding.
+	time.Sleep(100 * time.Millisecond)
+
+	if _, err := c.RebuildPage(context.TODO(), "audit-site"); err != nil {
+		t.Fatalf("RebuildPage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "rebuild page" && e.Path == "/pages/rebuild" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'rebuild page' audit entry")
+	}
+}
+
+func TestHTTPPagesAuditListExcluded(t *testing.T) {
+	c, _, auditMgr := initPagesTestClientWithAudit(t)
+
+	// Call list pages - should NOT be audit logged.
+	if _, err := c.ListPages(context.TODO(), ListParams{}); err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		if e.Path == "/pages" {
+			t.Fatal("expected /pages (list) to be excluded from audit log")
+		}
 	}
 }

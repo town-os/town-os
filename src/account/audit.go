@@ -60,4 +60,8 @@ var RouteActions = map[string]string{
 	"/packages/upgrades/dismiss":       "dismiss package upgrades",
 	"/storage/upload-archive":          "upload archive",
 	"/storage/download-archive":        "download archive",
+	"/pages/create":                    "create page",
+	"/pages/update":                    "update page",
+	"/pages/remove":                    "remove page",
+	"/pages/rebuild":                   "rebuild page",
 }

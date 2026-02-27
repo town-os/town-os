@@ -786,6 +786,58 @@ describe('SystemControllerClient integration', () => {
     })
   })
 
+  // --- Pages audit logging ---
+
+  describe('pages audit logging', () => {
+    it('creates audit entries for page operations', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      // Create a page to generate audit entry
+      await client.createPage('audit-page', 'https://github.com/user/audit.git', 'main', 'audit.example.com')
+
+      // Update the page
+      await client.updatePage('audit-page', { domain: 'updated-audit.example.com' })
+
+      // Remove the page
+      await client.removePage('audit-page')
+
+      // Query audit log for pages operations
+      const auditPage = await client.listAuditLog({ limit: 200 })
+      const createEntry = auditPage.entries.find(
+        (e) => e.action === 'create page' && e.path === '/pages/create',
+      )
+      expect(createEntry).toBeDefined()
+      expect(createEntry.success).toBe(true)
+      expect(createEntry.account).toBe('admin')
+
+      const updateEntry = auditPage.entries.find(
+        (e) => e.action === 'update page' && e.path === '/pages/update',
+      )
+      expect(updateEntry).toBeDefined()
+      expect(updateEntry.success).toBe(true)
+
+      const removeEntry = auditPage.entries.find(
+        (e) => e.action === 'remove page' && e.path === '/pages/remove',
+      )
+      expect(removeEntry).toBeDefined()
+      expect(removeEntry.success).toBe(true)
+    })
+
+    it('does not create audit entries for page listing', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      // List pages
+      await client.listPages()
+
+      // Query audit log
+      const auditPage = await client.listAuditLog({ limit: 200 })
+      const listEntry = auditPage.entries.find((e) => e.path === '/pages')
+      expect(listEntry).toBeUndefined()
+    })
+  })
+
   // --- Package install creates systemd unit ---
 
   describe('package install creates systemd unit', () => {
