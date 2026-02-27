@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -908,7 +909,7 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"port": "6379", "password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1160,7 +1161,7 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"port": "6379", "password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -1398,22 +1399,36 @@ func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.
 func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	c := initSystemControllerRealContainerTest(t)
 
-	t.Cleanup(func() {
-		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{6379: 6379})
-	})
-
 	// Add core repo.
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	// Install redis@7.0.
+	// Install redis@7.0 (port is auto-assigned by FindAvailablePort).
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "testpass",
 		"maxmemory": "100mb",
 	}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
+
+	// Discover the dynamically assigned port.
+	responses, err := c.GetResponses(context.TODO(), "core", "redis", "7.0")
+	if err != nil {
+		t.Fatalf("GetResponses redis@7.0: %v", err)
+	}
+	assignedPort := responses["port"]
+	if assignedPort == "" {
+		t.Fatal("expected non-empty port in responses after install")
+	}
+	portNum, err := strconv.ParseUint(assignedPort, 10, 16)
+	if err != nil {
+		t.Fatalf("parse assigned port %q: %v", assignedPort, err)
+	}
+
+	t.Cleanup(func() {
+		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{uint16(portNum): 6379})
+	})
 
 	// Wait for the container to start (includes image pull).
 	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
@@ -1440,12 +1455,13 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 		t.Fatalf("expected unit %q in ListUnits output", unitName)
 	}
 
-	// Verify port 6379 is accessible via TCP from the host.
+	// Verify the assigned port is accessible via TCP from the host.
 	// Retry with short dials because nested podman port forwarding can be slow.
+	dialAddr := "127.0.0.1:" + assignedPort
 	var conn net.Conn
 	dialDeadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(dialDeadline) {
-		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 		if err == nil {
 			break
 		}
@@ -1453,7 +1469,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 	if err != nil {
 		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput()
-		t.Fatalf("TCP connect to redis on port 6379 failed: %v\ncontainer logs:\n%s", err, string(logs))
+		t.Fatalf("TCP connect to redis on port %s failed: %v\ncontainer logs:\n%s", assignedPort, err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close redis connection: %v", err)
@@ -1495,27 +1511,23 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 		t.Fatalf("expected %s not in podman ps after uninstall", containerName)
 	}
 
-	// Verify port 6379 is no longer accessible.
-	postConn, postErr := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+	// Verify the assigned port is no longer accessible.
+	postConn, postErr := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 	if postErr == nil {
 		_ = postConn.Close()
-		t.Fatal("expected port 6379 to be unreachable after uninstall")
+		t.Fatalf("expected port %s to be unreachable after uninstall", assignedPort)
 	}
 }
 
 func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	c := initSystemControllerRealContainerTest(t)
 
-	t.Cleanup(func() {
-		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{6379: 6379})
-	})
-
 	// Add core repo.
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
-	// Install redis@7.0.
+	// Install redis@7.0 (port is auto-assigned by FindAvailablePort).
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
 		"password":  "testpass",
 		"maxmemory": "100mb",
@@ -1524,6 +1536,24 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
+
+	// Discover the dynamically assigned port.
+	responses, err := c.GetResponses(context.TODO(), "core", "redis", "7.0")
+	if err != nil {
+		t.Fatalf("GetResponses redis@7.0: %v", err)
+	}
+	assignedPort := responses["port"]
+	if assignedPort == "" {
+		t.Fatal("expected non-empty port in responses after install")
+	}
+	portNum, err := strconv.ParseUint(assignedPort, 10, 16)
+	if err != nil {
+		t.Fatalf("parse assigned port %q: %v", assignedPort, err)
+	}
+
+	t.Cleanup(func() {
+		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{uint16(portNum): 6379})
+	})
 
 	// Reinstall with the same version (same-version reinstall path).
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
@@ -1535,6 +1565,16 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 
 	// Wait for the new container to come up.
 	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
+
+	// Discover the port after reinstall (may have changed).
+	responses, err = c.GetResponses(context.TODO(), "core", "redis", "7.0")
+	if err != nil {
+		t.Fatalf("GetResponses after reinstall: %v", err)
+	}
+	reinstallPort := responses["port"]
+	if reinstallPort == "" {
+		t.Fatal("expected non-empty port in responses after reinstall")
+	}
 
 	// Verify installed list still shows redis@7.0.
 	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
@@ -1552,12 +1592,13 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 		t.Fatalf("expected core/redis@7.0 in installed list, got: %v", pkgs.Entries)
 	}
 
-	// Verify port 6379 is accessible via TCP after reinstall.
+	// Verify the assigned port is accessible via TCP after reinstall.
 	// Retry because the container may be "running" before Redis binds the port.
+	dialAddr := "127.0.0.1:" + reinstallPort
 	var conn net.Conn
 	tcpDeadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(tcpDeadline) {
-		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 		if err == nil {
 			break
 		}
@@ -1565,7 +1606,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 	if err != nil {
 		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
-		t.Fatalf("TCP connect to redis after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
+		t.Fatalf("TCP connect to redis on port %s after reinstall failed: %v\ncontainer logs:\n%s", reinstallPort, err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close redis connection: %v", err)
@@ -3172,7 +3213,7 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
 
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
+	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{"port": "6379", "password": "secret", "maxmemory": "100mb"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
@@ -3282,6 +3323,7 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 	}
 
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"port":      "6379",
 		"password":  "testpass",
 		"maxmemory": "100mb",
 	}, false, "", false); err != nil {
@@ -3342,6 +3384,7 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	}
 
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"port":      "6379",
 		"password":  "testpass",
 		"maxmemory": "100mb",
 	}, false, "", false); err != nil {
@@ -3632,6 +3675,7 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 	}
 
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"port":      "6379",
 		"password":  "testpass",
 		"maxmemory": "100mb",
 	}, false, "", false); err != nil {
@@ -3877,6 +3921,7 @@ func TestSystemControllerInstallRedisHostModeNoNCForSamePort(t *testing.T) {
 	}
 
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"port":      "6379",
 		"password":  "testpass",
 		"maxmemory": "100mb",
 	}, false, "", false); err != nil {
@@ -3912,6 +3957,7 @@ func TestSystemControllerInstallNginxBridgeModeNoInternalPortForwarding(t *testi
 	}
 
 	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
+		"port":      "6379",
 		"password":  "testpass",
 		"maxmemory": "100mb",
 	}, false, "", false); err != nil {
@@ -4276,7 +4322,7 @@ func TestSystemControllerMultiRepoListInstalled(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, "", false); err != nil {
+	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{"port": "1883"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage mosquitto@2.0: %v", err)
 	}
 
@@ -4351,7 +4397,7 @@ func TestSystemControllerMultiRepoUninstallIsolation(t *testing.T) {
 	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "alpha", "port": "80"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage nginx@1.0: %v", err)
 	}
-	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{}, false, "", false); err != nil {
+	if err := c.InstallPackage(context.TODO(), "mosquitto", "2.0", packages.Responses{"port": "1883"}, false, "", false); err != nil {
 		t.Fatalf("InstallPackage mosquitto@2.0: %v", err)
 	}
 

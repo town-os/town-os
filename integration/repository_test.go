@@ -241,6 +241,7 @@ func TestRepositoryCompileRedisCommand(t *testing.T) {
 	}
 
 	compiled, err := redis.Compile(packages.Responses{
+		"port":      "6379",
 		"password":  "secret",
 		"maxmemory": "100mb",
 	})
