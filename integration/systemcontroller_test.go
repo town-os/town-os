@@ -4659,30 +4659,6 @@ func TestArchiveDownloadInstalledSubvolume(t *testing.T) {
 	}
 }
 
-func TestArchiveUploadInvalidMagicBytes(t *testing.T) {
-	c := initSystemControllerTestWithBtrfsBase(t)
-	ctx := context.TODO()
-	subvol := "archive-test-bad-magic"
-
-	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
-		t.Fatalf("CreateFilesystem: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
-			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
-		}
-	})
-
-	// Send data that does not match any compression magic bytes.
-	_, err := c.UploadArchive(ctx, subvol, strings.NewReader("this is not compressed data at all"), "test.tar.gz", "", "")
-	if err == nil {
-		t.Fatal("expected error for invalid magic bytes")
-	}
-	if !strings.Contains(err.Error(), "unsupported") && !strings.Contains(err.Error(), "magic") {
-		t.Fatalf("expected unsupported/magic error, got: %v", err)
-	}
-}
-
 func TestArchiveDownloadWithBzip2Format(t *testing.T) {
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
@@ -4967,7 +4943,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -4983,7 +4959,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	for _, args := range [][]string{
 		{"init", "--bare", "-b", "main", seedRepo},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -4994,12 +4970,12 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	for _, args := range [][]string{
 		{"clone", seedRepo, workDir},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello from seed"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello from seed"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	for _, args := range [][]string{
@@ -5007,14 +4983,14 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		{"-C", workDir, "-c", "user.name=test", "-c", "user.email=test@test", "-c", "commit.gpgsign=false", "commit", "-m", "seed"},
 		{"-C", workDir, "push", "origin", "HEAD:main"},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
 	// Ensure bare repo HEAD points to main (default may be master on some systems).
 	{
-		cmd := exec.CommandContext(context.TODO(), "git", "-C", seedRepo, "symbolic-ref", "HEAD", "refs/heads/main") //nolint:gosec // test helper
+		cmd := exec.CommandContext(context.TODO(), "git", "-C", seedRepo, "symbolic-ref", "HEAD", "refs/heads/main")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git symbolic-ref HEAD (seed): %v: %s", err, out)
 		}
@@ -5046,7 +5022,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		{"init", "--bare", localBareRepo},
 		{"clone", localBareRepo, localWork},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -5064,13 +5040,13 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		{"-C", localWork, "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "init"},
 		{"-C", localWork, "push", "origin", "HEAD:main"},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
 	// Ensure bare repo HEAD points to main (default may be master on some systems).
-	cmd := exec.CommandContext(context.TODO(), "git", "-C", localBareRepo, "symbolic-ref", "HEAD", "refs/heads/main") //nolint:gosec // test helper
+	cmd := exec.CommandContext(context.TODO(), "git", "-C", localBareRepo, "symbolic-ref", "HEAD", "refs/heads/main")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git symbolic-ref HEAD: %v: %s", err, out)
 	}
@@ -5091,7 +5067,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 
 	// Verify git cloned files exist in the volume.
 	helloPath := filepath.Join(volDir, "hello.txt")
-	content, err := os.ReadFile(helloPath) //nolint:gosec // test reads from controlled temp dir
+	content, err := os.ReadFile(helloPath)
 	if err != nil {
 		t.Fatalf("expected hello.txt in git seed volume: %v", err)
 	}

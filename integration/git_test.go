@@ -121,7 +121,7 @@ func TestGitClientDiffAfterModification(t *testing.T) {
 	}
 	for _, f := range files {
 		if !f.IsDir() && !strings.HasPrefix(f.Name(), ".") {
-			err := os.WriteFile(filepath.Join(repoDir, f.Name()), []byte("modified-content"), 0644) //nolint:gosec // test code
+			err := os.WriteFile(filepath.Join(repoDir, f.Name()), []byte("modified-content"), 0644)
 			if err != nil {
 				t.Fatalf("WriteFile: %v", err)
 			}
@@ -152,14 +152,13 @@ func TestGitClientStashAndApply(t *testing.T) {
 
 	// Modify a tracked file.
 	testFile := filepath.Join(repoDir, "README.md")
-	origData, err := os.ReadFile(testFile) //nolint:gosec // test code
+	origData, err := os.ReadFile(testFile)
 	if err != nil {
 		// If README.md doesn't exist, try another file.
 		t.Skipf("no README.md to modify: %v", err)
 	}
 
-	if err := os.WriteFile(testFile, []byte("modified for stash test"), 0644); err != nil { //nolint:gosec // test code
-		t.Fatalf("WriteFile: %v", err)
+	if err := os.WriteFile(testFile, []byte("modified for stash test"), 0644); err != nil {		t.Fatalf("WriteFile: %v", err)
 	}
 
 	err = c.Stash(ctx, repoDir)
@@ -168,7 +167,7 @@ func TestGitClientStashAndApply(t *testing.T) {
 	}
 
 	// File should be restored.
-	data, err := os.ReadFile(testFile) //nolint:gosec // test code
+	data, err := os.ReadFile(testFile)
 	if err != nil {
 		t.Fatalf("ReadFile after stash: %v", err)
 	}
@@ -182,7 +181,7 @@ func TestGitClientStashAndApply(t *testing.T) {
 		t.Fatalf("StashApply: %v", err)
 	}
 
-	data, err = os.ReadFile(testFile) //nolint:gosec // test code
+	data, err = os.ReadFile(testFile)
 	if err != nil {
 		t.Fatalf("ReadFile after stash apply: %v", err)
 	}

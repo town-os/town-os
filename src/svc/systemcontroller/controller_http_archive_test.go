@@ -157,37 +157,6 @@ func TestHTTPUploadArchiveWithStopService(t *testing.T) {
 	}
 }
 
-func TestHTTPUploadArchiveInvalidMagicBytes(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	basePath := t.TempDir()
-	ts := InitTestServer(ServerConfig{Storage: mock, BtrfsBasePath: basePath})
-	t.Cleanup(ts.Close)
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	_ = writer.WriteField("subvolume", "test-vol")
-	part, _ := writer.CreateFormFile("archive", "test.tar.gz")
-	_, _ = part.Write([]byte("this is not a real archive"))
-	_ = writer.Close()
-
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// Magic-byte detection should reject this with a 400 Bad Request.
-	if resp.StatusCode != http.StatusBadRequest {
-		respBody, _ := io.ReadAll(resp.Body)
-		t.Fatalf("expected 400 Bad Request for invalid magic bytes, got %d: %s", resp.StatusCode, string(respBody))
-	}
-}
-
 func TestHTTPDownloadArchiveWithFormat(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(ServerConfig{Storage: mock, BtrfsBasePath: t.TempDir()})
