@@ -1,234 +1,208 @@
 package systemcontroller
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
-	"path/filepath"
-	"strconv"
-	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"github.com/labstack/echo/v5"
 )
 
-// Request/response types for Pages API.
+// --- Pages handlers ---
 
 type CreatePageRequest struct {
 	Name    string `json:"name"`
 	RepoURL string `json:"repo_url"`
-	Branch  string `json:"branch,omitempty"`
-	Domain  string `json:"domain,omitempty"`
+	Branch  string `json:"branch"`
+	Domain  string `json:"domain"`
 }
 
 type UpdatePageRequest struct {
-	Name    string `json:"name"`
-	RepoURL string `json:"repo_url,omitempty"`
-	Branch  string `json:"branch,omitempty"`
-	Domain  string `json:"domain,omitempty"`
+	Name   string                 `json:"name"`
+	Fields account.PageSiteUpdate `json:"fields"`
 }
 
-type RemovePageRequest struct {
-	Name string `json:"name"`
-}
-
-type RebuildPageRequest struct {
+type PageNameRequest struct {
 	Name string `json:"name"`
 }
 
 func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
+	mgr := s.Controller.GetPagesManager()
+	if mgr == nil {
+		return errors.New("pages not configured")
+	}
+
 	de := json.NewDecoder(c.Request().Body)
 	req := CreatePageRequest{}
 	if err := de.Decode(&req); err != nil {
 		return err
 	}
 
-	if req.Name == "" || req.RepoURL == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name and repo_url are required")
+	// Default domain to subdomain based on name if not provided.
+	if req.Domain == "" {
+		req.Domain = req.Name
 	}
 
-	branch := req.Branch
-	if branch == "" {
-		branch = "main"
-	}
-	domain := req.Domain
-	if domain == "" {
-		domain = req.Name
-	}
-
-	page := Page{
-		Name:    req.Name,
-		RepoURL: req.RepoURL,
-		Branch:  branch,
-		Domain:  domain,
-		Status:  "pending",
-	}
-
-	ps := s.Controller.GetPagesStore()
-	if err := ps.Create(page); err != nil {
-		return err
-	}
-
-	created, err := ps.Get(req.Name)
+	page, err := mgr.Create(req.Name, req.RepoURL, req.Branch, req.Domain)
 	if err != nil {
 		return err
 	}
 
-	// Clone asynchronously.
-	g := s.Controller.GetGitClient()
-	if g != nil {
-		go func() {
-			basePath := s.Controller.GetBtrfsBasePath()
-			dest := basePath + "/pages"
+	// Clone the git repository in the background.
+	cloner := s.Controller.GetGitCloner()
+	pagesDir := s.pagesBaseDir()
+	if cloner != nil && pagesDir != "" {
+		targetDir := fmt.Sprintf("%s/%s", pagesDir, req.Name)
+		cloneErr := cloner.Clone(targetDir, req.RepoURL, req.Branch)
 
-			if err := g.Clone(context.Background(), dest, req.RepoURL, req.Name); err != nil {
-				slog.Error(fmt.Sprintf("pages clone %s: %v", req.Name, err))
-				_ = ps.Update(req.Name, map[string]string{"status": "error"})
-				return
-			}
-			_ = ps.Update(req.Name, map[string]string{"status": "active"})
-		}()
+		status := "active"
+		if cloneErr != nil {
+			slog.Debug(fmt.Sprintf("pages clone %s: %v", req.Name, cloneErr))
+			status = "error"
+		}
+
+		if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
+			slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
+		}
+
+		// Re-fetch the page to return the updated status.
+		page, _ = mgr.Get(req.Name)
 	}
 
-	return c.JSON(http.StatusOK, created)
+	return c.JSON(200, page)
 }
 
 func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
+	mgr := s.Controller.GetPagesManager()
+	if mgr == nil {
+		return errors.New("pages not configured")
+	}
+
 	de := json.NewDecoder(c.Request().Body)
 	req := UpdatePageRequest{}
 	if err := de.Decode(&req); err != nil {
 		return err
 	}
 
-	if req.Name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name is required")
-	}
-
-	updates := map[string]string{}
-	if req.RepoURL != "" {
-		updates["repo_url"] = req.RepoURL
-	}
-	if req.Branch != "" {
-		updates["branch"] = req.Branch
-	}
-	if req.Domain != "" {
-		updates["domain"] = req.Domain
-	}
-
-	ps := s.Controller.GetPagesStore()
-	if err := ps.Update(req.Name, updates); err != nil {
-		return err
-	}
-
-	page, err := ps.Get(req.Name)
+	page, err := mgr.Update(req.Name, req.Fields)
 	if err != nil {
 		return err
 	}
 
-	return c.JSON(http.StatusOK, page)
+	return c.JSON(200, page)
 }
 
 func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
+	mgr := s.Controller.GetPagesManager()
+	if mgr == nil {
+		return errors.New("pages not configured")
+	}
+
 	de := json.NewDecoder(c.Request().Body)
-	req := RemovePageRequest{}
+	req := PageNameRequest{}
 	if err := de.Decode(&req); err != nil {
 		return err
 	}
 
-	if req.Name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name is required")
-	}
-
-	ps := s.Controller.GetPagesStore()
-	if err := ps.Remove(req.Name); err != nil {
+	if err := mgr.Remove(req.Name); err != nil {
 		return err
 	}
 
-	// Remove the cloned repository directory.
-	basePath := s.Controller.GetBtrfsBasePath()
-	dir := filepath.Join(basePath, "pages", req.Name)
-	if err := os.RemoveAll(dir); err != nil {
-		slog.Debug(fmt.Sprintf("remove page directory %s: %v", dir, err))
-	}
-
-	return c.JSON(http.StatusOK, struct{}{})
-}
-
-func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
-	de := json.NewDecoder(c.Request().Body)
-	req := RebuildPageRequest{}
-	if err := de.Decode(&req); err != nil {
-		return err
-	}
-
-	if req.Name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name is required")
-	}
-
-	ps := s.Controller.GetPagesStore()
-	page, err := ps.Get(req.Name)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "page not found")
-	}
-
-	g := s.Controller.GetGitClient()
-	if g == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "git client not configured")
-	}
-
-	basePath := s.Controller.GetBtrfsBasePath()
-	dest := filepath.Join(basePath, "pages", page.Name)
-
-	// If the .git directory is missing, perform a fresh clone instead of pulling.
-	gitDir := filepath.Join(dest, ".git")
-	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-		parentDir := filepath.Join(basePath, "pages")
-		if err := g.Clone(c.Request().Context(), parentDir, page.RepoURL, page.Name); err != nil {
-			_ = ps.Update(page.Name, map[string]string{"status": "error"})
-			return fmt.Errorf("rebuild page (clone) %s: %w", page.Name, err)
+	// Remove the cloned directory.
+	pagesDir := s.pagesBaseDir()
+	if pagesDir != "" {
+		targetDir := fmt.Sprintf("%s/%s", pagesDir, req.Name)
+		if err := os.RemoveAll(targetDir); err != nil {
+			slog.Debug(fmt.Sprintf("pages remove dir %s: %v", targetDir, err))
 		}
-	} else if err := g.Pull(c.Request().Context(), dest); err != nil {
-		_ = ps.Update(page.Name, map[string]string{"status": "error"})
-		return fmt.Errorf("rebuild page %s: %w", page.Name, err)
 	}
 
-	_ = ps.Update(page.Name, map[string]string{
-		"status":     "active",
-		"updated_at": time.Now().UTC().Format(time.RFC3339),
-	})
-
-	return c.JSON(http.StatusOK, struct{}{})
+	c.Response().WriteHeader(200)
+	return nil
 }
 
 func (s *SystemControllerHandlers) listPages(c *echo.Context) error {
-	ps := s.Controller.GetPagesStore()
-	if ps == nil {
-		return c.JSON(http.StatusOK, PagesPage{})
+	mgr := s.Controller.GetPagesManager()
+	if mgr == nil {
+		return errors.New("pages not configured")
 	}
 
-	opts := PagesListOptions{
-		SortBy:    c.QueryParam("sort_by"),
-		SortOrder: c.QueryParam("sort_order"),
-		Search:    c.QueryParam("search"),
-	}
-
-	if v := c.QueryParam("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			opts.Limit = n
-		}
-	}
-	if v := c.QueryParam("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			opts.Offset = n
-		}
-	}
-
-	result, err := ps.List(opts)
+	pages, err := mgr.List()
 	if err != nil {
 		return err
 	}
 
-	return c.JSON(http.StatusOK, result)
+	p := readListParams(c)
+	pages = filterSearch(pages, p.Search)
+	sortSlice(pages, p.SortBy, p.SortOrder)
+
+	return c.JSON(200, paginate(pages, p.Limit, p.Offset))
+}
+
+func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
+	mgr := s.Controller.GetPagesManager()
+	if mgr == nil {
+		return errors.New("pages not configured")
+	}
+
+	de := json.NewDecoder(c.Request().Body)
+	req := PageNameRequest{}
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	page, err := mgr.Get(req.Name)
+	if err != nil {
+		return err
+	}
+
+	cloner := s.Controller.GetGitCloner()
+	pagesDir := s.pagesBaseDir()
+	if cloner == nil || pagesDir == "" {
+		return errors.New("git cloner or pages directory not configured")
+	}
+
+	targetDir := fmt.Sprintf("%s/%s", pagesDir, page.Name)
+
+	// Check if the directory exists and has a .git directory.
+	gitDir := targetDir + "/.git"
+	if _, err := os.Stat(gitDir); err != nil {
+		// Not cloned yet; do a fresh clone.
+		if err := cloner.Clone(targetDir, page.RepoURL, page.Branch); err != nil {
+			status := "error"
+			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
+			}
+			return fmt.Errorf("pages clone %s: %w", page.Name, err)
+		}
+	} else {
+		if err := cloner.Update(targetDir, page.Branch); err != nil {
+			status := "error"
+			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
+			}
+			return fmt.Errorf("pages update %s: %w", page.Name, err)
+		}
+	}
+
+	status := "active"
+	updated, err := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status})
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, updated)
+}
+
+// pagesBaseDir returns the base directory for page site clones.
+// It is stored alongside the btrfs base path under a "pages" subdirectory.
+func (s *SystemControllerHandlers) pagesBaseDir() string {
+	base := s.Controller.GetBtrfsBasePath()
+	if base == "" {
+		return ""
+	}
+	return base + "/pages"
 }

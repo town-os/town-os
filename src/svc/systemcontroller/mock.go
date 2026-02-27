@@ -76,6 +76,12 @@ type MockClient struct {
 	DownloadArchiveErr   error
 	DownloadArchiveData  []byte
 	RebuildGitErr        error
+	Pages                map[string]*account.PageSite
+	CreatePageErr        error
+	UpdatePageErr        error
+	RemovePageErr        error
+	ListPagesErr         error
+	RebuildPageErr       error
 }
 
 // MockCall records a single method invocation on [MockClient], including
@@ -98,6 +104,7 @@ func InitMockClient() *MockClient {
 		Accounts:         map[string]*account.Account{},
 		Sessions:         map[string]*account.Session{},
 		Settings:         settings,
+		Pages:            map[string]*account.PageSite{},
 	}
 }
 

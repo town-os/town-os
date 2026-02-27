@@ -186,6 +186,17 @@ type Client interface {
 	// RebuildGitSources pulls and updates git sources for an installed package.
 	RebuildGitSources(ctx context.Context, repo, name, version string) error
 
+	// CreatePage creates a new page site for static hosting.
+	CreatePage(ctx context.Context, name, repoURL, branch, domain string) (*account.PageSite, error)
+	// UpdatePage updates fields on an existing page site.
+	UpdatePage(ctx context.Context, name string, fields account.PageSiteUpdate) (*account.PageSite, error)
+	// RemovePage deletes a page site.
+	RemovePage(ctx context.Context, name string) error
+	// ListPages returns a paginated list of page sites.
+	ListPages(ctx context.Context, params ListParams) (*PageResult[account.PageSite], error)
+	// RebuildPage pulls the latest content from the git repository for a page.
+	RebuildPage(ctx context.Context, name string) (*account.PageSite, error)
+
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)
 }

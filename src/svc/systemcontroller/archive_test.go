@@ -148,6 +148,7 @@ func (b *archiveTestBackend) GetNetworkControllerBinPath() string               
 func (b *archiveTestBackend) GetNetworkStatePath() string                         { return "" }
 func (b *archiveTestBackend) GetNetworkMode() string                              { return "" }
 func (b *archiveTestBackend) GetGitCloner() packages.GitCloner                    { return nil }
+func (b *archiveTestBackend) GetPagesManager() account.PagesManager               { return nil }
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
 

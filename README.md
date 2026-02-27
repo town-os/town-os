@@ -337,6 +337,72 @@ For each git source, the endpoint runs `git fetch` + `git reset --hard` to updat
 
 If the package has no git sources, the endpoint returns 200 with no work performed.
 
+## Pages
+
+Town OS Pages provides a GitHub Pages-like hosting feature. Point it at a git repository containing a static site, and Town OS will clone, serve, and keep it up to date.
+
+### Workflow
+
+1. Create a git repository with your static site (Astro, Jekyll, Hugo, plain HTML, etc.)
+2. Push the built site to the repository
+3. In the Control Plane Service, create a page pointing at your repository and branch
+4. Town OS clones the repository and sets the page status to `active`
+5. Rebuild a page on demand to pull the latest changes
+
+### API Endpoints
+
+All mutation endpoints require admin authentication. Listing requires regular authentication.
+
+| Method | Path              | Auth    | Description                    |
+| ------ | ----------------- | ------- | ------------------------------ |
+| POST   | `/pages/create`   | admin   | Create a new page site         |
+| POST   | `/pages/update`   | admin   | Update page fields             |
+| POST   | `/pages/remove`   | admin   | Remove a page and its clone    |
+| POST   | `/pages/rebuild`  | admin   | Pull latest changes for a page |
+| GET    | `/pages`          | auth    | List all pages (paginated)     |
+
+### Create Page
+
+```json
+{
+  "name": "my-site",
+  "repo_url": "https://github.com/user/my-site.git",
+  "branch": "main",
+  "domain": "my-site.example.com"
+}
+```
+
+If `domain` is empty, it defaults to the page `name`. The `branch` defaults to `main` if omitted. After creation, the repository is cloned and the status is set to `active` (or `error` if cloning fails).
+
+### Update Page
+
+```json
+{
+  "name": "my-site",
+  "fields": {
+    "domain": "new.example.com"
+  }
+}
+```
+
+Updatable fields: `repo_url`, `branch`, `domain`, `status`.
+
+### Remove Page
+
+```json
+{ "name": "my-site" }
+```
+
+Removes the page record and deletes the cloned directory.
+
+### Rebuild Page
+
+```json
+{ "name": "my-site" }
+```
+
+Pulls the latest changes from the configured repository and branch. If the clone directory is missing, performs a fresh clone. Updates status to `active` on success or `error` on failure.
+
 ### License
 
 GNU Affero GPL 3.0

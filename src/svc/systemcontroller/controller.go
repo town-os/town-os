@@ -43,6 +43,7 @@ type systemControllerBackend interface {
 	GetExternalIP() string
 	GetInternalIP() string
 	GetGitCloner() packages.GitCloner
+	GetPagesManager() account.PagesManager
 }
 
 type SystemController interface {
@@ -153,6 +154,7 @@ type ServerConfig struct {
 	NetworkControllerBinPath string
 	NetworkStatePath         string
 	NetworkMode              string
+	PagesMgr                 account.PagesManager
 	GitCloner                packages.GitCloner
 }
 
@@ -195,7 +197,13 @@ func (s *serverBase) GetBtrfsBasePath() string            { return s.BtrfsBasePa
 func (s *serverBase) GetNetworkControllerBinPath() string { return s.NetworkControllerBinPath }
 func (s *serverBase) GetNetworkStatePath() string         { return s.NetworkStatePath }
 func (s *serverBase) GetNetworkMode() string              { return s.NetworkMode }
-func (s *serverBase) GetGitCloner() packages.GitCloner    { return s.GitCloner }
+func (s *serverBase) GetGitCloner() packages.GitCloner {
+	if s.GitCloner != nil {
+		return s.GitCloner
+	}
+	return packages.DefaultGitCloner{}
+}
+func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
 func (s *serverBase) GetExternalIP() string {
 	v := s.externalIP.Load()
 	if v == nil {

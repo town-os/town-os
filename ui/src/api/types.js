@@ -26,4 +26,23 @@
  * @typedef {import('./types/ping.js').AuthenticateResponse} AuthenticateResponse
  */
 
+/**
+ * @typedef {Object} PageSite
+ * @property {string} name
+ * @property {string} repo_url
+ * @property {string} branch
+ * @property {string} domain
+ * @property {string} status
+ * @property {string} created_at
+ * @property {string} updated_at
+ */
+
+/**
+ * @typedef {Object} PageSiteUpdate
+ * @property {string} [repo_url]
+ * @property {string} [branch]
+ * @property {string} [domain]
+ * @property {string} [status]
+ */
+
 export {}

@@ -1,425 +1,274 @@
 package systemcontroller
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"net/http"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
-	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 )
 
-func TestHTTPCreatePage(t *testing.T) {
+func initPagesTestClient(t *testing.T) *SystemdClient {
+	t.Helper()
 	mock := storage.InitBtrFSMock()
-	basePath := t.TempDir()
 
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
 
-	pages, err := InitPagesStore(db)
+	mgr, err := account.InitManager(db)
 	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
+		t.Fatalf("InitManager: %v", err)
 	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
+	pagesMgr := account.InitMockPagesManager()
+	gitCloner := &packages.MockGitCloner{}
 
 	ts := InitTestServer(ServerConfig{
 		Storage:       mock,
-		BtrfsBasePath: basePath,
-		Pages:         pages,
+		AccountMgr:    mgr,
+		SessionMgr:    sessMgr,
+		AuditMgr:      auditMgr,
+		PagesMgr:      pagesMgr,
+		GitCloner:     gitCloner,
+		BtrfsBasePath: t.TempDir(),
 	})
 	t.Cleanup(ts.Close)
 
-	body, err := json.Marshal(CreatePageRequest{
-		Name:    "test-site",
-		RepoURL: "https://github.com/example/site",
-	})
+	c, err := ts.Client()
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("ts.Client: %v", err)
 	}
 
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/pages/create"), bytes.NewReader(body))
+	// Bootstrap: create admin account and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "testadmin", "adminpass", "admin@test.com", "555-0000", "Test Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "testadmin", "adminpass")
 	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
+		t.Fatalf("bootstrap Authenticate: %v", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := ts.Server.Client().Do(req)
+	c.Token = resp.Token
+
+	return c
+}
+
+func TestHTTPCreatePage(t *testing.T) {
+	c := initPagesTestClient(t)
+
+	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+		t.Fatalf("CreatePage: %v", err)
 	}
 
-	var page Page
-	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
-		t.Fatalf("decode: %v", err)
+	if page.Name != "my-site" {
+		t.Errorf("expected name %q, got %q", "my-site", page.Name)
 	}
-	if page.Name != "test-site" {
-		t.Fatalf("expected name test-site, got %q", page.Name)
+	if page.RepoURL != "https://github.com/user/site.git" {
+		t.Errorf("expected repo_url %q, got %q", "https://github.com/user/site.git", page.RepoURL)
+	}
+	if page.Branch != "main" {
+		t.Errorf("expected branch %q, got %q", "main", page.Branch)
+	}
+	if page.Domain != "site.example.com" {
+		t.Errorf("expected domain %q, got %q", "site.example.com", page.Domain)
 	}
 }
 
-func TestHTTPCreatePageMissingFields(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+func TestHTTPCreatePageDefaultDomain(t *testing.T) {
+	c := initPagesTestClient(t)
 
-	pages, err := InitPagesStore(db)
+	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "")
 	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
+		t.Fatalf("CreatePage: %v", err)
 	}
 
-	ts := InitTestServer(ServerConfig{Storage: mock, Pages: pages})
-	t.Cleanup(ts.Close)
-
-	body, err := json.Marshal(CreatePageRequest{Name: "test"})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/pages/create"), bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	if page.Domain != "my-site" {
+		t.Errorf("expected default domain %q, got %q", "my-site", page.Domain)
 	}
 }
 
-func TestHTTPListPages(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+func TestHTTPCreatePageDuplicate(t *testing.T) {
+	c := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	pages, err := InitPagesStore(db)
-	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
+		t.Fatalf("CreatePage: %v", err)
 	}
 
-	_ = pages.Create(Page{Name: "site-a", RepoURL: "https://example.com/a"})
-	_ = pages.Create(Page{Name: "site-b", RepoURL: "https://example.com/b"})
-
-	ts := InitTestServer(ServerConfig{Storage: mock, Pages: pages})
-	t.Cleanup(ts.Close)
-
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, testRoute(t, ts.Server.URL, "/pages"), nil)
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-
-	var result PagesPage
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(result.Entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(result.Entries))
-	}
-}
-
-func TestHTTPRemovePage(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	basePath := t.TempDir()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	pages, err := InitPagesStore(db)
-	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
-	}
-
-	_ = pages.Create(Page{Name: "rm-me", RepoURL: "https://example.com/rm"})
-
-	// Create the directory that would have been cloned.
-	pageDir := filepath.Join(basePath, "pages", "rm-me")
-	if err := os.MkdirAll(pageDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	ts := InitTestServer(ServerConfig{Storage: mock, BtrfsBasePath: basePath, Pages: pages})
-	t.Cleanup(ts.Close)
-
-	body, err := json.Marshal(RemovePageRequest{Name: "rm-me"})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/pages/remove"), bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-
-	_, err = pages.Get("rm-me")
+	_, err = c.CreatePage(context.TODO(), "my-site", "https://github.com/user/other.git", "main", "other.example.com")
 	if err == nil {
-		t.Fatal("expected page to be removed from database")
-	}
-
-	// Verify the cloned directory was deleted.
-	if _, err := os.Stat(pageDir); !os.IsNotExist(err) {
-		t.Fatalf("expected page directory %s to be removed", pageDir)
+		t.Fatal("expected error for duplicate page name")
 	}
 }
 
 func TestHTTPUpdatePage(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	c := initPagesTestClient(t)
 
-	pages, err := InitPagesStore(db)
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
+		t.Fatalf("CreatePage: %v", err)
 	}
 
-	_ = pages.Create(Page{Name: "update-me", RepoURL: "https://example.com/old"})
-
-	ts := InitTestServer(ServerConfig{Storage: mock, Pages: pages})
-	t.Cleanup(ts.Close)
-
-	body, err := json.Marshal(UpdatePageRequest{Name: "update-me", Branch: "develop"})
+	newDomain := "new.example.com"
+	updated, err := c.UpdatePage(context.TODO(), "my-site", account.PageSiteUpdate{Domain: &newDomain})
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/pages/update"), bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+		t.Fatalf("UpdatePage: %v", err)
 	}
 
-	page, err := pages.Get("update-me")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if page.Branch != "develop" {
-		t.Fatalf("expected branch develop, got %q", page.Branch)
+	if updated.Domain != newDomain {
+		t.Errorf("expected domain %q, got %q", newDomain, updated.Domain)
 	}
 }
 
-func TestHTTPRebuildPagePull(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	basePath := t.TempDir()
+func TestHTTPUpdatePageNotFound(t *testing.T) {
+	c := initPagesTestClient(t)
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	pages, err := InitPagesStore(db)
-	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
-	}
-
-	_ = pages.Create(Page{Name: "rebuild-me", RepoURL: "https://example.com/repo", Status: "active"})
-
-	// Create a .git directory so rebuild uses Pull.
-	pageDir := filepath.Join(basePath, "pages", "rebuild-me", ".git")
-	if err := os.MkdirAll(pageDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	gitMock := git.InitMockClient()
-	ts := InitTestServer(ServerConfig{
-		Storage:       mock,
-		BtrfsBasePath: basePath,
-		Pages:         pages,
-		Git:           gitMock,
-	})
-	t.Cleanup(ts.Close)
-
-	body, err := json.Marshal(RebuildPageRequest{Name: "rebuild-me"})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/pages/rebuild"), bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-
-	// Verify Pull was called with the correct path.
-	calls := gitMock.GetCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 git call, got %d", len(calls))
-	}
-	if calls[0].Method != "Pull" {
-		t.Fatalf("expected Pull call, got %q", calls[0].Method)
-	}
-	expectedDest := filepath.Join(basePath, "pages", "rebuild-me")
-	if calls[0].Args[0] != expectedDest {
-		t.Fatalf("expected Pull dest %q, got %q", expectedDest, calls[0].Args[0])
-	}
-
-	// Verify status updated to active.
-	page, err := pages.Get("rebuild-me")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if page.Status != "active" {
-		t.Fatalf("expected status active, got %q", page.Status)
+	newDomain := "new.example.com"
+	_, err := c.UpdatePage(context.TODO(), "nonexistent", account.PageSiteUpdate{Domain: &newDomain})
+	if err == nil {
+		t.Fatal("expected error for nonexistent page")
 	}
 }
 
-func TestHTTPRebuildPageCloneFallback(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	basePath := t.TempDir()
+func TestHTTPRemovePage(t *testing.T) {
+	c := initPagesTestClient(t)
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
+		t.Fatalf("CreatePage: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
 
-	pages, err := InitPagesStore(db)
+	if err := c.RemovePage(context.TODO(), "my-site"); err != nil {
+		t.Fatalf("RemovePage: %v", err)
+	}
+
+	// Verify it's gone via list.
+	pages, err := c.ListPages(context.TODO(), ListParams{})
 	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
+		t.Fatalf("ListPages: %v", err)
 	}
+	if len(pages.Entries) != 0 {
+		t.Errorf("expected 0 pages after remove, got %d", len(pages.Entries))
+	}
+}
 
-	_ = pages.Create(Page{Name: "no-git", RepoURL: "https://example.com/repo", Status: "error"})
+func TestHTTPRemovePageNotFound(t *testing.T) {
+	c := initPagesTestClient(t)
 
-	// Do NOT create .git directory -- rebuild should fall back to Clone.
+	err := c.RemovePage(context.TODO(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent page")
+	}
+}
 
-	gitMock := git.InitMockClient()
-	ts := InitTestServer(ServerConfig{
-		Storage:       mock,
-		BtrfsBasePath: basePath,
-		Pages:         pages,
-		Git:           gitMock,
-	})
-	t.Cleanup(ts.Close)
+func TestHTTPListPages(t *testing.T) {
+	c := initPagesTestClient(t)
 
-	body, err := json.Marshal(RebuildPageRequest{Name: "no-git"})
+	// Empty list.
+	pages, err := c.ListPages(context.TODO(), ListParams{})
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("ListPages: %v", err)
 	}
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/pages/rebuild"), bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	if len(pages.Entries) != 0 {
+		t.Fatalf("expected 0 pages, got %d", len(pages.Entries))
 	}
 
-	// Verify Clone was called (not Pull) since .git was missing.
-	calls := gitMock.GetCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 git call, got %d", len(calls))
+	// Create two pages.
+	_, err = c.CreatePage(context.TODO(), "alpha", "https://github.com/user/alpha.git", "main", "alpha.example.com")
+	if err != nil {
+		t.Fatalf("CreatePage alpha: %v", err)
 	}
-	if calls[0].Method != "Clone" {
-		t.Fatalf("expected Clone call, got %q", calls[0].Method)
+	_, err = c.CreatePage(context.TODO(), "beta", "https://github.com/user/beta.git", "develop", "beta.example.com")
+	if err != nil {
+		t.Fatalf("CreatePage beta: %v", err)
 	}
 
-	// Verify status updated to active.
-	page, err := pages.Get("no-git")
+	pages, err = c.ListPages(context.TODO(), ListParams{})
 	if err != nil {
-		t.Fatalf("get: %v", err)
+		t.Fatalf("ListPages: %v", err)
 	}
+	if len(pages.Entries) != 2 {
+		t.Fatalf("expected 2 pages, got %d", len(pages.Entries))
+	}
+}
+
+func TestHTTPListPagesSearch(t *testing.T) {
+	c := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "alpha-site", "https://github.com/user/alpha.git", "main", "alpha.example.com")
+	if err != nil {
+		t.Fatalf("CreatePage alpha-site: %v", err)
+	}
+	_, err = c.CreatePage(context.TODO(), "beta-site", "https://github.com/user/beta.git", "develop", "beta.example.com")
+	if err != nil {
+		t.Fatalf("CreatePage beta-site: %v", err)
+	}
+
+	pages, err := c.ListPages(context.TODO(), ListParams{Search: "alpha"})
+	if err != nil {
+		t.Fatalf("ListPages with search: %v", err)
+	}
+	if len(pages.Entries) != 1 {
+		t.Fatalf("expected 1 page matching search, got %d", len(pages.Entries))
+	}
+	if pages.Entries[0].Name != "alpha-site" {
+		t.Errorf("expected %q, got %q", "alpha-site", pages.Entries[0].Name)
+	}
+}
+
+func TestHTTPRebuildPage(t *testing.T) {
+	c := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	page, err := c.RebuildPage(context.TODO(), "my-site")
+	if err != nil {
+		t.Fatalf("RebuildPage: %v", err)
+	}
+
 	if page.Status != "active" {
-		t.Fatalf("expected status active, got %q", page.Status)
+		t.Errorf("expected status %q, got %q", "active", page.Status)
 	}
 }
 
 func TestHTTPRebuildPageNotFound(t *testing.T) {
-	mock := storage.InitBtrFSMock()
+	c := initPagesTestClient(t)
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
+	_, err := c.RebuildPage(context.TODO(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent page")
 	}
-	t.Cleanup(func() { _ = db.Close() })
+}
 
-	pages, err := InitPagesStore(db)
-	if err != nil {
-		t.Fatalf("InitPagesStore: %v", err)
-	}
+func TestHTTPPagesRequireAuth(t *testing.T) {
+	c := initPagesTestClient(t)
+	c.Token = "" // Clear auth token.
 
-	ts := InitTestServer(ServerConfig{Storage: mock, Pages: pages})
-	t.Cleanup(ts.Close)
-
-	body, err := json.Marshal(RebuildPageRequest{Name: "does-not-exist"})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/pages/rebuild"), bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := ts.Server.Client().Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	_, err := c.ListPages(context.TODO(), ListParams{})
+	if err == nil {
+		t.Fatal("expected auth error for ListPages without token")
 	}
 }

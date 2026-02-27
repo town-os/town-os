@@ -675,6 +675,110 @@ describe('SystemControllerClient integration', () => {
     })
   })
 
+  // --- Pages lifecycle ---
+
+  describe('pages lifecycle', () => {
+    it('lists pages (empty)', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const result = await client.listPages()
+      expect(result.entries.length).toBe(0)
+    })
+
+    it('creates a page', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.createPage('my-site', 'https://github.com/user/site.git', 'main', 'site.example.com')
+      expect(page.name).toBe('my-site')
+      expect(page.repo_url).toBe('https://github.com/user/site.git')
+      expect(page.branch).toBe('main')
+      expect(page.domain).toBe('site.example.com')
+    })
+
+    it('creates a page with default domain', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.createPage('default-domain-site', 'https://github.com/user/site.git', 'main')
+      expect(page.domain).toBe('default-domain-site')
+    })
+
+    it('rejects duplicate page name', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.createPage('my-site', 'https://github.com/user/other.git', 'main', 'other.example.com'),
+      ).rejects.toThrow()
+    })
+
+    it('lists pages with entries', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const result = await client.listPages()
+      expect(result.entries.length).toBeGreaterThanOrEqual(2)
+      expect(result.entries.some((p) => p.name === 'my-site')).toBe(true)
+    })
+
+    it('searches pages by name', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const result = await client.listPages(undefined, undefined, undefined, undefined, 'default-domain')
+      expect(result.entries.length).toBe(1)
+      expect(result.entries[0].name).toBe('default-domain-site')
+    })
+
+    it('updates a page', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const updated = await client.updatePage('my-site', { domain: 'new.example.com' })
+      expect(updated.domain).toBe('new.example.com')
+    })
+
+    it('update returns error for nonexistent page', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.updatePage('nonexistent', { domain: 'x.com' }),
+      ).rejects.toThrow()
+    })
+
+    it('removes a page', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.removePage('my-site')
+      const result = await client.listPages()
+      expect(result.entries.some((p) => p.name === 'my-site')).toBe(false)
+    })
+
+    it('remove returns error for nonexistent page', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await expect(
+        client.removePage('nonexistent'),
+      ).rejects.toThrow()
+    })
+
+    it('requires auth for listing pages', async () => {
+      const noAuthClient = new SystemControllerClient(baseURL)
+      await expect(
+        noAuthClient.listPages(),
+      ).rejects.toThrow(/GET \/pages:.*missing authorization token/)
+    })
+
+    afterAll(async () => {
+      // Clean up remaining test pages.
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const result = await client.listPages()
+      for (const page of result.entries) {
+        try {
+          await client.removePage(page.name)
+        } catch (e) {
+          // ignore cleanup errors
+        }
+      }
+    })
+  })
+
   // --- Package install creates systemd unit ---
 
   describe('package install creates systemd unit', () => {
@@ -1104,6 +1208,38 @@ describe('SystemControllerClient integration', () => {
       await expect(
         noAuth.setSetting('default_quota', '0'),
       ).rejects.toThrow(/POST \/settings\/set:.*missing authorization token/)
+    })
+
+    // Pages methods
+
+    it('listPages requires auth', async () => {
+      await expect(
+        noAuth.listPages(),
+      ).rejects.toThrow(/GET \/pages:.*missing authorization token/)
+    })
+
+    it('createPage requires auth', async () => {
+      await expect(
+        noAuth.createPage('x', 'https://github.com/x/x.git', 'main'),
+      ).rejects.toThrow(/POST \/pages\/create:.*missing authorization token/)
+    })
+
+    it('updatePage requires auth', async () => {
+      await expect(
+        noAuth.updatePage('x', { domain: 'x.com' }),
+      ).rejects.toThrow(/POST \/pages\/update:.*missing authorization token/)
+    })
+
+    it('removePage requires auth', async () => {
+      await expect(
+        noAuth.removePage('x'),
+      ).rejects.toThrow(/POST \/pages\/remove:.*missing authorization token/)
+    })
+
+    it('rebuildPage requires auth', async () => {
+      await expect(
+        noAuth.rebuildPage('x'),
+      ).rejects.toThrow(/POST \/pages\/rebuild:.*missing authorization token/)
     })
 
     // Session methods (explicit token)

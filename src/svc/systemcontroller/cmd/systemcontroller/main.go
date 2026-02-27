@@ -87,6 +87,11 @@ func run() (err error) {
 		return fmt.Errorf("init settings manager: %w", err)
 	}
 
+	pagesMgr, err := account.InitPagesManager(db)
+	if err != nil {
+		return fmt.Errorf("init pages manager: %w", err)
+	}
+
 	repoBase := dir
 	if *repoDir != "" {
 		repoBase = *repoDir
@@ -163,6 +168,7 @@ func run() (err error) {
 		SessionMgr:               sessMgr,
 		AuditMgr:                 auditMgr,
 		SettingsMgr:              settingsMgr,
+		PagesMgr:                 pagesMgr,
 		DefaultRepoUser:          os.Getenv(packages.EnvRepoUsername),
 		DefaultRepoPass:          os.Getenv(packages.EnvRepoPassword),
 		BtrfsBasePath:            *btrfsPath,
