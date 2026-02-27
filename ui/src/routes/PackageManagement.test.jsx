@@ -476,7 +476,7 @@ describe('PackageManagement', () => {
   // --- Info dialog note hyperlinking ---
 
   it('renders URL notes as hyperlinks with target=_blank', async () => {
-    mockGetInstalledInfo.mockResolvedValueOnce({
+    mockClient.getInstalledInfo.mockResolvedValueOnce({
       questions: {},
       responses: {},
       notes: { URL: 'http://testhost:8081' },
@@ -498,7 +498,7 @@ describe('PackageManagement', () => {
   })
 
   it('renders email notes as mailto hyperlinks', async () => {
-    mockGetInstalledInfo.mockResolvedValueOnce({
+    mockClient.getInstalledInfo.mockResolvedValueOnce({
       questions: {},
       responses: {},
       notes: { Contact: 'admin@example.com' },
@@ -518,7 +518,7 @@ describe('PackageManagement', () => {
   })
 
   it('renders phone notes as tel hyperlinks', async () => {
-    mockGetInstalledInfo.mockResolvedValueOnce({
+    mockClient.getInstalledInfo.mockResolvedValueOnce({
       questions: {},
       responses: {},
       notes: { Support: '+1-555-0100' },
@@ -538,7 +538,7 @@ describe('PackageManagement', () => {
   })
 
   it('renders untyped notes as plain code blocks', async () => {
-    mockGetInstalledInfo.mockResolvedValueOnce({
+    mockClient.getInstalledInfo.mockResolvedValueOnce({
       questions: {},
       responses: {},
       notes: { Info: 'some plain text' },
@@ -557,7 +557,7 @@ describe('PackageManagement', () => {
   })
 
   it('renders notes without note_types as plain code blocks', async () => {
-    mockGetInstalledInfo.mockResolvedValueOnce({
+    mockClient.getInstalledInfo.mockResolvedValueOnce({
       questions: {},
       responses: {},
       notes: { Info: 'plain note' },
