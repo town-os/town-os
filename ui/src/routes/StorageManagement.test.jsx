@@ -464,6 +464,61 @@ describe('StorageManagement component', () => {
     })
   })
 
+  it('user filesystem modify dialog shows Name field for renaming', async () => {
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getAllByText('mydata').length).toBeGreaterThanOrEqual(1)
+    })
+    const modifyButtons = screen.getAllByRole('button', { name: /Modify/ })
+    fireEvent.click(modifyButtons[0])
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name')).toBeTruthy()
+    })
+  })
+
+  it('package volume modify dialog does not show Name field', async () => {
+    mockListFilesystems
+      .mockResolvedValueOnce({
+        entries: [],
+        has_more: false,
+        total_pages: 1,
+        total_count: 0,
+      })
+      .mockResolvedValueOnce({
+        entries: [{ name: 'core/nginx/1.0/data', quota: 0 }],
+        has_more: false,
+        total_pages: 1,
+        total_count: 1,
+      })
+      .mockResolvedValueOnce({
+        entries: [],
+        has_more: false,
+        total_pages: 1,
+        total_count: 0,
+      })
+    renderStorageManagement()
+    // Expand the package tree to see individual volumes
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    // Click the package row to expand it
+    const pkgRow = screen.getByText('core/nginx')
+    fireEvent.click(pkgRow)
+    // Now click the Modify button on the volume row
+    await waitFor(() => {
+      const modifyButtons = screen.getAllByRole('button', { name: /Modify/ })
+      expect(modifyButtons.length).toBeGreaterThanOrEqual(1)
+    })
+    const modifyButtons = screen.getAllByRole('button', { name: /Modify/ })
+    fireEvent.click(modifyButtons[0])
+    await waitFor(() => {
+      expect(screen.getByText('Save Changes')).toBeTruthy()
+    })
+    // The modify dialog should have quota but NOT a Name field
+    expect(screen.getByLabelText('Quota (0 = unlimited)')).toBeTruthy()
+    expect(screen.queryByLabelText('Name')).toBeNull()
+  })
+
   it('create form submits and calls createFilesystem', async () => {
     renderStorageManagement()
     await waitFor(() => {
