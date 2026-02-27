@@ -198,7 +198,6 @@ test-ui-integration: test-image ui-integration-image btrfs .integration-port reg
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
-		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
 		-v $$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z \
 		--name=$(PODMAN_UI_BACKEND) $(PODMAN_TEST_IMAGE)
 	@echo "Waiting for systemd to be ready..."
@@ -231,7 +230,6 @@ test-integration: lint test-image btrfs .integration-port registry-populate .cac
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
-		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
 		-v $$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z \
 		--name=$(PODMAN_CONTAINER) $(PODMAN_TEST_IMAGE)
 	@echo "Waiting for systemd to be ready..."
@@ -309,7 +307,6 @@ dev: dev-image dev-btrfs
 		-v $$(cat town-os-dev.mount):/data/btrfs:z \
 		-v $$(pwd)/dev-data:/data/db:z \
 		-v $$(pwd)/dev-repos:/data/repos:z \
-		-v /run/containers/0/auth.json:/run/containers/0/auth.json:ro,z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_DEV_IMAGE)
 	@echo "API server: http://$$(hostname):5309"
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
