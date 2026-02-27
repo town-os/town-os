@@ -5543,18 +5543,18 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 func TestGitSourceInstallAndRebuild(t *testing.T) {
 	// Create a local bare git repo to serve as the git source.
 	bareDir := filepath.Join(t.TempDir(), "bare.git")
-	if out, err := exec.CommandContext(context.TODO(), "git", "init", "--bare", "--initial-branch=main", bareDir).CombinedOutput(); err != nil { //nolint:gosec // test helper
+	if out, err := exec.CommandContext(context.TODO(), "git", "init", "--bare", "--initial-branch=main", bareDir).CombinedOutput(); err != nil {
 		t.Fatalf("git init --bare: %v\n%s", err, out)
 	}
 
 	// Clone the bare repo, add a file, and push.
 	workDir := filepath.Join(t.TempDir(), "work")
-	if out, err := exec.CommandContext(context.TODO(), "git", "clone", bareDir, workDir).CombinedOutput(); err != nil { //nolint:gosec // test helper
+	if out, err := exec.CommandContext(context.TODO(), "git", "clone", bareDir, workDir).CombinedOutput(); err != nil {
 		t.Fatalf("git clone: %v\n%s", err, out)
 	}
 
 	testContent := "hello from git source"
-	if err := os.WriteFile(filepath.Join(workDir, "index.html"), []byte(testContent), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(workDir, "index.html"), []byte(testContent), 0644); err != nil {
 		t.Fatalf("WriteFile index.html: %v", err)
 	}
 
@@ -5565,7 +5565,7 @@ func TestGitSourceInstallAndRebuild(t *testing.T) {
 		{"git", "-C", workDir, "commit", "-m", "initial"},
 		{"git", "-C", workDir, "push", "origin", "main"},
 	} {
-		if out, err := exec.CommandContext(context.TODO(), args[0], args[1:]...).CombinedOutput(); err != nil { //nolint:gosec // test helper
+		if out, err := exec.CommandContext(context.TODO(), args[0], args[1:]...).CombinedOutput(); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}
@@ -5576,7 +5576,7 @@ func TestGitSourceInstallAndRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil {
 		t.Fatalf("WriteFile repositories: %v", err)
 	}
 
@@ -5602,10 +5602,10 @@ git_sources:
 
 	repoName := "test-repo"
 	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, "mysite")
-	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte(pkgYAML), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte(pkgYAML), 0644); err != nil {
 		t.Fatalf("WriteFile package yaml: %v", err)
 	}
 
@@ -5618,12 +5618,13 @@ git_sources:
 	}
 
 	inst := packages.NewInstallManager(dir)
-	btr := storage.InitBtrFS("/data/btrfs")
+	mock := storage.InitBtrFSMock()
+	btrfsBase := t.TempDir()
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
-		Storage:        btr,
+		Storage:        mock,
 		RepositoryRoot: rr,
 		Installer:      inst,
-		BtrfsBasePath:  "/data/btrfs",
+		BtrfsBasePath:  btrfsBase,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -5632,17 +5633,12 @@ git_sources:
 		t.Fatalf("Client: %v", err)
 	}
 
-	// Create the volume subvolume before install.
+	// Pre-create the volume directory (mock storage doesn't create real dirs).
 	volPath := fmt.Sprintf("installed/%s/mysite/1.0/site", repoName)
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: volPath}); err != nil {
-		t.Fatalf("CreateFilesystem %s: %v", volPath, err)
+	volDir := filepath.Join(btrfsBase, volPath)
+	if err := os.MkdirAll(volDir, 0750); err != nil {
+		t.Fatalf("MkdirAll volume dir: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = c.RemoveFilesystem(context.TODO(), volPath)
-		_ = c.RemoveFilesystem(context.TODO(), fmt.Sprintf("installed/%s/mysite/1.0", repoName))
-		_ = c.RemoveFilesystem(context.TODO(), fmt.Sprintf("installed/%s/mysite", repoName))
-		_ = c.RemoveFilesystem(context.TODO(), "installed/"+repoName)
-	})
 
 	// Install the package.
 	if err := c.InstallPackage(context.TODO(), "mysite", "1.0", packages.Responses{}, false, "", false); err != nil {
@@ -5650,8 +5646,8 @@ git_sources:
 	}
 
 	// Verify the cloned file exists in the volume.
-	clonedFile := filepath.Join("/data/btrfs", volPath, "index.html")
-	content, err := os.ReadFile(clonedFile) //nolint:gosec // test file
+	clonedFile := filepath.Join(btrfsBase, volPath, "index.html")
+	content, err := os.ReadFile(clonedFile)
 	if err != nil {
 		t.Fatalf("ReadFile after clone: %v", err)
 	}
@@ -5661,7 +5657,7 @@ git_sources:
 
 	// Push a new commit to the bare repo.
 	updatedContent := "updated content"
-	if err := os.WriteFile(filepath.Join(workDir, "index.html"), []byte(updatedContent), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(workDir, "index.html"), []byte(updatedContent), 0644); err != nil {
 		t.Fatalf("WriteFile updated: %v", err)
 	}
 	for _, args := range [][]string{
@@ -5669,7 +5665,7 @@ git_sources:
 		{"git", "-C", workDir, "commit", "-m", "update"},
 		{"git", "-C", workDir, "push", "origin", "main"},
 	} {
-		if out, err := exec.CommandContext(context.TODO(), args[0], args[1:]...).CombinedOutput(); err != nil { //nolint:gosec // test helper
+		if out, err := exec.CommandContext(context.TODO(), args[0], args[1:]...).CombinedOutput(); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}
@@ -5680,7 +5676,7 @@ git_sources:
 	}
 
 	// Verify the updated file content.
-	content, err = os.ReadFile(clonedFile) //nolint:gosec // test file
+	content, err = os.ReadFile(clonedFile)
 	if err != nil {
 		t.Fatalf("ReadFile after rebuild: %v", err)
 	}

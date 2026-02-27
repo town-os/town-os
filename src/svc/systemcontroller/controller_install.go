@@ -748,6 +748,18 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
+	// Clone git_sources repositories into their target volumes.
+	if len(ip.GitSources) > 0 {
+		cloner := s.Controller.GetGitCloner()
+		for _, gs := range ip.GitSources {
+			volPath := packageVolumePath(repoName, effectiveName, req.Version, gs.Volume)
+			targetDir := filepath.Join(s.Controller.GetBtrfsBasePath(), volPath)
+			if err := cloner.Clone(targetDir, gs.URL, gs.Branch); err != nil {
+				slog.Debug(fmt.Sprintf("git-source clone %s -> %s: %v", gs.URL, gs.Volume, err))
+			}
+		}
+	}
+
 	if err := inst.Install(repoName, effectiveName, req.Version, req.Responses); err != nil {
 		return err
 	}

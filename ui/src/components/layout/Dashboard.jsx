@@ -18,6 +18,7 @@ import {
   Cog,
   Package,
   FileText,
+  Globe,
   LogOut,
   Settings,
 } from 'lucide-react'
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { to: '/dashboard/users', label: 'Users', icon: Users },
   { to: '/dashboard/system', label: 'Services', icon: Cog },
   { to: '/dashboard/packages', label: 'Packages', icon: Package },
+  { to: '/dashboard/pages', label: 'Pages', icon: Globe },
   { to: '/dashboard/log', label: 'Audit Log', icon: FileText },
   { to: '/dashboard/settings', label: 'Settings', icon: Settings, adminOnly: true },
 ]

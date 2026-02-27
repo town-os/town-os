@@ -16,6 +16,7 @@ import CreateUser from '@/routes/CreateUser.jsx'
 import SystemManagement from '@/routes/SystemManagement.jsx'
 import PackageManagement from '@/routes/PackageManagement.jsx'
 import AuditLog from '@/routes/AuditLog.jsx'
+import PagesManagement from '@/routes/PagesManagement.jsx'
 import SystemSettings from '@/routes/SystemSettings.jsx'
 import PagesManagement from '@/routes/PagesManagement.jsx'
 
@@ -77,6 +78,14 @@ export default function App() {
             element={
               <DashboardRoute>
                 <PackageManagement />
+              </DashboardRoute>
+            }
+          />
+          <Route
+            path="/dashboard/pages"
+            element={
+              <DashboardRoute>
+                <PagesManagement />
               </DashboardRoute>
             }
           />
