@@ -65,6 +65,23 @@ type UninstalledVolumesResponse struct {
 	InstalledVersions     []string `json:"installed_versions,omitempty"`
 }
 
+// FeaturedPackageEntry represents a featured package with its description and
+// install status for use in the featured repositories card.
+type FeaturedPackageEntry struct {
+	Repo             string `json:"repo"`
+	Name             string `json:"name"`
+	Version          string `json:"version"`
+	Description      string `json:"description,omitempty"`
+	Installed        bool   `json:"installed"`
+	InstalledVersion string `json:"installed_version,omitempty"`
+}
+
+// FeaturedRepoGroup groups featured packages by repository.
+type FeaturedRepoGroup struct {
+	Repo     string                 `json:"repo"`
+	Packages []FeaturedPackageEntry `json:"packages"`
+}
+
 // --- Package handlers ---
 
 func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
@@ -210,6 +227,82 @@ func (s *SystemControllerHandlers) listPackagesByRepo(c *echo.Context) error {
 	}
 
 	return c.JSON(200, groups)
+}
+
+func (s *SystemControllerHandlers) listFeaturedPackages(c *echo.Context) error {
+	rr := s.Controller.GetRepositoryRoot()
+
+	groups, err := rr.ListPackagesByRepo()
+	if err != nil {
+		return err
+	}
+
+	// Build installed version lookup.
+	installedVersions := map[string]string{}
+	if inst := s.Controller.GetInstaller(); inst != nil {
+		installed, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
+		for _, pkg := range installed {
+			pi, err := packages.ParsePackageIdentity(pkg)
+			if err != nil {
+				continue
+			}
+			installedVersions[fmt.Sprintf("%s/%s", pi.Repo, pi.Name)] = pi.Version
+		}
+	}
+
+	var result []FeaturedRepoGroup
+	for _, g := range groups {
+		if len(g.Featured) == 0 {
+			continue
+		}
+
+		featuredSet := map[string]bool{}
+		for _, f := range g.Featured {
+			featuredSet[f] = true
+		}
+
+		var entries []FeaturedPackageEntry
+		for _, pkg := range g.Packages {
+			if !featuredSet[pkg.Name] {
+				continue
+			}
+
+			entry := FeaturedPackageEntry{
+				Repo:    pkg.Repo,
+				Name:    pkg.Name,
+				Version: pkg.Version,
+			}
+
+			key := fmt.Sprintf("%s/%s", pkg.Repo, pkg.Name)
+			if instVer, ok := installedVersions[key]; ok {
+				entry.Installed = true
+				entry.InstalledVersion = instVer
+			}
+
+			ip, loadErr := rr.LoadPackage(pkg.Repo, pkg.Name, pkg.Version)
+			if loadErr == nil {
+				entry.Description = ip.Description
+			}
+
+			entries = append(entries, entry)
+		}
+
+		if len(entries) > 0 {
+			result = append(result, FeaturedRepoGroup{
+				Repo:     g.Repo,
+				Packages: entries,
+			})
+		}
+	}
+
+	if result == nil {
+		result = []FeaturedRepoGroup{}
+	}
+
+	return c.JSON(200, result)
 }
 
 func (s *SystemControllerHandlers) listPackageVersions(c *echo.Context) error {

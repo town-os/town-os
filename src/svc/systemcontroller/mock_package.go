@@ -19,6 +19,22 @@ func (m *MockClient) ListTimezones(_ context.Context) ([]string, error) {
 	return packages.ListTimezones(), nil
 }
 
+func (m *MockClient) ListFeaturedPackages(_ context.Context) ([]FeaturedRepoGroup, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListFeaturedPackages", Args: nil})
+
+	if m.ListFeaturedErr != nil {
+		return nil, m.ListFeaturedErr
+	}
+
+	if m.FeaturedGroups != nil {
+		return m.FeaturedGroups, nil
+	}
+
+	return []FeaturedRepoGroup{}, nil
+}
+
 func (m *MockClient) ListPackages(_ context.Context, params ListParams) (*PageResult[PackageListEntry], error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

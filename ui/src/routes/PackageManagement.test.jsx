@@ -53,6 +53,7 @@ const mockClient = {
   installPreview: vi.fn(() => Promise.reject(new Error('no preview'))),
   listUninstalledVolumes: vi.fn(() => Promise.resolve({ has_uninstalled_volumes: false })),
   purgeUninstalledVolumes: vi.fn(() => Promise.resolve()),
+  listFeaturedPackages: vi.fn(() => Promise.resolve([])),
 }
 
 vi.mock('@/lib/client-instance.js', () => ({
@@ -113,6 +114,7 @@ beforeEach(() => {
     Promise.resolve({ has_uninstalled_volumes: false }),
   )
   mockClient.purgeUninstalledVolumes.mockImplementation(() => Promise.resolve())
+  mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
 })
 
 describe('PackageManagement', () => {
@@ -1579,6 +1581,178 @@ describe('PackageManagement', () => {
 
     // getLastResponses should have been called since current responses were empty.
     expect(mockClient.getLastResponses).toHaveBeenCalledWith('core', 'redis')
+  })
+
+  // --- Featured repositories card ---
+
+  it('renders featured card when uninstalled featured packages exist', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByTestId('featured-card')).toBeTruthy()
+      expect(screen.getByText('Featured Packages')).toBeTruthy()
+    })
+  })
+
+  it('does not render featured card when no featured packages exist', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Packages' })).toBeTruthy()
+    })
+    expect(screen.queryByTestId('featured-card')).toBeNull()
+  })
+
+  it('does not render featured card when all featured packages are installed', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0' },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Packages' })).toBeTruthy()
+    })
+    expect(screen.queryByTestId('featured-card')).toBeNull()
+  })
+
+  it('shows featured package name and description in the card', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      const card = screen.getByTestId('featured-card')
+      expect(card.textContent).toContain('mosquitto')
+      expect(card.textContent).toContain('MQTT broker')
+    })
+  })
+
+  it('shows Install button for uninstalled featured packages', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      const card = screen.getByTestId('featured-card')
+      const installBtn = card.querySelector('button')
+      expect(installBtn).toBeTruthy()
+      expect(installBtn.textContent).toContain('Install')
+    })
+  })
+
+  it('triggers install flow when featured card Install button is clicked', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByTestId('featured-card')).toBeTruthy()
+    })
+    const card = screen.getByTestId('featured-card')
+    const installBtn = card.querySelector('button')
+    fireEvent.click(installBtn)
+    await waitFor(() => {
+      expect(mockClient.listPackageVersions).toHaveBeenCalledWith('mosquitto')
+    })
+  })
+
+  it('hides installed featured packages from the card', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0' },
+            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      const card = screen.getByTestId('featured-card')
+      expect(card.textContent).toContain('mosquitto')
+      expect(card.textContent).not.toContain('Web server')
+    })
+  })
+
+  it('featured card has yellow background styling', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      const card = screen.getByTestId('featured-card')
+      expect(card.className).toContain('bg-yellow-50/80')
+    })
+  })
+
+  it('shows multiple uninstalled featured packages from different repos', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: false },
+          ],
+        },
+        {
+          repo: 'extras',
+          packages: [
+            { repo: 'extras', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      const card = screen.getByTestId('featured-card')
+      expect(card.textContent).toContain('nginx')
+      expect(card.textContent).toContain('mosquitto')
+    })
   })
 
   it('validation error does not appear on fresh dialog open', async () => {

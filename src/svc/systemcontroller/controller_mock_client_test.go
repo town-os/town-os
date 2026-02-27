@@ -992,3 +992,67 @@ func TestMockClientDownloadArchiveWithFilename(t *testing.T) {
 		t.Fatal("expected filename argument to be recorded in mock calls")
 	}
 }
+
+func TestMockClientListFeaturedPackagesEmpty(t *testing.T) {
+	m := InitMockClient()
+
+	groups, err := m.ListFeaturedPackages(context.TODO())
+	if err != nil {
+		t.Fatalf("ListFeaturedPackages: %v", err)
+	}
+
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 groups, got %d", len(groups))
+	}
+}
+
+func TestMockClientListFeaturedPackagesWithData(t *testing.T) {
+	m := InitMockClient()
+	m.FeaturedGroups = []FeaturedRepoGroup{
+		{
+			Repo: "core",
+			Packages: []FeaturedPackageEntry{
+				{Repo: "core", Name: "nginx", Version: "1.0", Description: "Web server"},
+			},
+		},
+	}
+
+	groups, err := m.ListFeaturedPackages(context.TODO())
+	if err != nil {
+		t.Fatalf("ListFeaturedPackages: %v", err)
+	}
+
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(groups))
+	}
+	if groups[0].Packages[0].Name != "nginx" {
+		t.Fatalf("expected nginx, got %s", groups[0].Packages[0].Name)
+	}
+}
+
+func TestMockClientListFeaturedPackagesErrorInjection(t *testing.T) {
+	m := InitMockClient()
+	injected := errors.New("injected error")
+	m.ListFeaturedErr = injected
+
+	_, err := m.ListFeaturedPackages(context.TODO())
+	if !errors.Is(err, injected) {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestMockClientListFeaturedPackagesCallLog(t *testing.T) {
+	m := InitMockClient()
+
+	if _, err := m.ListFeaturedPackages(context.TODO()); err != nil {
+		t.Fatalf("ListFeaturedPackages: %v", err)
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "ListFeaturedPackages" {
+		t.Fatalf("expected method ListFeaturedPackages, got %q", calls[0].Method)
+	}
+}

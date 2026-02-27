@@ -35,6 +35,8 @@ type MockClient struct {
 	AddRepoErr           error
 	RemRepoErr           error
 	ListRepoErr          error
+	FeaturedGroups       []FeaturedRepoGroup
+	ListFeaturedErr      error
 	ListPkgErr           error
 	ListPkgVersionsErr   error
 	QuestionsErr         error

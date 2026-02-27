@@ -25,6 +25,17 @@ SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrde
 }
 
 /**
+ * List featured packages grouped by repository, including descriptions and install status.
+ * Only returns packages that appear in a repository's featured.json file.
+ * Calls GET /packages/featured on the Control Plane Service.
+ * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string, description?: string, installed: boolean, installed_version?: string}>}>>}
+ *   Each group contains featured packages for that repository with descriptions and install status.
+ */
+SystemControllerClient.prototype.listFeaturedPackages = async function () {
+  return this.getJSON('/packages/featured')
+}
+
+/**
  * List packages grouped by their source repository.
  * Calls GET /packages/by-repo on the Control Plane Service.
  * @param {string} [search] - Case-insensitive substring to filter packages by name.

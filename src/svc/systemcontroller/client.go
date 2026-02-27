@@ -58,6 +58,11 @@ type Client interface {
 
 	// ListTimezones returns the list of available IANA timezone names.
 	ListTimezones(ctx context.Context) ([]string, error)
+	// ListFeaturedPackages returns featured packages grouped by repository,
+	// including descriptions and install status. Returns only packages that
+	// appear in a repository's featured.json file.
+	// Calls GET /packages/featured on the Control Plane Service.
+	ListFeaturedPackages(ctx context.Context) ([]FeaturedRepoGroup, error)
 	// ListPackages returns a paginated list of available packages across all repos.
 	ListPackages(ctx context.Context, params ListParams) (*PageResult[PackageListEntry], error)
 	// ListPackagesByRepo returns packages grouped by their source repository.

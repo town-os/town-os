@@ -49,6 +49,26 @@ func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ 
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
 
+// ListFeaturedPackages returns featured packages grouped by repository, including
+// descriptions and install status.
+// Calls GET /packages/featured on the Control Plane Service.
+func (c *SystemdClient) ListFeaturedPackages(ctx context.Context) (_ []FeaturedRepoGroup, err error) {
+	resp, err := c.getClient(ctx, "packages/featured")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListFeaturedPackages: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "GET", "packages/featured")
+	}
+
+	var groups []FeaturedRepoGroup
+	return groups, json.NewDecoder(resp.Body).Decode(&groups)
+}
+
 // ListPackagesByRepo returns packages grouped by their source repository.
 func (c *SystemdClient) ListPackagesByRepo(ctx context.Context, params ListParams) (_ []packages.RepoPackageGroup, err error) {
 	resp, err := c.getClient(ctx, "packages/by-repo"+params.QueryString())
