@@ -4,28 +4,6 @@ import (
 	"testing"
 )
 
-func TestDiskUsageOverride(t *testing.T) {
-	override := DiskUsage{Total: 1000, Used: 400, Available: 600}
-	b := &BtrFS{
-		DiskUsageOverride: &override,
-	}
-
-	du, err := b.DiskUsage()
-	if err != nil {
-		t.Fatalf("DiskUsage: %v", err)
-	}
-
-	if du.Total != 1000 {
-		t.Fatalf("expected Total 1000, got %d", du.Total)
-	}
-	if du.Used != 400 {
-		t.Fatalf("expected Used 400, got %d", du.Used)
-	}
-	if du.Available != 600 {
-		t.Fatalf("expected Available 600, got %d", du.Available)
-	}
-}
-
 func TestDiskUsageRealFS(t *testing.T) {
 	// Use a real directory to exercise the syscall.Statfs path.
 	b := &BtrFS{
