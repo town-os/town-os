@@ -5231,3 +5231,43 @@ func TestRealSystemdLogReplayFields(t *testing.T) {
 		t.Fatal("timed out waiting for journal entry")
 	}
 }
+
+func TestSystemControllerListPackagesInstalledOnlyFilter(t *testing.T) {
+	c, _ := initSystemControllerInstallTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install only nginx (core repo also has other packages).
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "test", "port": "9090"}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// List all packages: should contain more than 1.
+	all, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListPackages all: %v", err)
+	}
+	if len(all.Entries) < 2 {
+		t.Fatalf("expected at least 2 packages, got %d", len(all.Entries))
+	}
+
+	// List with installed_only: should only return installed packages.
+	installed, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{InstalledOnly: true})
+	if err != nil {
+		t.Fatalf("ListPackages installed_only: %v", err)
+	}
+	if len(installed.Entries) != 1 {
+		t.Fatalf("expected 1 installed package, got %d", len(installed.Entries))
+	}
+	if installed.Entries[0].Name != "nginx" {
+		t.Fatalf("expected 'nginx', got %q", installed.Entries[0].Name)
+	}
+	if !installed.Entries[0].Installed {
+		t.Fatal("expected installed=true")
+	}
+	if installed.TotalCount != 1 {
+		t.Fatalf("expected total_count=1, got %d", installed.TotalCount)
+	}
+}

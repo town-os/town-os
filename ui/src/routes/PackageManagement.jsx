@@ -77,9 +77,9 @@ export default function PackageManagement() {
   const [repoSearch, setRepoSearch] = useState('')
 
   const [pkgData, , pkgLoading] = usePolling(
-    () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined),
+    () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined, showInstalledOnly || undefined),
     { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch],
+    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch, showInstalledOnly],
   )
   const packages = pkgData.entries || []
 
@@ -522,7 +522,6 @@ export default function PackageManagement() {
   ]
 
   const normalizedPackages = packages
-    .filter((pkg) => !showInstalledOnly || pkg.installed)
     .map((pkg) => ({
       ...pkg,
       _key: `${pkg.repo}/${pkg.name}`,
@@ -558,7 +557,10 @@ export default function PackageManagement() {
                 <input
                   type="checkbox"
                   checked={showInstalledOnly}
-                  onChange={(e) => setShowInstalledOnly(e.target.checked)}
+                  onChange={(e) => {
+                    setShowInstalledOnly(e.target.checked)
+                    setPkgPage(0)
+                  }}
                   className="rounded border-input"
                 />
                 Installed only

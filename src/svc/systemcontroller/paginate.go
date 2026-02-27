@@ -12,11 +12,12 @@ import (
 
 // ListParams holds sorting, pagination, and search parameters for list endpoints.
 type ListParams struct {
-	SortBy    string `json:"sort_by"`
-	SortOrder string `json:"sort_order"`
-	Limit     int    `json:"limit"`
-	Offset    int    `json:"offset"`
-	Search    string `json:"search"`
+	SortBy        string `json:"sort_by"`
+	SortOrder     string `json:"sort_order"`
+	Limit         int    `json:"limit"`
+	Offset        int    `json:"offset"`
+	Search        string `json:"search"`
+	InstalledOnly bool   `json:"installed_only"`
 }
 
 // PageResult wraps a paginated slice of entries with metadata.
@@ -70,11 +71,12 @@ func readListParams(c *echo.Context) ListParams {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	offset, _ := strconv.Atoi(c.QueryParam("offset"))
 	return ListParams{
-		SortBy:    c.QueryParam("sort_by"),
-		SortOrder: c.QueryParam("sort_order"),
-		Limit:     limit,
-		Offset:    offset,
-		Search:    c.QueryParam("search"),
+		SortBy:        c.QueryParam("sort_by"),
+		SortOrder:     c.QueryParam("sort_order"),
+		Limit:         limit,
+		Offset:        offset,
+		Search:        c.QueryParam("search"),
+		InstalledOnly: c.QueryParam("installed_only") == "true",
 	}
 }
 
@@ -96,6 +98,9 @@ func (p ListParams) QueryString() string {
 	}
 	if p.Search != "" {
 		params.Set("search", p.Search)
+	}
+	if p.InstalledOnly {
+		params.Set("installed_only", "true")
 	}
 	if len(params) == 0 {
 		return ""

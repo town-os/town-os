@@ -419,6 +419,24 @@ describe('SystemControllerClient', () => {
       expect(url).toContain('offset=20')
       expect(url).toContain('search=nginx')
     })
+
+    it('sends installed_only param when true', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listPackages('name', 'asc', 20, 0, undefined, true)
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('installed_only=true')
+    })
+
+    it('omits installed_only param when false or undefined', async () => {
+      mockFetch({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+      client.setToken('tok')
+
+      await client.listPackages('name', 'asc', 20, 0, undefined, false)
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).not.toContain('installed_only')
+    })
   })
 
   describe('listInstalled', () => {

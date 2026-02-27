@@ -1166,6 +1166,39 @@ describe('SystemControllerClient integration', () => {
 
   })
 
+  // --- Package installed_only filter ---
+
+  describe('package installed_only filter', () => {
+    it('returns only installed packages when installedOnly is true', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      // List all packages first
+      const all = await client.listPackages()
+      expect(all.entries.length).toBeGreaterThan(0)
+
+      // List with installed_only=true: all returned entries should have installed=true
+      const installed = await client.listPackages(undefined, undefined, undefined, undefined, undefined, true)
+      for (const pkg of installed.entries) {
+        expect(pkg.installed).toBe(true)
+      }
+      // Should have fewer or equal entries compared to the full list
+      expect(installed.entries.length).toBeLessThanOrEqual(all.entries.length)
+      expect(installed.total_count).toBeLessThanOrEqual(all.total_count)
+    })
+
+    it('returns correct pagination metadata with installed_only', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.listPackages(undefined, undefined, 1, 0, undefined, true)
+      if (result.total_count > 1) {
+        expect(result.has_more).toBe(true)
+        expect(result.total_pages).toBeGreaterThan(1)
+      }
+    })
+  })
+
   // --- Repository pagination / search / sort ---
 
   describe('repository pagination and search', () => {

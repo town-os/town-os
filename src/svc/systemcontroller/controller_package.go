@@ -166,6 +166,17 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 	}
 
 	p := readListParams(c)
+
+	if p.InstalledOnly {
+		filtered := make([]PackageListEntry, 0, len(entries))
+		for _, e := range entries {
+			if e.Installed {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
 	entries = filterSearch(entries, p.Search)
 	sortSlice(entries, p.SortBy, p.SortOrder)
 

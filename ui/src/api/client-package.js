@@ -3,20 +3,23 @@ import { ApiError, SystemControllerClient } from './core.js'
 
 /**
  * List available packages across all repositories with pagination.
- * @param {string} [sortBy] - Field to sort by.
- * @param {string} [sortOrder] - Sort direction: "asc" or "desc".
+ * Calls GET /packages on the Control Plane Service.
+ * @param {string} [sortBy] - Field to sort by (e.g. "name", "repo", "version").
+ * @param {string} [sortOrder] - Sort direction: "asc" (default) or "desc".
  * @param {number} [limit] - Maximum entries per page (default 20).
  * @param {number} [offset] - Number of entries to skip for pagination.
  * @param {string} [search] - Case-insensitive substring to match across string fields.
- * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number}>}
+ * @param {boolean} [installedOnly] - When true, only return packages that are currently installed. Default false.
+ * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number, total_count: number}>}
  */
-SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrder, limit, offset, search) {
+SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrder, limit, offset, search, installedOnly) {
   const params = new URLSearchParams()
   if (sortBy) params.set('sort_by', sortBy)
   if (sortOrder) params.set('sort_order', sortOrder)
   if (limit) params.set('limit', String(limit))
   if (offset) params.set('offset', String(offset))
   if (search) params.set('search', search)
+  if (installedOnly) params.set('installed_only', 'true')
   const qs = params.toString()
   return this.getJSON(`/packages${qs ? `?${qs}` : ''}`)
 }
