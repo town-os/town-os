@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -710,6 +711,98 @@ func TestHTTPListPackagesByRepoFeaturedPreservedOnSearch(t *testing.T) {
 	// Featured field must be preserved even when search filters are applied.
 	if len(groups[0].Featured) != 2 {
 		t.Fatalf("expected 2 featured entries preserved through search, got %d", len(groups[0].Featured))
+	}
+}
+
+func TestHTTPListTimezones(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	zones, err := c.ListTimezones(context.TODO())
+	if err != nil {
+		t.Fatalf("ListTimezones: %v", err)
+	}
+
+	if len(zones) == 0 {
+		t.Fatal("expected non-empty timezone list")
+	}
+
+	if !slices.Contains(zones, "UTC") {
+		t.Fatal("expected UTC in timezone list")
+	}
+}
+
+func TestHTTPListChildren(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	inst.Children["repo-a/nginx"] = []string{"repo-a/child-a", "repo-a/child-b"}
+
+	children, err := c.ListChildren(context.TODO(), "repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("ListChildren: %v", err)
+	}
+
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+	if children[0] != "repo-a/child-a" || children[1] != "repo-a/child-b" {
+		t.Fatalf("unexpected children: %v", children)
+	}
+}
+
+func TestHTTPListChildrenEmpty(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	children, err := c.ListChildren(context.TODO(), "repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("ListChildren: %v", err)
+	}
+
+	if len(children) != 0 {
+		t.Fatalf("expected 0 children, got %d", len(children))
+	}
+}
+
+func TestHTTPListUninstalledVolumes(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	injectSubvol(t, controller, "uninstalled/mock-repo/nginx/1.0/html", 0)
+	injectSubvol(t, controller, "uninstalled/mock-repo/nginx/1.0/logs", 0)
+
+	result, err := c.ListUninstalledVolumes(context.TODO(), "mock-repo", "nginx")
+	if err != nil {
+		t.Fatalf("ListUninstalledVolumes: %v", err)
+	}
+
+	if !result.HasUninstalledVolumes {
+		t.Fatal("expected HasUninstalledVolumes=true")
+	}
+
+	if len(result.UninstalledVersions) != 1 {
+		t.Fatalf("expected 1 uninstalled version, got %d", len(result.UninstalledVersions))
+	}
+	if result.UninstalledVersions[0] != "1.0" {
+		t.Fatalf("expected uninstalled version %q, got %q", "1.0", result.UninstalledVersions[0])
+	}
+}
+
+func TestHTTPListUninstalledVolumesEmpty(t *testing.T) {
+	c, _ := initTestClient(t)
+
+	result, err := c.ListUninstalledVolumes(context.TODO(), "mock-repo", "nginx")
+	if err != nil {
+		t.Fatalf("ListUninstalledVolumes: %v", err)
+	}
+
+	if result.HasUninstalledVolumes {
+		t.Fatal("expected HasUninstalledVolumes=false")
 	}
 }
 

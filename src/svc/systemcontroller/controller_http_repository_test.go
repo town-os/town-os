@@ -299,6 +299,68 @@ func TestHTTPListRepositoriesPagination(t *testing.T) {
 	}
 }
 
+func TestHTTPMoveRepository(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u1, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	u2, err := url.Parse("https://example.com/repo-b.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u1},
+		{Name: "repo-b", URL: *u2},
+	}
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Move repo-a to position 1 (after repo-b).
+	if err := c.MoveRepository(context.TODO(), "repo-a", 1); err != nil {
+		t.Fatalf("MoveRepository: %v", err)
+	}
+
+	repos, err := c.ListRepositories(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+
+	if len(repos.Entries) != 2 {
+		t.Fatalf("expected 2 repositories, got %d", len(repos.Entries))
+	}
+	if repos.Entries[0].Name != "repo-b" {
+		t.Fatalf("expected repo-b first after move, got %s", repos.Entries[0].Name)
+	}
+	if repos.Entries[1].Name != "repo-a" {
+		t.Fatalf("expected repo-a second after move, got %s", repos.Entries[1].Name)
+	}
+}
+
+func TestHTTPMoveRepositoryNotFound(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	err = c.MoveRepository(context.TODO(), "nonexistent", 0)
+	if err == nil {
+		t.Fatal("expected error moving nonexistent repository")
+	}
+}
+
 func TestHTTPListRepositoriesSearch(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)

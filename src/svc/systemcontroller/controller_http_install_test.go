@@ -2469,3 +2469,37 @@ questions: {}
 		t.Fatal("expected error installing package with invalid git URL")
 	}
 }
+
+func TestHTTPInstallPreview(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	preview, err := c.InstallPreview(context.TODO(), "repo-a", "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("InstallPreview: %v", err)
+	}
+
+	if preview.Repo != "repo-a" {
+		t.Fatalf("expected repo %q, got %q", "repo-a", preview.Repo)
+	}
+	if preview.Name != "nginx" {
+		t.Fatalf("expected name %q, got %q", "nginx", preview.Name)
+	}
+	if preview.Version != "1.0" {
+		t.Fatalf("expected version %q, got %q", "1.0", preview.Version)
+	}
+	if preview.Image == "" {
+		t.Fatal("expected non-empty image")
+	}
+	if !preview.HasQuestions {
+		t.Fatal("expected has_questions=true for nginx@1.0")
+	}
+}
+
+func TestHTTPInstallPreviewNotFound(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	_, err := c.InstallPreview(context.TODO(), "repo-a", "nonexistent", "1.0")
+	if err == nil {
+		t.Fatal("expected error for nonexistent package preview")
+	}
+}
