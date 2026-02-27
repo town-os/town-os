@@ -461,7 +461,7 @@ describe('PackageManagement', () => {
   // --- Featured badge ---
 
   it('shows Featured badge for featured packages in flat view', async () => {
-    mockListPackages.mockResolvedValueOnce({
+    mockClient.listPackages.mockResolvedValueOnce({
       entries: [
         { repo: 'core', name: 'nginx', version: '1.0', installed: false, featured: true },
         { repo: 'core', name: 'redis', version: '7.0', installed: false, featured: false },
@@ -477,7 +477,7 @@ describe('PackageManagement', () => {
   })
 
   it('does not show Featured badge for non-featured packages', async () => {
-    mockListPackages.mockResolvedValueOnce({
+    mockClient.listPackages.mockResolvedValueOnce({
       entries: [
         { repo: 'core', name: 'redis', version: '7.0', installed: false, featured: false },
       ],
@@ -492,7 +492,7 @@ describe('PackageManagement', () => {
   })
 
   it('shows Featured badge for featured packages in grouped view', async () => {
-    mockListPackagesByRepo.mockResolvedValueOnce([
+    mockClient.listPackagesByRepo.mockResolvedValueOnce([
       {
         repo: 'core',
         packages: [
