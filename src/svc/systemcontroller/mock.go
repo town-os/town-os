@@ -17,6 +17,10 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
+// MockClient is an in-memory implementation of [Client] for use in tests.
+// It records every method call in the Calls slice and returns data from its
+// exported fields. Injecting a non-nil error field (e.g. CreateErr) causes the
+// corresponding method to return that error instead of proceeding normally.
 type MockClient struct {
 	mu               sync.Mutex
 	Filesystems      map[string]storage.Filesystem
@@ -80,11 +84,15 @@ type MockClient struct {
 	DownloadArchiveData  []byte
 }
 
+// MockCall records a single method invocation on [MockClient], including
+// the method name and the arguments it was called with.
 type MockCall struct {
 	Method string
 	Args   []any
 }
 
+// InitMockClient creates a [MockClient] with empty collections and default
+// settings, ready for use in tests.
 func InitMockClient() *MockClient {
 	settings := make(map[string]string, len(account.DefaultSettings))
 	maps.Copy(settings, account.DefaultSettings)
@@ -99,6 +107,7 @@ func InitMockClient() *MockClient {
 	}
 }
 
+// GetCalls returns a snapshot of all recorded method calls.
 func (m *MockClient) GetCalls() []MockCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -1,11 +1,18 @@
 /** @import { Filesystem, UnitStatus, JournalEntry, StatusAction, Account, UpdateFields, Session, AuditListOptions, AuditPage, Question, Responses, InstalledInfo, RepositoryInfo, PingResponse, AuthenticateResponse, PackageUpgrade } from './types.js' */
 
+/**
+ * Error thrown by {@link SystemControllerClient} when the API returns a
+ * non-200 status. The detail property contains a human-readable message
+ * extracted from the response body (RFC 9457 problem+json or legacy format).
+ * The problem property contains the full parsed problem detail object when
+ * available.
+ */
 export class ApiError extends Error {
   /**
-   * @param {string} method
-   * @param {string} path
-   * @param {number} status
-   * @param {string} body
+   * @param {string} method - HTTP method (e.g. "GET", "POST").
+   * @param {string} path - API path that was called.
+   * @param {number} status - HTTP status code.
+   * @param {string} body - Raw response body text.
    */
   constructor(method, path, status, body) {
     const detail = ApiError.parseDetail(body)
@@ -54,8 +61,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * HTTP client for the Control Plane Service API. All methods throw
+ * {@link ApiError} on non-200 responses. Methods that require authentication
+ * use the token set via {@link SystemControllerClient#setToken}. Methods
+ * that accept explicit token parameters (listSessions, sessionUsername)
+ * pass the token directly in the Authorization header.
+ */
 export class SystemControllerClient {
-  /** @param {string} baseURL */
+  /**
+   * Create a new client.
+   * @param {string} baseURL - Base URL of the Control Plane Service (trailing slashes are stripped).
+   */
   constructor(baseURL) {
     this.baseURL = baseURL.replace(/\/+$/, '')
     this.token = ''
@@ -206,13 +223,14 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} prefix
-   * @param {string} [sortBy]
-   * @param {string} [sortOrder]
-   * @param {string} [state]
-   * @param {number} [limit]
-   * @param {number} [offset]
-   * @param {string} [search]
+   * List filesystems with optional filtering and pagination.
+   * @param {string} prefix - Filter to filesystems whose name starts with this string; empty matches all.
+   * @param {string} [sortBy] - Field to sort by (e.g. "name", "quota").
+   * @param {string} [sortOrder] - Sort direction: "asc" or "desc".
+   * @param {string} [state] - Filter by state: "user", "installed", or "uninstalled"; omit for all.
+   * @param {number} [limit] - Maximum entries per page (default 20).
+   * @param {number} [offset] - Number of entries to skip for pagination.
+   * @param {string} [search] - Case-insensitive substring to match across string fields.
    * @returns {Promise<{entries: Filesystem[], has_more: boolean, total_pages: number, total_count: number}>}
    */
   async listFilesystems(prefix, sortBy, sortOrder, state, limit, offset, search) {
@@ -227,10 +245,11 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} name
-   * @param {string} url
-   * @param {string} [username]
-   * @param {string} [password]
+   * Register a new package repository.
+   * @param {string} name - Display name for the repository.
+   * @param {string} url - Git URL of the package repository.
+   * @param {string} [username] - Username for repository authentication (optional).
+   * @param {string} [password] - Password for repository authentication (optional).
    * @returns {Promise<void>}
    */
   async addRepository(name, url, username = '', password = '') {
@@ -246,8 +265,9 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} name
-   * @param {number} position
+   * Change the priority position of a repository. Position 0 is highest priority.
+   * @param {string} name - Repository name.
+   * @param {number} position - New zero-based priority position.
    * @returns {Promise<void>}
    */
   async moveRepository(name, position) {
@@ -267,11 +287,12 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} [sortBy]
-   * @param {string} [sortOrder]
-   * @param {number} [limit]
-   * @param {number} [offset]
-   * @param {string} [search]
+   * List configured package repositories with pagination.
+   * @param {string} [sortBy] - Field to sort by (e.g. "name", "url").
+   * @param {string} [sortOrder] - Sort direction: "asc" or "desc".
+   * @param {number} [limit] - Maximum entries per page (default 20).
+   * @param {number} [offset] - Number of entries to skip for pagination.
+   * @param {string} [search] - Case-insensitive substring to match across string fields.
    * @returns {Promise<{entries: RepositoryInfo[], has_more: boolean, total_pages: number}>}
    */
   async listRepositories(sortBy, sortOrder, limit, offset, search) {
@@ -286,11 +307,12 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} [sortBy]
-   * @param {string} [sortOrder]
-   * @param {number} [limit]
-   * @param {number} [offset]
-   * @param {string} [search]
+   * List available packages across all repositories with pagination.
+   * @param {string} [sortBy] - Field to sort by.
+   * @param {string} [sortOrder] - Sort direction: "asc" or "desc".
+   * @param {number} [limit] - Maximum entries per page (default 20).
+   * @param {number} [offset] - Number of entries to skip for pagination.
+   * @param {string} [search] - Case-insensitive substring to match across string fields.
    * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number}>}
    */
   async listPackages(sortBy, sortOrder, limit, offset, search) {
@@ -305,7 +327,8 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} [search]
+   * List packages grouped by their source repository.
+   * @param {string} [search] - Case-insensitive substring to filter packages.
    * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string}>}>>}
    */
   async listPackagesByRepo(search) {
@@ -316,11 +339,13 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} [sortBy]
-   * @param {string} [sortOrder]
-   * @param {number} [limit]
-   * @param {number} [offset]
-   * @param {string} [search]
+   * List installed packages with pagination. Entries use the format
+   * "repo/name@version" (e.g. "myrepo/nginx@1.0.0").
+   * @param {string} [sortBy] - Field to sort by.
+   * @param {string} [sortOrder] - Sort direction: "asc" or "desc".
+   * @param {number} [limit] - Maximum entries per page (default 20).
+   * @param {number} [offset] - Number of entries to skip for pagination.
+   * @param {string} [search] - Case-insensitive substring to match.
    * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number}>}
    */
   async listInstalled(sortBy, sortOrder, limit, offset, search) {
@@ -417,14 +442,17 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} unit
-   * @param {number} [lines=100]
-   * @param {string} [beforeCursor]
-   * @param {string} [afterCursor]
-   * @param {string} [grep]
-   * @param {number} [since] - Unix timestamp in seconds
-   * @param {number} [until] - Unix timestamp in seconds
-   * @param {number} [priority] - Max priority level (0=no filter, 3=error and above)
+   * Fetch a page of journal log entries for a unit with cursor-based pagination.
+   * @param {string} unit - Systemd unit name.
+   * @param {number} [lines=100] - Maximum number of entries to return.
+   * @param {string} [beforeCursor] - Return entries before this opaque cursor (for backward paging).
+   * @param {string} [afterCursor] - Return entries after this opaque cursor (for forward paging).
+   * @param {string} [grep] - Filter to entries whose message contains this substring.
+   * @param {number} [since] - Only entries at or after this Unix timestamp (seconds).
+   * @param {number} [until] - Only entries at or before this Unix timestamp (seconds).
+   * @param {number} [priority] - Maximum syslog priority level to include; 0 disables filtering,
+   *   values 1–7 include entries with priority <= the value (e.g. 3 returns emergency, alert,
+   *   critical, and error).
    * @returns {Promise<{entries: JournalEntry[], cursor: string, end_cursor: string}>}
    */
   async logTail(unit, lines = 100, beforeCursor, afterCursor, grep, since, until, priority) {
@@ -439,12 +467,13 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} username
-   * @param {string} password
-   * @param {string} email
-   * @param {string} phone
-   * @param {string} realName
-   * @param {boolean} admin
+   * Create a new user account.
+   * @param {string} username - Unique username.
+   * @param {string} password - Password (must be at least 8 characters).
+   * @param {string} email - Email address (validated against standard format).
+   * @param {string} phone - Phone number (digits with optional formatting).
+   * @param {string} realName - Display name.
+   * @param {boolean} admin - When true, the account receives administrator privileges.
    * @returns {Promise<Account>}
    */
   async createAccount(username, password, email, phone, realName, admin) {
@@ -467,8 +496,9 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} username
-   * @param {UpdateFields} fields
+   * Update fields on an existing account. Only provided fields are changed.
+   * @param {string} username - Account to update.
+   * @param {UpdateFields} fields - Fields to change (password, email, phone, real_name, admin).
    * @returns {Promise<Account>}
    */
   async updateAccount(username, fields) {
@@ -551,12 +581,13 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} repo
-   * @param {string} name
-   * @param {string} version
-   * @param {Responses} responses
-   * @param {boolean} [reuseVolumes=false]
-   * @param {string} [importFromVersion]
+   * Install a package at the given version.
+   * @param {string} repo - Source repository name.
+   * @param {string} name - Package name.
+   * @param {string} version - Version to install.
+   * @param {Responses} responses - Configuration answers as a map of question keys to string values.
+   * @param {boolean} [reuseVolumes=false] - When true, preserve existing data volumes from a prior installation.
+   * @param {string} [importFromVersion] - When provided, import data from this prior installed version.
    * @returns {Promise<void>}
    */
   async installPackage(repo, name, version, responses, reuseVolumes = false, importFromVersion) {
@@ -567,10 +598,11 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} repo
-   * @param {string} name
-   * @param {string} version
-   * @param {boolean} [purgeVolumes=false]
+   * Uninstall a package.
+   * @param {string} repo - Source repository name.
+   * @param {string} name - Package name.
+   * @param {string} version - Installed version.
+   * @param {boolean} [purgeVolumes=false] - When true, also delete all associated data volumes.
    * @returns {Promise<void>}
    */
   async uninstallPackage(repo, name, version, purgeVolumes = false) {
@@ -587,8 +619,9 @@ export class SystemControllerClient {
   }
 
   /**
-   * @param {string} name
-   * @param {StatusAction} action
+   * Apply a status action to a systemd unit.
+   * @param {string} name - Systemd unit name.
+   * @param {StatusAction} action - Action to apply: "start", "stop", or "restart".
    * @returns {Promise<void>}
    */
   async setUnitStatus(name, action) {
@@ -652,13 +685,14 @@ export class SystemControllerClient {
   // --- Archives ---
 
   /**
-   * Upload an archive to a subvolume.
-   * Uses FormData with fetch() directly (not this.post()) so the browser
-   * sets the multipart boundary automatically.
-   * @param {string} subvolume
-   * @param {File} file
-   * @param {string} [subpath]
-   * @param {string} [stopService]
+   * Upload an archive to a subvolume. Supported formats are tar.gz, tar.bz2,
+   * and tar.xz (detected from the filename extension). Uses FormData with
+   * fetch() directly (not this.post()) so the browser sets the multipart
+   * boundary automatically.
+   * @param {string} subvolume - Target subvolume name.
+   * @param {File} file - Archive file to upload.
+   * @param {string} [subpath] - When provided, extract into this subdirectory within the subvolume.
+   * @param {string} [stopService] - When provided, stop this systemd service before extraction and restart afterward.
    * @returns {Promise<{needs_restart: boolean, message: string}>}
    */
   async uploadArchive(subvolume, file, subpath, stopService) {
@@ -687,11 +721,11 @@ export class SystemControllerClient {
   }
 
   /**
-   * Download an archive of the specified subvolume.
+   * Download a tar.gz archive of the specified subvolume.
    * Returns the raw Response so the caller can stream resp.body to disk.
-   * @param {string} subvolume
-   * @param {string[]} [paths]
-   * @param {string} [stopService]
+   * @param {string} subvolume - Source subvolume name.
+   * @param {string[]} [paths] - Paths within the subvolume to include; omit to include everything.
+   * @param {string} [stopService] - When provided, stop this systemd service during archival.
    * @returns {Promise<Response>}
    */
   async downloadArchive(subvolume, paths, stopService) {

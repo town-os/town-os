@@ -1,3 +1,5 @@
+// Package account defines user account types, validation, and the [Manager]
+// interface used by the Control Plane Service.
 package account
 
 import (
@@ -7,6 +9,7 @@ import (
 	"time"
 )
 
+// Sentinel errors returned by [Manager] implementations.
 var (
 	ErrNotFound           = errors.New("account not found")
 	ErrDuplicateUsername  = errors.New("username already exists")
@@ -21,6 +24,9 @@ var (
 var emailRegexp = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
 var phoneRegexp = regexp.MustCompile(`^\+?[\d\s\-().]*\d[\d\s\-().]*$`)
 
+// Account represents a user account in the system. The Disabled field
+// controls whether the user can authenticate; Admin controls whether the
+// user has administrative privileges.
 type Account struct {
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"-"`
@@ -33,6 +39,10 @@ type Account struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// UpdateFields holds optional fields for updating an account. Only non-nil
+// pointer fields are applied during an update. Password must be at least
+// 8 characters; Email must match a standard email pattern; Phone must
+// contain digits with optional formatting characters.
 type UpdateFields struct {
 	Password *string `json:"password,omitempty"`
 	Email    *string `json:"email,omitempty"`
@@ -41,13 +51,27 @@ type UpdateFields struct {
 	Admin    *bool   `json:"admin,omitempty"`
 }
 
+// Manager defines the interface for account CRUD and authentication operations.
 type Manager interface {
+	// Create creates a new user account. The password must be at least
+	// 8 characters. Email, phone, and realName are all required. When admin
+	// is true the account receives administrator privileges.
 	Create(username, password, email, phone, realName string, admin bool) (*Account, error)
+	// Get retrieves an account by username. Returns [ErrNotFound] if the
+	// account does not exist.
 	Get(username string) (*Account, error)
+	// Update applies the non-nil fields in UpdateFields to the named account.
+	// Returns the updated account or [ErrNotFound].
 	Update(username string, fields UpdateFields) (*Account, error)
+	// Disable prevents the named user from authenticating.
 	Disable(username string) error
+	// Enable re-enables a previously disabled account.
 	Enable(username string) error
+	// List returns all accounts.
 	List() ([]Account, error)
+	// Authenticate validates credentials and returns the account on success.
+	// Returns [ErrInvalidCredentials] on failure or [ErrAccountDisabled] if
+	// the account is disabled.
 	Authenticate(username, password string) (*Account, error)
 }
 
