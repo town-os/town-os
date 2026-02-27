@@ -682,6 +682,45 @@ describe('SystemControllerClient integration', () => {
     })
   })
 
+  // --- Read-only package endpoint audit exclusion ---
+
+  describe('read-only package audit exclusion', () => {
+    it('getLastResponses does not create an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.getLastResponses('core', 'nonexistent')
+      const page = await client.listAuditLog({ limit: 200 })
+      const entry = page.entries.find((e) => e.path === '/packages/last-responses')
+      expect(entry).toBeUndefined()
+    })
+
+    it('getInstalledInfo does not create an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      try {
+        await client.getInstalledInfo('core', 'nginx', '1.0')
+      } catch {
+        // may fail if package not installed; we only care about audit
+      }
+      const page = await client.listAuditLog({ limit: 200 })
+      const entry = page.entries.find((e) => e.path === '/packages/installed/info')
+      expect(entry).toBeUndefined()
+    })
+
+    it('installPreview does not create an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      try {
+        await client.installPreview('core', 'nginx', '1.0')
+      } catch {
+        // may fail if package not available; we only care about audit
+      }
+      const page = await client.listAuditLog({ limit: 200 })
+      const entry = page.entries.find((e) => e.path === '/packages/install-preview')
+      expect(entry).toBeUndefined()
+    })
+  })
+
   // --- Pages lifecycle ---
 
   describe('pages lifecycle', () => {

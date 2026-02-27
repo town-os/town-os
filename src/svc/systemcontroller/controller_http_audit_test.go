@@ -198,6 +198,62 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 	}
 }
 
+func TestHTTPAuditLogExcludesReadOnlyPackageRoutes(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create admin and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// call read-only package endpoints (they will error because no packages are
+	// installed, but the audit middleware checks exclusion before logging)
+	readOnlyPaths := []string{
+		"/packages/installed/info",
+		"/packages/last-responses",
+		"/packages/install-preview",
+	}
+
+	for _, path := range readOnlyPaths {
+		body := `{"repo":"test","name":"pkg","version":"1.0"}`
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route(path[1:]), bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatalf("NewRequest for %s: %v", path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		req.Header.Set("Content-Type", "application/json")
+
+		// Handlers may fail (e.g. nil installer) since the test environment
+		// does not set up package infrastructure. We only care that no audit
+		// entry is created for these paths.
+		httpResp, err := c.HTTP.Do(req)
+		if err != nil {
+			continue
+		}
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}
+
+	// verify none of the read-only package paths appear in the audit log
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		for _, path := range readOnlyPaths {
+			if e.Path == path {
+				t.Fatalf("expected read-only path %q to be excluded from audit log", path)
+			}
+		}
+	}
+}
+
 func TestHTTPAuditLogIncludesAuthRoutes(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 
