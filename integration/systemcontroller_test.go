@@ -288,7 +288,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemdClient 
 func TestSystemControllerAddAndListRepository(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("error adding repository: %v", err)
 	}
 
@@ -305,15 +305,15 @@ func TestSystemControllerAddAndListRepository(t *testing.T) {
 		t.Fatalf("expected name %q, got %q", "core", repos.Entries[0].Name)
 	}
 
-	if repos.Entries[0].URL != coreURL.String() {
-		t.Fatalf("expected URL %q, got %q", coreURL.String(), repos.Entries[0].URL)
+	if repos.Entries[0].URL != testCoreURLString() {
+		t.Fatalf("expected URL %q, got %q", testCoreURLString(), repos.Entries[0].URL)
 	}
 }
 
 func TestSystemControllerRemoveRepository(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("error adding repository: %v", err)
 	}
 
@@ -334,11 +334,11 @@ func TestSystemControllerRemoveRepository(t *testing.T) {
 func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("error adding core: %v", err)
 	}
 
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("error adding extras: %v", err)
 	}
 
@@ -380,10 +380,10 @@ func TestSystemControllerListRepositoriesEmpty(t *testing.T) {
 func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -404,8 +404,8 @@ func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
 		t.Fatalf("expected extras to remain, got %q", repos.Entries[0].Name)
 	}
 
-	if repos.Entries[0].URL != extrasURL.String() {
-		t.Fatalf("expected URL %q, got %q", extrasURL.String(), repos.Entries[0].URL)
+	if repos.Entries[0].URL != testExtrasURLString() {
+		t.Fatalf("expected URL %q, got %q", testExtrasURLString(), repos.Entries[0].URL)
 	}
 }
 
@@ -440,7 +440,7 @@ func TestSystemControllerAddRepositoryPartialCredentials(t *testing.T) {
 	t.Run("username without password", func(t *testing.T) {
 		c := initSystemControllerRepoTest(t)
 
-		err := c.AddRepository(context.TODO(), "", coreURL.String(), "user", "")
+		err := c.AddRepository(context.TODO(), "", testCoreURLString(), "user", "")
 		if err == nil {
 			t.Fatal("expected error for username without password")
 		}
@@ -449,7 +449,7 @@ func TestSystemControllerAddRepositoryPartialCredentials(t *testing.T) {
 	t.Run("password without username", func(t *testing.T) {
 		c := initSystemControllerRepoTest(t)
 
-		err := c.AddRepository(context.TODO(), "", coreURL.String(), "", "pass")
+		err := c.AddRepository(context.TODO(), "", testCoreURLString(), "", "pass")
 		if err == nil {
 			t.Fatal("expected error for password without username")
 		}
@@ -464,7 +464,7 @@ func TestSystemControllerAddRepositoryWithCredentials(t *testing.T) {
 
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), "", coreURL.String(), user, pass); err != nil {
+	if err := c.AddRepository(context.TODO(), "", testCoreURLString(), user, pass); err != nil {
 		t.Fatalf("AddRepository with credentials: %v", err)
 	}
 
@@ -490,7 +490,7 @@ func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
 
 	c := initSystemControllerRepoTest(t)
 
-	if err := c.AddRepository(context.TODO(), "", coreURL.String(), "", ""); err != nil {
+	if err := c.AddRepository(context.TODO(), "", testCoreURLString(), "", ""); err != nil {
 		t.Fatalf("AddRepository without credentials: %v", err)
 	}
 
@@ -526,7 +526,7 @@ func TestSystemControllerListPackagesEmpty(t *testing.T) {
 func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -566,10 +566,10 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -609,10 +609,10 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -647,7 +647,7 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 func TestSystemControllerGetPackageQuestions(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -684,10 +684,10 @@ func TestSystemControllerGetPackageQuestions(t *testing.T) {
 func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -707,7 +707,7 @@ func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
 func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -784,7 +784,7 @@ func initSystemControllerInstallSystemdTest(t *testing.T) (*systemcontroller.Sys
 func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -808,7 +808,7 @@ func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -833,7 +833,7 @@ func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -897,10 +897,10 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -950,10 +950,10 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	}
 
 	// Add two repos
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("add core failed: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("add extras failed: %v", err)
 	}
 
@@ -1003,7 +1003,7 @@ func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1047,7 +1047,7 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1099,7 +1099,7 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1151,7 +1151,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1248,7 +1248,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	})
 
 	// Add core repo.
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1402,7 +1402,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	})
 
 	// Add core repo.
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -1440,7 +1440,16 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify port 6379 is accessible via TCP from the host.
-	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+	// Retry with short dials because nested podman port forwarding can be slow.
+	var conn net.Conn
+	dialDeadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(dialDeadline) {
+		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 	if err != nil {
 		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput() //nolint:gosec // test helper
 		t.Fatalf("TCP connect to redis on port 6379 failed: %v\ncontainer logs:\n%s", err, string(logs))
@@ -1501,7 +1510,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	})
 
 	// Add core repo.
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -2961,7 +2970,7 @@ func TestReconcileAfterInstall(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	// Add a repository and install a package via the API.
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3033,7 +3042,7 @@ func TestReconcileAfterInstall(t *testing.T) {
 func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3070,7 +3079,7 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 func TestReconcilePreservesResponses(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3146,7 +3155,7 @@ func initSystemControllerInstallSystemdTestWithNetworkMode(t *testing.T, network
 func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3206,7 +3215,7 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3277,7 +3286,7 @@ func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
 func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3325,7 +3334,7 @@ func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
 func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3401,7 +3410,7 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3496,7 +3505,7 @@ func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 func TestReconcileWithNetworkMode(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3573,7 +3582,7 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3693,7 +3702,7 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T, networ
 func TestSystemControllerInstallNginxHostModeNetworkState(t *testing.T) {
 	c, _, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t, "host")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3741,7 +3750,7 @@ func TestSystemControllerInstallNginxHostModeNetworkState(t *testing.T) {
 func TestSystemControllerInstallRedisHostModeNoNCForSamePort(t *testing.T) {
 	c, sd, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t, "host")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3776,7 +3785,7 @@ func TestSystemControllerInstallRedisHostModeNoNCForSamePort(t *testing.T) {
 func TestSystemControllerInstallNginxBridgeModeNoInternalPortForwarding(t *testing.T) {
 	c, sd, _ := initSystemControllerInstallSystemdTestWithNetworkState(t, "")
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -3807,7 +3816,7 @@ func TestReconcileNginxHostModeNetworkState(t *testing.T) {
 
 	netStateDir := t.TempDir()
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 
@@ -4134,10 +4143,10 @@ func TestBootstrapPingNeedsSetup(t *testing.T) {
 func TestSystemControllerMultiRepoListInstalled(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -4172,10 +4181,10 @@ func TestSystemControllerMultiRepoListInstalled(t *testing.T) {
 func TestSystemControllerListPackagesByRepoIntegration(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -4209,10 +4218,10 @@ func TestSystemControllerListPackagesByRepoIntegration(t *testing.T) {
 func TestSystemControllerMultiRepoUninstallIsolation(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
-	if err := addRepoWithCreds(c, "extras", extrasURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
 		t.Fatalf("AddRepository extras: %v", err)
 	}
 
@@ -4247,7 +4256,7 @@ func TestSystemControllerMultiRepoUninstallIsolation(t *testing.T) {
 func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
 	c, _ := initSystemControllerInstallTest(t)
 
-	if err := addRepoWithCreds(c, "core", coreURL.String()); err != nil {
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
 	}
 

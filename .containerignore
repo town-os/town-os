@@ -1,6 +1,7 @@
 .git
 .claude
 .registry-port
+.gitea-port
 discover-images
 .gitignore
 .golangci.yml

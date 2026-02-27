@@ -45,7 +45,7 @@ TOWN_OS_REPO_PASSWORD=<password>
 
 The username and password will be used for all repository fetches. If it is omitted, none will be used. These values are used both in the dev environment and the integration tests. The password may be a HTTP API key you get from Gitea or Github. The URLs for the test repositories come from github and are public.
 
-After installing prerequisites, run `make pull-images` before any other targets. This fetches the base container images required by all build and test targets.
+After installing prerequisites, run `make pull-images` once to fetch base container images from Docker Hub and save them to the global cache at `/var/cache/town-os/images/`. Docker Hub credentials (via `DOCKER_USERNAME` / `DOCKER_PASSWORD` in `.env`) are only needed for this target. All other build and test targets load images from the global cache and never contact Docker Hub, so no network access to docker.io is required after the initial pull.
 
 ## Development
 
@@ -84,11 +84,11 @@ Integration tests use a local `registry:2` container to avoid Docker Hub rate li
 
 1. Discovers all `docker.io` images referenced by test package repositories (`discover-images` tool)
 2. Starts a local registry on a random port
-3. Pulls each image and pushes it to the local registry
+3. Loads each image from the global cache and pushes it to the local registry
 4. Generates a `registries.conf` that redirects `docker.io` pulls to the local mirror
 5. Mounts the config into the test container
 
-This is transparent -- no code changes are needed. The local registry falls back to Docker Hub for any images not in the mirror.
+This is transparent -- no code changes are needed. All images are loaded from the global cache (`/var/cache/town-os/images/`); no docker.io pulls occur during the test pipeline.
 
 | Target                   | Description                                               |
 | ------------------------ | --------------------------------------------------------- |
@@ -97,6 +97,28 @@ This is transparent -- no code changes are needed. The local registry falls back
 | `make registry-stop`     | Stop and remove the local registry container.             |
 
 Each working directory gets its own registry instance (via `INSTANCE_ID`), so concurrent test runs do not conflict.
+
+### Local Gitea Server
+
+Integration tests also use a local Gitea instance to avoid cloning test package repositories directly from GitHub. When you run `make test-integration` or `make test-ui-integration`, the build automatically:
+
+1. Starts a local Gitea server on a random port
+2. Creates an admin user
+3. Caches test package repositories as bare clones in `.cache/git-repos/` (fetches to refresh on subsequent runs)
+4. Pushes cached repos into Gitea via go-git (`populate-repos` tool)
+5. Passes `TOWN_OS_TEST_REPO_CORE_URL` and `TOWN_OS_TEST_REPO_EXTRAS_URL` env vars into the test container so all git clones hit the local Gitea instance
+
+The bare clone cache in `.cache/git-repos/` persists across Gitea restarts, so only the first run hits GitHub. Subsequent runs fetch updates and push to the fresh Gitea instance. `make clean` removes the cache.
+
+This is transparent -- no code changes are needed. Tests fall back to GitHub URLs if the env vars are not set.
+
+| Target                | Description                                                |
+| --------------------- | ---------------------------------------------------------- |
+| `make gitea`          | Start the local Gitea container and create the admin user. |
+| `make gitea-populate` | Migrate test repos from GitHub into the local Gitea.       |
+| `make gitea-stop`     | Stop and remove the local Gitea container.                 |
+
+Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concurrent test runs do not conflict.
 
 ### Building
 
@@ -107,7 +129,7 @@ Each working directory gets its own registry instance (via `INSTANCE_ID`), so co
 | `make test-image`            | Build the test container image (includes integration test binary). |
 | `make dev-image`             | Build the dev container image.                                     |
 | `make ui-integration-image`  | Build the UI integration test container image.                     |
-| `make pull-images`           | Pull base container images from Docker Hub.                        |
+| `make pull-images`           | Pull base container images from Docker Hub and save to global cache. |
 
 Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
 

@@ -23,6 +23,7 @@ PODMAN_UI_BACKEND    := town-os-ui-backend-$(INSTANCE_ID)
 PODMAN_DEV_CONTAINER := town-os-dev
 PREFLIGHT_CONTAINER  := preflight-test-$(INSTANCE_ID)
 REGISTRY_CONTAINER   := town-os-registry-$(INSTANCE_ID)
+GITEA_CONTAINER      := town-os-gitea-$(INSTANCE_ID)
 
 # Global image cache shared across all working trees. Override with:
 #   make IMAGE_CACHE=/some/other/path test-full
@@ -61,7 +62,7 @@ docker-login:
 
 pull-images: docker-login
 	@sudo -E mkdir -p $(IMAGE_CACHE)
-	@for img in $(BASE_IMAGES) docker.io/library/registry:2; do \
+	@for img in $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine; do \
 		echo "Pulling $$img..."; \
 		sudo -E podman pull "$$img"; \
 		safe=$$(echo "$$img" | tr '/:' '__'); \
@@ -94,15 +95,20 @@ production-image: .cache/.images-pulled
 	@echo "Registry port: $$(cat $@)"
 
 # Discover docker.io images from test package repositories.
-.cache/.registry-images:
+# Credentials are cleared because the local Gitea repos are public.
+.cache/.registry-images: gitea-populate
 	@mkdir -p .cache
-	go run ./src/registry/cmd/discover-images/ > $@
+	TOWN_OS_REPO_USERNAME= TOWN_OS_REPO_PASSWORD= \
+	TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$$(cat .gitea-port)/town-os/test-packages-core.git \
+	TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$$(cat .gitea-port)/town-os/test-packages-extras.git \
+		go run ./src/registry/cmd/discover-images/ > $@
 	@echo "Discovered $$(wc -l < $@) images"
 
 # Start a local registry:2 container.
 registry: .registry-port
 	@sudo -E podman rm -f $(REGISTRY_CONTAINER) 2>/dev/null || true
-	sudo -E podman run -d --name $(REGISTRY_CONTAINER) \
+	sudo -E podman load -i $(IMAGE_CACHE)/registry-2.tar
+	sudo -E podman run -d --pull=never --name $(REGISTRY_CONTAINER) \
 		-p $$(cat .registry-port):5000 \
 		docker.io/library/registry:2
 	@echo "Registry running on port $$(cat .registry-port)"
@@ -143,13 +149,52 @@ registry-stop:
 	@sudo -E podman rm -f $(REGISTRY_CONTAINER) 2>/dev/null || true
 	@rm -f .registry-port
 
-test-ui-integration: test-image ui-integration-image btrfs .integration-port registry-populate .cache/registries.conf
+# Allocate a random available port for the local Gitea instance.
+.gitea-port:
+	@python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' > $@
+	@echo "Gitea port: $$(cat $@)"
+
+# Start a local Gitea container and create the admin user.
+gitea: .gitea-port
+	@sudo -E podman rm -f $(GITEA_CONTAINER) 2>/dev/null || true
+	sudo -E podman load -i $(IMAGE_CACHE)/gitea-latest.tar
+	sudo -E podman run -d --pull=never --name $(GITEA_CONTAINER) \
+		-p $$(cat .gitea-port):3000 \
+		-e GITEA__security__INSTALL_LOCK=true \
+		docker.io/gitea/gitea:latest
+	@echo "Waiting for Gitea to be ready..."
+	@for i in $$(seq 1 60); do \
+		curl -sf http://127.0.0.1:$$(cat .gitea-port)/api/v1/version >/dev/null 2>&1 && break; \
+		sleep 1; \
+	done
+	@echo "Creating Gitea admin user..."
+	@sudo -E podman exec --user git $(GITEA_CONTAINER) \
+		gitea admin user create --admin \
+		--username town-os --password town-os-test \
+		--email town-os@localhost --must-change-password=false 2>/dev/null || true
+	@echo "Gitea running on port $$(cat .gitea-port)"
+
+# Populate Gitea with test repos cached from GitHub and pushed via go-git.
+gitea-populate: gitea
+	@mkdir -p .cache/git-repos
+	GITEA_URL=http://127.0.0.1:$$(cat .gitea-port) \
+	GIT_CACHE_DIR=.cache/git-repos \
+		go run ./src/gitea/cmd/populate-repos/
+
+# Stop and remove the local Gitea container.
+gitea-stop:
+	@sudo -E podman rm -f $(GITEA_CONTAINER) 2>/dev/null || true
+	@rm -f .gitea-port
+
+test-ui-integration: test-image ui-integration-image btrfs .integration-port registry-populate .cache/registries.conf gitea-populate
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	sudo -E podman run -e LOG_LEVEL=debug -e DEBUG=1 -e TOWN_OS_TEST=1 \
-		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
-		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-e TOWN_OS_REPO_USERNAME=town-os \
+		-e TOWN_OS_REPO_PASSWORD=town-os-test \
 		-e TOWN_OS_LISTEN=:$$(cat .integration-port) \
+		-e TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$$(cat .gitea-port)/town-os/test-packages-core.git \
+		-e TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$$(cat .gitea-port)/town-os/test-packages-extras.git \
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
@@ -175,12 +220,14 @@ test-ui-integration: test-image ui-integration-image btrfs .integration-port reg
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
 		bun run test:integration -- --reporter=verbose
 
-test-integration: lint test-image btrfs .integration-port registry-populate .cache/registries.conf
+test-integration: lint test-image btrfs .integration-port registry-populate .cache/registries.conf gitea-populate
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	sudo -E podman run -e LOG_LEVEL=${LOG_LEVEL} -e TOWN_OS_TEST=1 \
-		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
-		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-e TOWN_OS_REPO_USERNAME=town-os \
+		-e TOWN_OS_REPO_PASSWORD=town-os-test \
 		-e TOWN_OS_LISTEN=:$$(cat .integration-port) \
+		-e TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$$(cat .gitea-port)/town-os/test-packages-core.git \
+		-e TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$$(cat .gitea-port)/town-os/test-packages-extras.git \
 		-d --net host --systemd=true --privileged \
 		--device /dev/btrfs-control:/dev/btrfs-control:rwm \
 		-v $$(cat town-os.mount):/data/btrfs:z \
@@ -263,7 +310,7 @@ dev: dev-image dev-btrfs
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
-preflight-dev: docker-login .integration-port
+preflight-dev: .integration-port
 	@echo "Checking podman..."
 	@command -v podman >/dev/null 2>&1 || { echo "ERROR: podman not found"; exit 1; }
 	@echo "Checking btrfs-progs..."
@@ -272,7 +319,8 @@ preflight-dev: docker-login .integration-port
 	@test -n "$(TOWN_OS_REPO_USERNAME)" || { echo "ERROR: TOWN_OS_REPO_USERNAME not set"; exit 1; }
 	@test -n "$(TOWN_OS_REPO_PASSWORD)" || { echo "ERROR: TOWN_OS_REPO_PASSWORD not set"; exit 1; }
 	@echo "Checking bridge networking..."
-	@sudo podman run --rm -d --name $(PREFLIGHT_CONTAINER) -p $$(cat .integration-port):80 docker.io/library/nginx:alpine >/dev/null 2>&1 && \
+	sudo -E podman load -i $(IMAGE_CACHE)/nginx-1.27-alpine.tar
+	@sudo podman run --pull=never --rm -d --name $(PREFLIGHT_CONTAINER) -p $$(cat .integration-port):80 docker.io/library/nginx:1.27-alpine >/dev/null 2>&1 && \
 		sleep 2 && \
 		curl -sf http://127.0.0.1:$$(cat .integration-port)/ >/dev/null 2>&1 && \
 		echo "Bridge networking: OK" && \
@@ -321,7 +369,7 @@ clean-btrfs:
 	fi
 	rm -f btrfs.* town-os.disk town-os.loop town-os.mount
 
-clean-integration: registry-stop
+clean-integration: registry-stop gitea-stop
 	@sudo -E podman rm -f $(PODMAN_CONTAINER)
 	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
 	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)

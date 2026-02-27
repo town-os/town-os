@@ -33,10 +33,27 @@ func DefaultRepositories() []Repository {
 	}
 }
 
+const (
+	EnvTestRepoCoreURL   = "TOWN_OS_TEST_REPO_CORE_URL"
+	EnvTestRepoExtrasURL = "TOWN_OS_TEST_REPO_EXTRAS_URL"
+)
+
 // TestRepositories returns the test package repositories used in development.
+// URLs can be overridden via TOWN_OS_TEST_REPO_CORE_URL and
+// TOWN_OS_TEST_REPO_EXTRAS_URL environment variables (e.g. to point at a
+// local Gitea instance).
 func TestRepositories() []Repository {
-	core, _ := url.Parse("https://github.com/town-os/test-packages-core")
-	extras, _ := url.Parse("https://github.com/town-os/test-packages-extras")
+	coreRaw := os.Getenv(EnvTestRepoCoreURL)
+	if coreRaw == "" {
+		coreRaw = "https://github.com/town-os/test-packages-core"
+	}
+	extrasRaw := os.Getenv(EnvTestRepoExtrasURL)
+	if extrasRaw == "" {
+		extrasRaw = "https://github.com/town-os/test-packages-extras"
+	}
+
+	core, _ := url.Parse(coreRaw)
+	extras, _ := url.Parse(extrasRaw)
 	return []Repository{
 		{Name: "core", URL: *core},
 		{Name: "extras", URL: *extras},

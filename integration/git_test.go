@@ -2,20 +2,29 @@ package integration_test
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/packages"
 )
+
+func testGitCloneURL() string {
+	if u := os.Getenv(packages.EnvTestRepoCoreURL); u != "" {
+		return u
+	}
+	return "https://github.com/town-os/test-packages-core.git"
+}
 
 func TestGitClientClonePublicRepo(t *testing.T) {
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -34,11 +43,17 @@ func TestGitClientCloneWithCredentials(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	// Build credential URL if credentials are available.
-	repoURL := "https://github.com/town-os/test-packages-core.git"
+	// Build credential URL by embedding credentials into the test repo URL.
+	repoURL := testGitCloneURL()
 	if user != "" && pass != "" {
-		repoURL = "https://" + user + ":" + pass + "@github.com/town-os/test-packages-core.git"
+		parsed, err := url.Parse(repoURL)
+		if err != nil {
+			t.Fatalf("parse repo URL: %v", err)
+		}
+		parsed.User = url.UserPassword(user, pass)
+		repoURL = parsed.String()
 	}
+
 
 	err := c.Clone(ctx, dir, repoURL, "core")
 	if err != nil {
@@ -55,7 +70,7 @@ func TestGitClientPullAfterClone(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -72,7 +87,7 @@ func TestGitClientDiffCloneIsClean(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -92,7 +107,7 @@ func TestGitClientDiffAfterModification(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -128,7 +143,7 @@ func TestGitClientStashAndApply(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -181,7 +196,7 @@ func TestGitClientRevParseOnClone(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -201,7 +216,7 @@ func TestGitClientFetchOnClone(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -228,7 +243,7 @@ func TestGitClientRunLogOnClone(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	err := c.Clone(ctx, dir, "https://github.com/town-os/test-packages-core.git", "core")
+	err := c.Clone(ctx, dir, testGitCloneURL(), "core")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
