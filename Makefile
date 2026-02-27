@@ -241,10 +241,8 @@ test-integration: lint test-image btrfs .integration-port registry-populate .cac
 
 # Run the full test suite and always clean up containers and btrfs afterward.
 test-full: test
-	@$(MAKE) test-integration test-ui-integration; \
-	rc=$$?; \
-	$(MAKE) clean-integration clean-btrfs; \
-	exit $$rc
+	@rc=0; $(MAKE) test-integration || rc=$$?; $(MAKE) test-ui-integration || rc=$$?; \
+	$(MAKE) clean-integration clean-btrfs; exit $$rc
 
 test-image: production-image
 	mkdir -p .cache/go-mod .cache/go-build

@@ -80,7 +80,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	e.Add("POST", "/repository/add", s.addRepository, s.requireAuth)
 	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAuth)
-	e.Add("POST", "/repository/move", s.moveRepository, s.requireAuth)
+	e.Add("POST", "/repository/move", s.moveRepository, s.requireAdmin)
 	e.Add("POST", "/repository/refresh", s.refreshRepositories, s.requireAuth)
 	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
 

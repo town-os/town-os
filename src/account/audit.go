@@ -47,6 +47,7 @@ var RouteActions = map[string]string{
 	"/packages/install":                   "install package",
 	"/packages/uninstall":                 "uninstall package",
 	"/packages/purge-uninstalled-volumes": "purge uninstalled volumes",
+	"/packages/purge-volumes":             "purge volumes",
 	"/packages/disable":       "disable package",
 	"/packages/enable":        "enable package",
 	"/systemd/status":         "set unit status",
