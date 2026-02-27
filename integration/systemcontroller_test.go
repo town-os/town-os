@@ -1440,7 +1440,16 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify port 6379 is accessible via TCP from the host.
-	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+	// Retry with short dials because nested podman port forwarding can be slow.
+	var conn net.Conn
+	dialDeadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(dialDeadline) {
+		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", "127.0.0.1:6379")
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 	if err != nil {
 		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput() //nolint:gosec // test helper
 		t.Fatalf("TCP connect to redis on port 6379 failed: %v\ncontainer logs:\n%s", err, string(logs))

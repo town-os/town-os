@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,10 +43,15 @@ func TestGitClientCloneWithCredentials(t *testing.T) {
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
 
-	// Build credential URL if credentials are available.
+	// Build credential URL by embedding credentials into the test repo URL.
 	repoURL := testGitCloneURL()
 	if user != "" && pass != "" {
-		repoURL = "https://" + user + ":" + pass + "@github.com/town-os/test-packages-core.git"
+		parsed, err := url.Parse(repoURL)
+		if err != nil {
+			t.Fatalf("parse repo URL: %v", err)
+		}
+		parsed.User = url.UserPassword(user, pass)
+		repoURL = parsed.String()
 	}
 
 

@@ -1,5 +1,7 @@
-// populate-repos creates test package repositories in a local Gitea instance
-// by migrating them from GitHub. It is idempotent: existing repos are skipped.
+// populate-repos caches test package repositories as bare clones from GitHub
+// and pushes them into a local Gitea instance. It is idempotent: existing
+// non-empty Gitea repos are skipped, and existing bare caches are refreshed
+// via fetch.
 package main
 
 import (
@@ -11,7 +13,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
+
+	gogit "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
 const (
@@ -44,18 +51,232 @@ func run() error {
 		return errors.New("GITEA_URL environment variable is required")
 	}
 
+	cacheDir := os.Getenv("GIT_CACHE_DIR")
+	if cacheDir == "" {
+		return errors.New("GIT_CACHE_DIR environment variable is required")
+	}
+
 	ghUser := os.Getenv("TOWN_OS_REPO_USERNAME")
 	ghPass := os.Getenv("TOWN_OS_REPO_PASSWORD")
 
 	client := &http.Client{Timeout: 120 * time.Second}
 	ctx := context.Background()
 
+	// Phase 1: Cache repos as bare clones from GitHub.
 	for _, r := range repos {
-		if err := migrateRepo(ctx, client, giteaURL, r, ghUser, ghPass); err != nil {
-			return fmt.Errorf("migrate %s/%s: %w", r.Owner, r.Name, err)
+		if err := cacheRepo(ctx, cacheDir, r, ghUser, ghPass); err != nil {
+			return fmt.Errorf("cache %s/%s: %w", r.Owner, r.Name, err)
 		}
 	}
 
+	// Phase 2: Push cached repos to Gitea.
+	for _, r := range repos {
+		if err := pushToGitea(ctx, client, giteaURL, cacheDir, r); err != nil {
+			return fmt.Errorf("push %s/%s: %w", r.Owner, r.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// cacheRepo ensures a bare clone of the repo exists in cacheDir. If it
+// already exists, it fetches to refresh. Otherwise it creates a new bare clone.
+func cacheRepo(ctx context.Context, cacheDir string, r repo, ghUser, ghPass string) error {
+	repoPath := filepath.Join(cacheDir, r.Name+".git")
+	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", r.Owner, r.Name)
+
+	var auth *githttp.BasicAuth
+	if ghUser != "" && ghPass != "" {
+		auth = &githttp.BasicAuth{Username: ghUser, Password: ghPass}
+	}
+
+	// Check if bare cache already exists.
+	if _, err := os.Stat(repoPath); err == nil {
+		return fetchCache(ctx, repoPath, auth)
+	}
+
+	// Bare clone from GitHub.
+	opts := &gogit.CloneOptions{
+		URL:  cloneURL,
+		Tags: gogit.AllTags,
+	}
+	if auth != nil {
+		opts.Auth = auth
+	}
+
+	fmt.Fprintf(os.Stderr, "Cloning %s into cache %s\n", cloneURL, repoPath)
+	_, err := gogit.PlainCloneContext(ctx, repoPath, true, opts)
+	if err != nil {
+		return fmt.Errorf("bare clone: %w", err)
+	}
+	return nil
+}
+
+// fetchCache opens an existing bare repo and fetches all refs.
+func fetchCache(ctx context.Context, repoPath string, auth *githttp.BasicAuth) error {
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("open cache: %w", err)
+	}
+
+	opts := &gogit.FetchOptions{
+		RemoteName: "origin",
+		Tags:       gogit.AllTags,
+		Prune:      true,
+	}
+	if auth != nil {
+		opts.Auth = auth
+	}
+
+	fmt.Fprintf(os.Stderr, "Fetching updates for cache %s\n", repoPath)
+	if err := repo.FetchContext(ctx, opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("fetch: %w", err)
+	}
+	return nil
+}
+
+// pushToGitea creates a repo in Gitea (if needed) and pushes all refs from
+// the bare cache. If the Gitea repo already has content, it is skipped.
+func pushToGitea(ctx context.Context, client *http.Client, giteaURL, cacheDir string, r repo) error {
+	// Check if the repo already exists and has content.
+	empty, exists, err := checkGiteaRepo(ctx, client, giteaURL, r.Name)
+	if err != nil {
+		return err
+	}
+
+	if exists && !empty {
+		fmt.Fprintf(os.Stderr, "Repository %s already exists in Gitea, skipping\n", r.Name)
+		return nil
+	}
+
+	// Delete empty repos (from a previously failed push).
+	if exists && empty {
+		fmt.Fprintf(os.Stderr, "Repository %s is empty, deleting for re-push\n", r.Name)
+		if err := deleteRepo(ctx, client, giteaURL, r.Name); err != nil {
+			return fmt.Errorf("delete empty repo: %w", err)
+		}
+	}
+
+	// Create empty repo in Gitea.
+	if err := createGiteaRepo(ctx, client, giteaURL, r.Name); err != nil {
+		return fmt.Errorf("create repo: %w", err)
+	}
+
+	// Push all refs from the bare cache to Gitea.
+	repoPath := filepath.Join(cacheDir, r.Name+".git")
+	giteaPushURL := fmt.Sprintf("%s/%s/%s.git", giteaURL, adminUser, r.Name)
+
+	if err := pushRefs(ctx, repoPath, giteaPushURL); err != nil {
+		return fmt.Errorf("push refs: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Pushed %s to Gitea\n", r.Name)
+	return nil
+}
+
+// checkGiteaRepo checks whether a repo exists in Gitea and whether it is empty.
+// Returns (empty, exists, error).
+func checkGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name string) (bool, bool, error) {
+	checkURL := fmt.Sprintf("%s/api/v1/repos/%s/%s", giteaURL, adminUser, name)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
+	if err != nil {
+		return false, false, err
+	}
+	req.SetBasicAuth(adminUser, adminPass)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, false, fmt.Errorf("check repo: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // response body
+
+	if resp.StatusCode == http.StatusNotFound {
+		return false, false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return false, false, fmt.Errorf("unexpected status %d checking repo: %s", resp.StatusCode, respBody)
+	}
+
+	var info struct {
+		Empty bool `json:"empty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return false, false, err
+	}
+	return info.Empty, true, nil
+}
+
+// createGiteaRepo creates an empty repository in Gitea via the API.
+func createGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name string) error {
+	body := map[string]any{
+		"name":          name,
+		"auto_init":     false,
+		"default_branch": "main",
+	}
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, giteaURL+"/api/v1/user/repos", bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(adminUser, adminPass)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("create repo request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // response body
+
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status %d creating repo: %s", resp.StatusCode, respBody)
+	}
+
+	fmt.Fprintf(os.Stderr, "Created Gitea repo %s\n", name)
+	return nil
+}
+
+// pushRefs opens the bare cache repo, adds a temporary remote for Gitea,
+// and pushes all refs.
+func pushRefs(ctx context.Context, repoPath, pushURL string) error {
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("open cache for push: %w", err)
+	}
+
+	const remoteName = "gitea"
+
+	// Remove existing gitea remote if present (idempotent).
+	_ = repo.DeleteRemote(remoteName)
+
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: remoteName,
+		URLs: []string{pushURL},
+	})
+	if err != nil {
+		return fmt.Errorf("create remote: %w", err)
+	}
+	defer repo.DeleteRemote(remoteName) //nolint:errcheck // cleanup
+
+	auth := &githttp.BasicAuth{
+		Username: adminUser,
+		Password: adminPass,
+	}
+
+	err = repo.PushContext(ctx, &gogit.PushOptions{
+		RemoteName: remoteName,
+		RefSpecs:   []gitconfig.RefSpec{"refs/*:refs/*"},
+		Auth:       auth,
+	})
+	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("push: %w", err)
+	}
 	return nil
 }
 
@@ -101,128 +322,16 @@ func ensureAdminUser(ctx context.Context, client *http.Client, giteaURL string) 
 	}
 }
 
-// migrateRepo uses Gitea's migration API to clone a GitHub repo into Gitea.
-// If the repo already exists and is non-empty, it is skipped. Empty repos
-// (from a previously failed migration) are deleted and re-created.
-func migrateRepo(ctx context.Context, client *http.Client, giteaURL string, r repo, ghUser, ghPass string) error {
-	// Check if repo already exists.
-	checkURL := fmt.Sprintf("%s/api/v1/repos/%s/%s", giteaURL, adminUser, r.Name)
-	checkReq, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
-	if err != nil {
-		return err
-	}
-	checkReq.SetBasicAuth(adminUser, adminPass)
-
-	checkResp, err := client.Do(checkReq)
-	if err != nil {
-		return fmt.Errorf("check repo existence: %w", err)
-	}
-
-	if checkResp.StatusCode == http.StatusOK {
-		var repoInfo struct {
-			Empty bool `json:"empty"`
-		}
-		_ = json.NewDecoder(checkResp.Body).Decode(&repoInfo)
-		_ = checkResp.Body.Close()
-
-		if !repoInfo.Empty {
-			fmt.Fprintf(os.Stderr, "Repository %s already exists, skipping\n", r.Name)
-			return nil
-		}
-
-		// Repo exists but is empty (failed migration). Delete and re-create.
-		fmt.Fprintf(os.Stderr, "Repository %s is empty, deleting for re-migration\n", r.Name)
-		if err := deleteRepo(ctx, client, giteaURL, r.Name); err != nil {
-			return fmt.Errorf("delete empty repo: %w", err)
-		}
-	} else {
-		_ = checkResp.Body.Close()
-	}
-
-	// Build clone URL with credentials if available.
-	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", r.Owner, r.Name)
-
-	body := map[string]any{
-		"clone_addr": cloneURL,
-		"repo_name":  r.Name,
-		"repo_owner": adminUser,
-		"service":    "github",
-		"mirror":     false,
-	}
-
-	if ghUser != "" && ghPass != "" {
-		body["auth_username"] = ghUser
-		body["auth_password"] = ghPass
-	}
-
-	data, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, giteaURL+"/api/v1/repos/migrate", bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(adminUser, adminPass)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("migrate request: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // response body
-
-	switch resp.StatusCode {
-	case http.StatusCreated, http.StatusOK:
-		fmt.Fprintf(os.Stderr, "Migrated %s/%s -> %s/%s\n", r.Owner, r.Name, adminUser, r.Name)
-		return nil
-	case http.StatusConflict, http.StatusUnprocessableEntity:
-		// The repo name is taken. Check whether it actually has content;
-		// a previous migration may have created the stub but failed to
-		// clone any data.
-		empty, checkErr := isRepoEmpty(ctx, client, giteaURL, r.Name)
-		if checkErr != nil || !empty {
-			fmt.Fprintf(os.Stderr, "Repository %s already exists, skipping\n", r.Name)
-			return nil
-		}
-		fmt.Fprintf(os.Stderr, "Repository %s is empty after migration conflict, deleting for retry\n", r.Name)
-		if err := deleteRepo(ctx, client, giteaURL, r.Name); err != nil {
-			return fmt.Errorf("delete empty repo after conflict: %w", err)
-		}
-		return migrateRepo(ctx, client, giteaURL, r, ghUser, ghPass)
-	default:
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status %d migrating repo: %s", resp.StatusCode, respBody)
-	}
-}
-
 // isRepoEmpty checks whether a repo exists and has no content.
 func isRepoEmpty(ctx context.Context, client *http.Client, giteaURL, name string) (bool, error) {
-	checkURL := fmt.Sprintf("%s/api/v1/repos/%s/%s", giteaURL, adminUser, name)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
+	empty, exists, err := checkGiteaRepo(ctx, client, giteaURL, name)
 	if err != nil {
 		return false, err
 	}
-	req.SetBasicAuth(adminUser, adminPass)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("check repo: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // response body
-
-	if resp.StatusCode != http.StatusOK {
+	if !exists {
 		return false, nil
 	}
-
-	var info struct {
-		Empty bool `json:"empty"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return false, err
-	}
-	return info.Empty, nil
+	return empty, nil
 }
 
 // deleteRepo removes a repository via the Gitea API.
