@@ -985,6 +985,200 @@ func TestHTTPGetResponsesBadJSON(t *testing.T) {
 	}
 }
 
+func TestHTTPGetLastResponsesEmpty(t *testing.T) {
+	c, _ := initInstallTestClient(t)
+
+	resp, err := c.GetLastResponses(context.TODO(), "repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("GetLastResponses: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Fatalf("expected 0 last responses, got %d", len(resp))
+	}
+}
+
+func TestHTTPGetLastResponsesAfterUninstall(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	// Simulate saved last responses (as happens after uninstall).
+	if err := inst.SaveLastResponses("repo-a", "nginx", packages.Responses{"hostname": "cached", "port": "9090"}); err != nil {
+		t.Fatalf("SaveLastResponses: %v", err)
+	}
+
+	resp, err := c.GetLastResponses(context.TODO(), "repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("GetLastResponses: %v", err)
+	}
+
+	if resp["hostname"] != "cached" {
+		t.Fatalf("expected hostname %q, got %q", "cached", resp["hostname"])
+	}
+	if resp["port"] != "9090" {
+		t.Fatalf("expected port %q, got %q", "9090", resp["port"])
+	}
+}
+
+func TestHTTPClearLastResponses(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	// Save some last responses.
+	if err := inst.SaveLastResponses("repo-a", "nginx", packages.Responses{"hostname": "cached"}); err != nil {
+		t.Fatalf("SaveLastResponses: %v", err)
+	}
+
+	// Clear them via HTTP.
+	if err := c.ClearLastResponses(context.TODO(), "repo-a", "nginx"); err != nil {
+		t.Fatalf("ClearLastResponses: %v", err)
+	}
+
+	// Verify they are gone.
+	resp, err := c.GetLastResponses(context.TODO(), "repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("GetLastResponses after clear: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Fatalf("expected 0 last responses after clear, got %d", len(resp))
+	}
+}
+
+func TestHTTPUninstallSavesLastResponsesWithCorrectData(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	// Install with specific responses.
+	responses := packages.Responses{"hostname": "savetest", "port": "4444"}
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", responses, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Uninstall to trigger SaveLastResponses.
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	// Verify SaveLastResponses was called with the correct responses.
+	calls := inst.GetCalls()
+	var saveCall *packages.MockInstallCall
+	for i := range calls {
+		if calls[i].Method == "SaveLastResponses" {
+			saveCall = &calls[i]
+			break
+		}
+	}
+	if saveCall == nil {
+		t.Fatal("expected SaveLastResponses call during uninstall")
+	}
+
+	savedResp, ok := saveCall.Args[2].(packages.Responses)
+	if !ok {
+		t.Fatal("type assertion failed for SaveLastResponses responses arg")
+	}
+	if savedResp["hostname"] != "savetest" {
+		t.Fatalf("expected hostname %q in saved last responses, got %q", "savetest", savedResp["hostname"])
+	}
+	if savedResp["port"] != "4444" {
+		t.Fatalf("expected port %q in saved last responses, got %q", "4444", savedResp["port"])
+	}
+}
+
+func TestHTTPInstallAfterUninstallUsesLastResponses(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	// Install with responses, then uninstall (which saves last responses).
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "original", "port": "5555"}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	// Verify last responses are available after uninstall.
+	lastResp, err := c.GetLastResponses(context.TODO(), "repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("GetLastResponses: %v", err)
+	}
+	if lastResp["hostname"] != "original" {
+		t.Fatalf("expected hostname %q, got %q", "original", lastResp["hostname"])
+	}
+
+	// Reinstall with new responses — should succeed and clear last responses.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "newhost", "port": "6666"}, false, "", false); err != nil {
+		t.Fatalf("Reinstall: %v", err)
+	}
+
+	// Verify ClearLastResponses was called after reinstall.
+	calls := inst.GetCalls()
+	clearCount := 0
+	for _, call := range calls {
+		if call.Method == "ClearLastResponses" {
+			clearCount++
+		}
+	}
+	if clearCount < 2 {
+		t.Fatalf("expected at least 2 ClearLastResponses calls (one per install), got %d", clearCount)
+	}
+
+	// Verify last responses are now empty.
+	cleared, err := c.GetLastResponses(context.TODO(), "repo-a", "nginx")
+	if err != nil {
+		t.Fatalf("GetLastResponses after reinstall: %v", err)
+	}
+	if len(cleared) != 0 {
+		t.Fatalf("expected 0 last responses after reinstall, got %d", len(cleared))
+	}
+}
+
+func TestHTTPGetLastResponsesBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
+	t.Cleanup(ts.Close)
+
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages/last-responses"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
+func TestHTTPClearLastResponsesBadJSON(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: emptyRepoRoot(t)})
+	t.Cleanup(ts.Close)
+
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "packages/clear-last-responses"), bytes.NewBufferString("{bad"))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.Server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected non-200 status for bad JSON")
+	}
+}
+
 func TestHTTPGetInstalledInfo(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 

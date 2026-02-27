@@ -100,6 +100,11 @@ type Client interface {
 	ListInstalled(ctx context.Context, params ListParams) (*PageResult[string], error)
 	// GetResponses returns the stored configuration responses for an installed package.
 	GetResponses(ctx context.Context, repo, name, version string) (packages.Responses, error)
+	// GetLastResponses returns the most recently stored configuration responses
+	// for a package (across all versions), useful for pre-filling install forms.
+	GetLastResponses(ctx context.Context, repo, name string) (packages.Responses, error)
+	// ClearLastResponses removes the cached last-responses for a package.
+	ClearLastResponses(ctx context.Context, repo, name string) error
 	// GetInstalledInfo returns detailed information about an installed package,
 	// including its questions, responses, and notes.
 	GetInstalledInfo(ctx context.Context, repo, name, version string) (*InstalledInfoResponse, error)

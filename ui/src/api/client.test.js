@@ -1108,6 +1108,70 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('getResponses', () => {
+    it('sends repo, name, and version and returns responses', async () => {
+      const responses = { hostname: 'example', port: '8080' }
+      mockFetch(responses)
+      client.setToken('tok')
+
+      const result = await client.getResponses('core', 'nginx', '1.0')
+      expect(result).toEqual(responses)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/responses',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ repo: 'core', name: 'nginx', version: '1.0' }),
+        },
+      )
+    })
+  })
+
+  describe('getLastResponses', () => {
+    it('sends repo and name and returns responses', async () => {
+      const responses = { hostname: 'cached', port: '9090' }
+      mockFetch(responses)
+      client.setToken('tok')
+
+      const result = await client.getLastResponses('core', 'nginx')
+      expect(result).toEqual(responses)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/last-responses',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ repo: 'core', name: 'nginx' }),
+        },
+      )
+    })
+  })
+
+  describe('clearLastResponses', () => {
+    it('sends repo and name', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.clearLastResponses('core', 'nginx')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/packages/clear-last-responses',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ repo: 'core', name: 'nginx' }),
+        },
+      )
+    })
+  })
+
   describe('self-authenticated methods', () => {
     it('listSessions uses explicit token', async () => {
       const sessions = [

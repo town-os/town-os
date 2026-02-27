@@ -301,14 +301,8 @@ func validateTarStream(ctx context.Context, r io.Reader) <-chan error {
 // the target subvolume via tar's stdin, with no temp files or staging.
 // If subpath is non-empty, the archive is unpacked into that subdirectory
 // within the subvolume (created with MkdirAll if it does not exist).
-//
-// The archive format is detected via magic bytes (filemagic). The stream is
-// decompressed and tee'd: one half feeds archive/tar for validation, the
-// other feeds the real unpack process. If validation fails the unpack is
-// interrupted immediately.
-func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, targetSubvol, subpath string) error {
-	// Detect format from magic bytes.
-	format, magicReader, err := detectArchiveFormat(archiveReader)
+func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, filename, targetSubvol, subpath string) error {
+	format, err := archiveFormat(filename)
 	if err != nil {
 		return err
 	}
@@ -317,14 +311,14 @@ func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, 
 	targetPath := filepath.Join(basePath, targetSubvol)
 	if subpath != "" {
 		targetPath = filepath.Join(targetPath, subpath)
-		if err := os.MkdirAll(targetPath, 0700); err != nil {
+		if err := os.MkdirAll(targetPath, 0755); err != nil { //nolint:gosec // admin-only endpoint
 			return fmt.Errorf("create subpath directory: %w", err)
 		}
 	}
 
 	// Enforce size limit: LimitReader caps at maxSize+1 so we can detect overflow.
 	maxSize := s.maxArchiveSize()
-	cr := &countingReader{r: io.LimitReader(magicReader, maxSize+1)}
+	cr := &countingReader{r: io.LimitReader(archiveReader, maxSize+1)}
 
 	// Unpack with timeout.
 	timeout := s.archiveUnpackTimeout()
@@ -506,7 +500,7 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		}
 	}
 
-	file, _, err := c.Request().FormFile("archive")
+	file, header, err := c.Request().FormFile("archive")
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("archive file required: %v", err))
 	}
@@ -531,7 +525,7 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		}()
 	}
 
-	if err := s.streamUnpackToSubvolume(ctx, file, subvolume, subpath); err != nil {
+	if err := s.streamUnpackToSubvolume(ctx, file, header.Filename, subvolume, subpath); err != nil {
 		if errors.Is(err, ErrArchiveTooLarge) {
 			return echo.NewHTTPError(http.StatusForbidden, err.Error())
 		}

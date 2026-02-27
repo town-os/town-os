@@ -306,6 +306,39 @@ func (s *SystemControllerHandlers) getResponses(c *echo.Context) error {
 	return c.JSON(200, resp)
 }
 
+func (s *SystemControllerHandlers) getLastResponses(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	resp, err := inst.LoadLastResponses(req.Repo, req.Name)
+	if err != nil {
+		return c.JSON(200, packages.Responses{})
+	}
+
+	return c.JSON(200, resp)
+}
+
+func (s *SystemControllerHandlers) clearLastResponses(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageNameRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	inst := s.Controller.GetInstaller()
+	if err := inst.ClearLastResponses(req.Repo, req.Name); err != nil {
+		return err
+	}
+
+	return c.JSON(200, struct{}{})
+}
+
 func (s *SystemControllerHandlers) getInstalledInfo(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	req := PackageIdentityRequest{}

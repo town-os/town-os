@@ -48,7 +48,7 @@ func initTestRepoWithCommit(t *testing.T) (string, *GoGitClient) {
 	dir, c := initTestRepo(t)
 	ctx := context.Background()
 
-	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("data"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("data"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 	if err := c.Add(ctx, dir, "."); err != nil {
@@ -79,7 +79,7 @@ func TestGoGitClientAddAndCommit(t *testing.T) {
 	dir, c := initTestRepo(t)
 	ctx := context.Background()
 
-	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestGoGitClientDiffClean(t *testing.T) {
 func TestGoGitClientDiffDirty(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 
-	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 
@@ -149,13 +149,13 @@ func TestGoGitClientStash(t *testing.T) {
 	ctx := context.Background()
 
 	// Write original content for comparison.
-	origData, err := os.ReadFile(filepath.Join(dir, "f.txt"))
+	origData, err := os.ReadFile(filepath.Join(dir, "f.txt")) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	// Modify and stash.
-	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("modified"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("modified"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 
@@ -163,7 +163,7 @@ func TestGoGitClientStash(t *testing.T) {
 		t.Fatalf("Stash: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "f.txt"))
+	data, err := os.ReadFile(filepath.Join(dir, "f.txt")) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestGoGitClientStash(t *testing.T) {
 		t.Fatalf("StashApply: %v", err)
 	}
 
-	data, err = os.ReadFile(filepath.Join(dir, "f.txt"))
+	data, err = os.ReadFile(filepath.Join(dir, "f.txt")) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestGoGitClientCheckoutByHash(t *testing.T) {
 	}
 
 	// Create a second commit so we can checkout back to the first.
-	if err := os.WriteFile(filepath.Join(dir, "f2.txt"), []byte("second"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "f2.txt"), []byte("second"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 	if err := c.Add(ctx, dir, "f2.txt"); err != nil {
@@ -610,7 +610,7 @@ func TestGoGitClientStashNewFile(t *testing.T) {
 
 	// Add a new file, stash it, verify it's gone, then apply.
 	newFile := filepath.Join(dir, "newfile.txt")
-	if err := os.WriteFile(newFile, []byte("new content"), 0600); err != nil {
+	if err := os.WriteFile(newFile, []byte("new content"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 
@@ -626,7 +626,7 @@ func TestGoGitClientStashNewFile(t *testing.T) {
 		t.Fatalf("StashApply: %v", err)
 	}
 
-	data, err := os.ReadFile(newFile)
+	data, err := os.ReadFile(newFile) //nolint:gosec // test code
 	if err != nil {
 		t.Fatalf("read after apply: %v", err)
 	}
@@ -840,7 +840,7 @@ func TestGoGitClientRunLogMultipleCommits(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a second commit.
-	if err := os.WriteFile(filepath.Join(dir, "f2.txt"), []byte("second"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "f2.txt"), []byte("second"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 	if err := c.Add(ctx, dir, "f2.txt"); err != nil {
@@ -875,7 +875,7 @@ func TestGoGitClientRunStatusDirty(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 	ctx := context.Background()
 
-	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 
@@ -898,7 +898,7 @@ func TestGoGitClientAddDot(t *testing.T) {
 
 	// Create multiple files.
 	for _, name := range []string{"a.txt", "b.txt"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0644); err != nil { //nolint:gosec // test code
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
@@ -936,7 +936,7 @@ func TestGoGitClientCommitUsesConfiguredAuthor(t *testing.T) {
 		t.Fatalf("config: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("test"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("test"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 	if err := c.Add(ctx, dir, "test.txt"); err != nil {
@@ -992,7 +992,7 @@ func TestGoGitClientAddMultipleFiles(t *testing.T) {
 	ctx := context.Background()
 
 	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0644); err != nil { //nolint:gosec // test code
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
@@ -1043,7 +1043,7 @@ func TestGoGitClientPullWithNewCommit(t *testing.T) {
 	clonedDir := filepath.Join(target, "cloned")
 
 	// Add a new commit directly to the source repo.
-	if err := os.WriteFile(filepath.Join(source, "update.txt"), []byte("new"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "update.txt"), []byte("new"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 	if err := c.Add(ctx, source, "."); err != nil {
@@ -1078,7 +1078,7 @@ func TestGoGitClientFetchWithNewCommit(t *testing.T) {
 	}
 
 	// Add a new commit directly to the source repo.
-	if err := os.WriteFile(filepath.Join(source, "extra.txt"), []byte("extra"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "extra.txt"), []byte("extra"), 0644); err != nil { //nolint:gosec // test code
 		t.Fatalf("write: %v", err)
 	}
 	if err := c.Add(ctx, source, "."); err != nil {

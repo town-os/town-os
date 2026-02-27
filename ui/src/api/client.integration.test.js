@@ -849,6 +849,44 @@ describe('SystemControllerClient integration', () => {
     })
   })
 
+  // --- Last responses lifecycle ---
+
+  describe('last responses', () => {
+    it('returns empty last responses when none cached', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const lastResp = await client.getLastResponses('core', 'nonexistent')
+      expect(lastResp).toEqual({})
+    })
+
+    it('returns last responses after uninstall', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      // Install, then uninstall to create last responses
+      await client.installPackage('core', 'nginx', '1.0', {
+        hostname: 'lasthost',
+        port: '8082',
+      })
+      await new Promise((r) => setTimeout(r, 1000))
+      await client.uninstallPackage('core', 'nginx', '1.0', false)
+
+      const lastResp = await client.getLastResponses('core', 'nginx')
+      expect(lastResp.hostname).toBe('lasthost')
+      expect(lastResp.port).toBe('8082')
+    })
+
+    it('clears last responses', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      await client.clearLastResponses('core', 'nginx')
+
+      const lastResp = await client.getLastResponses('core', 'nginx')
+      expect(lastResp).toEqual({})
+    })
+  })
+
   // --- Error handling ---
 
   describe('error handling', () => {
@@ -967,6 +1005,18 @@ describe('SystemControllerClient integration', () => {
       await expect(
         noAuth.getResponses('r', 'x', '1.0'),
       ).rejects.toThrow(/POST \/packages\/responses:.*missing authorization token/)
+    })
+
+    it('getLastResponses requires auth', async () => {
+      await expect(
+        noAuth.getLastResponses('r', 'x'),
+      ).rejects.toThrow(/POST \/packages\/last-responses:.*missing authorization token/)
+    })
+
+    it('clearLastResponses requires auth', async () => {
+      await expect(
+        noAuth.clearLastResponses('r', 'x'),
+      ).rejects.toThrow(/POST \/packages\/clear-last-responses:.*missing authorization token/)
     })
 
     it('getInstalledInfo requires auth', async () => {

@@ -75,6 +75,24 @@ SystemControllerClient.prototype.getInstalledInfo = async function (repo, name, 
 }
 
 /**
+ * @param {string} repo
+ * @param {string} name
+ * @returns {Promise<Responses>}
+ */
+SystemControllerClient.prototype.getLastResponses = async function (repo, name) {
+  return this.postJSON('/packages/last-responses', { repo, name })
+}
+
+/**
+ * @param {string} repo
+ * @param {string} name
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.clearLastResponses = async function (repo, name) {
+  await this.post('/packages/clear-last-responses', { repo, name })
+}
+
+/**
  * @param {string} name
  * @returns {Promise<Record<string, Question>>}
  */

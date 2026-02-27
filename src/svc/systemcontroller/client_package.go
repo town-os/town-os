@@ -251,6 +251,36 @@ func (c *SystemdClient) GetResponses(ctx context.Context, repo, name, version st
 	return responses, json.NewDecoder(resp.Body).Decode(&responses)
 }
 
+// GetLastResponses returns the most recently stored configuration responses
+// for a package (across all versions).
+func (c *SystemdClient) GetLastResponses(ctx context.Context, repo, name string) (_ packages.Responses, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageNameRequest{Repo: repo, Name: name})
+
+	resp, err := c.postJSON(ctx, "packages/last-responses", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: GetLastResponses: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "POST", "packages/last-responses")
+	}
+
+	var responses packages.Responses
+	return responses, json.NewDecoder(resp.Body).Decode(&responses)
+}
+
+// ClearLastResponses removes the cached last-responses for a package.
+func (c *SystemdClient) ClearLastResponses(ctx context.Context, repo, name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageNameRequest{Repo: repo, Name: name})
+
+	return c.postClient(ctx, "packages/clear-last-responses", pr)
+}
+
 // GetInstalledInfo returns detailed information about an installed package.
 func (c *SystemdClient) GetInstalledInfo(ctx context.Context, repo, name, version string) (_ *InstalledInfoResponse, err error) {
 	pr, pw := io.Pipe()

@@ -824,6 +824,50 @@ func TestMockClientGetResponsesReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestMockClientGetLastResponses(t *testing.T) {
+	m := InitMockClient()
+
+	resp, err := m.GetLastResponses(context.TODO(), "repo", "nginx")
+	if err != nil {
+		t.Fatalf("GetLastResponses: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Fatalf("expected empty last responses, got %d", len(resp))
+	}
+}
+
+func TestMockClientGetLastResponsesCallLog(t *testing.T) {
+	m := InitMockClient()
+
+	if _, err := m.GetLastResponses(context.TODO(), "repo", "nginx"); err != nil {
+		t.Fatalf("GetLastResponses: %v", err)
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "GetLastResponses" {
+		t.Fatalf("expected method GetLastResponses, got %q", calls[0].Method)
+	}
+}
+
+func TestMockClientClearLastResponses(t *testing.T) {
+	m := InitMockClient()
+
+	if err := m.ClearLastResponses(context.TODO(), "repo", "nginx"); err != nil {
+		t.Fatalf("ClearLastResponses: %v", err)
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "ClearLastResponses" {
+		t.Fatalf("expected method ClearLastResponses, got %q", calls[0].Method)
+	}
+}
+
 func TestMockClientSettingsDefaults(t *testing.T) {
 	m := InitMockClient()
 

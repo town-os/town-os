@@ -170,7 +170,7 @@ func TestAtomicWriteJSON(t *testing.T) {
 		t.Fatalf("atomicWriteJSON: %v", err)
 	}
 
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // test code reading known test file
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestAtomicWriteJSONOverwrites(t *testing.T) {
 		t.Fatalf("second write: %v", err)
 	}
 
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // test code reading known test file
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestAtomicWriteJSONNoPartialWrite(t *testing.T) {
 	}
 
 	// Verify initial value exists.
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // test code reading known test file
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestSaveResponsesCreatesFile(t *testing.T) {
 		t.Fatalf("expected response file to exist: %v", err)
 	}
 
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // test code reading known test file
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestSaveResponsesOverwrites(t *testing.T) {
 	}
 
 	path := filepath.Join(dir, ResponsesDir, "repo", "pkg", "1.0.json")
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // test code reading known test file
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -653,7 +653,7 @@ func TestAtomicWriteJSONConcurrent(t *testing.T) {
 		fileName := fmt.Sprintf("file-%d.json", i)
 		path := filepath.Join(dir, fileName)
 
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(path) //nolint:gosec // test code reading known test file
 		if err != nil {
 			t.Fatalf("ReadFile(%s): %v", fileName, err)
 		}

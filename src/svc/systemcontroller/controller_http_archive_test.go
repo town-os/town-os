@@ -91,22 +91,11 @@ func TestHTTPUploadArchiveWithSubpath(t *testing.T) {
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	if err := writer.WriteField("subvolume", "test-vol"); err != nil {
-		t.Fatalf("WriteField subvolume: %v", err)
-	}
-	if err := writer.WriteField("subpath", "deep/nested"); err != nil {
-		t.Fatalf("WriteField subpath: %v", err)
-	}
-	part, err := writer.CreateFormFile("archive", "test.tar.gz")
-	if err != nil {
-		t.Fatalf("CreateFormFile: %v", err)
-	}
-	if _, err := part.Write(gzipMagic); err != nil {
-		t.Fatalf("part.Write: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
+	_ = writer.WriteField("subvolume", "test-vol")
+	_ = writer.WriteField("subpath", "deep/nested")
+	part, _ := writer.CreateFormFile("archive", "test.tar.gz")
+	_, _ = part.Write([]byte("fake"))
+	_ = writer.Close()
 
 	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
 	if err != nil {
@@ -133,22 +122,11 @@ func TestHTTPUploadArchiveWithStopService(t *testing.T) {
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	if err := writer.WriteField("subvolume", "test-vol"); err != nil {
-		t.Fatalf("WriteField subvolume: %v", err)
-	}
-	if err := writer.WriteField("stop_service", "my-app.service"); err != nil {
-		t.Fatalf("WriteField stop_service: %v", err)
-	}
-	part, err := writer.CreateFormFile("archive", "test.tar.gz")
-	if err != nil {
-		t.Fatalf("CreateFormFile: %v", err)
-	}
-	if _, err := part.Write(gzipMagic); err != nil {
-		t.Fatalf("part.Write: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
+	_ = writer.WriteField("subvolume", "test-vol")
+	_ = writer.WriteField("stop_service", "my-app.service")
+	part, _ := writer.CreateFormFile("archive", "test.tar.gz")
+	_, _ = part.Write([]byte("fake"))
+	_ = writer.Close()
 
 	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
 	if err != nil {

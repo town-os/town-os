@@ -86,6 +86,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/packages/installed", s.listInstalled, s.requireAuth)
 	e.Add("POST", "/packages/installed/info", s.getInstalledInfo, s.requireAuth)
 	e.Add("POST", "/packages/responses", s.getResponses, s.requireAuth)
+	e.Add("POST", "/packages/last-responses", s.getLastResponses, s.requireAuth)
+	e.Add("POST", "/packages/clear-last-responses", s.clearLastResponses, s.requireAdmin)
 
 	e.Add("GET", "/systemd/units", s.listUnits, s.requireAuth)
 	e.Add("GET", "/systemd/logs", s.logReplay, s.requireAuth)

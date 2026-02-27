@@ -339,6 +339,22 @@ func (m *MockClient) GetResponses(_ context.Context, repo, name, version string)
 	return out, nil
 }
 
+func (m *MockClient) GetLastResponses(_ context.Context, repo, name string) (packages.Responses, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "GetLastResponses", Args: []any{repo, name}})
+
+	return packages.Responses{}, nil
+}
+
+func (m *MockClient) ClearLastResponses(_ context.Context, repo, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ClearLastResponses", Args: []any{repo, name}})
+
+	return nil
+}
+
 func (m *MockClient) GetInstalledInfo(_ context.Context, repo, name, version string) (*InstalledInfoResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -36,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 
 export default function PackageManagement() {
@@ -176,13 +176,26 @@ export default function PackageManagement() {
       // Fetch questions for this specific package version.
       const questions = await getClient().getPackageQuestionsByIdentity(repo, name, version)
 
-      // Get existing responses to use as defaults.
+      // Get existing responses (from current install) to use as defaults.
       let existingResponses = {}
       try {
         existingResponses = await getClient().getResponses(repo, name, version)
       } catch {
         // no existing responses
       }
+
+      // Get cached last responses (from previous uninstall) if no current responses.
+      let lastResponses = {}
+      if (!existingResponses || Object.keys(existingResponses).length === 0) {
+        try {
+          lastResponses = await getClient().getLastResponses(repo, name)
+        } catch {
+          // no last responses
+        }
+      }
+
+      // Merge: current responses take precedence over last responses.
+      const mergedResponses = { ...(lastResponses || {}), ...(existingResponses || {}) }
 
       if (questions && Object.keys(questions).length > 0) {
         setQuestionsDialog({
@@ -191,8 +204,9 @@ export default function PackageManagement() {
           name,
           version,
           questions,
-          responses: existingResponses || {},
+          responses: mergedResponses,
           fieldErrors: {},
+          clearedFields: {},
           reuseVolumes,
           importFromVersion,
         })
@@ -860,19 +874,66 @@ export default function PackageManagement() {
                 Object.entries(questionsDialog.questions).map(
                   ([key, question]) => {
                     const fieldError = questionsDialog.fieldErrors?.[key]
+                    const cachedValue = questionsDialog.responses?.[key]
+                    const isCleared = questionsDialog.clearedFields?.[key]
+                    const hasCachedValue = !!cachedValue && !isCleared
+
+                    // Build placeholder: show default or type hint
+                    let placeholder
+                    if (question.default) {
+                      placeholder = `Default: ${question.default}`
+                    } else if (question.type === 'duration') {
+                      placeholder = 'e.g. 30s, 5m, 2h, 1d'
+                    } else if (question.type === 'port') {
+                      placeholder = 'Auto-assigned if empty'
+                    } else if (question.type === 'hostname') {
+                      placeholder = 'Auto-generated if empty'
+                    }
+
                     return (
                       <div key={key} className="space-y-2">
                         <Label htmlFor={key}>{question.query}</Label>
-                        <Input
-                          id={key}
-                          name={key}
-                          type={question.type === 'password' ? 'password' : 'text'}
-                          placeholder={question.type === 'duration' ? 'e.g. 30s, 5m, 2h, 1d' : undefined}
-                          defaultValue={questionsDialog.responses?.[key] || ''}
-                          className={fieldError ? 'border-destructive' : ''}
-                        />
+                        {hasCachedValue ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm font-mono">
+                              {question.type === 'password' ? '********' : cachedValue}
+                            </div>
+                            <input type="hidden" name={key} value={cachedValue} />
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setQuestionsDialog((prev) => ({
+                                    ...prev,
+                                    clearedFields: { ...prev.clearedFields, [key]: true },
+                                  }))}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Clear to enter a new value</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        ) : (
+                          <Input
+                            id={key}
+                            name={key}
+                            type={question.type === 'password' ? 'password' : 'text'}
+                            placeholder={placeholder}
+                            defaultValue=""
+                            className={fieldError ? 'border-destructive' : ''}
+                          />
+                        )}
+                        {question.default && !hasCachedValue && (
+                          <p className="text-xs text-muted-foreground">
+                            Default: <span className="font-mono">{question.default}</span>
+                          </p>
+                        )}
                         {question.type === 'duration' && (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             Duration format: use s (seconds), m (minutes), h (hours), or d (days)
                           </p>
                         )}
