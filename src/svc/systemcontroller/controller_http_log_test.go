@@ -649,7 +649,7 @@ func TestHTTPLogTailSinceUntilWithLimit(t *testing.T) {
 }
 
 func TestHTTPLogTailPriority(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -679,7 +679,7 @@ func TestHTTPLogTailPriority(t *testing.T) {
 }
 
 func TestHTTPLogTailPriorityNoFilter(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -700,7 +700,7 @@ func TestHTTPLogTailPriorityNoFilter(t *testing.T) {
 }
 
 func TestHTTPLogTailPriorityWithGrep(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -726,7 +726,7 @@ func TestHTTPLogTailPriorityWithGrep(t *testing.T) {
 }
 
 func TestHTTPLogTailPriorityEmptyPriority(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, _ := initSystemdTestClient(t)
 
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
