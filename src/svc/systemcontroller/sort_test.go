@@ -69,8 +69,8 @@ func TestSortSliceIntAsc(t *testing.T) {
 
 	sortSlice(data, "count", "asc")
 
-	if data[0].Count != 10 || data[1].Count != 20 || data[2].Count != 30 { //nolint:gosec // test with known data
-		t.Fatalf("expected sorted [10, 20, 30], got [%d, %d, %d]", data[0].Count, data[1].Count, data[2].Count) //nolint:gosec // test data has known length
+	if data[0].Count != 10 || data[1].Count != 20 || data[2].Count != 30 {
+		t.Fatalf("expected sorted [10, 20, 30], got [%d, %d, %d]", data[0].Count, data[1].Count, data[2].Count)
 	}
 }
 
@@ -83,8 +83,8 @@ func TestSortSliceIntDesc(t *testing.T) {
 
 	sortSlice(data, "count", "desc")
 
-	if data[0].Count != 30 || data[1].Count != 20 || data[2].Count != 10 { //nolint:gosec // test with known data
-		t.Fatalf("expected sorted [30, 20, 10], got [%d, %d, %d]", data[0].Count, data[1].Count, data[2].Count) //nolint:gosec // test data has known length
+	if data[0].Count != 30 || data[1].Count != 20 || data[2].Count != 10 {
+		t.Fatalf("expected sorted [30, 20, 10], got [%d, %d, %d]", data[0].Count, data[1].Count, data[2].Count)
 	}
 }
 
@@ -99,8 +99,8 @@ func TestSortSliceUintAsc(t *testing.T) {
 
 	sortSlice(data, "score", "asc")
 
-	if data[0].Score != 100 || data[1].Score != 200 || data[2].Score != 300 { //nolint:gosec // test with known data
-		t.Fatalf("expected sorted [100, 200, 300], got [%d, %d, %d]", data[0].Score, data[1].Score, data[2].Score) //nolint:gosec // test data has known length
+	if data[0].Score != 100 || data[1].Score != 200 || data[2].Score != 300 {
+		t.Fatalf("expected sorted [100, 200, 300], got [%d, %d, %d]", data[0].Score, data[1].Score, data[2].Score)
 	}
 }
 

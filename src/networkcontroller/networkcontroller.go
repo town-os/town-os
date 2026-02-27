@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -371,7 +372,8 @@ func (c *Controller) GetMappings() map[uint16]PortConfig {
 }
 
 func readState(path string) (_ *PackageNetworkState, err error) {
-	f, err := os.Open(path) //nolint:gosec // path is constructed internally
+	path = filepath.Clean(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}

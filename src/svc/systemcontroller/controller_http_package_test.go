@@ -26,7 +26,7 @@ func TestHTTPListPackagesEmpty(t *testing.T) {
 
 	// create empty packages dir
 	pkgDir := filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
 		t.Fatalf("os.MkdirAll %q: %v", pkgDir, err)
 	}
 
@@ -228,7 +228,7 @@ func TestHTTPGetPackageQuestionsNotFound(t *testing.T) {
 
 	// create empty packages dir
 	pkgDir := filepath.Join(rr.BaseDir, "repo-a", packages.PackagesDir)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
 		t.Fatalf("os.MkdirAll: %v", err)
 	}
 

@@ -14,11 +14,11 @@ func TestIsPackageChangedSameInode(t *testing.T) {
 
 	// Create repo package file.
 	repoDir := filepath.Join(dir, "test-repo", PackagesDir, "nginx")
-	if err := os.MkdirAll(repoDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
 		t.Fatalf("MkdirAll repo: %v", err)
 	}
 	repoFile := filepath.Join(repoDir, "1.0.yaml")
-	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0\n"), 0600); err != nil {
 		t.Fatalf("WriteFile repo: %v", err)
 	}
 
@@ -42,11 +42,11 @@ func TestIsPackageChangedDifferentInode(t *testing.T) {
 
 	// Create repo package file.
 	repoDir := filepath.Join(dir, "test-repo", PackagesDir, "nginx")
-	if err := os.MkdirAll(repoDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
 		t.Fatalf("MkdirAll repo: %v", err)
 	}
 	repoFile := filepath.Join(repoDir, "1.0.yaml")
-	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0\n"), 0600); err != nil {
 		t.Fatalf("WriteFile repo: %v", err)
 	}
 
@@ -59,7 +59,7 @@ func TestIsPackageChangedDifferentInode(t *testing.T) {
 	if err := os.Remove(repoFile); err != nil {
 		t.Fatalf("Remove repo file: %v", err)
 	}
-	if err := os.WriteFile(repoFile, []byte("image: nginx:1.1\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(repoFile, []byte("image: nginx:1.1\n"), 0600); err != nil {
 		t.Fatalf("WriteFile repo updated: %v", err)
 	}
 
@@ -78,11 +78,11 @@ func TestIsPackageChangedRepoFileMissing(t *testing.T) {
 
 	// Create repo package file.
 	repoDir := filepath.Join(dir, "test-repo", PackagesDir, "nginx")
-	if err := os.MkdirAll(repoDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
 		t.Fatalf("MkdirAll repo: %v", err)
 	}
 	repoFile := filepath.Join(repoDir, "1.0.yaml")
-	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0\n"), 0600); err != nil {
 		t.Fatalf("WriteFile repo: %v", err)
 	}
 

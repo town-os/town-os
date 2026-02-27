@@ -37,3 +37,8 @@ linters:
     - wrapcheck
     - wsl
     - wsl_v5
+  exclusions:
+    rules:
+      - linters:
+          - gosec
+        path: _test\.go

@@ -571,13 +571,13 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	}
 
 	basePath := s.Controller.GetBtrfsBasePath()
-	subvolPath := filepath.Join(basePath, req.Subvolume)
+	subvolPath := filepath.Clean(filepath.Join(basePath, req.Subvolume))
 
 	// Build tar command rooted at the subvolume, archiving specific paths or everything.
 	prog := compressProgramArg(format)
 	var args []string
 	if prog != "" {
-		args = []string{fmt.Sprintf("--use-compress-program=%s", prog), "-cf", "-", "-C", subvolPath} //nolint:perfsprint // project convention
+		args = []string{"--use-compress-program=" + prog, "-cf", "-", "-C", subvolPath}
 	} else {
 		args = []string{"-cf", "-", "-C", subvolPath}
 	}
@@ -587,7 +587,7 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		args = append(args, ".")
 	}
 
-	cmd := exec.CommandContext(ctx, "tar", args...) //nolint:gosec // tar command with controlled args
+	cmd := exec.CommandContext(ctx, "tar", args...) //nolint:gosec // args constructed from controlled values above
 	cmd.Stdout = c.Response()
 
 	stderrPipe, err := cmd.StderrPipe()
@@ -642,7 +642,7 @@ func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath
 	}
 	containerID := strings.TrimSpace(string(output))
 	defer func() {
-		rmCmd := exec.CommandContext(ctx, "podman", "rm", "-f", containerID) //nolint:gosec // podman cleanup
+		rmCmd := exec.CommandContext(ctx, "podman", "rm", "-f", containerID) //nolint:gosec // containerID from podman create output
 		if out, err := rmCmd.CombinedOutput(); err != nil {
 			slog.Debug(fmt.Sprintf("podman rm %s: %v: %s", containerID, err, string(out)))
 		}
@@ -650,7 +650,8 @@ func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath
 
 	// Copy from container to target path.
 	src := fmt.Sprintf("%s:%s", containerID, directory)
-	cpCmd := exec.CommandContext(ctx, "podman", "cp", src, targetPath) //nolint:gosec // podman cp
+	targetPath = filepath.Clean(targetPath)
+	cpCmd := exec.CommandContext(ctx, "podman", "cp", src, targetPath) //nolint:gosec // targetPath cleaned with filepath.Clean above
 	if output, err := cpCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman cp %s -> %s: %w: %s", src, targetPath, err, string(output))
 	}

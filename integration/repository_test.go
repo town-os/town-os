@@ -3,7 +3,6 @@ package integration_test
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -60,7 +59,7 @@ func setupRoot(t *testing.T, repos []packages.Repository) *packages.RepositoryRo
 	if err != nil {
 		t.Fatalf("marshal repos: %v", err)
 	}
-	err = os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644) //nolint:gosec // test code
+	err = os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600)
 	if err != nil {
 		t.Fatalf("write repositories file: %v", err)
 	}
@@ -541,7 +540,7 @@ func TestInstalledInstallFromRepo(t *testing.T) {
 
 	// Verify hard link resolves and the YAML is readable.
 	link := filepath.Join(root.BaseDir, packages.InstalledDir, "core", "nginx", "1.0.yaml")
-	content, err := os.ReadFile(link) //nolint:gosec // test code
+	content, err := os.ReadFile(link)
 	if err != nil {
 		t.Fatalf("could not read installed hard link: %v", err)
 	}
@@ -694,8 +693,8 @@ func TestInstalledMultipleRepos(t *testing.T) {
 		if err != nil {
 			t.Fatalf("invalid package identity %q: %v", p, err)
 		}
-		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, fmt.Sprintf("%s.yaml", pi.Version)) //nolint:perfsprint // project convention: use fmt.Sprintf
-		_, err = os.ReadFile(link) //nolint:gosec // test code
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, pi.Version+".yaml")
+		_, err = os.ReadFile(link)
 		if err != nil {
 			t.Fatalf("hard link for %s does not resolve: %v", p, err)
 		}
@@ -935,14 +934,14 @@ func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
 
 	// Read through hard link.
 	link := filepath.Join(root.BaseDir, packages.InstalledDir, "core", "nginx", "1.0.yaml")
-	linkContent, err := os.ReadFile(link) //nolint:gosec // test code
+	linkContent, err := os.ReadFile(link)
 	if err != nil {
 		t.Fatalf("read through hard link: %v", err)
 	}
 
 	// Read source directly.
 	source := filepath.Join(root.BaseDir, "core", packages.PackagesDir, "nginx", "1.0.yaml")
-	sourceContent, err := os.ReadFile(source) //nolint:gosec // test code
+	sourceContent, err := os.ReadFile(source)
 	if err != nil {
 		t.Fatalf("read source file: %v", err)
 	}
@@ -1129,8 +1128,8 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 		if err != nil {
 			t.Fatalf("invalid package identity %q: %v", p, err)
 		}
-		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, fmt.Sprintf("%s.yaml", pi.Version)) //nolint:perfsprint // project convention: use fmt.Sprintf
-		content, err := os.ReadFile(link) //nolint:gosec // file path constructed internally
+		link := filepath.Join(root.BaseDir, packages.InstalledDir, pi.Repo, pi.Name, pi.Version+".yaml")
+		content, err := os.ReadFile(link)
 		if err != nil {
 			t.Fatalf("hard link for %s does not resolve: %v", p, err)
 		}
@@ -1319,7 +1318,7 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 
 	// Read YAML through the installed hard link.
 	link := filepath.Join(root.BaseDir, packages.InstalledDir, "core", "nginx", "1.0.yaml")
-	f, err := os.Open(link) //nolint:gosec // file path constructed internally
+	f, err := os.Open(link)
 	if err != nil {
 		t.Fatalf("open installed hard link: %v", err)
 	}

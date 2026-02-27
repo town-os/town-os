@@ -12,11 +12,11 @@ func TestLoadFeaturedValid(t *testing.T) {
 	r := &Repository{Name: repoName}
 
 	repoDir := filepath.Join(dir, repoName)
-	if err := os.MkdirAll(repoDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(repoDir, FeaturedFile), []byte(`["nginx","redis","postgres"]`), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(repoDir, FeaturedFile), []byte(`["nginx","redis","postgres"]`), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -52,11 +52,11 @@ func TestLoadFeaturedEmptyList(t *testing.T) {
 	r := &Repository{Name: repoName}
 
 	repoDir := filepath.Join(dir, repoName)
-	if err := os.MkdirAll(repoDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(repoDir, FeaturedFile), []byte(`[]`), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(repoDir, FeaturedFile), []byte(`[]`), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -76,11 +76,11 @@ func TestLoadFeaturedInvalidJSON(t *testing.T) {
 	r := &Repository{Name: repoName}
 
 	repoDir := filepath.Join(dir, repoName)
-	if err := os.MkdirAll(repoDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(repoDir, FeaturedFile), []byte(`{invalid json}`), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(repoDir, FeaturedFile), []byte(`{invalid json}`), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

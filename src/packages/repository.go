@@ -88,8 +88,11 @@ type RepositoryRoot struct {
 }
 
 func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
-	fn := filepath.Join(baseDir, RepositoriesFile)
-	f, err := os.Open(fn) //nolint:gosec // file path is constructed internally
+	fn, err := SafePath(baseDir, RepositoriesFile)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
 	if err != nil {
 		return nil, err
 	}
@@ -223,8 +226,11 @@ func (rr *RepositoryRoot) forceRefresh() {
 }
 
 func (rr *RepositoryRoot) loadLastRefreshed() {
-	fn := filepath.Join(rr.BaseDir, LastRefreshedFile)
-	data, err := os.ReadFile(fn) //nolint:gosec // reading known cache file
+	fn, err := SafePath(rr.BaseDir, LastRefreshedFile)
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(fn) //nolint:gosec // fn validated by SafePath above
 	if err != nil {
 		return
 	}
@@ -432,7 +438,11 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 				continue
 			}
 
-			f, err := os.Open(filepath.Join(nameDir, fn)) //nolint:gosec // file path is constructed internally
+			safeFn, err := SafePath(nameDir, fn)
+			if err != nil {
+				return nil, err
+			}
+			f, err := os.Open(safeFn) //nolint:gosec // safeFn validated by SafePath above
 			if err != nil {
 				return nil, err
 			}
@@ -478,8 +488,11 @@ func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 
 // LoadPackage loads a single InputPackage from a repository by name and version.
 func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ InputPackage, err error) {
-	fn := filepath.Join(rr.BaseDir, repoName, PackagesDir, pkgName, version+".yaml")
-	f, err := os.Open(fn) //nolint:gosec // file path is constructed internally
+	fn, err := SafePath(rr.BaseDir, repoName, PackagesDir, pkgName, version+".yaml")
+	if err != nil {
+		return InputPackage{}, err
+	}
+	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
 	if err != nil {
 		return InputPackage{}, fmt.Errorf("package %s@%s not found: %w", pkgName, version, err)
 	}
@@ -687,8 +700,11 @@ const FeaturedFile = "featured.json"
 
 // LoadFeatured reads the featured.json file from a repository directory.
 func (r *Repository) LoadFeatured(baseDir string) (_ []string, err error) {
-	fn := filepath.Join(baseDir, r.Name, FeaturedFile)
-	f, err := os.Open(fn) //nolint:gosec // reading known package file
+	fn, err := SafePath(baseDir, r.Name, FeaturedFile)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

@@ -179,14 +179,14 @@ func TestGitCloneIntoPath(t *testing.T) {
 
 		// Create a bare repo with one commit.
 		bare := t.TempDir()
-		cmd := exec.CommandContext(ctx, "git", "init", "--bare", bare) //nolint:gosec // test code
+		cmd := exec.CommandContext(ctx, "git", "init", "--bare", bare)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("init bare: %v: %s", err, out)
 		}
 
 		// Clone, seed a file, push back.
 		work := t.TempDir()
-		cmd = exec.CommandContext(ctx, "git", "clone", bare, work) //nolint:gosec // test code
+		cmd = exec.CommandContext(ctx, "git", "clone", bare, work)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("clone: %v: %s", err, out)
 		}
@@ -195,23 +195,23 @@ func TestGitCloneIntoPath(t *testing.T) {
 			{"config", "user.name", "Test"},
 			{"config", "commit.gpgSign", "false"},
 		} {
-			cmd = exec.CommandContext(ctx, "git", append([]string{"-C", work}, args...)...) //nolint:gosec // test code
+			cmd = exec.CommandContext(ctx, "git", append([]string{"-C", work}, args...)...)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("config: %v: %s", err, out)
 			}
 		}
-		if err := os.WriteFile(filepath.Join(work, "hello.txt"), []byte("world"), 0644); err != nil { //nolint:gosec // test code
+		if err := os.WriteFile(filepath.Join(work, "hello.txt"), []byte("world"), 0600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		cmd = exec.CommandContext(ctx, "git", "-C", work, "add", ".") //nolint:gosec // test code
+		cmd = exec.CommandContext(ctx, "git", "-C", work, "add", ".")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("add: %v: %s", err, out)
 		}
-		cmd = exec.CommandContext(ctx, "git", "-C", work, "commit", "-m", "init") //nolint:gosec // test code
+		cmd = exec.CommandContext(ctx, "git", "-C", work, "commit", "-m", "init")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("commit: %v: %s", err, out)
 		}
-		cmd = exec.CommandContext(ctx, "git", "-C", work, "push") //nolint:gosec // test code
+		cmd = exec.CommandContext(ctx, "git", "-C", work, "push")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("push: %v: %s", err, out)
 		}
@@ -224,7 +224,7 @@ func TestGitCloneIntoPath(t *testing.T) {
 		}
 
 		// Verify the file exists.
-		data, err := os.ReadFile(filepath.Join(target, "hello.txt")) //nolint:gosec // test code
+		data, err := os.ReadFile(filepath.Join(target, "hello.txt"))
 		if err != nil {
 			t.Fatalf("expected hello.txt in cloned repo: %v", err)
 		}

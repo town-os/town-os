@@ -52,9 +52,11 @@ type fileLock struct {
 // creating/opening a .lock file inside it. The caller must call Unlock
 // when done.
 func lockDir(dir string) (_ *fileLock, err error) {
-	lockPath := filepath.Join(dir, ".lock")
-
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600) //nolint:gosec // path is constructed internally
+	safeLockPath, err := SafePath(dir, ".lock")
+	if err != nil {
+		return nil, fmt.Errorf("validate lock path: %w", err)
+	}
+	f, err := os.OpenFile(safeLockPath, os.O_CREATE|os.O_RDWR, 0600) //nolint:gosec // safeLockPath validated by SafePath above
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}

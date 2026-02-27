@@ -579,10 +579,10 @@ func TestHTTPListUpgradesEmpty(t *testing.T) {
 	dir := t.TempDir()
 	repoName := "test-repo"
 	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, "nginx")
-	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -591,7 +591,7 @@ func TestHTTPListUpgradesEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal repos: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0600); err != nil {
 		t.Fatalf("WriteFile repos: %v", err)
 	}
 
@@ -648,7 +648,7 @@ func TestHTTPUpgradesChangedFlag(t *testing.T) {
 	if err := os.Remove(repoFile); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0-updated\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(repoFile, []byte("image: nginx:1.0-updated\n"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

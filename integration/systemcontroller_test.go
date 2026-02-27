@@ -264,7 +264,7 @@ func initSystemControllerRepoTest(t *testing.T) *systemcontroller.SystemdClient 
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -727,7 +727,7 @@ func initSystemControllerInstallTest(t *testing.T) (*systemcontroller.SystemdCli
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -758,7 +758,7 @@ func initSystemControllerInstallSystemdTest(t *testing.T) (*systemcontroller.Sys
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -1206,7 +1206,7 @@ func initSystemControllerInstallRealSystemdTest(t *testing.T) *systemcontroller.
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -1233,7 +1233,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	c := initSystemControllerInstallRealSystemdTest(t)
 
 	unitName := systemd.UnitName("core", "nginx", "1.0")
-	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName) //nolint:perfsprint // project convention
+	unitPath := "/etc/systemd/system/" + unitName
 
 	// Cleanup: unconditionally stop/disable/remove all units to prevent leaks.
 	t.Cleanup(func() {
@@ -1328,7 +1328,7 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -1371,8 +1371,8 @@ func cleanupContainerUnits(repo, pkgName, version string, external, internal pac
 		_ = cleanup.UninstallUnit(ctx, name)
 	}
 	containerName := systemd.ContainerName(repo, pkgName, version)
-	_ = exec.CommandContext(context.TODO(), "podman", "stop", "-t", "10", containerName).Run()   //nolint:gosec // test helper
-	_ = exec.CommandContext(context.TODO(), "podman", "rm", "-f", containerName).Run()            //nolint:gosec // test helper
+	_ = exec.CommandContext(context.TODO(), "podman", "stop", "-t", "10", containerName).Run()
+	_ = exec.CommandContext(context.TODO(), "podman", "rm", "-f", containerName).Run()
 }
 
 // waitForContainer polls podman inspect until the container reaches "running"
@@ -1383,14 +1383,14 @@ func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.
 	unitName := systemd.UnitName(repo, pkgName, version)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		out, err := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output() //nolint:gosec // test helper
+		out, err := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
 		if err == nil && strings.TrimSpace(string(out)) == "running" {
 			return
 		}
 		time.Sleep(2 * time.Second)
 	}
 	// Log the systemd journal for debugging before failing.
-	journal, _ := exec.CommandContext(context.TODO(), "journalctl", "-u", unitName, "--no-pager", "-n", "50").Output() //nolint:gosec // test helper
+	journal, _ := exec.CommandContext(context.TODO(), "journalctl", "-u", unitName, "--no-pager", "-n", "50").Output()
 	t.Fatalf("container %q did not reach running state within %v\njournal:\n%s", containerName, timeout, string(journal))
 }
 
@@ -1451,7 +1451,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 	if err != nil {
-		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput() //nolint:gosec // test helper
+		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput()
 		t.Fatalf("TCP connect to redis on port 6379 failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
@@ -1459,7 +1459,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify podman container is listed.
-	out, err := exec.CommandContext(context.TODO(), "podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output() //nolint:gosec,perfsprint // test helper
+	out, err := exec.CommandContext(context.TODO(), "podman", "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
 	if err != nil {
 		t.Fatalf("podman ps: %v", err)
 	}
@@ -1475,7 +1475,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	// Wait for the container to stop.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		inspectOut, inspectErr := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output() //nolint:gosec // test helper
+		inspectOut, inspectErr := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
 		if inspectErr != nil || strings.TrimSpace(string(inspectOut)) != "running" {
 			break
 		}
@@ -1483,13 +1483,13 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify the unit file is gone.
-	unitPath := fmt.Sprintf("/etc/systemd/system/%s", unitName) //nolint:perfsprint // project convention
+	unitPath := "/etc/systemd/system/" + unitName
 	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
 		t.Fatalf("expected unit file %q removed after uninstall, got err: %v", unitPath, err)
 	}
 
 	// Verify the container is no longer running.
-	out, err = exec.CommandContext(context.TODO(), "podman", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}").Output() //nolint:gosec,perfsprint // test helper
+	out, err = exec.CommandContext(context.TODO(), "podman", "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
 	if err == nil && strings.Contains(string(out), containerName) {
 		t.Fatalf("expected %s not in podman ps after uninstall", containerName)
 	}
@@ -1563,7 +1563,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
-		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput() //nolint:gosec // test helper
+		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
 		t.Fatalf("TCP connect to redis after reinstall failed: %v\ncontainer logs:\n%s", err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
@@ -2936,7 +2936,7 @@ func initReconcileTestWithNetworkMode(t *testing.T, networkMode string) (
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -3122,7 +3122,7 @@ func initSystemControllerInstallSystemdTestWithNetworkMode(t *testing.T, network
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -3666,7 +3666,7 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T, networ
 	if err != nil {
 		t.Fatalf("json.Marshal empty repository list: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile repositories file: %v", err)
 	}
 
@@ -3714,7 +3714,7 @@ func TestSystemControllerInstallNginxHostModeNetworkState(t *testing.T) {
 
 	// Verify the network state file was written.
 	statePath := filepath.Join(netStateDir, "core-nginx-1.0.json")
-	data, err := os.ReadFile(statePath) //nolint:gosec // test file path
+	data, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatalf("read network state file: %v", err)
 	}
@@ -3844,7 +3844,7 @@ func TestReconcileNginxHostModeNetworkState(t *testing.T) {
 
 	// Verify network state file was written during reconcile.
 	statePath := filepath.Join(netStateDir, "core-nginx-1.0.json")
-	data, err := os.ReadFile(statePath) //nolint:gosec // test file path
+	data, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatalf("read network state file after reconcile: %v", err)
 	}
@@ -4967,7 +4967,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -4983,7 +4983,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	for _, args := range [][]string{
 		{"init", "--bare", "-b", "main", seedRepo},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -4994,12 +4994,12 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	for _, args := range [][]string{
 		{"clone", seedRepo, workDir},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello from seed"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello from seed"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	for _, args := range [][]string{
@@ -5007,14 +5007,14 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		{"-C", workDir, "-c", "user.name=test", "-c", "user.email=test@test", "-c", "commit.gpgsign=false", "commit", "-m", "seed"},
 		{"-C", workDir, "push", "origin", "HEAD:main"},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
 	// Ensure bare repo HEAD points to main (default may be master on some systems).
 	{
-		cmd := exec.CommandContext(context.TODO(), "git", "-C", seedRepo, "symbolic-ref", "HEAD", "refs/heads/main") //nolint:gosec // test helper
+		cmd := exec.CommandContext(context.TODO(), "git", "-C", seedRepo, "symbolic-ref", "HEAD", "refs/heads/main")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git symbolic-ref HEAD (seed): %v: %s", err, out)
 		}
@@ -5039,14 +5039,14 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	// Create a local file-based package repository as a bare git repo so go-git
 	// can clone it. We build the content in a working copy, push to a bare repo,
 	// then point AddRepository at the bare repo URL.
-	seedURL := fmt.Sprintf("file://%s", seedRepo) //nolint:perfsprint // project convention
+	seedURL := "file://" + seedRepo
 	localBareRepo := filepath.Join(t.TempDir(), "local.git")
 	localWork := filepath.Join(t.TempDir(), "local-work")
 	for _, args := range [][]string{
 		{"init", "--bare", localBareRepo},
 		{"clone", localBareRepo, localWork},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -5064,13 +5064,13 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 		{"-C", localWork, "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "init"},
 		{"-C", localWork, "push", "origin", "HEAD:main"},
 	} {
-		cmd := exec.CommandContext(context.TODO(), "git", args...) //nolint:gosec // test helper with controlled args
+		cmd := exec.CommandContext(context.TODO(), "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
 	// Ensure bare repo HEAD points to main (default may be master on some systems).
-	cmd := exec.CommandContext(context.TODO(), "git", "-C", localBareRepo, "symbolic-ref", "HEAD", "refs/heads/main") //nolint:gosec // test helper
+	cmd := exec.CommandContext(context.TODO(), "git", "-C", localBareRepo, "symbolic-ref", "HEAD", "refs/heads/main")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git symbolic-ref HEAD: %v: %s", err, out)
 	}
@@ -5091,7 +5091,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 
 	// Verify git cloned files exist in the volume.
 	helloPath := filepath.Join(volDir, "hello.txt")
-	content, err := os.ReadFile(helloPath) //nolint:gosec // test reads from controlled temp dir
+	content, err := os.ReadFile(helloPath)
 	if err != nil {
 		t.Fatalf("expected hello.txt in git seed volume: %v", err)
 	}

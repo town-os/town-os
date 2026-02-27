@@ -809,10 +809,10 @@ func TestReconcileGitSeedSkipsNonEmptyDir(t *testing.T) {
 	// Create the target volume directory with a file so it is non-empty.
 	btrfsBase := t.TempDir()
 	volDir := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "myapp", "1.0", "config")
-	if err := os.MkdirAll(volDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(volDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(volDir, "existing.txt"), []byte("data"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(volDir, "existing.txt"), []byte("data"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -830,7 +830,7 @@ func TestReconcileGitSeedSkipsNonEmptyDir(t *testing.T) {
 	}
 
 	// Verify the existing file was not overwritten.
-	data, err := os.ReadFile(filepath.Join(volDir, "existing.txt")) //nolint:gosec // test code
+	data, err := os.ReadFile(filepath.Join(volDir, "existing.txt"))
 	if err != nil {
 		t.Fatalf("expected existing.txt to remain: %v", err)
 	}
@@ -855,7 +855,7 @@ func TestReconcileGitSeedVolumeWithoutGitSkipped(t *testing.T) {
 	btrfsBase := t.TempDir()
 	// Create an empty volume dir — without git field, no clone should happen.
 	volDir := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "myapp", "1.0", "data")
-	if err := os.MkdirAll(volDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(volDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 

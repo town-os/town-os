@@ -24,7 +24,7 @@ func newTestRoot(t *testing.T) *RepositoryRoot {
 		{Name: "existing", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/existing.git"}},
 	}
 	data := marshalJSON(t, repos)
-	err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+	err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0600)
 	if err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -44,7 +44,7 @@ func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	path := filepath.Join(dir, version+".yaml")
-	err = os.WriteFile(path, []byte(content), 0644) //nolint:gosec // test code
+	err = os.WriteFile(path, []byte(content), 0600)
 	if err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -53,7 +53,7 @@ func writePackageYAML(t *testing.T, baseDir, repoName, pkgName, version, content
 func writeTestRepos(t *testing.T, dir string, repos []Repository) {
 	t.Helper()
 	data := marshalJSON(t, repos)
-	if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }

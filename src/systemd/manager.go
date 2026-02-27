@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,22 @@ import (
 	"github.com/coreos/go-systemd/v22/dbus"
 	"github.com/coreos/go-systemd/v22/sdjournal"
 )
+
+// clampInt64 converts a uint64 to int64, clamping at math.MaxInt64.
+func clampInt64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
+}
+
+// clampUint64 converts an int64 to uint64, clamping negative values to 0.
+func clampUint64(v int64) uint64 {
+	if v < 0 {
+		return 0
+	}
+	return uint64(v)
+}
 
 type SystemdManager struct{}
 
@@ -119,9 +136,12 @@ func (m *SystemdManager) SetStatus(ctx context.Context, unit string, action Stat
 }
 
 func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content string) (err error) {
-	unitPath := "/etc/systemd/system/" + name
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("unit name %q contains path separator", name)
+	}
+	unitPath := filepath.Join("/etc/systemd/system", name)
 
-	f, err := os.Create(unitPath) //nolint:gosec // path is constructed internally
+	f, err := os.Create(unitPath) //nolint:gosec // unitPath validated: name checked for path separators above
 	if err != nil {
 		return err
 	}
@@ -182,7 +202,7 @@ func (m *SystemdManager) UninstallUnit(ctx context.Context, name string) error {
 func journalEntryFromSD(entry *sdjournal.JournalEntry) JournalEntry {
 	return JournalEntry{
 		Cursor:            entry.Cursor,
-		RealtimeTimestamp:  time.UnixMicro(int64(entry.RealtimeTimestamp)), //nolint:gosec // timestamp will not overflow int64 in any realistic scenario
+		RealtimeTimestamp:  time.UnixMicro(clampInt64(entry.RealtimeTimestamp)),
 		MonotonicTimestamp: entry.MonotonicTimestamp,
 
 		Message:          entry.Fields[sdjournal.SD_JOURNAL_FIELD_MESSAGE],
@@ -285,7 +305,7 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 
 	// Timestamp seek mode: get entries from a specific time forward.
 	if !p.Since.IsZero() && p.AfterCursor == "" && p.BeforeCursor == "" {
-		err := j.SeekRealtimeUsec(uint64(p.Since.UnixMicro())) //nolint:gosec // Since is always a valid timestamp; negative values are not expected
+		err := j.SeekRealtimeUsec(clampUint64(p.Since.UnixMicro()))
 		if err != nil {
 			return LogTailResult{}, err
 		}

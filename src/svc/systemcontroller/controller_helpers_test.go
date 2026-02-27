@@ -3,7 +3,6 @@ package systemcontroller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -81,10 +80,10 @@ func emptyRepoRoot(t *testing.T) *packages.RepositoryRoot {
 func writeTestPackage(t *testing.T, baseDir, repoName, pkgName, version, content string) {
 	t.Helper()
 	dir := filepath.Join(baseDir, repoName, packages.PackagesDir, pkgName)
-	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		t.Fatalf("os.MkdirAll %q: %v", dir, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.yaml", version)), []byte(content), 0644); err != nil { //nolint:gosec,perfsprint // test file, project convention
+	if err := os.WriteFile(filepath.Join(dir, version+".yaml"), []byte(content), 0600); err != nil {
 		t.Fatalf("os.WriteFile %s/%s.yaml: %v", dir, version, err)
 	}
 }
@@ -375,13 +374,13 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallMana
 	repoName := "test-repo"
 	pkgName := "nginx"
 	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, pkgName)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil { //nolint:gosec // test directory
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0600); err != nil {
 		t.Fatalf("WriteFile 1.0: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "2.0.yaml"), []byte("image: nginx:2.0\n"), 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(pkgDir, "2.0.yaml"), []byte("image: nginx:2.0\n"), 0600); err != nil {
 		t.Fatalf("WriteFile 2.0: %v", err)
 	}
 
@@ -391,7 +390,7 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallMana
 	if err != nil {
 		t.Fatalf("json.Marshal repos: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0644); err != nil { //nolint:gosec // test file
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), repoData, 0600); err != nil {
 		t.Fatalf("WriteFile repos: %v", err)
 	}
 

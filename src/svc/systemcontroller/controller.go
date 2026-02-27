@@ -2848,6 +2848,7 @@ func (s *SystemControllerHandlers) computeUpgrades() []PackageUpgrade {
 func upgradesHash(upgrades []PackageUpgrade) string {
 	h := sha256.New()
 	for _, u := range upgrades {
+		// hash.Hash.Write never returns errors per its contract.
 		_, _ = fmt.Fprintf(h, "%s/%s@%s->%s\n", u.Repo, u.Name, u.InstalledVersion, u.LatestVersion)
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -3187,29 +3188,29 @@ type UnixServer struct {
 
 	Socket string
 	server *http.Server
-	ctx    context.Context //nolint:containedctx // server lifecycle context stored for Run()
 	cancel context.CancelFunc
 }
 
 func InitUnixServer(sock string, cfg ServerConfig) *UnixServer {
 	us := &UnixServer{Socket: sock}
 	us.ServerConfig = cfg
-	ctx, cancel := context.WithCancel(context.Background())
-	us.ctx = ctx
-	us.cancel = cancel
-	us.server = &http.Server{Handler: withContext(ctx, configureRouter(us)), ReadHeaderTimeout: 10 * time.Second}
 	return us
 }
 
 func (us *UnixServer) Close() error {
-	us.cancel()
+	if us.cancel != nil {
+		us.cancel()
+	}
 	return us.server.Close()
 }
 
-func (us *UnixServer) Run() error {
-	us.startExternalIPPoller(us.ctx)
+func (us *UnixServer) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	us.cancel = cancel
+	us.server = &http.Server{Handler: withContext(ctx, configureRouter(us)), ReadHeaderTimeout: 10 * time.Second}
+	us.startExternalIPPoller(ctx)
 	lc := net.ListenConfig{}
-	lis, err := lc.Listen(us.ctx, "unix", us.Socket)
+	lis, err := lc.Listen(ctx, "unix", us.Socket)
 	if err != nil {
 		return fmt.Errorf("could not listen on unix socket %q: %w", us.Socket, err)
 	}

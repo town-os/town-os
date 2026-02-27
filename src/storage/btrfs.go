@@ -71,11 +71,16 @@ func (c BtrFSController) binPath() string {
 	if c.BinPath == "" {
 		return "btrfs"
 	}
-	return c.BinPath
+	return filepath.Clean(c.BinPath)
+}
+
+func (c BtrFSController) run(ctx context.Context, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, c.binPath(), args...).CombinedOutput() //nolint:gosec // binPath is a controlled configuration value
 }
 
 func (c BtrFSController) IsSubvolume(name string) error {
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "show", name).CombinedOutput() //nolint:gosec // controlled internal invocation
+	name = filepath.Clean(name)
+	out, err := c.run(context.Background(), "subvolume", "show", name)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume show: %w\n%s", err, string(out))
 	}
@@ -83,7 +88,8 @@ func (c BtrFSController) IsSubvolume(name string) error {
 }
 
 func (c BtrFSController) SubvolCreate(name string) error {
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "create", name).CombinedOutput() //nolint:gosec // controlled internal invocation
+	name = filepath.Clean(name)
+	out, err := c.run(context.Background(), "subvolume", "create", name)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume create: %w\n%s", err, string(out))
 	}
@@ -91,7 +97,8 @@ func (c BtrFSController) SubvolCreate(name string) error {
 }
 
 func (c BtrFSController) SubvolDelete(name string) error {
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "delete", name).CombinedOutput() //nolint:gosec // controlled internal invocation
+	name = filepath.Clean(name)
+	out, err := c.run(context.Background(), "subvolume", "delete", name)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume delete: %w\n%s", err, string(out))
 	}
@@ -107,13 +114,15 @@ func (c BtrFSController) SubvolID(name string) (uint64, error) {
 }
 
 func (c BtrFSController) SubvolSnapshot(dst, src string, readonly bool) error {
+	dst = filepath.Clean(dst)
+	src = filepath.Clean(src)
 	args := []string{"subvolume", "snapshot"}
 	if readonly {
 		args = append(args, "-r")
 	}
 	args = append(args, src, dst)
 
-	out, err := exec.CommandContext(context.Background(), c.binPath(), args...).CombinedOutput() //nolint:gosec // controlled internal invocation
+	out, err := c.run(context.Background(), args...)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume snapshot: %w\n%s", err, string(out))
 	}
@@ -145,7 +154,8 @@ func parseSubvolShow(output string) (SubvolInfo, error) {
 }
 
 func (c BtrFSController) SubvolInfo(name string) (SubvolInfo, error) {
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "show", name).CombinedOutput() //nolint:gosec // controlled internal invocation
+	name = filepath.Clean(name)
+	out, err := c.run(context.Background(), "subvolume", "show", name)
 	if err != nil {
 		return SubvolInfo{}, fmt.Errorf("btrfs subvolume show: %w\n%s", err, string(out))
 	}
@@ -187,6 +197,7 @@ func parseSubvolList(output string, prefix string) ([]SubvolInfo, error) {
 }
 
 func (c BtrFSController) SubvolList(name string) ([]SubvolInfo, error) {
+	name = filepath.Clean(name)
 	mnt, err := findMountPoint(name)
 	if err != nil {
 		return nil, err
@@ -206,7 +217,7 @@ func (c BtrFSController) SubvolList(name string) ([]SubvolInfo, error) {
 		s = ""
 	}
 
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "subvolume", "list", name).CombinedOutput() //nolint:gosec // controlled internal invocation
+	out, err := c.run(context.Background(), "subvolume", "list", name)
 	if err != nil {
 		return nil, fmt.Errorf("btrfs subvolume list: %w\n%s", err, string(out))
 	}
@@ -219,7 +230,8 @@ func (BtrFSController) SubvolRename(oldPath, newPath string) error {
 }
 
 func (c BtrFSController) QuotaEnable(path string) error {
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "quota", "enable", path).CombinedOutput() //nolint:gosec // controlled internal invocation
+	path = filepath.Clean(path)
+	out, err := c.run(context.Background(), "quota", "enable", path)
 	if err != nil {
 		return fmt.Errorf("btrfs quota enable: %w\n%s", err, string(out))
 	}
@@ -235,7 +247,8 @@ func (c BtrFSController) QGroupLimit(path string, bytes uint64) error {
 		limitArg = strconv.FormatUint(bytes, 10)
 	}
 
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "qgroup", "limit", limitArg, path).CombinedOutput() //nolint:gosec // controlled internal invocation
+	path = filepath.Clean(path)
+	out, err := c.run(context.Background(), "qgroup", "limit", limitArg, path)
 	if err != nil {
 		return fmt.Errorf("btrfs qgroup limit: %w\n%s", err, string(out))
 	}
@@ -287,7 +300,8 @@ func (c BtrFSController) QGroupShow(path string) (uint64, error) {
 		return 0, err
 	}
 
-	out, err := exec.CommandContext(context.Background(), c.binPath(), "qgroup", "show", "--raw", "-r", path).CombinedOutput() //nolint:gosec // controlled internal invocation
+	path = filepath.Clean(path)
+	out, err := c.run(context.Background(), "qgroup", "show", "--raw", "-r", path)
 	if err != nil {
 		// Quotas not enabled or other failure — not an error, just no quota
 		return 0, nil //nolint:nilerr // intentional: quota absence is not an error

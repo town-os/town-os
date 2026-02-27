@@ -85,20 +85,23 @@ func (m *InstallManager) Install(repoName, pkgName, version string, responses Re
 
 // SetDisabled creates or removes a disabled marker file for the given package.
 func (m *InstallManager) SetDisabled(repoName, pkgName string, disabled bool) error {
-	marker := filepath.Join(m.dir(), repoName, pkgName, "disabled")
+	marker, err := SafePath(m.dir(), repoName, pkgName, "disabled")
+	if err != nil {
+		return err
+	}
 	if disabled {
 		pkgDir := filepath.Join(m.dir(), repoName, pkgName)
 		err := os.MkdirAll(pkgDir, 0750)
 		if err != nil {
 			return err
 		}
-		f, err := os.Create(marker) //nolint:gosec // path is constructed internally
+		f, err := os.Create(marker) //nolint:gosec // marker validated by SafePath above
 		if err != nil {
 			return err
 		}
 		return f.Close()
 	}
-	err := os.Remove(marker)
+	err = os.Remove(marker)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -277,9 +280,12 @@ func (m *InstallManager) ListInstalled() ([]string, error) {
 
 // GetResponses reads the persisted responses for a given package version.
 func (m *InstallManager) GetResponses(repoName, pkgName, version string) (_ Responses, err error) {
-	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, version+".json")
+	respFile, err := SafePath(m.responsesDir(), repoName, pkgName, version+".json")
+	if err != nil {
+		return nil, err
+	}
 
-	f, err := os.Open(respFile) //nolint:gosec // path is constructed internally
+	f, err := os.Open(respFile) //nolint:gosec // respFile validated by SafePath above
 	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrNotInstalled)
 	}
@@ -325,8 +331,11 @@ func (m *InstallManager) SaveLastResponses(repoName, pkgName string, responses R
 
 // LoadLastResponses reads the last saved responses for a package.
 func (m *InstallManager) LoadLastResponses(repoName, pkgName string) (_ Responses, err error) {
-	fn := filepath.Join(m.lastResponsesDir(), repoName, pkgName+".json")
-	f, err := os.Open(fn) //nolint:gosec // opening known package file
+	fn, err := SafePath(m.lastResponsesDir(), repoName, pkgName+".json")
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
 	if err != nil {
 		return nil, err
 	}
@@ -372,8 +381,11 @@ func (m *InstallManager) SaveChildren(repoName, parentName string, children []st
 
 // LoadChildren reads the list of child instance names for a parent package.
 func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, err error) {
-	fn := filepath.Join(m.dir(), repoName, parentName, ChildrenFile)
-	f, err := os.Open(fn) //nolint:gosec // opening known children file
+	fn, err := SafePath(m.dir(), repoName, parentName, ChildrenFile)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

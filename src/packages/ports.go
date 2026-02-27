@@ -2,9 +2,11 @@ package packages
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand/v2"
+	"math"
+	"math/big"
 	"net"
 )
 
@@ -16,7 +18,15 @@ func FindAvailablePort(excluded map[uint16]bool) (_ uint16, err error) {
 	const maxPort = 60000
 
 	for range 100 {
-		port := uint16(minPort + rand.IntN(maxPort-minPort+1)) //nolint:gosec // port selection doesn't need crypto rand
+		n, err := rand.Int(rand.Reader, big.NewInt(maxPort-minPort+1))
+		if err != nil {
+			return 0, fmt.Errorf("generate random port: %w", err)
+		}
+		v := minPort + int(n.Int64())
+		if v < 0 || v > math.MaxUint16 {
+			continue
+		}
+		port := uint16(v)
 		if excluded[port] {
 			continue
 		}
@@ -39,6 +49,11 @@ func FindAvailablePort(excluded map[uint16]bool) (_ uint16, err error) {
 // is already unique, it returns the name as-is. Otherwise it appends a random
 // 4-character hex suffix.
 func GenerateHostname(pkgName string) string {
-	suffix := fmt.Sprintf("%04x", rand.IntN(0x10000)) //nolint:gosec // hostname suffix doesn't need crypto rand
-	return fmt.Sprintf("%s-%s", pkgName, suffix)
+	n, err := rand.Int(rand.Reader, big.NewInt(0x10000))
+	if err != nil {
+		// Fallback should never happen with crypto/rand.
+		n = big.NewInt(0)
+	}
+	suffix := fmt.Sprintf("%04x", n.Int64())
+	return pkgName + "-" + suffix
 }

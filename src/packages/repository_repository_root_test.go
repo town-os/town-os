@@ -15,7 +15,7 @@ func TestRepositoryRootFromBase(t *testing.T) {
 			{Name: "test", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo.git"}},
 		}
 		data := marshalJSON(t, repos)
-		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0600)
 		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
@@ -42,7 +42,7 @@ func TestRepositoryRootFromBase(t *testing.T) {
 
 	t.Run("invalid json", func(t *testing.T) {
 		dir := t.TempDir()
-		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), []byte("{bad json"), 0644) //nolint:gosec // test code
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), []byte("{bad json"), 0600)
 		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
@@ -90,7 +90,7 @@ func TestRepositoryRootAdd(t *testing.T) {
 	t.Run("preserves insertion order", func(t *testing.T) {
 		dir := t.TempDir()
 		data := marshalJSON(t, []Repository{})
-		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0600)
 		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
@@ -194,7 +194,7 @@ func TestRepositoryRootList(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		dir := t.TempDir()
 		data := marshalJSON(t, []Repository{})
-		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0600)
 		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
@@ -232,7 +232,7 @@ func TestRepositoryRootList(t *testing.T) {
 	t.Run("reflects add and remove", func(t *testing.T) {
 		dir := t.TempDir()
 		data := marshalJSON(t, []Repository{})
-		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0600)
 		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
@@ -284,7 +284,7 @@ func TestRepositoryRootLoadAllPackages(t *testing.T) {
 			{Name: "repo-b", URL: url.URL{Scheme: "https", Host: "example.com", Path: "/repo-b.git"}},
 		}
 		data := marshalJSON(t, repos)
-		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0644) //nolint:gosec // test code
+		err := os.WriteFile(filepath.Join(dir, RepositoriesFile), data, 0600)
 		if err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"math"
 	"fmt"
 	"strings"
 	"time"
@@ -122,7 +123,11 @@ func verifyPassword(hash, password string) bool {
 		return false
 	}
 
-	key := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(len(expectedKey))) //nolint:gosec // key length is bounded by argon2 output size
+	keyLen := len(expectedKey)
+	if keyLen > math.MaxUint32 {
+		return false
+	}
+	key := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(keyLen))
 
 	if len(key) != len(expectedKey) {
 		return false
