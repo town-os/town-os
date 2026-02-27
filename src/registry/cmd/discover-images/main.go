@@ -19,6 +19,37 @@ func main() {
 	}
 }
 
+// collectImages extracts all normalized container image URLs from a package
+// table, deduplicating them.
+func collectImages(pkgs packages.PackageTable) map[string]bool {
+	seen := map[string]bool{}
+	for _, versions := range pkgs {
+		for _, pkg := range versions {
+			if img := packages.NormalizeImageURL(pkg.Image); img != "" {
+				seen[img] = true
+			}
+			for _, archive := range pkg.Archives {
+				if img := packages.NormalizeImageURL(archive.Image); img != "" {
+					seen[img] = true
+				}
+			}
+		}
+	}
+	return seen
+}
+
+// filterDockerIO returns a sorted list of images that start with "docker.io/".
+func filterDockerIO(seen map[string]bool) []string {
+	var images []string
+	for img := range seen {
+		if strings.HasPrefix(img, "docker.io/") {
+			images = append(images, img)
+		}
+	}
+	sort.Strings(images)
+	return images
+}
+
 func run() error {
 	dir, err := os.MkdirTemp("", "discover-images-*")
 	if err != nil {
@@ -30,7 +61,7 @@ func run() error {
 	password := os.Getenv(packages.EnvRepoPassword)
 
 	g := &git.GoGitClient{Home: dir}
-	seen := map[string]bool{}
+	allSeen := map[string]bool{}
 
 	for _, repo := range packages.TestRepositories() {
 		r, err := packages.NewRepository(dir, repo.Name, repo.URL, username, password, g)
@@ -43,30 +74,12 @@ func run() error {
 			return fmt.Errorf("load packages from %s: %w", repo.Name, err)
 		}
 
-		for _, versions := range pkgs {
-			for _, pkg := range versions {
-				if img := packages.NormalizeImageURL(pkg.Image); img != "" {
-					seen[img] = true
-				}
-				for _, archive := range pkg.Archives {
-					if img := packages.NormalizeImageURL(archive.Image); img != "" {
-						seen[img] = true
-					}
-				}
-			}
+		for img := range collectImages(pkgs) {
+			allSeen[img] = true
 		}
 	}
 
-	// Filter to docker.io images only.
-	var images []string
-	for img := range seen {
-		if strings.HasPrefix(img, "docker.io/") {
-			images = append(images, img)
-		}
-	}
-
-	sort.Strings(images)
-	for _, img := range images {
+	for _, img := range filterDockerIO(allSeen) {
 		_, _ = os.Stdout.WriteString(img + "\n")
 	}
 
