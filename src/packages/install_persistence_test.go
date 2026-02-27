@@ -2,6 +2,8 @@ package packages
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -477,5 +479,192 @@ func TestSetDisabledIdempotent(t *testing.T) {
 	// Disabling twice should not error.
 	if err := m.SetDisabled("repo", "pkg", false); err != nil {
 		t.Fatalf("SetDisabled false on non-existent: %v", err)
+	}
+}
+
+// --- SaveResponses concurrent test ---
+
+func TestSaveResponsesConcurrent(t *testing.T) {
+	dir := t.TempDir()
+	m := NewInstallManager(dir)
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+
+	for i := range goroutines {
+		version := fmt.Sprintf("v%d", i)
+		wg.Go(func() {
+			resp := Responses{"key": version}
+			if err := m.SaveResponses("repo", "pkg", version, resp); err != nil {
+				t.Errorf("SaveResponses(%s): %v", version, err)
+			}
+		})
+	}
+
+	wg.Wait()
+
+	// Verify all responses are readable and correct.
+	for i := range goroutines {
+		version := fmt.Sprintf("v%d", i)
+		got, err := m.GetResponses("repo", "pkg", version)
+		if err != nil {
+			t.Fatalf("GetResponses(%s): %v", version, err)
+		}
+		if got["key"] != version {
+			t.Fatalf("expected key=%s, got %v", version, got)
+		}
+	}
+}
+
+// --- Install already installed test ---
+
+func TestInstallAlreadyInstalled(t *testing.T) {
+	dir := t.TempDir()
+	m := NewInstallManager(dir)
+
+	// Create the source YAML file that Install expects.
+	srcDir := filepath.Join(dir, "repo", PackagesDir, "pkg")
+	if err := os.MkdirAll(srcDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	srcFile := filepath.Join(srcDir, "1.0.yaml")
+	if err := os.WriteFile(srcFile, []byte("image: test\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// First install should succeed.
+	if err := m.Install("repo", "pkg", "1.0", Responses{}); err != nil {
+		t.Fatalf("Install first: %v", err)
+	}
+
+	// Second install of the same package should return ErrAlreadyInstalled.
+	err := m.Install("repo", "pkg", "1.0", Responses{})
+	if err == nil {
+		t.Fatal("expected error for already installed package")
+	}
+	if !errors.Is(err, ErrAlreadyInstalled) {
+		t.Fatalf("expected ErrAlreadyInstalled, got %v", err)
+	}
+}
+
+// --- Uninstall cleans up directories test ---
+
+func TestUninstallCleansUpDirectories(t *testing.T) {
+	dir := t.TempDir()
+	m := NewInstallManager(dir)
+
+	// Create source YAML file.
+	srcDir := filepath.Join(dir, "repo", PackagesDir, "pkg")
+	if err := os.MkdirAll(srcDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	srcFile := filepath.Join(srcDir, "1.0.yaml")
+	if err := os.WriteFile(srcFile, []byte("image: test\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Install the package.
+	if err := m.Install("repo", "pkg", "1.0", Responses{"k": "v"}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// Verify installed directory and responses directory exist.
+	installedDir := filepath.Join(dir, InstalledDir, "repo", "pkg")
+	if _, err := os.Stat(installedDir); err != nil {
+		t.Fatalf("expected installed directory to exist: %v", err)
+	}
+	responsesDir := filepath.Join(dir, ResponsesDir, "repo", "pkg")
+	if _, err := os.Stat(responsesDir); err != nil {
+		t.Fatalf("expected responses directory to exist: %v", err)
+	}
+
+	// Uninstall the package.
+	if err := m.Uninstall("repo", "pkg", "1.0"); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	// Verify the installed directory was cleaned up.
+	if _, err := os.Stat(installedDir); !os.IsNotExist(err) {
+		t.Fatalf("expected installed directory to be removed, got err: %v", err)
+	}
+
+	// Verify the responses directory was cleaned up.
+	if _, err := os.Stat(responsesDir); !os.IsNotExist(err) {
+		t.Fatalf("expected responses directory to be removed, got err: %v", err)
+	}
+}
+
+// --- GetResponses round-trip test ---
+
+func TestGetResponsesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	m := NewInstallManager(dir)
+
+	expected := Responses{
+		"host":     "localhost",
+		"port":     "8080",
+		"password": "secret123",
+		"empty":    "",
+	}
+
+	if err := m.SaveResponses("repo", "myapp", "2.5", expected); err != nil {
+		t.Fatalf("SaveResponses: %v", err)
+	}
+
+	got, err := m.GetResponses("repo", "myapp", "2.5")
+	if err != nil {
+		t.Fatalf("GetResponses: %v", err)
+	}
+
+	if len(got) != len(expected) {
+		t.Fatalf("expected %d responses, got %d", len(expected), len(got))
+	}
+
+	for k, v := range expected {
+		if got[k] != v {
+			t.Fatalf("expected %s=%q, got %q", k, v, got[k])
+		}
+	}
+}
+
+// --- atomicWriteJSON concurrent test ---
+
+func TestAtomicWriteJSONConcurrent(t *testing.T) {
+	dir := t.TempDir()
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+
+	for i := range goroutines {
+		fileName := fmt.Sprintf("file-%d.json", i)
+		wg.Go(func() {
+			path := filepath.Join(dir, fileName)
+			data := map[string]int{"index": i}
+			if err := atomicWriteJSON(path, data); err != nil {
+				t.Errorf("atomicWriteJSON(%s): %v", fileName, err)
+			}
+		})
+	}
+
+	wg.Wait()
+
+	// Verify all files exist and contain valid JSON with the correct value.
+	for i := range goroutines {
+		fileName := fmt.Sprintf("file-%d.json", i)
+		path := filepath.Join(dir, fileName)
+
+		content, err := os.ReadFile(path) //nolint:gosec // test code reading known test file
+		if err != nil {
+			t.Fatalf("ReadFile(%s): %v", fileName, err)
+		}
+
+		var got map[string]int
+		if err := json.Unmarshal(content, &got); err != nil {
+			t.Fatalf("Unmarshal(%s): %v", fileName, err)
+		}
+
+		if got["index"] != i {
+			t.Fatalf("expected index=%d in %s, got %d", i, fileName, got["index"])
+		}
 	}
 }

@@ -229,4 +229,63 @@ describe('SystemSettings component', () => {
       expect(values).toContain('bytes')
     })
   })
+
+  it('clicking Save calls setSetting with the correct byte value', async () => {
+    renderSystemSettings()
+    // Wait for the form to initialize from the 50 GB default_quota
+    await waitFor(() => {
+      const input = screen.getByLabelText('Quota')
+      expect(input.value).toBe('50')
+    })
+    await waitFor(() => {
+      const select = screen.getByLabelText('Unit')
+      expect(select.value).toBe('GB')
+    })
+    // Submit the form without changing anything
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('default_quota', '53687091200')
+    })
+  })
+
+  it('initializes with MB unit when settings value is MB-aligned', async () => {
+    // 512 MB = 536870912 bytes — should decompose to 512 MB
+    mockGetSettings.mockResolvedValueOnce({ default_quota: '536870912' })
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Quota').value).toBe('512')
+    })
+    await waitFor(() => {
+      expect(screen.getByLabelText('Unit').value).toBe('MB')
+    })
+    // Current value should display as MB
+    expect(screen.getByText(/512 MB/)).toBeTruthy()
+  })
+
+  it('shows "0 (no quota)" when the input is set to 0', async () => {
+    mockGetSettings.mockResolvedValueOnce({ default_quota: '0' })
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText(/0 \(no quota\)/)).toBeTruthy()
+    })
+    await waitFor(() => {
+      const input = screen.getByLabelText('Quota')
+      expect(input.value).toBe('0')
+    })
+  })
+})
+
+describe('formatBytes edge cases', () => {
+  it('formats very large values (1000 GB)', () => {
+    expect(formatBytes(1000 * 1024 * 1024 * 1024)).toBe('1000 GB')
+  })
+
+  it('formats 1 GB minus 1 byte as bytes (not an exact GB or MB boundary)', () => {
+    // 1 GB - 1 byte = 1073741823
+    // 1073741823 / (1024*1024*1024) = 0.9999999990686774... (not integer, but >= 1 is false for gb path)
+    // 1073741823 / (1024*1024) = 1023.9999990463257... (not integer)
+    // So it falls back to bytes
+    const value = 1024 * 1024 * 1024 - 1
+    expect(formatBytes(value)).toBe(`${value} bytes`)
+  })
 })

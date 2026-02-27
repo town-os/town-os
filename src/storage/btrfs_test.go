@@ -470,3 +470,143 @@ func TestDiskUsageOverrideZero(t *testing.T) {
 		t.Fatalf("expected all zeros, got %v", du)
 	}
 }
+
+// --- Additional tests for parsing edge cases and mock workflows ---
+
+func TestParseSubvolListMultiplePaths(t *testing.T) {
+	// Paths sharing a common prefix: "nginx", "nginx-backup", "nginx/data".
+	// With prefix "nginx/" only "nginx/data" should match.
+	output := `ID 300 gen 10 top level 5 path nginx
+ID 301 gen 11 top level 5 path nginx-backup
+ID 302 gen 12 top level 5 path nginx/data
+`
+	infos, err := parseSubvolList(output, "nginx/")
+	if err != nil {
+		t.Fatalf("parseSubvolList: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 entry with prefix %q, got %d", "nginx/", len(infos))
+	}
+
+	if infos[0].Name != "nginx/data" {
+		t.Fatalf("expected Name %q, got %q", "nginx/data", infos[0].Name)
+	}
+
+	if infos[0].ID != 302 {
+		t.Fatalf("expected ID 302, got %d", infos[0].ID)
+	}
+}
+
+func TestParseQGroupShowMaxExcl(t *testing.T) {
+	// max_rfer (column 4) is "none" but max_excl (column 5) has a value.
+	// parseQGroupShow should only read max_rfer and return 0.
+	output := `qgroupid         rfer         excl     max_rfer     max_excl
+--------         ----         ----     --------     --------
+0/256         16384        16384         none      5368709120
+`
+	val, err := parseQGroupShow(output, 256)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	if val != 0 {
+		t.Fatalf("expected 0 because max_rfer is none (max_excl should be ignored), got %d", val)
+	}
+}
+
+func TestParseSubvolShowMixedContent(t *testing.T) {
+	// Output has extra unrecognized fields mixed in between Name and
+	// Subvolume ID. The parser should still extract both correctly.
+	output := `/mnt/data/mixed
+	Name: 			mixed-vol
+	UUID: 			aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+	Parent UUID: 		-
+	Received UUID: 		-
+	Creation time: 		2025-06-01 08:00:00 +0000
+	Custom Field: 		some-value
+	Subvolume ID: 		512
+	Generation: 		99
+	Another Field: 		extra-data
+	Parent ID: 		5
+	Top level ID: 		5
+	Flags: 			-
+`
+	info, err := parseSubvolShow(output)
+	if err != nil {
+		t.Fatalf("parseSubvolShow: %v", err)
+	}
+
+	if info.Name != "mixed-vol" {
+		t.Fatalf("expected Name %q, got %q", "mixed-vol", info.Name)
+	}
+
+	if info.ID != 512 {
+		t.Fatalf("expected ID 512, got %d", info.ID)
+	}
+}
+
+func TestParseSubvolListLargeID(t *testing.T) {
+	// Use the maximum uint64 value to verify large ID handling.
+	output := "ID 18446744073709551615 gen 1 top level 5 path bigvol\n"
+	infos, err := parseSubvolList(output, "")
+	if err != nil {
+		t.Fatalf("parseSubvolList: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(infos))
+	}
+
+	if infos[0].ID != 18446744073709551615 {
+		t.Fatalf("expected ID 18446744073709551615, got %d", infos[0].ID)
+	}
+
+	if infos[0].Name != "bigvol" {
+		t.Fatalf("expected Name %q, got %q", "bigvol", infos[0].Name)
+	}
+}
+
+func TestBtrFSMockCreateAndList(t *testing.T) {
+	mock := InitBtrFSMock()
+
+	err := mock.CreateFilesystem(Filesystem{Name: "webapp"})
+	if err != nil {
+		t.Fatalf("CreateFilesystem webapp: %v", err)
+	}
+
+	fs, err := mock.ListFilesystems("")
+	if err != nil {
+		t.Fatalf("ListFilesystems: %v", err)
+	}
+
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d", len(fs))
+	}
+
+	if fs[0].Name != "webapp" {
+		t.Fatalf("expected filesystem name %q, got %q", "webapp", fs[0].Name)
+	}
+}
+
+func TestBtrFSMockDeleteNonExistent(t *testing.T) {
+	mock := InitBtrFSMockController()
+
+	// The subvolume "ghost" was never created. Verify it does not exist.
+	err := mock.IsSubvolume("ghost")
+	if err == nil {
+		t.Fatal("expected error from IsSubvolume for non-existent subvolume")
+	}
+
+	// SubvolDelete on the mock silently succeeds even when the subvolume
+	// does not exist (it simply filters the empty list). Verify no panic
+	// and that the filesystem list remains empty.
+	err = mock.SubvolDelete("ghost")
+	if err != nil {
+		t.Fatalf("SubvolDelete ghost: unexpected error: %v", err)
+	}
+
+	info := mock.GetFilesystems()
+	if len(info) != 0 {
+		t.Fatalf("expected 0 filesystems after deleting non-existent, got %d", len(info))
+	}
+}

@@ -365,4 +365,123 @@ describe('PackageManagement', () => {
       expect(screen.queryByText('nginx')).toBeNull()
     })
   })
+
+  // --- Repositories tab interactions ---
+
+  it('shows Add Repository button when Repositories tab is clicked', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Repositories' })).toBeTruthy()
+    })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Repositories' }), { button: 0 })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Repository/ })).toBeTruthy()
+    })
+  })
+
+  it('opens add repo dialog with Name and Repository URL fields when Add Repository is clicked', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Repositories' })).toBeTruthy()
+    })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Repositories' }), { button: 0 })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Repository/ })).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Add Repository/ }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name')).toBeTruthy()
+      expect(screen.getByLabelText('Repository URL')).toBeTruthy()
+    })
+  })
+
+  it('calls addRepository when add repo form is submitted', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Repositories' })).toBeTruthy()
+    })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Repositories' }), { button: 0 })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Repository/ })).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Add Repository/ }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name')).toBeTruthy()
+    })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'my-repo' } })
+    fireEvent.change(screen.getByLabelText('Repository URL'), { target: { value: 'https://example.com/repo' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() => {
+      expect(mockAddRepository).toHaveBeenCalledWith('my-repo', 'https://example.com/repo')
+    })
+  })
+
+  it('calls refreshRepositories when Refresh button is clicked', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Repositories' })).toBeTruthy()
+    })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Repositories' }), { button: 0 })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Refresh/ })).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }))
+    await waitFor(() => {
+      expect(mockRefreshRepositories).toHaveBeenCalled()
+    })
+  })
+
+  // --- Install flow with version select ---
+
+  it('shows version select dialog when multiple versions are available', async () => {
+    mockListPackageVersions.mockResolvedValueOnce(['2.0', '1.0'])
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Not Installed')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Not Installed'))
+    await waitFor(() => {
+      expect(screen.getByText(/Install redis/)).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy()
+    })
+  })
+
+  // --- installedVersion helper logic ---
+
+  it('installedVersion returns correct values for various cases', () => {
+    function installedVersion(row, installedMap) {
+      if (row.installed !== undefined) {
+        if (!row.installed) return null
+        return row.installed_version || ''
+      }
+      const key = `${row.repo}/${row.name}`
+      if (key in installedMap) return installedMap[key]
+      return null
+    }
+
+    // installed with version
+    expect(
+      installedVersion({ repo: 'core', name: 'nginx', installed: true, installed_version: '1.0' }, {}),
+    ).toBe('1.0')
+
+    // installed without version
+    expect(
+      installedVersion({ repo: 'core', name: 'nginx', installed: true }, {}),
+    ).toBe('')
+
+    // not installed
+    expect(
+      installedVersion({ repo: 'core', name: 'redis', installed: false }, {}),
+    ).toBeNull()
+
+    // from installedMap (grouped view — no installed field)
+    expect(
+      installedVersion({ repo: 'core', name: 'nginx' }, { 'core/nginx': '2.0' }),
+    ).toBe('2.0')
+
+    // not in installedMap
+    expect(
+      installedVersion({ repo: 'core', name: 'redis' }, {}),
+    ).toBeNull()
+  })
 })

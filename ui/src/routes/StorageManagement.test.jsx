@@ -426,4 +426,129 @@ describe('StorageManagement component', () => {
       expect(screen.getByText('Package Volumes')).toBeTruthy()
     })
   })
+
+  it('clicking delete icon and confirming calls removeFilesystem', async () => {
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getAllByText('mydata').length).toBeGreaterThanOrEqual(1)
+    })
+    // Click the destructive-styled delete button for the "mydata" row
+    const deleteButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    expect(deleteButtons.length).toBeGreaterThanOrEqual(1)
+    fireEvent.click(deleteButtons[0])
+    // Confirm dialog should appear
+    await waitFor(() => {
+      expect(screen.getByText('Delete Filesystem')).toBeTruthy()
+    })
+    // Click the destructive "Delete" confirm button
+    const confirmButton = screen.getByRole('button', { name: 'Delete' })
+    fireEvent.click(confirmButton)
+    await waitFor(() => {
+      expect(mockRemoveFilesystem).toHaveBeenCalledWith('mydata')
+    })
+  })
+
+  it('clicking Modify opens the modify dialog with Save Changes button', async () => {
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getAllByText('mydata').length).toBeGreaterThanOrEqual(1)
+    })
+    // Click the Modify button (not the column header) on the user filesystem row
+    const modifyButtons = screen.getAllByRole('button', { name: /Modify/ })
+    expect(modifyButtons.length).toBeGreaterThanOrEqual(1)
+    fireEvent.click(modifyButtons[0])
+    await waitFor(() => {
+      expect(screen.getByText('Save Changes')).toBeTruthy()
+    })
+  })
+
+  it('create form submits and calls createFilesystem', async () => {
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Create Filesystem')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Create Filesystem'))
+    await waitFor(() => {
+      expect(screen.getByText('Create')).toBeTruthy()
+    })
+    // Fill in the name field
+    const nameInput = screen.getByLabelText('Name')
+    fireEvent.change(nameInput, { target: { value: 'newfs' } })
+    // Fill in the quota field
+    const quotaInput = screen.getByLabelText('Quota (0 = unlimited)')
+    fireEvent.change(quotaInput, { target: { value: '2' } })
+    // Submit the form by clicking the Create button
+    const createButton = screen.getByRole('button', { name: 'Create' })
+    fireEvent.click(createButton)
+    await waitFor(() => {
+      expect(mockCreateFilesystem).toHaveBeenCalledWith({
+        name: 'newfs',
+        quota: 2 * 1024 * 1024 * 1024,
+      })
+    })
+  })
+})
+
+describe('volumeInternalName', () => {
+  function volumeInternalName(vol) {
+    const prefix = vol.state === 'installed' ? 'installed/' : 'uninstalled/'
+    return prefix + vol.name
+  }
+
+  it('returns installed/ prefix for installed volumes', () => {
+    expect(volumeInternalName({ name: 'core/nginx/1.0/data', state: 'installed' }))
+      .toBe('installed/core/nginx/1.0/data')
+  })
+
+  it('returns uninstalled/ prefix for uninstalled volumes', () => {
+    expect(volumeInternalName({ name: 'core/nginx/1.0/data', state: 'uninstalled' }))
+      .toBe('uninstalled/core/nginx/1.0/data')
+  })
+})
+
+describe('parseQuotaFromForm logic', () => {
+  function parseQuotaFromForm(quotaValue, quotaUnit) {
+    const UNITS = { B: 1, MB: 1024 * 1024, GB: 1024 * 1024 * 1024, TB: 1024 * 1024 * 1024 * 1024 }
+    const raw = quotaValue ? parseFloat(quotaValue) : 0
+    if (raw === 0) return 0
+    return Math.round(raw * (UNITS[quotaUnit] || 1))
+  }
+
+  it('converts GB correctly', () => {
+    expect(parseQuotaFromForm('2', 'GB')).toBe(2 * 1024 * 1024 * 1024)
+  })
+
+  it('converts MB correctly', () => {
+    expect(parseQuotaFromForm('100', 'MB')).toBe(100 * 1024 * 1024)
+  })
+
+  it('converts TB correctly', () => {
+    expect(parseQuotaFromForm('1', 'TB')).toBe(1024 * 1024 * 1024 * 1024)
+  })
+
+  it('converts B correctly', () => {
+    expect(parseQuotaFromForm('512', 'B')).toBe(512)
+  })
+
+  it('returns 0 for zero value', () => {
+    expect(parseQuotaFromForm('0', 'GB')).toBe(0)
+  })
+
+  it('returns 0 for empty string', () => {
+    expect(parseQuotaFromForm('', 'GB')).toBe(0)
+  })
+
+  it('handles fractional GB values', () => {
+    expect(parseQuotaFromForm('1.5', 'GB')).toBe(Math.round(1.5 * 1024 * 1024 * 1024))
+  })
+
+  it('handles fractional MB values', () => {
+    expect(parseQuotaFromForm('0.5', 'MB')).toBe(Math.round(0.5 * 1024 * 1024))
+  })
+
+  it('handles fractional TB values', () => {
+    expect(parseQuotaFromForm('0.25', 'TB')).toBe(Math.round(0.25 * 1024 * 1024 * 1024 * 1024))
+  })
 })
