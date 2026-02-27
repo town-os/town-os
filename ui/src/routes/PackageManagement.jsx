@@ -36,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X } from 'lucide-react'
+import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 
 export default function PackageManagement() {
@@ -387,6 +387,12 @@ export default function PackageManagement() {
         const hasUpgrade = isInst && instVer !== '' && instVer !== row.version
         return (
           <div className="flex items-center justify-end gap-1">
+            {row.featured && (
+              <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-600">
+                <Star className="h-3 w-3" />
+                Featured
+              </Badge>
+            )}
             {hasUpgrade && (
               <Tooltip>
                 <TooltipTrigger>
@@ -605,6 +611,7 @@ export default function PackageManagement() {
                           const instVer = installedVersion(pkg)
                           const isInst = instVer !== null
                           const hasUpgrade = isInst && instVer !== '' && instVer !== pkg.version
+                          const isFeatured = group.featured && group.featured.includes(pkg.name)
                           return (
                             <TableRow key={`${pkg.repo}/${pkg.name}`}>
                               <TableCell>
@@ -627,6 +634,12 @@ export default function PackageManagement() {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
+                                  {isFeatured && (
+                                    <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-600">
+                                      <Star className="h-3 w-3" />
+                                      Featured
+                                    </Badge>
+                                  )}
                                   {hasUpgrade && (
                                     <Badge
                                       variant="outline"

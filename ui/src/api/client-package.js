@@ -23,8 +23,10 @@ SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrde
 
 /**
  * List packages grouped by their source repository.
- * @param {string} [search] - Case-insensitive substring to filter packages.
- * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string}>}>>}
+ * Calls GET /packages/by-repo on the Control Plane Service.
+ * @param {string} [search] - Case-insensitive substring to filter packages by name.
+ * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string}>, featured?: string[]}>>}
+ *   Each group includes an optional `featured` array of package names marked as featured in that repository.
  */
 SystemControllerClient.prototype.listPackagesByRepo = async function (search) {
   const params = new URLSearchParams()

@@ -458,6 +458,62 @@ describe('PackageManagement', () => {
     })
   })
 
+  // --- Featured badge ---
+
+  it('shows Featured badge for featured packages in flat view', async () => {
+    mockListPackages.mockResolvedValueOnce({
+      entries: [
+        { repo: 'core', name: 'nginx', version: '1.0', installed: false, featured: true },
+        { repo: 'core', name: 'redis', version: '7.0', installed: false, featured: false },
+      ],
+      has_more: false,
+      total_pages: 1,
+    })
+    renderPackageManagement()
+    await waitFor(() => {
+      const badges = screen.getAllByText('Featured')
+      expect(badges.length).toBe(1)
+    })
+  })
+
+  it('does not show Featured badge for non-featured packages', async () => {
+    mockListPackages.mockResolvedValueOnce({
+      entries: [
+        { repo: 'core', name: 'redis', version: '7.0', installed: false, featured: false },
+      ],
+      has_more: false,
+      total_pages: 1,
+    })
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('redis')).toBeTruthy()
+    })
+    expect(screen.queryByText('Featured')).toBeNull()
+  })
+
+  it('shows Featured badge for featured packages in grouped view', async () => {
+    mockListPackagesByRepo.mockResolvedValueOnce([
+      {
+        repo: 'core',
+        packages: [
+          { repo: 'core', name: 'nginx', version: '1.0' },
+          { repo: 'core', name: 'redis', version: '7.0' },
+        ],
+        featured: ['nginx'],
+      },
+    ])
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Group by repository')).toBeTruthy()
+    })
+    const checkbox = screen.getByText('Group by repository').closest('label').querySelector('input')
+    fireEvent.click(checkbox)
+    await waitFor(() => {
+      const badges = screen.getAllByText('Featured')
+      expect(badges.length).toBe(1)
+    })
+  })
+
   // --- Install flow with version select ---
 
   it('shows version select dialog when multiple versions are available', async () => {

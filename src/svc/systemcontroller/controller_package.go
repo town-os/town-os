@@ -192,7 +192,7 @@ func (s *SystemControllerHandlers) listPackagesByRepo(c *echo.Context) error {
 				}
 			}
 			if len(matching) > 0 {
-				filtered = append(filtered, packages.RepoPackageGroup{Repo: g.Repo, Packages: matching})
+				filtered = append(filtered, packages.RepoPackageGroup{Repo: g.Repo, Packages: matching, Featured: g.Featured})
 			}
 		}
 		groups = filtered

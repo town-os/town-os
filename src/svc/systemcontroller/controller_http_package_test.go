@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
@@ -565,6 +566,21 @@ func TestHTTPListPackagesIncludesInstalledOlderVersions(t *testing.T) {
 	}
 }
 
+func writeFeatured(t *testing.T, baseDir, repoName string, featured []string) {
+	t.Helper()
+	dir := filepath.Join(baseDir, repoName)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		t.Fatalf("os.MkdirAll %q: %v", dir, err)
+	}
+	data, err := json.Marshal(featured)
+	if err != nil {
+		t.Fatalf("json.Marshal featured: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.FeaturedFile), data, 0600); err != nil {
+		t.Fatalf("os.WriteFile featured.json: %v", err)
+	}
+}
+
 func TestHTTPListPackagesByRepo(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
@@ -613,5 +629,118 @@ func TestHTTPListPackagesByRepo(t *testing.T) {
 	}
 	if len(groups[1].Packages) != 2 {
 		t.Fatalf("expected 2 packages in core, got %d", len(groups[1].Packages))
+	}
+}
+
+func TestHTTPListPackagesByRepoFeatured(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "core", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "core", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "core", "redis", "7.0", "image: redis:7.0\n")
+	writeFeatured(t, rr.BaseDir, "core", []string{"nginx"})
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	groups, err := c.ListPackagesByRepo(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPackagesByRepo: %v", err)
+	}
+
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 repo group, got %d", len(groups))
+	}
+	if len(groups[0].Featured) != 1 {
+		t.Fatalf("expected 1 featured package, got %d", len(groups[0].Featured))
+	}
+	if groups[0].Featured[0] != "nginx" {
+		t.Fatalf("expected featured[0] = %q, got %q", "nginx", groups[0].Featured[0])
+	}
+}
+
+func TestHTTPListPackagesByRepoFeaturedPreservedOnSearch(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "core", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "core", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "core", "redis", "7.0", "image: redis:7.0\n")
+	writeFeatured(t, rr.BaseDir, "core", []string{"nginx", "redis"})
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Search for "nginx" — should filter packages but preserve Featured list.
+	groups, err := c.ListPackagesByRepo(context.TODO(), ListParams{Search: "nginx"})
+	if err != nil {
+		t.Fatalf("ListPackagesByRepo with search: %v", err)
+	}
+
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 repo group, got %d", len(groups))
+	}
+	if len(groups[0].Packages) != 1 {
+		t.Fatalf("expected 1 matching package, got %d", len(groups[0].Packages))
+	}
+	if groups[0].Packages[0].Name != "nginx" {
+		t.Fatalf("expected matching package %q, got %q", "nginx", groups[0].Packages[0].Name)
+	}
+	// Featured field must be preserved even when search filters are applied.
+	if len(groups[0].Featured) != 2 {
+		t.Fatalf("expected 2 featured entries preserved through search, got %d", len(groups[0].Featured))
+	}
+}
+
+func TestHTTPListPackagesByRepoSearchNoMatch(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "core", URL: *u},
+	}
+	writeTestPackage(t, rr.BaseDir, "core", "nginx", "1.0", "image: nginx:1.0\n")
+	writeFeatured(t, rr.BaseDir, "core", []string{"nginx"})
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Search for something that doesn't match — group should be excluded entirely.
+	groups, err := c.ListPackagesByRepo(context.TODO(), ListParams{Search: "nonexistent"})
+	if err != nil {
+		t.Fatalf("ListPackagesByRepo search no match: %v", err)
+	}
+
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 repo groups for non-matching search, got %d", len(groups))
 	}
 }
