@@ -57,68 +57,183 @@ describe('formatBytes', () => {
   })
 })
 
-// --- quotaToBytes logic tests ---
+// --- formatBytesSize tests ---
 
-describe('quotaToBytes logic', () => {
-  function quotaToBytes(quotaInput, quotaUnit) {
-    const num = Number(quotaInput)
+function formatBytesSize(bytes) {
+  if (bytes === 0) return '0 bytes'
+  const gb = bytes / (1024 * 1024 * 1024)
+  if (gb >= 1 && gb === Math.floor(gb)) return `${gb} GB`
+  const mb = bytes / (1024 * 1024)
+  if (mb >= 1 && mb === Math.floor(mb)) return `${mb} MB`
+  return `${bytes} bytes`
+}
+
+describe('formatBytesSize', () => {
+  it('returns "0 bytes" for 0', () => {
+    expect(formatBytesSize(0)).toBe('0 bytes')
+  })
+
+  it('formats exact gigabytes', () => {
+    expect(formatBytesSize(1073741824)).toBe('1 GB')
+  })
+
+  it('formats exact megabytes', () => {
+    expect(formatBytesSize(20 * 1024 * 1024)).toBe('20 MB')
+  })
+
+  it('falls back to bytes for non-aligned values', () => {
+    expect(formatBytesSize(12345)).toBe('12345 bytes')
+  })
+})
+
+// --- formatDuration tests ---
+
+function formatDuration(seconds) {
+  if (seconds === 0) return '0 seconds'
+  if (seconds >= 3600 && seconds % 3600 === 0) return `${seconds / 3600} hour${seconds / 3600 !== 1 ? 's' : ''}`
+  if (seconds >= 60 && seconds % 60 === 0) return `${seconds / 60} minute${seconds / 60 !== 1 ? 's' : ''}`
+  return `${seconds} second${seconds !== 1 ? 's' : ''}`
+}
+
+describe('formatDuration', () => {
+  it('returns "0 seconds" for 0', () => {
+    expect(formatDuration(0)).toBe('0 seconds')
+  })
+
+  it('formats 1 second singular', () => {
+    expect(formatDuration(1)).toBe('1 second')
+  })
+
+  it('formats multiple seconds', () => {
+    expect(formatDuration(120)).toBe('2 minutes')
+  })
+
+  it('formats exact minutes', () => {
+    expect(formatDuration(300)).toBe('5 minutes')
+  })
+
+  it('formats 1 minute singular', () => {
+    expect(formatDuration(60)).toBe('1 minute')
+  })
+
+  it('formats exact hours', () => {
+    expect(formatDuration(3600)).toBe('1 hour')
+  })
+
+  it('formats multiple hours', () => {
+    expect(formatDuration(7200)).toBe('2 hours')
+  })
+
+  it('formats non-aligned seconds', () => {
+    expect(formatDuration(90)).toBe('90 seconds')
+  })
+
+  it('formats non-aligned minutes as seconds', () => {
+    expect(formatDuration(125)).toBe('125 seconds')
+  })
+})
+
+// --- unitToBytes logic tests ---
+
+describe('unitToBytes logic', () => {
+  function unitToBytes(input, unit) {
+    const num = Number(input)
     if (isNaN(num) || num < 0) return null
-    if (quotaUnit === 'GB') return num * 1024 * 1024 * 1024
-    if (quotaUnit === 'MB') return num * 1024 * 1024
+    if (unit === 'GB') return num * 1024 * 1024 * 1024
+    if (unit === 'MB') return num * 1024 * 1024
     return num
   }
 
   it('converts GB to bytes', () => {
-    expect(quotaToBytes('1', 'GB')).toBe(1073741824)
+    expect(unitToBytes('1', 'GB')).toBe(1073741824)
   })
 
   it('converts MB to bytes', () => {
-    expect(quotaToBytes('1', 'MB')).toBe(1048576)
+    expect(unitToBytes('1', 'MB')).toBe(1048576)
   })
 
   it('passes bytes through', () => {
-    expect(quotaToBytes('12345', 'bytes')).toBe(12345)
+    expect(unitToBytes('12345', 'bytes')).toBe(12345)
   })
 
   it('returns 0 for "0" input', () => {
-    expect(quotaToBytes('0', 'GB')).toBe(0)
+    expect(unitToBytes('0', 'GB')).toBe(0)
   })
 
   it('returns null for negative input', () => {
-    expect(quotaToBytes('-1', 'GB')).toBe(null)
+    expect(unitToBytes('-1', 'GB')).toBe(null)
   })
 
   it('returns null for NaN input', () => {
-    expect(quotaToBytes('abc', 'GB')).toBe(null)
+    expect(unitToBytes('abc', 'GB')).toBe(null)
   })
 
   it('returns 0 for empty string (Number("") is 0)', () => {
-    // Number('') === 0, which is not NaN and not negative, so returns 0 * multiplier = 0
-    expect(quotaToBytes('', 'GB')).toBe(0)
+    expect(unitToBytes('', 'GB')).toBe(0)
   })
 
   it('converts 50 GB correctly (default quota)', () => {
-    expect(quotaToBytes('50', 'GB')).toBe(53687091200)
+    expect(unitToBytes('50', 'GB')).toBe(53687091200)
   })
 
   it('converts 512 MB correctly', () => {
-    expect(quotaToBytes('512', 'MB')).toBe(536870912)
+    expect(unitToBytes('512', 'MB')).toBe(536870912)
   })
 
   it('converts fractional GB', () => {
-    expect(quotaToBytes('1.5', 'GB')).toBe(1.5 * 1024 * 1024 * 1024)
+    expect(unitToBytes('1.5', 'GB')).toBe(1.5 * 1024 * 1024 * 1024)
   })
 
   it('converts fractional MB', () => {
-    expect(quotaToBytes('2.5', 'MB')).toBe(2.5 * 1024 * 1024)
+    expect(unitToBytes('2.5', 'MB')).toBe(2.5 * 1024 * 1024)
+  })
+})
+
+// --- timeoutToSeconds logic tests ---
+
+describe('timeoutToSeconds logic', () => {
+  function timeoutToSeconds(input, unit) {
+    const num = Number(input)
+    if (isNaN(num) || num < 0) return null
+    if (unit === 'hours') return num * 3600
+    if (unit === 'minutes') return num * 60
+    return num
+  }
+
+  it('converts seconds directly', () => {
+    expect(timeoutToSeconds('120', 'seconds')).toBe(120)
+  })
+
+  it('converts minutes to seconds', () => {
+    expect(timeoutToSeconds('5', 'minutes')).toBe(300)
+  })
+
+  it('converts hours to seconds', () => {
+    expect(timeoutToSeconds('2', 'hours')).toBe(7200)
+  })
+
+  it('returns 0 for "0" input', () => {
+    expect(timeoutToSeconds('0', 'seconds')).toBe(0)
+  })
+
+  it('returns null for negative input', () => {
+    expect(timeoutToSeconds('-1', 'seconds')).toBe(null)
+  })
+
+  it('returns null for NaN input', () => {
+    expect(timeoutToSeconds('abc', 'seconds')).toBe(null)
   })
 })
 
 // --- Component rendering tests ---
 
-const mockGetSettings = vi.fn(() =>
-  Promise.resolve({ default_quota: '53687091200' }),
-)
+const defaultSettings = {
+  default_quota: '53687091200',
+  max_archive_size: '20971520',
+  archive_unpack_timeout: '120',
+}
+
+const mockGetSettings = vi.fn(() => Promise.resolve({ ...defaultSettings }))
 const mockSetSetting = vi.fn(() => Promise.resolve())
 const mockGetSetting = vi.fn(() => Promise.resolve('53687091200'))
 
@@ -144,6 +259,7 @@ describe('SystemSettings component', () => {
   beforeEach(() => {
     mockGetSettings.mockClear()
     mockSetSetting.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
   })
 
   it('renders the System Settings heading', async () => {
@@ -167,10 +283,11 @@ describe('SystemSettings component', () => {
     })
   })
 
-  it('renders Save button', async () => {
+  it('renders three Save buttons', async () => {
     renderSystemSettings()
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
+      const buttons = screen.getAllByRole('button', { name: 'Save' })
+      expect(buttons).toHaveLength(3)
     })
   })
 
@@ -178,13 +295,6 @@ describe('SystemSettings component', () => {
     renderSystemSettings()
     await waitFor(() => {
       expect(screen.getByLabelText('Quota')).toBeTruthy()
-    })
-  })
-
-  it('renders unit selector', async () => {
-    renderSystemSettings()
-    await waitFor(() => {
-      expect(screen.getByLabelText('Unit')).toBeTruthy()
     })
   })
 
@@ -211,17 +321,17 @@ describe('SystemSettings component', () => {
   })
 
   it('shows no quota when settings return 0', async () => {
-    mockGetSettings.mockResolvedValueOnce({ default_quota: '0' })
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, default_quota: '0' })
     renderSystemSettings()
     await waitFor(() => {
       expect(screen.getByText(/0 \(no quota\)/)).toBeTruthy()
     })
   })
 
-  it('renders the unit options GB, MB, bytes', async () => {
+  it('renders the unit options GB, MB, bytes for quota', async () => {
     renderSystemSettings()
     await waitFor(() => {
-      const select = screen.getByLabelText('Unit')
+      const select = screen.getByLabelText('Quota').closest('form').querySelector('select')
       const options = select.querySelectorAll('option')
       const values = Array.from(options).map((o) => o.value)
       expect(values).toContain('GB')
@@ -230,19 +340,15 @@ describe('SystemSettings component', () => {
     })
   })
 
-  it('clicking Save calls setSetting with the correct byte value', async () => {
+  it('clicking Save on quota calls setSetting with the correct byte value', async () => {
     renderSystemSettings()
-    // Wait for the form to initialize from the 50 GB default_quota
     await waitFor(() => {
       const input = screen.getByLabelText('Quota')
       expect(input.value).toBe('50')
     })
-    await waitFor(() => {
-      const select = screen.getByLabelText('Unit')
-      expect(select.value).toBe('GB')
-    })
-    // Submit the form without changing anything
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    // Submit the quota form (first Save button)
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[0])
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('default_quota', '53687091200')
     })
@@ -250,20 +356,17 @@ describe('SystemSettings component', () => {
 
   it('initializes with MB unit when settings value is MB-aligned', async () => {
     // 512 MB = 536870912 bytes — should decompose to 512 MB
-    mockGetSettings.mockResolvedValueOnce({ default_quota: '536870912' })
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, default_quota: '536870912' })
     renderSystemSettings()
     await waitFor(() => {
       expect(screen.getByLabelText('Quota').value).toBe('512')
-    })
-    await waitFor(() => {
-      expect(screen.getByLabelText('Unit').value).toBe('MB')
     })
     // Current value should display as MB
     expect(screen.getByText(/512 MB/)).toBeTruthy()
   })
 
   it('shows "0 (no quota)" when the input is set to 0', async () => {
-    mockGetSettings.mockResolvedValueOnce({ default_quota: '0' })
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, default_quota: '0' })
     renderSystemSettings()
     await waitFor(() => {
       expect(screen.getByText(/0 \(no quota\)/)).toBeTruthy()
@@ -271,6 +374,183 @@ describe('SystemSettings component', () => {
     await waitFor(() => {
       const input = screen.getByLabelText('Quota')
       expect(input.value).toBe('0')
+    })
+  })
+})
+
+// --- Max Archive Size section tests ---
+
+describe('SystemSettings Max Archive Size', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+  })
+
+  it('renders the Max Archive Size section', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText('Max Archive Size')).toBeTruthy()
+    })
+  })
+
+  it('renders archive size input field', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Size')).toBeTruthy()
+    })
+  })
+
+  it('displays current archive size value', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      // 20971520 = 20 MB
+      expect(screen.getByText(/20 MB/)).toBeTruthy()
+    })
+  })
+
+  it('initializes archive size input to 20 MB', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Size')
+      expect(input.value).toBe('20')
+    })
+  })
+
+  it('clicking Save on archive size calls setSetting correctly', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Size')
+      expect(input.value).toBe('20')
+    })
+    // Submit the archive size form (second Save button)
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[1])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('max_archive_size', '20971520')
+    })
+  })
+
+  it('displays archive size in GB when value is GB-aligned', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, max_archive_size: '1073741824' })
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Size')
+      expect(input.value).toBe('1')
+    })
+  })
+
+  it('displays 0 bytes for zero archive size', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, max_archive_size: '0' })
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText(/0 bytes/)).toBeTruthy()
+    })
+  })
+
+  it('renders description text for archive size', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText(/maximum file size allowed for archive uploads/)).toBeTruthy()
+    })
+  })
+})
+
+// --- Archive Unpack Timeout section tests ---
+
+describe('SystemSettings Archive Unpack Timeout', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+  })
+
+  it('renders the Archive Unpack Timeout section', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText('Archive Unpack Timeout')).toBeTruthy()
+    })
+  })
+
+  it('renders timeout input field', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Timeout')).toBeTruthy()
+    })
+  })
+
+  it('displays current timeout value', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      // 120 seconds = 2 minutes
+      expect(screen.getByText(/2 minutes/)).toBeTruthy()
+    })
+  })
+
+  it('initializes timeout input to 2 minutes', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Timeout')
+      expect(input.value).toBe('2')
+    })
+  })
+
+  it('clicking Save on timeout calls setSetting correctly', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Timeout')
+      expect(input.value).toBe('2')
+    })
+    // Submit the timeout form (third Save button)
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[2])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('archive_unpack_timeout', '120')
+    })
+  })
+
+  it('renders timeout unit options seconds, minutes, hours', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const select = screen.getByLabelText('Timeout').closest('form').querySelector('select')
+      const options = select.querySelectorAll('option')
+      const values = Array.from(options).map((o) => o.value)
+      expect(values).toContain('seconds')
+      expect(values).toContain('minutes')
+      expect(values).toContain('hours')
+    })
+  })
+
+  it('decomposes hours correctly', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, archive_unpack_timeout: '3600' })
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Timeout')
+      expect(input.value).toBe('1')
+    })
+  })
+
+  it('decomposes non-aligned seconds', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, archive_unpack_timeout: '90' })
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Timeout')
+      expect(input.value).toBe('90')
+    })
+  })
+
+  it('displays 0 seconds for zero timeout', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, archive_unpack_timeout: '0' })
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText(/0 seconds/)).toBeTruthy()
+    })
+  })
+
+  it('renders description text for timeout', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText(/maximum time allowed for unpacking/)).toBeTruthy()
     })
   })
 })

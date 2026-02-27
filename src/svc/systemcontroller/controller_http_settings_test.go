@@ -290,3 +290,67 @@ func TestHTTPSettingsMaxArchiveSizeHumanReadable(t *testing.T) {
 		t.Fatalf("expected 104857600, got %q", val)
 	}
 }
+
+func TestHTTPSettingsMaxArchiveSizeSetAndGet(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	// Set with raw numeric bytes.
+	if err := c.SetSetting(context.TODO(), "max_archive_size", "52428800"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "max_archive_size")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "52428800" {
+		t.Fatalf("expected %q, got %q", "52428800", val)
+	}
+}
+
+func TestHTTPSettingsMaxArchiveSizeInvalidValue(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	badValues := []string{"not-a-number", "-5MB", "abc"}
+	for _, v := range badValues {
+		if err := c.SetSetting(context.TODO(), "max_archive_size", v); err == nil {
+			t.Fatalf("expected error for invalid max_archive_size value %q", v)
+		}
+	}
+}
+
+func TestHTTPSettingsArchiveUnpackTimeoutSetAndGet(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	// archive_unpack_timeout is not a byte-value setting, so it stores as-is.
+	if err := c.SetSetting(context.TODO(), "archive_unpack_timeout", "300"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "archive_unpack_timeout")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "300" {
+		t.Fatalf("expected %q, got %q", "300", val)
+	}
+}
+
+func TestHTTPSettingsArchiveUnpackTimeoutOverwrite(t *testing.T) {
+	c, _ := initSettingsTestClient(t)
+
+	if err := c.SetSetting(context.TODO(), "archive_unpack_timeout", "60"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	if err := c.SetSetting(context.TODO(), "archive_unpack_timeout", "600"); err != nil {
+		t.Fatalf("SetSetting overwrite: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "archive_unpack_timeout")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if val != "600" {
+		t.Fatalf("expected %q, got %q", "600", val)
+	}
+}

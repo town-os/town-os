@@ -118,3 +118,71 @@ func TestSettingsAdminOverrideAndList(t *testing.T) {
 		t.Fatalf("expected default_quota %q, got %q", "0", settings["default_quota"])
 	}
 }
+
+func TestSettingsMaxArchiveSizeSetAndGet(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	// Set max archive size using human-readable value.
+	if err := c.SetSetting(context.TODO(), "max_archive_size", "100MB"); err != nil {
+		t.Fatalf("SetSetting max_archive_size: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "max_archive_size")
+	if err != nil {
+		t.Fatalf("GetSetting max_archive_size: %v", err)
+	}
+	if val != "104857600" {
+		t.Fatalf("expected %q, got %q", "104857600", val)
+	}
+}
+
+func TestSettingsMaxArchiveSizeNumericValue(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	// Set max archive size using raw numeric bytes.
+	if err := c.SetSetting(context.TODO(), "max_archive_size", "52428800"); err != nil {
+		t.Fatalf("SetSetting max_archive_size: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "max_archive_size")
+	if err != nil {
+		t.Fatalf("GetSetting max_archive_size: %v", err)
+	}
+	if val != "52428800" {
+		t.Fatalf("expected %q, got %q", "52428800", val)
+	}
+}
+
+func TestSettingsArchiveUnpackTimeoutSetAndGet(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	// Set archive unpack timeout (stored as-is, not byte-parsed).
+	if err := c.SetSetting(context.TODO(), "archive_unpack_timeout", "300"); err != nil {
+		t.Fatalf("SetSetting archive_unpack_timeout: %v", err)
+	}
+
+	val, err := c.GetSetting(context.TODO(), "archive_unpack_timeout")
+	if err != nil {
+		t.Fatalf("GetSetting archive_unpack_timeout: %v", err)
+	}
+	if val != "300" {
+		t.Fatalf("expected %q, got %q", "300", val)
+	}
+}
+
+func TestSettingsArchiveUnpackTimeoutInList(t *testing.T) {
+	c := initSystemControllerSettingsTest(t)
+
+	if err := c.SetSetting(context.TODO(), "archive_unpack_timeout", "600"); err != nil {
+		t.Fatalf("SetSetting archive_unpack_timeout: %v", err)
+	}
+
+	settings, err := c.GetSettings(context.TODO())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+
+	if settings["archive_unpack_timeout"] != "600" {
+		t.Fatalf("expected archive_unpack_timeout %q, got %q", "600", settings["archive_unpack_timeout"])
+	}
+}
