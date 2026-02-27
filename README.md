@@ -98,6 +98,25 @@ This is transparent -- no code changes are needed. The local registry falls back
 
 Each working directory gets its own registry instance (via `INSTANCE_ID`), so concurrent test runs do not conflict.
 
+### Local Gitea Server
+
+Integration tests also use a local Gitea instance to avoid cloning test package repositories directly from GitHub. When you run `make test-integration` or `make test-ui-integration`, the build automatically:
+
+1. Starts a local Gitea server on a random port
+2. Creates an admin user
+3. Migrates test package repositories from GitHub into Gitea (`populate-repos` tool)
+4. Passes `TOWN_OS_TEST_REPO_CORE_URL` and `TOWN_OS_TEST_REPO_EXTRAS_URL` env vars into the test container so all git clones hit the local Gitea instance
+
+This is transparent -- no code changes are needed. Tests fall back to GitHub URLs if the env vars are not set.
+
+| Target                | Description                                                |
+| --------------------- | ---------------------------------------------------------- |
+| `make gitea`          | Start the local Gitea container and create the admin user. |
+| `make gitea-populate` | Migrate test repos from GitHub into the local Gitea.       |
+| `make gitea-stop`     | Stop and remove the local Gitea container.                 |
+
+Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concurrent test runs do not conflict.
+
 ### Building
 
 | Target                       | Description                                                        |
