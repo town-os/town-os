@@ -278,3 +278,195 @@ func TestFindMountPointBtrfs(t *testing.T) {
 		t.Fatalf("expected mount not found error, got: %v", err)
 	}
 }
+
+// --- Additional btrfs output parsing edge-case tests ---
+
+func TestParseSubvolShowEmpty(t *testing.T) {
+	info, err := parseSubvolShow("")
+	if err != nil {
+		t.Fatalf("parseSubvolShow empty: %v", err)
+	}
+	if info.Name != "" {
+		t.Fatalf("expected empty Name, got %q", info.Name)
+	}
+	if info.ID != 0 {
+		t.Fatalf("expected ID 0, got %d", info.ID)
+	}
+}
+
+func TestParseSubvolShowOnlyName(t *testing.T) {
+	output := "\tName: \t\t\tjust-a-name\n"
+	info, err := parseSubvolShow(output)
+	if err != nil {
+		t.Fatalf("parseSubvolShow: %v", err)
+	}
+	if info.Name != "just-a-name" {
+		t.Fatalf("expected Name %q, got %q", "just-a-name", info.Name)
+	}
+	if info.ID != 0 {
+		t.Fatalf("expected ID 0 when not present, got %d", info.ID)
+	}
+}
+
+func TestParseSubvolShowOnlyID(t *testing.T) {
+	output := "\tSubvolume ID: \t\t42\n"
+	info, err := parseSubvolShow(output)
+	if err != nil {
+		t.Fatalf("parseSubvolShow: %v", err)
+	}
+	if info.Name != "" {
+		t.Fatalf("expected empty Name, got %q", info.Name)
+	}
+	if info.ID != 42 {
+		t.Fatalf("expected ID 42, got %d", info.ID)
+	}
+}
+
+func TestParseSubvolShowExtraWhitespace(t *testing.T) {
+	output := "  \tName:   \t  spacey-vol  \n  \tSubvolume ID:   \t  100  \n"
+	info, err := parseSubvolShow(output)
+	if err != nil {
+		t.Fatalf("parseSubvolShow: %v", err)
+	}
+	if info.Name != "spacey-vol" {
+		t.Fatalf("expected Name %q, got %q", "spacey-vol", info.Name)
+	}
+	if info.ID != 100 {
+		t.Fatalf("expected ID 100, got %d", info.ID)
+	}
+}
+
+func TestParseSubvolListBadIDSkipped(t *testing.T) {
+	output := "ID abc gen 34 top level 5 path home\nID 256 gen 34 top level 5 path data\n"
+	infos, err := parseSubvolList(output, "")
+	if err != nil {
+		t.Fatalf("parseSubvolList: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 entry (bad ID skipped), got %d", len(infos))
+	}
+	if infos[0].Name != "data" {
+		t.Fatalf("expected Name %q, got %q", "data", infos[0].Name)
+	}
+}
+
+func TestParseSubvolListTooFewFields(t *testing.T) {
+	output := "ID 256 gen 34\n"
+	infos, err := parseSubvolList(output, "")
+	if err != nil {
+		t.Fatalf("parseSubvolList: %v", err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("expected 0 entries for short line, got %d", len(infos))
+	}
+}
+
+func TestParseSubvolListPrefixNoMatch(t *testing.T) {
+	output := "ID 256 gen 34 top level 5 path home\nID 257 gen 37 top level 5 path data\n"
+	infos, err := parseSubvolList(output, "nonexistent")
+	if err != nil {
+		t.Fatalf("parseSubvolList: %v", err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("expected 0 entries for unmatched prefix, got %d", len(infos))
+	}
+}
+
+func TestParseQGroupShowOnlyHeaders(t *testing.T) {
+	output := "qgroupid         rfer         excl     max_rfer     max_excl\n--------         ----         ----     --------     --------\n"
+	val, err := parseQGroupShow(output, 256)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	if val != 0 {
+		t.Fatalf("expected 0 for headers-only, got %d", val)
+	}
+}
+
+func TestParseQGroupShowShortFields(t *testing.T) {
+	output := "qgroupid         rfer         excl     max_rfer     max_excl\n--------         ----         ----     --------     --------\n0/256\n"
+	val, err := parseQGroupShow(output, 256)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	if val != 0 {
+		t.Fatalf("expected 0 for short line, got %d", val)
+	}
+}
+
+func TestParseQGroupShowLargeQuota(t *testing.T) {
+	// 10 TB in bytes
+	output := "qgroupid         rfer         excl     max_rfer     max_excl\n--------         ----         ----     --------     --------\n0/256         16384        16384      10995116277760         none\n"
+	val, err := parseQGroupShow(output, 256)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	if val != 10995116277760 {
+		t.Fatalf("expected 10995116277760, got %d", val)
+	}
+}
+
+func TestParseQGroupShowOneHeaderLine(t *testing.T) {
+	// Only one header line instead of two — data should still be parsed
+	output := "qgroupid rfer excl max_rfer max_excl\n0/256 16384 16384 1048576 none\n"
+	val, err := parseQGroupShow(output, 256)
+	if err != nil {
+		t.Fatalf("parseQGroupShow: %v", err)
+	}
+	// The second line is treated as the dashes header, and there's nothing after
+	if val != 0 {
+		t.Fatalf("expected 0 (data line consumed as header), got %d", val)
+	}
+}
+
+// --- DiskUsage struct tests ---
+
+func TestDiskUsageFields(t *testing.T) {
+	du := DiskUsage{Total: 1000, Used: 600, Available: 400}
+	if du.Total != 1000 {
+		t.Fatalf("expected Total 1000, got %d", du.Total)
+	}
+	if du.Used != 600 {
+		t.Fatalf("expected Used 600, got %d", du.Used)
+	}
+	if du.Available != 400 {
+		t.Fatalf("expected Available 400, got %d", du.Available)
+	}
+}
+
+func TestDiskUsageZero(t *testing.T) {
+	du := DiskUsage{}
+	if du.Total != 0 || du.Used != 0 || du.Available != 0 {
+		t.Fatalf("expected all zeros, got %v", du)
+	}
+}
+
+func TestDiskUsageOverride(t *testing.T) {
+	override := &DiskUsage{Total: 5000, Used: 3000, Available: 2000}
+	b := &BtrFS{DiskUsageOverride: override}
+	du, err := b.DiskUsage()
+	if err != nil {
+		t.Fatalf("DiskUsage: %v", err)
+	}
+	if du.Total != 5000 {
+		t.Fatalf("expected Total 5000, got %d", du.Total)
+	}
+	if du.Used != 3000 {
+		t.Fatalf("expected Used 3000, got %d", du.Used)
+	}
+	if du.Available != 2000 {
+		t.Fatalf("expected Available 2000, got %d", du.Available)
+	}
+}
+
+func TestDiskUsageOverrideZero(t *testing.T) {
+	override := &DiskUsage{}
+	b := &BtrFS{DiskUsageOverride: override}
+	du, err := b.DiskUsage()
+	if err != nil {
+		t.Fatalf("DiskUsage: %v", err)
+	}
+	if du.Total != 0 || du.Used != 0 || du.Available != 0 {
+		t.Fatalf("expected all zeros, got %v", du)
+	}
+}
