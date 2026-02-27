@@ -992,14 +992,41 @@ export default function PackageManagement() {
                   <Separator />
                 )}
                 <div className="space-y-1">
-                  {Object.entries(infoDialog.notes).map(([label, value]) => (
-                    <div key={label} className="flex justify-between gap-4 text-sm">
-                      <span className="text-muted-foreground">{label}</span>
-                      <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
-                        {value}
-                      </code>
-                    </div>
-                  ))}
+                  {Object.entries(infoDialog.notes).map(([label, value]) => {
+                    const noteType = infoDialog.note_types?.[label]
+                    let display
+                    if (noteType === 'url') {
+                      display = (
+                        <a href={value} target="_blank" rel="noopener noreferrer" className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0 underline text-primary">
+                          {value}
+                        </a>
+                      )
+                    } else if (noteType === 'email') {
+                      display = (
+                        <a href={`mailto:${value}`} className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0 underline text-primary">
+                          {value}
+                        </a>
+                      )
+                    } else if (noteType === 'phone') {
+                      display = (
+                        <a href={`tel:${value}`} className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0 underline text-primary">
+                          {value}
+                        </a>
+                      )
+                    } else {
+                      display = (
+                        <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
+                          {value}
+                        </code>
+                      )
+                    }
+                    return (
+                      <div key={label} className="flex justify-between gap-4 text-sm">
+                        <span className="text-muted-foreground">{label}</span>
+                        {display}
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )}

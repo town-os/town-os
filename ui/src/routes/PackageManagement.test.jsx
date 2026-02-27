@@ -473,6 +473,107 @@ describe('PackageManagement', () => {
     })
   })
 
+  // --- Info dialog note hyperlinking ---
+
+  it('renders URL notes as hyperlinks with target=_blank', async () => {
+    mockGetInstalledInfo.mockResolvedValueOnce({
+      questions: {},
+      responses: {},
+      notes: { URL: 'http://testhost:8081' },
+      note_types: { URL: 'url' },
+    })
+    const { container } = renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed')).toBeTruthy()
+    })
+    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
+    fireEvent.click(infoBtn)
+    await waitFor(() => {
+      const link = screen.getByText('http://testhost:8081')
+      expect(link.tagName).toBe('A')
+      expect(link.getAttribute('href')).toBe('http://testhost:8081')
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    })
+  })
+
+  it('renders email notes as mailto hyperlinks', async () => {
+    mockGetInstalledInfo.mockResolvedValueOnce({
+      questions: {},
+      responses: {},
+      notes: { Contact: 'admin@example.com' },
+      note_types: { Contact: 'email' },
+    })
+    const { container } = renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed')).toBeTruthy()
+    })
+    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
+    fireEvent.click(infoBtn)
+    await waitFor(() => {
+      const link = screen.getByText('admin@example.com')
+      expect(link.tagName).toBe('A')
+      expect(link.getAttribute('href')).toBe('mailto:admin@example.com')
+    })
+  })
+
+  it('renders phone notes as tel hyperlinks', async () => {
+    mockGetInstalledInfo.mockResolvedValueOnce({
+      questions: {},
+      responses: {},
+      notes: { Support: '+1-555-0100' },
+      note_types: { Support: 'phone' },
+    })
+    const { container } = renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed')).toBeTruthy()
+    })
+    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
+    fireEvent.click(infoBtn)
+    await waitFor(() => {
+      const link = screen.getByText('+1-555-0100')
+      expect(link.tagName).toBe('A')
+      expect(link.getAttribute('href')).toBe('tel:+1-555-0100')
+    })
+  })
+
+  it('renders untyped notes as plain code blocks', async () => {
+    mockGetInstalledInfo.mockResolvedValueOnce({
+      questions: {},
+      responses: {},
+      notes: { Info: 'some plain text' },
+      note_types: {},
+    })
+    const { container } = renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed')).toBeTruthy()
+    })
+    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
+    fireEvent.click(infoBtn)
+    await waitFor(() => {
+      const el = screen.getByText('some plain text')
+      expect(el.tagName).toBe('CODE')
+    })
+  })
+
+  it('renders notes without note_types as plain code blocks', async () => {
+    mockGetInstalledInfo.mockResolvedValueOnce({
+      questions: {},
+      responses: {},
+      notes: { Info: 'plain note' },
+    })
+    const { container } = renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed')).toBeTruthy()
+    })
+    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
+    fireEvent.click(infoBtn)
+    await waitFor(() => {
+      const el = screen.getByText('plain note')
+      expect(el.tagName).toBe('CODE')
+    })
+  })
+
   // --- installedVersion helper logic ---
 
   it('installedVersion returns correct values for various cases', () => {

@@ -730,6 +730,8 @@ describe('SystemControllerClient integration', () => {
       // notes are only present if the remote package defines them
       if (info.notes) {
         expect(info.notes.URL).toBe('http://testhost:8081')
+        expect(info.note_types).toBeDefined()
+        expect(info.note_types.URL).toBe('url')
       }
     })
 

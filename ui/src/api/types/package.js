@@ -7,10 +7,15 @@
 /** @typedef {Record<string, string>} Responses */
 
 /**
+ * @typedef {'url' | 'phone' | 'email'} NoteType
+ */
+
+/**
  * @typedef {Object} InstalledInfo
  * @property {Record<string, Question>} questions
  * @property {Responses} responses
  * @property {Record<string, string>} notes
+ * @property {Record<string, NoteType>} [note_types]
  */
 
 /**
