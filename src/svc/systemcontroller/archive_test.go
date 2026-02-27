@@ -116,7 +116,7 @@ func TestDownloadCompressProgram(t *testing.T) {
 			if contentType != tt.wantType {
 				t.Fatalf("content type: expected %q, got %q", tt.wantType, contentType)
 			}
-			filename := downloadFilename(tt.format)
+			filename := downloadFilename("", tt.format)
 			if filename != tt.wantFilename {
 				t.Fatalf("filename: expected %q, got %q", tt.wantFilename, filename)
 			}
