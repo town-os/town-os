@@ -46,6 +46,7 @@ export default function PackageManagement() {
   // Package state
   const [uninstallConfirm, setUninstallConfirm] = useState(null)
   const [purgeVolumes, setPurgeVolumes] = useState(false)
+  const [clearedCachedFields, setClearedCachedFields] = useState({})
   const [questionsDialog, setQuestionsDialog] = useState({ open: false })
   const [infoDialog, setInfoDialog] = useState({ open: false })
   const [versionSelectDialog, setVersionSelectDialog] = useState({ open: false })
@@ -198,6 +199,7 @@ export default function PackageManagement() {
       const mergedResponses = { ...(lastResponses || {}), ...(existingResponses || {}) }
 
       if (questions && Object.keys(questions).length > 0) {
+        setClearedCachedFields({})
         setQuestionsDialog({
           open: true,
           repo,
@@ -341,7 +343,13 @@ export default function PackageManagement() {
 
   const packageColumns = [
     { key: 'repo', label: 'Repository' },
-    { key: 'name', label: 'Name' },
+    {
+      key: 'name',
+      label: 'Name',
+      transform: (v, row) => (
+        <span className="inline-flex items-center gap-1">{v}{row.featured && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}</span>
+      ),
+    },
     {
       key: 'description',
       label: 'Description',
@@ -617,7 +625,7 @@ export default function PackageManagement() {
                           return (
                             <TableRow key={`${pkg.repo}/${pkg.name}`}>
                               <TableCell>
-                                <span className="font-mono text-sm pl-6">{pkg.name}</span>
+                                <span className="font-mono text-sm pl-6 inline-flex items-center gap-1">{pkg.name}{pkg.featured && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}</span>
                               </TableCell>
                               <TableCell>
                                 <span className="font-mono text-sm">{pkg.version}</span>
@@ -950,6 +958,11 @@ export default function PackageManagement() {
                         {question.type === 'duration' && (
                           <p className="text-xs text-muted-foreground">
                             Duration format: use s (seconds), m (minutes), h (hours), or d (days)
+                          </p>
+                        )}
+                        {!cachedValue && question.default && (
+                          <p className="text-sm text-muted-foreground">
+                            Default: <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">{question.default}</code>
                           </p>
                         )}
                         {fieldError && (

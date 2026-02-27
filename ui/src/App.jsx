@@ -17,6 +17,7 @@ import SystemManagement from '@/routes/SystemManagement.jsx'
 import PackageManagement from '@/routes/PackageManagement.jsx'
 import AuditLog from '@/routes/AuditLog.jsx'
 import SystemSettings from '@/routes/SystemSettings.jsx'
+import PagesManagement from '@/routes/PagesManagement.jsx'
 
 function DashboardRoute({ children }) {
   return <Dashboard>{children}</Dashboard>
@@ -84,6 +85,14 @@ export default function App() {
             element={
               <DashboardRoute>
                 <AuditLog />
+              </DashboardRoute>
+            }
+          />
+          <Route
+            path="/dashboard/pages"
+            element={
+              <DashboardRoute>
+                <PagesManagement />
               </DashboardRoute>
             }
           />

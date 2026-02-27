@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -31,6 +32,8 @@ type systemControllerBackend interface {
 	GetSessionManager() account.SessionManager
 	GetAuditManager() account.AuditManager
 	GetSettingsManager() account.SettingsManager
+	GetPagesStore() *PagesStore
+	GetGitClient() git.Client
 	GetAllowedHosts() []string
 	GetDefaultRepoCredentials() (string, string)
 	GetBtrfsBasePath() string
@@ -121,6 +124,12 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/settings/set", s.setSetting, s.requireAdmin)
 	e.Add("POST", "/storage/upload-archive", s.uploadArchive, s.requireAdmin)
 	e.Add("POST", "/storage/download-archive", s.downloadArchive, s.requireAdmin)
+	e.Add("POST", "/packages/rebuild-git", s.rebuildGit, s.requireAdmin)
+	e.Add("POST", "/pages/create", s.createPage, s.requireAdmin)
+	e.Add("POST", "/pages/update", s.updatePage, s.requireAdmin)
+	e.Add("POST", "/pages/remove", s.removePage, s.requireAdmin)
+	e.Add("POST", "/pages/rebuild", s.rebuildPage, s.requireAdmin)
+	e.Add("GET", "/pages", s.listPages, s.requireAuth)
 }
 
 // --- Server infrastructure ---
@@ -134,6 +143,8 @@ type ServerConfig struct {
 	SessionMgr               account.SessionManager
 	AuditMgr                 account.AuditManager
 	SettingsMgr              account.SettingsManager
+	Pages                    *PagesStore
+	Git                      git.Client
 	AllowedHosts             []string
 	DefaultRepoUser          string
 	DefaultRepoPass          string
@@ -172,6 +183,8 @@ func (s *serverBase) GetAccountManager() account.Manager          { return s.Acc
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
 func (s *serverBase) GetSettingsManager() account.SettingsManager  { return s.SettingsMgr }
+func (s *serverBase) GetPagesStore() *PagesStore                  { return s.Pages }
+func (s *serverBase) GetGitClient() git.Client                    { return s.Git }
 func (s *serverBase) GetAllowedHosts() []string                   { return s.AllowedHosts }
 func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 	return s.DefaultRepoUser, s.DefaultRepoPass

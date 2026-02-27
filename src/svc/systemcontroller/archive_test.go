@@ -14,12 +14,13 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-func TestArchiveFormat(t *testing.T) {
+func TestArchiveFormatFromExtension(t *testing.T) {
 	tests := map[string]struct {
 		filename string
 		want     string
@@ -60,6 +61,69 @@ func TestArchiveFormat(t *testing.T) {
 	}
 }
 
+func TestArchiveFormatMagicBytes(t *testing.T) {
+	tests := map[string]struct {
+		header  []byte
+		want    string
+		wantErr bool
+	}{
+		"gzip":  {[]byte{0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00}, "tar.gz", false},
+		"bzip2": {[]byte{0x42, 0x5a, 0x68, 0x39, 0x31, 0x41}, "tar.bz2", false},
+		"xz":    {[]byte{0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00}, "tar.xz", false},
+		"unknown": {[]byte{0x50, 0x4b, 0x03, 0x04, 0x00, 0x00}, "", true},
+		"short": {[]byte{0x1f}, "", true},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, _, err := detectArchiveFormat(bytes.NewReader(tt.header))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestDownloadCompressProgram(t *testing.T) {
+	tests := map[string]struct {
+		format       string
+		wantProgram  string
+		wantType     string
+		wantFilename string
+	}{
+		"tar.gz":  {"tar.gz", "pigz", "application/gzip", "download.tar.gz"},
+		"tar.bz2": {"tar.bz2", "lbzip2", "application/x-bzip2", "download.tar.bz2"},
+		"tar.xz":  {"tar.xz", "xz", "application/x-xz", "download.tar.xz"},
+		"default":  {"", "", "application/gzip", "download.tar.gz"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			program := compressProgramArg(tt.format)
+			if program != tt.wantProgram {
+				t.Fatalf("program: expected %q, got %q", tt.wantProgram, program)
+			}
+			contentType := downloadContentType(tt.format)
+			if contentType != tt.wantType {
+				t.Fatalf("content type: expected %q, got %q", tt.wantType, contentType)
+			}
+			filename := downloadFilename(tt.format)
+			if filename != tt.wantFilename {
+				t.Fatalf("filename: expected %q, got %q", tt.wantFilename, filename)
+			}
+		})
+	}
+}
+
 // archiveTestBackend is a minimal systemControllerBackend for archive tests.
 type archiveTestBackend struct {
 	settingsMgr account.SettingsManager
@@ -75,6 +139,8 @@ func (b *archiveTestBackend) GetAccountManager() account.Manager                
 func (b *archiveTestBackend) GetSessionManager() account.SessionManager           { return nil }
 func (b *archiveTestBackend) GetAuditManager() account.AuditManager               { return nil }
 func (b *archiveTestBackend) GetSettingsManager() account.SettingsManager          { return b.settingsMgr }
+func (b *archiveTestBackend) GetPagesStore() *PagesStore                          { return nil }
+func (b *archiveTestBackend) GetGitClient() git.Client                            { return nil }
 func (b *archiveTestBackend) GetAllowedHosts() []string                           { return nil }
 func (b *archiveTestBackend) GetDefaultRepoCredentials() (string, string)         { return "", "" }
 func (b *archiveTestBackend) GetBtrfsBasePath() string                            { return b.btrfsBase }
@@ -258,12 +324,12 @@ func TestServiceNameFromVolumePath(t *testing.T) {
 		input string
 		want  string
 	}{
-		"full path":    {"repo/nginx/1.0/data", "town-os-package--repo-nginx-1.0.service"},
-		"no vol name":  {"repo/nginx/1.0", "town-os-package--repo-nginx-1.0.service"},
-		"deep path":    {"myrepo/app/2.5/logs/sub", "town-os-package--myrepo-app-2.5.service"},
-		"too short":    {"repo/name", ""},
-		"single":       {"repo", ""},
-		"empty":        {"", ""},
+		"full path":   {"repo/nginx/1.0/data", "town-os-package--repo-nginx-1.0.service"},
+		"no vol name": {"repo/nginx/1.0", "town-os-package--repo-nginx-1.0.service"},
+		"deep path":   {"myrepo/app/2.5/logs/sub", "town-os-package--myrepo-app-2.5.service"},
+		"too short":   {"repo/name", ""},
+		"single":      {"repo", ""},
+		"empty":       {"", ""},
 	}
 
 	for name, tt := range tests {

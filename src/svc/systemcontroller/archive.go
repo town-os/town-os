@@ -301,10 +301,17 @@ func validateTarStream(ctx context.Context, r io.Reader) <-chan error {
 // the target subvolume via tar's stdin, with no temp files or staging.
 // If subpath is non-empty, the archive is unpacked into that subdirectory
 // within the subvolume (created with MkdirAll if it does not exist).
-func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, filename, targetSubvol, subpath string) error {
-	format, err := archiveFormat(filename)
+func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader *bufio.Reader, filename, targetSubvol, subpath string) error {
+	// Detect format from magic bytes first.
+	format, magicReader, err := detectArchiveFormat(archiveReader)
 	if err != nil {
 		return err
+	}
+	_ = magicReader // archiveReader is already a *bufio.Reader that replays peeked bytes
+
+	// Also validate the extension independently.
+	if _, extErr := archiveFormat(filename); extErr != nil {
+		return extErr
 	}
 
 	basePath := s.Controller.GetBtrfsBasePath()
@@ -525,7 +532,8 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		}()
 	}
 
-	if err := s.streamUnpackToSubvolume(ctx, file, header.Filename, subvolume, subpath); err != nil {
+	br := bufio.NewReader(file)
+	if err := s.streamUnpackToSubvolume(ctx, br, header.Filename, subvolume, subpath); err != nil {
 		if errors.Is(err, ErrArchiveTooLarge) {
 			return echo.NewHTTPError(http.StatusForbidden, err.Error())
 		}
