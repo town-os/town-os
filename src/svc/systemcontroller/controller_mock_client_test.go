@@ -947,7 +947,7 @@ func TestMockClientUploadArchiveError(t *testing.T) {
 
 func TestMockClientDownloadArchive(t *testing.T) {
 	m := InitMockClient()
-	reader, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "", "")
+	reader, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -962,8 +962,33 @@ func TestMockClientDownloadArchive(t *testing.T) {
 func TestMockClientDownloadArchiveError(t *testing.T) {
 	m := InitMockClient()
 	m.DownloadArchiveErr = errors.New("download failed")
-	_, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "", "")
+	_, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "", "", "")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestMockClientDownloadArchiveWithFilename(t *testing.T) {
+	m := InitMockClient()
+	reader, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "", "tar.gz", "my-backup")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	// Verify the filename argument was recorded.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	found := false
+	for _, c := range m.Calls {
+		if c.Method == "DownloadArchive" && len(c.Args) >= 5 {
+			if fn, ok := c.Args[4].(string); ok && fn == "my-backup" {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected filename argument to be recorded in mock calls")
 	}
 }

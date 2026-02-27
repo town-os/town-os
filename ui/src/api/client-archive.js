@@ -37,15 +37,21 @@ SystemControllerClient.prototype.uploadArchive = async function (subvolume, file
 }
 
 /**
- * Download an archive of the specified subvolume.
+ * Download a compressed archive of the specified subvolume.
  * Returns the raw Response so the caller can stream resp.body to disk.
+ *
+ * Calls POST /storage/download-archive on the Control Plane Service.
+ *
  * @param {string} subvolume - Source subvolume name.
  * @param {string[]} [paths] - Paths within the subvolume to include; omit to include everything.
  * @param {string} [stopService] - When provided, stop this systemd service during archival.
- * @param {string} [format] - Compression format: "tar.gz" (default), "tar.bz2", "tar.xz"
+ * @param {string} [format] - Compression format: "tar.gz" (default), "tar.bz2", or "tar.xz".
+ * @param {string} [filename] - Custom download filename. The server sanitizes the value
+ *   and appends the appropriate archive extension. When omitted the server uses "download"
+ *   as the base name (e.g. "download.tar.gz").
  * @returns {Promise<Response>}
  */
-SystemControllerClient.prototype.downloadArchive = async function (subvolume, paths, stopService, format) {
+SystemControllerClient.prototype.downloadArchive = async function (subvolume, paths, stopService, format, filename) {
   /** @type {HeadersInit} */
   const headers = { 'Content-Type': 'application/json' }
   if (this.token) {
@@ -56,6 +62,7 @@ SystemControllerClient.prototype.downloadArchive = async function (subvolume, pa
   if (paths && paths.length > 0) body.paths = paths
   if (stopService) body.stop_service = stopService
   if (format) body.format = format
+  if (filename) body.filename = filename
 
   const resp = await fetch(`${this.baseURL}/storage/download-archive`, {
     method: 'POST',

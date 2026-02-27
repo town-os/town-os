@@ -429,9 +429,10 @@ export default function StorageManagement() {
     const stopService = form.downloadStopService?.checked ? downloadDialog.serviceName : ''
     const format = form.downloadFormat?.value || 'tar.gz'
     const info = FORMAT_OPTIONS[format] || FORMAT_OPTIONS['tar.gz']
+    const customFilename = (form.downloadFilename?.value || '').trim()
     try {
-      const resp = await getClient().downloadArchive(subvolume, paths.length > 0 ? paths : undefined, stopService, format)
-      const filename = `download${info.ext}`
+      const resp = await getClient().downloadArchive(subvolume, paths.length > 0 ? paths : undefined, stopService, format, customFilename || undefined)
+      const filename = (customFilename || 'download') + info.ext
       if (window.showSaveFilePicker) {
         const handle = await window.showSaveFilePicker({
           suggestedName: filename,
@@ -727,6 +728,17 @@ export default function StorageManagement() {
             <code className="text-xs bg-muted px-1 rounded">{downloadDialog.displayName}</code>
           </div>
           <form onSubmit={handleDownload} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="downloadFilename">Filename (optional)</Label>
+              <Input
+                id="downloadFilename"
+                name="downloadFilename"
+                placeholder={downloadDialog.displayName || 'download'}
+              />
+              <p className="text-xs text-muted-foreground">
+                Base name for the downloaded file. The archive extension is added automatically.
+              </p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="downloadFormat">Compression Format</Label>
               <select

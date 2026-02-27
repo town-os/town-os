@@ -222,3 +222,50 @@ func TestHTTPDownloadArchiveInvalidFormat(t *testing.T) {
 		t.Fatalf("expected 400 for unsupported format, got %d", resp.StatusCode)
 	}
 }
+
+func TestHTTPDownloadArchiveWithFilename(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := InitTestServer(ServerConfig{Storage: mock, BtrfsBasePath: t.TempDir()})
+	t.Cleanup(ts.Close)
+
+	tests := map[string]struct {
+		filename string
+		format   string
+		want     string
+	}{
+		"custom name":          {"my-backup", "tar.gz", "attachment; filename=my-backup.tar.gz"},
+		"custom name bz2":      {"my-backup", "tar.bz2", "attachment; filename=my-backup.tar.bz2"},
+		"custom name xz":       {"my-backup", "tar.xz", "attachment; filename=my-backup.tar.xz"},
+		"empty uses default":   {"", "tar.gz", "attachment; filename=download.tar.gz"},
+		"strips path":          {"../../../etc/passwd", "tar.gz", "attachment; filename=passwd.tar.gz"},
+		"deduplicates ext":     {"my-backup.tar.gz", "tar.gz", "attachment; filename=my-backup.tar.gz"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			body, err := json.Marshal(DownloadArchiveRequest{
+				Subvolume: "installed/repo/pkg/1.0/data",
+				Format:    tt.format,
+				Filename:  tt.filename,
+			})
+			if err != nil {
+				t.Fatalf("json.Marshal: %v", err)
+			}
+			req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/download-archive"), bytes.NewReader(body))
+			if err != nil {
+				t.Fatalf("NewRequestWithContext: %v", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := ts.Server.Client().Do(req)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			got := resp.Header.Get("Content-Disposition")
+			if got != tt.want {
+				t.Fatalf("Content-Disposition = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

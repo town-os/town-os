@@ -79,12 +79,17 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 
 // DownloadArchive creates an archive of the specified paths within the named
 // subvolume and returns a reader for the archive data. The format parameter
-// selects the compression: "tar.gz", "tar.bz2", or "tar.xz". When stopService
-// is non-empty, the named systemd service is stopped during archival. The
-// caller must close the returned [io.ReadCloser].
-func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService, format string) (_ io.ReadCloser, err error) {
+// selects the compression: "tar.gz" (default), "tar.bz2", or "tar.xz". The
+// filename parameter sets the download filename in the server's
+// Content-Disposition header; when empty the server uses "download" with the
+// appropriate archive extension. When stopService is non-empty, the named
+// systemd service is stopped during archival. The caller must close the
+// returned [io.ReadCloser].
+//
+// Calls POST /storage/download-archive on the Control Plane Service.
+func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService, format, filename string) (_ io.ReadCloser, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, DownloadArchiveRequest{Subvolume: subvolume, Paths: paths, StopService: stopService, Format: format})
+	go pipeEncode(pw, DownloadArchiveRequest{Subvolume: subvolume, Paths: paths, StopService: stopService, Format: format, Filename: filename})
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route("storage/download-archive"), pr)
 	if err != nil {

@@ -196,7 +196,8 @@ The maximum upload size is controlled by the `max_archive_size` setting (default
   "subvolume": "installed/repo/pkg/1.0/data",
   "paths": ["data", "config"],
   "stop_service": "pkg.service",
-  "format": "tar.gz"
+  "format": "tar.gz",
+  "filename": "my-backup"
 }
 ```
 
@@ -205,6 +206,8 @@ The `format` field selects the compression algorithm for the downloaded archive.
 - `tar.gz` (default) -- compressed with `pigz`, Content-Type: `application/gzip`
 - `tar.bz2` -- compressed with `lbzip2`, Content-Type: `application/x-bzip2`
 - `tar.xz` -- compressed with `xz`, Content-Type: `application/x-xz`
+
+The optional `filename` field sets the base name used in the `Content-Disposition` header. The appropriate archive extension (e.g. `.tar.gz`) is appended automatically. Path separators and control characters are stripped for safety. When omitted the default name `download` is used (e.g. `download.tar.gz`).
 
 Returns a compressed tar archive of the requested subvolume contents. All subvolumes are allowed, including `installed/*` and `uninstalled/*`. If `stop_service` is set, the unit is stopped before archiving and restarted afterward. If `paths` is provided, only those paths within the subvolume are included.
 

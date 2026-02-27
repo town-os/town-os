@@ -50,6 +50,7 @@ type DownloadArchiveRequest struct {
 	Paths       []string `json:"paths,omitempty"`
 	StopService string   `json:"stop_service,omitempty"`
 	Format      string   `json:"format,omitempty"`
+	Filename    string   `json:"filename,omitempty"`
 }
 
 // archiveFormat detects the archive format from the filename extension.
@@ -158,16 +159,66 @@ func downloadContentType(format string) string {
 	}
 }
 
-// downloadFilename returns a default filename for the given download format.
-func downloadFilename(format string) string {
+// downloadExtension returns the file extension for the given download format.
+func downloadExtension(format string) string {
 	switch format {
 	case "tar.bz2":
-		return "download.tar.bz2"
+		return ".tar.bz2"
 	case "tar.xz":
-		return "download.tar.xz"
+		return ".tar.xz"
 	default:
-		return "download.tar.gz"
+		return ".tar.gz"
 	}
+}
+
+// sanitizeFilename strips path separators and control characters from a
+// user-supplied filename, returning only the base name component. An empty
+// result means the input was invalid.
+func sanitizeFilename(name string) string {
+	// Take only the base name to prevent path traversal.
+	name = filepath.Base(name)
+	if name == "." || name == ".." || name == "/" {
+		return ""
+	}
+
+	// Strip any remaining control characters.
+	var b strings.Builder
+	for _, r := range name {
+		if r >= 32 && r != 127 {
+			b.WriteRune(r)
+		}
+	}
+
+	return b.String()
+}
+
+// downloadFilename returns the filename for the Content-Disposition header.
+// When a custom name is provided it is sanitized and the appropriate archive
+// extension is appended. Otherwise a default "download" name is used.
+func downloadFilename(customName, format string) string {
+	ext := downloadExtension(format)
+	if customName == "" {
+		return "download" + ext
+	}
+
+	// Remove any existing archive extension so it isn't doubled.
+	safe := sanitizeFilename(customName)
+	if safe == "" {
+		return "download" + ext
+	}
+
+	for _, suffix := range []string{".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz2", ".txz"} {
+		if strings.HasSuffix(strings.ToLower(safe), suffix) {
+			safe = safe[:len(safe)-len(suffix)]
+			break
+		}
+	}
+
+	if safe == "" {
+		return "download" + ext
+	}
+
+	return safe + ext
 }
 
 // validDownloadFormat returns true if the given format string is a
@@ -610,7 +661,7 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	}
 
 	c.Response().Header().Set("Content-Type", downloadContentType(format))
-	c.Response().Header().Set("Content-Disposition", "attachment; filename="+downloadFilename(format))
+	c.Response().Header().Set("Content-Disposition", "attachment; filename="+downloadFilename(req.Filename, format))
 	c.Response().WriteHeader(200)
 
 	if err := cmd.Start(); err != nil {

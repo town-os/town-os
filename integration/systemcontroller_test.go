@@ -4582,7 +4582,7 @@ func TestArchiveUploadAndDownload(t *testing.T) {
 	}
 
 	// Download the archive and verify contents.
-	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "")
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive: %v", err)
 	}
@@ -4630,7 +4630,7 @@ func TestArchiveDownloadWithPaths(t *testing.T) {
 	}
 
 	// Download with only a.txt requested.
-	rc, err := c.DownloadArchive(ctx, subvol, []string{"a.txt"}, "", "")
+	rc, err := c.DownloadArchive(ctx, subvol, []string{"a.txt"}, "", "", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive: %v", err)
 	}
@@ -4746,7 +4746,7 @@ func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
 		t.Fatalf("expected %q, got %q", "package data", string(got))
 	}
 
-	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "")
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive on installed volume: %v", err)
 	}
@@ -4818,7 +4818,7 @@ func TestArchiveDownloadInstalledSubvolume(t *testing.T) {
 	// Installed volumes are now allowed for archive operations.
 	// This will fail with a tar error (directory doesn't exist) rather
 	// than a reserved filesystem error.
-	_, err := c.DownloadArchive(ctx, "installed/repo/pkg/1.0/data", nil, "", "")
+	_, err := c.DownloadArchive(ctx, "installed/repo/pkg/1.0/data", nil, "", "", "")
 	if err == nil {
 		// If the directory happens to exist, the download would succeed.
 		return
@@ -4849,7 +4849,7 @@ func TestArchiveDownloadWithBzip2Format(t *testing.T) {
 	}
 
 	// Download as bzip2.
-	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "tar.bz2")
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "tar.bz2", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive bzip2: %v", err)
 	}
@@ -4889,7 +4889,7 @@ func TestArchiveDownloadWithXZFormat(t *testing.T) {
 	}
 
 	// Download as xz.
-	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "tar.xz")
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "tar.xz", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive xz: %v", err)
 	}
@@ -4912,12 +4912,45 @@ func TestArchiveDownloadInvalidFormat(t *testing.T) {
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 
-	_, err := c.DownloadArchive(ctx, "anything", nil, "", "tar.zst")
+	_, err := c.DownloadArchive(ctx, "anything", nil, "", "tar.zst", "")
 	if err == nil {
 		t.Fatal("expected error for unsupported download format")
 	}
 	if !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("expected unsupported error, got: %v", err)
+	}
+}
+
+func TestArchiveDownloadWithFilename(t *testing.T) {
+	c := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-filename"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	archive := makeTarGz(t, map[string]string{"data.txt": "test data"})
+	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz", "", ""); err != nil {
+		t.Fatalf("UploadArchive: %v", err)
+	}
+
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "", "my-backup")
+	if err != nil {
+		t.Fatalf("DownloadArchive with filename: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	files := extractTarGz(t, rc)
+	if _, ok := files["data.txt"]; !ok {
+		if _, ok = files["./data.txt"]; !ok {
+			t.Fatalf("data.txt not found in downloaded archive, got keys: %v", mapKeys(files))
+		}
 	}
 }
 

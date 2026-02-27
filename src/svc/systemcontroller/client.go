@@ -171,9 +171,14 @@ type Client interface {
 	UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename, subpath, stopService string) (*ArchiveUploadResponse, error)
 	// DownloadArchive creates an archive of the specified paths within a
 	// subvolume and returns a reader for the archive data. The format parameter
-	// selects the compression: "tar.gz", "tar.bz2", or "tar.xz". The caller
-	// must close the returned reader.
-	DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService, format string) (io.ReadCloser, error)
+	// selects the compression: "tar.gz" (default), "tar.bz2", or "tar.xz".
+	// The filename parameter sets the download filename in the server's
+	// Content-Disposition header; when empty, the server uses "download"
+	// with the appropriate archive extension. The caller must close the
+	// returned reader.
+	//
+	// Calls POST /storage/download-archive on the Control Plane Service.
+	DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService, format, filename string) (io.ReadCloser, error)
 
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)

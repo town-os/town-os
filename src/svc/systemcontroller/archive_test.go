@@ -486,7 +486,7 @@ func TestDownloadContentType(t *testing.T) {
 	}
 }
 
-func TestDownloadFilename(t *testing.T) {
+func TestDownloadFilenameDefaults(t *testing.T) {
 	tests := map[string]string{
 		"tar.gz":  "download.tar.gz",
 		"tar.bz2": "download.tar.bz2",
@@ -496,9 +496,84 @@ func TestDownloadFilename(t *testing.T) {
 
 	for format, want := range tests {
 		t.Run(format, func(t *testing.T) {
-			got := downloadFilename(format)
+			got := downloadFilename("", format)
 			if got != want {
-				t.Fatalf("downloadFilename(%q) = %q, want %q", format, got, want)
+				t.Fatalf("downloadFilename(%q, %q) = %q, want %q", "", format, got, want)
+			}
+		})
+	}
+}
+
+func TestDownloadFilenameCustom(t *testing.T) {
+	tests := map[string]struct {
+		name   string
+		format string
+		want   string
+	}{
+		"simple name":           {"my-backup", "tar.gz", "my-backup.tar.gz"},
+		"name with bz2":        {"my-backup", "tar.bz2", "my-backup.tar.bz2"},
+		"name with xz":         {"my-backup", "tar.xz", "my-backup.tar.xz"},
+		"name with extension":  {"my-backup.tar.gz", "tar.gz", "my-backup.tar.gz"},
+		"name with wrong ext":  {"my-backup.tar.bz2", "tar.gz", "my-backup.tar.gz"},
+		"name with tgz":        {"my-backup.tgz", "tar.gz", "my-backup.tar.gz"},
+		"path traversal":       {"../../../etc/passwd", "tar.gz", "passwd.tar.gz"},
+		"path separator":       {"dir/subdir/file", "tar.gz", "file.tar.gz"},
+		"empty after sanitize": {"..", "tar.gz", "download.tar.gz"},
+		"only extension":       {".tar.gz", "tar.gz", "download.tar.gz"},
+		"control chars":        {"my\x00file\x1f", "tar.gz", "myfile.tar.gz"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := downloadFilename(tt.name, tt.format)
+			if got != tt.want {
+				t.Fatalf("downloadFilename(%q, %q) = %q, want %q", tt.name, tt.format, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeFilename(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		want  string
+	}{
+		"simple":         {"backup", "backup"},
+		"with extension": {"backup.tar.gz", "backup.tar.gz"},
+		"path traversal": {"../../etc/passwd", "passwd"},
+		"path sep":       {"a/b/c", "c"},
+		"dot":            {".", ""},
+		"dotdot":         {"..", ""},
+		"slash":          {"/", ""},
+		"control chars":  {"abc\x00def\x1f", "abcdef"},
+		"delete char":    {"abc\x7fdef", "abcdef"},
+		"normal spaces":  {"my file", "my file"},
+		"empty":          {"", ""},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := sanitizeFilename(tt.input)
+			if got != tt.want {
+				t.Fatalf("sanitizeFilename(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDownloadExtension(t *testing.T) {
+	tests := map[string]string{
+		"tar.gz":  ".tar.gz",
+		"tar.bz2": ".tar.bz2",
+		"tar.xz":  ".tar.xz",
+		"":        ".tar.gz",
+	}
+
+	for format, want := range tests {
+		t.Run(format, func(t *testing.T) {
+			got := downloadExtension(format)
+			if got != want {
+				t.Fatalf("downloadExtension(%q) = %q, want %q", format, got, want)
 			}
 		})
 	}
