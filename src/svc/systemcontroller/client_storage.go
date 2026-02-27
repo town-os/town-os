@@ -22,6 +22,18 @@ func (c *SystemdClient) CreateFilesystem(ctx context.Context, fs storage.Filesys
 }
 
 // ModifyFilesystem renames or resizes an existing filesystem.
+//
+// Parameters:
+//   - name: the current full filesystem name (e.g. "myvolume" for user volumes,
+//     or "installed/repo/pkg/1.0/data" for package volumes).
+//   - fs: the desired state. fs.Name is the new name (must equal name for package
+//     volumes; renaming is only allowed for user filesystems). fs.Quota is the
+//     new quota in bytes (0 means unlimited).
+//
+// The Control Plane Service rejects rename attempts on package volumes
+// (installed/ or uninstalled/ prefix) with storage.ErrPackageVolumeRename.
+//
+// Calls POST /storage/modify on the Control Plane Service.
 func (c *SystemdClient) ModifyFilesystem(ctx context.Context, name string, fs storage.Filesystem) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, ModifyFilesystemRequest{Name: name, Filesystem: fs})

@@ -218,6 +218,48 @@ func TestSystemControllerModifyFilesystem(t *testing.T) {
 	}
 }
 
+func TestSystemControllerModifyPackageVolumeRenameRejected(t *testing.T) {
+	c, btr := initSystemControllerTestWithStorage(t)
+
+	volPath := "installed/repo/pkg/1.0/data"
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: volPath}); err != nil {
+		t.Fatalf("CreateFilesystem(%q): %v", volPath, err)
+	}
+	t.Cleanup(func() {
+		if err := btr.RemoveFilesystem(volPath); err != nil {
+			t.Logf("cleanup RemoveFilesystem(%q): %v", volPath, err)
+		}
+	})
+
+	err := c.ModifyFilesystem(context.TODO(), volPath, storage.Filesystem{
+		Name: "installed/repo/pkg/1.0/renamed",
+	})
+	if err == nil {
+		t.Fatal("expected error when renaming installed package volume")
+	}
+}
+
+func TestSystemControllerModifyPackageVolumeQuotaAllowed(t *testing.T) {
+	c, btr := initSystemControllerTestWithStorage(t)
+
+	volPath := "installed/repo/pkg/1.0/data"
+	if err := btr.CreateFilesystem(storage.Filesystem{Name: volPath}); err != nil {
+		t.Fatalf("CreateFilesystem(%q): %v", volPath, err)
+	}
+	t.Cleanup(func() {
+		if err := btr.RemoveFilesystem(volPath); err != nil {
+			t.Logf("cleanup RemoveFilesystem(%q): %v", volPath, err)
+		}
+	})
+
+	if err := c.ModifyFilesystem(context.TODO(), volPath, storage.Filesystem{
+		Name:  volPath,
+		Quota: 4096,
+	}); err != nil {
+		t.Fatalf("ModifyFilesystem quota on installed volume: %v", err)
+	}
+}
+
 func TestSystemControllerFullLifecycle(t *testing.T) {
 	c := initSystemControllerTest(t)
 

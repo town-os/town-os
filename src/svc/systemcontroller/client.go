@@ -29,6 +29,9 @@ type Client interface {
 	// CreateFilesystem creates a new btrfs subvolume.
 	CreateFilesystem(ctx context.Context, fs storage.Filesystem) error
 	// ModifyFilesystem renames or resizes an existing filesystem.
+	// Renaming is only allowed for user filesystems; package volumes
+	// (installed/ or uninstalled/ prefix) cannot be renamed and will
+	// return storage.ErrPackageVolumeRename if fs.Name differs from name.
 	ModifyFilesystem(ctx context.Context, name string, fs storage.Filesystem) error
 	// RemoveFilesystem deletes a filesystem by name.
 	RemoveFilesystem(ctx context.Context, name string) error

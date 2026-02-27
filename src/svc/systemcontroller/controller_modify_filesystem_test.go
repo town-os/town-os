@@ -146,14 +146,62 @@ func TestModifyInstalledFilesystemQuota(t *testing.T) {
 	}
 }
 
-func TestModifyInstalledFilesystemRename(t *testing.T) {
+func TestModifyInstalledFilesystemRenameRejected(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	injectSubvol(t, controller, "installed/repo/pkg/1.0/data", 0)
+
+	err := c.ModifyFilesystem(context.TODO(), "installed/repo/pkg/1.0/data", storage.Filesystem{
+		Name: "installed/repo/pkg/1.0/renamed",
+	})
+	if err == nil {
+		t.Fatal("expected error when renaming installed package volume")
+	}
+}
+
+func TestModifyUninstalledFilesystemRenameRejected(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	injectSubvol(t, controller, "uninstalled/repo/pkg/1.0/data", 0)
+
+	err := c.ModifyFilesystem(context.TODO(), "uninstalled/repo/pkg/1.0/data", storage.Filesystem{
+		Name: "uninstalled/repo/pkg/1.0/renamed",
+	})
+	if err == nil {
+		t.Fatal("expected error when renaming uninstalled package volume")
+	}
+}
+
+func TestModifyInstalledFilesystemSameNameAllowed(t *testing.T) {
 	c, controller := initTestClient(t)
 
 	injectSubvol(t, controller, "installed/repo/pkg/1.0/data", 0)
 
 	if err := c.ModifyFilesystem(context.TODO(), "installed/repo/pkg/1.0/data", storage.Filesystem{
-		Name: "installed/repo/pkg/1.0/renamed",
+		Name:  "installed/repo/pkg/1.0/data",
+		Quota: 8192,
 	}); err != nil {
-		t.Fatalf("ModifyFilesystem rename on installed volume: %v", err)
+		t.Fatalf("ModifyFilesystem quota-only on installed volume: %v", err)
+	}
+
+	if controller.Quotas["installed/repo/pkg/1.0/data"] != 8192 {
+		t.Fatalf("expected quota 8192, got %d", controller.Quotas["installed/repo/pkg/1.0/data"])
+	}
+}
+
+func TestModifyUninstalledFilesystemQuota(t *testing.T) {
+	c, controller := initTestClient(t)
+
+	injectSubvol(t, controller, "uninstalled/repo/pkg/1.0/data", 0)
+
+	if err := c.ModifyFilesystem(context.TODO(), "uninstalled/repo/pkg/1.0/data", storage.Filesystem{
+		Name:  "uninstalled/repo/pkg/1.0/data",
+		Quota: 2048,
+	}); err != nil {
+		t.Fatalf("ModifyFilesystem quota on uninstalled volume: %v", err)
+	}
+
+	if controller.Quotas["uninstalled/repo/pkg/1.0/data"] != 2048 {
+		t.Fatalf("expected quota 2048, got %d", controller.Quotas["uninstalled/repo/pkg/1.0/data"])
 	}
 }

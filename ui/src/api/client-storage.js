@@ -10,9 +10,19 @@ SystemControllerClient.prototype.createFilesystem = async function (fs) {
 }
 
 /**
- * @param {string} name
- * @param {Filesystem} fs
+ * Modify an existing filesystem's name or quota.
+ *
+ * Renaming is only allowed for user filesystems. Package volumes (those with
+ * an installed/ or uninstalled/ prefix) cannot be renamed; the Control Plane
+ * Service will reject the request if fs.name differs from the original name.
+ *
+ * @param {string} name - Current full filesystem name (e.g. "myvolume" for user
+ *   volumes, or "installed/repo/pkg/1.0/data" for package volumes).
+ * @param {Filesystem} fs - Desired state. fs.name is the new name (must equal
+ *   name for package volumes). fs.quota is the new quota in bytes (0 = unlimited).
  * @returns {Promise<void>}
+ *
+ * Calls POST /storage/modify on the Control Plane Service.
  */
 SystemControllerClient.prototype.modifyFilesystem = async function (name, fs) {
   await this.post('/storage/modify', { name, filesystem: fs })

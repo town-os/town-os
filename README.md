@@ -224,7 +224,7 @@ Returns a compressed tar archive of the requested subvolume contents. All subvol
 }
 ```
 
-This can be used to change the quota or rename installed/uninstalled package volumes.
+This can be used to change the quota of any volume. Renaming is only allowed for user filesystems; package volumes (installed/ or uninstalled/ prefix) cannot be renamed.
 
 ### Auto-Archive from Container Images
 

@@ -11,6 +11,7 @@ var ErrUnimplemented = errors.New("unimplemented call")
 var ErrRootFilesystem = errors.New("cannot modify root filesystem")
 var ErrReservedFilesystem = errors.New("cannot modify reserved filesystem")
 var ErrInvalidName = errors.New("invalid filesystem name")
+var ErrPackageVolumeRename = errors.New("cannot rename package volume")
 
 type Filesystem struct {
 	Name  string `json:"name"`

@@ -33,6 +33,13 @@ func isReservedFilesystem(name string) bool {
 	return false
 }
 
+// isPackageVolume returns true when name is an installed or uninstalled package
+// volume path (has an installed/ or uninstalled/ prefix followed by content).
+func isPackageVolume(name string) bool {
+	return strings.HasPrefix(name, PackagesVolumePrefix+"/") ||
+		strings.HasPrefix(name, UninstalledVolumePrefix+"/")
+}
+
 // classifyFilesystem determines the state of a filesystem based on its name
 // prefix. Returns the state ("user", "installed", "uninstalled") and the
 // display name with internal prefixes stripped. Root subvolumes (installed,
@@ -164,6 +171,10 @@ func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
 
 	if req.Name == "" {
 		return storage.ErrRootFilesystem
+	}
+
+	if isPackageVolume(req.Name) && req.Filesystem.Name != req.Name {
+		return storage.ErrPackageVolumeRename
 	}
 
 	req.Filesystem.State = ""
