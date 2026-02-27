@@ -23,7 +23,7 @@ export default function ConfirmDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          {children && <DialogDescription>{children}</DialogDescription>}
+          <DialogDescription>{children}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>

@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -830,6 +831,7 @@ export default function PackageManagement() {
             <DialogTitle>
               Install {previewDialog.name} {previewDialog.version}
             </DialogTitle>
+            <DialogDescription>Review the installation details before proceeding.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {previewDialog.upgrading_from && (
@@ -935,6 +937,7 @@ export default function PackageManagement() {
             <DialogTitle>
               Install {questionsDialog.name} {questionsDialog.version}
             </DialogTitle>
+            <DialogDescription>Answer the configuration questions below.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleInstallWithResponses}>
             <div className="space-y-4 py-4">
@@ -1037,6 +1040,7 @@ export default function PackageManagement() {
             <DialogTitle>
               {infoDialog.name}@{infoDialog.version}
             </DialogTitle>
+            <DialogDescription>Installed package configuration and notes.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {infoDialog.questions && Object.keys(infoDialog.questions).length > 0 && (
@@ -1119,6 +1123,7 @@ export default function PackageManagement() {
               <FolderGit2 className="h-4 w-4 inline mr-2" />
               Add Repository
             </DialogTitle>
+            <DialogDescription>Add a new package repository by name and URL.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddRepo}>
             <div className="space-y-4 py-4">
@@ -1163,6 +1168,7 @@ export default function PackageManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Install {versionSelectDialog.name}</DialogTitle>
+            <DialogDescription>Select a version to install.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -1214,6 +1220,7 @@ export default function PackageManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Existing Data Found</DialogTitle>
+            <DialogDescription>Choose whether to reuse existing volume data or start fresh.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
@@ -1273,6 +1280,7 @@ export default function PackageManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Uninstall Package</DialogTitle>
+            <DialogDescription>Remove this package and optionally purge its volumes.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">

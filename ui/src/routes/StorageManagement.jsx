@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -644,6 +645,9 @@ export default function StorageManagement() {
               <HardDrive className="h-4 w-4 inline mr-2" />
               {editDialog.create ? 'Create' : 'Modify'} Filesystem
             </DialogTitle>
+            <DialogDescription>
+              {editDialog.create ? 'Create a new btrfs subvolume with an optional quota.' : 'Change the name or quota of this filesystem.'}
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={editDialog.create ? handleCreate : handleModify}>
             <div className="space-y-4 py-4">
@@ -724,6 +728,7 @@ export default function StorageManagement() {
               <Download className="h-4 w-4 inline mr-2" />
               Download Archive
             </DialogTitle>
+            <DialogDescription>Download volume contents as a compressed archive.</DialogDescription>
           </DialogHeader>
           <div className="text-sm text-muted-foreground pb-2">
             <span className="font-medium text-foreground">Volume:</span>{' '}
@@ -789,6 +794,7 @@ export default function StorageManagement() {
               <Upload className="h-4 w-4 inline mr-2" />
               Upload Archive
             </DialogTitle>
+            <DialogDescription>Upload and extract an archive into the volume.</DialogDescription>
           </DialogHeader>
           <div className="text-sm text-muted-foreground pb-2">
             <span className="font-medium text-foreground">Volume:</span>{' '}
@@ -840,6 +846,7 @@ export default function StorageManagement() {
               <Pencil className="h-4 w-4 inline mr-2" />
               Modify Volume
             </DialogTitle>
+            <DialogDescription>Change the name or quota of this volume.</DialogDescription>
           </DialogHeader>
           <div className="space-y-1 text-sm text-muted-foreground pb-2">
             <div><span className="font-medium text-foreground">Volume:</span> {volumeModifyDialog.displayName}</div>

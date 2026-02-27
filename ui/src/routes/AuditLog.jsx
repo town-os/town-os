@@ -9,6 +9,7 @@ import { Check, CircleAlert, FileText } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -198,6 +199,7 @@ export default function AuditLog() {
         <DialogContent className="sm:max-w-md max-h-[70vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Request Parameters: {detailAction}</DialogTitle>
+            <DialogDescription>Detailed request parameters for this audit entry.</DialogDescription>
           </DialogHeader>
           <div className="overflow-auto flex-1 min-h-0 rounded border bg-muted p-3">
             <JsonTree data={detailData} />
@@ -212,6 +214,7 @@ export default function AuditLog() {
               <CircleAlert className="h-4 w-4 text-destructive" />
               Error
             </DialogTitle>
+            <DialogDescription>Details about the error that occurred.</DialogDescription>
           </DialogHeader>
           {errorRow && <ErrorDetail row={errorRow} />}
         </DialogContent>

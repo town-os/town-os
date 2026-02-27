@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -451,11 +452,9 @@ export default function SystemManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Advanced Logs</DialogTitle>
+            <DialogDescription>Quick access to common log views or enter a custom service name.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Quick access to common log views or enter a custom service name.
-            </p>
             <div className="flex flex-col gap-2">
               <Button variant="outline" className="justify-start" onClick={() => {
                 setCustomLogDialog(false)
@@ -536,6 +535,7 @@ export default function SystemManagement() {
                 )
               })()}
             </DialogTitle>
+            <DialogDescription>View and search journal log entries.</DialogDescription>
           </DialogHeader>
           {(journalEntries.length > 0 || searchQuery || hasTimeFilter) && (
             <div className="space-y-2 -mt-2">

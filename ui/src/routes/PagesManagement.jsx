@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -217,6 +218,7 @@ export default function PagesManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Page</DialogTitle>
+            <DialogDescription>Add a new static site by providing a git repository.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate}>
             <div className="space-y-4 py-4">
@@ -254,6 +256,7 @@ export default function PagesManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Page: {editDialog.name}</DialogTitle>
+            <DialogDescription>Update the repository URL, branch, or domain for this page.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdate}>
             <div className="space-y-4 py-4">
