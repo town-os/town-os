@@ -241,7 +241,12 @@ test-integration: lint test-image btrfs .integration-port registry-populate .cac
 	done
 	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.timeout 60m
 
-test-full: test test-integration test-ui-integration
+# Run the full test suite and always clean up containers and btrfs afterward.
+test-full: test
+	@$(MAKE) test-integration test-ui-integration; \
+	rc=$$?; \
+	$(MAKE) clean-integration clean-btrfs; \
+	exit $$rc
 
 test-image: production-image
 	mkdir -p .cache/go-mod .cache/go-build
@@ -328,10 +333,17 @@ preflight-dev: .integration-port
 		{ sudo podman rm -f $(PREFLIGHT_CONTAINER) >/dev/null 2>&1; echo "ERROR: bridge networking (-p) not working"; exit 1; }
 	@echo "All preflight checks passed."
 
-clean-dev: clean-cache
+clean-dev: dev-stop-all clean-cache
 
+# Stop and remove the dev container for this working directory.
 dev-stop:
-	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
+	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER) 2>/dev/null || true
+
+# Stop and remove all town-os dev containers (from any working directory).
+dev-stop-all:
+	@sudo -E podman ps -a --format '{{.Names}}' 2>/dev/null \
+		| grep -E '^town-os-dev$$' \
+		| xargs -r -I{} sudo -E podman rm -f {} 2>/dev/null || true
 
 auto-test:
 	go get github.com/cespare/reflex@latest
@@ -370,9 +382,9 @@ clean-btrfs:
 	rm -f btrfs.* town-os.disk town-os.loop town-os.mount
 
 clean-integration: registry-stop gitea-stop
-	@sudo -E podman rm -f $(PODMAN_CONTAINER)
-	@sudo -E podman rm -f $(PODMAN_UI_BACKEND)
-	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER)
+	@sudo -E podman rm -f $(PODMAN_CONTAINER) 2>/dev/null || true
+	@sudo -E podman rm -f $(PODMAN_UI_BACKEND) 2>/dev/null || true
+	@sudo -E podman rm -f $(PODMAN_UI_CONTAINER) 2>/dev/null || true
 	@rm -f .integration-port
 
 clean: clean-cache
@@ -384,4 +396,13 @@ clean-cache: dev-stop clean-btrfs-dev
 clean-image-cache:
 	sudo rm -rf $(IMAGE_CACHE)
 
-clean-all: clean clean-dev clean-integration clean-btrfs
+# Remove all town-os containers from any working directory / instance.
+clean-containers:
+	@sudo -E podman ps -a --format '{{.Names}}' 2>/dev/null \
+		| grep -E '^(town-os-(test|dev|registry|gitea|ui-(integration|backend))|preflight-test)-' \
+		| xargs -r -I{} sudo -E podman rm -f {} 2>/dev/null || true
+	@sudo -E podman ps -a --format '{{.Names}}' 2>/dev/null \
+		| grep -E '^town-os-dev$$' \
+		| xargs -r -I{} sudo -E podman rm -f {} 2>/dev/null || true
+
+clean-all: clean-containers clean clean-dev clean-integration clean-btrfs

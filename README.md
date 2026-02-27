@@ -149,14 +149,17 @@ The dev and integration test environments use separate btrfs volumes, container 
 
 ### Cleanup
 
+`make test-full` automatically cleans up all integration containers, registry, Gitea, and btrfs volumes after tests complete (even on failure).
+
 | Target                   | Description                                                              |
 | ------------------------ | ------------------------------------------------------------------------ |
 | `make clean`             | Clean dev resources (containers, btrfs, dev-data, dev-repos) and caches. |
-| `make clean-dev`         | Stop the dev container, tear down dev btrfs, remove dev-data/dev-repos.  |
+| `make clean-dev`         | Stop all dev containers, tear down dev btrfs, remove dev-data/dev-repos. |
 | `make clean-cache`       | Same as `clean-dev` (used as a dependency by `clean`).                   |
 | `make clean-integration` | Remove only the integration test containers and port file.               |
 | `make clean-btrfs`       | Unmount and remove the integration test btrfs volume.                    |
-| `make clean-all`         | Clean everything: dev, integration containers, and integration btrfs.    |
+| `make clean-containers`  | Remove all town-os containers from any working directory / instance.     |
+| `make clean-all`         | Clean everything: all containers, dev, integration, and btrfs.           |
 
 ### Linting
 
