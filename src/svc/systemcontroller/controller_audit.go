@@ -1,0 +1,29 @@
+package systemcontroller
+
+import (
+	"encoding/json"
+
+	"gitea.com/town-os/town-os/src/account"
+	"github.com/labstack/echo/v5"
+)
+
+func (s *SystemControllerHandlers) listAuditLog(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	var opts account.AuditListOptions
+
+	if err := de.Decode(&opts); err != nil {
+		return err
+	}
+
+	am := s.Controller.GetAuditManager()
+	if am == nil {
+		return echo.NewHTTPError(500, "audit logging not configured")
+	}
+
+	page, err := am.List(opts)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, page)
+}

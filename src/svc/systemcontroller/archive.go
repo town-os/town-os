@@ -40,6 +40,18 @@ var (
 	ErrInvalidTar         = errors.New("archive does not contain a valid tar stream")
 )
 
+type ArchiveUploadResponse struct {
+	NeedsRestart bool   `json:"needs_restart"`
+	Message      string `json:"message"`
+}
+
+type DownloadArchiveRequest struct {
+	Subvolume   string   `json:"subvolume"`
+	Paths       []string `json:"paths,omitempty"`
+	StopService string   `json:"stop_service,omitempty"`
+	Format      string   `json:"format,omitempty"`
+}
+
 // archiveFormat detects the archive format from the filename extension.
 func archiveFormat(filename string) (string, error) {
 	lower := strings.ToLower(filename)

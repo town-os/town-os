@@ -1,0 +1,99 @@
+/** @import { UnitStatus, JournalEntry, StatusAction } from './types.js' */
+import { ApiError, SystemControllerClient } from './core.js'
+
+/**
+ * @param {string} [sortBy]
+ * @param {string} [sortOrder]
+ * @param {number} [limit]
+ * @param {number} [offset]
+ * @param {string} [search]
+ * @returns {Promise<{entries: UnitStatus[], has_more: boolean, total_pages: number}>}
+ */
+SystemControllerClient.prototype.listUnits = async function (sortBy, sortOrder, limit, offset, search) {
+  const params = new URLSearchParams()
+  if (sortBy) params.set('sort_by', sortBy)
+  if (sortOrder) params.set('sort_order', sortOrder)
+  if (limit) params.set('limit', String(limit))
+  if (offset) params.set('offset', String(offset))
+  if (search) params.set('search', search)
+  const qs = params.toString()
+  return this.getJSON(`/systemd/units${qs ? `?${qs}` : ''}`)
+}
+
+/**
+ * @param {string} unit
+ * @returns {AsyncGenerator<JournalEntry>}
+ */
+SystemControllerClient.prototype.logReplay = async function* (unit) {
+  /** @type {HeadersInit} */
+  const headers = {}
+  if (this.token) {
+    headers['Authorization'] = `Bearer ${this.token}`
+  }
+  const resp = await fetch(
+    `${this.baseURL}/systemd/logs?unit=${encodeURIComponent(unit)}`,
+    { headers },
+  )
+  if (resp.status !== 200) {
+    const text = await resp.text().catch(() => '')
+    throw new ApiError('GET', '/systemd/logs', resp.status, text)
+  }
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        yield JSON.parse(line.slice(6))
+      }
+    }
+  }
+
+  if (buffer.startsWith('data: ')) {
+    yield JSON.parse(buffer.slice(6))
+  }
+}
+
+/**
+ * Fetch a page of journal log entries for a unit with cursor-based pagination.
+ * @param {string} unit - Systemd unit name.
+ * @param {number} [lines=100] - Maximum number of entries to return.
+ * @param {string} [beforeCursor] - Return entries before this opaque cursor (for backward paging).
+ * @param {string} [afterCursor] - Return entries after this opaque cursor (for forward paging).
+ * @param {string} [grep] - Filter to entries whose message contains this substring.
+ * @param {number} [since] - Only entries at or after this Unix timestamp (seconds).
+ * @param {number} [until] - Only entries at or before this Unix timestamp (seconds).
+ * @param {number} [priority] - Maximum syslog priority level to include; 0 disables filtering,
+ *   values 1–7 include entries with priority <= the value (e.g. 3 returns emergency, alert,
+ *   critical, and error).
+ * @returns {Promise<{entries: JournalEntry[], cursor: string, end_cursor: string}>}
+ */
+SystemControllerClient.prototype.logTail = async function (unit, lines = 100, beforeCursor, afterCursor, grep, since, until, priority) {
+  const params = new URLSearchParams({ unit, lines: String(lines) })
+  if (beforeCursor) params.set('before', beforeCursor)
+  if (afterCursor) params.set('after', afterCursor)
+  if (grep) params.set('grep', grep)
+  if (since) params.set('since', String(since))
+  if (until) params.set('until', String(until))
+  if (priority) params.set('priority', String(priority))
+  return this.getJSON(`/systemd/logs/tail?${params.toString()}`)
+}
+
+/**
+ * Apply a status action to a systemd unit.
+ * @param {string} name - Systemd unit name.
+ * @param {StatusAction} action - Action to apply: "start", "stop", or "restart".
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.setUnitStatus = async function (name, action) {
+  await this.post('/systemd/status', { name, action })
+}
