@@ -272,7 +272,13 @@ func TestHTTPListRepositoriesSorted(t *testing.T) {
 }
 
 func TestHTTPListUnitsSortedByPackageIdentifier(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "zeta", Version: "1.0"},
+		{Repo: "repo", Name: "alpha", Version: "1.0"},
+		{Repo: "repo", Name: "middle", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-zeta-1.0.service", Description: "Zeta", LoadState: "loaded", ActiveState: "active", SubState: "running"},
@@ -604,7 +610,13 @@ func TestHTTPListInstalledSearch(t *testing.T) {
 // --- Units combined sort + pagination ---
 
 func TestHTTPListUnitsPaginationWithSort(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "zeta", Version: "1.0"},
+		{Repo: "repo", Name: "alpha", Version: "1.0"},
+		{Repo: "repo", Name: "middle", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-zeta-1.0.service", Description: "Zeta", LoadState: "loaded", ActiveState: "active", SubState: "running"},
@@ -699,7 +711,14 @@ func TestHTTPListRepositoriesTotalPages(t *testing.T) {
 }
 
 func TestHTTPListUnitsTotalPages(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "a", Version: "1.0"},
+		{Repo: "repo", Name: "b", Version: "1.0"},
+		{Repo: "repo", Name: "c", Version: "1.0"},
+		{Repo: "repo", Name: "d", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-a-1.0.service", LoadState: "loaded", ActiveState: "active", SubState: "running"},
@@ -866,7 +885,11 @@ func TestHTTPListAccountsSearchCaseInsensitive(t *testing.T) {
 }
 
 func TestHTTPListUnitsSearchCaseInsensitive(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "MyApp", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-MyApp-1.0.service", Description: "My Application", LoadState: "loaded", ActiveState: "active", SubState: "running"},

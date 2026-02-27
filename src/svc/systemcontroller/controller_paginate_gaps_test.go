@@ -613,7 +613,13 @@ func TestHTTPAuditLogOffsetPagination(t *testing.T) {
 // --- HTTP endpoint: ListUnits search + sort combined ---
 
 func TestHTTPListUnitsSearchWithSort(t *testing.T) {
-	c, sd := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "web-nginx", Version: "1.0"},
+		{Repo: "repo", Name: "web-apache", Version: "1.0"},
+		{Repo: "repo", Name: "db-postgres", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-web-nginx-1.0.service", Description: "NGINX web", LoadState: "loaded", ActiveState: "active", SubState: "running"},
