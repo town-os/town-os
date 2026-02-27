@@ -17,6 +17,7 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
@@ -132,6 +133,39 @@ func fetchCache(ctx context.Context, repoPath string, auth *githttp.BasicAuth) e
 	if err := repo.FetchContext(ctx, opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("fetch: %w", err)
 	}
+
+	// Fast-forward the local default branch to match origin. In a bare repo,
+	// fetch only updates refs/remotes/origin/* — the local branch (which is
+	// what gets pushed to Gitea) can fall behind.
+	return fastForwardHead(repo)
+}
+
+// fastForwardHead updates the local HEAD branch to match its remote tracking
+// ref. This is a no-op if HEAD is detached, not a branch, or the remote ref
+// does not exist.
+func fastForwardHead(repo *gogit.Repository) error {
+	head, err := repo.Head()
+	if err != nil {
+		// No HEAD yet — nothing to fast-forward.
+		return nil //nolint:nilerr // intentional: missing HEAD is not an error here
+	}
+	localBranch := head.Name()
+	if !localBranch.IsBranch() {
+		return nil
+	}
+	branchShort := localBranch.Short()
+	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchShort), true)
+	if err != nil {
+		// Remote ref doesn't exist — nothing to do.
+		return nil //nolint:nilerr // intentional: missing remote ref is not an error here
+	}
+	if head.Hash() != remoteRef.Hash() {
+		ref := plumbing.NewHashReference(localBranch, remoteRef.Hash())
+		if err := repo.Storer.SetReference(ref); err != nil {
+			return fmt.Errorf("fast-forward %s: %w", branchShort, err)
+		}
+		fmt.Fprintf(os.Stderr, "Fast-forwarded %s to %s\n", branchShort, remoteRef.Hash().String()[:8])
+	}
 	return nil
 }
 
@@ -145,7 +179,12 @@ func pushToGitea(ctx context.Context, client *http.Client, giteaURL, cacheDir st
 	}
 
 	if exists && !empty {
-		fmt.Fprintf(os.Stderr, "Repository %s already exists in Gitea, skipping\n", r.Name)
+		// Force-push to update the Gitea repo with any new commits.
+		repoPath := filepath.Join(cacheDir, r.Name+".git")
+		if err := pushRefs(ctx, repoPath, fmt.Sprintf("%s/%s/%s.git", giteaURL, adminUser, r.Name)); err != nil {
+			return fmt.Errorf("update existing repo: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Updated existing Gitea repo %s\n", r.Name)
 		return nil
 	}
 
@@ -271,8 +310,9 @@ func pushRefs(ctx context.Context, repoPath, pushURL string) error {
 
 	err = repo.PushContext(ctx, &gogit.PushOptions{
 		RemoteName: remoteName,
-		RefSpecs:   []gitconfig.RefSpec{"refs/*:refs/*"},
+		RefSpecs:   []gitconfig.RefSpec{"+refs/*:refs/*"},
 		Auth:       auth,
+		Force:      true,
 	})
 	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("push: %w", err)
