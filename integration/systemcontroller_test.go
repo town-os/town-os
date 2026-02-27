@@ -5561,6 +5561,7 @@ func TestGitSourceInstallAndRebuild(t *testing.T) {
 	for _, args := range [][]string{
 		{"git", "-C", workDir, "config", "user.email", "test@test.com"},
 		{"git", "-C", workDir, "config", "user.name", "Test"},
+		{"git", "-C", workDir, "config", "commit.gpgsign", "false"},
 		{"git", "-C", workDir, "add", "."},
 		{"git", "-C", workDir, "commit", "-m", "initial"},
 		{"git", "-C", workDir, "push", "origin", "main"},
@@ -5593,12 +5594,13 @@ network:
 volumes:
   site:
     mountpoint: /var/www/html
+    git: file://%s
 questions: {}
 git_sources:
   - url: %s
     branch: main
     volume: site
-`, bareDir)
+`, bareDir, bareDir)
 
 	repoName := "test-repo"
 	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, "mysite")
@@ -5625,6 +5627,7 @@ git_sources:
 		RepositoryRoot: rr,
 		Installer:      inst,
 		BtrfsBasePath:  btrfsBase,
+		Git:            &git.GoGitClient{},
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
