@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"time"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -152,9 +153,29 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		if err != nil {
 			return err
 		}
+
+		// Build a set of unit names for installed packages so the
+		// counts only reflect packages that are actually installed.
+		installedUnits := map[string]struct{}{}
+		if inst := s.Controller.GetInstaller(); inst != nil {
+			installed, listErr := inst.ListInstalled()
+			if listErr == nil {
+				for _, pkg := range installed {
+					pi, parseErr := packages.ParsePackageIdentity(pkg)
+					if parseErr != nil {
+						continue
+					}
+					installedUnits[systemd.UnitName(pi.Repo, pi.Name, pi.Version)] = struct{}{}
+				}
+			}
+		}
+
 		counts := &UnitCounts{}
 		for _, u := range units {
 			if !systemd.IsPackageServiceUnit(u.Name) {
+				continue
+			}
+			if _, ok := installedUnits[u.Name]; !ok {
 				continue
 			}
 			counts.Total++

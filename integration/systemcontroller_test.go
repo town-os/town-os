@@ -2315,7 +2315,11 @@ func TestSystemControllerPingUnitCountsFiltersTownOS(t *testing.T) {
 		{Name: "sshd.service", ActiveState: "active"},
 		{Name: "systemd-journald.service", ActiveState: "active"},
 	}
-	c := initSystemControllerSystemdTest(t, sd)
+	c := initSystemControllerSystemdTest(t, sd,
+		packages.PackageIdentity{Repo: "core", Name: "nginx", Version: "1.0"},
+		packages.PackageIdentity{Repo: "core", Name: "redis", Version: "7.0"},
+		packages.PackageIdentity{Repo: "extras", Name: "postgres", Version: "16.0"},
+	)
 
 	ping, err := c.Ping(context.TODO())
 	if err != nil {
@@ -2458,6 +2462,40 @@ func TestSystemControllerListUnitsNoDescriptionWithoutRepoRoot(t *testing.T) {
 	}
 	if units.Entries[0].PackageDescription != "" {
 		t.Fatalf("expected empty description without repo root, got %q", units.Entries[0].PackageDescription)
+	}
+}
+
+func TestSystemControllerPingUnitCountsExcludesUninstalled(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--core-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--core-redis-7.0.service", ActiveState: "active"},
+		{Name: "town-os-package--extras-postgres-16.0.service", ActiveState: "failed"},
+	}
+	// Only nginx is installed; redis and postgres units are leftover.
+	c := initSystemControllerSystemdTest(t, sd,
+		packages.PackageIdentity{Repo: "core", Name: "nginx", Version: "1.0"},
+	)
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.Units == nil {
+		t.Fatal("expected units in ping response")
+	}
+
+	if ping.Units.Total != 1 {
+		t.Fatalf("expected 1 total unit (only installed), got %d", ping.Units.Total)
+	}
+
+	if ping.Units.Active != 1 {
+		t.Fatalf("expected 1 active unit, got %d", ping.Units.Active)
+	}
+
+	if ping.Units.Failed != 0 {
+		t.Fatalf("expected 0 failed units, got %d", ping.Units.Failed)
 	}
 }
 

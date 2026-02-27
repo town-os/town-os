@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -34,12 +35,19 @@ func TestHTTPPingIncludesAccountCount(t *testing.T) {
 }
 
 func TestHTTPPingUnitCountsFiltersTownOS(t *testing.T) {
-	c, sd, _ := initSystemdTestClient(t)
+	c, sd, inst := initSystemdTestClient(t)
+
+	// Register installed packages that match the systemd units.
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+		{Repo: "repo", Name: "redis", Version: "1.0"},
+		{Repo: "repo", Name: "postgres", Version: "1.0"},
+	}
 
 	sd.Units = []systemd.UnitStatus{
-		{Name: "town-os-package--nginx.service", ActiveState: "active"},
-		{Name: "town-os-package--redis.service", ActiveState: "active"},
-		{Name: "town-os-package--postgres.service", ActiveState: "failed"},
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-redis-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-postgres-1.0.service", ActiveState: "failed"},
 		{Name: "town-os-systemcontroller.service", ActiveState: "active"},
 		{Name: "sshd.service", ActiveState: "active"},
 	}
@@ -63,6 +71,72 @@ func TestHTTPPingUnitCountsFiltersTownOS(t *testing.T) {
 
 	if ping.Units.Failed != 1 {
 		t.Fatalf("expected 1 failed town-os unit, got %d", ping.Units.Failed)
+	}
+}
+
+func TestHTTPPingUnitCountsExcludesUninstalledPackages(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	// Only nginx is installed; redis unit exists but has no install record.
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-redis-1.0.service", ActiveState: "active"},
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.Units == nil {
+		t.Fatal("expected units in ping response")
+	}
+
+	if ping.Units.Total != 1 {
+		t.Fatalf("expected 1 total unit (only installed), got %d", ping.Units.Total)
+	}
+
+	if ping.Units.Active != 1 {
+		t.Fatalf("expected 1 active unit, got %d", ping.Units.Active)
+	}
+
+	if ping.Units.Failed != 0 {
+		t.Fatalf("expected 0 failed units, got %d", ping.Units.Failed)
+	}
+}
+
+func TestHTTPPingUnitCountsZeroWithNoInstalledPackages(t *testing.T) {
+	c, sd, _ := initSystemdTestClient(t)
+
+	// No packages installed but units exist (e.g. leftover from uninstall).
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-redis-1.0.service", ActiveState: "failed"},
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.Units == nil {
+		t.Fatal("expected units in ping response")
+	}
+
+	if ping.Units.Total != 0 {
+		t.Fatalf("expected 0 total units with no installed packages, got %d", ping.Units.Total)
+	}
+
+	if ping.Units.Active != 0 {
+		t.Fatalf("expected 0 active units, got %d", ping.Units.Active)
+	}
+
+	if ping.Units.Failed != 0 {
+		t.Fatalf("expected 0 failed units, got %d", ping.Units.Failed)
 	}
 }
 
