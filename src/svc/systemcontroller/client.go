@@ -166,10 +166,11 @@ type Client interface {
 	// when non-empty, names a systemd service to stop before extraction and
 	// restart afterward.
 	UploadArchive(ctx context.Context, subvolume string, archiveReader io.Reader, filename, subpath, stopService string) (*ArchiveUploadResponse, error)
-	// DownloadArchive creates a tar.gz archive of the specified paths within a
-	// subvolume and returns a reader for the archive data. The caller must
-	// close the returned reader.
-	DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService string) (io.ReadCloser, error)
+	// DownloadArchive creates an archive of the specified paths within a
+	// subvolume and returns a reader for the archive data. The format parameter
+	// selects the compression: "tar.gz", "tar.bz2", or "tar.xz". The caller
+	// must close the returned reader.
+	DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService, format string) (io.ReadCloser, error)
 
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)
@@ -1191,13 +1192,14 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 	return &result, json.NewDecoder(resp.Body).Decode(&result)
 }
 
-// DownloadArchive creates a tar.gz archive of the specified paths within the
-// named subvolume and returns a reader for the archive data. When stopService
+// DownloadArchive creates an archive of the specified paths within the named
+// subvolume and returns a reader for the archive data. The format parameter
+// selects the compression: "tar.gz", "tar.bz2", or "tar.xz". When stopService
 // is non-empty, the named systemd service is stopped during archival. The
 // caller must close the returned [io.ReadCloser].
-func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService string) (_ io.ReadCloser, err error) {
+func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, paths []string, stopService, format string) (_ io.ReadCloser, err error) {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, DownloadArchiveRequest{Subvolume: subvolume, Paths: paths, StopService: stopService})
+	go pipeEncode(pw, DownloadArchiveRequest{Subvolume: subvolume, Paths: paths, StopService: stopService, Format: format})
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route("storage/download-archive"), pr)
 	if err != nil {

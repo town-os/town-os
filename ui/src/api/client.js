@@ -726,9 +726,10 @@ export class SystemControllerClient {
    * @param {string} subvolume - Source subvolume name.
    * @param {string[]} [paths] - Paths within the subvolume to include; omit to include everything.
    * @param {string} [stopService] - When provided, stop this systemd service during archival.
+   * @param {string} [format] - Compression format: "tar.gz" (default), "tar.bz2", "tar.xz"
    * @returns {Promise<Response>}
    */
-  async downloadArchive(subvolume, paths, stopService) {
+  async downloadArchive(subvolume, paths, stopService, format) {
     /** @type {HeadersInit} */
     const headers = { 'Content-Type': 'application/json' }
     if (this.token) {
@@ -738,6 +739,7 @@ export class SystemControllerClient {
     const body = { subvolume }
     if (paths && paths.length > 0) body.paths = paths
     if (stopService) body.stop_service = stopService
+    if (format) body.format = format
 
     const resp = await fetch(`${this.baseURL}/storage/download-archive`, {
       method: 'POST',

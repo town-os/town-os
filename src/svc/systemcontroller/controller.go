@@ -283,6 +283,7 @@ type DownloadArchiveRequest struct {
 	Subvolume   string   `json:"subvolume"`
 	Paths       []string `json:"paths,omitempty"`
 	StopService string   `json:"stop_service,omitempty"`
+	Format      string   `json:"format,omitempty"`
 }
 
 type UnitListEntry struct {

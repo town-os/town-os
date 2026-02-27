@@ -903,7 +903,7 @@ func TestMockClientUploadArchiveError(t *testing.T) {
 
 func TestMockClientDownloadArchive(t *testing.T) {
 	m := InitMockClient()
-	reader, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "")
+	reader, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -918,7 +918,7 @@ func TestMockClientDownloadArchive(t *testing.T) {
 func TestMockClientDownloadArchiveError(t *testing.T) {
 	m := InitMockClient()
 	m.DownloadArchiveErr = errors.New("download failed")
-	_, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "")
+	_, err := m.DownloadArchive(context.TODO(), "my-vol", nil, "", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}

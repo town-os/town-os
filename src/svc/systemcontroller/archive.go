@@ -1,6 +1,8 @@
 package systemcontroller
 
 import (
+	"archive/tar"
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,13 +26,18 @@ const (
 	ArchivesSubvolume    = "archives"
 	DefaultMaxArchiveSize = 20 * 1024 * 1024  // 20 MB
 	DefaultUnpackTimeout  = 120               // seconds
+
+	// magicPeekSize is the number of bytes needed to detect all supported
+	// compression formats by their magic bytes.
+	magicPeekSize = 6
 )
 
 var (
-	ErrArchiveTooLarge   = errors.New("archive exceeds maximum allowed size")
+	ErrArchiveTooLarge    = errors.New("archive exceeds maximum allowed size")
 	ErrUnsupportedArchive = errors.New("unsupported archive format")
-	ErrUnpackTimeout     = errors.New("archive unpack timed out")
-	ErrPathTraversal     = errors.New("archive contains path traversal")
+	ErrUnpackTimeout      = errors.New("archive unpack timed out")
+	ErrPathTraversal      = errors.New("archive contains path traversal")
+	ErrInvalidTar         = errors.New("archive does not contain a valid tar stream")
 )
 
 // archiveFormat detects the archive format from the filename extension.
@@ -51,20 +58,114 @@ func archiveFormat(filename string) (string, error) {
 	}
 }
 
-// streamUnpackCommand returns an exec.Cmd that reads a tar archive from stdin
-// and unpacks it into destDir using the appropriate decompressor for the given format.
-func streamUnpackCommand(ctx context.Context, destDir, format string) *exec.Cmd {
+// detectArchiveFormat identifies the compression format of an archive by
+// inspecting the magic bytes at the start of the stream. It returns the
+// format string and a new reader that replays the peeked bytes followed
+// by the rest of the stream.
+func detectArchiveFormat(r io.Reader) (string, io.Reader, error) {
+	br := bufio.NewReaderSize(r, magicPeekSize)
+	header, err := br.Peek(magicPeekSize)
+	if err != nil && len(header) < 2 {
+		return "", nil, fmt.Errorf("%w: unable to read magic bytes", ErrUnsupportedArchive)
+	}
+
+	format := matchMagicBytes(header)
+	if format == "" {
+		return "", nil, fmt.Errorf("%w: unrecognized magic bytes", ErrUnsupportedArchive)
+	}
+
+	return format, br, nil
+}
+
+// matchMagicBytes returns the archive format string for the given header
+// bytes, or "" if the format is not recognized.
+func matchMagicBytes(header []byte) string {
+	if len(header) < 2 {
+		return ""
+	}
+
+	// gzip: 0x1f 0x8b
+	if header[0] == 0x1f && header[1] == 0x8b {
+		return "tar.gz"
+	}
+
+	// bzip2: "BZ" followed by 'h' (0x42 0x5a 0x68)
+	if len(header) >= 3 && header[0] == 0x42 && header[1] == 0x5a && header[2] == 0x68 {
+		return "tar.bz2"
+	}
+
+	// xz: 0xfd "7zXZ" 0x00 (6 bytes: fd 37 7a 58 5a 00)
+	if len(header) >= 6 &&
+		header[0] == 0xfd && header[1] == 0x37 && header[2] == 0x7a &&
+		header[3] == 0x58 && header[4] == 0x5a && header[5] == 0x00 {
+		return "tar.xz"
+	}
+
+	return ""
+}
+
+// decompressCommand returns an exec.Cmd that decompresses stdin to stdout
+// for the given format. This is used for tar validation.
+func decompressCommand(ctx context.Context, format string) *exec.Cmd {
 	switch format {
 	case "tar.gz":
-		return exec.CommandContext(ctx, "tar", "--use-compress-program=pigz", "-xf", "-", "-C", destDir)
+		return exec.CommandContext(ctx, "pigz", "-dc")
 	case "tar.bz2":
-		return exec.CommandContext(ctx, "tar", "--use-compress-program=lbzip2", "-xf", "-", "-C", destDir)
+		return exec.CommandContext(ctx, "lbzip2", "-dc")
 	case "tar.xz":
-		return exec.CommandContext(ctx, "tar", "--use-compress-program=xz", "-xf", "-", "-C", destDir)
-	case "tar":
-		return exec.CommandContext(ctx, "tar", "-xf", "-", "-C", destDir)
+		return exec.CommandContext(ctx, "xz", "-dc")
 	default:
-		return exec.CommandContext(ctx, "false")
+		return nil
+	}
+}
+
+// compressProgramArg returns the --use-compress-program value for tar, or
+// empty string for plain tar.
+func compressProgramArg(format string) string {
+	switch format {
+	case "tar.gz":
+		return "pigz"
+	case "tar.bz2":
+		return "lbzip2"
+	case "tar.xz":
+		return "xz"
+	default:
+		return ""
+	}
+}
+
+// downloadContentType returns the HTTP Content-Type for a download format.
+func downloadContentType(format string) string {
+	switch format {
+	case "tar.bz2":
+		return "application/x-bzip2"
+	case "tar.xz":
+		return "application/x-xz"
+	default:
+		return "application/gzip"
+	}
+}
+
+// downloadFilename returns a default filename for the given download format.
+func downloadFilename(format string) string {
+	switch format {
+	case "tar.bz2":
+		return "download.tar.bz2"
+	case "tar.xz":
+		return "download.tar.xz"
+	default:
+		return "download.tar.gz"
+	}
+}
+
+// validDownloadFormat returns true if the given format string is a
+// supported download compression format.
+func validDownloadFormat(format string) bool {
+	switch format {
+	case "tar.gz", "tar.bz2", "tar.xz", "":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -151,12 +252,51 @@ func (cr *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// validateTarStream reads from a decompressed tar stream and validates that
+// it contains valid tar headers. It is designed to run in a goroutine,
+// consuming data written by a decompressor. If the tar stream is invalid,
+// the returned error channel receives ErrInvalidTar and the reader side of
+// the pipe is closed to signal the decompressor to stop.
+func validateTarStream(ctx context.Context, r io.Reader) <-chan error {
+	ch := make(chan error, 1)
+	go func() {
+		defer close(ch)
+		tr := tar.NewReader(r)
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			_, err := tr.Next()
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			if err != nil {
+				ch <- fmt.Errorf("%w: %w", ErrInvalidTar, err)
+				return
+			}
+			// Discard file bodies so the reader progresses.
+			// Size is bounded by the countingReader limit wrapping the original stream.
+			if _, err := io.Copy(io.Discard, tr); err != nil { //nolint:gosec // size bounded by countingReader
+				ch <- fmt.Errorf("%w: %w", ErrInvalidTar, err)
+				return
+			}
+		}
+	}()
+	return ch
+}
+
 // streamUnpackToSubvolume streams an archive directly from the reader into
 // the target subvolume via tar's stdin, with no temp files or staging.
 // If subpath is non-empty, the archive is unpacked into that subdirectory
 // within the subvolume (created with MkdirAll if it does not exist).
-func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, filename, targetSubvol, subpath string) error {
-	format, err := archiveFormat(filename)
+//
+// The archive format is detected via magic bytes (filemagic). The stream is
+// decompressed and tee'd: one half feeds archive/tar for validation, the
+// other feeds the real unpack process. If validation fails the unpack is
+// interrupted immediately.
+func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader io.Reader, targetSubvol, subpath string) error {
+	// Detect format from magic bytes.
+	format, magicReader, err := detectArchiveFormat(archiveReader)
 	if err != nil {
 		return err
 	}
@@ -172,52 +312,158 @@ func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, 
 
 	// Enforce size limit: LimitReader caps at maxSize+1 so we can detect overflow.
 	maxSize := s.maxArchiveSize()
-	cr := &countingReader{r: io.LimitReader(archiveReader, maxSize+1)}
+	cr := &countingReader{r: io.LimitReader(magicReader, maxSize+1)}
 
 	// Unpack with timeout.
 	timeout := s.archiveUnpackTimeout()
 	unpackCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := streamUnpackCommand(unpackCtx, targetPath, format)
-	cmd.Stdin = cr
+	// Start a decompressor whose stdout we can tee for validation.
+	decompCmd := decompressCommand(unpackCtx, format)
 
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe: %w", err)
+	if decompCmd != nil {
+		return s.unpackWithValidation(unpackCtx, cr, decompCmd, targetPath, maxSize)
 	}
 
-	if err := cmd.Start(); err != nil {
+	// Plain tar: no decompressor needed; the stream IS tar, so we validate
+	// by teeing the raw reader to archive/tar while unpacking.
+	return s.unpackPlainTar(unpackCtx, cr, targetPath, maxSize)
+}
+
+// unpackWithValidation decompresses the stream, tees the decompressed output
+// to archive/tar for validation, and pipes the other half to tar -xf.
+func (s *SystemControllerHandlers) unpackWithValidation(ctx context.Context, cr *countingReader, decompCmd *exec.Cmd, targetPath string, maxSize int64) error {
+	decompCmd.Stdin = cr
+
+	decompStdout, err := decompCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("decompress stdout pipe: %w", err)
+	}
+
+	decompStderr, err := decompCmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("decompress stderr pipe: %w", err)
+	}
+
+	if err := decompCmd.Start(); err != nil {
+		return fmt.Errorf("start decompressor: %w", err)
+	}
+
+	// Tee the decompressed output: one side validates tar, the other unpacks.
+	validPR, validPW := io.Pipe()
+	teeReader := io.TeeReader(decompStdout, validPW)
+
+	validCh := validateTarStream(ctx, validPR)
+
+	// Start the unpack command reading from the tee.
+	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath)
+	unpackCmd.Stdin = teeReader
+
+	unpackStderr, err := unpackCmd.StderrPipe()
+	if err != nil {
+		_ = validPW.Close()
+		return fmt.Errorf("unpack stderr pipe: %w", err)
+	}
+
+	if err := unpackCmd.Start(); err != nil {
+		_ = validPW.Close()
 		return fmt.Errorf("start unpack: %w", err)
 	}
 
-	stderrOut, readErr := io.ReadAll(stderrPipe)
+	// Wait for the unpack to finish (it drives the tee reader).
+	unpackStderrOut, _ := io.ReadAll(unpackStderr)
+	unpackErr := unpackCmd.Wait()
 
-	if err := cmd.Wait(); err != nil {
-		if unpackCtx.Err() == context.DeadlineExceeded {
-			return ErrUnpackTimeout
+	// Close the validation pipe writer so the validator sees EOF.
+	_ = validPW.Close()
+
+	// Collect validation result.
+	var validErr error
+	for e := range validCh {
+		if e != nil {
+			validErr = e
 		}
-		// Check if the archive exceeded the size limit.
-		if cr.n > maxSize {
-			return ErrArchiveTooLarge
-		}
-		return fmt.Errorf("unpack archive: %w: %s", err, string(stderrOut))
+	}
+
+	decompStderrOut, _ := io.ReadAll(decompStderr)
+	decompErr := decompCmd.Wait()
+
+	// Check for validation failure first.
+	if validErr != nil {
+		return validErr
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return ErrUnpackTimeout
 	}
 
 	if cr.n > maxSize {
 		return ErrArchiveTooLarge
 	}
 
-	if readErr != nil {
-		return fmt.Errorf("read stderr: %w", readErr)
+	if decompErr != nil {
+		return fmt.Errorf("decompressor: %w: %s", decompErr, string(decompStderrOut))
 	}
 
-	// Validate unpacked paths.
-	if err := validateUnpackedPaths(targetPath); err != nil {
-		return err
+	if unpackErr != nil {
+		return fmt.Errorf("unpack archive: %w: %s", unpackErr, string(unpackStderrOut))
 	}
 
-	return nil
+	return validateUnpackedPaths(targetPath)
+}
+
+// unpackPlainTar handles uncompressed tar archives, teeing the stream for
+// validation.
+func (s *SystemControllerHandlers) unpackPlainTar(ctx context.Context, cr *countingReader, targetPath string, maxSize int64) error {
+	validPR, validPW := io.Pipe()
+	teeReader := io.TeeReader(cr, validPW)
+
+	validCh := validateTarStream(ctx, validPR)
+
+	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath)
+	unpackCmd.Stdin = teeReader
+
+	unpackStderr, err := unpackCmd.StderrPipe()
+	if err != nil {
+		_ = validPW.Close()
+		return fmt.Errorf("unpack stderr pipe: %w", err)
+	}
+
+	if err := unpackCmd.Start(); err != nil {
+		_ = validPW.Close()
+		return fmt.Errorf("start unpack: %w", err)
+	}
+
+	unpackStderrOut, _ := io.ReadAll(unpackStderr)
+	unpackErr := unpackCmd.Wait()
+
+	_ = validPW.Close()
+
+	var validErr error
+	for e := range validCh {
+		if e != nil {
+			validErr = e
+		}
+	}
+
+	if validErr != nil {
+		return validErr
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return ErrUnpackTimeout
+	}
+
+	if cr.n > maxSize {
+		return ErrArchiveTooLarge
+	}
+
+	if unpackErr != nil {
+		return fmt.Errorf("unpack archive: %w: %s", unpackErr, string(unpackStderrOut))
+	}
+
+	return validateUnpackedPaths(targetPath)
 }
 
 // extractFromContainerImage pulls a container image and copies a directory
@@ -248,7 +494,7 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		}
 	}
 
-	file, header, err := c.Request().FormFile("archive")
+	file, _, err := c.Request().FormFile("archive")
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("archive file required: %v", err))
 	}
@@ -273,11 +519,11 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		}()
 	}
 
-	if err := s.streamUnpackToSubvolume(ctx, file, header.Filename, subvolume, subpath); err != nil {
+	if err := s.streamUnpackToSubvolume(ctx, file, subvolume, subpath); err != nil {
 		if errors.Is(err, ErrArchiveTooLarge) {
 			return echo.NewHTTPError(http.StatusForbidden, err.Error())
 		}
-		if errors.Is(err, ErrUnsupportedArchive) {
+		if errors.Is(err, ErrUnsupportedArchive) || errors.Is(err, ErrInvalidTar) {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 		return err
@@ -286,8 +532,9 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 	return c.JSON(200, ArchiveUploadResponse{NeedsRestart: true, Message: "archive unpacked successfully"})
 }
 
-// downloadArchive creates a tar.gz archive of the specified subvolumes and
-// streams it directly to the client with no temp files.
+// downloadArchive creates a compressed tar archive of the specified subvolume
+// and streams it directly to the client with no temp files. The compression
+// format can be selected via the "format" field (default: tar.gz).
 func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	req := DownloadArchiveRequest{}
@@ -297,6 +544,15 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 
 	if req.Subvolume == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "subvolume is required")
+	}
+
+	// Default to tar.gz if not specified.
+	format := req.Format
+	if format == "" {
+		format = "tar.gz"
+	}
+	if !validDownloadFormat(format) {
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported download format: "+format)
 	}
 
 	ctx := c.Request().Context()
@@ -318,7 +574,13 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	subvolPath := filepath.Join(basePath, req.Subvolume)
 
 	// Build tar command rooted at the subvolume, archiving specific paths or everything.
-	args := []string{"--use-compress-program=pigz", "-cf", "-", "-C", subvolPath}
+	prog := compressProgramArg(format)
+	var args []string
+	if prog != "" {
+		args = []string{fmt.Sprintf("--use-compress-program=%s", prog), "-cf", "-", "-C", subvolPath} //nolint:perfsprint // project convention
+	} else {
+		args = []string{"-cf", "-", "-C", subvolPath}
+	}
 	if len(req.Paths) > 0 {
 		args = append(args, req.Paths...)
 	} else {
@@ -333,8 +595,8 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	c.Response().Header().Set("Content-Type", "application/gzip")
-	c.Response().Header().Set("Content-Disposition", "attachment; filename=download.tar.gz")
+	c.Response().Header().Set("Content-Type", downloadContentType(format))
+	c.Response().Header().Set("Content-Disposition", "attachment; filename="+downloadFilename(format))
 	c.Response().WriteHeader(200)
 
 	if err := cmd.Start(); err != nil {

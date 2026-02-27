@@ -1,8 +1,12 @@
 package systemcontroller
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,5 +201,211 @@ func TestClassifyFilesystemSkipsArchives(t *testing.T) {
 	state, _ = classifyFilesystem("archives/staging-123")
 	if state != "" {
 		t.Fatalf("expected empty state for archives child, got %q", state)
+	}
+}
+
+func TestMatchMagicBytes(t *testing.T) {
+	tests := map[string]struct {
+		header []byte
+		want   string
+	}{
+		"gzip":      {[]byte{0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00}, "tar.gz"},
+		"bzip2":     {[]byte{0x42, 0x5a, 0x68, 0x39, 0x31, 0x41}, "tar.bz2"},
+		"xz":        {[]byte{0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00}, "tar.xz"},
+		"empty":     {[]byte{}, ""},
+		"one byte":  {[]byte{0x1f}, ""},
+		"random":    {[]byte{0xde, 0xad, 0xbe, 0xef, 0x00, 0x00}, ""},
+		"text":      {[]byte("Hello!"), ""},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := matchMagicBytes(tt.header)
+			if got != tt.want {
+				t.Fatalf("matchMagicBytes(%v) = %q, want %q", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectArchiveFormatGzip(t *testing.T) {
+	// gzip magic: 0x1f 0x8b
+	data := append([]byte{0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00}, []byte("rest of data")...)
+	format, reader, err := detectArchiveFormat(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if format != "tar.gz" {
+		t.Fatalf("expected tar.gz, got %q", format)
+	}
+	// Verify that the reader replays all original data.
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(reader); err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), data) {
+		t.Fatalf("reader did not replay original data")
+	}
+}
+
+func TestDetectArchiveFormatBzip2(t *testing.T) {
+	data := append([]byte{0x42, 0x5a, 0x68, 0x39, 0x31, 0x41}, []byte("rest of data")...)
+	format, _, err := detectArchiveFormat(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if format != "tar.bz2" {
+		t.Fatalf("expected tar.bz2, got %q", format)
+	}
+}
+
+func TestDetectArchiveFormatXZ(t *testing.T) {
+	data := append([]byte{0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00}, []byte("rest of data")...)
+	format, _, err := detectArchiveFormat(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if format != "tar.xz" {
+		t.Fatalf("expected tar.xz, got %q", format)
+	}
+}
+
+func TestDetectArchiveFormatInvalid(t *testing.T) {
+	_, _, err := detectArchiveFormat(strings.NewReader("this is not an archive"))
+	if err == nil {
+		t.Fatal("expected error for invalid magic bytes")
+	}
+	if !errors.Is(err, ErrUnsupportedArchive) {
+		t.Fatalf("expected ErrUnsupportedArchive, got: %v", err)
+	}
+}
+
+func TestDetectArchiveFormatEmpty(t *testing.T) {
+	_, _, err := detectArchiveFormat(strings.NewReader(""))
+	if err == nil {
+		t.Fatal("expected error for empty reader")
+	}
+	if !errors.Is(err, ErrUnsupportedArchive) {
+		t.Fatalf("expected ErrUnsupportedArchive, got: %v", err)
+	}
+}
+
+func TestDetectArchiveFormatOneByte(t *testing.T) {
+	_, _, err := detectArchiveFormat(strings.NewReader("x"))
+	if err == nil {
+		t.Fatal("expected error for single byte")
+	}
+	if !errors.Is(err, ErrUnsupportedArchive) {
+		t.Fatalf("expected ErrUnsupportedArchive, got: %v", err)
+	}
+}
+
+func TestCompressProgramArg(t *testing.T) {
+	tests := map[string]string{
+		"tar.gz":  "pigz",
+		"tar.bz2": "lbzip2",
+		"tar.xz":  "xz",
+		"tar":     "",
+		"other":   "",
+	}
+
+	for format, want := range tests {
+		t.Run(format, func(t *testing.T) {
+			got := compressProgramArg(format)
+			if got != want {
+				t.Fatalf("compressProgramArg(%q) = %q, want %q", format, got, want)
+			}
+		})
+	}
+}
+
+func TestDownloadContentType(t *testing.T) {
+	tests := map[string]string{
+		"tar.gz":  "application/gzip",
+		"tar.bz2": "application/x-bzip2",
+		"tar.xz":  "application/x-xz",
+		"":        "application/gzip",
+	}
+
+	for format, want := range tests {
+		t.Run(format, func(t *testing.T) {
+			got := downloadContentType(format)
+			if got != want {
+				t.Fatalf("downloadContentType(%q) = %q, want %q", format, got, want)
+			}
+		})
+	}
+}
+
+func TestDownloadFilename(t *testing.T) {
+	tests := map[string]string{
+		"tar.gz":  "download.tar.gz",
+		"tar.bz2": "download.tar.bz2",
+		"tar.xz":  "download.tar.xz",
+		"":        "download.tar.gz",
+	}
+
+	for format, want := range tests {
+		t.Run(format, func(t *testing.T) {
+			got := downloadFilename(format)
+			if got != want {
+				t.Fatalf("downloadFilename(%q) = %q, want %q", format, got, want)
+			}
+		})
+	}
+}
+
+func TestValidDownloadFormat(t *testing.T) {
+	valid := []string{"tar.gz", "tar.bz2", "tar.xz", ""}
+	for _, f := range valid {
+		if !validDownloadFormat(f) {
+			t.Fatalf("expected %q to be valid", f)
+		}
+	}
+
+	invalid := []string{"tar", "zip", "rar", "tar.zst"}
+	for _, f := range invalid {
+		if validDownloadFormat(f) {
+			t.Fatalf("expected %q to be invalid", f)
+		}
+	}
+}
+
+func TestValidateTarStreamValid(t *testing.T) {
+	// Build a valid tar in memory.
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{Name: "hello.txt", Mode: 0644, Size: int64(len("hello world"))}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatalf("tar write header: %v", err)
+	}
+	if _, err := tw.Write([]byte("hello world")); err != nil {
+		t.Fatalf("tar write body: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+
+	ch := validateTarStream(context.Background(), &buf)
+	for err := range ch {
+		if err != nil {
+			t.Fatalf("unexpected validation error: %v", err)
+		}
+	}
+}
+
+func TestValidateTarStreamInvalid(t *testing.T) {
+	ch := validateTarStream(context.Background(), strings.NewReader("this is definitely not tar data"))
+	var gotErr error
+	for err := range ch {
+		if err != nil {
+			gotErr = err
+		}
+	}
+	if gotErr == nil {
+		t.Fatal("expected error for invalid tar stream")
+	}
+	if !errors.Is(gotErr, ErrInvalidTar) {
+		t.Fatalf("expected ErrInvalidTar, got: %v", gotErr)
 	}
 }

@@ -412,6 +412,12 @@ export default function StorageManagement() {
     })
   }
 
+  const FORMAT_OPTIONS = {
+    'tar.gz': { ext: '.tar.gz', desc: 'Gzip Archive', mime: 'application/gzip' },
+    'tar.bz2': { ext: '.tar.bz2', desc: 'Bzip2 Archive', mime: 'application/x-bzip2' },
+    'tar.xz': { ext: '.tar.xz', desc: 'XZ Archive', mime: 'application/x-xz' },
+  }
+
   async function handleDownload(e) {
     e.preventDefault()
     const form = e.target.elements
@@ -421,12 +427,15 @@ export default function StorageManagement() {
       .map((s) => s.trim())
       .filter(Boolean)
     const stopService = form.downloadStopService?.checked ? downloadDialog.serviceName : ''
+    const format = form.downloadFormat?.value || 'tar.gz'
+    const info = FORMAT_OPTIONS[format] || FORMAT_OPTIONS['tar.gz']
     try {
-      const resp = await getClient().downloadArchive(subvolume, paths.length > 0 ? paths : undefined, stopService)
+      const resp = await getClient().downloadArchive(subvolume, paths.length > 0 ? paths : undefined, stopService, format)
+      const filename = `download${info.ext}`
       if (window.showSaveFilePicker) {
         const handle = await window.showSaveFilePicker({
-          suggestedName: 'download.tar.gz',
-          types: [{ description: 'Gzip Archive', accept: { 'application/gzip': ['.tar.gz'] } }],
+          suggestedName: filename,
+          types: [{ description: info.desc, accept: { [info.mime]: [info.ext] } }],
         })
         const writable = await handle.createWritable()
         await resp.body.pipeTo(writable)
@@ -435,7 +444,7 @@ export default function StorageManagement() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = 'download.tar.gz'
+        a.download = filename
         a.click()
         URL.revokeObjectURL(url)
       }
@@ -718,6 +727,19 @@ export default function StorageManagement() {
             <code className="text-xs bg-muted px-1 rounded">{downloadDialog.displayName}</code>
           </div>
           <form onSubmit={handleDownload} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="downloadFormat">Compression Format</Label>
+              <select
+                id="downloadFormat"
+                name="downloadFormat"
+                defaultValue="tar.gz"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="tar.gz">gzip (.tar.gz)</option>
+                <option value="tar.bz2">bzip2 (.tar.bz2)</option>
+                <option value="tar.xz">xz (.tar.xz)</option>
+              </select>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="downloadPaths">Paths (optional, comma-separated)</Label>
               <Input id="downloadPaths" name="downloadPaths" placeholder="data, config" />

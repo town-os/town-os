@@ -4413,7 +4413,7 @@ func TestArchiveUploadAndDownload(t *testing.T) {
 	}
 
 	// Download the archive and verify contents.
-	rc, err := c.DownloadArchive(ctx, subvol, nil, "")
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive: %v", err)
 	}
@@ -4461,7 +4461,7 @@ func TestArchiveDownloadWithPaths(t *testing.T) {
 	}
 
 	// Download with only a.txt requested.
-	rc, err := c.DownloadArchive(ctx, subvol, []string{"a.txt"}, "")
+	rc, err := c.DownloadArchive(ctx, subvol, []string{"a.txt"}, "", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive: %v", err)
 	}
@@ -4577,7 +4577,7 @@ func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
 		t.Fatalf("expected %q, got %q", "package data", string(got))
 	}
 
-	rc, err := c.DownloadArchive(ctx, subvol, nil, "")
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "")
 	if err != nil {
 		t.Fatalf("DownloadArchive on installed volume: %v", err)
 	}
@@ -4649,13 +4649,130 @@ func TestArchiveDownloadInstalledSubvolume(t *testing.T) {
 	// Installed volumes are now allowed for archive operations.
 	// This will fail with a tar error (directory doesn't exist) rather
 	// than a reserved filesystem error.
-	_, err := c.DownloadArchive(ctx, "installed/repo/pkg/1.0/data", nil, "")
+	_, err := c.DownloadArchive(ctx, "installed/repo/pkg/1.0/data", nil, "", "")
 	if err == nil {
 		// If the directory happens to exist, the download would succeed.
 		return
 	}
 	if strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("installed volumes should not be rejected as reserved: %v", err)
+	}
+}
+
+func TestArchiveUploadInvalidMagicBytes(t *testing.T) {
+	c := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-bad-magic"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	// Send data that does not match any compression magic bytes.
+	_, err := c.UploadArchive(ctx, subvol, strings.NewReader("this is not compressed data at all"), "test.tar.gz", "", "")
+	if err == nil {
+		t.Fatal("expected error for invalid magic bytes")
+	}
+	if !strings.Contains(err.Error(), "unsupported") && !strings.Contains(err.Error(), "magic") {
+		t.Fatalf("expected unsupported/magic error, got: %v", err)
+	}
+}
+
+func TestArchiveDownloadWithBzip2Format(t *testing.T) {
+	c := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-bz2-dl"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	// Upload a file first.
+	archive := makeTarGz(t, map[string]string{"hello.txt": "hello bz2"})
+	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz", "", ""); err != nil {
+		t.Fatalf("UploadArchive: %v", err)
+	}
+
+	// Download as bzip2.
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "tar.bz2")
+	if err != nil {
+		t.Fatalf("DownloadArchive bzip2: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	// Verify the bzip2 magic bytes.
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(data) < 3 {
+		t.Fatal("downloaded archive is too small")
+	}
+	if data[0] != 0x42 || data[1] != 0x5a || data[2] != 0x68 {
+		t.Fatalf("expected bzip2 magic bytes, got %x %x %x", data[0], data[1], data[2])
+	}
+}
+
+func TestArchiveDownloadWithXZFormat(t *testing.T) {
+	c := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+	subvol := "archive-test-xz-dl"
+
+	if err := c.CreateFilesystem(ctx, storage.Filesystem{Name: subvol}); err != nil {
+		t.Fatalf("CreateFilesystem: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.RemoveFilesystem(ctx, subvol); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", subvol, err)
+		}
+	})
+
+	// Upload a file first.
+	archive := makeTarGz(t, map[string]string{"hello.txt": "hello xz"})
+	if _, err := c.UploadArchive(ctx, subvol, archive, "test.tar.gz", "", ""); err != nil {
+		t.Fatalf("UploadArchive: %v", err)
+	}
+
+	// Download as xz.
+	rc, err := c.DownloadArchive(ctx, subvol, nil, "", "tar.xz")
+	if err != nil {
+		t.Fatalf("DownloadArchive xz: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	// Verify the xz magic bytes.
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(data) < 6 {
+		t.Fatal("downloaded archive is too small")
+	}
+	if data[0] != 0xfd || data[1] != 0x37 || data[2] != 0x7a || data[3] != 0x58 || data[4] != 0x5a || data[5] != 0x00 {
+		t.Fatalf("expected xz magic bytes, got %x %x %x %x %x %x", data[0], data[1], data[2], data[3], data[4], data[5])
+	}
+}
+
+func TestArchiveDownloadInvalidFormat(t *testing.T) {
+	c := initSystemControllerTestWithBtrfsBase(t)
+	ctx := context.TODO()
+
+	_, err := c.DownloadArchive(ctx, "anything", nil, "", "tar.zst")
+	if err == nil {
+		t.Fatal("expected error for unsupported download format")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("expected unsupported error, got: %v", err)
 	}
 }
 

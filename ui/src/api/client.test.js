@@ -1060,6 +1060,21 @@ describe('SystemControllerClient', () => {
       expect(JSON.parse(opts.body)).toEqual({ subvolume: 'data', stop_service: 'my-app.service' })
     })
 
+    it('includes format when provided', async () => {
+      const mockResponse = {
+        status: 200,
+        json: () => Promise.resolve(null),
+        text: () => Promise.resolve(''),
+        body: 'mock-stream',
+      }
+      globalThis.fetch = vi.fn().mockResolvedValue(mockResponse)
+      client.setToken('tok')
+
+      await client.downloadArchive('data', undefined, undefined, 'tar.bz2')
+      const [, opts] = globalThis.fetch.mock.calls[0]
+      expect(JSON.parse(opts.body)).toEqual({ subvolume: 'data', format: 'tar.bz2' })
+    })
+
     it('throws ApiError on non-200', async () => {
       mockFetchEmpty(500)
       client.setToken('tok')

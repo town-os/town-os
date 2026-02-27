@@ -171,9 +171,17 @@ Subvolume data can be populated from archive files or container images, and expo
 `POST /storage/upload-archive` (admin required) accepts a multipart form with:
 
 - `subvolume` -- target subvolume path (any subvolume, including `installed/*` and `uninstalled/*`)
-- `archive` -- archive file (supported formats: `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, `.tar`)
+- `archive` -- archive file (supported formats: gzip, bzip2, xz compressed tar archives)
 - `subpath` (optional) -- relative path within the subvolume where the archive should be unpacked; the directory is created if it does not exist
 - `stop_service` (optional) -- a systemd unit name to stop before unpacking and restart after
+
+The archive compression format is detected automatically via magic bytes (filemagic) -- the filename extension is not used for format detection. Supported compression formats:
+
+- **gzip** (magic: `1f 8b`) -- decompressed with `pigz`
+- **bzip2** (magic: `42 5a 68`) -- decompressed with `lbzip2`
+- **xz** (magic: `fd 37 7a 58 5a 00`) -- decompressed with `xz`
+
+After decompression, the stream is validated as a valid tar archive using Go's `archive/tar`. The decompressed stream is tee'd: one half validates the tar structure, the other feeds the actual unpack process. If the archive has invalid compression magic bytes or does not contain a valid tar stream, the upload is rejected immediately with a 400 error.
 
 The archive is unpacked into the target subvolume (or subpath within it). A restart of the associated service is typically needed afterward. The response includes `{"needs_restart": true}`.
 
@@ -187,11 +195,18 @@ The maximum upload size is controlled by the `max_archive_size` setting (default
 {
   "subvolume": "installed/repo/pkg/1.0/data",
   "paths": ["data", "config"],
-  "stop_service": "pkg.service"
+  "stop_service": "pkg.service",
+  "format": "tar.gz"
 }
 ```
 
-Returns a tar.gz archive of the requested subvolume contents. All subvolumes are allowed, including `installed/*` and `uninstalled/*`. If `stop_service` is set, the unit is stopped before archiving and restarted afterward. If `paths` is provided, only those paths within the subvolume are included.
+The `format` field selects the compression algorithm for the downloaded archive. Supported values:
+
+- `tar.gz` (default) -- compressed with `pigz`, Content-Type: `application/gzip`
+- `tar.bz2` -- compressed with `lbzip2`, Content-Type: `application/x-bzip2`
+- `tar.xz` -- compressed with `xz`, Content-Type: `application/x-xz`
+
+Returns a compressed tar archive of the requested subvolume contents. All subvolumes are allowed, including `installed/*` and `uninstalled/*`. If `stop_service` is set, the unit is stopped before archiving and restarted afterward. If `paths` is provided, only those paths within the subvolume are included.
 
 ### Volume Modification
 
