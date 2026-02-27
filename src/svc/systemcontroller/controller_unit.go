@@ -52,7 +52,6 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 	if inst := s.Controller.GetInstaller(); inst != nil {
 		installed, listErr := inst.ListInstalled()
 		if listErr == nil {
-			rr := s.Controller.GetRepositoryRoot()
 			for _, pkg := range installed {
 				pi, parseErr := packages.ParsePackageIdentity(pkg)
 				if parseErr != nil {
@@ -60,10 +59,22 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 				}
 				unitName := systemd.UnitName(pi.Repo, pi.Name, pi.Version)
 				identityMap[unitName] = fmt.Sprintf("%s/%s@%s", pi.Repo, pi.Name, pi.Version)
-				if rr != nil {
-					ip, loadErr := rr.LoadPackage(pi.Repo, pi.Name, pi.Version)
-					if loadErr == nil {
-						descriptionMap[unitName] = ip.Description
+			}
+
+			// Batch-load descriptions: one LoadPackages call per repo instead of N individual LoadPackage calls.
+			if rr := s.Controller.GetRepositoryRoot(); rr != nil {
+				for _, repo := range rr.Items {
+					pkgTable, loadErr := repo.LoadPackages(rr.BaseDir)
+					if loadErr != nil {
+						continue
+					}
+					for name, versions := range pkgTable {
+						for version, ip := range versions {
+							unitName := systemd.UnitName(repo.Name, name, version)
+							if _, ok := identityMap[unitName]; ok {
+								descriptionMap[unitName] = ip.Description
+							}
+						}
 					}
 				}
 			}

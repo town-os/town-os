@@ -284,6 +284,30 @@ func initSystemdTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager, 
 	return c, sd, inst
 }
 
+func initSystemdTestClientWithRepoRoot(t *testing.T) (*SystemdClient, *systemd.MockManager, *packages.MockInstallManager, *packages.RepositoryRoot) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	inst := packages.InitMockInstallManager()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo", URL: *u},
+	}
+	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd, Installer: inst, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, sd, inst, rr
+}
+
 func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 	t.Helper()
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))

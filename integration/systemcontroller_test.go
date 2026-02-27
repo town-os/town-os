@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
@@ -2251,6 +2252,128 @@ func TestSystemControllerPingUnitCountsFiltersTownOS(t *testing.T) {
 
 	if ping.Units.Failed != 1 {
 		t.Fatalf("expected 1 failed town-os unit, got %d", ping.Units.Failed)
+	}
+}
+
+func TestSystemControllerListUnitsFiltersNonPackageUnits(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-network.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-8080-tcp.socket", ActiveState: "active"},
+		{Name: "sshd.service", ActiveState: "active"},
+		{Name: "systemd-journald.service", ActiveState: "active"},
+		{Name: "town-os-systemcontroller.service", ActiveState: "active"},
+	}
+	c := initSystemControllerSystemdTest(t, sd,
+		packages.PackageIdentity{Repo: "repo", Name: "nginx", Version: "1.0"},
+	)
+
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit (only main package service), got %d", len(units.Entries))
+	}
+	if units.Entries[0].Name != "town-os-package--repo-nginx-1.0.service" {
+		t.Fatalf("expected town-os-package--repo-nginx-1.0.service, got %s", units.Entries[0].Name)
+	}
+}
+
+func TestSystemControllerListUnitsDescriptionEnrichment(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-redis-7.0.service", ActiveState: "active"},
+	}
+
+	btr := storage.InitBtrFS("/data/btrfs")
+	inst := packages.InitMockInstallManager()
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+		{Repo: "repo", Name: "redis", Version: "7.0"},
+	}
+
+	dir := t.TempDir()
+	rr := &packages.RepositoryRoot{
+		BaseDir: dir,
+		Items:   []packages.Repository{{Name: "repo"}},
+		Git:     &git.GoGitClient{Home: dir},
+	}
+
+	// Write package files with descriptions.
+	pkgDir := filepath.Join(dir, "repo", packages.PackagesDir, "nginx")
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "1.0.yaml"), []byte("image: nginx:1.0\ndescription: A fast web server\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	redisPkgDir := filepath.Join(dir, "repo", packages.PackagesDir, "redis")
+	if err := os.MkdirAll(redisPkgDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(redisPkgDir, "7.0.yaml"), []byte("image: redis:7.0\ndescription: In-memory data store\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:        btr,
+		Installer:      inst,
+		Systemd:        sd,
+		RepositoryRoot: rr,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 2 {
+		t.Fatalf("expected 2 units, got %d", len(units.Entries))
+	}
+
+	descMap := map[string]string{}
+	for _, e := range units.Entries {
+		descMap[e.PackageIdentifier] = e.PackageDescription
+	}
+
+	if descMap["repo/nginx@1.0"] != "A fast web server" {
+		t.Fatalf("expected nginx description %q, got %q", "A fast web server", descMap["repo/nginx@1.0"])
+	}
+	if descMap["repo/redis@7.0"] != "In-memory data store" {
+		t.Fatalf("expected redis description %q, got %q", "In-memory data store", descMap["repo/redis@7.0"])
+	}
+}
+
+func TestSystemControllerListUnitsNoDescriptionWithoutRepoRoot(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+	}
+	c := initSystemControllerSystemdTest(t, sd,
+		packages.PackageIdentity{Repo: "repo", Name: "nginx", Version: "1.0"},
+	)
+
+	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
+	}
+	if units.Entries[0].PackageDescription != "" {
+		t.Fatalf("expected empty description without repo root, got %q", units.Entries[0].PackageDescription)
 	}
 }
 

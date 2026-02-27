@@ -731,6 +731,106 @@ func TestHTTPListUnitsMultipleValidWithDegenerateMixed(t *testing.T) {
 	}
 }
 
+func TestHTTPListUnitsDescriptionEnrichmentWithRepoRoot(t *testing.T) {
+	c, sd, inst, rr := initSystemdTestClientWithRepoRoot(t)
+
+	writeTestPackage(t, rr.BaseDir, "repo", "nginx", "1.0", "image: nginx:1.0\ndescription: A fast web server\n")
+	writeTestPackage(t, rr.BaseDir, "repo", "redis", "7.0", "image: redis:7.0\ndescription: In-memory data store\n")
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+		{Repo: "repo", Name: "redis", Version: "7.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-redis-7.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 2 {
+		t.Fatalf("expected 2 units, got %d", len(units.Entries))
+	}
+
+	descMap := map[string]string{}
+	for _, e := range units.Entries {
+		descMap[e.PackageIdentifier] = e.PackageDescription
+	}
+
+	if descMap["repo/nginx@1.0"] != "A fast web server" {
+		t.Fatalf("expected nginx description %q, got %q", "A fast web server", descMap["repo/nginx@1.0"])
+	}
+	if descMap["repo/redis@7.0"] != "In-memory data store" {
+		t.Fatalf("expected redis description %q, got %q", "In-memory data store", descMap["repo/redis@7.0"])
+	}
+}
+
+func TestHTTPListUnitsDescriptionEmptyWithoutRepoRoot(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
+	}
+	if units.Entries[0].PackageDescription != "" {
+		t.Fatalf("expected empty description without repo root, got %q", units.Entries[0].PackageDescription)
+	}
+}
+
+func TestHTTPListUnitsDescriptionPartialLoadError(t *testing.T) {
+	c, sd, inst, rr := initSystemdTestClientWithRepoRoot(t)
+
+	// Only write one package; the other is missing from disk.
+	writeTestPackage(t, rr.BaseDir, "repo", "nginx", "1.0", "image: nginx:1.0\ndescription: Web server\n")
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+		{Repo: "repo", Name: "missing", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-missing-1.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 2 {
+		t.Fatalf("expected 2 units, got %d", len(units.Entries))
+	}
+
+	descMap := map[string]string{}
+	for _, e := range units.Entries {
+		descMap[e.PackageIdentifier] = e.PackageDescription
+	}
+
+	if descMap["repo/nginx@1.0"] != "Web server" {
+		t.Fatalf("expected nginx description %q, got %q", "Web server", descMap["repo/nginx@1.0"])
+	}
+	if descMap["repo/missing@1.0"] != "" {
+		t.Fatalf("expected empty description for missing package, got %q", descMap["repo/missing@1.0"])
+	}
+}
+
 func TestHTTPListUnitsDegenerateNCDoesNotCorruptValidNC(t *testing.T) {
 	c, sd, inst := initSystemdTestClient(t)
 
