@@ -24,6 +24,13 @@ PODMAN_DEV_CONTAINER := town-os-dev
 PREFLIGHT_CONTAINER  := preflight-test-$(INSTANCE_ID)
 REGISTRY_CONTAINER   := town-os-registry-$(INSTANCE_ID)
 
+# Global image cache shared across all working trees. Override with:
+#   make IMAGE_CACHE=/some/other/path test-full
+IMAGE_CACHE ?= /var/cache/town-os/images
+
+# Base images needed to build and test.
+BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim
+
 test: lint
 	go test -v -timeout 60m ./src/...
 	cd ui && bun install && bun run test
@@ -34,17 +41,33 @@ docker-login:
 	fi
 
 .cache/.images-pulled: docker-login
-	sudo -E podman pull golang:1.25-bookworm
-	sudo -E podman pull oven/bun:latest
-	sudo -E podman pull debian:bookworm-slim
+	@sudo -E mkdir -p $(IMAGE_CACHE)
+	@for img in $(BASE_IMAGES); do \
+		safe=$$(echo "$$img" | tr '/:' '__'); \
+		if sudo -E podman image exists "$$img" 2>/dev/null; then \
+			echo "$$img: already in podman storage"; \
+		elif [ -f "$(IMAGE_CACHE)/$$safe.tar" ]; then \
+			echo "$$img: loading from cache..."; \
+			sudo -E podman load -i "$(IMAGE_CACHE)/$$safe.tar"; \
+		else \
+			echo "$$img: pulling from Docker Hub..."; \
+			sudo -E podman pull "$$img"; \
+			echo "$$img: saving to cache..."; \
+			sudo -E podman save -o "$(IMAGE_CACHE)/$$safe.tar" "$$img"; \
+		fi; \
+	done
 	@mkdir -p .cache
 	@touch .cache/.images-pulled
 
 pull-images: docker-login
-	sudo -E podman pull docker.io/library/golang:1.25-bookworm
-	sudo -E podman pull docker.io/oven/bun:latest
-	sudo -E podman pull docker.io/library/debian:bookworm-slim
-	sudo -E podman pull docker.io/library/registry:2
+	@sudo -E mkdir -p $(IMAGE_CACHE)
+	@for img in $(BASE_IMAGES) docker.io/library/registry:2; do \
+		echo "Pulling $$img..."; \
+		sudo -E podman pull "$$img"; \
+		safe=$$(echo "$$img" | tr '/:' '__'); \
+		echo "$$img: saving to cache..."; \
+		sudo -E podman save -o "$(IMAGE_CACHE)/$$safe.tar" "$$img"; \
+	done
 	@mkdir -p .cache
 	@touch .cache/.images-pulled
 
@@ -85,12 +108,25 @@ registry: .registry-port
 	@echo "Registry running on port $$(cat .registry-port)"
 
 # Pull each discovered image, re-tag for the local registry, and push.
+# Uses IMAGE_CACHE to avoid re-downloading images across working trees.
 registry-populate: registry .cache/.registry-images
+	@sudo -E mkdir -p $(IMAGE_CACHE)
 	@port=$$(cat .registry-port); \
 	while IFS= read -r image; do \
 		local_tag="localhost:$$port/$${image#docker.io/}"; \
+		safe=$$(echo "$$image" | tr '/:' '__'); \
+		if sudo -E podman image exists "$$image" 2>/dev/null; then \
+			echo "$$image: already in podman storage"; \
+		elif [ -f "$(IMAGE_CACHE)/$$safe.tar" ]; then \
+			echo "$$image: loading from cache..."; \
+			sudo -E podman load -i "$(IMAGE_CACHE)/$$safe.tar"; \
+		else \
+			echo "$$image: pulling..."; \
+			sudo -E podman pull "$$image" || { echo "WARNING: failed to pull $$image"; continue; }; \
+			echo "$$image: saving to cache..."; \
+			sudo -E podman save -o "$(IMAGE_CACHE)/$$safe.tar" "$$image"; \
+		fi; \
 		echo "Mirroring $$image -> $$local_tag"; \
-		sudo -E podman pull "$$image" && \
 		sudo -E podman tag "$$image" "$$local_tag" && \
 		sudo -E podman push --tls-verify=false "$$local_tag" || \
 		{ echo "WARNING: failed to mirror $$image"; }; \
@@ -296,5 +332,8 @@ clean: clean-cache
 
 clean-cache: dev-stop clean-btrfs-dev
 	@sudo rm -rf dev-data dev-repos
+
+clean-image-cache:
+	sudo rm -rf $(IMAGE_CACHE)
 
 clean-all: clean clean-dev clean-integration clean-btrfs
