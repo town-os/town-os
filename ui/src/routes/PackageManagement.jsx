@@ -919,7 +919,7 @@ export default function PackageManagement() {
                         {hasCachedValue ? (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm font-mono">
-                              {question.type === 'password' ? '********' : cachedValue}
+                              {question.type === 'secret' ? '********' : cachedValue}
                             </div>
                             <input type="hidden" name={key} value={cachedValue} />
                             <Tooltip>
@@ -944,7 +944,7 @@ export default function PackageManagement() {
                           <Input
                             id={key}
                             name={key}
-                            type={question.type === 'password' ? 'password' : 'text'}
+                            type={question.type === 'secret' ? 'password' : 'text'}
                             placeholder={placeholder}
                             defaultValue=""
                             className={fieldError ? 'border-destructive' : ''}
@@ -958,11 +958,6 @@ export default function PackageManagement() {
                         {question.type === 'duration' && (
                           <p className="text-xs text-muted-foreground">
                             Duration format: use s (seconds), m (minutes), h (hours), or d (days)
-                          </p>
-                        )}
-                        {!cachedValue && question.default && (
-                          <p className="text-sm text-muted-foreground">
-                            Default: <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">{question.default}</code>
                           </p>
                         )}
                         {fieldError && (
@@ -1007,7 +1002,7 @@ export default function PackageManagement() {
                     <div key={key} className="flex justify-between gap-4 text-sm">
                       <span className="text-muted-foreground">{question.query}</span>
                       <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
-                        {question.type === 'password' ? '********' : (infoDialog.responses?.[key] || '-')}
+                        {question.type === 'secret' ? '********' : (infoDialog.responses?.[key] || '-')}
                       </code>
                     </div>
                   ))}

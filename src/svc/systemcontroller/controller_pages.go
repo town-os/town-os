@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -144,6 +146,13 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 		return err
 	}
 
+	// Remove the cloned repository directory.
+	basePath := s.Controller.GetBtrfsBasePath()
+	dir := filepath.Join(basePath, "pages", req.Name)
+	if err := os.RemoveAll(dir); err != nil {
+		slog.Debug(fmt.Sprintf("remove page directory %s: %v", dir, err))
+	}
+
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
@@ -170,9 +179,17 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 	}
 
 	basePath := s.Controller.GetBtrfsBasePath()
-	dest := basePath + "/pages/" + page.Name
+	dest := filepath.Join(basePath, "pages", page.Name)
 
-	if err := g.Pull(c.Request().Context(), dest); err != nil {
+	// If the .git directory is missing, perform a fresh clone instead of pulling.
+	gitDir := filepath.Join(dest, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		parentDir := filepath.Join(basePath, "pages")
+		if err := g.Clone(c.Request().Context(), parentDir, page.RepoURL, page.Name); err != nil {
+			_ = ps.Update(page.Name, map[string]string{"status": "error"})
+			return fmt.Errorf("rebuild page (clone) %s: %w", page.Name, err)
+		}
+	} else if err := g.Pull(c.Request().Context(), dest); err != nil {
 		_ = ps.Update(page.Name, map[string]string{"status": "error"})
 		return fmt.Errorf("rebuild page %s: %w", page.Name, err)
 	}

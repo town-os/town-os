@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -61,7 +62,7 @@ func (s *SystemControllerHandlers) rebuildGit(c *echo.Context) error {
 			continue
 		}
 
-		dest := basePath + "/" + volName
+		dest := filepath.Join(basePath, packageVolumePath(req.Repo, req.Name, req.Version, volName))
 		if err := g.Pull(ctx, dest); err != nil {
 			return fmt.Errorf("pull git volume %s: %w", volName, err)
 		}

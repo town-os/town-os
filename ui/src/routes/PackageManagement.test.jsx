@@ -860,7 +860,7 @@ describe('PackageManagement', () => {
   it('shows password masking for cached password-type responses', async () => {
     mockClient.getPackageQuestionsByIdentity.mockImplementation(() =>
       Promise.resolve({
-        secret: { query: 'Enter password', type: 'password' },
+        secret: { query: 'Enter password', type: 'secret' },
       }),
     )
     mockClient.getResponses.mockImplementation(() =>
@@ -1216,7 +1216,7 @@ describe('PackageManagement', () => {
   it('clearing a password field reveals a password-type input', async () => {
     mockClient.getPackageQuestionsByIdentity.mockImplementation(() =>
       Promise.resolve({
-        secret: { query: 'Enter password', type: 'password' },
+        secret: { query: 'Enter password', type: 'secret' },
       }),
     )
     mockClient.getResponses.mockImplementation(() =>
@@ -1531,7 +1531,7 @@ describe('PackageManagement', () => {
   it('shows multiple question types with correct input types when no cached values', async () => {
     mockClient.getPackageQuestionsByIdentity.mockImplementation(() =>
       Promise.resolve({
-        secret: { query: 'Enter password', type: 'password' },
+        secret: { query: 'Enter password', type: 'secret' },
         hostname: { query: 'What hostname?', type: 'hostname' },
       }),
     )
