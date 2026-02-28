@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 )
@@ -60,6 +61,7 @@ func initSystemControllerPagesTestWithAudit(t *testing.T) (*systemcontroller.Sys
 		SessionMgr:    sessMgr,
 		AuditMgr:      auditMgr,
 		PagesMgr:      pagesMgr,
+		Git:           git.InitMockClient(),
 		BtrfsBasePath: dir,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
@@ -232,6 +234,63 @@ func TestPagesRequireAuth(t *testing.T) {
 	_, err := c.ListPages(context.TODO(), systemcontroller.ListParams{})
 	if err == nil {
 		t.Fatal("expected auth error for ListPages without token")
+	}
+}
+
+func TestPagesRebuild(t *testing.T) {
+	c := initSystemControllerPagesTest(t)
+
+	if _, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	page, err := c.RebuildPage(context.TODO(), "my-site")
+	if err != nil {
+		t.Fatalf("RebuildPage: %v", err)
+	}
+
+	if page.Name != "my-site" {
+		t.Errorf("expected name %q, got %q", "my-site", page.Name)
+	}
+}
+
+func TestPagesRebuildNotFound(t *testing.T) {
+	c := initSystemControllerPagesTest(t)
+
+	_, err := c.RebuildPage(context.TODO(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent page")
+	}
+}
+
+func TestPagesAuditRebuildLogged(t *testing.T) {
+	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	if _, err := c.RebuildPage(context.TODO(), "audit-site"); err != nil {
+		t.Fatalf("RebuildPage: %v", err)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "rebuild page" && e.Path == "/pages/rebuild" {
+			found = true
+			if !e.Success {
+				t.Fatal("expected success to be true")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'rebuild page' audit entry")
 	}
 }
 

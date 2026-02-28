@@ -2,6 +2,7 @@ package systemcontroller
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 )
 
-func initPagesTestClient(t *testing.T) (*SystemdClient, *git.MockClient) { //nolint:unparam // consistent with other init helpers
+func initPagesTestClient(t *testing.T) (*SystemdClient, *git.MockClient) {
 	t.Helper()
 	c, gitClient, _ := initPagesTestClientWithAudit(t)
 	return c, gitClient
@@ -300,6 +301,68 @@ func TestHTTPPagesRequireAuth(t *testing.T) {
 	_, err := c.ListPages(context.TODO(), ListParams{})
 	if err == nil {
 		t.Fatal("expected auth error for ListPages without token")
+	}
+}
+
+func TestHTTPCreatePageCloneFailureSetsErrorStatus(t *testing.T) {
+	c, gitClient := initPagesTestClient(t)
+
+	gitClient.CloneErr = errors.New("clone failed: repository not found")
+
+	page, err := c.CreatePage(context.TODO(), "bad-site", "https://github.com/user/missing.git", "main", "bad.example.com")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// Initial response should still be pending.
+	if page.Status != "pending" {
+		t.Errorf("expected status %q, got %q", "pending", page.Status)
+	}
+
+	// Wait for the async goroutine to process the clone error.
+	time.Sleep(100 * time.Millisecond)
+
+	pages, err := c.ListPages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages.Entries))
+	}
+	if pages.Entries[0].Status != "error" {
+		t.Errorf("expected status %q after clone failure, got %q", "error", pages.Entries[0].Status)
+	}
+}
+
+func TestHTTPRebuildPageCloneFailureSetsErrorStatus(t *testing.T) {
+	c, gitClient := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// Wait for initial async clone to complete.
+	time.Sleep(100 * time.Millisecond)
+
+	// Now set clone to fail for the rebuild (no .git dir exists in mock, so rebuild clones).
+	gitClient.CloneErr = errors.New("clone failed: network error")
+
+	_, err = c.RebuildPage(context.TODO(), "my-site")
+	if err == nil {
+		t.Fatal("expected error from RebuildPage when clone fails")
+	}
+
+	// Verify the page status was set to error.
+	pages, err := c.ListPages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages.Entries))
+	}
+	if pages.Entries[0].Status != "error" {
+		t.Errorf("expected status %q after rebuild failure, got %q", "error", pages.Entries[0].Status)
 	}
 }
 
