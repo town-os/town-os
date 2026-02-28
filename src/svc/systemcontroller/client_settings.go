@@ -11,7 +11,11 @@ import (
 
 // --- Settings ---
 
-// GetSettings returns all system settings as a key-value map.
+// GetSettings returns all system settings as a key-value map. Default settings
+// include "default_quota" (50 GB), "max_archive_size" (20 MB), and
+// "archive_unpack_timeout" (120 seconds).
+//
+// Calls GET /settings on the Control Plane Service.
 func (c *SystemdClient) GetSettings(ctx context.Context) (_ map[string]string, err error) {
 	resp, err := c.getClient(ctx, "settings")
 	if err != nil {
@@ -29,7 +33,13 @@ func (c *SystemdClient) GetSettings(ctx context.Context) (_ map[string]string, e
 	return settings, json.NewDecoder(resp.Body).Decode(&settings)
 }
 
-// GetSetting returns the value of a single system setting by key.
+// GetSetting returns the value of a single system setting by key. Valid keys
+// are "default_quota", "max_archive_size", and "archive_unpack_timeout".
+//
+// Parameters:
+//   - key: the setting key to retrieve.
+//
+// Calls POST /settings/get on the Control Plane Service.
 func (c *SystemdClient) GetSetting(ctx context.Context, key string) (_ string, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, GetSettingRequest{Key: key})
@@ -57,7 +67,17 @@ func (c *SystemdClient) GetSetting(ctx context.Context, key string) (_ string, e
 	return result.Value, nil
 }
 
-// SetSetting creates or updates a system setting.
+// SetSetting creates or updates a system setting. Byte-value settings
+// ("default_quota", "max_archive_size") accept human-readable strings such as
+// "500GB" or "10MB", which are parsed and stored as numeric byte counts.
+//
+// Parameters:
+//   - key: the setting key to set.
+//   - value: the new value. For byte-value settings, accepts human-readable
+//     byte strings (e.g., "50GB", "20MB"). For "archive_unpack_timeout", the
+//     value is stored as a number of seconds.
+//
+// Calls POST /settings/set on the Control Plane Service.
 func (c *SystemdClient) SetSetting(ctx context.Context, key, value string) error {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, SetSettingRequest{Key: key, Value: value})
