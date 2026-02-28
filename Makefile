@@ -228,8 +228,9 @@ test-ui-integration: test-image ui-integration-image btrfs .integration-port reg
 		--net host \
 		-e INTEGRATION_URL=http://localhost:$$(cat .integration-port) \
 		-e VITE_API_URL=http://localhost:$$(cat .integration-port) \
-		-e TOWN_OS_REPO_USERNAME=$(TOWN_OS_REPO_USERNAME) \
-		-e TOWN_OS_REPO_PASSWORD=$(TOWN_OS_REPO_PASSWORD) \
+		-e TOWN_OS_REPO_USERNAME=town-os \
+		-e TOWN_OS_REPO_PASSWORD=town-os-test \
+		-e TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$$(cat .gitea-port)/town-os/test-packages-core.git \
 		--name $(PODMAN_UI_CONTAINER) $(PODMAN_UI_IMAGE) \
 		bun run test:integration -- --reporter=verbose
 

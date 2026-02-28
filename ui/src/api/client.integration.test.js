@@ -8,6 +8,9 @@ if (!baseURL) {
 
 const repoUser = process.env.TOWN_OS_REPO_USERNAME || ''
 const repoPass = process.env.TOWN_OS_REPO_PASSWORD || ''
+const testRepoCoreURL =
+  process.env.TOWN_OS_TEST_REPO_CORE_URL ||
+  'https://github.com/town-os/test-packages-core.git'
 
 describe('SystemControllerClient integration', () => {
   /** @type {SystemControllerClient} */
@@ -421,15 +424,9 @@ describe('SystemControllerClient integration', () => {
     })
 
     it('adds a repository without credentials', async () => {
-      if (repoUser) {
-        return // skip: can't test without credentials when env credentials are set
-      }
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
-      await client.addRepository(
-        'extra-core',
-        'https://github.com/town-os/test-packages-core.git',
-      )
+      await client.addRepository('extra-core', testRepoCoreURL)
       const result = await client.listRepositories()
       expect(result.entries.length).toBe(3)
       expect(result.entries.some((r) => r.name === 'extra-core')).toBe(true)
@@ -437,14 +434,11 @@ describe('SystemControllerClient integration', () => {
     })
 
     it('adds a repository with credentials', async () => {
-      if (!repoUser) {
-        return // skip: need valid credentials to test authenticated add
-      }
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       await client.addRepository(
         'extra-core',
-        'https://github.com/town-os/test-packages-core.git',
+        testRepoCoreURL,
         repoUser,
         repoPass,
       )

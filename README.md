@@ -66,16 +66,18 @@ Install [golangci-lint](https://golangci-lint.run/welcome/install/):
 curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
 ```
 
-Create a `.env` file with repository credentials:
+Optionally create a `.env` file with repository credentials for the **dev environment**:
 
 ```
 TOWN_OS_REPO_USERNAME=<username>
 TOWN_OS_REPO_PASSWORD=<password>
 ```
 
-The username and password will be used for all repository fetches. If it is omitted, none will be used. These values are used both in the dev environment and the integration tests. The password may be a HTTP API key you get from Gitea or Github. The URLs for the test repositories come from github and are public.
+These are used by `make dev` to set default repository credentials on the backend. The password may be an HTTP API key from Gitea or GitHub. If omitted, no default credentials are set and only public repositories can be added without explicit credentials.
 
-After installing prerequisites, run `make pull-images` once to fetch base container images from Docker Hub and save them to the global cache at `/var/cache/town-os/images/`. Docker Hub credentials (via `DOCKER_USERNAME` / `DOCKER_PASSWORD` in `.env`) are only needed for this target. All other build and test targets load images from the global cache and never contact Docker Hub, so no network access to docker.io is required after the initial pull.
+Integration tests (`make test-full`) do **not** use `.env` credentials. They run a local Gitea instance with hardcoded test credentials (`town-os` / `town-os-test`) and never contact GitHub for repository operations.
+
+After installing prerequisites, run `make pull-images` once to fetch all container images from Docker Hub and save them to the global cache at `/var/cache/town-os/images/`. Docker Hub credentials (via `DOCKER_USERNAME` / `DOCKER_PASSWORD` in `.env`) are only needed if you hit rate limits. All other build and test targets load images from the global cache and never contact Docker Hub. If any cached image is missing when a target needs it, `make pull-images` runs automatically.
 
 ## Development
 
@@ -159,7 +161,7 @@ Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concu
 | `make test-image`            | Build the test container image (includes integration test binary). |
 | `make dev-image`             | Build the dev container image.                                     |
 | `make ui-integration-image`  | Build the UI integration test container image.                     |
-| `make pull-images`           | Pull base container images from Docker Hub and save to global cache. |
+| `make pull-images`           | Pull all container images from Docker Hub and save to global cache. Runs automatically if any cached image is missing. |
 
 Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
 
