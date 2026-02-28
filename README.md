@@ -4,12 +4,16 @@
 
 > **Your Cloud in Your Closet, easy enough for anyone.**
 
+Town OS is a self-service platform that runs entirely from a USB drive, turning any computer into a personal cloud server. It manages its own storage, networking, and services in containers -- no installation required. Designed for anyone, not just experts: a friendly UI guides you through everything, so you don't have to know how any of this works unless you want to.
+
 **GITHUB USERS:** Please note the source repository is <https://gitea.com/town-os/town-os> -- the package repositories are kept here for simplicity's sake. Issues and Pull Requests must be filed there, as well as any other interactivity with the repository. This repository may also occasionally be out of data or missing other data the Gitea repository has. Do not rely on it.
 
 _([Wondering about the insane patch velocity with high quality? I'm doing it with a $200/mo Claude Account](https://github.com/erikh/hydra))_
 
 ## Table of Contents
 
+- [Why It Matters](#why-it-matters)
+- [Existing and Planned Features](#existing-and-planned-features)
 - [Requests for Comment](#requests-for-comment)
 - [Prerequisites](#prerequisites)
 - [Development](#development)
@@ -21,17 +25,10 @@ _([Wondering about the insane patch velocity with high quality? I'm doing it wit
   - [Btrfs Management](#btrfs-management)
   - [Cleanup](#cleanup)
   - [Linting](#linting)
-- [About](#about)
-  - [Why It Matters](#why-it-matters)
-  - [Existing and Planned Features](#existing-and-planned-features)
 - [License](#license)
 - [From](#from)
 
-## About
-
-Town OS is a self-service platform that runs entirely from a USB drive, turning any computer into a personal cloud server. It manages its own storage, networking, and services in containers -- no installation required. Designed for anyone, not just experts: a friendly UI guides you through everything, so you never need to touch a terminal.
-
-### Why It Matters
+## Why It Matters
 
 Your data should live in your home, not on someone else's computer. Cloud services are convenient, but they come with monthly fees, privacy trade-offs, and the risk that a company can change terms, raise prices, or shut down at any time. Town OS gives you the same convenience without giving up control.
 
@@ -39,7 +36,7 @@ You don't need to be technical to use it. Plug in a USB drive, power on, and you
 
 Town OS is built so that anyone can help their family run services at home. Set up a media server for your parents, keep your kids' devices free of spyware, or host your own website -- all without asking permission from a cloud provider.
 
-### Existing and Planned Features
+## Existing and Planned Features
 
 Packaging is fully integrated with the storage and network, creating resources on demand, including opening ports over UPnP and managing port forwarding via a per-package network controller, or establishing tunnels. This functionality is coming soon, but router-level functionality is expected to arrive which would allow users more control over DNS and DHCP within their home and direct network-mappable relationships with functionality to block internet traffic for children, or ad-ware, or anything else. Providing a local resolver that can be programmed by Town OS allows for this and also package integrations like subdomain names within a private network. Slices can be torn off to provide for wireguard networks as well.
 
