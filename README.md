@@ -8,6 +8,41 @@
 
 _([Wondering about the insane patch velocity with high quality? I'm doing it with a $200/mo Claude Account](https://github.com/erikh/hydra))_
 
+## Table of Contents
+
+- [Requests for Comment](#requests-for-comment)
+- [Prerequisites](#prerequisites)
+- [Development](#development)
+- [Makefile Targets](#makefile-targets)
+  - [Testing](#testing)
+  - [Local Registry](#local-registry)
+  - [Local Gitea Server](#local-gitea-server)
+  - [Building](#building)
+  - [Btrfs Management](#btrfs-management)
+  - [Cleanup](#cleanup)
+  - [Linting](#linting)
+- [Archive Upload / Download](#archive-upload--download)
+  - [Archive Upload API](#archive-upload-api)
+  - [Archive Download API](#archive-download-api)
+  - [Volume Modification](#volume-modification)
+  - [Auto-Archive from Container Images](#auto-archive-from-container-images)
+  - [Git Volume Seed](#git-volume-seed)
+  - [Archive Question Type](#archive-question-type)
+  - [Secret Question Type](#secret-question-type)
+  - [Settings](#settings)
+- [Git Sources](#git-sources)
+  - [Package YAML Format](#package-yaml-format)
+  - [Rebuild API](#rebuild-api)
+- [Pages](#pages)
+  - [Workflow](#workflow)
+  - [API Endpoints](#api-endpoints)
+  - [Create Page](#create-page)
+  - [Update Page](#update-page)
+  - [Remove Page](#remove-page)
+  - [Rebuild Page](#rebuild-page)
+  - [License](#license)
+- [From](#from)
+
 The goal of this system is to build a self-service platform that anyone can run at home, with premier ease of use experience and reliability acceptable for a home user.
 
 Town OS is never installed: it lives on a USB drive and runs entirely in memory. It uses all the storage in your computer for **your stuff**. Upgrade Town OS by powering off and replacing a USB drive, or reset it to a default state after you made a boo-boo by rebooting it.
