@@ -5,7 +5,7 @@ set -euo pipefail
 
 echo "Installing system packages..."
 sudo apt-get update
-sudo apt-get install -y golang btrfs-progs libsystemd-dev podman unzip
+sudo apt-get install -y golang btrfs-progs libsystemd-dev podman unzip build-essential
 
 echo "Installing Bun..."
 curl -fsSL https://bun.sh/install | bash
