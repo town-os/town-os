@@ -58,10 +58,11 @@ Please the try the development build (`make dev` on any linux; see below for mor
 
 - Go 1.25+
 - [Bun](https://bun.sh) (JS runtime)
-- Podman (rootful, with `sudo`)
+- Podman (rootful, with `sudo`) and `runc` runtime
 - btrfs-progs (`mkfs.btrfs`)
 - libsystemd (development headers for systemd integration)
 - golangci-lint
+- Python 3 (used for port allocation in test targets)
 
 ### Ubuntu
 
@@ -78,7 +79,25 @@ Or install them manually:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y golang btrfs-progs libsystemd-dev podman
+sudo apt-get install -y golang btrfs-progs libsystemd-dev podman runc python3
+```
+
+Install [Bun](https://bun.sh):
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Install [golangci-lint](https://golangci-lint.run/welcome/install/):
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
+```
+
+### Arch Linux / Manjaro
+
+```bash
+sudo pacman -S go podman runc btrfs-progs python
 ```
 
 Install [Bun](https://bun.sh):
