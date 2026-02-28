@@ -32,6 +32,9 @@ IMAGE_CACHE ?= /var/cache/town-os/images
 # Base images needed to build and test.
 BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim
 
+# All images (base + service) that must be cached before integration runs.
+ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine
+
 test: lint
 	go test -v -timeout 60m ./src/...
 	cd ui && bun install && bun run test
@@ -41,10 +44,21 @@ docker-login:
 		echo "$(DOCKER_PASSWORD)" | sudo -E podman login -u "$(DOCKER_USERNAME)" --password-stdin docker.io; \
 	fi
 
-.cache/.images-pulled: docker-login
+# If any cached image tar is missing, pull everything.
+ensure-image-cache:
+	@for img in $(ALL_IMAGES); do \
+		safe=$$(basename "$$img" | tr ':' '-'); \
+		if [ ! -f "$(IMAGE_CACHE)/$$safe.tar" ]; then \
+			echo "Image cache incomplete (missing $$safe.tar) — running pull-images..."; \
+			$(MAKE) pull-images; \
+			break; \
+		fi; \
+	done
+
+.cache/.images-pulled: ensure-image-cache docker-login
 	@sudo -E mkdir -p $(IMAGE_CACHE)
 	@for img in $(BASE_IMAGES); do \
-		safe=$$(echo "$$img" | tr '/:' '__'); \
+		safe=$$(basename "$$img" | tr ':' '-'); \
 		if sudo -E podman image exists "$$img" 2>/dev/null; then \
 			echo "$$img: already in podman storage"; \
 		elif [ -f "$(IMAGE_CACHE)/$$safe.tar" ]; then \
@@ -62,10 +76,10 @@ docker-login:
 
 pull-images: docker-login
 	@sudo -E mkdir -p $(IMAGE_CACHE)
-	@for img in $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine; do \
+	@for img in $(ALL_IMAGES); do \
 		echo "Pulling $$img..."; \
 		sudo -E podman pull "$$img"; \
-		safe=$$(echo "$$img" | tr '/:' '__'); \
+		safe=$$(basename "$$img" | tr ':' '-'); \
 		echo "$$img: saving to cache..."; \
 		sudo -E podman save -o "$(IMAGE_CACHE)/$$safe.tar" "$$img"; \
 	done
@@ -105,7 +119,7 @@ production-image: .cache/.images-pulled
 	@echo "Discovered $$(wc -l < $@) images"
 
 # Start a local registry:2 container.
-registry: .registry-port
+registry: ensure-image-cache .registry-port
 	@sudo -E podman rm -f $(REGISTRY_CONTAINER) 2>/dev/null || true
 	sudo -E podman load -i $(IMAGE_CACHE)/registry-2.tar
 	sudo -E podman run -d --pull=never --name $(REGISTRY_CONTAINER) \
@@ -120,7 +134,7 @@ registry-populate: registry .cache/.registry-images
 	@port=$$(cat .registry-port); \
 	while IFS= read -r image; do \
 		local_tag="localhost:$$port/$${image#docker.io/}"; \
-		safe=$$(echo "$$image" | tr '/:' '__'); \
+		safe=$$(basename "$$image" | tr ':' '-'); \
 		if sudo -E podman image exists "$$image" 2>/dev/null; then \
 			echo "$$image: already in podman storage"; \
 		elif [ -f "$(IMAGE_CACHE)/$$safe.tar" ]; then \
@@ -155,7 +169,7 @@ registry-stop:
 	@echo "Gitea port: $$(cat $@)"
 
 # Start a local Gitea container and create the admin user.
-gitea: .gitea-port
+gitea: ensure-image-cache .gitea-port
 	@sudo -E podman rm -f $(GITEA_CONTAINER) 2>/dev/null || true
 	sudo -E podman load -i $(IMAGE_CACHE)/gitea-latest.tar
 	sudo -E podman run -d --pull=never --name $(GITEA_CONTAINER) \
@@ -310,7 +324,7 @@ dev: dev-image dev-btrfs
 	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
-preflight-dev: .integration-port
+preflight-dev: ensure-image-cache .integration-port
 	@echo "Checking podman..."
 	@command -v podman >/dev/null 2>&1 || { echo "ERROR: podman not found"; exit 1; }
 	@echo "Checking btrfs-progs..."
