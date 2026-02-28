@@ -372,6 +372,16 @@ func (c *GoGitClient) Checkout(_ context.Context, dir, ref string) error {
 }
 
 func (c *GoGitClient) Init(_ context.Context, dir string) error {
+	// Verify the parent directory exists before initializing. go-git's
+	// PlainInit creates the full path (including parents), but callers
+	// expect an error when the parent does not exist, matching real git
+	// behavior.
+	if parent := filepath.Dir(dir); parent != dir {
+		if _, err := os.Stat(parent); err != nil {
+			return fmt.Errorf("git init: %w", err)
+		}
+	}
+
 	_, err := gogit.PlainInit(dir, false)
 	if err != nil {
 		return fmt.Errorf("git init: %w", err)
