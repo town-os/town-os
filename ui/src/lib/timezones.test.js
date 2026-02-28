@@ -27,6 +27,12 @@ describe('TIMEZONES', () => {
     const unique = new Set(TIMEZONES)
     expect(unique.size).toBe(TIMEZONES.length)
   })
+
+  it('is sorted alphabetically after UTC', () => {
+    const rest = TIMEZONES.slice(1)
+    const sorted = [...rest].sort()
+    expect(rest).toEqual(sorted)
+  })
 })
 
 describe('getTimezoneOffsetMinutes', () => {
@@ -52,5 +58,21 @@ describe('getTimezoneOffsetMinutes', () => {
 
   it('returns 330 for Asia/Kolkata (no DST)', () => {
     expect(getTimezoneOffsetMinutes('Asia/Kolkata')).toBe(330)
+  })
+
+  it('returns a valid offset for every entry in the TIMEZONES list', () => {
+    for (const tz of TIMEZONES) {
+      const offset = getTimezoneOffsetMinutes(tz)
+      expect(typeof offset).toBe('number')
+      expect(offset).toBeGreaterThanOrEqual(-720)
+      expect(offset).toBeLessThanOrEqual(840)
+    }
+  })
+
+  it('returns an offset that is a multiple of 15 for every timezone', () => {
+    for (const tz of TIMEZONES) {
+      const offset = getTimezoneOffsetMinutes(tz)
+      expect(Math.abs(offset) % 15).toBe(0)
+    }
   })
 })
