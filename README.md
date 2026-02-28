@@ -21,14 +21,25 @@ _([Wondering about the insane patch velocity with high quality? I'm doing it wit
   - [Btrfs Management](#btrfs-management)
   - [Cleanup](#cleanup)
   - [Linting](#linting)
+- [About](#about)
+  - [Why It Matters](#why-it-matters)
+  - [Existing and Planned Features](#existing-and-planned-features)
 - [License](#license)
 - [From](#from)
 
-The goal of this system is to build a self-service platform that anyone can run at home, with premier ease of use experience and reliability acceptable for a home user.
+## About
 
-Town OS is never installed: it lives on a USB drive and runs entirely in memory. It uses all the storage in your computer for **your stuff**. Upgrade Town OS by powering off and replacing a USB drive, or reset it to a default state after you made a boo-boo by rebooting it.
+Town OS is a self-service platform that runs entirely from a USB drive, turning any computer into a personal cloud server. It manages its own storage, networking, and services in containers -- no installation required. Designed for anyone, not just experts: a friendly UI guides you through everything, so you never need to touch a terminal.
 
-This platform manages its own storage, state, and is completely responsible for its own health. A USB drive running squashfs provides the host operating system in ram, and the services that Town OS has running in containers, pulled from the internet, can manage any changes of state that need to occur over the lifetime of the power cycle. Thus, a reboot can be a simple way to allow users to get themselves to a working state, or a user can upgrade simply by replacing the USB drive it boots from.
+### Why It Matters
+
+Your data should live in your home, not on someone else's computer. Cloud services are convenient, but they come with monthly fees, privacy trade-offs, and the risk that a company can change terms, raise prices, or shut down at any time. Town OS gives you the same convenience without giving up control.
+
+You don't need to be technical to use it. Plug in a USB drive, power on, and you have a working system. Upgrade by swapping the USB drive. Reset by rebooting. If something goes wrong, you can always get back to a working state -- you can't lock yourself out.
+
+Town OS is built so that anyone can help their family run services at home. Set up a media server for your parents, keep your kids' devices free of spyware, or host your own website -- all without asking permission from a cloud provider.
+
+### Existing and Planned Features
 
 Packaging is fully integrated with the storage and network, creating resources on demand, including opening ports over UPnP and managing port forwarding via a per-package network controller, or establishing tunnels. This functionality is coming soon, but router-level functionality is expected to arrive which would allow users more control over DNS and DHCP within their home and direct network-mappable relationships with functionality to block internet traffic for children, or ad-ware, or anything else. Providing a local resolver that can be programmed by Town OS allows for this and also package integrations like subdomain names within a private network. Slices can be torn off to provide for wireguard networks as well.
 
@@ -37,8 +48,6 @@ The storage system is designed alongside the packaging system to support upgradi
 Packages are able to request input from the user -- similar to debconf -- but through the UI (look at the screen shots). These are template variables and can be used to configure container images and manage networking. [The package repository](https://github.com/town-os/default-packages) has more information. You can also completely replace the repositories with a private repository list -- perfect for your gamer buddies, family members you need to support, etc. A lot of expansion is expected here.
 
 Services all have adequate logging and supervision. There is a comfortable UI for accessing this information, presented in a way that is intended to be safe for non-technical users to consume. There are separate accounts for admin and normal users: you could help your parents run a Plex (or something similar) if you wanted. You could keep them spyware free.
-
-You also can't lock yourself out. If all accounts become disabled or there are none... it runs behind the firewall. Just create a new one and fix it. Or, if you really get yourself into a bad spot, you can actually nuke the entire SQLite database to recover a system. The important storage is all kept in atomically-managed JSON files or is actually the system itself.
 
 Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
 
