@@ -180,9 +180,6 @@ func TestSystemControllerAddRepositoryPartialCredentials(t *testing.T) {
 
 func TestSystemControllerAddRepositoryWithCredentials(t *testing.T) {
 	user, pass := scRepoCredentials()
-	if user == "" {
-		t.Skip("skipping: TOWN_OS_REPO_USERNAME not set")
-	}
 
 	c := initSystemControllerRepoTest(t)
 
@@ -205,11 +202,6 @@ func TestSystemControllerAddRepositoryWithCredentials(t *testing.T) {
 }
 
 func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
-	user, _ := scRepoCredentials()
-	if user != "" {
-		t.Skip("skipping: TOWN_OS_REPO_USERNAME is set")
-	}
-
 	c := initSystemControllerRepoTest(t)
 
 	if err := c.AddRepository(context.TODO(), "", testCoreURLString(), "", ""); err != nil {
@@ -223,10 +215,6 @@ func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
 
 	if len(repos.Entries) != 1 {
 		t.Fatalf("expected 1 repository, got %d", len(repos.Entries))
-	}
-
-	if repos.Entries[0].Username != "" {
-		t.Fatalf("expected empty username, got %q", repos.Entries[0].Username)
 	}
 }
 

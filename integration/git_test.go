@@ -150,12 +150,24 @@ func TestGitClientStashAndApply(t *testing.T) {
 
 	repoDir := filepath.Join(dir, "core")
 
-	// Modify a tracked file.
-	testFile := filepath.Join(repoDir, "README.md")
+	// Find a tracked file to modify.
+	entries, err := os.ReadDir(repoDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	var testFile string
+	for _, e := range entries {
+		if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			testFile = filepath.Join(repoDir, e.Name())
+			break
+		}
+	}
+	if testFile == "" {
+		t.Fatal("no regular file found in cloned repo")
+	}
 	origData, err := os.ReadFile(testFile)
 	if err != nil {
-		// If README.md doesn't exist, try another file.
-		t.Skipf("no README.md to modify: %v", err)
+		t.Fatalf("ReadFile %s: %v", testFile, err)
 	}
 
 	if err := os.WriteFile(testFile, []byte("modified for stash test"), 0644); err != nil {		t.Fatalf("WriteFile: %v", err)
