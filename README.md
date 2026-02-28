@@ -36,7 +36,35 @@ Please the try the development build (`make dev` on any linux; see below for mor
 - [Bun](https://bun.sh) (JS runtime)
 - Podman (rootful, with `sudo`)
 - btrfs-progs (`mkfs.btrfs`)
+- libsystemd (development headers for systemd integration)
 - golangci-lint
+
+### Ubuntu
+
+You can install all dependencies at once using the provided script ([`install-ubuntu-deps.sh`](./install-ubuntu-deps.sh)):
+
+```bash
+./install-ubuntu-deps.sh
+```
+
+Or install them manually:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y golang btrfs-progs libsystemd-dev podman
+```
+
+Install [Bun](https://bun.sh):
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Install [golangci-lint](https://golangci-lint.run/welcome/install/):
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
+```
 
 Create a `.env` file with repository credentials:
 
