@@ -1,6 +1,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,25 +52,23 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		return err
 	}
 
-	// Clone the git repository in the background.
-	cloner := s.Controller.GetGitCloner()
+	// Clone the git repository asynchronously in the background.
+	gitClient := s.Controller.GetGitClient()
 	pagesDir := s.pagesBaseDir()
-	if cloner != nil && pagesDir != "" {
-		targetDir := fmt.Sprintf("%s/%s", pagesDir, req.Name)
-		cloneErr := cloner.Clone(targetDir, req.RepoURL, req.Branch)
+	if gitClient != nil && pagesDir != "" {
+		go func() {
+			cloneErr := gitClient.Clone(context.Background(), pagesDir, req.RepoURL, req.Name)
 
-		status := "active"
-		if cloneErr != nil {
-			slog.Debug(fmt.Sprintf("pages clone %s: %v", req.Name, cloneErr))
-			status = "error"
-		}
+			status := "active"
+			if cloneErr != nil {
+				slog.Debug(fmt.Sprintf("pages clone %s: %v", req.Name, cloneErr))
+				status = "error"
+			}
 
-		if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
-			slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
-		}
-
-		// Re-fetch the page to return the updated status.
-		page, _ = mgr.Get(req.Name)
+			if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
+				slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
+			}
+		}()
 	}
 
 	return c.JSON(200, page)
@@ -159,10 +158,10 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return err
 	}
 
-	cloner := s.Controller.GetGitCloner()
+	gitClient := s.Controller.GetGitClient()
 	pagesDir := s.pagesBaseDir()
-	if cloner == nil || pagesDir == "" {
-		return errors.New("git cloner or pages directory not configured")
+	if gitClient == nil || pagesDir == "" {
+		return errors.New("git client or pages directory not configured")
 	}
 
 	targetDir := fmt.Sprintf("%s/%s", pagesDir, page.Name)
@@ -171,7 +170,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 	gitDir := targetDir + "/.git"
 	if _, err := os.Stat(gitDir); err != nil {
 		// Not cloned yet; do a fresh clone.
-		if err := cloner.Clone(targetDir, page.RepoURL, page.Branch); err != nil {
+		if err := gitClient.Clone(c.Request().Context(), pagesDir, page.RepoURL, page.Name); err != nil {
 			status := "error"
 			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
@@ -179,12 +178,12 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 			return fmt.Errorf("pages clone %s: %w", page.Name, err)
 		}
 	} else {
-		if err := cloner.Update(targetDir, page.Branch); err != nil {
+		if err := gitClient.Pull(c.Request().Context(), targetDir); err != nil {
 			status := "error"
 			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
 			}
-			return fmt.Errorf("pages update %s: %w", page.Name, err)
+			return fmt.Errorf("pages pull %s: %w", page.Name, err)
 		}
 	}
 

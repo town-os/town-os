@@ -363,6 +363,96 @@ func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 	return c, resp.Token
 }
 
+func initInstallTestClientWithAuth(t *testing.T) (*SystemdClient, *packages.MockInstallManager) { //nolint:unparam // consistent with other init helpers
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external:
+    "@port@": "80"
+  internal: {}
+volumes: {}
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+  port:
+    query: "What external port should nginx listen on?"
+    type: port
+notes:
+  URL:
+    value: "http://@hostname@:@port@"
+    type: url
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, AccountMgr: mgr, SessionMgr: sessMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap: create admin account first (required on empty DB).
+	if _, err := c.CreateAccount(context.TODO(), "testadmin", "adminpass", "admin@test.com", "555-0000", "Test Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	// Authenticate admin to create a session (needed for needs_setup).
+	if _, err := c.Authenticate(context.TODO(), "testadmin", "adminpass"); err != nil {
+		t.Fatalf("bootstrap admin Authenticate: %v", err)
+	}
+
+	// Create non-admin user and authenticate as that user.
+	resp, err := c.Authenticate(context.TODO(), "testadmin", "adminpass")
+	if err != nil {
+		t.Fatalf("Authenticate admin: %v", err)
+	}
+	c.Token = resp.Token
+
+	if _, err := c.CreateAccount(context.TODO(), "regularuser", "password1", "user@test.com", "555-1111", "Regular User", false); err != nil {
+		t.Fatalf("CreateAccount regularuser: %v", err)
+	}
+	userResp, err := c.Authenticate(context.TODO(), "regularuser", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate regularuser: %v", err)
+	}
+	c.Token = userResp.Token
+
+	return c, inst
+}
+
 func initMultiRepoTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager) {
 	t.Helper()
 	mock := storage.InitBtrFSMock()

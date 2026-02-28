@@ -34,6 +34,7 @@ type PingResponse struct {
 	DiskUsage          *storage.DiskUsage `json:"disk_usage,omitempty"`
 	UpgradesAvailable  int                `json:"upgrades_available"`
 	UpgradesDismissed  bool               `json:"upgrades_dismissed,omitempty"`
+	RepositoryErrors   map[string]string   `json:"repository_errors,omitempty"`
 }
 
 type UnitCounts struct {
@@ -125,6 +126,10 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 			return err
 		}
 		resp.Packages = len(pkgs)
+
+		if errs := rr.RefreshErrors(); len(errs) > 0 {
+			resp.RepositoryErrors = errs
+		}
 	}
 
 	if inst := s.Controller.GetInstaller(); inst != nil {

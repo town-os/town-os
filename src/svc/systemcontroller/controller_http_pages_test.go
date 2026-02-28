@@ -4,13 +4,14 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gitea.com/town-os/town-os/src/account"
-	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/storage"
 )
 
-func initPagesTestClient(t *testing.T) *SystemdClient {
+func initPagesTestClient(t *testing.T) (*SystemdClient, *git.MockClient) { //nolint:unparam // consistent with other init helpers
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 
@@ -41,7 +42,7 @@ func initPagesTestClient(t *testing.T) *SystemdClient {
 	}
 
 	pagesMgr := account.InitMockPagesManager()
-	gitCloner := &packages.MockGitCloner{}
+	gitClient := git.InitMockClient()
 
 	ts := InitTestServer(ServerConfig{
 		Storage:       mock,
@@ -49,7 +50,7 @@ func initPagesTestClient(t *testing.T) *SystemdClient {
 		SessionMgr:    sessMgr,
 		AuditMgr:      auditMgr,
 		PagesMgr:      pagesMgr,
-		GitCloner:     gitCloner,
+		Git:           gitClient,
 		BtrfsBasePath: t.TempDir(),
 	})
 	t.Cleanup(ts.Close)
@@ -69,15 +70,21 @@ func initPagesTestClient(t *testing.T) *SystemdClient {
 	}
 	c.Token = resp.Token
 
-	return c
+	return c, gitClient
 }
 
-func TestHTTPCreatePage(t *testing.T) {
-	c := initPagesTestClient(t)
+func TestHTTPCreatePageReturnsAsyncPending(t *testing.T) {
+	c, _ := initPagesTestClient(t)
 
 	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// The create endpoint should return immediately with pending status
+	// while the clone happens asynchronously.
+	if page.Status != "pending" {
+		t.Errorf("expected status %q, got %q", "pending", page.Status)
 	}
 
 	if page.Name != "my-site" {
@@ -92,10 +99,24 @@ func TestHTTPCreatePage(t *testing.T) {
 	if page.Domain != "site.example.com" {
 		t.Errorf("expected domain %q, got %q", "site.example.com", page.Domain)
 	}
+
+	// Wait briefly for the background goroutine to complete, then verify
+	// the status transitioned to active.
+	time.Sleep(100 * time.Millisecond)
+	pages, err := c.ListPages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages.Entries))
+	}
+	if pages.Entries[0].Status != "active" {
+		t.Errorf("expected status %q after async clone, got %q", "active", pages.Entries[0].Status)
+	}
 }
 
 func TestHTTPCreatePageDefaultDomain(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "")
 	if err != nil {
@@ -108,7 +129,7 @@ func TestHTTPCreatePageDefaultDomain(t *testing.T) {
 }
 
 func TestHTTPCreatePageDuplicate(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
@@ -122,7 +143,7 @@ func TestHTTPCreatePageDuplicate(t *testing.T) {
 }
 
 func TestHTTPUpdatePage(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
@@ -141,7 +162,7 @@ func TestHTTPUpdatePage(t *testing.T) {
 }
 
 func TestHTTPUpdatePageNotFound(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	newDomain := "new.example.com"
 	_, err := c.UpdatePage(context.TODO(), "nonexistent", account.PageSiteUpdate{Domain: &newDomain})
@@ -151,7 +172,7 @@ func TestHTTPUpdatePageNotFound(t *testing.T) {
 }
 
 func TestHTTPRemovePage(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
@@ -173,7 +194,7 @@ func TestHTTPRemovePage(t *testing.T) {
 }
 
 func TestHTTPRemovePageNotFound(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	err := c.RemovePage(context.TODO(), "nonexistent")
 	if err == nil {
@@ -182,7 +203,7 @@ func TestHTTPRemovePageNotFound(t *testing.T) {
 }
 
 func TestHTTPListPages(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	// Empty list.
 	pages, err := c.ListPages(context.TODO(), ListParams{})
@@ -213,7 +234,7 @@ func TestHTTPListPages(t *testing.T) {
 }
 
 func TestHTTPListPagesSearch(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	_, err := c.CreatePage(context.TODO(), "alpha-site", "https://github.com/user/alpha.git", "main", "alpha.example.com")
 	if err != nil {
@@ -237,12 +258,15 @@ func TestHTTPListPagesSearch(t *testing.T) {
 }
 
 func TestHTTPRebuildPage(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
+
+	// Wait for async clone to complete.
+	time.Sleep(100 * time.Millisecond)
 
 	page, err := c.RebuildPage(context.TODO(), "my-site")
 	if err != nil {
@@ -255,7 +279,7 @@ func TestHTTPRebuildPage(t *testing.T) {
 }
 
 func TestHTTPRebuildPageNotFound(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 
 	_, err := c.RebuildPage(context.TODO(), "nonexistent")
 	if err == nil {
@@ -264,7 +288,7 @@ func TestHTTPRebuildPageNotFound(t *testing.T) {
 }
 
 func TestHTTPPagesRequireAuth(t *testing.T) {
-	c := initPagesTestClient(t)
+	c, _ := initPagesTestClient(t)
 	c.Token = "" // Clear auth token.
 
 	_, err := c.ListPages(context.TODO(), ListParams{})

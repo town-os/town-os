@@ -210,6 +210,34 @@ func TestHTTPPingNeedsSetup(t *testing.T) {
 	}
 }
 
+func TestHTTPPingIncludesRepositoryErrors(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := &packages.RepositoryRoot{
+		BaseDir: t.TempDir(),
+		Errors:  map[string]string{"bad-repo": "connection refused"},
+	}
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if len(ping.RepositoryErrors) != 1 {
+		t.Fatalf("expected 1 repository error, got %d", len(ping.RepositoryErrors))
+	}
+	if ping.RepositoryErrors["bad-repo"] != "connection refused" {
+		t.Fatalf("expected error %q, got %q", "connection refused", ping.RepositoryErrors["bad-repo"])
+	}
+}
+
 func TestHTTPPingIncludesUpgradesAvailable(t *testing.T) {
 	c, _ := initUpgradesTestServer(t)
 

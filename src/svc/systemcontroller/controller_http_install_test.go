@@ -2580,3 +2580,30 @@ func TestHTTPInstallPackageWithGitSourcesCloneError(t *testing.T) {
 	}
 }
 
+// --- Auth level tests ---
+
+func TestHTTPInstallPreviewAllowsNonAdmin(t *testing.T) {
+	c, _ := initInstallTestClientWithAuth(t)
+
+	// Non-admin user should be able to access install-preview.
+	preview, err := c.InstallPreview(context.TODO(), "repo-a", "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("InstallPreview as non-admin: %v", err)
+	}
+
+	if preview.Name != "nginx" {
+		t.Fatalf("expected name %q, got %q", "nginx", preview.Name)
+	}
+}
+
+func TestHTTPUninstalledVolumesAllowsNonAdmin(t *testing.T) {
+	c, _ := initInstallTestClientWithAuth(t)
+
+	// Non-admin user should be able to access uninstalled-volumes.
+	_, err := c.ListUninstalledVolumes(context.TODO(), "repo-a", "nginx")
+	// The call may return an error if no volumes exist, but it should NOT be a 403.
+	if err != nil && strings.Contains(err.Error(), "403") {
+		t.Fatalf("expected non-admin to access uninstalled-volumes, got 403")
+	}
+}
+

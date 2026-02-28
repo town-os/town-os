@@ -144,6 +144,20 @@ func run() (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Start a background goroutine to periodically refresh repositories.
+	go func() {
+		ticker := time.NewTicker(packages.DefaultRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				rr.Refresh() //nolint:contextcheck // Refresh is a time-gated method that does not accept context
+			}
+		}
+	}()
+
 	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
 		Installer:                inst,
 		RepositoryRoot:           rr,
