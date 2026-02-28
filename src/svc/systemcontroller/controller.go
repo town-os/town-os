@@ -236,7 +236,7 @@ func (s *serverBase) fetchExternalIP(ctx context.Context) {
 		return
 	}
 	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: URL is a constant
 	if err != nil {
 		slog.Debug(fmt.Sprintf("fetchExternalIP: %v", err))
 		return
@@ -248,7 +248,7 @@ func (s *serverBase) fetchExternalIP(ctx context.Context) {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Debug(fmt.Sprintf("fetchExternalIP: status %d", resp.StatusCode))
+		slog.Debug(fmt.Sprintf("fetchExternalIP: status %d", resp.StatusCode)) //nolint:gosec // G706: integer status code, no injection risk
 		return
 	}
 

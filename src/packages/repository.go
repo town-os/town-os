@@ -27,7 +27,10 @@ const DefaultRefreshInterval = 5 * time.Minute
 // DefaultRepositories returns the default package repositories to seed when
 // no repositories have been configured.
 func DefaultRepositories() []Repository {
-	u, _ := url.Parse("https://github.com/town-os/default-packages")
+	u, err := url.Parse("https://github.com/town-os/default-packages")
+	if err != nil {
+		panic("invalid default repository URL: " + err.Error())
+	}
 	return []Repository{
 		{Name: "default", URL: *u},
 	}
@@ -52,8 +55,14 @@ func TestRepositories() []Repository {
 		extrasRaw = "https://github.com/town-os/test-packages-extras"
 	}
 
-	core, _ := url.Parse(coreRaw)
-	extras, _ := url.Parse(extrasRaw)
+	core, err := url.Parse(coreRaw)
+	if err != nil {
+		panic("invalid core repository URL: " + err.Error())
+	}
+	extras, err := url.Parse(extrasRaw)
+	if err != nil {
+		panic("invalid extras repository URL: " + err.Error())
+	}
 	return []Repository{
 		{Name: "core", URL: *core},
 		{Name: "extras", URL: *extras},
@@ -254,7 +263,7 @@ type Repository struct {
 	Name     string
 	URL      url.URL
 	Username string
-	Password string
+	Password string //nolint:gosec // G117: expected field name
 }
 
 type repositoryJSON struct {
@@ -763,7 +772,10 @@ func (rr *RepositoryRoot) ListPackagesByRepo() ([]RepoPackageGroup, error) {
 			pkgList[j] = PackageIdentity{Repo: repo.Name, Name: name, Version: best[name]}
 		}
 
-		featured, _ := repo.LoadFeatured(rr.BaseDir)
+		featured, err := repo.LoadFeatured(rr.BaseDir)
+		if err != nil {
+			logrus.Warnf("load featured for %s: %v", repo.Name, err)
+		}
 		groups = append(groups, RepoPackageGroup{Repo: repo.Name, Packages: pkgList, Featured: featured})
 	}
 

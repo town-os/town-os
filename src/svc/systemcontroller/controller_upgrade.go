@@ -43,7 +43,10 @@ func (s *SystemControllerHandlers) computeUpgrades() []PackageUpgrade {
 		}
 
 		upgrade := packages.CompareVersions(latestVersion, pi.Version) > 0
-		changed, _ := inst.IsPackageChanged(pi.Repo, pi.Name, pi.Version)
+		changed, err := inst.IsPackageChanged(pi.Repo, pi.Name, pi.Version)
+		if err != nil {
+			continue
+		}
 
 		if upgrade || changed {
 			u := PackageUpgrade{

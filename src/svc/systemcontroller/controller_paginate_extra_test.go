@@ -226,9 +226,18 @@ func TestFilterSearchStructNestedFields(t *testing.T) {
 func TestHTTPListRepositoriesSorted(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u1, _ := url.Parse("https://example.com/zebra.git")
-	u2, _ := url.Parse("https://example.com/alpha.git")
-	u3, _ := url.Parse("https://example.com/middle.git")
+	u1, err := url.Parse("https://example.com/zebra.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, err := url.Parse("https://example.com/alpha.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u3, err := url.Parse("https://example.com/middle.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "zebra", URL: *u1},
 		{Name: "alpha", URL: *u2},
@@ -449,7 +458,10 @@ func TestHTTPListRepositoriesSearchWithPagination(t *testing.T) {
 	rr := emptyRepoRoot(t)
 	repos := []packages.Repository{}
 	for _, name := range []string{"app-api", "app-web", "app-worker", "data-cache"} {
-		u, _ := url.Parse("https://example.com/" + name + ".git")
+		u, err := url.Parse("https://example.com/" + name + ".git")
+		if err != nil {
+			t.Fatal(err)
+		}
 		repos = append(repos, packages.Repository{Name: name, URL: *u})
 	}
 	rr.Items = repos
@@ -661,7 +673,10 @@ func TestHTTPListRepositoriesTotalPages(t *testing.T) {
 
 	// Create 5 repos
 	for _, name := range []string{"a", "b", "c", "d", "e"} {
-		u, _ := url.Parse("https://example.com/" + name + ".git")
+		u, err := url.Parse("https://example.com/" + name + ".git")
+		if err != nil {
+			t.Fatal(err)
+		}
 		rr.Items = append(rr.Items, packages.Repository{Name: name, URL: *u})
 	}
 

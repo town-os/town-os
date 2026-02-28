@@ -568,7 +568,10 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	{
 		excludedPorts := map[uint16]bool{}
 		if inst != nil {
-			allInstalled, _ := inst.ListInstalled()
+			allInstalled, err := inst.ListInstalled()
+			if err != nil {
+				return err
+			}
 			for _, pkg := range allInstalled {
 				pi, err := packages.ParsePackageIdentity(pkg)
 				if err != nil {
@@ -778,7 +781,10 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	// Track child in parent's children list when installing an instance.
 	if req.Instance != "" {
-		children, _ := inst.LoadChildren(repoName, parentName)
+		children, err := inst.LoadChildren(repoName, parentName)
+		if err != nil {
+			return err
+		}
 		if !slices.Contains(children, req.Instance) {
 			children = append(children, req.Instance)
 			if err := inst.SaveChildren(repoName, parentName, children); err != nil {
@@ -845,7 +851,10 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 
 	// Remove child from parent's children list when uninstalling an instance.
 	if req.Instance != "" {
-		children, _ := inst.LoadChildren(req.Repo, parentName)
+		children, err := inst.LoadChildren(req.Repo, parentName)
+		if err != nil {
+			return err
+		}
 		for i, ch := range children {
 			if ch == req.Instance {
 				children = append(children[:i], children[i+1:]...)

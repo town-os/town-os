@@ -118,7 +118,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		sortDir = "ASC"
 	}
 
-	qb.WriteString(fmt.Sprintf(" ORDER BY %s %s LIMIT ?", sortCol, sortDir))
+	fmt.Fprintf(&qb, " ORDER BY %s %s LIMIT ?", sortCol, sortDir)
 	args = append(args, limit+1)
 
 	if opts.Offset > 0 {

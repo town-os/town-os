@@ -364,8 +364,14 @@ func TestHTTPMoveRepositoryNotFound(t *testing.T) {
 func TestHTTPListRepositoriesSearch(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u1, _ := url.Parse("https://example.com/core.git")
-	u2, _ := url.Parse("https://example.com/extras.git")
+	u1, err := url.Parse("https://example.com/core.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, err := url.Parse("https://example.com/extras.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "core", URL: *u1},
 		{Name: "extras", URL: *u2},

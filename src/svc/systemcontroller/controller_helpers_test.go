@@ -607,7 +607,7 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallMana
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { if err := db.Close(); err != nil { t.Errorf("db.Close: %v", err) } })
 
 	settingsMgr, err := account.InitSettingsManager(db)
 	if err != nil {

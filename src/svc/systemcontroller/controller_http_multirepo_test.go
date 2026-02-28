@@ -36,7 +36,10 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 		}
 	}()
 	if resp1.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp1.Body)
+		body, err := io.ReadAll(resp1.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
 		t.Fatalf("expected 200 for repo-a, got %d: %s", resp1.StatusCode, body)
 	}
 
@@ -63,7 +66,10 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
 		t.Fatalf("expected 200 for repo-b, got %d: %s", resp.StatusCode, body)
 	}
 

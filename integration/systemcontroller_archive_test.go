@@ -250,10 +250,18 @@ func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = btr.RemoveFilesystem(subvol)
-		_ = btr.RemoveFilesystem("installed/testrepo/testpkg/1.0")
-		_ = btr.RemoveFilesystem("installed/testrepo/testpkg")
-		_ = btr.RemoveFilesystem("installed/testrepo")
+		if err := btr.RemoveFilesystem(subvol); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/testrepo/testpkg/1.0"); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/testrepo/testpkg"); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/testrepo"); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
 	})
 
 	archive := makeTarGz(t, map[string]string{"pkg-data.txt": "package data"})
@@ -301,10 +309,18 @@ func TestModifyInstalledVolumeQuota(t *testing.T) {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = btr.RemoveFilesystem(subvol)
-		_ = btr.RemoveFilesystem("installed/testrepo/quotapkg/1.0")
-		_ = btr.RemoveFilesystem("installed/testrepo/quotapkg")
-		_ = btr.RemoveFilesystem("installed/testrepo")
+		if err := btr.RemoveFilesystem(subvol); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/testrepo/quotapkg/1.0"); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/testrepo/quotapkg"); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/testrepo"); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
 	})
 
 	if err := c.ModifyFilesystem(ctx, subvol, storage.Filesystem{
@@ -376,7 +392,11 @@ func TestArchiveDownloadWithBzip2Format(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DownloadArchive bzip2: %v", err)
 	}
-	defer func() { _ = rc.Close() }()
+	defer func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("rc.Close: %v", err)
+		}
+	}()
 
 	// Verify the bzip2 magic bytes.
 	data, err := io.ReadAll(rc)
@@ -416,7 +436,11 @@ func TestArchiveDownloadWithXZFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DownloadArchive xz: %v", err)
 	}
-	defer func() { _ = rc.Close() }()
+	defer func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("rc.Close: %v", err)
+		}
+	}()
 
 	// Verify the xz magic bytes.
 	data, err := io.ReadAll(rc)
@@ -454,7 +478,11 @@ func TestArchiveDownloadWithFilename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DownloadArchive with filename: %v", err)
 	}
-	defer func() { _ = rc.Close() }()
+	defer func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("rc.Close: %v", err)
+		}
+	}()
 
 	files := extractTarGz(t, rc)
 	if _, ok := files["data.txt"]; !ok {

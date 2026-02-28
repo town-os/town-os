@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 type AuthenticateRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"`
+	Password string `json:"password"` //nolint:gosec // G117: expected field name
 }
 
 type AuthenticateResponse struct {
@@ -236,8 +237,10 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			entry.Error = handlerErr.Error()
 		}
 
-		// Best-effort audit logging; don't fail the request if logging fails
-		_ = am.LogEntry(entry)
+		// Best-effort audit logging; don't fail the request if logging fails.
+		if err := am.LogEntry(entry); err != nil {
+			slog.Debug("audit log entry", "error", err)
+		}
 
 		return handlerErr
 	}

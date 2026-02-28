@@ -610,7 +610,10 @@ func (s *SystemControllerHandlers) disablePackage(c *echo.Context) error {
 
 	// Find the installed version(s) and stop the service.
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		installed, _ := inst.ListInstalled()
+		installed, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
 		for _, pkg := range installed {
 			pi, err := packages.ParsePackageIdentity(pkg)
 			if err != nil {
@@ -644,7 +647,10 @@ func (s *SystemControllerHandlers) enablePackage(c *echo.Context) error {
 
 	// Find the installed version(s) and start the service.
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		installed, _ := inst.ListInstalled()
+		installed, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
 		for _, pkg := range installed {
 			pi, err := packages.ParsePackageIdentity(pkg)
 			if err != nil {

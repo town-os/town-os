@@ -92,7 +92,7 @@ func cacheRepo(ctx context.Context, cacheDir string, r repo, ghUser, ghPass stri
 	}
 
 	// Check if bare cache already exists.
-	if _, err := os.Stat(repoPath); err == nil {
+	if _, err := os.Stat(repoPath); err == nil { //nolint:gosec // G703: path derived from trusted config
 		return fetchCache(ctx, repoPath, auth)
 	}
 
@@ -223,7 +223,7 @@ func checkGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name str
 	}
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
 	if err != nil {
 		return false, false, fmt.Errorf("check repo: %w", err)
 	}
@@ -233,7 +233,10 @@ func checkGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name str
 		return false, false, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false, false, fmt.Errorf("unexpected status %d checking repo (read body: %w)", resp.StatusCode, err)
+		}
 		return false, false, fmt.Errorf("unexpected status %d checking repo: %s", resp.StatusCode, respBody)
 	}
 
@@ -266,14 +269,17 @@ func createGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name st
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: URL from trusted CLI flags
 	if err != nil {
 		return fmt.Errorf("create repo request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // response body
 
 	if resp.StatusCode != http.StatusCreated {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("unexpected status %d creating repo (read body: %w)", resp.StatusCode, err)
+		}
 		return fmt.Errorf("unexpected status %d creating repo: %s", resp.StatusCode, respBody)
 	}
 
@@ -292,7 +298,9 @@ func pushRefs(ctx context.Context, repoPath, pushURL string) error {
 	const remoteName = "gitea"
 
 	// Remove existing gitea remote if present (idempotent).
-	_ = repo.DeleteRemote(remoteName)
+	if err := repo.DeleteRemote(remoteName); err != nil {
+		fmt.Fprintf(os.Stderr, "remove existing gitea remote: %v\n", err)
+	}
 
 	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
 		Name: remoteName,
@@ -342,7 +350,7 @@ func ensureAdminUser(ctx context.Context, client *http.Client, giteaURL string) 
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: URL from trusted CLI flags
 	if err != nil {
 		return fmt.Errorf("create admin user request: %w", err)
 	}
@@ -357,7 +365,10 @@ func ensureAdminUser(ctx context.Context, client *http.Client, giteaURL string) 
 		fmt.Fprintf(os.Stderr, "Admin user %s already exists\n", adminUser)
 		return nil
 	default:
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("unexpected status %d creating admin user (read body: %w)", resp.StatusCode, err)
+		}
 		return fmt.Errorf("unexpected status %d creating admin user: %s", resp.StatusCode, respBody)
 	}
 }
@@ -383,14 +394,17 @@ func deleteRepo(ctx context.Context, client *http.Client, giteaURL, name string)
 	}
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: URL from trusted CLI flags
 	if err != nil {
 		return fmt.Errorf("delete request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // response body
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("unexpected status %d deleting repo (read body: %w)", resp.StatusCode, err)
+		}
 		return fmt.Errorf("unexpected status %d deleting repo: %s", resp.StatusCode, respBody)
 	}
 	return nil

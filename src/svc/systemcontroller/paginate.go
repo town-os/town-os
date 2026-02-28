@@ -68,8 +68,14 @@ func paginate[T any](items []T, limit, offset int) PageResult[T] {
 
 // readListParams extracts sort, pagination, and search parameters from GET query parameters.
 func readListParams(c *echo.Context) ListParams {
-	limit, _ := strconv.Atoi(c.QueryParam("limit"))
-	offset, _ := strconv.Atoi(c.QueryParam("offset"))
+	limit, err := strconv.Atoi(c.QueryParam("limit"))
+	if err != nil {
+		limit = 0
+	}
+	offset, err := strconv.Atoi(c.QueryParam("offset"))
+	if err != nil {
+		offset = 0
+	}
 	return ListParams{
 		SortBy:        c.QueryParam("sort_by"),
 		SortOrder:     c.QueryParam("sort_order"),

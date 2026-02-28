@@ -266,9 +266,13 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 	// Safety net: if purge fails, clean up manually.
 	t.Cleanup(func() {
 		for i := len(children) - 1; i >= 0; i-- {
-			_ = btr.RemoveFilesystem(children[i])
+			if err := btr.RemoveFilesystem(children[i]); err != nil {
+				t.Logf("cleanup RemoveFilesystem: %v", err)
+			}
 		}
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-purge")
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-purge"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
 	})
 
 	// Verify children exist via direct storage.
@@ -315,10 +319,18 @@ func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
 		t.Fatalf("CreateFilesystem test-repo/sc-pfx2/data: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx/data")
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx")
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx2/data")
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-pfx2")
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-pfx/data"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-pfx"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-pfx2/data"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-pfx2"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
 	})
 
 	// Purge "sc-pfx" only.
@@ -361,9 +373,13 @@ func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for i := len(names) - 1; i >= 0; i-- {
-			_ = btr.RemoveFilesystem(names[i])
+			if err := btr.RemoveFilesystem(names[i]); err != nil {
+				t.Logf("cleanup RemoveFilesystem: %v", err)
+			}
 		}
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-dpurge")
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-dpurge"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
 	})
 
 	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-dpurge"); err != nil {
@@ -387,7 +403,9 @@ func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = c.RemoveFilesystem(context.TODO(), "sc-surv")
+		if err := c.RemoveFilesystem(context.TODO(), "sc-surv"); err != nil {
+			t.Errorf("RemoveFilesystem: %v", err)
+		}
 	})
 
 	// Purge a package that doesn't exist — should succeed.
@@ -419,9 +437,13 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for i := len(children) - 1; i >= 0; i-- {
-			_ = btr.RemoveFilesystem(children[i].Name)
+			if err := btr.RemoveFilesystem(children[i].Name); err != nil {
+				t.Logf("cleanup RemoveFilesystem: %v", err)
+			}
 		}
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-pq")
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-pq"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
 	})
 
 	// Verify quotas exist before purge via direct storage.
@@ -468,9 +490,13 @@ func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for i := len(names) - 1; i >= 0; i-- {
-			_ = btr.RemoveFilesystem(names[i])
+			if err := btr.RemoveFilesystem(names[i]); err != nil {
+				t.Logf("cleanup RemoveFilesystem: %v", err)
+			}
 		}
-		_ = btr.RemoveFilesystem("installed/test-repo/sc-pmulti")
+		if err := btr.RemoveFilesystem("installed/test-repo/sc-pmulti"); err != nil {
+			t.Logf("cleanup RemoveFilesystem: %v", err)
+		}
 	})
 
 	if err := c.PurgeVolumes(context.TODO(), "test-repo", "sc-pmulti"); err != nil {

@@ -206,13 +206,10 @@ func TestGoGitClientRunStatus(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	out, err := c.Run(ctx, dir, "status")
+	_, err := c.Run(ctx, dir, "status")
 	if err != nil {
 		t.Fatalf("Run status: %v", err)
 	}
-
-	// Empty repo status returns empty string from go-git, which is valid.
-	_ = out
 }
 
 func TestGoGitClientHomeOverride(t *testing.T) {
@@ -969,7 +966,6 @@ func TestGoGitClientCloneInvalidURL(t *testing.T) {
 
 func TestGoGitClientRemoteAuthNoOrigin(t *testing.T) {
 	dir, c := initTestRepo(t)
-	_ = dir
 
 	// Init creates a repo without a remote, so remoteAuth should return nil.
 	// We test this indirectly through Fetch which calls remoteAuth.

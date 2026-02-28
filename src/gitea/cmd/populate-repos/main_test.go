@@ -231,7 +231,9 @@ func TestPushToGiteaCreatesAndPushes(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/user/repos":
 			createCalled = true
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
+			if _, err := w.Write([]byte(`{}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 		default:
 			t.Logf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -281,10 +283,12 @@ func TestPushToGiteaCreatesAndPushes(t *testing.T) {
 	}
 
 	var refCount int
-	_ = refs.ForEach(func(ref *plumbing.Reference) error {
+	if err = refs.ForEach(func(ref *plumbing.Reference) error {
 		refCount++
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if refCount == 0 {
 		t.Fatal("expected pushed refs in gitea repo")
 	}
@@ -307,7 +311,9 @@ func TestPushToGiteaUpdatesNonEmpty(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/town-os/test-repo":
 			// Repo exists and is non-empty.
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"name":"test-repo","empty":false}`))
+			if _, err := w.Write([]byte(`{"name":"test-repo","empty":false}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 		default:
 			t.Logf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -369,14 +375,18 @@ func TestPushToGiteaDeletesEmptyAndRepushes(t *testing.T) {
 			checkCount++
 			// Repo exists but is empty.
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"name":"test-repo","empty":true}`))
+			if _, err := w.Write([]byte(`{"name":"test-repo","empty":true}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/repos/town-os/test-repo":
 			deleteCalled = true
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/user/repos":
 			createCalled = true
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
+			if _, err := w.Write([]byte(`{}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 		default:
 			t.Logf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -446,7 +456,9 @@ func TestCheckGiteaRepoNotFound(t *testing.T) {
 func TestCheckGiteaRepoServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"message":"internal error"}`))
+		if _, err := w.Write([]byte(`{"message":"internal error"}`)); err != nil {
+			t.Errorf("w.Write: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -461,7 +473,9 @@ func TestCheckGiteaRepoServerError(t *testing.T) {
 func TestCheckGiteaRepoExistsNonEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"empty":false}`))
+		if _, err := w.Write([]byte(`{"empty":false}`)); err != nil {
+			t.Errorf("w.Write: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -482,7 +496,9 @@ func TestCheckGiteaRepoExistsNonEmpty(t *testing.T) {
 func TestCheckGiteaRepoExistsEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"empty":true}`))
+		if _, err := w.Write([]byte(`{"empty":true}`)); err != nil {
+			t.Errorf("w.Write: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -505,10 +521,17 @@ func TestCreateGiteaRepoSuccess(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/user/repos" {
-			data, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(data, &createBody)
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("io.ReadAll: %v", err)
+			}
+			if err := json.Unmarshal(data, &createBody); err != nil {
+				t.Errorf("json.Unmarshal: %v", err)
+			}
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
+			if _, err := w.Write([]byte(`{}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -542,7 +565,9 @@ func TestCreateGiteaRepoUsesBasicAuth(t *testing.T) {
 				gotPass = p
 			}
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
+			if _, err := w.Write([]byte(`{}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -567,7 +592,9 @@ func TestCreateGiteaRepoUsesBasicAuth(t *testing.T) {
 func TestCreateGiteaRepoServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"message":"error"}`))
+		if _, err := w.Write([]byte(`{"message":"error"}`)); err != nil {
+			t.Errorf("w.Write: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -719,10 +746,17 @@ func TestEnsureAdminUserCreated(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/users" {
-			data, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(data, &createBody)
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("io.ReadAll: %v", err)
+			}
+			if err := json.Unmarshal(data, &createBody); err != nil {
+				t.Errorf("json.Unmarshal: %v", err)
+			}
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
+			if _, err := w.Write([]byte(`{}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -746,7 +780,9 @@ func TestEnsureAdminUserAlreadyExists(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/users" {
 			w.WriteHeader(http.StatusConflict)
-			_, _ = w.Write([]byte(`{"message":"user already exists"}`))
+			if _, err := w.Write([]byte(`{"message":"user already exists"}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -766,7 +802,9 @@ func TestEnsureAdminUserServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/users" {
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+			if _, err := w.Write([]byte(`{"message":"internal error"}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -785,7 +823,9 @@ func TestEnsureAdminUserUnprocessableEntity(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/users" {
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			_, _ = w.Write([]byte(`{"message":"user already exists"}`))
+			if _, err := w.Write([]byte(`{"message":"user already exists"}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -806,10 +846,17 @@ func TestEnsureAdminUserBodyFields(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/users" {
-			data, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(data, &createBody)
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("io.ReadAll: %v", err)
+			}
+			if err := json.Unmarshal(data, &createBody); err != nil {
+				t.Errorf("json.Unmarshal: %v", err)
+			}
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
+			if _, err := w.Write([]byte(`{}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -848,7 +895,9 @@ func TestEnsureAdminUserUsesBasicAuth(t *testing.T) {
 				gotPass = p
 			}
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
+			if _, err := w.Write([]byte(`{}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -874,7 +923,9 @@ func TestIsRepoEmptyTrue(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/town-os/test-packages-core" {
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"empty":true}`))
+			if _, err := w.Write([]byte(`{"empty":true}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -897,7 +948,9 @@ func TestIsRepoEmptyFalse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/repos/town-os/test-packages-core" {
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"empty":false}`))
+			if _, err := w.Write([]byte(`{"empty":false}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -956,7 +1009,9 @@ func TestDeleteRepoServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodDelete && r.URL.Path == "/api/v1/repos/town-os/test-packages-core" {
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(`{"message":"internal error"}`))
+			if _, err := w.Write([]byte(`{"message":"internal error"}`)); err != nil {
+				t.Errorf("w.Write: %v", err)
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

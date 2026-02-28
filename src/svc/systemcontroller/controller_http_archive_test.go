@@ -47,7 +47,11 @@ func TestHTTPUploadArchiveInstalledVolume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	// Should not fail with reserved filesystem error anymore.
 	// It may fail for other reasons (tar unpack on fake data) but should not be 403/reserved.
@@ -74,7 +78,11 @@ func TestHTTPDownloadArchiveInstalledVolume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	// Should not fail with reserved filesystem error anymore.
 	// May fail for other reasons (directory not found) but not due to reserved check.
@@ -91,11 +99,22 @@ func TestHTTPUploadArchiveWithSubpath(t *testing.T) {
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	_ = writer.WriteField("subvolume", "test-vol")
-	_ = writer.WriteField("subpath", "deep/nested")
-	part, _ := writer.CreateFormFile("archive", "test.tar.gz")
-	_, _ = part.Write([]byte("fake"))
-	_ = writer.Close()
+	if err := writer.WriteField("subvolume", "test-vol"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteField("subpath", "deep/nested"); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("archive", "test.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("fake")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
 	if err != nil {
@@ -106,7 +125,11 @@ func TestHTTPUploadArchiveWithSubpath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	// The request should be accepted (subpath is valid); it may fail during
 	// actual unpack because the tar data is fake, but the subpath parameter
@@ -122,11 +145,22 @@ func TestHTTPUploadArchiveWithStopService(t *testing.T) {
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	_ = writer.WriteField("subvolume", "test-vol")
-	_ = writer.WriteField("stop_service", "my-app.service")
-	part, _ := writer.CreateFormFile("archive", "test.tar.gz")
-	_, _ = part.Write([]byte("fake"))
-	_ = writer.Close()
+	if err := writer.WriteField("subvolume", "test-vol"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteField("stop_service", "my-app.service"); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("archive", "test.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("fake")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, testRoute(t, ts.Server.URL, "/storage/upload-archive"), body)
 	if err != nil {
@@ -137,7 +171,11 @@ func TestHTTPUploadArchiveWithStopService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	// Verify that the systemd mock recorded the stop call.
 	calls := sd.GetCalls()
@@ -180,13 +218,20 @@ func TestHTTPDownloadArchiveWithFormat(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			defer func() { _ = resp.Body.Close() }()
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					t.Errorf("resp.Body.Close: %v", err)
+				}
+			}()
 
 			// The endpoint should accept the format parameter.
 			// It may fail because the directory doesn't exist, but it should
 			// not reject the format itself.
 			if resp.StatusCode == http.StatusBadRequest {
-				respBody, _ := io.ReadAll(resp.Body)
+				respBody, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
 				if strings.Contains(string(respBody), "unsupported download format") {
 					t.Fatalf("format %q should be supported", format)
 				}
@@ -216,7 +261,11 @@ func TestHTTPDownloadArchiveInvalidFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400 for unsupported format, got %d", resp.StatusCode)
@@ -260,7 +309,11 @@ func TestHTTPDownloadArchiveWithFilename(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			defer func() { _ = resp.Body.Close() }()
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					t.Errorf("resp.Body.Close: %v", err)
+				}
+			}()
 
 			got := resp.Header.Get("Content-Disposition")
 			if got != tt.want {

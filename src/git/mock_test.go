@@ -338,18 +338,42 @@ func TestMockClientCallLog(t *testing.T) {
 	m := InitMockClient()
 	ctx := context.Background()
 
-	_ = m.Clone(ctx, "/d", "url", "name")
-	_ = m.Pull(ctx, "/d")
-	_, _ = m.Diff(ctx, "/d")
-	_ = m.Stash(ctx, "/d")
-	_ = m.StashApply(ctx, "/d")
-	_ = m.Fetch(ctx, "/d")
-	_ = m.Checkout(ctx, "/d", "main")
-	_ = m.Init(ctx, "/d")
-	_ = m.Add(ctx, "/d", "f")
-	_ = m.Commit(ctx, "/d", "msg")
-	_, _ = m.RevParse(ctx, "/d", "HEAD")
-	_, _ = m.Run(ctx, "/d", "status")
+	if err := m.Clone(ctx, "/d", "url", "name"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Pull(ctx, "/d"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Diff(ctx, "/d"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Stash(ctx, "/d"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.StashApply(ctx, "/d"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Fetch(ctx, "/d"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Checkout(ctx, "/d", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Init(ctx, "/d"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Add(ctx, "/d", "f"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Commit(ctx, "/d", "msg"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RevParse(ctx, "/d", "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Run(ctx, "/d", "status"); err != nil {
+		t.Fatal(err)
+	}
 
 	calls := m.GetCalls()
 	if len(calls) != 12 {
@@ -370,7 +394,9 @@ func TestMockClientCallLog(t *testing.T) {
 
 func TestMockClientCallLogReturnsCopy(t *testing.T) {
 	m := InitMockClient()
-	_ = m.Clone(context.Background(), "/d", "url", "name")
+	if err := m.Clone(context.Background(), "/d", "url", "name"); err != nil {
+		t.Fatal(err)
+	}
 
 	calls := m.GetCalls()
 	calls[0].Method = "mutated"

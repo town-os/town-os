@@ -122,11 +122,11 @@ func matchMagicBytes(header []byte) string {
 func decompressCommand(ctx context.Context, format string) *exec.Cmd {
 	switch format {
 	case "tar.gz":
-		return exec.CommandContext(ctx, "pigz", "-dc")
+		return exec.CommandContext(ctx, "pigz", "-dc") //nolint:gosec // G702: constant command
 	case "tar.bz2":
-		return exec.CommandContext(ctx, "lbzip2", "-dc")
+		return exec.CommandContext(ctx, "lbzip2", "-dc") //nolint:gosec // G702: constant command
 	case "tar.xz":
-		return exec.CommandContext(ctx, "xz", "-dc")
+		return exec.CommandContext(ctx, "xz", "-dc") //nolint:gosec // G702: constant command
 	default:
 		return nil
 	}
@@ -240,7 +240,7 @@ func validateUnpackedPaths(destDir string) error {
 		return err
 	}
 
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // G703: root from filepath.Abs
 		if err != nil {
 			return err
 		}
@@ -354,11 +354,12 @@ func validateTarStream(ctx context.Context, r io.Reader) <-chan error {
 // within the subvolume (created with MkdirAll if it does not exist).
 func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, archiveReader *bufio.Reader, filename, targetSubvol, subpath string) error {
 	// Detect format from magic bytes first.
-	format, magicReader, err := detectArchiveFormat(archiveReader)
+	// archiveReader is a *bufio.Reader that replays peeked bytes, so the
+	// returned reader from detectArchiveFormat is not needed separately.
+	format, _, err := detectArchiveFormat(archiveReader)
 	if err != nil {
 		return err
 	}
-	_ = magicReader // archiveReader is already a *bufio.Reader that replays peeked bytes
 
 	// Also validate the extension independently.
 	if _, extErr := archiveFormat(filename); extErr != nil {
@@ -421,26 +422,35 @@ func (s *SystemControllerHandlers) unpackWithValidation(ctx context.Context, cr 
 	validCh := validateTarStream(ctx, validPR)
 
 	// Start the unpack command reading from the tee.
-	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath)
+	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204: constant command with validated path
 	unpackCmd.Stdin = teeReader
 
 	unpackStderr, err := unpackCmd.StderrPipe()
 	if err != nil {
-		_ = validPW.Close()
+		if cerr := validPW.Close(); cerr != nil {
+			slog.Debug("close validation pipe writer", "error", cerr)
+		}
 		return fmt.Errorf("unpack stderr pipe: %w", err)
 	}
 
 	if err := unpackCmd.Start(); err != nil {
-		_ = validPW.Close()
+		if cerr := validPW.Close(); cerr != nil {
+			slog.Debug("close validation pipe writer", "error", cerr)
+		}
 		return fmt.Errorf("start unpack: %w", err)
 	}
 
 	// Wait for the unpack to finish (it drives the tee reader).
-	unpackStderrOut, _ := io.ReadAll(unpackStderr)
+	unpackStderrOut, err := io.ReadAll(unpackStderr)
+	if err != nil {
+		slog.Debug("read unpack stderr", "error", err)
+	}
 	unpackErr := unpackCmd.Wait()
 
 	// Close the validation pipe writer so the validator sees EOF.
-	_ = validPW.Close()
+	if cerr := validPW.Close(); cerr != nil {
+		slog.Debug("close validation pipe writer", "error", cerr)
+	}
 
 	// Collect validation result.
 	var validErr error
@@ -450,7 +460,10 @@ func (s *SystemControllerHandlers) unpackWithValidation(ctx context.Context, cr 
 		}
 	}
 
-	decompStderrOut, _ := io.ReadAll(decompStderr)
+	decompStderrOut, err := io.ReadAll(decompStderr)
+	if err != nil {
+		slog.Debug("read decompress stderr", "error", err)
+	}
 	decompErr := decompCmd.Wait()
 
 	// Check for validation failure first.
@@ -485,24 +498,33 @@ func (s *SystemControllerHandlers) unpackPlainTar(ctx context.Context, cr *count
 
 	validCh := validateTarStream(ctx, validPR)
 
-	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath)
+	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204: constant command with validated path
 	unpackCmd.Stdin = teeReader
 
 	unpackStderr, err := unpackCmd.StderrPipe()
 	if err != nil {
-		_ = validPW.Close()
+		if cerr := validPW.Close(); cerr != nil {
+			slog.Debug("close validation pipe writer", "error", cerr)
+		}
 		return fmt.Errorf("unpack stderr pipe: %w", err)
 	}
 
 	if err := unpackCmd.Start(); err != nil {
-		_ = validPW.Close()
+		if cerr := validPW.Close(); cerr != nil {
+			slog.Debug("close validation pipe writer", "error", cerr)
+		}
 		return fmt.Errorf("start unpack: %w", err)
 	}
 
-	unpackStderrOut, _ := io.ReadAll(unpackStderr)
+	unpackStderrOut, err := io.ReadAll(unpackStderr)
+	if err != nil {
+		slog.Debug("read unpack stderr", "error", err)
+	}
 	unpackErr := unpackCmd.Wait()
 
-	_ = validPW.Close()
+	if cerr := validPW.Close(); cerr != nil {
+		slog.Debug("close validation pipe writer", "error", cerr)
+	}
 
 	var validErr error
 	for e := range validCh {
@@ -668,7 +690,10 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		return fmt.Errorf("start archive: %w", err)
 	}
 
-	stderrOut, _ := io.ReadAll(stderrPipe)
+	stderrOut, err := io.ReadAll(stderrPipe)
+	if err != nil {
+		slog.Debug("read tar stderr", "error", err)
+	}
 
 	if err := cmd.Wait(); err != nil {
 		slog.Debug(fmt.Sprintf("archive tar: %v: %s", err, string(stderrOut)))
@@ -694,13 +719,13 @@ func gitCloneIntoPath(ctx context.Context, gitURL, targetPath string) error {
 // a container image into a target path, used during both install and reconcile.
 func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath string) error {
 	// Pull the image.
-	pullCmd := exec.CommandContext(ctx, "podman", "pull", image)
+	pullCmd := exec.CommandContext(ctx, "podman", "pull", image) //nolint:gosec // G204: image from validated package metadata
 	if output, err := pullCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman pull %s: %w: %s", image, err, string(output))
 	}
 
 	// Create a temporary container.
-	createCmd := exec.CommandContext(ctx, "podman", "create", image)
+	createCmd := exec.CommandContext(ctx, "podman", "create", image) //nolint:gosec // G204: image from validated package metadata
 	output, err := createCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("podman create %s: %w: %s", image, err, string(output))

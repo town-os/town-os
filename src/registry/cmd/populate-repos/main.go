@@ -98,23 +98,30 @@ func run() error {
 
 func getRepo(client *http.Client, baseURL, user, pass, name string) (*giteaRepo, error) {
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s", baseURL, user, name)
-	req, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx // short-lived tool
+	req, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx,gosec // short-lived tool; URL from trusted config
 	if err != nil {
 		return nil, err
 	}
 	req.SetBasicAuth(user, pass)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, errors.New("not found")
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("status %d (read body: %w)", resp.StatusCode, err)
+		}
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -127,20 +134,27 @@ func getRepo(client *http.Client, baseURL, user, pass, name string) (*giteaRepo,
 
 func deleteRepo(client *http.Client, baseURL, user, pass, name string) error {
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s", baseURL, user, name)
-	req, err := http.NewRequest(http.MethodDelete, url, nil) //nolint:noctx // short-lived tool
+	req, err := http.NewRequest(http.MethodDelete, url, nil) //nolint:noctx,gosec // short-lived tool; URL from trusted config
 	if err != nil {
 		return err
 	}
 	req.SetBasicAuth(user, pass)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("status %d (read body: %w)", resp.StatusCode, err)
+		}
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
 	return nil
@@ -159,21 +173,28 @@ func migrateRepo(client *http.Client, baseURL, user, pass, name, cloneURL string
 	}
 
 	url := baseURL + "/api/v1/repos/migrate"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body)) //nolint:noctx // short-lived tool
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body)) //nolint:noctx,gosec // short-lived tool; URL from trusted config
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(user, pass)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("status %d (read body: %w)", resp.StatusCode, err)
+		}
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))
 	}
 

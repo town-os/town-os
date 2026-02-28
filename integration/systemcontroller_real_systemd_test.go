@@ -42,7 +42,9 @@ func TestRealSystemdStartStop(t *testing.T) {
 	c := initRealSystemdTest(t)
 
 	// Ensure stopped first.
-	_ = c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Stop)
+	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Stop); err != nil {
+		t.Logf("SetUnitStatus cleanup: %v", err)
+	}
 
 	// Start.
 	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Start); err != nil {

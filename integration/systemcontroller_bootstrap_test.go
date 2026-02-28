@@ -138,11 +138,10 @@ func TestBootstrapRejectsAfterAdminExists(t *testing.T) {
 	}
 
 	// Authenticate to create an active session.
-	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	_, err := c.Authenticate(context.TODO(), "admin", "adminpass")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	_ = resp
 
 	// Unauthenticated create should now be rejected (active session exists).
 	c.Token = ""

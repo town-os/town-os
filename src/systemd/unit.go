@@ -132,20 +132,20 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	// [Unit]
 	b.WriteString("[Unit]\n")
 	if cfg.Description != "" {
-		b.WriteString(fmt.Sprintf("Description=Town OS: %s\n", cfg.Description))
+		fmt.Fprintf(&b, "Description=Town OS: %s\n", cfg.Description)
 	} else {
-		b.WriteString(fmt.Sprintf("Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version))
+		fmt.Fprintf(&b, "Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version)
 	}
 	if needsNetworkController {
-		b.WriteString(fmt.Sprintf("Wants=%s\n", NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)))
+		fmt.Fprintf(&b, "Wants=%s\n", NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version))
 	}
 	b.WriteString("After=network-online.target\n")
 
 	// [Service]
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=simple\n")
-	b.WriteString(fmt.Sprintf("ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName))
-	b.WriteString(fmt.Sprintf("ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName))
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
 
 	// Stop socket units to free ports before podman binds via -p.
 	if len(ports) > 0 {
@@ -153,7 +153,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		for i, p := range ports {
 			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
 		}
-		b.WriteString(fmt.Sprintf("ExecStartPre=-/bin/systemctl stop %s\n", strings.Join(socketNames, " ")))
+		fmt.Fprintf(&b, "ExecStartPre=-/bin/systemctl stop %s\n", strings.Join(socketNames, " "))
 	}
 
 	// Firewall: open ports.
@@ -162,7 +162,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		for i, p := range ports {
 			portArgs[i] = fmt.Sprintf("--add-port=%d/tcp", p)
 		}
-		b.WriteString(fmt.Sprintf("ExecStartPre=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " ")))
+		fmt.Fprintf(&b, "ExecStartPre=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " "))
 	}
 
 	// Volume names, sorted for deterministic output.
@@ -177,12 +177,12 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		vol := cfg.Volumes[name]
 		if vol.UID != nil && vol.GID != nil {
 			hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
-			b.WriteString(fmt.Sprintf("ExecStartPre=/bin/chown -R %d:%d %s\n", *vol.UID, *vol.GID, hostPath))
+			fmt.Fprintf(&b, "ExecStartPre=/bin/chown -R %d:%d %s\n", *vol.UID, *vol.GID, hostPath)
 		}
 	}
 
 	// ExecStart: podman run with network configuration.
-	b.WriteString(fmt.Sprintf("ExecStart=/usr/bin/podman run --name %s --systemd=true", containerName))
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --name %s --systemd=true", containerName)
 
 	if cfg.NetworkMode == "host" {
 		b.WriteString(" --net host")
@@ -199,14 +199,14 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	}
 	sort.Strings(envKeys)
 	for _, k := range envKeys {
-		b.WriteString(fmt.Sprintf(" \\\n  -e %s=%s", k, cfg.Environment[k]))
+		fmt.Fprintf(&b, " \\\n  -e %s=%s", k, cfg.Environment[k])
 	}
 
 	// Volume mounts.
 	for _, name := range volNames {
 		vol := cfg.Volumes[name]
 		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
-		b.WriteString(fmt.Sprintf(" \\\n  -v %s:%s:rw,z", hostPath, vol.Mountpoint))
+		fmt.Fprintf(&b, " \\\n  -v %s:%s:rw,z", hostPath, vol.Mountpoint)
 	}
 
 	if len(cfg.Command) > 0 {
@@ -216,11 +216,11 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		}
 		b.WriteString("\n")
 	} else {
-		b.WriteString(fmt.Sprintf(" \\\n  %s\n", cfg.Image))
+		fmt.Fprintf(&b, " \\\n  %s\n", cfg.Image)
 	}
 
 	// ExecStop
-	b.WriteString(fmt.Sprintf("ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName))
+	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName)
 
 	// Firewall: close ports.
 	if len(ports) > 0 {
@@ -228,7 +228,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		for i, p := range ports {
 			portArgs[i] = fmt.Sprintf("--remove-port=%d/tcp", p)
 		}
-		b.WriteString(fmt.Sprintf("ExecStopPost=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " ")))
+		fmt.Fprintf(&b, "ExecStopPost=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " "))
 	}
 
 	// Restart socket units after stop.
@@ -237,7 +237,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		for i, p := range ports {
 			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
 		}
-		b.WriteString(fmt.Sprintf("ExecStopPost=-/bin/systemctl start %s\n", strings.Join(socketNames, " ")))
+		fmt.Fprintf(&b, "ExecStopPost=-/bin/systemctl start %s\n", strings.Join(socketNames, " "))
 	}
 
 	b.WriteString("Restart=on-failure\n")

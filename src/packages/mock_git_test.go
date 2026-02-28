@@ -75,8 +75,12 @@ func TestMockGitClonerUpdateError(t *testing.T) {
 
 func TestMockGitClonerGetCallsReturns(t *testing.T) {
 	m := &MockGitCloner{}
-	_ = m.Clone("/a", "url-a", "main")
-	_ = m.Update("/b", "develop")
+	if err := m.Clone("/a", "url-a", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Update("/b", "develop"); err != nil {
+		t.Fatal(err)
+	}
 
 	calls := m.GetCalls()
 	if len(calls) != 2 {
@@ -102,13 +106,20 @@ func TestMockGitClonerConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	n := 50
 	wg.Add(n)
-	for range n {
+	cloneErrs := make([]error, n)
+	for i := range n {
 		go func() {
 			defer wg.Done()
-			_ = m.Clone("/target", "url", "main")
+			cloneErrs[i] = m.Clone("/target", "url", "main")
 		}()
 	}
 	wg.Wait()
+
+	for _, cloneErr := range cloneErrs {
+		if cloneErr != nil {
+			t.Fatal(cloneErr)
+		}
+	}
 
 	calls := m.GetCalls()
 	if len(calls) != n {

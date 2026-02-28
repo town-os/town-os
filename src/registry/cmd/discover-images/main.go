@@ -80,7 +80,9 @@ func run() error {
 	}
 
 	for _, img := range filterDockerIO(allSeen) {
-		_, _ = os.Stdout.WriteString(img + "\n")
+		if _, err := os.Stdout.WriteString(img + "\n"); err != nil {
+			return err
+		}
 	}
 
 	return nil

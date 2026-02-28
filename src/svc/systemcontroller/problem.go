@@ -97,7 +97,12 @@ func sanitizeProblemDetail(pd *ProblemDetailError) *ProblemDetailError {
 // that writes RFC 9457 problem+json responses.
 func ProblemDetailHTTPErrorHandler() echo.HTTPErrorHandler {
 	return func(c *echo.Context, err error) {
-		if r, _ := echo.UnwrapResponse(c.Response()); r != nil && r.Committed {
+		r, unwrapErr := echo.UnwrapResponse(c.Response())
+		if unwrapErr != nil {
+			slog.Debug("unwrap response", "error", unwrapErr)
+			return
+		}
+		if r != nil && r.Committed {
 			return
 		}
 

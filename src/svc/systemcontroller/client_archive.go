@@ -61,7 +61,7 @@ func (c *SystemdClient) UploadArchive(ctx context.Context, subvolume string, arc
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.HTTP.Do(req) //nolint:gosec // G704: URL from trusted c.route()
 	if err != nil {
 		return nil, fmt.Errorf("%w: POST storage/upload-archive: %w", ErrHTTPRequest, err)
 	}
@@ -100,7 +100,7 @@ func (c *SystemdClient) DownloadArchive(ctx context.Context, subvolume string, p
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.HTTP.Do(req) //nolint:gosec // G704: URL from trusted c.route()
 	if err != nil {
 		return nil, fmt.Errorf("%w: POST storage/download-archive: %w", ErrHTTPRequest, err)
 	}

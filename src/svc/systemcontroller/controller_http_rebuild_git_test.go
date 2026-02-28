@@ -28,7 +28,7 @@ func TestHTTPRebuildGitMissingFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { if err := resp.Body.Close(); err != nil { t.Errorf("resp.Body.Close: %v", err) } }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
@@ -53,7 +53,7 @@ func TestHTTPRebuildGitNoInstaller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { if err := resp.Body.Close(); err != nil { t.Errorf("resp.Body.Close: %v", err) } }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", resp.StatusCode)

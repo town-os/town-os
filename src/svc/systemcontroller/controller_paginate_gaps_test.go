@@ -726,7 +726,10 @@ func TestHTTPListFilesystemsTotalPagesAndCount(t *testing.T) {
 func TestHTTPListRepositoriesSearchCaseInsensitive(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/MyRepo.git")
+	u, err := url.Parse("https://example.com/MyRepo.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "MyRepo", URL: *u},
 	}
@@ -755,7 +758,10 @@ func TestHTTPListRepositoriesSearchCaseInsensitive(t *testing.T) {
 func TestHTTPListPackagesSearchCaseInsensitive(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/repo.git")
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo", URL: *u},
 	}
@@ -785,7 +791,10 @@ func TestHTTPListPackagesSearchCaseInsensitive(t *testing.T) {
 func TestHTTPListInstalledSearchCaseInsensitive(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/repo.git")
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo", URL: *u},
 	}
@@ -840,7 +849,10 @@ func TestHTTPListFilesystemsSearchCaseInsensitive(t *testing.T) {
 func TestHTTPListRepositoriesEmptySearch(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/repo.git")
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo", URL: *u},
 	}
@@ -910,7 +922,10 @@ func TestHTTPListAccountsEmptySearch(t *testing.T) {
 func TestHTTPListPackagesDefaultLimit(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/repo.git")
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo", URL: *u},
 	}
@@ -968,7 +983,10 @@ func TestHTTPListAccountsDefaultLimit(t *testing.T) {
 func TestHTTPListPackagesSortWithPagination(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
-	u, _ := url.Parse("https://example.com/repo.git")
+	u, err := url.Parse("https://example.com/repo.git")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr.Items = []packages.Repository{
 		{Name: "repo", URL: *u},
 	}

@@ -63,9 +63,15 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 		ctx := context.Background()
 		allUnits := systemd.PackageUnitNames("core", "nginx", "1.0", "", packages.PortMap{8080: 80}, packages.PortMap{})
 		for _, name := range allUnits {
-			_ = cleanup.SetStatus(ctx, name, systemd.Stop)
-			_ = cleanup.SetStatus(ctx, name, systemd.Disable)
-			_ = cleanup.UninstallUnit(ctx, name)
+			if err := cleanup.SetStatus(ctx, name, systemd.Stop); err != nil {
+				t.Logf("cleanup: SetStatus stop %s: %v", name, err)
+			}
+			if err := cleanup.SetStatus(ctx, name, systemd.Disable); err != nil {
+				t.Logf("cleanup: SetStatus disable %s: %v", name, err)
+			}
+			if err := cleanup.UninstallUnit(ctx, name); err != nil {
+				t.Logf("cleanup: UninstallUnit %s: %v", name, err)
+			}
 		}
 	})
 
@@ -183,18 +189,29 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 
 // cleanupContainerUnits unconditionally stops, disables, and removes all
 // systemd units for a package plus the podman container itself.
-func cleanupContainerUnits(repo, pkgName, version string, external, internal packages.PortMap) {
+func cleanupContainerUnits(t *testing.T, repo, pkgName, version string, external, internal packages.PortMap) {
+	t.Helper()
 	cleanup := systemd.NewManager()
 	ctx := context.Background()
 	allUnits := systemd.PackageUnitNames(repo, pkgName, version, "", external, internal)
 	for _, name := range allUnits {
-		_ = cleanup.SetStatus(ctx, name, systemd.Stop)
-		_ = cleanup.SetStatus(ctx, name, systemd.Disable)
-		_ = cleanup.UninstallUnit(ctx, name)
+		if err := cleanup.SetStatus(ctx, name, systemd.Stop); err != nil {
+			t.Logf("cleanup: SetStatus stop %s: %v", name, err)
+		}
+		if err := cleanup.SetStatus(ctx, name, systemd.Disable); err != nil {
+			t.Logf("cleanup: SetStatus disable %s: %v", name, err)
+		}
+		if err := cleanup.UninstallUnit(ctx, name); err != nil {
+			t.Logf("cleanup: UninstallUnit %s: %v", name, err)
+		}
 	}
 	containerName := systemd.ContainerName(repo, pkgName, version)
-	_ = exec.CommandContext(context.TODO(), "podman", "stop", "-t", "10", containerName).Run()
-	_ = exec.CommandContext(context.TODO(), "podman", "rm", "-f", containerName).Run()
+	if err := exec.CommandContext(context.TODO(), "podman", "stop", "-t", "10", containerName).Run(); err != nil {
+		t.Logf("cleanup: podman stop %s: %v", containerName, err)
+	}
+	if err := exec.CommandContext(context.TODO(), "podman", "rm", "-f", containerName).Run(); err != nil {
+		t.Logf("cleanup: podman rm %s: %v", containerName, err)
+	}
 }
 
 // waitForContainer polls podman inspect until the container reaches "running"
@@ -212,7 +229,10 @@ func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.
 		time.Sleep(2 * time.Second)
 	}
 	// Log the systemd journal for debugging before failing.
-	journal, _ := exec.CommandContext(context.TODO(), "journalctl", "-u", unitName, "--no-pager", "-n", "50").Output()
+	journal, journalErr := exec.CommandContext(context.TODO(), "journalctl", "-u", unitName, "--no-pager", "-n", "50").Output()
+	if journalErr != nil {
+		t.Logf("journalctl for %s: %v", unitName, journalErr)
+	}
 	t.Fatalf("container %q did not reach running state within %v\njournal:\n%s", containerName, timeout, string(journal))
 }
 
@@ -247,7 +267,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{uint16(portNum): 6379})
+		cleanupContainerUnits(t, "core", "redis", "7.0", packages.PortMap{}, packages.PortMap{uint16(portNum): 6379})
 	})
 
 	// Wait for the container to start (includes image pull).
@@ -288,7 +308,10 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 	if err != nil {
-		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput()
+		logs, logsErr := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput()
+		if logsErr != nil {
+			t.Logf("podman logs %s: %v", containerName, logsErr)
+		}
 		t.Fatalf("TCP connect to redis on port %s failed: %v\ncontainer logs:\n%s", assignedPort, err, string(logs))
 	}
 	if err := conn.Close(); err != nil {
@@ -334,7 +357,9 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	// Verify the assigned port is no longer accessible.
 	postConn, postErr := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 	if postErr == nil {
-		_ = postConn.Close()
+		if err := postConn.Close(); err != nil {
+			t.Errorf("postConn.Close: %v", err)
+		}
 		t.Fatalf("expected port %s to be unreachable after uninstall", assignedPort)
 	}
 }
@@ -372,7 +397,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		cleanupContainerUnits("core", "redis", "7.0", packages.PortMap{}, packages.PortMap{uint16(portNum): 6379})
+		cleanupContainerUnits(t, "core", "redis", "7.0", packages.PortMap{}, packages.PortMap{uint16(portNum): 6379})
 	})
 
 	// Reinstall with the same version (same-version reinstall path).
@@ -425,7 +450,10 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
-		logs, _ := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
+		logs, logsErr := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
+		if logsErr != nil {
+			t.Logf("podman logs %s: %v", systemd.ContainerName("core", "redis", "7.0"), logsErr)
+		}
 		t.Fatalf("TCP connect to redis on port %s after reinstall failed: %v\ncontainer logs:\n%s", reinstallPort, err, string(logs))
 	}
 	if err := conn.Close(); err != nil {

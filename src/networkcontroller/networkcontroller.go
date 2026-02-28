@@ -59,7 +59,7 @@ func (p *osProcess) Pid() int    { return p.cmd.Process.Pid }
 type osRunner struct{}
 
 func (r *osRunner) Start(name string, args ...string) (Process, error) {
-	cmd := exec.CommandContext(context.Background(), name, args...)
+	cmd := exec.CommandContext(context.Background(), name, args...) //nolint:gosec // G204: args from trusted caller
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	err := cmd.Start()

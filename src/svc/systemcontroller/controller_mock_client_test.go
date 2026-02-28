@@ -951,9 +951,12 @@ func TestMockClientDownloadArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { if err := reader.Close(); err != nil { t.Errorf("reader.Close: %v", err) } }()
 
-	data, _ := io.ReadAll(reader)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(data) == 0 {
 		t.Fatal("expected non-empty data")
 	}
@@ -974,7 +977,7 @@ func TestMockClientDownloadArchiveWithFilename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { if err := reader.Close(); err != nil { t.Errorf("reader.Close: %v", err) } }()
 
 	// Verify the filename argument was recorded.
 	m.mu.Lock()

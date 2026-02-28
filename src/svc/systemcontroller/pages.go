@@ -193,7 +193,7 @@ func (s *PagesStore) List(opts PagesListOptions) (_ *PagesPage, err error) {
 	}
 
 	if len(where) > 0 {
-		qb.WriteString(fmt.Sprintf(" WHERE %s", strings.Join(where, " AND "))) //nolint:perfsprint // project convention
+		fmt.Fprintf(&qb, " WHERE %s", strings.Join(where, " AND "))
 	}
 
 	sortCol := "name"
@@ -205,7 +205,7 @@ func (s *PagesStore) List(opts PagesListOptions) (_ *PagesPage, err error) {
 		sortDir = "DESC"
 	}
 
-	qb.WriteString(fmt.Sprintf(" ORDER BY %s %s LIMIT ?", sortCol, sortDir))
+	fmt.Fprintf(&qb, " ORDER BY %s %s LIMIT ?", sortCol, sortDir)
 	args = append(args, limit+1)
 
 	if opts.Offset > 0 {

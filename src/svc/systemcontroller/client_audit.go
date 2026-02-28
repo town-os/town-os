@@ -27,7 +27,7 @@ func (c *SystemdClient) ListAuditLog(ctx context.Context, opts account.AuditList
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.HTTP.Do(req) //nolint:gosec // G704: URL from trusted c.route()
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListAuditLog: %w", ErrHTTPRequest, err)
 	}

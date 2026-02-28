@@ -13,7 +13,7 @@ func initTestPagesStore(t *testing.T) *PagesStore {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { if err := db.Close(); err != nil { t.Errorf("db.Close: %v", err) } })
 
 	store, err := InitPagesStore(db)
 	if err != nil {

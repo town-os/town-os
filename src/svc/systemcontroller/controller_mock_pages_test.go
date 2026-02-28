@@ -161,8 +161,12 @@ func TestMockClientCreatePageError(t *testing.T) {
 func TestMockClientPageCallsTracked(t *testing.T) {
 	m := InitMockClient()
 
-	_, _ = m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com")
-	_, _ = m.ListPages(context.TODO(), ListParams{})
+	if _, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ListPages(context.TODO(), ListParams{}); err != nil {
+		t.Fatal(err)
+	}
 
 	calls := m.GetCalls()
 	if len(calls) < 2 {
