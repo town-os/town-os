@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -714,28 +713,29 @@ func TestHTTPListPackagesByRepoFeaturedPreservedOnSearch(t *testing.T) {
 	}
 }
 
-func TestHTTPListTimezones(t *testing.T) {
+func TestHTTPTimezonesEndpointRemoved(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
 	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
 	t.Cleanup(ts.Close)
 
-	c, err := ts.Client()
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, testRoute(t, ts.Server.URL, "packages/timezones"), nil)
 	if err != nil {
-		t.Fatalf("ts.Client: %v", err)
+		t.Fatalf("NewRequest: %v", err)
 	}
 
-	zones, err := c.ListTimezones(context.TODO())
+	resp, err := ts.Server.Client().Do(req)
 	if err != nil {
-		t.Fatalf("ListTimezones: %v", err)
+		t.Fatalf("unexpected transport error: %v", err)
 	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
-	if len(zones) == 0 {
-		t.Fatal("expected non-empty timezone list")
-	}
-
-	if !slices.Contains(zones, "UTC") {
-		t.Fatal("expected UTC in timezone list")
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected non-200 status for removed timezone endpoint")
 	}
 }
 

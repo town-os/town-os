@@ -56,8 +56,6 @@ type Client interface {
 	// ListRepositories returns a paginated list of configured repositories.
 	ListRepositories(ctx context.Context, params ListParams) (*PageResult[RepositoryInfo], error)
 
-	// ListTimezones returns the list of available IANA timezone names.
-	ListTimezones(ctx context.Context) ([]string, error)
 	// ListFeaturedPackages returns featured packages grouped by repository,
 	// including descriptions and install status. Returns only packages that
 	// appear in a repository's featured.json file.

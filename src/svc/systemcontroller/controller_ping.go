@@ -34,7 +34,8 @@ type PingResponse struct {
 	DiskUsage          *storage.DiskUsage `json:"disk_usage,omitempty"`
 	UpgradesAvailable  int                `json:"upgrades_available"`
 	UpgradesDismissed  bool               `json:"upgrades_dismissed,omitempty"`
-	RepositoryErrors   map[string]string   `json:"repository_errors,omitempty"`
+	RepositoryErrors   map[string]string  `json:"repository_errors,omitempty"`
+	TimezoneOffset     int                `json:"timezone_offset"`
 }
 
 type UnitCounts struct {
@@ -204,6 +205,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 
 	resp.ExternalIP = s.Controller.GetExternalIP()
 	resp.InternalIP = s.Controller.GetInternalIP()
+	resp.TimezoneOffset = packages.TimezoneOffset()
 
 	// Compute upgrade info.
 	upgrades := s.computeUpgrades()

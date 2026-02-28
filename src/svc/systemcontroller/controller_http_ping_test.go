@@ -238,6 +238,33 @@ func TestHTTPPingIncludesRepositoryErrors(t *testing.T) {
 	}
 }
 
+func TestHTTPPingIncludesTimezoneOffset(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	// The offset should be within a valid range: UTC-12 to UTC+14.
+	if ping.TimezoneOffset < -720 || ping.TimezoneOffset > 840 {
+		t.Fatalf("timezone_offset %d outside valid range [-720, 840]", ping.TimezoneOffset)
+	}
+
+	// All real-world UTC offsets are multiples of 15 minutes.
+	if ping.TimezoneOffset%15 != 0 {
+		t.Fatalf("timezone_offset %d is not a multiple of 15", ping.TimezoneOffset)
+	}
+}
+
 func TestHTTPPingIncludesUpgradesAvailable(t *testing.T) {
 	c, _ := initUpgradesTestServer(t)
 

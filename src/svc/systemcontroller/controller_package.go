@@ -323,10 +323,6 @@ func (s *SystemControllerHandlers) listPackageVersions(c *echo.Context) error {
 	return c.JSON(200, versions)
 }
 
-func (s *SystemControllerHandlers) listTimezones(c *echo.Context) error {
-	return c.JSON(200, packages.ListTimezones())
-}
-
 func (s *SystemControllerHandlers) getPackageQuestions(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	req := PackageNameRequest{}

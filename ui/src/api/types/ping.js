@@ -14,6 +14,7 @@
  * @property {boolean} needs_setup
  * @property {number} upgrades_available
  * @property {boolean} [upgrades_dismissed]
+ * @property {number} timezone_offset - Server UTC offset in minutes (positive = east, negative = west)
  */
 
 /**

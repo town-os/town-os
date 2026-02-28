@@ -13,24 +13,6 @@ import (
 
 // --- Packages ---
 
-// ListTimezones returns the list of available IANA timezone names.
-func (c *SystemdClient) ListTimezones(ctx context.Context) (_ []string, err error) {
-	resp, err := c.getClient(ctx, "packages/timezones")
-	if err != nil {
-		return nil, fmt.Errorf("%w: ListTimezones: %w", ErrHTTPRequest, err)
-	}
-	defer func() {
-		err = errors.Join(err, resp.Body.Close())
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, readProblemDetail(resp, "GET", "packages/timezones")
-	}
-
-	var zones []string
-	return zones, json.NewDecoder(resp.Body).Decode(&zones)
-}
-
 // ListPackages returns a paginated list of available packages across all repos.
 func (c *SystemdClient) ListPackages(ctx context.Context, params ListParams) (_ *PageResult[PackageListEntry], err error) {
 	resp, err := c.getClient(ctx, "packages"+params.QueryString())

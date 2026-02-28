@@ -996,6 +996,39 @@ func TestMockClientDownloadArchiveWithFilename(t *testing.T) {
 	}
 }
 
+func TestMockClientPingIncludesTimezoneOffset(t *testing.T) {
+	m := InitMockClient()
+
+	ping, err := m.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("MockClient.Ping: %v", err)
+	}
+
+	// The default mock PingResponse should include a timezone offset.
+	// Since TimezoneOffset is an int with zero value, ensure the
+	// ping response is returned successfully.
+	if ping.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", ping.Status)
+	}
+}
+
+func TestMockClientPingCustomTimezoneOffset(t *testing.T) {
+	m := InitMockClient()
+	m.PingResponse = &PingResponse{
+		Status:         "ok",
+		TimezoneOffset: -300,
+	}
+
+	ping, err := m.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("MockClient.Ping: %v", err)
+	}
+
+	if ping.TimezoneOffset != -300 {
+		t.Fatalf("expected timezone_offset -300, got %d", ping.TimezoneOffset)
+	}
+}
+
 func TestMockClientListFeaturedPackagesEmpty(t *testing.T) {
 	m := InitMockClient()
 

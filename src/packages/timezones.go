@@ -1,78 +1,13 @@
 package packages
 
-// ListTimezones returns a curated list of common IANA timezone identifiers
-// suitable for populating a UI dropdown.
-func ListTimezones() []string {
-	return []string{
-		"UTC",
-		"Africa/Cairo",
-		"Africa/Johannesburg",
-		"Africa/Lagos",
-		"Africa/Nairobi",
-		"America/Anchorage",
-		"America/Argentina/Buenos_Aires",
-		"America/Bogota",
-		"America/Chicago",
-		"America/Denver",
-		"America/Halifax",
-		"America/Lima",
-		"America/Los_Angeles",
-		"America/Mexico_City",
-		"America/New_York",
-		"America/Phoenix",
-		"America/Santiago",
-		"America/Sao_Paulo",
-		"America/St_Johns",
-		"America/Toronto",
-		"America/Vancouver",
-		"Asia/Bangkok",
-		"Asia/Colombo",
-		"Asia/Dhaka",
-		"Asia/Dubai",
-		"Asia/Ho_Chi_Minh",
-		"Asia/Hong_Kong",
-		"Asia/Istanbul",
-		"Asia/Jakarta",
-		"Asia/Jerusalem",
-		"Asia/Karachi",
-		"Asia/Kolkata",
-		"Asia/Kuala_Lumpur",
-		"Asia/Manila",
-		"Asia/Seoul",
-		"Asia/Shanghai",
-		"Asia/Singapore",
-		"Asia/Taipei",
-		"Asia/Tehran",
-		"Asia/Tokyo",
-		"Atlantic/Reykjavik",
-		"Australia/Adelaide",
-		"Australia/Brisbane",
-		"Australia/Melbourne",
-		"Australia/Perth",
-		"Australia/Sydney",
-		"Europe/Amsterdam",
-		"Europe/Athens",
-		"Europe/Berlin",
-		"Europe/Brussels",
-		"Europe/Bucharest",
-		"Europe/Dublin",
-		"Europe/Helsinki",
-		"Europe/Kiev",
-		"Europe/Lisbon",
-		"Europe/London",
-		"Europe/Madrid",
-		"Europe/Moscow",
-		"Europe/Oslo",
-		"Europe/Paris",
-		"Europe/Prague",
-		"Europe/Rome",
-		"Europe/Stockholm",
-		"Europe/Vienna",
-		"Europe/Warsaw",
-		"Europe/Zurich",
-		"Pacific/Auckland",
-		"Pacific/Fiji",
-		"Pacific/Guam",
-		"Pacific/Honolulu",
-	}
+import "time"
+
+// TimezoneOffset returns the current UTC offset in minutes for the local
+// system clock. Positive values are east of UTC, negative values are west.
+// For example, a system in UTC-5 returns -300, one in UTC+5:30 returns 330.
+// The UI provides a timezone selection and sends the offset; the
+// Control Plane Service uses this function when it needs the local offset.
+func TimezoneOffset() int {
+	_, offset := time.Now().Zone()
+	return offset / 60
 }

@@ -84,7 +84,6 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/repository/refresh", s.refreshRepositories, s.requireAuth)
 	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
 
-	e.Add("GET", "/packages/timezones", s.listTimezones, s.requireAuth)
 	e.Add("GET", "/packages", s.listPackages, s.requireAuth)
 	e.Add("GET", "/packages/by-repo", s.listPackagesByRepo, s.requireAuth)
 	e.Add("GET", "/packages/featured", s.listFeaturedPackages, s.requireAuth)

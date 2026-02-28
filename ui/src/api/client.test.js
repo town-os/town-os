@@ -52,6 +52,23 @@ describe('SystemControllerClient', () => {
         headers: {},
       })
     })
+
+    it('includes timezone_offset in response', async () => {
+      const pingData = {
+        status: 'ok',
+        filesystems: 0,
+        repositories: 0,
+        packages: 0,
+        installed: 0,
+        accounts: 0,
+        admins: 0,
+        timezone_offset: -300,
+      }
+      mockFetch(pingData)
+
+      const result = await client.ping()
+      expect(result.timezone_offset).toBe(-300)
+    })
   })
 
   describe('authenticate', () => {

@@ -178,7 +178,6 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/packages/versions":            true,
 			"/packages/questions":           true,
 			"/packages/questions/identity":  true,
-			"/packages/timezones":           true,
 			"/packages/children":            true,
 			"/packages/uninstalled-volumes": true,
 			"/packages/upgrades":            true,

@@ -48,6 +48,19 @@ describe('SystemControllerClient integration', () => {
       expect(resp.username).toBe('admin')
     })
 
+    it('includes timezone offset', async () => {
+      const authResp = await client.authenticate('admin', 'adminpass')
+      client.setToken(authResp.token)
+
+      const resp = await client.ping()
+      expect(typeof resp.timezone_offset).toBe('number')
+      // Valid range: UTC-12 to UTC+14
+      expect(resp.timezone_offset).toBeGreaterThanOrEqual(-720)
+      expect(resp.timezone_offset).toBeLessThanOrEqual(840)
+      // All real-world UTC offsets are multiples of 15 minutes
+      expect(resp.timezone_offset % 15).toBe(0)
+    })
+
     it('includes unit counts from systemd', async () => {
       const resp = await client.ping()
       expect(resp.units).toBeDefined()

@@ -11,14 +11,6 @@ import (
 
 // --- Packages ---
 
-func (m *MockClient) ListTimezones(_ context.Context) ([]string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListTimezones", Args: nil})
-
-	return packages.ListTimezones(), nil
-}
-
 func (m *MockClient) ListFeaturedPackages(_ context.Context) ([]FeaturedRepoGroup, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
