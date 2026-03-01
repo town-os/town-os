@@ -38,7 +38,7 @@ ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:
 # ---------------------------------------------------------------------------
 # Dependency checks — verify required tools are installed before building.
 # ---------------------------------------------------------------------------
-.PHONY: check-go check-bun check-podman check-btrfs check-golangci-lint check-python3
+.PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
 
 check-go:
 	@command -v go >/dev/null 2>&1 || { echo "ERROR: go not found in PATH. Install Go 1.25+: see README.md Prerequisites section"; exit 1; }
@@ -49,6 +49,9 @@ check-bun:
 check-podman:
 	@command -v podman >/dev/null 2>&1 || { echo "ERROR: podman not found in PATH. Install podman: see README.md Prerequisites section"; exit 1; }
 
+check-runc:
+	@command -v runc >/dev/null 2>&1 || { echo "ERROR: runc not found in PATH. Podman requires the runc container runtime: see README.md Prerequisites section"; exit 1; }
+
 check-btrfs:
 	@command -v mkfs.btrfs >/dev/null 2>&1 || { echo "ERROR: mkfs.btrfs not found in PATH. Install btrfs-progs: see README.md Prerequisites section"; exit 1; }
 
@@ -58,7 +61,11 @@ check-golangci-lint:
 check-python3:
 	@command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found in PATH. Install python3: see README.md Prerequisites section"; exit 1; }
 
-test: lint check-bun
+check-libsystemd:
+	@command -v pkg-config >/dev/null 2>&1 || { echo "ERROR: pkg-config not found in PATH. Install build-essential (Ubuntu/Debian) or pkgconf (Arch): see README.md Prerequisites section"; exit 1; }
+	@pkg-config --exists libsystemd 2>/dev/null || { echo "ERROR: libsystemd development headers not found. Install libsystemd-dev (Ubuntu/Debian) or systemd-libs (Arch): see README.md Prerequisites section"; exit 1; }
+
+test: lint check-bun check-libsystemd
 	go test -v -timeout 60m ./src/...
 	cd ui && bun install && bun run test
 
@@ -97,7 +104,7 @@ ensure-image-cache:
 	@mkdir -p .cache
 	@touch .cache/.images-pulled
 
-pull-images: check-podman docker-login
+pull-images: check-podman check-runc docker-login
 	@sudo -E mkdir -p $(IMAGE_CACHE)
 	@for img in $(ALL_IMAGES); do \
 		echo "Pulling $$img..."; \
@@ -113,7 +120,7 @@ ui-integration-image: .cache/.images-pulled
 	sudo -E podman build --pull=never \
 		-t $(PODMAN_UI_IMAGE) -f integration/testdata/Containerfile.ui-integration .
 
-production-image: check-podman .cache/.images-pulled
+production-image: check-podman check-runc .cache/.images-pulled
 	mkdir -p .cache/go-mod .cache/go-build
 	sudo -E podman build --pull=never \
 		--volume $$(pwd)/.cache/go-mod:/go/pkg/mod:z \
@@ -142,7 +149,7 @@ production-image: check-podman .cache/.images-pulled
 	@echo "Discovered $$(wc -l < $@) images"
 
 # Start a local registry:2 container.
-registry: check-podman ensure-image-cache .registry-port
+registry: check-podman check-runc ensure-image-cache .registry-port
 	@sudo -E podman rm -f $(REGISTRY_CONTAINER) 2>/dev/null || true
 	sudo -E podman load -i $(IMAGE_CACHE)/registry-2.tar
 	sudo -E podman run -d --pull=never --name $(REGISTRY_CONTAINER) \
@@ -192,7 +199,7 @@ registry-stop:
 	@echo "Gitea port: $$(cat $@)"
 
 # Start a local Gitea container and create the admin user.
-gitea: check-podman ensure-image-cache .gitea-port
+gitea: check-podman check-runc ensure-image-cache .gitea-port
 	@sudo -E podman rm -f $(GITEA_CONTAINER) 2>/dev/null || true
 	sudo -E podman load -i $(IMAGE_CACHE)/gitea-latest.tar
 	sudo -E podman run -d --pull=never --name $(GITEA_CONTAINER) \
@@ -331,7 +338,7 @@ dev-btrfs:
 		$(MAKE) btrfs-dev; \
 	fi
 
-dev: check-podman check-bun check-btrfs dev-image dev-btrfs
+dev: check-podman check-runc check-bun check-btrfs dev-image dev-btrfs
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@mkdir -p dev-data dev-repos
 	sudo -E podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
@@ -389,7 +396,7 @@ auto-test-full:
 build-networkcontroller:
 	CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
-lint: check-go check-golangci-lint
+lint: check-go check-golangci-lint check-libsystemd
 	go vet ./src/... ./integration/...
 	$(shell go env GOPATH)/bin/golangci-lint run ./src/... ./integration/...
 

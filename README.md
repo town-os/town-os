@@ -79,7 +79,7 @@ Or install them manually:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y golang btrfs-progs libsystemd-dev podman runc python3
+sudo apt-get install -y golang btrfs-progs libsystemd-dev podman runc python3 unzip build-essential
 ```
 
 Install [Bun](https://bun.sh):
