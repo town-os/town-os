@@ -299,13 +299,13 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	// Retry with short dials because nested podman port forwarding can be slow.
 	dialAddr := "127.0.0.1:" + assignedPort
 	var conn net.Conn
-	dialDeadline := time.Now().Add(30 * time.Second)
+	dialDeadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(dialDeadline) {
-		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
+		conn, err = (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 		if err == nil {
 			break
 		}
-		time.Sleep(time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
 		logs, logsErr := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput()
@@ -438,12 +438,12 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	// Verify the assigned port is accessible via TCP after reinstall.
-	// Retry because the container may be "running" before Redis binds the port.
+	// Retry with short dials because nested podman port forwarding can be slow.
 	dialAddr := "127.0.0.1:" + reinstallPort
 	var conn net.Conn
-	tcpDeadline := time.Now().Add(30 * time.Second)
+	tcpDeadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(tcpDeadline) {
-		conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
+		conn, err = (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 		if err == nil {
 			break
 		}
