@@ -212,13 +212,14 @@ func TestHTTPAuditLogExcludesReadOnlyPackageRoutes(t *testing.T) {
 
 	// call read-only package endpoints (they will error because no packages are
 	// installed, but the audit middleware checks exclusion before logging)
-	readOnlyPaths := []string{
+	// POST read-only endpoints
+	postPaths := []string{
 		"/packages/installed/info",
 		"/packages/last-responses",
 		"/packages/install-preview",
 	}
 
-	for _, path := range readOnlyPaths {
+	for _, path := range postPaths {
 		body := `{"repo":"test","name":"pkg","version":"1.0"}`
 		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route(path[1:]), bytes.NewBufferString(body))
 		if err != nil {
@@ -238,6 +239,32 @@ func TestHTTPAuditLogExcludesReadOnlyPackageRoutes(t *testing.T) {
 			t.Errorf("resp.Body.Close: %v", err)
 		}
 	}
+
+	// GET read-only endpoints
+	getPaths := []string{
+		"/packages/featured",
+		"/pages",
+	}
+
+	for _, path := range getPaths {
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, c.route(path[1:]), nil)
+		if err != nil {
+			t.Fatalf("NewRequest for %s: %v", path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+
+		httpResp, err := c.HTTP.Do(req)
+		if err != nil {
+			continue
+		}
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}
+
+	readOnlyPaths := make([]string, 0, len(postPaths)+len(getPaths))
+	readOnlyPaths = append(readOnlyPaths, postPaths...)
+	readOnlyPaths = append(readOnlyPaths, getPaths...)
 
 	// verify none of the read-only package paths appear in the audit log
 	page, err := auditMgr.List(account.AuditListOptions{})

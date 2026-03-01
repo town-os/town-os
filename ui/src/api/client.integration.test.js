@@ -719,6 +719,24 @@ describe('SystemControllerClient integration', () => {
       const entry = page.entries.find((e) => e.path === '/packages/install-preview')
       expect(entry).toBeUndefined()
     })
+
+    it('listFeaturedPackages does not create an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.listFeaturedPackages()
+      const page = await client.listAuditLog({ limit: 200 })
+      const entry = page.entries.find((e) => e.path === '/packages/featured')
+      expect(entry).toBeUndefined()
+    })
+
+    it('listPages does not create an audit log entry', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      await client.listPages()
+      const page = await client.listAuditLog({ limit: 200 })
+      const entry = page.entries.find((e) => e.path === '/pages')
+      expect(entry).toBeUndefined()
+    })
   })
 
   // --- Pages lifecycle ---
