@@ -496,6 +496,11 @@ func (c *GoGitClient) Run(ctx context.Context, dir string, args ...string) ([]by
 			}
 		}
 		if bare {
+			if parent := filepath.Dir(dir); parent != dir {
+				if _, err := os.Stat(parent); err != nil {
+					return nil, fmt.Errorf("git init: %w", err)
+				}
+			}
 			_, err := gogit.PlainInit(dir, true)
 			return nil, err
 		}

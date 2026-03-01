@@ -709,6 +709,15 @@ func TestGoGitClientRunInitBare(t *testing.T) {
 	}
 }
 
+func TestGoGitClientRunInitBareInvalidDir(t *testing.T) {
+	c := &GoGitClient{}
+	dir := filepath.Join(t.TempDir(), "no-such-parent", "bare.git")
+	_, err := c.Run(context.Background(), dir, "init", "--bare")
+	if err == nil {
+		t.Fatal("expected error for bare init in nonexistent directory")
+	}
+}
+
 func TestGoGitClientRunConfig(t *testing.T) {
 	dir, c := initTestRepo(t)
 	ctx := context.Background()
@@ -1027,6 +1036,15 @@ func TestGoGitClientRunInitNonBare(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		t.Fatalf("expected .git directory: %v", err)
+	}
+}
+
+func TestGoGitClientRunInitNonBareInvalidDir(t *testing.T) {
+	c := &GoGitClient{}
+	dir := filepath.Join(t.TempDir(), "no-such-parent", "repo")
+	_, err := c.Run(context.Background(), dir, "init")
+	if err == nil {
+		t.Fatal("expected error for init in nonexistent directory via Run")
 	}
 }
 
