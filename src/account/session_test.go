@@ -728,6 +728,75 @@ func TestSessionErrorsIs(t *testing.T) {
 	}
 }
 
+// --- InitSessionManager clears all sessions ---
+
+func TestInitSessionManagerClearsExistingSessions(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	createTestUser(t, mgr, "alice")
+	createTestUser(t, mgr, "bob")
+
+	_, err = sessMgr.Create("alice")
+	if err != nil {
+		t.Fatalf("Create alice: %v", err)
+	}
+	_, err = sessMgr.Create("bob")
+	if err != nil {
+		t.Fatalf("Create bob: %v", err)
+	}
+
+	sessions, err := sessMgr.List("alice")
+	if err != nil {
+		t.Fatalf("List alice: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 alice session before reinit, got %d", len(sessions))
+	}
+
+	// Re-initialize the session manager (simulates service restart).
+	newKey := []byte("new-signing-key-for-sessions-32!")
+	sessMgr2, err := InitSessionManager(db, mgr, newKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager (reinit): %v", err)
+	}
+
+	// All sessions should be cleared.
+	aliceSessions, err := sessMgr2.List("alice")
+	if err != nil {
+		t.Fatalf("List alice after reinit: %v", err)
+	}
+	if len(aliceSessions) != 0 {
+		t.Fatalf("expected 0 alice sessions after reinit, got %d", len(aliceSessions))
+	}
+
+	bobSessions, err := sessMgr2.List("bob")
+	if err != nil {
+		t.Fatalf("List bob after reinit: %v", err)
+	}
+	if len(bobSessions) != 0 {
+		t.Fatalf("expected 0 bob sessions after reinit, got %d", len(bobSessions))
+	}
+}
+
 // --- Wrong signing key ---
 
 func TestSessionValidateWrongSigningKey(t *testing.T) {

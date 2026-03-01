@@ -30,6 +30,12 @@ func InitSessionManager(db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSess
 		return nil, fmt.Errorf("create sessions table: %w", err)
 	}
 
+	// Clear all existing sessions on startup. The signing key is generated
+	// fresh each run, so any persisted sessions are invalid anyway.
+	if _, err := db.ExecContext(context.Background(), "DELETE FROM sessions"); err != nil {
+		return nil, fmt.Errorf("clear sessions on startup: %w", err)
+	}
+
 	return &SQLiteSessionManager{
 		db:         db,
 		accountMgr: mgr,
