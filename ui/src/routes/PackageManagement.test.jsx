@@ -1761,6 +1761,85 @@ describe('PackageManagement', () => {
     })
   })
 
+  it('featured card is positioned next to the tab strip in a flex row', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByTestId('featured-card')).toBeTruthy()
+    })
+    const card = screen.getByTestId('featured-card')
+    const flexRow = card.parentElement
+    expect(flexRow.className).toContain('flex')
+    expect(flexRow.className).toContain('items-start')
+    expect(flexRow.className).toContain('justify-between')
+    expect(flexRow.className).toContain('gap-6')
+    // The TabsList (containing Packages/Repositories triggers) should be a sibling
+    expect(flexRow.querySelector('[role="tablist"]')).toBeTruthy()
+  })
+
+  it('empty state is positioned next to the tab strip in a flex row', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
+    })
+    const el = screen.getByTestId('no-featured-packages')
+    const flexRow = el.parentElement
+    expect(flexRow.className).toContain('flex')
+    expect(flexRow.className).toContain('justify-between')
+    expect(flexRow.querySelector('[role="tablist"]')).toBeTruthy()
+  })
+
+  it('empty state link has noopener noreferrer for security', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
+    })
+    const link = screen.getByTestId('no-featured-packages').querySelector('a')
+    expect(link.rel).toBe('noopener noreferrer')
+  })
+
+  it('featured card remains visible when switching to Repositories tab', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() =>
+      Promise.resolve([
+        {
+          repo: 'core',
+          packages: [
+            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
+          ],
+        },
+      ]),
+    )
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByTestId('featured-card')).toBeTruthy()
+    })
+    // Switch to Repositories tab
+    fireEvent.click(screen.getByRole('tab', { name: 'Repositories' }))
+    // Featured card should still be visible since it's outside tab content
+    expect(screen.getByTestId('featured-card')).toBeTruthy()
+  })
+
+  it('no-featured-packages message remains visible when switching to Repositories tab', async () => {
+    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Repositories' }))
+    expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
+  })
+
   it('validation error does not appear on fresh dialog open', async () => {
     mockClient.getResponses.mockImplementation(() => Promise.resolve({}))
     mockClient.getLastResponses.mockImplementation(() => Promise.resolve({}))
