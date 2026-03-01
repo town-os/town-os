@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
+import { PAGE_SIZE } from '@/lib/utils.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
@@ -29,8 +30,6 @@ export default function PagesManagement() {
   const [sortKey, setSortKey] = useState('name')
   const [sortDirection, setSortDirection] = useState('asc')
   const [search, setSearch] = useState('')
-
-  const PAGE_SIZE = 20
 
   const [pageData, refresh, loading] = usePolling(
     () => getClient().listPages(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, search || undefined),

@@ -1,8 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
+import { PAGE_SIZE } from '@/lib/utils.js'
+import { UNITS, formatQuotaText, formatQuota, decomposeQuota, deriveServiceName } from '@/lib/storage-utils.jsx'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
+import { FORMAT_OPTIONS, DownloadArchiveDialog, UploadArchiveDialog } from '@/components/storage/ArchiveDialogs.jsx'
+import VolumeModifyDialog from '@/components/storage/VolumeModifyDialog.jsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,45 +29,6 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Plus, Trash2, Pencil, HardDrive, ChevronRight, ChevronDown, Package, Upload, Download } from 'lucide-react'
-
-const UNITS = {
-  B: 1,
-  MB: 1024 * 1024,
-  GB: 1024 * 1024 * 1024,
-  TB: 1024 * 1024 * 1024 * 1024,
-}
-
-function formatQuotaText(bytes) {
-  if (!bytes || bytes === 0) return 'none'
-  if (bytes >= UNITS.TB) return `${(bytes / UNITS.TB).toFixed(2)} TB`
-  if (bytes >= UNITS.GB) return `${(bytes / UNITS.GB).toFixed(2)} GB`
-  if (bytes >= UNITS.MB) return `${(bytes / UNITS.MB).toFixed(2)} MB`
-  return `${bytes} B`
-}
-
-function formatQuota(bytes) {
-  if (!bytes || bytes === 0) return <Badge className="bg-black text-white hover:bg-black/90">none</Badge>
-  return formatQuotaText(bytes)
-}
-
-/** Decompose a byte count into a [value, unit] pair for the form. */
-function decomposeQuota(bytes) {
-  if (!bytes || bytes === 0) return ['', 'GB']
-  if (bytes >= UNITS.TB && bytes % UNITS.TB === 0) return [bytes / UNITS.TB, 'TB']
-  if (bytes >= UNITS.GB && bytes % UNITS.GB === 0) return [bytes / UNITS.GB, 'GB']
-  if (bytes >= UNITS.MB && bytes % UNITS.MB === 0) return [bytes / UNITS.MB, 'MB']
-  return [bytes, 'B']
-}
-
-/**
- * Derive the systemd service unit name from a volume display name.
- * e.g. "repo/name/version/volName" -> "town-os-package--repo-name-version.service"
- */
-function deriveServiceName(volumeName) {
-  const parts = volumeName.split('/')
-  if (parts.length < 3) return ''
-  return `town-os-package--${parts[0]}-${parts[1]}-${parts[2]}.service`
-}
 
 /**
  * Build a unified tree structure from package volume names with state info.
@@ -225,6 +190,7 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
                                   size="icon"
                                   className="h-7 w-7"
                                   title="Download archive"
+                                  aria-label="Download archive"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     onDownloadVolume(vol, pkg, version)
@@ -237,6 +203,7 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
                                   size="icon"
                                   className="h-7 w-7"
                                   title="Upload archive"
+                                  aria-label="Upload archive"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     onUploadVolume(vol, pkg, version)
@@ -285,8 +252,6 @@ export default function StorageManagement() {
   const [sortDirection, setSortDirection] = useState('asc')
   const [showAll, setShowAll] = useState(false)
   const [search, setSearch] = useState('')
-
-  const PAGE_SIZE = 20
 
   const [userData, , userLoading] = usePolling(
     () => getClient().listFilesystems('', sortKey, sortDirection, 'user', PAGE_SIZE, page * PAGE_SIZE, search || undefined),
@@ -411,12 +376,6 @@ export default function StorageManagement() {
       quotaUnit: qu,
       serviceName,
     })
-  }
-
-  const FORMAT_OPTIONS = {
-    'tar.gz': { ext: '.tar.gz', desc: 'Gzip Archive', mime: 'application/gzip' },
-    'tar.bz2': { ext: '.tar.bz2', desc: 'Bzip2 Archive', mime: 'application/x-bzip2' },
-    'tar.xz': { ext: '.tar.xz', desc: 'XZ Archive', mime: 'application/x-xz' },
   }
 
   async function handleDownload(e) {
@@ -717,193 +676,26 @@ export default function StorageManagement() {
         ? This cannot be undone.
       </ConfirmDialog>
 
-      {/* Download Archive confirmation dialog */}
-      <Dialog
+      <DownloadArchiveDialog
         open={downloadDialog.open}
-        onOpenChange={(v) => !v && setDownloadDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              <Download className="h-4 w-4 inline mr-2" />
-              Download Archive
-            </DialogTitle>
-            <DialogDescription>Download volume contents as a compressed archive.</DialogDescription>
-          </DialogHeader>
-          <div className="text-sm text-muted-foreground pb-2">
-            <span className="font-medium text-foreground">Volume:</span>{' '}
-            <code className="text-xs bg-muted px-1 rounded">{downloadDialog.displayName}</code>
-          </div>
-          <form onSubmit={handleDownload} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="downloadFilename">Filename (optional)</Label>
-              <Input
-                id="downloadFilename"
-                name="downloadFilename"
-                placeholder={downloadDialog.displayName || 'download'}
-              />
-              <p className="text-xs text-muted-foreground">
-                Base name for the downloaded file. The archive extension is added automatically.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="downloadFormat">Compression Format</Label>
-              <select
-                id="downloadFormat"
-                name="downloadFormat"
-                defaultValue="tar.gz"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="tar.gz">gzip (.tar.gz)</option>
-                <option value="tar.bz2">bzip2 (.tar.bz2)</option>
-                <option value="tar.xz">xz (.tar.xz)</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="downloadPaths">Paths (optional, comma-separated)</Label>
-              <Input id="downloadPaths" name="downloadPaths" placeholder="data, config" />
-              <p className="text-xs text-muted-foreground">Leave empty to archive the entire volume</p>
-            </div>
-            {downloadDialog.serviceName && (
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" name="downloadStopService" className="rounded border-input" />
-                Stop service during download
-              </label>
-            )}
-            <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setDownloadDialog({ open: false })}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                <Download className="h-3 w-3 mr-1" />
-                Download
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        dialog={downloadDialog}
+        onClose={() => setDownloadDialog({ open: false })}
+        onSubmit={handleDownload}
+      />
 
-      {/* Upload Archive dialog */}
-      <Dialog
+      <UploadArchiveDialog
         open={uploadDialog.open}
-        onOpenChange={(v) => !v && setUploadDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              <Upload className="h-4 w-4 inline mr-2" />
-              Upload Archive
-            </DialogTitle>
-            <DialogDescription>Upload and extract an archive into the volume.</DialogDescription>
-          </DialogHeader>
-          <div className="text-sm text-muted-foreground pb-2">
-            <span className="font-medium text-foreground">Volume:</span>{' '}
-            <code className="text-xs bg-muted px-1 rounded">{uploadDialog.displayName}</code>
-          </div>
-          <form onSubmit={handleUpload} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="uploadArchive">Archive File</Label>
-              <Input
-                id="uploadArchive"
-                name="uploadArchive"
-                type="file"
-                accept=".tar,.tar.gz,.tgz,.tar.bz2,.tbz2,.tar.xz,.txz"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="uploadSubpath">Subpath (optional)</Label>
-              <Input id="uploadSubpath" name="uploadSubpath" placeholder="relative/path" />
-              <p className="text-xs text-muted-foreground">Unpack into a subdirectory within the volume</p>
-            </div>
-            {uploadDialog.serviceName && (
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" name="uploadStopService" className="rounded border-input" />
-                Stop service during upload
-              </label>
-            )}
-            <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setUploadDialog({ open: false })}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                <Upload className="h-3 w-3 mr-1" />
-                Upload
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        dialog={uploadDialog}
+        onClose={() => setUploadDialog({ open: false })}
+        onSubmit={handleUpload}
+      />
 
-      {/* Volume Modify dialog (name & quota for package volumes) */}
-      <Dialog
+      <VolumeModifyDialog
         open={volumeModifyDialog.open}
-        onOpenChange={(v) => !v && setVolumeModifyDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              <Pencil className="h-4 w-4 inline mr-2" />
-              Modify Volume
-            </DialogTitle>
-            <DialogDescription>Change the name or quota of this volume.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-1 text-sm text-muted-foreground pb-2">
-            <div><span className="font-medium text-foreground">Volume:</span> {volumeModifyDialog.displayName}</div>
-            <div><span className="font-medium text-foreground">State:</span>{' '}
-              <Badge variant={volumeModifyDialog.state === 'installed' ? 'default' : 'secondary'}>
-                {volumeModifyDialog.state}
-              </Badge>
-            </div>
-            {volumeModifyDialog.serviceName && (
-              <div><span className="font-medium text-foreground">Service:</span> <code className="text-xs bg-muted px-1 rounded">{volumeModifyDialog.serviceName}</code></div>
-            )}
-          </div>
-          <form onSubmit={handleVolumeModifyProps} className="space-y-4">
-            {volumeModifyDialog.state === 'user' && (
-              <div className="space-y-2">
-                <Label htmlFor="modifyName">Name</Label>
-                <Input
-                  id="modifyName"
-                  name="modifyName"
-                  defaultValue={volumeModifyDialog.displayName || ''}
-                />
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="modifyQuota">Quota (0 = unlimited)</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="modifyQuota"
-                  name="modifyQuota"
-                  type="number"
-                  min="0"
-                  step="any"
-                  defaultValue={volumeModifyDialog.quotaValue || ''}
-                  placeholder="0"
-                  className="flex-1"
-                />
-                <select
-                  name="modifyQuotaUnit"
-                  defaultValue={volumeModifyDialog.quotaUnit || 'GB'}
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="B">B</option>
-                  <option value="MB">MB</option>
-                  <option value="GB">GB</option>
-                  <option value="TB">TB</option>
-                </select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setVolumeModifyDialog({ open: false })}>
-                Cancel
-              </Button>
-              <Button type="submit">Save Changes</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        dialog={volumeModifyDialog}
+        onClose={() => setVolumeModifyDialog({ open: false })}
+        onSubmit={handleVolumeModifyProps}
+      />
     </div>
   )
 }

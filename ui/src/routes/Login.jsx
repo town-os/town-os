@@ -28,7 +28,7 @@ export default function Login() {
       getClient()
         .sessionUsername(token)
         .then(() => navigate('/dashboard'))
-        .catch(() => {})
+        .catch((err) => console.debug('session check failed:', err))
     }
 
     getClient()
@@ -36,7 +36,7 @@ export default function Login() {
       .then((resp) => {
         if (resp.needs_setup) navigate('/register')
       })
-      .catch(() => {})
+      .catch((err) => console.debug('ping failed:', err))
   }, [navigate])
 
   async function handleSubmit(e) {

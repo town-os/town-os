@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -413,6 +414,7 @@ func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan J
 
 			n, err := j.Next()
 			if err != nil {
+				slog.Debug(fmt.Sprintf("journal replay next: %v", err))
 				return
 			}
 
@@ -428,6 +430,7 @@ func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan J
 
 			entry, err := j.GetEntry()
 			if err != nil {
+				slog.Debug(fmt.Sprintf("journal replay get entry: %v", err))
 				return
 			}
 

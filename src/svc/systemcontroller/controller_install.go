@@ -145,13 +145,13 @@ func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd
 
 	for _, name := range unitNames {
 		if err := sd.SetStatus(ctx, name, systemd.Stop); err != nil {
-			slog.Debug(fmt.Sprintf("stop unit %s: %v", name, err))
+			slog.Debug(fmt.Sprintf("stop unit %s: %v", name, err)) //#nosec G706 -- name from trusted ListPackageUnitFiles
 		}
 		if err := sd.SetStatus(ctx, name, systemd.Disable); err != nil {
-			slog.Debug(fmt.Sprintf("disable unit %s: %v", name, err))
+			slog.Debug(fmt.Sprintf("disable unit %s: %v", name, err)) //#nosec G706 -- name from trusted ListPackageUnitFiles
 		}
 		if err := sd.UninstallUnit(ctx, name); err != nil {
-			slog.Debug(fmt.Sprintf("uninstall unit %s: %v", name, err))
+			slog.Debug(fmt.Sprintf("uninstall unit %s: %v", name, err)) //#nosec G706 -- name from trusted ListPackageUnitFiles
 		}
 	}
 	return nil
@@ -475,6 +475,235 @@ func buildInstallSummary(p *InstallPreview) string {
 	return strings.Join(parts, ". ") + "."
 }
 
+// mergeResponses carries forward responses from a previous version or last
+// uninstall into the request, filling only keys that the user did not provide
+// and that exist in the new package's questions.
+func mergeResponses(dst *packages.Responses, src packages.Responses, questions map[string]packages.Question) {
+	for key, val := range src {
+		if _, exists := questions[key]; !exists {
+			continue
+		}
+		if _, provided := (*dst)[key]; provided {
+			continue
+		}
+		if *dst == nil {
+			*dst = packages.Responses{}
+		}
+		(*dst)[key] = val
+	}
+}
+
+// autoGenerateResponses fills empty or "auto" response values with generated
+// ports, hostnames, secrets, or defaults.
+func (s *SystemControllerHandlers) autoGenerateResponses(responses *packages.Responses, questions map[string]packages.Question, effectiveName string) error {
+	inst := s.Controller.GetInstaller()
+	excludedPorts := map[uint16]bool{}
+	if inst != nil {
+		allInstalled, err := inst.ListInstalled()
+		if err != nil {
+			return err
+		}
+		for _, pkg := range allInstalled {
+			pi, err := packages.ParsePackageIdentity(pkg)
+			if err != nil {
+				continue
+			}
+			resp, err := inst.GetResponses(pi.Repo, pi.Name, pi.Version)
+			if err != nil {
+				continue
+			}
+			for _, v := range resp {
+				if p, err := strconv.ParseUint(v, 10, 16); err == nil && p > 0 {
+					excludedPorts[uint16(p)] = true
+				}
+			}
+		}
+	}
+
+	for name, q := range questions {
+		resp := (*responses)[name]
+		if resp != "" && resp != "auto" {
+			continue
+		}
+
+		switch q.Type {
+		case packages.Port:
+			port, err := packages.FindAvailablePort(excludedPorts)
+			if err != nil {
+				continue
+			}
+			if *responses == nil {
+				*responses = packages.Responses{}
+			}
+			(*responses)[name] = strconv.FormatUint(uint64(port), 10)
+			excludedPorts[port] = true
+		case packages.Hostname:
+			if *responses == nil {
+				*responses = packages.Responses{}
+			}
+			(*responses)[name] = packages.GenerateHostname(effectiveName)
+		case packages.Secret:
+			secret, err := packages.GenerateSecret()
+			if err != nil {
+				continue
+			}
+			if *responses == nil {
+				*responses = packages.Responses{}
+			}
+			(*responses)[name] = secret
+		default:
+			if (resp == "auto" || resp == "") && q.Default != "" {
+				if *responses == nil {
+					*responses = packages.Responses{}
+				}
+				(*responses)[name] = q.Default
+			}
+		}
+	}
+	return nil
+}
+
+// prepareActiveVersion stops running units for the active version and
+// migrates volumes when upgrading.
+func (s *SystemControllerHandlers) prepareActiveVersion(ctx context.Context, rr *packages.RepositoryRoot, inst packages.Installer, repoName, parentName, effectiveName, activeVersion, newVersion, importFromVersion string, compiled *packages.Package) error {
+	// Stop and remove all systemd units for the currently active version.
+	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		if err := s.uninstallPackageUnits(ctx, sd, repoName, effectiveName, activeVersion); err != nil {
+			return err
+		}
+	}
+
+	if activeVersion == newVersion {
+		// Same version reinstall: remove the install record (but not volumes).
+		return inst.Uninstall(repoName, effectiveName, newVersion)
+	}
+
+	// Different version (upgrade): move matching volumes.
+	if st := s.Controller.GetStorage(); st != nil && importFromVersion == "" {
+		oldIP, loadErr := rr.LoadPackage(repoName, parentName, activeVersion)
+		if loadErr == nil {
+			for volName := range compiled.Volumes {
+				if _, exists := oldIP.Volumes[volName]; exists {
+					src := packageVolumePath(repoName, effectiveName, activeVersion, volName)
+					dst := packageVolumePath(repoName, effectiveName, newVersion, volName)
+					if err := st.RenameFilesystem(src, dst); err != nil {
+						slog.Debug(fmt.Sprintf("upgrade move volume %s -> %s: %v", src, dst, err))
+					}
+				}
+			}
+		} else {
+			slog.Debug(fmt.Sprintf("upgrade: load old package %s/%s@%s: %v", repoName, parentName, activeVersion, loadErr))
+		}
+	}
+	return nil
+}
+
+// provisionVolumes creates, reuses, or imports storage volumes for the package.
+func (s *SystemControllerHandlers) provisionVolumes(repoName, effectiveName, version, importFromVersion string, reuseVolumes bool, compiled *packages.Package) error {
+	st := s.Controller.GetStorage()
+	if st == nil {
+		return nil
+	}
+
+	if reuseVolumes {
+		src := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repoName, effectiveName)
+		dst := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repoName, effectiveName)
+		if err := st.RenameFilesystem(src, dst); err != nil {
+			slog.Debug(fmt.Sprintf("reuse volumes: rename %s -> %s: %v", src, dst, err))
+		}
+	}
+
+	defQuota := s.defaultQuota()
+	for volName, vol := range compiled.Volumes {
+		quota := vol.Quota
+		if quota == 0 {
+			quota = defQuota
+		}
+		fsName := packageVolumePath(repoName, effectiveName, version, volName)
+
+		if importFromVersion != "" {
+			srcVol := packageVolumePath(repoName, effectiveName, importFromVersion, volName)
+			if err := st.SnapshotFilesystem(srcVol, fsName); err != nil {
+				slog.Debug(fmt.Sprintf("import snapshot %s -> %s: %v", srcVol, fsName, err))
+				if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+					if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+						return err
+					}
+				}
+			} else {
+				if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+					slog.Debug(fmt.Sprintf("adjust quota on snapshot %s: %v", fsName, err))
+				}
+			}
+		} else {
+			if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+				if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// seedVolumeData populates volumes with auto-archives, git seeds, and
+// git_sources after they are created.
+func (s *SystemControllerHandlers) seedVolumeData(ctx context.Context, ip *packages.InputPackage, compiled *packages.Package, repoName, parentName, effectiveName, version string) {
+	if len(ip.Archives) > 0 {
+		for _, archive := range ip.Archives {
+			volPath := packageVolumePath(repoName, parentName, version, archive.Volume)
+			if err := s.extractFromContainerImage(ctx, archive.Image, archive.Directory, volPath); err != nil {
+				slog.Debug(fmt.Sprintf("auto-archive %s -> %s: %v", archive.Image, archive.Volume, err))
+			}
+		}
+	}
+
+	for volName, vol := range compiled.Volumes {
+		if vol.Git == "" {
+			continue
+		}
+		volPath := packageVolumePath(repoName, effectiveName, version, volName)
+		targetPath := filepath.Join(s.Controller.GetBtrfsBasePath(), volPath)
+		entries, err := os.ReadDir(targetPath)
+		if err != nil || len(entries) > 0 {
+			continue
+		}
+		if err := gitCloneIntoPath(ctx, vol.Git, targetPath); err != nil {
+			slog.Debug(fmt.Sprintf("git-seed %s -> %s: %v", vol.Git, volName, err))
+		}
+	}
+
+	if len(ip.GitSources) > 0 {
+		cloner := s.Controller.GetGitCloner()
+		for _, gs := range ip.GitSources {
+			volPath := packageVolumePath(repoName, effectiveName, version, gs.Volume)
+			targetDir := filepath.Join(s.Controller.GetBtrfsBasePath(), volPath)
+			if err := cloner.Clone(targetDir, gs.URL, gs.Branch); err != nil {
+				slog.Debug(fmt.Sprintf("git-source clone %s -> %s: %v", gs.URL, gs.Volume, err))
+			}
+		}
+	}
+}
+
+// findActiveVersion returns the currently installed version for a package,
+// or "" if not installed.
+func findActiveVersion(inst packages.Installer, repoName, effectiveName string) (string, error) {
+	installed, err := inst.ListInstalled()
+	if err != nil {
+		return "", err
+	}
+	for _, pkg := range installed {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+		if pi.Repo == repoName && pi.Name == effectiveName {
+			return pi.Version, nil
+		}
+	}
+	return "", nil
+}
+
 func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	de := json.NewDecoder(c.Request().Body)
 	req := InstallRequest{}
@@ -493,15 +722,12 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
-	// When Instance is set, the effective name becomes parentName-instance.
 	parentName := req.Name
 	effectiveName := req.Name
 	if req.Instance != "" {
 		effectiveName = fmt.Sprintf("%s-%s", parentName, req.Instance)
 	}
 
-	// Load and compile the package to resolve volume definitions.
-	// Always load from the parent package name.
 	ip, err := rr.LoadPackage(repoName, parentName, req.Version)
 	if err != nil {
 		return err
@@ -510,40 +736,16 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	inst := s.Controller.GetInstaller()
 	ctx := c.Request().Context()
 
-	// Check for any installed version of the same repo/package.
-	installed, err := inst.ListInstalled()
+	activeVersion, err := findActiveVersion(inst, repoName, effectiveName)
 	if err != nil {
 		return err
-	}
-
-	var activeVersion string
-	for _, pkg := range installed {
-		pi, err := packages.ParsePackageIdentity(pkg)
-		if err != nil {
-			continue
-		}
-		if pi.Repo == repoName && pi.Name == effectiveName {
-			activeVersion = pi.Version
-			break
-		}
 	}
 
 	// Carry forward responses from the active version during upgrades.
 	if activeVersion != "" && activeVersion != req.Version {
 		oldResponses, err := inst.GetResponses(repoName, effectiveName, activeVersion)
 		if err == nil {
-			for key, val := range oldResponses {
-				// Only carry forward if the question exists in the new version
-				// and the user didn't provide a new response.
-				if _, exists := ip.Questions[key]; exists {
-					if _, provided := req.Responses[key]; !provided {
-						if req.Responses == nil {
-							req.Responses = packages.Responses{}
-						}
-						req.Responses[key] = val
-					}
-				}
-			}
+			mergeResponses(&req.Responses, oldResponses, ip.Questions)
 		}
 	}
 
@@ -551,86 +753,12 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	if req.ReuseVolumes && !req.SkipResponseReuse {
 		lastResp, err := inst.LoadLastResponses(repoName, effectiveName)
 		if err == nil && len(lastResp) > 0 {
-			for key, val := range lastResp {
-				if _, exists := ip.Questions[key]; exists {
-					if _, provided := req.Responses[key]; !provided {
-						if req.Responses == nil {
-							req.Responses = packages.Responses{}
-						}
-						req.Responses[key] = val
-					}
-				}
-			}
+			mergeResponses(&req.Responses, lastResp, ip.Questions)
 		}
 	}
 
-	// Auto-generate port/hostname values for empty or "auto" responses.
-	{
-		excludedPorts := map[uint16]bool{}
-		if inst != nil {
-			allInstalled, err := inst.ListInstalled()
-			if err != nil {
-				return err
-			}
-			for _, pkg := range allInstalled {
-				pi, err := packages.ParsePackageIdentity(pkg)
-				if err != nil {
-					continue
-				}
-				resp, err := inst.GetResponses(pi.Repo, pi.Name, pi.Version)
-				if err != nil {
-					continue
-				}
-				for _, v := range resp {
-					if p, err := strconv.ParseUint(v, 10, 16); err == nil && p > 0 {
-						excludedPorts[uint16(p)] = true
-					}
-				}
-			}
-		}
-
-		for name, q := range ip.Questions {
-			resp := req.Responses[name]
-			if resp != "" && resp != "auto" {
-				continue
-			}
-
-			switch q.Type {
-			case packages.Port:
-				port, err := packages.FindAvailablePort(excludedPorts)
-				if err != nil {
-					continue
-				}
-				if req.Responses == nil {
-					req.Responses = packages.Responses{}
-				}
-				req.Responses[name] = strconv.FormatUint(uint64(port), 10)
-				excludedPorts[port] = true
-			case packages.Hostname:
-				if req.Responses == nil {
-					req.Responses = packages.Responses{}
-				}
-				req.Responses[name] = packages.GenerateHostname(effectiveName)
-			case packages.Secret:
-				secret, err := packages.GenerateSecret()
-				if err != nil {
-					continue
-				}
-				if req.Responses == nil {
-					req.Responses = packages.Responses{}
-				}
-				req.Responses[name] = secret
-			default:
-				if resp == "auto" || resp == "" {
-					if q.Default != "" {
-						if req.Responses == nil {
-							req.Responses = packages.Responses{}
-						}
-						req.Responses[name] = q.Default
-					}
-				}
-			}
-		}
+	if err := s.autoGenerateResponses(&req.Responses, ip.Questions, effectiveName); err != nil {
+		return err
 	}
 
 	compiled, err := ip.CompileWithContext(req.Responses, packages.CompileContext{
@@ -642,144 +770,31 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	if activeVersion != "" {
-		// Stop and remove all systemd units for the currently active version.
-		if sd := s.Controller.GetSystemdManager(); sd != nil {
-			if err := s.uninstallPackageUnits(ctx, sd, repoName, effectiveName, activeVersion); err != nil {
-				return err
-			}
-		}
-
-		if activeVersion == req.Version {
-			// Same version reinstall: remove the install record (but not volumes).
-			if err := inst.Uninstall(repoName, effectiveName, req.Version); err != nil {
-				return err
-			}
-		} else {
-			// Different version (upgrade): move matching volumes from old to new
-			// version path and remove the old install record after the new one
-			// is created successfully.
-			if st := s.Controller.GetStorage(); st != nil && req.ImportFromVersion == "" {
-				// Load old package to discover its volume names.
-				oldIP, loadErr := rr.LoadPackage(repoName, parentName, activeVersion)
-				if loadErr == nil {
-					for volName := range compiled.Volumes {
-						if _, exists := oldIP.Volumes[volName]; exists {
-							src := packageVolumePath(repoName, effectiveName, activeVersion, volName)
-							dst := packageVolumePath(repoName, effectiveName, req.Version, volName)
-							if err := st.RenameFilesystem(src, dst); err != nil {
-								slog.Debug(fmt.Sprintf("upgrade move volume %s -> %s: %v", src, dst, err))
-							}
-						}
-					}
-				} else {
-					slog.Debug(fmt.Sprintf("upgrade: load old package %s/%s@%s: %v", repoName, parentName, activeVersion, loadErr))
-				}
-			}
+		if err := s.prepareActiveVersion(ctx, rr, inst, repoName, parentName, effectiveName, activeVersion, req.Version, req.ImportFromVersion, compiled); err != nil {
+			return err
 		}
 	}
 
-	// Handle volume reuse/import and create or adjust storage volumes.
-	if st := s.Controller.GetStorage(); st != nil {
-		// If reusing volumes, rename uninstalled/<repo>/<name> → installed/<repo>/<name>.
-		if req.ReuseVolumes {
-			src := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repoName, effectiveName)
-			dst := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repoName, effectiveName)
-			if err := st.RenameFilesystem(src, dst); err != nil {
-				slog.Debug(fmt.Sprintf("reuse volumes: rename %s -> %s: %v", src, dst, err))
-			}
-		}
-
-		defQuota := s.defaultQuota()
-		for volName, vol := range compiled.Volumes {
-			quota := vol.Quota
-			if quota == 0 {
-				quota = defQuota
-			}
-			fsName := packageVolumePath(repoName, effectiveName, req.Version, volName)
-
-			if req.ImportFromVersion != "" {
-				// Import from another version: snapshot from the source version's volume.
-				srcVol := packageVolumePath(repoName, effectiveName, req.ImportFromVersion, volName)
-				if err := st.SnapshotFilesystem(srcVol, fsName); err != nil {
-					slog.Debug(fmt.Sprintf("import snapshot %s -> %s: %v", srcVol, fsName, err))
-					// Fall through to create if snapshot fails.
-					if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-						if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-							return err
-						}
-					}
-				} else {
-					// Snapshot succeeded; adjust quota if needed.
-					if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-						slog.Debug(fmt.Sprintf("adjust quota on snapshot %s: %v", fsName, err))
-					}
-				}
-			} else {
-				if err := st.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-					// Volume already exists (e.g. moved from old version) — adjust quota if needed.
-					if err := st.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-						return err
-					}
-				}
-			}
-		}
+	if err := s.provisionVolumes(repoName, effectiveName, req.Version, req.ImportFromVersion, req.ReuseVolumes, compiled); err != nil {
+		return err
 	}
 
-	// Process auto-archives from package definition.
-	if len(ip.Archives) > 0 {
-		for _, archive := range ip.Archives {
-			volPath := packageVolumePath(repoName, req.Name, req.Version, archive.Volume)
-			if err := s.extractFromContainerImage(ctx, archive.Image, archive.Directory, volPath); err != nil {
-				slog.Debug(fmt.Sprintf("auto-archive %s -> %s: %v", archive.Image, archive.Volume, err))
-			}
-		}
-	}
-
-	// Clone git seed repositories into empty volumes.
-	for volName, vol := range compiled.Volumes {
-		if vol.Git == "" {
-			continue
-		}
-		volPath := packageVolumePath(repoName, effectiveName, req.Version, volName)
-		targetPath := filepath.Join(s.Controller.GetBtrfsBasePath(), volPath)
-		entries, err := os.ReadDir(targetPath)
-		if err != nil || len(entries) > 0 {
-			continue
-		}
-		if err := gitCloneIntoPath(ctx, vol.Git, targetPath); err != nil {
-			slog.Debug(fmt.Sprintf("git-seed %s -> %s: %v", vol.Git, volName, err))
-		}
-	}
-
-	// Clone git_sources repositories into their target volumes.
-	if len(ip.GitSources) > 0 {
-		cloner := s.Controller.GetGitCloner()
-		for _, gs := range ip.GitSources {
-			volPath := packageVolumePath(repoName, effectiveName, req.Version, gs.Volume)
-			targetDir := filepath.Join(s.Controller.GetBtrfsBasePath(), volPath)
-			if err := cloner.Clone(targetDir, gs.URL, gs.Branch); err != nil {
-				slog.Debug(fmt.Sprintf("git-source clone %s -> %s: %v", gs.URL, gs.Volume, err))
-			}
-		}
-	}
+	s.seedVolumeData(ctx, &ip, compiled, repoName, parentName, effectiveName, req.Version)
 
 	if err := inst.Install(repoName, effectiveName, req.Version, req.Responses); err != nil {
 		return err
 	}
 
-	// Clear last responses after successful install.
 	if err := inst.ClearLastResponses(repoName, effectiveName); err != nil {
 		slog.Debug(fmt.Sprintf("clear last responses %s/%s: %v", repoName, effectiveName, err))
 	}
 
-	// Clean up old install record after successful new install.
 	if activeVersion != "" && activeVersion != req.Version {
 		if err := inst.Uninstall(repoName, effectiveName, activeVersion); err != nil {
 			slog.Debug(fmt.Sprintf("remove old install record %s/%s@%s: %v", repoName, effectiveName, activeVersion, err))
 		}
 	}
 
-	// Track child in parent's children list when installing an instance.
 	if req.Instance != "" {
 		children, err := inst.LoadChildren(repoName, parentName)
 		if err != nil {

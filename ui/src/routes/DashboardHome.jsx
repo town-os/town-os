@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePolling } from '@/lib/hooks.js'
+import { formatBytes } from '@/lib/utils.js'
 import getClient from '@/lib/client-instance.js'
 import { Link } from 'react-router-dom'
 import {
@@ -54,18 +55,10 @@ function CopyButton({ text }) {
     }
   }, [text])
   return (
-    <Button variant="ghost" size="sm" className="h-5 w-5 p-0 ml-1" onClick={handleCopy}>
+    <Button variant="ghost" size="sm" className="h-5 w-5 p-0 ml-1" onClick={handleCopy} aria-label={copied ? 'Copied' : 'Copy to clipboard'}>
       {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
     </Button>
   )
-}
-
-function formatBytes(bytes) {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const val = bytes / Math.pow(1024, i)
-  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
 }
 
 function UpgradeBanner({ count, onDismiss, dismissing }) {

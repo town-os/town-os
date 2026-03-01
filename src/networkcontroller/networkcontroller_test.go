@@ -430,6 +430,22 @@ func TestShutdownRemovesAll(t *testing.T) {
 	}
 }
 
+func waitForCalls(t *testing.T, runner *mockRunner, expected int) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		if len(runner.GetCalls()) >= expected {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d exec calls, got %d", expected, len(runner.GetCalls()))
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
 func TestFileChangeTrigersReconcile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.json")
@@ -457,7 +473,7 @@ func TestFileChangeTrigersReconcile(t *testing.T) {
 	}()
 
 	// Wait for initial reconcile.
-	time.Sleep(200 * time.Millisecond)
+	waitForCalls(t, runner, 1)
 
 	if len(runner.GetCalls()) != 1 {
 		t.Fatalf("expected 1 exec call after initial reconcile, got %d", len(runner.GetCalls()))
@@ -468,7 +484,7 @@ func TestFileChangeTrigersReconcile(t *testing.T) {
 	writeState(t, path, state)
 
 	// Wait for fsnotify to trigger reconcile.
-	time.Sleep(500 * time.Millisecond)
+	waitForCalls(t, runner, 2)
 
 	if len(runner.GetCalls()) != 2 {
 		t.Fatalf("expected 2 exec calls after file change, got %d", len(runner.GetCalls()))

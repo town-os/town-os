@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
+import { PAGE_SIZE } from '@/lib/utils.js'
 import { JsonTree } from '@/lib/json-tree.jsx'
 import DataTable from '@/components/DataTable.jsx'
 import { Button } from '@/components/ui/button'
@@ -13,8 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-
-const PAGE_SIZE = 20
 
 function formatTime(ts) {
   if (!ts) return '-'
@@ -138,6 +137,7 @@ export default function AuditLog() {
             size="sm"
             className="h-6 w-6 p-0"
             onClick={() => openDetail(row)}
+            aria-label="View request parameters"
             title="View request parameters"
           >
             <FileText className="h-3.5 w-3.5" />
@@ -151,15 +151,22 @@ export default function AuditLog() {
       label: 'Status',
       transform: (v, row) =>
         v ? (
-          <Check className="h-4 w-4 text-green-600" />
+          <span role="status" aria-label="Success">
+            <Check className="h-4 w-4 text-green-600" aria-hidden="true" />
+            <span className="sr-only">Success</span>
+          </span>
         ) : (
-          <CircleAlert
-            className="h-4 w-4 text-destructive cursor-pointer"
+          <button
+            className="inline-flex items-center"
             onClick={() => {
               setErrorRow(row)
               setErrorOpen(true)
             }}
-          />
+            aria-label="View error details"
+          >
+            <CircleAlert className="h-4 w-4 text-destructive cursor-pointer" aria-hidden="true" />
+            <span className="sr-only">Error</span>
+          </button>
         ),
     },
   ]

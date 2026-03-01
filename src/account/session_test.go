@@ -542,7 +542,12 @@ func TestSessionValidateUpdatesLastUsed(t *testing.T) {
 		t.Fatalf("Validate 1: %v", err)
 	}
 
-	time.Sleep(time.Second)
+	// Set last_used to 1 hour ago to avoid relying on wall-clock timing.
+	oneHourAgo := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	_, err = sessMgr.db.ExecContext(context.Background(), "UPDATE sessions SET last_used = ? WHERE id = ?", oneHourAgo, sess1.ID)
+	if err != nil {
+		t.Fatalf("manual update last_used: %v", err)
+	}
 
 	sess2, _, err := sessMgr.Validate(token)
 	if err != nil {

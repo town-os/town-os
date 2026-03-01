@@ -29,8 +29,9 @@ export function usePolling(fetcher, defaultValue, deps = [], interval = 60000) {
         setData(result)
         setLoading(false)
       })
-      .catch(() => {
+      .catch((err) => {
         if (gen !== generationRef.current) return
+        console.debug('usePolling fetch error:', err)
         setLoading(false)
       })
   }, deps)

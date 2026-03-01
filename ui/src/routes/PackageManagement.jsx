@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
+import { PAGE_SIZE } from '@/lib/utils.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
@@ -40,6 +41,10 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star, Download } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
+import InstallPreviewDialog from '@/components/packages/InstallPreviewDialog.jsx'
+import InstallQuestionsDialog from '@/components/packages/InstallQuestionsDialog.jsx'
+import PackageInfoDialog from '@/components/packages/PackageInfoDialog.jsx'
+import VolumeReuseDialog from '@/components/packages/VolumeReuseDialog.jsx'
 
 export default function PackageManagement() {
   useEffect(() => { document.title = 'Town OS - Packages' }, [])
@@ -72,7 +77,7 @@ export default function PackageManagement() {
   const [repoSortKey, setRepoSortKey] = useState('')
   const [repoSortDirection, setRepoSortDirection] = useState('')
 
-  const PAGE_SIZE = 20
+
 
   const [pkgPage, setPkgPage] = useState(0)
   const [repoPage, setRepoPage] = useState(0)
@@ -385,6 +390,7 @@ export default function PackageManagement() {
                 size="sm"
                 className="h-6 w-6 p-0"
                 onClick={() => handleShowInfo(row.repo, row.name, instVer || row.version)}
+                aria-label="Package details"
               >
                 <Info className="h-3.5 w-3.5" />
               </Button>
@@ -505,6 +511,7 @@ export default function PackageManagement() {
               className="h-6 w-6 p-0"
               disabled={idx >= repositories.length - 1}
               onClick={() => handleMoveRepo(row.name, idx + 1)}
+              aria-label="Move repository up"
             >
               <ArrowUp className="h-3 w-3" />
             </Button>
@@ -514,6 +521,7 @@ export default function PackageManagement() {
               className="h-6 w-6 p-0"
               disabled={idx <= 0}
               onClick={() => handleMoveRepo(row.name, idx - 1)}
+              aria-label="Move repository down"
             >
               <ArrowDown className="h-3 w-3" />
             </Button>
@@ -531,6 +539,7 @@ export default function PackageManagement() {
           size="sm"
           className="text-destructive hover:text-destructive"
           onClick={() => setDeleteRepoConfirm(row.name)}
+          aria-label="Remove repository"
         >
           <Trash2 className="h-3 w-3" />
         </Button>
@@ -683,6 +692,7 @@ export default function PackageManagement() {
                                     size="sm"
                                     className="h-6 w-6 p-0"
                                     onClick={() => handleShowInfo(pkg.repo, pkg.name, instVer || pkg.version)}
+                                    aria-label="Package details"
                                   >
                                     <Info className="h-3.5 w-3.5" />
                                   </Button>
@@ -821,299 +831,30 @@ export default function PackageManagement() {
         </TabsContent>
       </Tabs>
 
-      {/* Install Preview Dialog */}
-      <Dialog
-        open={previewDialog.open}
-        onOpenChange={(v) => !v && setPreviewDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Install {previewDialog.name} {previewDialog.version}
-            </DialogTitle>
-            <DialogDescription>Review the installation details before proceeding.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {previewDialog.upgrading_from && (
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="gap-1 text-blue-600 border-blue-600">
-                  <ArrowUpCircle className="h-3 w-3" />
-                  Upgrading from {previewDialog.upgrading_from}
-                </Badge>
-              </div>
-            )}
-            {previewDialog.description && (
-              <p className="text-sm text-muted-foreground">{previewDialog.description}</p>
-            )}
-            <div className="text-sm">
-              <span className="text-muted-foreground">Image: </span>
-              <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{previewDialog.image}</code>
-            </div>
-            {previewDialog.volumes?.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium">Volumes</h4>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Mountpoint</TableHead>
-                      <TableHead>Quota</TableHead>
-                      <TableHead className="text-right"><div className="pr-2">Status</div></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {previewDialog.volumes.map((vol) => (
-                      <TableRow key={vol.name}>
-                        <TableCell className="font-mono text-xs">{vol.name}</TableCell>
-                        <TableCell className="font-mono text-xs">{vol.mountpoint}</TableCell>
-                        <TableCell className="font-mono text-xs">{vol.quota || '-'}</TableCell>
-                        <TableCell className="text-right">
-                          {vol.migrated ? (
-                            <Badge variant="outline" className="text-blue-600 border-blue-600">Migrated</Badge>
-                          ) : (
-                            <Badge variant="secondary">New</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-            {previewDialog.external_ports?.length > 0 && (
-              <div className="space-y-1">
-                <h4 className="text-sm font-medium">External Ports</h4>
-                <div className="text-sm text-muted-foreground">
-                  {previewDialog.external_ports.map((p) => (
-                    <span key={p.external} className="inline-block mr-3 font-mono text-xs">
-                      {p.external} → {p.internal}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {previewDialog.quota_exceeds_disk && (
-              <div className="rounded-md border border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20 p-3">
-                <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                  <AlertCircle className="h-4 w-4 inline mr-1" />
-                  Total volume quotas may exceed available disk space.
-                </p>
-              </div>
-            )}
-            {previewDialog.has_questions && (
-              <p className="text-xs text-muted-foreground">
-                Configuration questions will follow on the next screen.
-              </p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setPreviewDialog({ open: false })}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                const { repo, name, version, upgrading_from } = previewDialog
-                const importFrom = upgrading_from || undefined
-                setPreviewDialog({ open: false })
-                handleCheckVolumes(repo, name, version, importFrom)
-              }}
-            >
-              Continue
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <InstallPreviewDialog
+        dialog={previewDialog}
+        onClose={() => setPreviewDialog({ open: false })}
+        onContinue={(d) => {
+          const importFrom = d.upgrading_from || undefined
+          setPreviewDialog({ open: false })
+          handleCheckVolumes(d.repo, d.name, d.version, importFrom)
+        }}
+      />
 
-      {/* Install Questions Dialog */}
-      <Dialog
-        open={questionsDialog.open}
-        onOpenChange={(v) => !v && setQuestionsDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Install {questionsDialog.name} {questionsDialog.version}
-            </DialogTitle>
-            <DialogDescription>Answer the configuration questions below.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleInstallWithResponses}>
-            <div className="space-y-4 py-4">
-              {questionsDialog.questions &&
-                Object.entries(questionsDialog.questions).map(
-                  ([key, question]) => {
-                    const fieldError = questionsDialog.fieldErrors?.[key]
-                    const cachedValue = questionsDialog.responses?.[key]
-                    const isCleared = questionsDialog.clearedFields?.[key]
-                    const hasCachedValue = !!cachedValue && !isCleared
+      <InstallQuestionsDialog
+        dialog={questionsDialog}
+        onClose={() => setQuestionsDialog({ open: false })}
+        onSubmit={handleInstallWithResponses}
+        onClearField={(key) => setQuestionsDialog((prev) => ({
+          ...prev,
+          clearedFields: { ...prev.clearedFields, [key]: true },
+        }))}
+      />
 
-                    // Build placeholder: show default or type hint
-                    let placeholder
-                    if (question.default) {
-                      placeholder = `Default: ${question.default}`
-                    } else if (question.type === 'duration') {
-                      placeholder = 'e.g. 30s, 5m, 2h, 1d'
-                    } else if (question.type === 'port') {
-                      placeholder = 'Auto-assigned if empty'
-                    } else if (question.type === 'hostname') {
-                      placeholder = 'Auto-generated if empty'
-                    }
-
-                    return (
-                      <div key={key} className="space-y-2">
-                        <Label htmlFor={key}>{question.query}</Label>
-                        {hasCachedValue ? (
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm font-mono">
-                              {question.type === 'secret' ? '********' : cachedValue}
-                            </div>
-                            <input type="hidden" name={key} value={cachedValue} />
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                                  onClick={() => setQuestionsDialog((prev) => ({
-                                    ...prev,
-                                    clearedFields: { ...prev.clearedFields, [key]: true },
-                                  }))}
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Clear to enter a new value</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        ) : (
-                          <Input
-                            id={key}
-                            name={key}
-                            type={question.type === 'secret' ? 'password' : 'text'}
-                            placeholder={placeholder}
-                            defaultValue=""
-                            className={fieldError ? 'border-destructive' : ''}
-                          />
-                        )}
-                        {question.default && !hasCachedValue && (
-                          <p className="text-xs text-muted-foreground">
-                            Default: <span className="font-mono">{question.default}</span>
-                          </p>
-                        )}
-                        {question.type === 'duration' && (
-                          <p className="text-xs text-muted-foreground">
-                            Duration format: use s (seconds), m (minutes), h (hours), or d (days)
-                          </p>
-                        )}
-                        {fieldError && (
-                          <p className="text-sm text-destructive">{fieldError}</p>
-                        )}
-                      </div>
-                    )
-                  },
-                )}
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => setQuestionsDialog({ open: false })}
-              >
-                Cancel
-              </Button>
-              <Button type="submit">Install</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Package Info Dialog */}
-      <Dialog
-        open={infoDialog.open}
-        onOpenChange={(v) => !v && setInfoDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {infoDialog.name}@{infoDialog.version}
-            </DialogTitle>
-            <DialogDescription>Installed package configuration and notes.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {infoDialog.questions && Object.keys(infoDialog.questions).length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium">Configuration</h4>
-                <div className="space-y-1">
-                  {Object.entries(infoDialog.questions).map(([key, question]) => (
-                    <div key={key} className="flex justify-between gap-4 text-sm">
-                      <span className="text-muted-foreground">{question.query}</span>
-                      <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
-                        {question.type === 'secret' ? '********' : (infoDialog.responses?.[key] || '-')}
-                      </code>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {infoDialog.notes && Object.keys(infoDialog.notes).length > 0 && (
-              <>
-                {infoDialog.questions && Object.keys(infoDialog.questions).length > 0 && (
-                  <Separator />
-                )}
-                <div className="space-y-1">
-                  {Object.entries(infoDialog.notes).map(([label, value]) => {
-                    const noteType = infoDialog.note_types?.[label]
-                    let display
-                    if (noteType === 'url') {
-                      display = (
-                        <a href={value} target="_blank" rel="noopener noreferrer" className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0 underline text-primary">
-                          {value}
-                        </a>
-                      )
-                    } else if (noteType === 'email') {
-                      display = (
-                        <a href={`mailto:${value}`} className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0 underline text-primary">
-                          {value}
-                        </a>
-                      )
-                    } else if (noteType === 'phone') {
-                      display = (
-                        <a href={`tel:${value}`} className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0 underline text-primary">
-                          {value}
-                        </a>
-                      )
-                    } else {
-                      display = (
-                        <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
-                          {value}
-                        </code>
-                      )
-                    }
-                    return (
-                      <div key={label} className="flex justify-between gap-4 text-sm">
-                        <span className="text-muted-foreground">{label}</span>
-                        {display}
-                      </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
-            {(!infoDialog.questions || Object.keys(infoDialog.questions).length === 0) &&
-              (!infoDialog.notes || Object.keys(infoDialog.notes).length === 0) && (
-              <p className="text-sm text-muted-foreground">No configuration for this package.</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setInfoDialog({ open: false })}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PackageInfoDialog
+        dialog={infoDialog}
+        onClose={() => setInfoDialog({ open: false })}
+      />
 
       {/* Add Repository Dialog */}
       <Dialog open={repoDialog} onOpenChange={setRepoDialog}>
@@ -1212,65 +953,24 @@ export default function PackageManagement() {
         </DialogContent>
       </Dialog>
 
-      {/* Volume Reuse Dialog */}
-      <Dialog
-        open={volumeReuseDialog.open}
-        onOpenChange={(v) => !v && setVolumeReuseDialog({ open: false })}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Existing Data Found</DialogTitle>
-            <DialogDescription>Choose whether to reuse existing volume data or start fresh.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Previous data exists for{' '}
-              <code className="font-mono text-sm bg-muted px-1 rounded">
-                {volumeReuseDialog.name}
-              </code>
-              {volumeReuseDialog.uninstalledVersions?.length > 0 && (
-                <span>
-                  {' '}(versions: {volumeReuseDialog.uninstalledVersions.join(', ')})
-                </span>
-              )}
-              . Would you like to reuse it or start fresh?
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setVolumeReuseDialog({ open: false })}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={async () => {
-                const { repo, name, version, importFromVersion } = volumeReuseDialog
-                setVolumeReuseDialog({ open: false })
-                try {
-                  await getClient().purgeUninstalledVolumes(repo, name)
-                } catch (err) {
-                  toast.error(err.message)
-                  return
-                }
-                await handleInstall(repo, name, version, false, importFromVersion)
-              }}
-            >
-              Start Fresh
-            </Button>
-            <Button
-              onClick={() => {
-                const { repo, name, version, importFromVersion } = volumeReuseDialog
-                setVolumeReuseDialog({ open: false })
-                handleInstall(repo, name, version, true, importFromVersion)
-              }}
-            >
-              Reuse Data
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <VolumeReuseDialog
+        dialog={volumeReuseDialog}
+        onClose={() => setVolumeReuseDialog({ open: false })}
+        onStartFresh={async (d) => {
+          setVolumeReuseDialog({ open: false })
+          try {
+            await getClient().purgeUninstalledVolumes(d.repo, d.name)
+          } catch (err) {
+            toast.error(err.message)
+            return
+          }
+          await handleInstall(d.repo, d.name, d.version, false, d.importFromVersion)
+        }}
+        onReuse={(d) => {
+          setVolumeReuseDialog({ open: false })
+          handleInstall(d.repo, d.name, d.version, true, d.importFromVersion)
+        }}
+      />
 
       {/* Uninstall Confirm */}
       <Dialog

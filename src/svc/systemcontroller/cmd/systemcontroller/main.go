@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -71,7 +73,10 @@ func run() (err error) {
 		return fmt.Errorf("init account manager: %w", err)
 	}
 
-	signingKey := []byte("test-signing-key-for-sessions-32")
+	signingKey, err := loadOrGenerateSigningKey(dbFile)
+	if err != nil {
+		return fmt.Errorf("signing key: %w", err)
+	}
 	sessMgr, err := account.InitSessionManager(db, acctMgr, signingKey)
 	if err != nil {
 		return fmt.Errorf("init session manager: %w", err)
@@ -216,6 +221,41 @@ func run() (err error) {
 	}
 
 	return nil
+}
+
+// loadOrGenerateSigningKey returns the JWT signing key. It first checks the
+// TOWN_OS_SIGNING_KEY environment variable, then looks for a key file next to
+// the database. If neither exists, a random 32-byte key is generated and
+// persisted so that sessions survive restarts.
+func loadOrGenerateSigningKey(dbFile string) ([]byte, error) {
+	if env := os.Getenv("TOWN_OS_SIGNING_KEY"); env != "" {
+		return []byte(env), nil
+	}
+
+	keyPath := filepath.Clean(filepath.Join(filepath.Dir(dbFile), "signing-key"))
+	data, err := os.ReadFile(keyPath)
+	if err == nil && len(data) > 0 {
+		decoded, err := hex.DecodeString(string(data))
+		if err != nil {
+			return nil, fmt.Errorf("decode signing key: %w", err)
+		}
+		return decoded, nil
+	}
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate signing key: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
+		return nil, fmt.Errorf("create key directory: %w", err)
+	}
+
+	if err := os.WriteFile(keyPath, []byte(hex.EncodeToString(key)), 0600); err != nil {
+		return nil, fmt.Errorf("write signing key: %w", err)
+	}
+
+	return key, nil
 }
 
 func main() {
