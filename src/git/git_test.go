@@ -361,7 +361,8 @@ func TestExtractAuth(t *testing.T) {
 func TestGoGitClientInitInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
 	// Init on a path inside a non-existent directory should fail.
-	err := c.Init(context.Background(), "/nonexistent/path/repo")
+	dir := filepath.Join(t.TempDir(), "no-such-parent", "repo")
+	err := c.Init(context.Background(), dir)
 	if err == nil {
 		t.Fatal("expected error for init in nonexistent directory")
 	}
@@ -369,7 +370,8 @@ func TestGoGitClientInitInvalidDir(t *testing.T) {
 
 func TestGoGitClientDiffInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	_, err := c.Diff(context.Background(), "/nonexistent/path")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	_, err := c.Diff(context.Background(), dir)
 	if err == nil {
 		t.Fatal("expected error for diff in nonexistent directory")
 	}
@@ -377,7 +379,8 @@ func TestGoGitClientDiffInvalidDir(t *testing.T) {
 
 func TestGoGitClientAddInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	err := c.Add(context.Background(), "/nonexistent/path", "file.txt")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	err := c.Add(context.Background(), dir, "file.txt")
 	if err == nil {
 		t.Fatal("expected error for add in nonexistent directory")
 	}
@@ -385,7 +388,8 @@ func TestGoGitClientAddInvalidDir(t *testing.T) {
 
 func TestGoGitClientCommitInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	err := c.Commit(context.Background(), "/nonexistent/path", "msg")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	err := c.Commit(context.Background(), dir, "msg")
 	if err == nil {
 		t.Fatal("expected error for commit in nonexistent directory")
 	}
@@ -393,7 +397,8 @@ func TestGoGitClientCommitInvalidDir(t *testing.T) {
 
 func TestGoGitClientPullInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	err := c.Pull(context.Background(), "/nonexistent/path")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	err := c.Pull(context.Background(), dir)
 	if err == nil {
 		t.Fatal("expected error for pull in nonexistent directory")
 	}
@@ -401,7 +406,8 @@ func TestGoGitClientPullInvalidDir(t *testing.T) {
 
 func TestGoGitClientFetchInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	err := c.Fetch(context.Background(), "/nonexistent/path")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	err := c.Fetch(context.Background(), dir)
 	if err == nil {
 		t.Fatal("expected error for fetch in nonexistent directory")
 	}
@@ -409,7 +415,8 @@ func TestGoGitClientFetchInvalidDir(t *testing.T) {
 
 func TestGoGitClientCheckoutInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	err := c.Checkout(context.Background(), "/nonexistent/path", "main")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	err := c.Checkout(context.Background(), dir, "main")
 	if err == nil {
 		t.Fatal("expected error for checkout in nonexistent directory")
 	}
@@ -417,7 +424,8 @@ func TestGoGitClientCheckoutInvalidDir(t *testing.T) {
 
 func TestGoGitClientStashInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	err := c.Stash(context.Background(), "/nonexistent/path")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	err := c.Stash(context.Background(), dir)
 	if err == nil {
 		t.Fatal("expected error for stash in nonexistent directory")
 	}
@@ -425,7 +433,8 @@ func TestGoGitClientStashInvalidDir(t *testing.T) {
 
 func TestGoGitClientStashApplyInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	err := c.StashApply(context.Background(), "/nonexistent/path")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	err := c.StashApply(context.Background(), dir)
 	if err == nil {
 		t.Fatal("expected error for stash apply in nonexistent directory")
 	}
@@ -433,7 +442,8 @@ func TestGoGitClientStashApplyInvalidDir(t *testing.T) {
 
 func TestGoGitClientRevParseInvalidDir(t *testing.T) {
 	c := &GoGitClient{}
-	_, err := c.RevParse(context.Background(), "/nonexistent/path", "HEAD")
+	dir := filepath.Join(t.TempDir(), "no-such-dir")
+	_, err := c.RevParse(context.Background(), dir, "HEAD")
 	if err == nil {
 		t.Fatal("expected error for rev-parse in nonexistent directory")
 	}
@@ -956,7 +966,8 @@ func TestGoGitClientCloneInvalidURL(t *testing.T) {
 	c := &GoGitClient{}
 	target := t.TempDir()
 
-	err := c.Clone(context.Background(), target, "/nonexistent/repo", "cloned")
+	source := filepath.Join(t.TempDir(), "no-such-repo")
+	err := c.Clone(context.Background(), target, source, "cloned")
 	if err == nil {
 		t.Fatal("expected error for clone from nonexistent source")
 	}
