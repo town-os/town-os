@@ -218,6 +218,55 @@ func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
 	}
 }
 
+func TestSystemControllerMoveRepository(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("add core: %v", err)
+	}
+	if err := addRepoWithCreds(c, "extras", testExtrasURLString()); err != nil {
+		t.Fatalf("add extras: %v", err)
+	}
+
+	// Verify initial order: core first, extras second.
+	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+	if len(repos.Entries) != 2 {
+		t.Fatalf("expected 2 repositories, got %d", len(repos.Entries))
+	}
+	if repos.Entries[0].Name != "core" {
+		t.Fatalf("expected core first, got %q", repos.Entries[0].Name)
+	}
+
+	// Move extras to position 0 (highest priority).
+	if err := c.MoveRepository(context.TODO(), "extras", 0); err != nil {
+		t.Fatalf("MoveRepository: %v", err)
+	}
+
+	// Verify new order: extras first, core second.
+	repos, err = c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListRepositories after move: %v", err)
+	}
+	if repos.Entries[0].Name != "extras" {
+		t.Fatalf("expected extras first after move, got %q", repos.Entries[0].Name)
+	}
+	if repos.Entries[1].Name != "core" {
+		t.Fatalf("expected core second after move, got %q", repos.Entries[1].Name)
+	}
+}
+
+func TestSystemControllerMoveRepositoryNotFound(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	err := c.MoveRepository(context.TODO(), "nonexistent", 0)
+	if err == nil {
+		t.Fatal("expected error moving nonexistent repository")
+	}
+}
+
 func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
 	c := initSystemControllerRepoTest(t)
 

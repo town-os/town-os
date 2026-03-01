@@ -184,7 +184,37 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 		t.Fatalf("Ping: %v", err)
 	}
 
-	// check audit log - session routes and ping should not be logged
+	// hit newly excluded read-only package/page routes.
+	// The handlers may error (no package manager in test), but the audit
+	// middleware exclusion fires before handler execution matters for logging.
+	excludedGETs := []string{"/packages/featured", "/pages"}
+	for _, path := range excludedGETs {
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, c.route(path), nil)
+		if err != nil {
+			t.Fatalf("NewRequest GET %s: %v", path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		httpResp, err := c.HTTP.Do(req)
+		if err == nil {
+			_ = httpResp.Body.Close()
+		}
+	}
+
+	excludedPOSTs := []string{"/packages/installed/info", "/packages/last-responses", "/packages/install-preview"}
+	for _, path := range excludedPOSTs {
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route(path), bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatalf("NewRequest POST %s: %v", path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		req.Header.Set("Content-Type", "application/json")
+		httpResp, err := c.HTTP.Do(req)
+		if err == nil {
+			_ = httpResp.Body.Close()
+		}
+	}
+
+	// check audit log - session routes, ping, and read-only package/page routes should not be logged
 	page, err := auditMgr.List(account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -192,7 +222,9 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 
 	for _, e := range page.Entries {
 		switch e.Path {
-		case "/account/sessions", "/account/me", "/status/ping":
+		case "/account/sessions", "/account/me", "/status/ping",
+			"/packages/featured", "/packages/installed/info",
+			"/packages/last-responses", "/packages/install-preview", "/pages":
 			t.Fatalf("expected path %q to be excluded from audit log", e.Path)
 		}
 	}
