@@ -1603,16 +1603,22 @@ describe('PackageManagement', () => {
     })
   })
 
-  it('does not render featured card when no featured packages exist', async () => {
+  it('shows no-featured-packages message when no featured packages exist', async () => {
     mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
     renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Packages' })).toBeTruthy()
+      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
     })
+    const el = screen.getByTestId('no-featured-packages')
+    expect(el.textContent).toContain('No featured packages.')
+    const link = el.querySelector('a')
+    expect(link).toBeTruthy()
+    expect(link.href).toBe('https://github.com/town-os/default-packages')
+    expect(link.target).toBe('_blank')
     expect(screen.queryByTestId('featured-card')).toBeNull()
   })
 
-  it('does not render featured card when all featured packages are installed', async () => {
+  it('shows no-featured-packages message when all featured packages are installed', async () => {
     mockClient.listFeaturedPackages.mockImplementation(() =>
       Promise.resolve([
         {
@@ -1625,7 +1631,7 @@ describe('PackageManagement', () => {
     )
     renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Packages' })).toBeTruthy()
+      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
     })
     expect(screen.queryByTestId('featured-card')).toBeNull()
   })

@@ -563,10 +563,59 @@ export default function PackageManagement() {
       </div>
 
       <Tabs defaultValue="packages">
-        <TabsList>
-          <TabsTrigger value="packages">Packages</TabsTrigger>
-          <TabsTrigger value="repositories">Repositories</TabsTrigger>
-        </TabsList>
+        <div className="flex items-start justify-between gap-6">
+          <TabsList>
+            <TabsTrigger value="packages">Packages</TabsTrigger>
+            <TabsTrigger value="repositories">Repositories</TabsTrigger>
+          </TabsList>
+          {featuredGroups.length > 0 && featuredGroups.some((g) => g.packages.some((p) => !p.installed)) ? (
+            <Card className="bg-yellow-50/80 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700 py-3 max-w-sm" data-testid="featured-card">
+              <CardHeader className="pb-0 pt-0 px-4 gap-1">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                  Featured Packages
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pt-0">
+                <div className="space-y-2">
+                  {featuredGroups.map((group) =>
+                    group.packages.filter((pkg) => !pkg.installed).map((pkg) => (
+                      <div key={`${pkg.repo}/${pkg.name}`} className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{pkg.name}</div>
+                          {pkg.description && (
+                            <div className="text-xs text-muted-foreground line-clamp-2">{pkg.description}</div>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 h-7 text-xs gap-1"
+                          onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
+                        >
+                          <Download className="h-3 w-3" />
+                          Install
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="text-sm text-muted-foreground pt-1" data-testid="no-featured-packages">
+              No featured packages.{' '}
+              <a
+                href="https://github.com/town-os/default-packages"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-foreground"
+              >
+                Learn about package configuration
+              </a>
+            </div>
+          )}
+        </div>
         <TabsContent value="packages" className="mt-4 space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4 pt-1">
@@ -592,54 +641,17 @@ export default function PackageManagement() {
                 Installed only
               </label>
             </div>
-            <div className="flex items-start gap-2">
-              {groupByRepo && (
-                <Input
-                  placeholder="Search packages..."
-                  className="max-w-xs"
-                  value={pkgSearch}
-                  onChange={(e) => {
-                    setPkgSearch(e.target.value)
-                    setPkgPage(0)
-                  }}
-                />
-              )}
-              {featuredGroups.length > 0 && featuredGroups.some((g) => g.packages.some((p) => !p.installed)) && (
-                <Card className="bg-yellow-50/80 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700 py-3 max-w-sm" data-testid="featured-card">
-                  <CardHeader className="pb-0 pt-0 px-4 gap-1">
-                    <CardTitle className="text-sm flex items-center gap-1.5">
-                      <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                      Featured Packages
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pt-0">
-                    <div className="space-y-2">
-                      {featuredGroups.map((group) =>
-                        group.packages.filter((pkg) => !pkg.installed).map((pkg) => (
-                          <div key={`${pkg.repo}/${pkg.name}`} className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium truncate">{pkg.name}</div>
-                              {pkg.description && (
-                                <div className="text-xs text-muted-foreground line-clamp-2">{pkg.description}</div>
-                              )}
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="shrink-0 h-7 text-xs gap-1"
-                              onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
-                            >
-                              <Download className="h-3 w-3" />
-                              Install
-                            </Button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            {groupByRepo && (
+              <Input
+                placeholder="Search packages..."
+                className="max-w-xs"
+                value={pkgSearch}
+                onChange={(e) => {
+                  setPkgSearch(e.target.value)
+                  setPkgPage(0)
+                }}
+              />
+            )}
           </div>
           {groupByRepo ? (
             <div className="space-y-2">
