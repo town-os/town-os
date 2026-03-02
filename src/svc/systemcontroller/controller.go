@@ -16,6 +16,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -44,6 +45,7 @@ type systemControllerBackend interface {
 	GetInternalIP() string
 	GetGitCloner() packages.GitCloner
 	GetPagesManager() account.PagesManager
+	GetMonitoring() *monitoring.Manager
 }
 
 type SystemController interface {
@@ -132,6 +134,11 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/pages/remove", s.removePage, s.requireAdmin)
 	e.Add("POST", "/pages/rebuild", s.rebuildPage, s.requireAdmin)
 	e.Add("GET", "/pages", s.listPages, s.requireAuth)
+
+	// Monitoring
+	e.Add("GET", "/monitoring/status", s.monitoringStatus, s.requireAuth)
+	e.Any("/monitoring/grafana/*", s.monitoringGrafanaProxy)
+	e.Any("/monitoring/grafana", s.monitoringGrafanaProxy)
 }
 
 // --- Server infrastructure ---
@@ -156,6 +163,7 @@ type ServerConfig struct {
 	NetworkMode              string
 	PagesMgr                 account.PagesManager
 	GitCloner                packages.GitCloner
+	Monitoring               *monitoring.Manager
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {
@@ -204,6 +212,7 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 	return packages.DefaultGitCloner{}
 }
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
+func (s *serverBase) GetMonitoring() *monitoring.Manager     { return s.Monitoring }
 func (s *serverBase) GetExternalIP() string {
 	v := s.externalIP.Load()
 	if v == nil {

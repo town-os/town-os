@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -84,6 +85,8 @@ type MockClient struct {
 	RemovePageErr        error
 	ListPagesErr         error
 	RebuildPageErr       error
+	MonitoringStatusResp *monitoring.Status
+	MonitoringStatusErr  error
 }
 
 // MockCall records a single method invocation on [MockClient], including

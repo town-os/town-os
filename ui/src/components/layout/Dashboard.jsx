@@ -21,6 +21,7 @@ import {
   Globe,
   LogOut,
   Settings,
+  Activity,
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { to: '/dashboard/system', label: 'Services', icon: Cog },
   { to: '/dashboard/packages', label: 'Packages', icon: Package },
   { to: '/dashboard/pages', label: 'Pages', icon: Globe },
+  { to: '/dashboard/monitoring', label: 'Monitoring', icon: Activity },
   { to: '/dashboard/log', label: 'Audit Log', icon: FileText },
   { to: '/dashboard/settings', label: 'Settings', icon: Settings, adminOnly: true },
 ]

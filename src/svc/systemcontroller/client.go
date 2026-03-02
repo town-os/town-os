@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -202,6 +203,13 @@ type Client interface {
 
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)
+
+	// MonitoringStatus returns the current state of the monitoring stack
+	// (Prometheus, Node Exporter, Grafana) including container running
+	// status, images, and ports.
+	//
+	// Calls GET /monitoring/status on the Control Plane Service.
+	MonitoringStatus(ctx context.Context) (*monitoring.Status, error)
 }
 
 // Sentinel errors returned by [SystemdClient] methods.

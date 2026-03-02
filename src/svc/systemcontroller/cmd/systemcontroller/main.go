@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
@@ -177,6 +178,19 @@ func run() (err error) {
 		return fmt.Errorf("reconcile: %w", err)
 	}
 
+	// Start the monitoring stack (Prometheus + Node Exporter + Grafana).
+	monDataDir := filepath.Join(repoBase, "monitoring")
+	monMgr := monitoring.NewManager(monitoring.Config{
+		Runner:  monitoring.PodmanRunner{},
+		DataDir: monDataDir,
+	})
+	if err := monMgr.Start(ctx); err != nil {
+		// Non-fatal: monitoring failure should not prevent the system
+		// controller from starting.
+		fmt.Fprintf(os.Stderr, "monitoring: %v\n", err)
+		monMgr = nil
+	}
+
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
 		Storage:                  st,
 		RepositoryRoot:           rr,
@@ -193,6 +207,7 @@ func run() (err error) {
 		NetworkControllerBinPath: *networkControllerBin,
 		NetworkStatePath:         *networkStatePath,
 		NetworkMode:              *networkMode,
+		Monitoring:               monMgr,
 	})
 
 	srv := &http.Server{
