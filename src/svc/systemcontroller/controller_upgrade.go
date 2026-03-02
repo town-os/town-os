@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/packages"
 	"github.com/labstack/echo/v5"
 )
@@ -92,7 +93,7 @@ func (s *SystemControllerHandlers) dismissUpgrades(c *echo.Context) error {
 
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
-		return echo.NewHTTPError(500, "settings manager not available")
+		return echo.NewHTTPError(500, i18n.T(s.getLocale(), i18n.MsgUpgradeSettingsMissing))
 	}
 
 	if err := mgr.Set("dismissed_upgrades_hash", hash); err != nil {

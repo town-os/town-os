@@ -1,3 +1,4 @@
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import {
   Dialog,
   DialogContent,
@@ -9,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 
 export default function VolumeReuseDialog({ dialog, onClose, onStartFresh, onReuse }) {
+  const { t } = useI18n()
   return (
     <Dialog
       open={dialog.open}
@@ -16,21 +18,21 @@ export default function VolumeReuseDialog({ dialog, onClose, onStartFresh, onReu
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Existing Data Found</DialogTitle>
-          <DialogDescription>Choose whether to reuse existing volume data or start fresh.</DialogDescription>
+          <DialogTitle>{t('volume_reuse.title')}</DialogTitle>
+          <DialogDescription>{t('volume_reuse.description')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <p className="text-sm text-muted-foreground">
-            Previous data exists for{' '}
+            {t('volume_reuse.existing_data', { name: '' })}
             <code className="font-mono text-sm bg-muted px-1 rounded">
               {dialog.name}
             </code>
             {dialog.uninstalledVersions?.length > 0 && (
               <span>
-                {' '}(versions: {dialog.uninstalledVersions.join(', ')})
+                {' '}{t('volume_reuse.existing_versions', { versions: dialog.uninstalledVersions.join(', ') })}
               </span>
             )}
-            . Would you like to reuse it or start fresh?
+            {t('volume_reuse.reuse_prompt')}
           </p>
         </div>
         <DialogFooter>
@@ -38,18 +40,18 @@ export default function VolumeReuseDialog({ dialog, onClose, onStartFresh, onReu
             variant="outline"
             onClick={onClose}
           >
-            Cancel
+            {t('volume_reuse.cancel_btn')}
           </Button>
           <Button
             variant="destructive"
             onClick={() => onStartFresh(dialog)}
           >
-            Start Fresh
+            {t('volume_reuse.start_fresh_btn')}
           </Button>
           <Button
             onClick={() => onReuse(dialog)}
           >
-            Reuse Data
+            {t('volume_reuse.reuse_btn')}
           </Button>
         </DialogFooter>
       </DialogContent>

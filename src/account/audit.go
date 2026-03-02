@@ -1,6 +1,10 @@
 package account
 
-import "time"
+import (
+	"time"
+
+	"gitea.com/town-os/town-os/src/i18n"
+)
 
 type AuditEntry struct {
 	ID        int64     `json:"id"`
@@ -36,33 +40,56 @@ type AuditManager interface {
 	CountRecentErrors(since time.Time) (int, error)
 }
 
-var RouteActions = map[string]string{
-	"/storage/create":         "create filesystem",
-	"/storage/modify":         "modify filesystem",
-	"/storage/remove":         "remove filesystem",
-	"/repository/add":         "add repository",
-	"/repository/remove":      "remove repository",
-	"/repository/move":        "move repository",
-	"/repository/refresh":     "refresh repositories",
-	"/packages/install":                   "install package",
-	"/packages/uninstall":                 "uninstall package",
-	"/packages/purge-uninstalled-volumes": "purge uninstalled volumes",
-	"/packages/purge-volumes":             "purge volumes",
-	"/packages/disable":       "disable package",
-	"/packages/enable":        "enable package",
-	"/systemd/status":         "set unit status",
-	"/account/create":         "create account",
-	"/account/update":         "update account",
-	"/account/disable":        "disable account",
-	"/account/authenticate":   "authenticate",
-	"/account/session/revoke": "revoke session",
-	"/settings/set":                    "update setting",
-	"/packages/upgrades/dismiss":       "dismiss package upgrades",
-	"/storage/upload-archive":          "upload archive",
-	"/storage/download-archive":        "download archive",
-	"/pages/create":                    "create page",
-	"/pages/update":                    "update page",
-	"/pages/remove":                    "remove page",
-	"/pages/rebuild":                   "rebuild page",
-	"/pages/upload":                    "upload page archive",
+// RouteActionKeys maps API paths to i18n message keys for audit log actions.
+var RouteActionKeys = map[string]string{
+	"/storage/create":                     i18n.MsgAuditCreateFilesystem,
+	"/storage/modify":                     i18n.MsgAuditModifyFilesystem,
+	"/storage/remove":                     i18n.MsgAuditRemoveFilesystem,
+	"/repository/add":                     i18n.MsgAuditAddRepository,
+	"/repository/remove":                  i18n.MsgAuditRemoveRepository,
+	"/repository/move":                    i18n.MsgAuditMoveRepository,
+	"/repository/refresh":                 i18n.MsgAuditRefreshRepositories,
+	"/packages/install":                   i18n.MsgAuditInstallPackage,
+	"/packages/uninstall":                 i18n.MsgAuditUninstallPackage,
+	"/packages/purge-uninstalled-volumes": i18n.MsgAuditPurgeUninstalledVolumes,
+	"/packages/purge-volumes":             i18n.MsgAuditPurgeVolumes,
+	"/packages/disable":                   i18n.MsgAuditDisablePackage,
+	"/packages/enable":                    i18n.MsgAuditEnablePackage,
+	"/systemd/status":                     i18n.MsgAuditSetUnitStatus,
+	"/account/create":                     i18n.MsgAuditCreateAccount,
+	"/account/update":                     i18n.MsgAuditUpdateAccount,
+	"/account/disable":                    i18n.MsgAuditDisableAccount,
+	"/account/enable":                     i18n.MsgAuditEnableAccount,
+	"/account/authenticate":               i18n.MsgAuditAuthenticate,
+	"/account/session/revoke":             i18n.MsgAuditRevokeSession,
+	"/settings/set":                       i18n.MsgAuditUpdateSetting,
+	"/packages/upgrades/dismiss":          i18n.MsgAuditDismissUpgrades,
+	"/storage/upload-archive":             i18n.MsgAuditUploadArchive,
+	"/storage/download-archive":           i18n.MsgAuditDownloadArchive,
+	"/pages/create":                       i18n.MsgAuditCreatePage,
+	"/pages/update":                       i18n.MsgAuditUpdatePage,
+	"/pages/remove":                       i18n.MsgAuditRemovePage,
+	"/pages/rebuild":                      i18n.MsgAuditRebuildPage,
+	"/pages/upload":                       i18n.MsgAuditUploadPageArchive,
+	"/packages/rebuild-git":               i18n.MsgAuditRebuildGit,
+}
+
+// RouteActions maps API paths to their localized audit action descriptions
+// using the default locale. This is used for audit log entries.
+var RouteActions = func() map[string]string {
+	m := make(map[string]string, len(RouteActionKeys))
+	for path, key := range RouteActionKeys {
+		m[path] = i18n.T(i18n.DefaultLocale, key)
+	}
+	return m
+}()
+
+// LocalizedRouteActions returns a copy of RouteActions with action
+// descriptions translated to the given locale.
+func LocalizedRouteActions(locale string) map[string]string {
+	m := make(map[string]string, len(RouteActionKeys))
+	for path, key := range RouteActionKeys {
+		m[path] = i18n.T(locale, key)
+	}
+	return m
 }

@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 
 function formatTime(ts) {
   if (!ts) return '-'
@@ -21,8 +22,8 @@ function formatTime(ts) {
   return d.toLocaleString()
 }
 
-function parseErrorDetail(raw) {
-  if (!raw) return { message: 'Unknown error' }
+function parseErrorDetail(raw, fallback) {
+  if (!raw) return { message: fallback }
   // Echo error format: "code=401, message=invalid credentials"
   const echoMatch = raw.match(/^code=(\d+),\s*message=(.+)$/)
   if (echoMatch) {
@@ -31,14 +32,14 @@ function parseErrorDetail(raw) {
   return { message: raw }
 }
 
-function ErrorDetail({ row }) {
-  const parsed = parseErrorDetail(row.error)
+function ErrorDetail({ row, t }) {
+  const parsed = parseErrorDetail(row.error, t('audit.error_unknown'))
   return (
     <div className="rounded-lg border border-destructive/30 bg-destructive/5 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-destructive/20 bg-destructive/10">
         <CircleAlert className="h-4 w-4 text-destructive shrink-0" />
         <span className="font-medium text-destructive text-sm">
-          {row.action || row.path || 'Request'} failed
+          {t('audit.error_failed', { action: row.action || row.path || t('audit.error_request_label') })}
         </span>
         {parsed.status && (
           <Badge variant="destructive" className="ml-auto font-mono text-xs">
@@ -60,7 +61,8 @@ function ErrorDetail({ row }) {
 }
 
 export default function AuditLog() {
-  useEffect(() => { document.title = 'Town OS - Audit Log' }, [])
+  const { t } = useI18n()
+  useEffect(() => { document.title = t('audit.page_title') }, [t])
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
@@ -109,26 +111,26 @@ export default function AuditLog() {
   const columns = [
     {
       key: 'id',
-      label: 'ID',
+      label: t('audit.col_id'),
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
     {
       key: 'created_at',
-      label: 'Time',
+      label: t('audit.col_time'),
       transform: (v) => (
         <span className="text-sm">{formatTime(v)}</span>
       ),
     },
-    { key: 'action', label: 'Action' },
+    { key: 'action', label: t('audit.col_action') },
     {
       key: 'path',
-      label: 'Endpoint',
+      label: t('audit.col_endpoint'),
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
-    { key: 'account', label: 'User', transform: (v) => v || '-' },
+    { key: 'account', label: t('audit.col_user'), transform: (v) => v || '-' },
     {
       key: 'detail',
-      label: 'Detail',
+      label: t('audit.col_detail'),
       sortable: false,
       transform: (v, row) =>
         v ? (
@@ -137,8 +139,8 @@ export default function AuditLog() {
             size="sm"
             className="h-6 w-6 p-0"
             onClick={() => openDetail(row)}
-            aria-label="View request parameters"
-            title="View request parameters"
+            aria-label={t('audit.view_params_label')}
+            title={t('audit.view_params_label')}
           >
             <FileText className="h-3.5 w-3.5" />
           </Button>
@@ -148,12 +150,12 @@ export default function AuditLog() {
     },
     {
       key: 'success',
-      label: 'Status',
+      label: t('audit.col_status'),
       transform: (v, row) =>
         v ? (
-          <span role="status" aria-label="Success">
+          <span role="status" aria-label={t('audit.success_label')}>
             <Check className="h-4 w-4 text-green-600" aria-hidden="true" />
-            <span className="sr-only">Success</span>
+            <span className="sr-only">{t('audit.success_label')}</span>
           </span>
         ) : (
           <button
@@ -162,10 +164,10 @@ export default function AuditLog() {
               setErrorRow(row)
               setErrorOpen(true)
             }}
-            aria-label="View error details"
+            aria-label={t('audit.view_error_label')}
           >
             <CircleAlert className="h-4 w-4 text-destructive cursor-pointer" aria-hidden="true" />
-            <span className="sr-only">Error</span>
+            <span className="sr-only">{t('audit.error_label')}</span>
           </button>
         ),
     },
@@ -174,12 +176,12 @@ export default function AuditLog() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Audit Log</h1>
-        <p className="text-muted-foreground">System activity history</p>
+        <h1 className="text-3xl font-bold tracking-tight">{t('audit.title')}</h1>
+        <p className="text-muted-foreground">{t('audit.description')}</p>
       </div>
 
       {auditLoading && entries.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+        <div className="text-center py-8 text-muted-foreground animate-pulse">{t('audit.loading')}</div>
       )}
 
       <DataTable
@@ -205,8 +207,8 @@ export default function AuditLog() {
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="sm:max-w-md max-h-[70vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Request Parameters: {detailAction}</DialogTitle>
-            <DialogDescription>Detailed request parameters for this audit entry.</DialogDescription>
+            <DialogTitle>{t('audit.detail_dialog_title')}: {detailAction}</DialogTitle>
+            <DialogDescription>{t('audit.detail_dialog_description')}</DialogDescription>
           </DialogHeader>
           <div className="overflow-auto flex-1 min-h-0 rounded border bg-muted p-3">
             <JsonTree data={detailData} />
@@ -219,11 +221,11 @@ export default function AuditLog() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CircleAlert className="h-4 w-4 text-destructive" />
-              Error
+              {t('audit.error_dialog_title')}
             </DialogTitle>
-            <DialogDescription>Details about the error that occurred.</DialogDescription>
+            <DialogDescription>{t('audit.error_dialog_description')}</DialogDescription>
           </DialogHeader>
-          {errorRow && <ErrorDetail row={errorRow} />}
+          {errorRow && <ErrorDetail row={errorRow} t={t} />}
         </DialogContent>
       </Dialog>
     </div>

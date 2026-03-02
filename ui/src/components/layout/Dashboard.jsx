@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import { useRequireAuth } from '@/lib/hooks.js'
 import { usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
@@ -24,19 +26,20 @@ import {
   Activity,
 } from 'lucide-react'
 
-const NAV_ITEMS = [
-  { to: '/dashboard', label: 'Home', icon: LayoutDashboard },
-  { to: '/dashboard/storage', label: 'Storage', icon: HardDrive },
-  { to: '/dashboard/users', label: 'Users', icon: Users },
-  { to: '/dashboard/system', label: 'Services', icon: Cog },
-  { to: '/dashboard/packages', label: 'Packages', icon: Package },
-  { to: '/dashboard/pages', label: 'Pages', icon: Globe },
-  { to: '/dashboard/monitoring', label: 'Monitoring', icon: Activity },
-  { to: '/dashboard/log', label: 'Audit Log', icon: FileText },
-  { to: '/dashboard/settings', label: 'Settings', icon: Settings, adminOnly: true },
+const NAV_KEYS = [
+  { to: '/dashboard', key: 'nav.home', icon: LayoutDashboard },
+  { to: '/dashboard/storage', key: 'nav.storage', icon: HardDrive },
+  { to: '/dashboard/users', key: 'nav.users', icon: Users },
+  { to: '/dashboard/system', key: 'nav.services', icon: Cog },
+  { to: '/dashboard/packages', key: 'nav.packages', icon: Package },
+  { to: '/dashboard/pages', key: 'nav.pages', icon: Globe },
+  { to: '/dashboard/monitoring', key: 'nav.monitoring', icon: Activity },
+  { to: '/dashboard/log', key: 'nav.audit_log', icon: FileText },
+  { to: '/dashboard/settings', key: 'nav.settings', icon: Settings, adminOnly: true },
 ]
 
 export default function Dashboard({ children }) {
+  const { t, locale, setLocale } = useI18n()
   const account = useRequireAuth()
   const location = useLocation()
 
@@ -47,6 +50,12 @@ export default function Dashboard({ children }) {
     60000,
   )
 
+  useEffect(() => {
+    if (ping?.locale && ping.locale !== locale) {
+      setLocale(ping.locale)
+    }
+  }, [ping?.locale])
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -55,17 +64,17 @@ export default function Dashboard({ children }) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link to="/dashboard" className="mr-4 flex items-center">
-                  <img src="/48.png" alt="Town OS" className="h-8 w-8" />
+                  <img src="/48.png" alt={t('nav.logo_alt')} className="h-8 w-8" />
                 </Link>
               </TooltipTrigger>
-              <TooltipContent>Home</TooltipContent>
+              <TooltipContent>{t('nav.home_tooltip')}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <Separator orientation="vertical" className="h-6" />
           <nav className="flex items-center gap-1">
-            {NAV_ITEMS.filter(
+            {NAV_KEYS.filter(
               (item) => !item.adminOnly || account?.admin,
-            ).map(({ to, label, icon: Icon }) => {
+            ).map(({ to, key, icon: Icon }) => {
               const active = location.pathname === to
               return (
                 <Button
@@ -76,7 +85,7 @@ export default function Dashboard({ children }) {
                 >
                   <Link to={to}>
                     <Icon className="h-4 w-4 mr-1" />
-                    {label}
+                    {t(key)}
                   </Link>
                 </Button>
               )
@@ -85,17 +94,17 @@ export default function Dashboard({ children }) {
           <div className="ml-auto flex items-center gap-3">
             {loading && !ping && (
               <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5 animate-pulse">
-                <span className="text-sm text-muted-foreground">Loading...</span>
+                <span className="text-sm text-muted-foreground">{t('nav.loading')}</span>
               </div>
             )}
             {ping && ping.status !== 'ok' && (
               <div className="flex items-center rounded-full bg-red-600 px-3 py-1.5">
-                <span className="text-sm text-white font-bold">API Offline</span>
+                <span className="text-sm text-white font-bold">{t('nav.api_offline')}</span>
               </div>
             )}
             {ping && ping.status === 'ok' && (
               <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5">
-                <span className="text-sm text-muted-foreground">Online</span>
+                <span className="text-sm text-muted-foreground">{t('nav.online')}</span>
               </div>
             )}
             {account && (
@@ -105,7 +114,7 @@ export default function Dashboard({ children }) {
                 </span>
                 {account.admin && (
                   <Badge variant="secondary" className="ml-1 text-xs">
-                    admin
+                    {t('nav.admin_badge')}
                   </Badge>
                 )}
               </div>
@@ -113,7 +122,7 @@ export default function Dashboard({ children }) {
             <Button variant="ghost" size="sm" asChild>
               <Link to="/logout">
                 <LogOut className="h-4 w-4 mr-1" />
-                Logout
+                {t('nav.logout')}
               </Link>
             </Button>
           </div>

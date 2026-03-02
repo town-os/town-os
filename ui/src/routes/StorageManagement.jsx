@@ -3,6 +3,7 @@ import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
 import { UNITS, formatQuotaText, formatQuota, decomposeQuota, deriveServiceName } from '@/lib/storage-utils.jsx'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { FORMAT_OPTIONS, DownloadArchiveDialog, UploadArchiveDialog } from '@/components/storage/ArchiveDialogs.jsx'
@@ -72,6 +73,7 @@ function sumQuota(volumes) {
 }
 
 function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showUninstalled, onModifyVolume, onDownloadVolume, onUploadVolume }) {
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState({})
   const tree = useMemo(
     () => buildUnifiedVolumeTree(installedFilesystems, showUninstalled ? uninstalledFilesystems : []),
@@ -91,7 +93,7 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Package className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-lg font-semibold">Package Volumes</h3>
+        <h3 className="text-lg font-semibold">{t('storage.package_volumes_title')}</h3>
         <span className="text-sm text-muted-foreground ml-auto">
           {totalVolumes} volume{totalVolumes !== 1 ? 's' : ''}
         </span>
@@ -100,10 +102,10 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead style={{ width: '40%' }}>Name</TableHead>
-              <TableHead style={{ width: '20%' }}>Quota</TableHead>
-              <TableHead style={{ width: '15%' }}>State</TableHead>
-              <TableHead className="text-right" style={{ width: '25%' }}>Actions</TableHead>
+              <TableHead style={{ width: '40%' }}>{t('storage.col_name')}</TableHead>
+              <TableHead style={{ width: '20%' }}>{t('storage.col_quota')}</TableHead>
+              <TableHead style={{ width: '15%' }}>{t('storage.col_state')}</TableHead>
+              <TableHead className="text-right" style={{ width: '25%' }}>{t('storage.col_actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -189,8 +191,8 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
                                   variant="ghost"
                                   size="icon"
                                   className="h-7 w-7"
-                                  title="Download archive"
-                                  aria-label="Download archive"
+                                  title={t('storage.download_archive_label')}
+                                  aria-label={t('storage.download_archive_label')}
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     onDownloadVolume(vol, pkg, version)
@@ -202,8 +204,8 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
                                   variant="ghost"
                                   size="icon"
                                   className="h-7 w-7"
-                                  title="Upload archive"
-                                  aria-label="Upload archive"
+                                  title={t('storage.upload_archive_label')}
+                                  aria-label={t('storage.upload_archive_label')}
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     onUploadVolume(vol, pkg, version)
@@ -220,7 +222,7 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
                                   }}
                                 >
                                   <Pencil className="h-3 w-3 mr-1" />
-                                  Modify
+                                  {t('storage.modify_btn')}
                                 </Button>
                               </div>
                             </TableCell>
@@ -240,7 +242,8 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
 }
 
 export default function StorageManagement() {
-  useEffect(() => { document.title = 'Town OS - Storage' }, [])
+  const { t } = useI18n()
+  useEffect(() => { document.title = t('storage.page_title') }, [t])
   const [editDialog, setEditDialog] = useState({ open: false })
   const [volumeModifyDialog, setVolumeModifyDialog] = useState({ open: false })
   const [downloadDialog, setDownloadDialog] = useState({ open: false })
@@ -296,9 +299,7 @@ export default function StorageManagement() {
         name: form.name.value,
         quota,
       })
-      toast.success(quota > 0
-        ? `Filesystem created with ${formatQuotaText(quota)} quota`
-        : 'Filesystem created')
+      toast.success(t('storage.toast_created'))
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -315,9 +316,7 @@ export default function StorageManagement() {
         name: form.name.value,
         quota,
       })
-      toast.success(quota > 0
-        ? `Filesystem modified with ${formatQuotaText(quota)} quota`
-        : 'Filesystem modified')
+      toast.success(t('storage.toast_modified'))
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -328,7 +327,7 @@ export default function StorageManagement() {
   async function handleDelete() {
     try {
       await getClient().removeFilesystem(deleteConfirm)
-      toast.success(`Filesystem "${deleteConfirm}" removed`)
+      toast.success(t('storage.toast_removed'))
       setDeleteConfirm(null)
       doRefresh()
     } catch (err) {
@@ -409,7 +408,7 @@ export default function StorageManagement() {
         a.click()
         URL.revokeObjectURL(url)
       }
-      toast.success('Archive downloaded')
+      toast.success(t('storage.toast_archive_downloaded'))
       setDownloadDialog({ open: false })
     } catch (err) {
       if (err.name === 'AbortError') return
@@ -422,7 +421,7 @@ export default function StorageManagement() {
     const form = e.target.elements
     const file = form.uploadArchive.files[0]
     if (!file) {
-      toast.error('Please select an archive file')
+      toast.error(t('storage.toast_upload_no_file'))
       return
     }
     const subvolume = uploadDialog.internalName
@@ -430,7 +429,7 @@ export default function StorageManagement() {
     const stopService = form.uploadStopService?.checked ? uploadDialog.serviceName : ''
     try {
       const result = await getClient().uploadArchive(subvolume, file, subpath, stopService)
-      toast.success(result.message || 'Archive uploaded')
+      toast.success(result.message || t('storage.toast_archive_uploaded'))
       setUploadDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -452,7 +451,7 @@ export default function StorageManagement() {
         name: newName,
         quota,
       })
-      toast.success('Volume modified')
+      toast.success(t('storage.toast_volume_modified'))
       setVolumeModifyDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -461,15 +460,15 @@ export default function StorageManagement() {
   }
 
   const columns = [
-    { key: 'name', label: 'Name' },
+    { key: 'name', label: t('storage.col_name') },
     {
       key: 'quota',
-      label: 'Quota',
+      label: t('storage.col_quota'),
       transform: (v) => formatQuota(v),
     },
     {
       key: '_modify',
-      label: 'Modify',
+      label: t('storage.col_modify'),
       sortable: false,
       className: 'text-center',
       transform: (_, row) => (
@@ -489,13 +488,13 @@ export default function StorageManagement() {
           }
         >
           <Pencil className="h-3 w-3 mr-1" />
-          Modify
+          {t('storage.modify_btn')}
         </Button>
       ),
     },
     {
       key: '_delete',
-      label: 'Delete',
+      label: t('storage.col_delete'),
       sortable: false,
       transform: (_, row) => (
         <Button
@@ -514,9 +513,9 @@ export default function StorageManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Storage</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t('storage.title')}</h1>
           <p className="text-muted-foreground">
-            Manage btrfs subvolumes
+            {t('storage.description')}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -527,7 +526,7 @@ export default function StorageManagement() {
               onChange={(e) => setShowAll(e.target.checked)}
               className="rounded border-input"
             />
-            Show uninstalled volumes
+            {t('storage.show_uninstalled')}
           </label>
           <Button
             onClick={() =>
@@ -535,20 +534,20 @@ export default function StorageManagement() {
             }
           >
             <Plus className="h-4 w-4 mr-1" />
-            Create Filesystem
+            {t('storage.create_btn')}
           </Button>
         </div>
       </div>
 
       {loading && userFilesystems.length === 0 && installedFilesystems.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+        <div className="text-center py-8 text-muted-foreground animate-pulse">{t('storage.loading')}</div>
       )}
 
       {/* User filesystems section */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <HardDrive className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-lg font-semibold">User Filesystems</h3>
+          <h3 className="text-lg font-semibold">{t('storage.user_filesystems_title')}</h3>
           <span className="text-sm text-muted-foreground ml-auto">
             {userFilesystems.length} filesystem{userFilesystems.length !== 1 ? 's' : ''}
           </span>
@@ -602,16 +601,16 @@ export default function StorageManagement() {
           <DialogHeader>
             <DialogTitle>
               <HardDrive className="h-4 w-4 inline mr-2" />
-              {editDialog.create ? 'Create' : 'Modify'} Filesystem
+              {editDialog.create ? t('storage.dialog_create_title') : t('storage.dialog_modify_title')}
             </DialogTitle>
             <DialogDescription>
-              {editDialog.create ? 'Create a new btrfs subvolume with an optional quota.' : 'Change the name or quota of this filesystem.'}
+              {editDialog.create ? t('storage.dialog_create_description') : t('storage.dialog_modify_description')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={editDialog.create ? handleCreate : handleModify}>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{t('storage.name_label')}</Label>
                 <Input
                   id="name"
                   name="name"
@@ -620,7 +619,7 @@ export default function StorageManagement() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="quota">Quota (0 = unlimited)</Label>
+                <Label htmlFor="quota">{t('storage.quota_label')}</Label>
                 <div className="flex gap-2">
                   <Input
                     id="quota"
@@ -651,10 +650,10 @@ export default function StorageManagement() {
                 type="button"
                 onClick={() => setEditDialog({ open: false })}
               >
-                Cancel
+                {t('storage.cancel_btn')}
               </Button>
               <Button type="submit">
-                {editDialog.create ? 'Create' : 'Save Changes'}
+                {editDialog.create ? t('storage.create_submit') : t('storage.save_changes')}
               </Button>
             </DialogFooter>
           </form>
@@ -663,17 +662,13 @@ export default function StorageManagement() {
 
       <ConfirmDialog
         open={!!deleteConfirm}
-        title="Delete Filesystem"
+        title={t('storage.delete_dialog_title')}
         onConfirm={handleDelete}
         onCancel={() => setDeleteConfirm(null)}
-        confirmLabel="Delete"
+        confirmLabel={t('storage.delete_confirm_btn')}
         variant="destructive"
       >
-        Are you sure you want to delete filesystem{' '}
-        <code className="font-mono text-sm bg-muted px-1 rounded">
-          {deleteConfirm}
-        </code>
-        ? This cannot be undone.
+        {t('storage.delete_confirm_message', { name: deleteConfirm })}
       </ConfirmDialog>
 
       <DownloadArchiveDialog

@@ -1,3 +1,4 @@
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +19,7 @@ const FORMAT_OPTIONS = {
 }
 
 function DownloadArchiveDialog({ open, dialog, onClose, onSubmit }) {
+  const { t } = useI18n()
   return (
     <Dialog
       open={open}
@@ -27,57 +29,57 @@ function DownloadArchiveDialog({ open, dialog, onClose, onSubmit }) {
         <DialogHeader>
           <DialogTitle>
             <Download className="h-4 w-4 inline mr-2" />
-            Download Archive
+            {t('archive.download_title')}
           </DialogTitle>
-          <DialogDescription>Download volume contents as a compressed archive.</DialogDescription>
+          <DialogDescription>{t('archive.download_description')}</DialogDescription>
         </DialogHeader>
         <div className="text-sm text-muted-foreground pb-2">
-          <span className="font-medium text-foreground">Volume:</span>{' '}
+          <span className="font-medium text-foreground">{t('archive.volume_label')}</span>{' '}
           <code className="text-xs bg-muted px-1 rounded">{dialog.displayName}</code>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="downloadFilename">Filename (optional)</Label>
+            <Label htmlFor="downloadFilename">{t('archive.filename_label')}</Label>
             <Input
               id="downloadFilename"
               name="downloadFilename"
               placeholder={dialog.displayName || 'download'}
             />
             <p className="text-xs text-muted-foreground">
-              Base name for the downloaded file. The archive extension is added automatically.
+              {t('archive.filename_hint')}
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="downloadFormat">Compression Format</Label>
+            <Label htmlFor="downloadFormat">{t('archive.format_label')}</Label>
             <select
               id="downloadFormat"
               name="downloadFormat"
               defaultValue="tar.gz"
               className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
-              <option value="tar.gz">gzip (.tar.gz)</option>
-              <option value="tar.bz2">bzip2 (.tar.bz2)</option>
-              <option value="tar.xz">xz (.tar.xz)</option>
+              <option value="tar.gz">{t('archive.format_gzip')}</option>
+              <option value="tar.bz2">{t('archive.format_bzip2')}</option>
+              <option value="tar.xz">{t('archive.format_xz')}</option>
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="downloadPaths">Paths (optional, comma-separated)</Label>
-            <Input id="downloadPaths" name="downloadPaths" placeholder="data, config" />
-            <p className="text-xs text-muted-foreground">Leave empty to archive the entire volume</p>
+            <Label htmlFor="downloadPaths">{t('archive.paths_label')}</Label>
+            <Input id="downloadPaths" name="downloadPaths" placeholder={t('archive.paths_placeholder')} />
+            <p className="text-xs text-muted-foreground">{t('archive.paths_hint')}</p>
           </div>
           {dialog.serviceName && (
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" name="downloadStopService" className="rounded border-input" />
-              Stop service during download
+              {t('archive.stop_service_download')}
             </label>
           )}
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
-              Cancel
+              {t('archive.cancel_btn')}
             </Button>
             <Button type="submit">
               <Download className="h-3 w-3 mr-1" />
-              Download
+              {t('archive.download_btn')}
             </Button>
           </DialogFooter>
         </form>
@@ -87,6 +89,7 @@ function DownloadArchiveDialog({ open, dialog, onClose, onSubmit }) {
 }
 
 function UploadArchiveDialog({ open, dialog, onClose, onSubmit }) {
+  const { t } = useI18n()
   return (
     <Dialog
       open={open}
@@ -96,17 +99,17 @@ function UploadArchiveDialog({ open, dialog, onClose, onSubmit }) {
         <DialogHeader>
           <DialogTitle>
             <Upload className="h-4 w-4 inline mr-2" />
-            Upload Archive
+            {t('archive.upload_title')}
           </DialogTitle>
-          <DialogDescription>Upload and extract an archive into the volume.</DialogDescription>
+          <DialogDescription>{t('archive.upload_description')}</DialogDescription>
         </DialogHeader>
         <div className="text-sm text-muted-foreground pb-2">
-          <span className="font-medium text-foreground">Volume:</span>{' '}
+          <span className="font-medium text-foreground">{t('archive.volume_label')}</span>{' '}
           <code className="text-xs bg-muted px-1 rounded">{dialog.displayName}</code>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="uploadArchive">Archive File</Label>
+            <Label htmlFor="uploadArchive">{t('archive.archive_file_label')}</Label>
             <Input
               id="uploadArchive"
               name="uploadArchive"
@@ -116,23 +119,23 @@ function UploadArchiveDialog({ open, dialog, onClose, onSubmit }) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="uploadSubpath">Subpath (optional)</Label>
-            <Input id="uploadSubpath" name="uploadSubpath" placeholder="relative/path" />
-            <p className="text-xs text-muted-foreground">Unpack into a subdirectory within the volume</p>
+            <Label htmlFor="uploadSubpath">{t('archive.subpath_label')}</Label>
+            <Input id="uploadSubpath" name="uploadSubpath" placeholder={t('archive.subpath_placeholder')} />
+            <p className="text-xs text-muted-foreground">{t('archive.subpath_hint')}</p>
           </div>
           {dialog.serviceName && (
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" name="uploadStopService" className="rounded border-input" />
-              Stop service during upload
+              {t('archive.stop_service_upload')}
             </label>
           )}
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
-              Cancel
+              {t('archive.cancel_btn')}
             </Button>
             <Button type="submit">
               <Upload className="h-3 w-3 mr-1" />
-              Upload
+              {t('archive.upload_btn')}
             </Button>
           </DialogFooter>
         </form>

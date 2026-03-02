@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/packages"
 	"github.com/labstack/echo/v5"
 )
@@ -44,7 +45,7 @@ func (s *SystemControllerHandlers) addRepository(c *echo.Context) error {
 
 	u, err := url.Parse(req.URL)
 	if err != nil {
-		return fmt.Errorf("invalid url: %w", err)
+		return fmt.Errorf("%s: %w", i18n.T(s.getLocale(), i18n.MsgRepoInvalidURL), err)
 	}
 
 	if req.Username == "" && req.Password == "" {

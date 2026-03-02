@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { setToken, setAccount } from '@/lib/auth.js'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
 
 export default function Register() {
-  useEffect(() => { document.title = 'Town OS - Register' }, [])
+  const { t } = useI18n()
+  useEffect(() => { document.title = t('register.page_title') }, [t])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
@@ -42,11 +44,11 @@ export default function Register() {
 
     const form = e.target.elements
     if (form.password.value.length < 8) {
-      setError('Password must be at least 8 characters')
+      setError(t('register.error_password_min_length'))
       return
     }
     if (form.password.value !== form.password2.value) {
-      setError('Passwords do not match')
+      setError(t('register.error_passwords_mismatch'))
       return
     }
 
@@ -70,7 +72,7 @@ export default function Register() {
 
       navigate('/dashboard')
     } catch (err) {
-      toast.error(err.message || 'Failed to create account')
+      toast.error(err.message || t('register.error_create_failed'))
     } finally {
       setLoading(false)
     }
@@ -82,18 +84,18 @@ export default function Register() {
     <div className="flex items-center justify-center min-h-screen">
       <div className="w-full max-w-md space-y-4">
       <div className="flex justify-center">
-        <img src="/512.png" alt="Town OS" className="h-32 w-32" />
+        <img src="/512.png" alt={t('register.logo_alt')} className="h-32 w-32" />
       </div>
       <div className="text-center space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight">Welcome to Town OS</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('register.welcome_title')}</h1>
         <p className="text-muted-foreground">
-          Create an administrator account to get started.
+          {t('register.welcome_description')}
         </p>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Create Account</CardTitle>
-          <CardDescription>Set up your first administrator account</CardDescription>
+          <CardTitle>{t('register.card_title')}</CardTitle>
+          <CardDescription>{t('register.card_description')}</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -103,12 +105,12 @@ export default function Register() {
               </Alert>
             )}
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t('register.username_label')}</Label>
               <Input id="username" name="username" required autoFocus />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('register.password_label')}</Label>
                 <Input
                   id="password"
                   name="password"
@@ -118,7 +120,7 @@ export default function Register() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password2">Confirm Password</Label>
+                <Label htmlFor="password2">{t('register.confirm_password_label')}</Label>
                 <Input
                   id="password2"
                   name="password2"
@@ -129,23 +131,23 @@ export default function Register() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="realname">Real Name</Label>
+              <Label htmlFor="realname">{t('register.real_name_label')}</Label>
               <Input id="realname" name="realname" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
+                <Label htmlFor="phone">{t('register.phone_label')}</Label>
                 <Input id="phone" name="phone" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('register.email_label')}</Label>
                 <Input id="email" name="email" type="email" />
               </div>
             </div>
           </CardContent>
           <CardFooter className="pt-6">
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Creating...' : 'Create Account'}
+              {loading ? t('register.submit_loading') : t('register.submit')}
             </Button>
           </CardFooter>
         </form>

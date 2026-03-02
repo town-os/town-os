@@ -1,3 +1,4 @@
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import {
   Dialog,
   DialogContent,
@@ -14,10 +15,11 @@ export default function ConfirmDialog({
   children,
   onConfirm,
   onCancel,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   variant = 'default',
 }) {
+  const { t } = useI18n()
   return (
     <Dialog open={!!open} onOpenChange={(v) => !v && onCancel?.()}>
       <DialogContent>
@@ -27,13 +29,13 @@ export default function ConfirmDialog({
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
-            {cancelLabel}
+            {cancelLabel || t('confirm.default_cancel_label')}
           </Button>
           <Button
             variant={variant === 'destructive' ? 'destructive' : 'default'}
             onClick={onConfirm}
           >
-            {confirmLabel}
+            {confirmLabel || t('confirm.default_confirm_label')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
@@ -33,7 +34,8 @@ const SOURCE_TYPE_LABELS = {
 }
 
 export default function PagesManagement() {
-  useEffect(() => { document.title = 'Town OS - Pages' }, [])
+  const { t } = useI18n()
+  useEffect(() => { document.title = t('pages.page_title') }, [t])
   const [createDialog, setCreateDialog] = useState(false)
   const [editDialog, setEditDialog] = useState({ open: false })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
@@ -64,7 +66,7 @@ export default function PagesManagement() {
     const domain = form.domain.value.trim()
 
     if (!name) {
-      toast.error('Name is required')
+      toast.error(t('pages.error_name_required'))
       return
     }
 
@@ -73,11 +75,11 @@ export default function PagesManagement() {
         const repoURL = form.repo_url.value.trim()
         const branch = form.branch.value.trim() || 'main'
         if (!repoURL) {
-          toast.error('Repository URL is required for git pages')
+          toast.error(t('pages.error_repo_required'))
           return
         }
         await getClient().createPage(name, repoURL, branch, domain, 'git', '', '')
-        toast.success(`Page "${name}" created`)
+        toast.success(t('pages.toast_created'))
       } else if (createSourceType === 'container_image') {
         const image = form.image.value.trim()
         const imageDirectory = form.image_directory.value.trim()
@@ -90,16 +92,16 @@ export default function PagesManagement() {
           return
         }
         await getClient().createPage(name, '', '', domain, 'container_image', image, imageDirectory)
-        toast.success(`Page "${name}" created`)
+        toast.success(t('pages.toast_created'))
       } else {
         // archive
         const archiveFile = form.archive?.files?.[0]
         const created = await getClient().createPage(name, '', '', domain, 'archive', '', '')
         if (archiveFile) {
           await getClient().uploadPageArchive(created.name, archiveFile)
-          toast.success(`Page "${name}" created and archive uploaded`)
+          toast.success(t('pages.toast_created'))
         } else {
-          toast.success(`Page "${name}" created (upload an archive to activate)`)
+          toast.success(t('pages.toast_created'))
         }
       }
       setCreateDialog(false)
@@ -128,7 +130,7 @@ export default function PagesManagement() {
 
     try {
       await getClient().updatePage(editDialog.name, fields)
-      toast.success(`Page "${editDialog.name}" updated`)
+      toast.success(t('pages.toast_updated'))
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -139,7 +141,7 @@ export default function PagesManagement() {
   async function handleDelete() {
     try {
       await getClient().removePage(deleteConfirm.name)
-      toast.success(`Page "${deleteConfirm.name}" deleted`)
+      toast.success(t('pages.toast_deleted'))
       setDeleteConfirm(null)
       doRefresh()
     } catch (err) {
@@ -151,7 +153,7 @@ export default function PagesManagement() {
   async function handleRebuild() {
     try {
       await getClient().rebuildPage(rebuildConfirm.name)
-      toast.success(`Page "${rebuildConfirm.name}" rebuilt`)
+      toast.success(t('pages.toast_rebuilt'))
       setRebuildConfirm(null)
       doRefresh()
     } catch (err) {
@@ -180,8 +182,8 @@ export default function PagesManagement() {
   }
 
   const columns = [
-    { key: 'name', label: 'Name' },
-    { key: 'domain', label: 'Domain' },
+    { key: 'name', label: t('pages.col_name') },
+    { key: 'domain', label: t('pages.col_domain') },
     {
       key: 'source_type',
       label: 'Source',
@@ -189,7 +191,7 @@ export default function PagesManagement() {
         <Badge variant="outline">{SOURCE_TYPE_LABELS[v] || v}</Badge>
       ),
     },
-    { key: 'repo_url', label: 'Repository', transform: (v, row) => {
+    { key: 'repo_url', label: t('pages.col_repository'), transform: (v, row) => {
       if (row.source_type === 'git') {
         return <span className="font-mono text-xs truncate block max-w-[200px]" title={v}>{v}</span>
       }
@@ -198,7 +200,7 @@ export default function PagesManagement() {
       }
       return <span className="text-muted-foreground text-xs">-</span>
     }},
-    { key: 'branch', label: 'Branch', transform: (v, row) => {
+    { key: 'branch', label: t('pages.col_branch'), transform: (v, row) => {
       if (row.source_type === 'git') {
         return <Badge variant="outline">{v || 'main'}</Badge>
       }
@@ -206,7 +208,7 @@ export default function PagesManagement() {
     }},
     {
       key: 'status',
-      label: 'Status',
+      label: t('pages.col_status'),
       transform: (v) => (
         <Badge variant={v === 'active' ? 'default' : v === 'error' ? 'destructive' : 'secondary'}>
           {v}
@@ -215,7 +217,7 @@ export default function PagesManagement() {
     },
     {
       key: '_actions',
-      label: 'Actions',
+      label: t('pages.col_actions'),
       sortable: false,
       transform: (_, row) => (
         <div className="flex gap-1 justify-end">
@@ -233,7 +235,7 @@ export default function PagesManagement() {
               variant="outline"
               size="sm"
               onClick={() => setRebuildConfirm(row)}
-              title={row.source_type === 'container_image' ? 'Re-extract from image' : 'Rebuild from git'}
+              title={row.source_type === 'container_image' ? 'Re-extract from image' : t('pages.rebuild_tooltip')}
             >
               <RefreshCw className="h-3 w-3" />
             </Button>
@@ -243,14 +245,14 @@ export default function PagesManagement() {
             size="sm"
             onClick={() => setEditDialog({ open: true, ...row })}
           >
-            Edit
+            {t('pages.edit_btn')}
           </Button>
           <Button
             variant="destructive"
             size="sm"
             onClick={() => setDeleteConfirm(row)}
           >
-            Delete
+            {t('pages.delete_btn')}
           </Button>
         </div>
       ),
@@ -261,17 +263,17 @@ export default function PagesManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Pages</h1>
-          <p className="text-muted-foreground">Manage static HTML content sites</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t('pages.title')}</h1>
+          <p className="text-muted-foreground">{t('pages.description')}</p>
         </div>
         <Button onClick={() => setCreateDialog(true)}>
           <Plus className="h-4 w-4 mr-1" />
-          Create Page
+          {t('pages.create_btn')}
         </Button>
       </div>
 
       {loading && pages.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+        <div className="text-center py-8 text-muted-foreground animate-pulse">{t('pages.loading')}</div>
       )}
 
       <DataTable
@@ -307,8 +309,8 @@ export default function PagesManagement() {
       <Dialog open={createDialog} onOpenChange={(v) => { if (!v) { setCreateDialog(false); setCreateSourceType('archive') } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create Page</DialogTitle>
-            <DialogDescription>Add a new static site from an archive, container image, or git repository.</DialogDescription>
+            <DialogTitle>{t('pages.create_dialog_title')}</DialogTitle>
+            <DialogDescription>{t('pages.create_dialog_description')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate}>
             <div className="space-y-4 py-4">
@@ -326,18 +328,18 @@ export default function PagesManagement() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="create-name">Name</Label>
-                <Input id="create-name" name="name" placeholder="my-site" required />
+                <Label htmlFor="create-name">{t('pages.name_label')}</Label>
+                <Input id="create-name" name="name" placeholder={t('pages.name_placeholder')} required />
               </div>
               {createSourceType === 'git' && (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="create-repo">Repository URL</Label>
-                    <Input id="create-repo" name="repo_url" placeholder="https://github.com/user/repo.git" required />
+                    <Label htmlFor="create-repo">{t('pages.repo_url_label')}</Label>
+                    <Input id="create-repo" name="repo_url" placeholder={t('pages.repo_url_placeholder')} required />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="create-branch">Branch</Label>
-                    <Input id="create-branch" name="branch" placeholder="main" />
+                    <Label htmlFor="create-branch">{t('pages.branch_label')}</Label>
+                    <Input id="create-branch" name="branch" placeholder={t('pages.branch_placeholder')} />
                   </div>
                 </>
               )}
@@ -368,15 +370,15 @@ export default function PagesManagement() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label htmlFor="create-domain">Domain</Label>
-                <Input id="create-domain" name="domain" placeholder="Optional (defaults to name)" />
+                <Label htmlFor="create-domain">{t('pages.domain_label')}</Label>
+                <Input id="create-domain" name="domain" placeholder={t('pages.domain_placeholder')} />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => { setCreateDialog(false); setCreateSourceType('archive') }}>
-                Cancel
+                {t('pages.cancel_btn')}
               </Button>
-              <Button type="submit">Create</Button>
+              <Button type="submit">{t('pages.create_submit')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -386,19 +388,19 @@ export default function PagesManagement() {
       <Dialog open={editDialog.open} onOpenChange={(v) => !v && setEditDialog({ open: false })}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Page: {editDialog.name}</DialogTitle>
-            <DialogDescription>Update settings for this page. Source type: {SOURCE_TYPE_LABELS[editDialog.source_type] || editDialog.source_type}.</DialogDescription>
+            <DialogTitle>{t('pages.edit_dialog_title')}: {editDialog.name}</DialogTitle>
+            <DialogDescription>{t('pages.edit_dialog_description')} Source type: {SOURCE_TYPE_LABELS[editDialog.source_type] || editDialog.source_type}.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdate}>
             <div className="space-y-4 py-4">
               {(editDialog.source_type === 'git' || !editDialog.source_type) && (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="edit-repo">Repository URL</Label>
+                    <Label htmlFor="edit-repo">{t('pages.repo_url_label')}</Label>
                     <Input id="edit-repo" name="repo_url" defaultValue={editDialog.repo_url || ''} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="edit-branch">Branch</Label>
+                    <Label htmlFor="edit-branch">{t('pages.branch_label')}</Label>
                     <Input id="edit-branch" name="branch" defaultValue={editDialog.branch || ''} />
                   </div>
                 </>
@@ -416,15 +418,15 @@ export default function PagesManagement() {
                 </>
               )}
               <div className="space-y-2">
-                <Label htmlFor="edit-domain">Domain</Label>
+                <Label htmlFor="edit-domain">{t('pages.domain_label')}</Label>
                 <Input id="edit-domain" name="domain" defaultValue={editDialog.domain || ''} />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => setEditDialog({ open: false })}>
-                Cancel
+                {t('pages.cancel_btn')}
               </Button>
-              <Button type="submit">Save Changes</Button>
+              <Button type="submit">{t('pages.save_changes')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -455,7 +457,7 @@ export default function PagesManagement() {
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => setUploadDialog(null)}>
-                Cancel
+                {t('pages.cancel_btn')}
               </Button>
               <Button type="submit">Upload</Button>
             </DialogFooter>
@@ -466,10 +468,10 @@ export default function PagesManagement() {
       {/* Delete confirm */}
       <ConfirmDialog
         open={!!deleteConfirm}
-        title="Delete Page"
+        title={t('pages.delete_dialog_title')}
         onConfirm={handleDelete}
         onCancel={() => setDeleteConfirm(null)}
-        confirmLabel="Delete"
+        confirmLabel={t('pages.delete_confirm_btn')}
         variant="destructive"
       >
         Are you sure you want to delete page{' '}
@@ -480,10 +482,10 @@ export default function PagesManagement() {
       {/* Rebuild confirm */}
       <ConfirmDialog
         open={!!rebuildConfirm}
-        title="Rebuild Page"
+        title={t('pages.rebuild_dialog_title')}
         onConfirm={handleRebuild}
         onCancel={() => setRebuildConfirm(null)}
-        confirmLabel="Rebuild"
+        confirmLabel={t('pages.rebuild_confirm_btn')}
       >
         {rebuildConfirm?.source_type === 'container_image'
           ? <>Re-extract content from the container image for{' '}<code className="font-mono text-sm bg-muted px-1 rounded">{rebuildConfirm?.name}</code>?</>

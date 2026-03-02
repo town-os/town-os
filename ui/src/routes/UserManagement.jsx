@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
@@ -26,7 +27,8 @@ import {
 import { Plus } from 'lucide-react'
 
 export default function UserManagement() {
-  useEffect(() => { document.title = 'Town OS - Users' }, [])
+  const { t } = useI18n()
+  useEffect(() => { document.title = t('users.page_title') }, [t])
   const [editDialog, setEditDialog] = useState({ open: false })
   const [statusConfirm, setStatusConfirm] = useState(null)
   const [adminCount, setAdminCount] = useState(null)
@@ -56,11 +58,11 @@ export default function UserManagement() {
     const form = e.target.elements
 
     if (form.password.value && form.password.value.length < 8) {
-      toast.error('Password must be at least 8 characters')
+      toast.error(t('users.error_password_min_length'))
       return
     }
     if (form.password.value && form.password.value !== form.password2.value) {
-      toast.error('Passwords do not match')
+      toast.error(t('users.error_passwords_mismatch'))
       return
     }
 
@@ -72,7 +74,7 @@ export default function UserManagement() {
 
     try {
       await getClient().updateAccount(editDialog.username, fields)
-      toast.success(`User "${editDialog.username}" updated`)
+      toast.success(t('users.toast_updated'))
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -84,10 +86,10 @@ export default function UserManagement() {
     try {
       if (statusConfirm.disabled) {
         await getClient().enableAccount(statusConfirm.username)
-        toast.success(`User "${statusConfirm.username}" activated`)
+        toast.success(t('users.toast_activated'))
       } else {
         await getClient().disableAccount(statusConfirm.username)
-        toast.success(`User "${statusConfirm.username}" deactivated`)
+        toast.success(t('users.toast_deactivated'))
       }
       setStatusConfirm(null)
       doRefresh()
@@ -98,22 +100,22 @@ export default function UserManagement() {
   }
 
   const columns = [
-    { key: 'username', label: 'Username' },
-    { key: 'real_name', label: 'Name', transform: (v) => v || '-' },
-    { key: 'email', label: 'Email', transform: (v) => v || '-' },
-    { key: 'phone', label: 'Phone', transform: (v) => v || '-' },
+    { key: 'username', label: t('users.col_username') },
+    { key: 'real_name', label: t('users.col_name'), transform: (v) => v || '-' },
+    { key: 'email', label: t('users.col_email'), transform: (v) => v || '-' },
+    { key: 'phone', label: t('users.col_phone'), transform: (v) => v || '-' },
     {
       key: 'admin',
-      label: 'Role',
+      label: t('users.col_role'),
       transform: (v) => (
         <Badge variant={v ? 'default' : 'secondary'}>
-          {v ? 'Admin' : 'User'}
+          {v ? t('users.role_admin') : t('users.role_user')}
         </Badge>
       ),
     },
     {
       key: 'disabled',
-      label: 'Status',
+      label: t('users.col_status'),
       transform: (v, row) => (
         <Tooltip>
           <TooltipTrigger>
@@ -122,18 +124,18 @@ export default function UserManagement() {
               className={`cursor-pointer select-none ${v ? 'opacity-70' : ''}`}
               onClick={() => setStatusConfirm(row)}
             >
-              {v ? 'Disabled' : 'Active'}
+              {v ? t('users.status_disabled') : t('users.status_active')}
             </Badge>
           </TooltipTrigger>
           <TooltipContent side="right">
-            Click to {v ? 'activate' : 'deactivate'}
+            {v ? t('users.tooltip_activate') : t('users.tooltip_deactivate')}
           </TooltipContent>
         </Tooltip>
       ),
     },
     {
       key: '_edit',
-      label: 'Edit',
+      label: t('users.col_edit'),
       sortable: false,
       transform: (_, row) => (
         <Button
@@ -141,7 +143,7 @@ export default function UserManagement() {
           size="sm"
           onClick={() => setEditDialog({ open: true, ...row })}
         >
-          Edit
+          {t('users.edit_btn')}
         </Button>
       ),
     },
@@ -151,19 +153,19 @@ export default function UserManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Users</h1>
-          <p className="text-muted-foreground">Manage user accounts</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t('users.title')}</h1>
+          <p className="text-muted-foreground">{t('users.description')}</p>
         </div>
         <Button asChild>
           <Link to="/dashboard/users/create">
             <Plus className="h-4 w-4 mr-1" />
-            Create User
+            {t('users.create_btn')}
           </Link>
         </Button>
       </div>
 
       {loading && accounts.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+        <div className="text-center py-8 text-muted-foreground animate-pulse">{t('users.loading')}</div>
       )}
 
       <DataTable
@@ -201,23 +203,23 @@ export default function UserManagement() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit User: {editDialog.username}</DialogTitle>
-            <DialogDescription>Update account details for this user.</DialogDescription>
+            <DialogTitle>{t('users.edit_dialog_title')}: {editDialog.username}</DialogTitle>
+            <DialogDescription>{t('users.edit_dialog_description')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdate}>
             <div className="space-y-4 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="password">New Password</Label>
+                  <Label htmlFor="password">{t('users.new_password_label')}</Label>
                   <Input
                     id="password"
                     name="password"
                     type="password"
-                    placeholder="Leave blank to keep"
+                    placeholder={t('users.password_placeholder')}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password2">Confirm Password</Label>
+                  <Label htmlFor="password2">{t('users.confirm_password_label')}</Label>
                   <Input
                     id="password2"
                     name="password2"
@@ -226,7 +228,7 @@ export default function UserManagement() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="real_name">Real Name</Label>
+                <Label htmlFor="real_name">{t('users.real_name_label')}</Label>
                 <Input
                   id="real_name"
                   name="real_name"
@@ -235,7 +237,7 @@ export default function UserManagement() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">{t('users.email_label')}</Label>
                   <Input
                     id="email"
                     name="email"
@@ -244,7 +246,7 @@ export default function UserManagement() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
+                  <Label htmlFor="phone">{t('users.phone_label')}</Label>
                   <Input
                     id="phone"
                     name="phone"
@@ -259,9 +261,9 @@ export default function UserManagement() {
                 type="button"
                 onClick={() => setEditDialog({ open: false })}
               >
-                Cancel
+                {t('users.cancel_btn')}
               </Button>
-              <Button type="submit">Save Changes</Button>
+              <Button type="submit">{t('users.save_changes')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -269,26 +271,18 @@ export default function UserManagement() {
 
       <ConfirmDialog
         open={!!statusConfirm}
-        title={statusConfirm?.disabled ? 'Activate User' : 'Deactivate User'}
+        title={statusConfirm?.disabled ? t('users.activate_dialog_title') : t('users.deactivate_dialog_title')}
         onConfirm={handleStatusToggle}
         onCancel={() => setStatusConfirm(null)}
-        confirmLabel={statusConfirm?.disabled ? 'Activate' : 'Deactivate'}
+        confirmLabel={statusConfirm?.disabled ? t('users.activate_confirm_btn') : t('users.deactivate_confirm_btn')}
         variant={statusConfirm?.disabled ? 'default' : 'destructive'}
       >
         {!statusConfirm?.disabled && statusConfirm?.admin && adminCount <= 1 ? (
-          <>
-            <strong>Warning:</strong> This is the last enabled admin account.
-            Deactivating it will lock all users out of the system until a new
-            admin account is created through the bootstrap flow.
-          </>
+          t('users.deactivate_last_admin_warning')
         ) : (
-          <>
-            Are you sure you want to {statusConfirm?.disabled ? 'activate' : 'deactivate'} user{' '}
-            <code className="font-mono text-sm bg-muted px-1 rounded">
-              {statusConfirm?.username}
-            </code>
-            ?
-          </>
+          statusConfirm?.disabled
+            ? t('users.activate_confirm_message', { username: statusConfirm?.username })
+            : t('users.deactivate_confirm_message', { username: statusConfirm?.username })
         )}
       </ConfirmDialog>
     </div>

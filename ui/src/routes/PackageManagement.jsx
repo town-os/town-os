@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
@@ -47,7 +48,8 @@ import PackageInfoDialog from '@/components/packages/PackageInfoDialog.jsx'
 import VolumeReuseDialog from '@/components/packages/VolumeReuseDialog.jsx'
 
 export default function PackageManagement() {
-  useEffect(() => { document.title = 'Town OS - Packages' }, [])
+  const { t } = useI18n()
+  useEffect(() => { document.title = t('packages.page_title') }, [t])
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Package state
@@ -231,7 +233,7 @@ export default function PackageManagement() {
 
       // No questions — install directly.
       await getClient().installPackage(repo, name, version, {}, reuseVolumes, importFromVersion)
-      toast.success(`Package "${name}" installed`)
+      toast.success(t('packages.toast_installed'))
       doRefresh()
     } catch (err) {
       toast.error(err.message)
@@ -264,7 +266,7 @@ export default function PackageManagement() {
         questionsDialog.reuseVolumes || false,
         questionsDialog.importFromVersion,
       )
-      toast.success(`Package "${questionsDialog.name}" installed`)
+      toast.success(t('packages.toast_installed'))
       setQuestionsDialog({ open: false })
       doRefresh()
     } catch (err) {
@@ -276,7 +278,7 @@ export default function PackageManagement() {
           fieldErrors[ve.name] = ve.error
         }
         setQuestionsDialog((prev) => ({ ...prev, fieldErrors }))
-        toast.error('Please fix the highlighted fields')
+        toast.error(t('packages.toast_fix_fields'))
       } else {
         toast.error(err.message)
       }
@@ -291,7 +293,7 @@ export default function PackageManagement() {
         uninstallConfirm.version,
         purgeVolumes,
       )
-      toast.success(`Package "${uninstallConfirm.name}" uninstalled${purgeVolumes ? ' (volumes purged)' : ''}`)
+      toast.success(purgeVolumes ? t('packages.toast_uninstalled_purged') : t('packages.toast_uninstalled'))
       setUninstallConfirm(null)
       doRefresh()
     } catch (err) {
@@ -306,7 +308,7 @@ export default function PackageManagement() {
     const url = e.target.elements.url.value
     try {
       await getClient().addRepository(name, url)
-      toast.success('Repository added')
+      toast.success(t('packages.toast_repo_added'))
       setRepoDialog(false)
       doRefresh()
     } catch (err) {
@@ -317,7 +319,7 @@ export default function PackageManagement() {
   async function handleRemoveRepo() {
     try {
       await getClient().removeRepository(deleteRepoConfirm)
-      toast.success(`Repository "${deleteRepoConfirm}" removed`)
+      toast.success(t('packages.toast_repo_removed'))
       setDeleteRepoConfirm(null)
       doRefresh()
     } catch (err) {
@@ -333,10 +335,9 @@ export default function PackageManagement() {
     try {
       const errs = await getClient().refreshRepositories()
       if (errs && Object.keys(errs).length > 0) {
-        const names = Object.keys(errs).join(', ')
-        toast.error(`Some repositories failed to refresh: ${names}`)
+        toast.error(t('packages.toast_repos_refresh_failed'))
       } else {
-        toast.success('Repositories refreshed')
+        toast.success(t('packages.toast_repos_refreshed'))
       }
       doRefresh()
     } catch (err) {
@@ -356,23 +357,23 @@ export default function PackageManagement() {
   }
 
   const packageColumns = [
-    { key: 'repo', label: 'Repository' },
+    { key: 'repo', label: t('packages.col_repository') },
     {
       key: 'name',
-      label: 'Name',
+      label: t('packages.col_name'),
       transform: (v, row) => (
         <span className="inline-flex items-center gap-1">{v}{row.featured && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}</span>
       ),
     },
     {
       key: 'description',
-      label: 'Description',
+      label: t('packages.col_description'),
       sortable: false,
       transform: (v) => v ? <span className="text-sm text-muted-foreground">{v}</span> : null,
     },
     {
       key: 'version',
-      label: 'Version',
+      label: t('packages.col_version'),
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
     {
@@ -390,19 +391,19 @@ export default function PackageManagement() {
                 size="sm"
                 className="h-6 w-6 p-0"
                 onClick={() => handleShowInfo(row.repo, row.name, instVer || row.version)}
-                aria-label="Package details"
+                aria-label={t('packages.details_label')}
               >
                 <Info className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">View configuration</TooltipContent>
+            <TooltipContent side="right">{t('packages.tooltip_view_config')}</TooltipContent>
           </Tooltip>
         )
       },
     },
     {
       key: '_status',
-      label: 'Status',
+      label: t('packages.col_status'),
       sortable: false,
       transform: (_, row) => {
         const instVer = installedVersion(row)
@@ -413,7 +414,7 @@ export default function PackageManagement() {
             {row.featured && (
               <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-600">
                 <Star className="h-3 w-3" />
-                Featured
+                {t('packages.badge_featured')}
               </Badge>
             )}
             {hasUpgrade && (
@@ -425,11 +426,11 @@ export default function PackageManagement() {
                     onClick={() => handleStartInstall(row.repo, row.name, row.version)}
                   >
                     <ArrowUpCircle className="h-3 w-3" />
-                    Upgrade
+                    {t('packages.badge_upgrade')}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  Upgrade from {instVer} to {row.version}
+                  {t('packages.badge_upgrade')} {instVer} → {row.version}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -452,12 +453,12 @@ export default function PackageManagement() {
                   }}
                 >
                   {isInst
-                    ? (hasUpgrade ? `Installed (${instVer})` : 'Installed')
-                    : 'Not Installed'}
+                    ? (hasUpgrade ? `${t('packages.status_installed')} (${instVer})` : t('packages.status_installed'))
+                    : t('packages.status_not_installed')}
                 </Badge>
               </TooltipTrigger>
               <TooltipContent side="right">
-                Click to {isInst ? 'uninstall' : 'install'}
+                {isInst ? t('packages.tooltip_uninstall') : t('packages.tooltip_install')}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -467,15 +468,15 @@ export default function PackageManagement() {
   ]
 
   const repoColumns = [
-    { key: 'name', label: 'Name' },
+    { key: 'name', label: t('packages.col_repo_name') },
     {
       key: 'url',
-      label: 'URL',
+      label: t('packages.col_repo_url'),
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
     {
       key: 'error',
-      label: 'Status',
+      label: t('packages.col_repo_status'),
       sortable: false,
       transform: (v) =>
         v ? (
@@ -483,7 +484,7 @@ export default function PackageManagement() {
             <TooltipTrigger>
               <Badge variant="destructive" className="gap-1">
                 <AlertCircle className="h-3 w-3" />
-                Error
+                {t('packages.repo_status_error')}
               </Badge>
             </TooltipTrigger>
             <TooltipContent className="max-w-md">
@@ -493,7 +494,7 @@ export default function PackageManagement() {
         ) : (
           <Badge variant="outline" className="gap-1 text-green-600 border-green-600">
             <CheckCircle2 className="h-3 w-3" />
-            OK
+            {t('packages.repo_status_ok')}
           </Badge>
         ),
     },
@@ -511,7 +512,7 @@ export default function PackageManagement() {
               className="h-6 w-6 p-0"
               disabled={idx >= repositories.length - 1}
               onClick={() => handleMoveRepo(row.name, idx + 1)}
-              aria-label="Move repository up"
+              aria-label={t('packages.move_repo_up_label')}
             >
               <ArrowUp className="h-3 w-3" />
             </Button>
@@ -521,7 +522,7 @@ export default function PackageManagement() {
               className="h-6 w-6 p-0"
               disabled={idx <= 0}
               onClick={() => handleMoveRepo(row.name, idx - 1)}
-              aria-label="Move repository down"
+              aria-label={t('packages.move_repo_down_label')}
             >
               <ArrowDown className="h-3 w-3" />
             </Button>
@@ -539,7 +540,7 @@ export default function PackageManagement() {
           size="sm"
           className="text-destructive hover:text-destructive"
           onClick={() => setDeleteRepoConfirm(row.name)}
-          aria-label="Remove repository"
+          aria-label={t('packages.remove_repo_label')}
         >
           <Trash2 className="h-3 w-3" />
         </Button>
@@ -556,24 +557,24 @@ export default function PackageManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Packages</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('packages.title')}</h1>
         <p className="text-muted-foreground">
-          Manage packages and repositories
+          {t('packages.description')}
         </p>
       </div>
 
       <Tabs defaultValue="packages">
         <div className="flex items-start justify-between gap-6">
           <TabsList>
-            <TabsTrigger value="packages">Packages</TabsTrigger>
-            <TabsTrigger value="repositories">Repositories</TabsTrigger>
+            <TabsTrigger value="packages">{t('packages.tab_packages')}</TabsTrigger>
+            <TabsTrigger value="repositories">{t('packages.tab_repositories')}</TabsTrigger>
           </TabsList>
           {featuredGroups.length > 0 && featuredGroups.some((g) => g.packages.some((p) => !p.installed)) ? (
             <Card className="bg-yellow-50/80 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700 py-3 max-w-sm" data-testid="featured-card">
               <CardHeader className="pb-0 pt-0 px-4 gap-1">
                 <CardTitle className="text-sm flex items-center gap-1.5">
                   <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                  Featured Packages
+                  {t('packages.featured_title')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pt-0">
@@ -594,7 +595,7 @@ export default function PackageManagement() {
                           onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
                         >
                           <Download className="h-3 w-3" />
-                          Install
+                          {t('packages.install_btn')}
                         </Button>
                       </div>
                     ))
@@ -604,14 +605,14 @@ export default function PackageManagement() {
             </Card>
           ) : (
             <div className="text-sm text-muted-foreground pt-1" data-testid="no-featured-packages">
-              No featured packages.{' '}
+              {t('packages.no_featured')}{' '}
               <a
                 href="https://github.com/town-os/default-packages"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-foreground"
               >
-                Learn about package configuration
+                {t('packages.learn_featured_link')}
               </a>
             </div>
           )}
@@ -626,7 +627,7 @@ export default function PackageManagement() {
                   onChange={(e) => setGroupByRepo(e.target.checked)}
                   className="rounded border-input"
                 />
-                Group by repository
+                {t('packages.group_by_repo')}
               </label>
               <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
                 <input
@@ -638,12 +639,12 @@ export default function PackageManagement() {
                   }}
                   className="rounded border-input"
                 />
-                Installed only
+                {t('packages.installed_only')}
               </label>
             </div>
             {groupByRepo && (
               <Input
-                placeholder="Search packages..."
+                placeholder={t('packages.search_placeholder')}
                 className="max-w-xs"
                 value={pkgSearch}
                 onChange={(e) => {
@@ -656,7 +657,7 @@ export default function PackageManagement() {
           {groupByRepo ? (
             <div className="space-y-2">
               {packagesByRepo.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">No packages found</div>
+                <div className="text-center py-8 text-muted-foreground">{t('packages.no_packages')}</div>
               )}
               {packagesByRepo.map((group, groupIdx) => {
                 const isExpanded = repoExpanded[group.repo] ?? (groupIdx === 0)
@@ -704,7 +705,7 @@ export default function PackageManagement() {
                                     size="sm"
                                     className="h-6 w-6 p-0"
                                     onClick={() => handleShowInfo(pkg.repo, pkg.name, instVer || pkg.version)}
-                                    aria-label="Package details"
+                                    aria-label={t('packages.details_label')}
                                   >
                                     <Info className="h-3.5 w-3.5" />
                                   </Button>
@@ -715,7 +716,7 @@ export default function PackageManagement() {
                                   {isFeatured && (
                                     <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-600">
                                       <Star className="h-3 w-3" />
-                                      Featured
+                                      {t('packages.badge_featured')}
                                     </Badge>
                                   )}
                                   {hasUpgrade && (
@@ -725,7 +726,7 @@ export default function PackageManagement() {
                                       onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
                                     >
                                       <ArrowUpCircle className="h-3 w-3" />
-                                      Upgrade
+                                      {t('packages.badge_upgrade')}
                                     </Badge>
                                   )}
                                   <Badge
@@ -745,8 +746,8 @@ export default function PackageManagement() {
                                     }}
                                   >
                                     {isInst
-                                      ? (hasUpgrade ? `Installed (${instVer})` : 'Installed')
-                                      : 'Not Installed'}
+                                      ? (hasUpgrade ? `${t('packages.status_installed')} (${instVer})` : t('packages.status_installed'))
+                                      : t('packages.status_not_installed')}
                                   </Badge>
                                 </div>
                               </TableCell>
@@ -762,7 +763,7 @@ export default function PackageManagement() {
           ) : (
             <>
               {pkgLoading && packages.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+                <div className="text-center py-8 text-muted-foreground animate-pulse">{t('packages.loading')}</div>
               )}
               <DataTable
                 data={normalizedPackages}
@@ -798,20 +799,18 @@ export default function PackageManagement() {
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={handleRefreshRepos} disabled={refreshing}>
               <RefreshCw className={`h-4 w-4 mr-1${refreshing ? ' animate-spin' : ''}`} />
-              {refreshing ? 'Refreshing...' : 'Refresh'}
+              {refreshing ? t('packages.refreshing_btn') : t('packages.refresh_btn')}
             </Button>
             <Button onClick={() => setRepoDialog(true)}>
               <Plus className="h-4 w-4 mr-1" />
-              Add Repository
+              {t('packages.add_repo_btn')}
             </Button>
           </div>
           <p className="text-sm text-muted-foreground">
-            The first repository has the highest priority. If the same package
-            appears in multiple repositories, the one closest to the top is used.
-            Use the arrow buttons to reorder.
+            {t('packages.repo_priority_hint')}
           </p>
           {repoLoading && repositories.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+            <div className="text-center py-8 text-muted-foreground animate-pulse">{t('packages.loading')}</div>
           )}
           <DataTable
             data={displayRepos}
@@ -874,27 +873,27 @@ export default function PackageManagement() {
           <DialogHeader>
             <DialogTitle>
               <FolderGit2 className="h-4 w-4 inline mr-2" />
-              Add Repository
+              {t('packages.add_repo_dialog_title')}
             </DialogTitle>
-            <DialogDescription>Add a new package repository by name and URL.</DialogDescription>
+            <DialogDescription>{t('packages.add_repo_dialog_description')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddRepo}>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{t('packages.repo_name_label')}</Label>
                 <Input
                   id="name"
                   name="name"
-                  placeholder="my-repo"
+                  placeholder={t('packages.repo_name_placeholder')}
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="url">Repository URL</Label>
+                <Label htmlFor="url">{t('packages.repo_url_label')}</Label>
                 <Input
                   id="url"
                   name="url"
-                  placeholder="https://..."
+                  placeholder={t('packages.repo_url_placeholder')}
                   required
                 />
               </div>
@@ -905,9 +904,9 @@ export default function PackageManagement() {
                 type="button"
                 onClick={() => setRepoDialog(false)}
               >
-                Cancel
+                {t('packages.cancel_btn')}
               </Button>
-              <Button type="submit">Add</Button>
+              <Button type="submit">{t('packages.add_btn')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -920,12 +919,12 @@ export default function PackageManagement() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Install {versionSelectDialog.name}</DialogTitle>
-            <DialogDescription>Select a version to install.</DialogDescription>
+            <DialogTitle>{t('packages.version_select_title')}</DialogTitle>
+            <DialogDescription>{t('packages.version_select_description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Version</Label>
+              <Label>{t('packages.version_label')}</Label>
               <Select
                 value={versionSelectDialog.selectedVersion || ''}
                 onValueChange={(v) =>
@@ -933,7 +932,7 @@ export default function PackageManagement() {
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select version" />
+                  <SelectValue placeholder={t('packages.version_placeholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {(versionSelectDialog.versions || []).map((v) => (
@@ -950,7 +949,7 @@ export default function PackageManagement() {
               variant="outline"
               onClick={() => setVersionSelectDialog({ open: false })}
             >
-              Cancel
+              {t('packages.cancel_btn')}
             </Button>
             <Button
               onClick={() => {
@@ -959,7 +958,7 @@ export default function PackageManagement() {
                 handleShowPreview(repo, name, selectedVersion)
               }}
             >
-              Install
+              {t('packages.install_btn')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -991,12 +990,12 @@ export default function PackageManagement() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Uninstall Package</DialogTitle>
-            <DialogDescription>Remove this package and optionally purge its volumes.</DialogDescription>
+            <DialogTitle>{t('packages.uninstall_dialog_title')}</DialogTitle>
+            <DialogDescription>{t('packages.uninstall_dialog_description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
-              Uninstall{' '}
+              {t('packages.uninstall_btn')}{' '}
               <code className="font-mono text-sm bg-muted px-1 rounded">
                 {uninstallConfirm?.name}@{uninstallConfirm?.version}
               </code>
@@ -1009,20 +1008,20 @@ export default function PackageManagement() {
                 onChange={(e) => setPurgeVolumes(e.target.checked)}
                 className="rounded border-input"
               />
-              Purge all volumes for this package
+              {t('packages.purge_volumes_label')}
             </label>
             {purgeVolumes && (
               <p className="text-sm text-destructive">
-                All data stored in this package&apos;s volumes will be permanently deleted.
+                {t('packages.purge_volumes_warning')}
               </p>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUninstallConfirm(null)}>
-              Cancel
+              {t('packages.cancel_btn')}
             </Button>
             <Button variant="destructive" onClick={handleUninstall}>
-              Uninstall
+              {t('packages.uninstall_btn')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1031,13 +1030,13 @@ export default function PackageManagement() {
       {/* Remove Repo Confirm */}
       <ConfirmDialog
         open={!!deleteRepoConfirm}
-        title="Remove Repository"
+        title={t('packages.remove_repo_dialog_title')}
         onConfirm={handleRemoveRepo}
         onCancel={() => setDeleteRepoConfirm(null)}
-        confirmLabel="Remove"
+        confirmLabel={t('packages.remove_confirm_btn')}
         variant="destructive"
       >
-        Remove repository{' '}
+        {t('packages.remove_confirm_btn')}{' '}
         <code className="font-mono text-sm bg-muted px-1 rounded">
           {deleteRepoConfirm}
         </code>

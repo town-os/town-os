@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/i18n"
 	"github.com/labstack/echo/v5"
 )
 
@@ -69,14 +70,15 @@ func (s *SystemControllerHandlers) revokeSession(c *echo.Context) error {
 }
 
 func (s *SystemControllerHandlers) listSessions(c *echo.Context) error {
+	locale := s.getLocale()
 	token := extractBearerToken(c.Request())
 	if token == "" {
-		return echo.NewHTTPError(401, "missing authorization token")
+		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 	}
 
 	sess, _, err := s.Controller.GetSessionManager().Validate(token)
 	if err != nil {
-		return echo.NewHTTPError(401, "invalid session")
+		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 	}
 
 	sessions, err := s.Controller.GetSessionManager().List(sess.Username)
@@ -88,14 +90,15 @@ func (s *SystemControllerHandlers) listSessions(c *echo.Context) error {
 }
 
 func (s *SystemControllerHandlers) sessionUsername(c *echo.Context) error {
+	locale := s.getLocale()
 	token := extractBearerToken(c.Request())
 	if token == "" {
-		return echo.NewHTTPError(401, "missing authorization token")
+		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 	}
 
 	sess, _, err := s.Controller.GetSessionManager().Validate(token)
 	if err != nil {
-		return echo.NewHTTPError(401, "invalid session")
+		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 	}
 
 	return c.JSON(200, SessionUsernameResponse{Username: sess.Username})
@@ -117,18 +120,19 @@ func (s *SystemControllerHandlers) requireAdmin(next echo.HandlerFunc) echo.Hand
 			return next(c)
 		}
 
+		locale := s.getLocale()
 		token := extractBearerToken(c.Request())
 		if token == "" {
-			return echo.NewHTTPError(401, "missing authorization token")
+			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 		}
 
 		_, acct, err := s.Controller.GetSessionManager().Validate(token)
 		if err != nil {
-			return echo.NewHTTPError(401, "invalid session")
+			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 		}
 
 		if !acct.Admin {
-			return echo.NewHTTPError(403, "admin access required")
+			return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthAdminRequired))
 		}
 
 		return next(c)
@@ -141,14 +145,15 @@ func (s *SystemControllerHandlers) requireAuth(next echo.HandlerFunc) echo.Handl
 			return next(c)
 		}
 
+		locale := s.getLocale()
 		token := extractBearerToken(c.Request())
 		if token == "" {
-			return echo.NewHTTPError(401, "missing authorization token")
+			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 		}
 
 		_, _, err := s.Controller.GetSessionManager().Validate(token)
 		if err != nil {
-			return echo.NewHTTPError(401, "invalid session")
+			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 		}
 
 		return next(c)
@@ -192,6 +197,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/settings":                     true,
 			"/settings/get":                 true,
 			"/pages":                        true,
+			"/locales":                      true,
 			"/monitoring/status":             true,
 		}
 

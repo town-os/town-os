@@ -210,6 +210,11 @@ type Client interface {
 	// format detection.
 	UploadPageArchive(ctx context.Context, name string, archiveReader io.Reader, filename string) (*account.PageSite, error)
 
+	// ListLocales returns available locales, the current system locale,
+	// common languages with native names, and extended locale codes.
+	// Calls GET /locales on the Control Plane Service.
+	ListLocales(ctx context.Context) (*LocaleListResponse, error)
+
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)
 

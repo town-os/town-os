@@ -2,9 +2,9 @@ package systemcontroller
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/packages"
 	"github.com/labstack/echo/v5"
 )
@@ -48,14 +48,15 @@ func (s *SystemControllerHandlers) getSetting(c *echo.Context) error {
 		return err
 	}
 
+	locale := s.getLocale()
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
-		return echo.NewHTTPError(404, fmt.Sprintf("setting %q not found", req.Key))
+		return echo.NewHTTPError(404, i18n.T(locale, i18n.MsgSettingNotFound, req.Key))
 	}
 
 	value, err := mgr.Get(req.Key)
 	if err != nil {
-		return echo.NewHTTPError(404, fmt.Sprintf("setting %q not found", req.Key))
+		return echo.NewHTTPError(404, i18n.T(locale, i18n.MsgSettingNotFound, req.Key))
 	}
 
 	return c.JSON(200, map[string]string{"key": req.Key, "value": value})
@@ -69,8 +70,9 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 		return err
 	}
 
+	locale := s.getLocale()
 	if req.Key == "" {
-		return echo.NewHTTPError(400, "key is required")
+		return echo.NewHTTPError(400, i18n.T(locale, i18n.MsgSettingKeyRequired))
 	}
 
 	value := req.Value
@@ -78,14 +80,14 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 	if byteValueSettings[req.Key] {
 		b, err := packages.ParseBytes(value)
 		if err != nil {
-			return echo.NewHTTPError(400, fmt.Sprintf("invalid byte value for %q: %v", req.Key, err))
+			return echo.NewHTTPError(400, i18n.T(locale, i18n.MsgSettingInvalidBytes, req.Key, err))
 		}
 		value = strconv.FormatUint(b, 10)
 	}
 
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
-		return echo.NewHTTPError(500, "settings manager not available")
+		return echo.NewHTTPError(500, i18n.T(locale, i18n.MsgSettingsMgrMissing))
 	}
 
 	if err := mgr.Set(req.Key, value); err != nil {

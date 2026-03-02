@@ -32,9 +32,11 @@ import {
   FileText,
   Terminal,
 } from 'lucide-react'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 
 export default function SystemManagement() {
-  useEffect(() => { document.title = 'Town OS - Services' }, [])
+  const { t } = useI18n()
+  useEffect(() => { document.title = t('system.page_title') }, [t])
   const [actionConfirm, setActionConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
@@ -74,7 +76,7 @@ export default function SystemManagement() {
     try {
       await getClient().setUnitStatus(actionConfirm.name, actionConfirm.action)
       toast.success(
-        `${actionConfirm.action} "${actionConfirm.name}" succeeded`,
+        `${t('system.toast_action_success')} ${actionConfirm.name}`,
       )
       setActionConfirm(null)
       doRefresh()
@@ -87,17 +89,17 @@ export default function SystemManagement() {
   const columns = [
     {
       key: 'package_identifier',
-      label: 'Package',
+      label: t('system.col_package'),
       transform: (v) => (
         <span className="font-mono text-sm">
           {v || '—'}
         </span>
       ),
     },
-    { key: 'package_description', label: 'Description' },
+    { key: 'package_description', label: t('system.col_description') },
     {
       key: 'ActiveState',
-      label: 'Status',
+      label: t('system.col_status'),
       sortValues: ['active', 'inactive', 'failed'],
       transform: (v, row) => {
         const variant =
@@ -106,18 +108,18 @@ export default function SystemManagement() {
             : v === 'failed'
               ? 'destructive'
               : 'secondary'
-        const label = row.nc_failed ? 'failed (NC)' : v
+        const label = row.nc_failed ? t('system.status_failed_nc') : v
         return <Badge variant={variant}>{label}</Badge>
       },
     },
     {
       key: '_actions',
-      label: 'Actions',
+      label: t('system.col_actions'),
       sortable: false,
       transform: (_, row) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" aria-label="Service actions">
+            <Button variant="ghost" size="sm" aria-label={t('system.actions_label')}>
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -128,7 +130,7 @@ export default function SystemManagement() {
               }
             >
               <Play className="h-3 w-3 mr-2" />
-              Start
+              {t('system.action_start')}
             </DropdownMenuItem>
             {row.Name !== 'town-os-systemcontroller.service' && (
               <DropdownMenuItem
@@ -137,7 +139,7 @@ export default function SystemManagement() {
                 }
               >
                 <Square className="h-3 w-3 mr-2" />
-                Stop
+                {t('system.action_stop')}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
@@ -146,18 +148,18 @@ export default function SystemManagement() {
               }
             >
               <RotateCcw className="h-3 w-3 mr-2" />
-              Restart
+              {t('system.action_restart')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openJournal(row.Name)}>
               <FileText className="h-3 w-3 mr-2" />
-              Service Logs
+              {t('system.action_service_logs')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => {
               const ncUnit = row.Name.replace('.service', '-network.service')
               openJournal(ncUnit)
             }}>
               <FileText className="h-3 w-3 mr-2" />
-              Network Logs
+              {t('system.action_network_logs')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -169,13 +171,13 @@ export default function SystemManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Services</h1>
-          <p className="text-muted-foreground">Manage installed packages</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t('system.title')}</h1>
+          <p className="text-muted-foreground">{t('system.description')}</p>
         </div>
       </div>
 
       {unitsLoading && units.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground animate-pulse">Loading...</div>
+        <div className="text-center py-8 text-muted-foreground animate-pulse">{t('system.loading')}</div>
       )}
 
       <DataTable
@@ -209,7 +211,7 @@ export default function SystemManagement() {
       <div className="flex justify-end">
         <Button variant="outline" size="sm" onClick={() => setCustomLogDialog(true)}>
           <Terminal className="h-4 w-4 mr-1" />
-          Advanced Logs
+          {t('system.advanced_logs_btn')}
         </Button>
       </div>
 
@@ -217,8 +219,8 @@ export default function SystemManagement() {
       <Dialog open={customLogDialog} onOpenChange={(v) => !v && setCustomLogDialog(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Advanced Logs</DialogTitle>
-            <DialogDescription>Quick access to common log views or enter a custom service name.</DialogDescription>
+            <DialogTitle>{t('system.advanced_logs_title')}</DialogTitle>
+            <DialogDescription>{t('system.advanced_logs_description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="flex flex-col gap-2">
@@ -227,29 +229,29 @@ export default function SystemManagement() {
                 openJournal('town-os-systemcontroller.service')
               }}>
                 <FileText className="h-4 w-4 mr-2" />
-                Controller Logs
+                {t('system.controller_logs')}
               </Button>
               <Button variant="outline" className="justify-start" onClick={() => {
                 setCustomLogDialog(false)
                 openJournal('__system__')
               }}>
                 <Terminal className="h-4 w-4 mr-2" />
-                System Logs
+                {t('system.system_logs')}
               </Button>
               <Button variant="outline" className="justify-start" onClick={() => {
                 setCustomLogDialog(false)
                 openJournal('__system__', 3)
               }}>
                 <X className="h-4 w-4 mr-2" />
-                Journal Errors
+                {t('system.journal_errors')}
               </Button>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="custom-log-unit">Custom service name</Label>
+              <Label htmlFor="custom-log-unit">{t('system.custom_service_label')}</Label>
               <div className="flex gap-2">
                 <Input
                   id="custom-log-unit"
-                  placeholder="e.g. sshd.service"
+                  placeholder={t('system.custom_service_placeholder')}
                   value={customLogUnit}
                   onChange={(e) => setCustomLogUnit(e.target.value)}
                 />
@@ -258,7 +260,7 @@ export default function SystemManagement() {
                   setCustomLogDialog(false)
                   openJournal(unit)
                 }}>
-                  View
+                  {t('system.view_btn')}
                 </Button>
               </div>
             </div>
@@ -268,16 +270,12 @@ export default function SystemManagement() {
 
       <ConfirmDialog
         open={!!actionConfirm}
-        title={`${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)} service`}
+        title={t('system.confirm_action_title', { action: `${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)}` })}
         onConfirm={handleAction}
         onCancel={() => setActionConfirm(null)}
         confirmLabel={`${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)}`}
       >
-        {`${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)}`}{' '}
-        <code className="font-mono text-sm bg-muted px-1 rounded">
-          {actionConfirm?.name}
-        </code>
-        ?
+        {t('system.confirm_action_message', { action: `${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)}`, name: actionConfirm?.name })}
       </ConfirmDialog>
 
       <JournalViewer

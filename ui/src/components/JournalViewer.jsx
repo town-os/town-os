@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import { parseAnsi, parseFields, stripAnsi, groupByMinute } from '@/lib/log-format.js'
 import getClient from '@/lib/client-instance.js'
 import { useJournalSearch } from '@/lib/use-journal-search.js'
@@ -58,6 +59,7 @@ function formatMessage(text) {
 }
 
 export default function JournalViewer({ journalUnit, onClose, units, initialPriority }) {
+  const { t } = useI18n()
   const [journalEntries, setJournalEntries] = useState([])
   const [journalCursor, setJournalCursor] = useState(null)
   const [journalLoading, setJournalLoading] = useState(false)
@@ -239,7 +241,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
       <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <span>{journalUnit === '__system__' ? (journalPriority > 0 ? 'Journal Errors' : 'System Logs') : journalUnit?.replace('.service', '')}</span>
+            <span>{journalUnit === '__system__' ? (journalPriority > 0 ? t('journal.title_journal_errors') : t('journal.title_system_logs')) : journalUnit?.replace('.service', '')}</span>
             {journalUnit && (() => {
               const unit = units.find((u) => u.Name === journalUnit)
               if (!unit) return null
@@ -256,7 +258,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
               )
             })()}
           </DialogTitle>
-          <DialogDescription>View and search journal log entries.</DialogDescription>
+          <DialogDescription>{t('journal.description')}</DialogDescription>
         </DialogHeader>
         {(journalEntries.length > 0 || searchQuery || hasTimeFilter) && (
           <div className="space-y-2 -mt-2">
@@ -264,7 +266,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
               <div className="relative flex-1 min-w-[120px]">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                 <Input
-                  placeholder="Search logs..."
+                  placeholder={t('journal.search_placeholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-8 pl-7 text-xs"
@@ -295,7 +297,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                     setTimeFilterOpen((v) => !v)
                   }
                 }}
-                title={hasTimeFilter && !timeFilterOpen ? 'Clear time filter' : 'Time range filter'}
+                title={hasTimeFilter && !timeFilterOpen ? t('journal.clear_time_filter_tooltip') : t('journal.time_filter_tooltip')}
               >
                 <Clock className="h-3 w-3" />
               </Button>
@@ -304,59 +306,59 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                 size="sm"
                 onClick={toggleFollow}
               >
-                {followMode ? 'Following' : 'Follow'}
+                {followMode ? t('journal.following_btn') : t('journal.follow_btn')}
               </Button>
               <Button
                 variant="default"
                 size="sm"
                 onClick={toggleFlatMode}
               >
-                {flatMode ? 'Collapse Tree' : 'Expand Tree'}
+                {flatMode ? t('journal.collapse_tree') : t('journal.expand_tree')}
               </Button>
               <Button variant="outline" size="sm" onClick={copyJournal}>
                 {copied
-                  ? <><ClipboardCheck className="h-3 w-3 mr-1" /> Copied</>
-                  : <><Copy className="h-3 w-3 mr-1" /> Copy</>}
+                  ? <><ClipboardCheck className="h-3 w-3 mr-1" /> {t('journal.copied_btn')}</>
+                  : <><Copy className="h-3 w-3 mr-1" /> {t('journal.copy_btn')}</>}
               </Button>
             </div>
             {timeFilterOpen && (
               <div className="flex items-center gap-2 flex-wrap pl-1 rounded border bg-muted/50 p-2">
-                <span className="text-xs text-muted-foreground">From</span>
+                <span className="text-xs text-muted-foreground">{t('journal.time_from')}</span>
                 <Input
                   type="date"
                   value={pendingSinceDate}
                   onChange={(e) => setPendingSinceDate(e.target.value)}
                   className="h-7 text-xs w-[130px]"
-                  title="Start date (defaults to today if hour is set)"
+                  title={t('journal.start_date_tooltip')}
                 />
                 <select
                   value={pendingSinceHour}
                   onChange={(e) => setPendingSinceHour(e.target.value)}
                   className="h-7 text-xs rounded-md border border-input bg-background px-2"
-                  title="Start hour (defaults to 00:00 if date is set)"
+                  title={t('journal.start_hour_tooltip')}
                 >
-                  <option value="">All day</option>
+                  <option value="">{t('journal.all_day')}</option>
                   {Array.from({ length: 24 }, (_, i) => (
                     <option key={i} value={i}>
                       {String(i).padStart(2, '0')}:00
                     </option>
                   ))}
                 </select>
-                <span className="text-xs text-muted-foreground ml-2">To</span>
+                <span className="text-xs text-muted-foreground ml-2">{t('journal.time_to')}</span>
                 <Input
                   type="date"
                   value={pendingUntilDate}
                   onChange={(e) => setPendingUntilDate(e.target.value)}
                   className="h-7 text-xs w-[130px]"
-                  title="End date (defaults to today if hour is set)"
+                  title={t('journal.end_date_tooltip')}
                 />
                 <select
                   value={pendingUntilHour}
                   onChange={(e) => setPendingUntilHour(e.target.value)}
                   className="h-7 text-xs rounded-md border border-input bg-background px-2"
-                  title="End hour (defaults to end of day if date is set)"
+                  title={t('journal.end_hour_tooltip')}
                 >
-                  <option value="">All day</option>
+                  <option value="">{t('journal.all_day')}</option>
                   {Array.from({ length: 24 }, (_, i) => (
                     <option key={i} value={i}>
                       {String(i).padStart(2, '0')}:00
@@ -375,7 +377,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                     setTimeFilterOpen(false)
                   }}
                 >
-                  <Search className="h-3 w-3 mr-1" /> Search
+                  <Search className="h-3 w-3 mr-1" /> {t('journal.search_btn')}
                 </Button>
                 <Button
                   variant="ghost"
@@ -392,7 +394,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                     setTimeFilterOpen(false)
                   }}
                 >
-                  <X className="h-3 w-3 mr-1" /> Clear
+                  <X className="h-3 w-3 mr-1" /> {t('journal.clear_btn')}
                 </Button>
               </div>
             )}
@@ -407,13 +409,13 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                 disabled={journalLoading}
                 onClick={loadMore}
               >
-                {journalLoading ? 'Loading...' : 'Load older entries'}
+                {journalLoading ? t('journal.loading') : t('journal.load_older')}
               </Button>
             </div>
           )}
           <pre className="font-mono text-xs whitespace-pre-wrap break-all" style={{ color: '#888' }}>
             {journalEntries.length === 0 && !journalLoading
-              ? 'No journal entries.'
+              ? t('journal.no_entries')
               : flatMode
                 ? journalEntries.map((e, i) => (
                     <div
@@ -462,7 +464,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                 })}
             {journalLoading && journalEntries.length === 0 && (
               <span className="text-muted-foreground animate-pulse">
-                Loading journal...
+                {t('journal.loading_journal')}
               </span>
             )}
           </pre>

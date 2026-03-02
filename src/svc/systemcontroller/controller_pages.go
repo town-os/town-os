@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/storage"
 	"github.com/labstack/echo/v5"
 )
@@ -41,7 +42,7 @@ type PageNameRequest struct {
 func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 	mgr := s.Controller.GetPagesManager()
 	if mgr == nil {
-		return errors.New("pages not configured")
+		return fmt.Errorf("%s", i18n.T(s.getLocale(), i18n.MsgPagesNotConfigured))
 	}
 
 	de := json.NewDecoder(c.Request().Body)
@@ -135,7 +136,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
 	mgr := s.Controller.GetPagesManager()
 	if mgr == nil {
-		return errors.New("pages not configured")
+		return fmt.Errorf("%s", i18n.T(s.getLocale(), i18n.MsgPagesNotConfigured))
 	}
 
 	de := json.NewDecoder(c.Request().Body)
@@ -155,7 +156,7 @@ func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
 func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 	mgr := s.Controller.GetPagesManager()
 	if mgr == nil {
-		return errors.New("pages not configured")
+		return fmt.Errorf("%s", i18n.T(s.getLocale(), i18n.MsgPagesNotConfigured))
 	}
 
 	de := json.NewDecoder(c.Request().Body)
@@ -190,7 +191,7 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 func (s *SystemControllerHandlers) listPages(c *echo.Context) error {
 	mgr := s.Controller.GetPagesManager()
 	if mgr == nil {
-		return errors.New("pages not configured")
+		return fmt.Errorf("%s", i18n.T(s.getLocale(), i18n.MsgPagesNotConfigured))
 	}
 
 	pages, err := mgr.List()
@@ -208,7 +209,7 @@ func (s *SystemControllerHandlers) listPages(c *echo.Context) error {
 func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 	mgr := s.Controller.GetPagesManager()
 	if mgr == nil {
-		return errors.New("pages not configured")
+		return fmt.Errorf("%s", i18n.T(s.getLocale(), i18n.MsgPagesNotConfigured))
 	}
 
 	de := json.NewDecoder(c.Request().Body)

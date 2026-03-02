@@ -1,3 +1,4 @@
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,7 @@ import {
 import { X } from 'lucide-react'
 
 export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onClearField }) {
+  const { t } = useI18n()
   return (
     <Dialog
       open={dialog.open}
@@ -25,9 +27,9 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Install {dialog.name} {dialog.version}
+            {t('install_questions.title', { name: dialog.name, version: dialog.version })}
           </DialogTitle>
-          <DialogDescription>Answer the configuration questions below.</DialogDescription>
+          <DialogDescription>{t('install_questions.description')}</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit}>
           <div className="space-y-4 py-4">
@@ -42,13 +44,13 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                   // Build placeholder: show default or type hint
                   let placeholder
                   if (question.default) {
-                    placeholder = `Default: ${question.default}`
+                    placeholder = t('install_questions.default_hint', { value: question.default })
                   } else if (question.type === 'duration') {
-                    placeholder = 'e.g. 30s, 5m, 2h, 1d'
+                    placeholder = t('install_questions.placeholder_duration')
                   } else if (question.type === 'port') {
-                    placeholder = 'Auto-assigned if empty'
+                    placeholder = t('install_questions.placeholder_port')
                   } else if (question.type === 'hostname') {
-                    placeholder = 'Auto-generated if empty'
+                    placeholder = t('install_questions.placeholder_hostname')
                   }
 
                   return (
@@ -57,7 +59,7 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                       {hasCachedValue ? (
                         <div className="flex items-center gap-2">
                           <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm font-mono">
-                            {question.type === 'secret' ? '********' : cachedValue}
+                            {question.type === 'secret' ? t('install_questions.secret_mask') : cachedValue}
                           </div>
                           <input type="hidden" name={key} value={cachedValue} />
                           <Tooltip>
@@ -72,7 +74,7 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                                 <X className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Clear to enter a new value</TooltipContent>
+                            <TooltipContent>{t('install_questions.clear_tooltip')}</TooltipContent>
                           </Tooltip>
                         </div>
                       ) : (
@@ -87,12 +89,12 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                       )}
                       {question.default && !hasCachedValue && (
                         <p className="text-xs text-muted-foreground">
-                          Default: <span className="font-mono">{question.default}</span>
+                          {t('install_questions.default_prefix')}<span className="font-mono">{question.default}</span>
                         </p>
                       )}
                       {question.type === 'duration' && (
                         <p className="text-xs text-muted-foreground">
-                          Duration format: use s (seconds), m (minutes), h (hours), or d (days)
+                          {t('install_questions.duration_hint')}
                         </p>
                       )}
                       {fieldError && (
@@ -109,9 +111,9 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
               type="button"
               onClick={onClose}
             >
-              Cancel
+              {t('install_questions.cancel_btn')}
             </Button>
-            <Button type="submit">Install</Button>
+            <Button type="submit">{t('install_questions.install_btn')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

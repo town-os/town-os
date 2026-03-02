@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/i18n"
 	"github.com/labstack/echo/v5"
 )
 
@@ -17,7 +18,7 @@ func (s *SystemControllerHandlers) listAuditLog(c *echo.Context) error {
 
 	am := s.Controller.GetAuditManager()
 	if am == nil {
-		return echo.NewHTTPError(500, "audit logging not configured")
+		return echo.NewHTTPError(500, i18n.T(s.getLocale(), i18n.MsgAuditNotConfigured))
 	}
 
 	page, err := am.List(opts)

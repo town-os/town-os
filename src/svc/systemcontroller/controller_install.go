@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
@@ -261,7 +262,7 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 
 	rr := s.Controller.GetRepositoryRoot()
 	if rr == nil {
-		return errors.New("no repository root configured")
+		return errors.New(i18n.T(s.getLocale(), i18n.MsgInstallNoRepoRoot))
 	}
 
 	repoName, err := rr.FindRepoForPackage(req.Name, req.Version)
@@ -420,22 +421,23 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 		preview.InternalPorts = []PortPreview{}
 	}
 
-	preview.Summary = buildInstallSummary(&preview)
+	preview.Summary = buildInstallSummary(&preview, s.getLocale())
 
 	return c.JSON(200, preview)
 }
 
 // buildInstallSummary generates a human-readable summary of the install operation.
-func buildInstallSummary(p *InstallPreview) string {
+// The locale parameter determines the language used for the summary text.
+func buildInstallSummary(p *InstallPreview, locale string) string {
 	var parts []string
 
 	if p.UpgradingFrom != "" {
-		parts = append(parts, fmt.Sprintf("Upgrade %s from %s to %s", p.Name, p.UpgradingFrom, p.Version))
+		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryUpgrade, p.Name, p.UpgradingFrom, p.Version))
 	} else {
-		parts = append(parts, fmt.Sprintf("Install %s %s", p.Name, p.Version))
+		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryInstall, p.Name, p.Version))
 	}
 
-	parts = append(parts, "Image: "+p.Image)
+	parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryImage, p.Image))
 
 	if len(p.Volumes) > 0 {
 		fresh := 0
@@ -448,16 +450,16 @@ func buildInstallSummary(p *InstallPreview) string {
 				fresh++
 			}
 		}
-		volParts := []string{fmt.Sprintf("%d volume(s)", len(p.Volumes))}
+		volParts := []string{i18n.T(locale, i18n.MsgInstallSummaryVolumes, len(p.Volumes))}
 		if fresh > 0 {
-			volParts = append(volParts, fmt.Sprintf("%d new", fresh))
+			volParts = append(volParts, i18n.T(locale, i18n.MsgInstallSummaryNewVols, fresh))
 		}
 		if migrated > 0 {
-			volParts = append(volParts, fmt.Sprintf("%d migrated", migrated))
+			volParts = append(volParts, i18n.T(locale, i18n.MsgInstallSummaryMigrated, migrated))
 		}
 		parts = append(parts, strings.Join(volParts, ", "))
 	} else {
-		parts = append(parts, "No volumes")
+		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryNoVols))
 	}
 
 	if len(p.ExternalPorts) > 0 {
@@ -465,11 +467,11 @@ func buildInstallSummary(p *InstallPreview) string {
 		for i, port := range p.ExternalPorts {
 			portStrs[i] = fmt.Sprintf("%d->%d", port.External, port.Internal)
 		}
-		parts = append(parts, "External ports: "+strings.Join(portStrs, ", "))
+		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryPorts, strings.Join(portStrs, ", ")))
 	}
 
 	if p.HasQuestions {
-		parts = append(parts, "Configuration required")
+		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryConfig))
 	}
 
 	return strings.Join(parts, ". ") + "."

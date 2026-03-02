@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 )
@@ -24,14 +25,15 @@ func (s *SystemControllerHandlers) rebuildGit(c *echo.Context) error {
 		return err
 	}
 
+	locale := s.getLocale()
 	if req.Repo == "" || req.Name == "" || req.Version == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "repo, name, and version are required")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgRebuildFieldsRequired))
 	}
 
 	inst := s.Controller.GetInstaller()
 	rr := s.Controller.GetRepositoryRoot()
 	if rr == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "repository root not configured")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale, i18n.MsgRebuildRepoNotConfigured))
 	}
 
 	ip, err := rr.LoadPackage(req.Repo, req.Name, req.Version)
@@ -51,7 +53,7 @@ func (s *SystemControllerHandlers) rebuildGit(c *echo.Context) error {
 
 	g := s.Controller.GetGitClient()
 	if g == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "git client not configured")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale, i18n.MsgRebuildGitNotConfigured))
 	}
 
 	ctx := c.Request().Context()

@@ -236,12 +236,19 @@ const defaultSettings = {
 const mockGetSettings = vi.fn(() => Promise.resolve({ ...defaultSettings }))
 const mockSetSetting = vi.fn(() => Promise.resolve())
 const mockGetSetting = vi.fn(() => Promise.resolve('53687091200'))
+const mockGetLocales = vi.fn(() => Promise.resolve({
+  current: 'en-US',
+  populated: ['en-US'],
+  common_languages: [{ code: 'en-US', native_name: 'English', english_name: 'English' }],
+  extended_locales: [],
+}))
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     getSettings: mockGetSettings,
     setSetting: mockSetSetting,
     getSetting: mockGetSetting,
+    getLocales: mockGetLocales,
   }),
 }))
 
@@ -283,11 +290,11 @@ describe('SystemSettings component', () => {
     })
   })
 
-  it('renders three Save buttons', async () => {
+  it('renders four Save buttons', async () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(3)
+      expect(buttons).toHaveLength(4)
     })
   })
 
@@ -346,9 +353,9 @@ describe('SystemSettings component', () => {
       const input = screen.getByLabelText('Quota')
       expect(input.value).toBe('50')
     })
-    // Submit the quota form (first Save button)
+    // Submit the quota form (second Save button, after Language)
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[0])
+    fireEvent.click(saveButtons[1])
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('default_quota', '53687091200')
     })
@@ -423,9 +430,9 @@ describe('SystemSettings Max Archive Size', () => {
       const input = screen.getByLabelText('Size')
       expect(input.value).toBe('20')
     })
-    // Submit the archive size form (second Save button)
+    // Submit the archive size form (third Save button, after Language and Quota)
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[1])
+    fireEvent.click(saveButtons[2])
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('max_archive_size', '20971520')
     })
@@ -501,9 +508,9 @@ describe('SystemSettings Archive Unpack Timeout', () => {
       const input = screen.getByLabelText('Timeout')
       expect(input.value).toBe('2')
     })
-    // Submit the timeout form (third Save button)
+    // Submit the timeout form (fourth Save button, after Language, Quota, Archive Size)
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[2])
+    fireEvent.click(saveButtons[3])
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('archive_unpack_timeout', '120')
     })

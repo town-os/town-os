@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import {
   Table,
   TableBody,
@@ -45,6 +46,7 @@ export default function DataTable({
   onSearchChange,
   totalCount,
 }) {
+  const { t } = useI18n()
   const [filter, setFilter] = useState('')
   const debounceRef = useRef(null)
   const onSearchChangeRef = useRef(onSearchChange)
@@ -175,7 +177,7 @@ export default function DataTable({
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search..."
+            placeholder={t('datatable.search_placeholder')}
             value={filter}
             onChange={handleFilterChange}
             className="pl-8"
@@ -228,7 +230,7 @@ export default function DataTable({
                   colSpan={columns.length}
                   className="text-center text-muted-foreground py-8"
                 >
-                  No data
+                  {t('datatable.no_data')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -259,7 +261,7 @@ export default function DataTable({
             disabled={currentPage === 0}
             onClick={() => setPage(Math.max(0, currentPage - 1))}
           >
-            Previous
+            {t('datatable.previous')}
           </Button>
           {pageNumbers.map((n) => (
             <Button
@@ -278,7 +280,7 @@ export default function DataTable({
             disabled={nextDisabled}
             onClick={() => setPage(currentPage + 1)}
           >
-            Next
+            {t('datatable.next')}
           </Button>
         </div>
       )}

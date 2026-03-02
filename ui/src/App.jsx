@@ -5,6 +5,7 @@ import {
 } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
+import { I18nProvider } from '@/i18n/I18nContext.jsx'
 import Dashboard from '@/components/layout/Dashboard.jsx'
 import Login from '@/routes/Login.jsx'
 import Register from '@/routes/Register.jsx'
@@ -26,6 +27,7 @@ function DashboardRoute({ children }) {
 
 export default function App() {
   return (
+    <I18nProvider>
     <TooltipProvider>
       <Toaster />
       <BrowserRouter>
@@ -116,5 +118,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
+    </I18nProvider>
   )
 }

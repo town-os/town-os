@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { setToken, setAccount, getToken } from '@/lib/auth.js'
 import { Button } from '@/components/ui/button'
@@ -16,11 +17,12 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function Login() {
+  const { t } = useI18n()
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  useEffect(() => { document.title = 'Town OS - Login' }, [])
+  useEffect(() => { document.title = t('login.page_title') }, [t])
 
   useEffect(() => {
     const token = getToken()
@@ -54,7 +56,7 @@ export default function Login() {
       setAccount(resp.account)
       navigate('/dashboard')
     } catch (err) {
-      setError('Invalid username or password')
+      setError(t('login.error_invalid_credentials'))
     } finally {
       setLoading(false)
     }
@@ -64,12 +66,12 @@ export default function Login() {
     <div className="flex items-center justify-center min-h-screen">
       <div className="w-full max-w-sm space-y-6">
       <div className="flex justify-center">
-        <img src="/512.png" alt="Town OS" className="h-32 w-32" />
+        <img src="/512.png" alt={t('login.logo_alt')} className="h-32 w-32" />
       </div>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Town OS</CardTitle>
-          <CardDescription>Sign in to the control panel</CardDescription>
+          <CardTitle className="text-2xl">{t('login.title')}</CardTitle>
+          <CardDescription>{t('login.description')}</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -79,11 +81,11 @@ export default function Login() {
               </Alert>
             )}
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t('login.username_label')}</Label>
               <Input id="username" name="username" required autoFocus />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('login.password_label')}</Label>
               <Input
                 id="password"
                 name="password"
@@ -94,7 +96,7 @@ export default function Login() {
           </CardContent>
           <CardFooter className="pt-2">
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? t('login.submit_loading') : t('login.submit')}
             </Button>
           </CardFooter>
         </form>

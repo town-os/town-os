@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { Button } from '@/components/ui/button'
@@ -13,8 +14,8 @@ const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 20 * 1024 * 1024 // 20 MB
 const ARCHIVE_UNPACK_TIMEOUT_KEY = 'archive_unpack_timeout'
 const DEFAULT_ARCHIVE_UNPACK_TIMEOUT = 120 // seconds
 
-function formatBytes(bytes) {
-  if (bytes === 0) return '0 (no quota)'
+function formatBytes(t, bytes) {
+  if (bytes === 0) return t('settings.format_no_quota')
   const gb = bytes / (1024 * 1024 * 1024)
   if (gb >= 1 && gb === Math.floor(gb)) return `${gb} GB`
   const mb = bytes / (1024 * 1024)
@@ -22,8 +23,8 @@ function formatBytes(bytes) {
   return `${bytes} bytes`
 }
 
-function formatBytesSize(bytes) {
-  if (bytes === 0) return '0 bytes'
+function formatBytesSize(t, bytes) {
+  if (bytes === 0) return t('settings.format_0_bytes')
   const gb = bytes / (1024 * 1024 * 1024)
   if (gb >= 1 && gb === Math.floor(gb)) return `${gb} GB`
   const mb = bytes / (1024 * 1024)
@@ -31,8 +32,8 @@ function formatBytesSize(bytes) {
   return `${bytes} bytes`
 }
 
-function formatDuration(seconds) {
-  if (seconds === 0) return '0 seconds'
+function formatDuration(t, seconds) {
+  if (seconds === 0) return t('settings.format_0_seconds')
   if (seconds >= 3600 && seconds % 3600 === 0) return `${seconds / 3600} hour${seconds / 3600 !== 1 ? 's' : ''}`
   if (seconds >= 60 && seconds % 60 === 0) return `${seconds / 60} minute${seconds / 60 !== 1 ? 's' : ''}`
   return `${seconds} second${seconds !== 1 ? 's' : ''}`
@@ -56,7 +57,8 @@ function unitToBytes(input, unit) {
 }
 
 export default function SystemSettings() {
-  useEffect(() => { document.title = 'Town OS - Settings' }, [])
+  const { t, setLocale } = useI18n()
+  useEffect(() => { document.title = t('settings.page_title') }, [t])
   const [refreshKey, setRefreshKey] = useState(0)
 
   const [settings] = usePolling(
@@ -64,6 +66,31 @@ export default function SystemSettings() {
     {},
     [refreshKey],
   )
+
+  // --- Language ---
+  const [localeData, setLocaleData] = useState(null)
+  const [showExtended, setShowExtended] = useState(false)
+  const [selectedLocale, setSelectedLocale] = useState('')
+
+  useEffect(() => {
+    getClient().getLocales().then((data) => {
+      setLocaleData(data)
+      setSelectedLocale(data.current)
+    }).catch(() => {})
+  }, [refreshKey])
+
+  async function handleSaveLanguage(e) {
+    e.preventDefault()
+    if (!selectedLocale) return
+    try {
+      await getClient().setSetting('locale', selectedLocale)
+      setLocale(selectedLocale)
+      toast.success(t('settings.toast_language_updated'))
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
 
   // --- Default Volume Quota ---
   const currentQuota = settings[DEFAULT_QUOTA_KEY] !== undefined
@@ -98,12 +125,12 @@ export default function SystemSettings() {
     e.preventDefault()
     const bytes = quotaToBytes()
     if (bytes === null) {
-      toast.error('Invalid quota value')
+      toast.error(t('settings.error_invalid_quota'))
       return
     }
     try {
       await getClient().setSetting(DEFAULT_QUOTA_KEY, String(bytes))
-      toast.success('Default quota updated')
+      toast.success(t('settings.toast_quota_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
       toast.error(err.message)
@@ -134,12 +161,12 @@ export default function SystemSettings() {
     e.preventDefault()
     const bytes = unitToBytes(archiveSizeInput, archiveSizeUnit)
     if (bytes === null) {
-      toast.error('Invalid archive size value')
+      toast.error(t('settings.error_invalid_archive_size'))
       return
     }
     try {
       await getClient().setSetting(MAX_ARCHIVE_SIZE_KEY, String(bytes))
-      toast.success('Max archive size updated')
+      toast.success(t('settings.toast_archive_size_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
       toast.error(err.message)
@@ -185,39 +212,85 @@ export default function SystemSettings() {
     e.preventDefault()
     const secs = timeoutToSeconds()
     if (secs === null) {
-      toast.error('Invalid timeout value')
+      toast.error(t('settings.error_invalid_timeout'))
       return
     }
     try {
       await getClient().setSetting(ARCHIVE_UNPACK_TIMEOUT_KEY, String(secs))
-      toast.success('Archive unpack timeout updated')
+      toast.success(t('settings.toast_timeout_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
       toast.error(err.message)
     }
   }
 
+  const populated = new Set(localeData?.populated || [])
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">System Settings</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('settings.title')}</h1>
         <p className="text-muted-foreground">
-          System-wide defaults for all users
+          {t('settings.description')}
         </p>
       </div>
 
       <div className="rounded-lg border p-6 space-y-6">
         <div>
-          <h2 className="text-lg font-semibold">Default Volume Quota</h2>
+          <h2 className="text-lg font-semibold">{t('settings.language_title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            The default quota applied to new storage volumes. Set to 0 for no quota limit.
-            Current value: <strong>{formatBytes(currentQuota)}</strong>
+            {t('settings.language_description')}
+          </p>
+        </div>
+
+        {localeData && (
+          <form onSubmit={handleSaveLanguage} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="language-select">{t('settings.language_label')}</Label>
+              <select
+                id="language-select"
+                value={selectedLocale}
+                onChange={(e) => setSelectedLocale(e.target.value)}
+                className="flex h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
+              >
+                {localeData.common_languages.map((lang) => (
+                  <option key={lang.code} value={lang.code} disabled={!populated.has(lang.code)}>
+                    {lang.native_name} ({lang.english_name}){!populated.has(lang.code) ? ' *' : ''}
+                  </option>
+                ))}
+                {showExtended && localeData.extended_locales.map((lang) => (
+                  <option key={lang.code} value={lang.code} disabled={!populated.has(lang.code)}>
+                    {lang.code} - {lang.native_name} ({lang.english_name}){!populated.has(lang.code) ? ' *' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button type="submit">{t('settings.save_btn')}</Button>
+              <button
+                type="button"
+                className="text-sm text-muted-foreground underline hover:text-foreground"
+                onClick={() => setShowExtended(!showExtended)}
+              >
+                {showExtended ? t('settings.hide_all_locales') : t('settings.show_all_locales')}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <div className="rounded-lg border p-6 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold">{t('settings.quota_title')}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t('settings.quota_description')}{' '}
+            Current value: <strong>{formatBytes(t, currentQuota)}</strong>
           </p>
         </div>
 
         <form onSubmit={handleSaveQuota} className="flex items-end gap-3">
           <div className="space-y-2">
-            <Label htmlFor="quota-value">Quota</Label>
+            <Label htmlFor="quota-value">{t('settings.quota_label')}</Label>
             <Input
               id="quota-value"
               type="number"
@@ -228,34 +301,34 @@ export default function SystemSettings() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="quota-unit">Unit</Label>
+            <Label htmlFor="quota-unit">{t('settings.unit_label')}</Label>
             <select
               id="quota-unit"
               value={quotaUnit}
               onChange={(e) => setQuotaUnit(e.target.value)}
               className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
             >
-              <option value="GB">GB</option>
-              <option value="MB">MB</option>
-              <option value="bytes">bytes</option>
+              <option value="GB">{t('settings.unit_option_gb')}</option>
+              <option value="MB">{t('settings.unit_option_mb')}</option>
+              <option value="bytes">{t('settings.unit_option_bytes')}</option>
             </select>
           </div>
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t('settings.save_btn')}</Button>
         </form>
       </div>
 
       <div className="rounded-lg border p-6 space-y-6">
         <div>
-          <h2 className="text-lg font-semibold">Max Archive Size</h2>
+          <h2 className="text-lg font-semibold">{t('settings.archive_size_title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            The maximum file size allowed for archive uploads.
-            Current value: <strong>{formatBytesSize(currentMaxArchiveSize)}</strong>
+            {t('settings.archive_size_description')}{' '}
+            Current value: <strong>{formatBytesSize(t, currentMaxArchiveSize)}</strong>
           </p>
         </div>
 
         <form onSubmit={handleSaveArchiveSize} className="flex items-end gap-3">
           <div className="space-y-2">
-            <Label htmlFor="archive-size-value">Size</Label>
+            <Label htmlFor="archive-size-value">{t('settings.archive_size_label')}</Label>
             <Input
               id="archive-size-value"
               type="number"
@@ -266,34 +339,34 @@ export default function SystemSettings() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="archive-size-unit">Unit</Label>
+            <Label htmlFor="archive-size-unit">{t('settings.unit_label')}</Label>
             <select
               id="archive-size-unit"
               value={archiveSizeUnit}
               onChange={(e) => setArchiveSizeUnit(e.target.value)}
               className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
             >
-              <option value="GB">GB</option>
-              <option value="MB">MB</option>
-              <option value="bytes">bytes</option>
+              <option value="GB">{t('settings.unit_option_gb')}</option>
+              <option value="MB">{t('settings.unit_option_mb')}</option>
+              <option value="bytes">{t('settings.unit_option_bytes')}</option>
             </select>
           </div>
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t('settings.save_btn')}</Button>
         </form>
       </div>
 
       <div className="rounded-lg border p-6 space-y-6">
         <div>
-          <h2 className="text-lg font-semibold">Archive Unpack Timeout</h2>
+          <h2 className="text-lg font-semibold">{t('settings.timeout_title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            The maximum time allowed for unpacking an uploaded archive before the operation is cancelled.
-            Current value: <strong>{formatDuration(currentUnpackTimeout)}</strong>
+            {t('settings.timeout_description')}{' '}
+            Current value: <strong>{formatDuration(t, currentUnpackTimeout)}</strong>
           </p>
         </div>
 
         <form onSubmit={handleSaveTimeout} className="flex items-end gap-3">
           <div className="space-y-2">
-            <Label htmlFor="timeout-value">Timeout</Label>
+            <Label htmlFor="timeout-value">{t('settings.timeout_label')}</Label>
             <Input
               id="timeout-value"
               type="number"
@@ -304,19 +377,19 @@ export default function SystemSettings() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="timeout-unit">Unit</Label>
+            <Label htmlFor="timeout-unit">{t('settings.unit_label')}</Label>
             <select
               id="timeout-unit"
               value={timeoutUnit}
               onChange={(e) => setTimeoutUnit(e.target.value)}
               className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
             >
-              <option value="seconds">seconds</option>
-              <option value="minutes">minutes</option>
-              <option value="hours">hours</option>
+              <option value="seconds">{t('settings.unit_option_seconds')}</option>
+              <option value="minutes">{t('settings.unit_option_minutes')}</option>
+              <option value="hours">{t('settings.unit_option_hours')}</option>
             </select>
           </div>
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t('settings.save_btn')}</Button>
         </form>
       </div>
     </div>

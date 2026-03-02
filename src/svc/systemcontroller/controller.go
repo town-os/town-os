@@ -136,6 +136,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/pages/upload", s.uploadPageArchive, s.requireAdmin)
 	e.Add("GET", "/pages", s.listPages, s.requireAuth)
 
+	e.Add("GET", "/locales", s.listLocales, s.requireAuth)
+
 	// Monitoring
 	e.Add("GET", "/monitoring/status", s.monitoringStatus, s.requireAuth)
 	e.Any("/monitoring/grafana/*", s.monitoringGrafanaProxy)

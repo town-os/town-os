@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 )
@@ -623,9 +624,10 @@ func (s *SystemControllerHandlers) extractFromContainerImage(ctx context.Context
 // uploadArchive handles multipart form upload of an archive file and unpacks
 // it into the specified subvolume.
 func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
+	locale := s.getLocale()
 	subvolume := c.FormValue("subvolume")
 	if subvolume == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "subvolume field is required")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveSubvolumeRequired))
 	}
 
 	subpath := c.FormValue("subpath")
@@ -645,7 +647,7 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 
 	file, header, err := c.Request().FormFile("archive")
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("archive file required: %v", err))
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveFileRequired, err))
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -679,13 +681,14 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		return err
 	}
 
-	return c.JSON(200, ArchiveUploadResponse{NeedsRestart: true, Message: "archive unpacked successfully"})
+	return c.JSON(200, ArchiveUploadResponse{NeedsRestart: true, Message: i18n.T(locale, i18n.MsgArchiveUnpackSuccess)})
 }
 
 // downloadArchive creates a compressed tar archive of the specified subvolume
 // and streams it directly to the client with no temp files. The compression
 // format can be selected via the "format" field (default: tar.gz).
 func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
+	locale := s.getLocale()
 	de := json.NewDecoder(c.Request().Body)
 	req := DownloadArchiveRequest{}
 	if err := de.Decode(&req); err != nil {
@@ -693,7 +696,7 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	}
 
 	if req.Subvolume == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "subvolume is required")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveSubvolumeRequired))
 	}
 
 	// Default to tar.gz if not specified.
@@ -702,7 +705,7 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		format = "tar.gz"
 	}
 	if !validDownloadFormat(format) {
-		return echo.NewHTTPError(http.StatusBadRequest, "unsupported download format: "+format)
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveUnsupportedFormat, format))
 	}
 
 	if err := validateServiceName(req.StopService); err != nil {

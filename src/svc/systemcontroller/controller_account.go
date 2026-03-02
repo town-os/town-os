@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/i18n"
 	"github.com/labstack/echo/v5"
 )
 
@@ -37,11 +38,12 @@ type EnableAccountRequest struct {
 // --- Account handlers ---
 
 func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
+	locale := s.getLocale()
 	sessMgr := s.Controller.GetSessionManager()
 	if sessMgr != nil {
 		accounts, err := s.Controller.GetAccountManager().List()
 		if err != nil {
-			return fmt.Errorf("list accounts: %w", err)
+			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgAccountListError), err)
 		}
 
 		var adminUsernames []string
@@ -54,20 +56,20 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 		if len(adminUsernames) > 0 {
 			hasActiveSessions, err := sessMgr.HasActiveAdminSessions(adminUsernames)
 			if err != nil {
-				return fmt.Errorf("check active admin sessions: %w", err)
+				return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgAccountCheckSessions), err)
 			}
 
 			if hasActiveSessions {
 				token := extractBearerToken(c.Request())
 				if token == "" {
-					return echo.NewHTTPError(401, "missing authorization token")
+					return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 				}
 				_, acct, err := sessMgr.Validate(token)
 				if err != nil {
-					return echo.NewHTTPError(401, "invalid session")
+					return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 				}
 				if !acct.Admin {
-					return echo.NewHTTPError(403, "admin access required")
+					return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthAdminRequired))
 				}
 			}
 		}
@@ -113,7 +115,7 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 	}
 
 	if req.Fields.Admin != nil {
-		return echo.NewHTTPError(403, "admin status cannot be changed after account creation")
+		return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAccountAdminStatusImmutable))
 	}
 
 	acct, err := s.Controller.GetAccountManager().Update(req.Username, req.Fields)

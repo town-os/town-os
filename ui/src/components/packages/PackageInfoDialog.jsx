@@ -1,3 +1,4 @@
+import { useI18n } from '@/i18n/I18nContext.jsx'
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 
 export default function PackageInfoDialog({ dialog, onClose }) {
+  const { t } = useI18n()
   return (
     <Dialog
       open={dialog.open}
@@ -20,18 +22,18 @@ export default function PackageInfoDialog({ dialog, onClose }) {
           <DialogTitle>
             {dialog.name}@{dialog.version}
           </DialogTitle>
-          <DialogDescription>Installed package configuration and notes.</DialogDescription>
+          <DialogDescription>{t('package_info.description')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           {dialog.questions && Object.keys(dialog.questions).length > 0 && (
             <div className="space-y-2">
-              <h4 className="text-sm font-medium">Configuration</h4>
+              <h4 className="text-sm font-medium">{t('package_info.configuration_title')}</h4>
               <div className="space-y-1">
                 {Object.entries(dialog.questions).map(([key, question]) => (
                   <div key={key} className="flex justify-between gap-4 text-sm">
                     <span className="text-muted-foreground">{question.query}</span>
                     <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
-                      {question.type === 'secret' ? '********' : (dialog.responses?.[key] || '-')}
+                      {question.type === 'secret' ? t('package_info.secret_mask') : (dialog.responses?.[key] || '-')}
                     </code>
                   </div>
                 ))}
@@ -84,12 +86,12 @@ export default function PackageInfoDialog({ dialog, onClose }) {
           )}
           {(!dialog.questions || Object.keys(dialog.questions).length === 0) &&
             (!dialog.notes || Object.keys(dialog.notes).length === 0) && (
-            <p className="text-sm text-muted-foreground">No configuration for this package.</p>
+            <p className="text-sm text-muted-foreground">{t('package_info.no_config')}</p>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Close
+            {t('package_info.close_btn')}
           </Button>
         </DialogFooter>
       </DialogContent>

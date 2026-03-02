@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -123,12 +124,13 @@ func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
 		return err
 	}
 
+	locale := s.getLocale()
 	if req.Action == systemd.Enable || req.Action == systemd.Disable {
-		return echo.NewHTTPError(http.StatusBadRequest, "enable/disable not allowed")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgUnitEnableDisableNotAllowed))
 	}
 
 	if req.Action == systemd.Stop && req.Name == "town-os-systemcontroller.service" {
-		return echo.NewHTTPError(http.StatusBadRequest, "cannot stop systemcontroller")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgUnitCannotStopController))
 	}
 
 	if err := s.Controller.GetSystemdManager().SetStatus(c.Request().Context(), req.Name, req.Action); err != nil {
@@ -190,11 +192,12 @@ func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	unit := c.QueryParam("unit")
 
+	locale := s.getLocale()
 	lines := 100
 	if v := c.QueryParam("lines"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("invalid lines parameter: %w", err)
+			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidLines), err)
 		}
 		lines = n
 	}
@@ -210,7 +213,7 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	if v := c.QueryParam("since"); v != "" {
 		sinceUnix, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return fmt.Errorf("invalid since parameter: %w", err)
+			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidSince), err)
 		}
 		params.Since = time.Unix(sinceUnix, 0)
 	}
@@ -218,7 +221,7 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	if v := c.QueryParam("until"); v != "" {
 		untilUnix, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return fmt.Errorf("invalid until parameter: %w", err)
+			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidUntil), err)
 		}
 		params.Until = time.Unix(untilUnix, 0)
 	}
@@ -226,7 +229,7 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	if v := c.QueryParam("priority"); v != "" {
 		pri, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("invalid priority parameter: %w", err)
+			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidPriority), err)
 		}
 		params.Priority = pri
 	}

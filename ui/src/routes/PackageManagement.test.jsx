@@ -526,7 +526,7 @@ describe('PackageManagement', () => {
     })
     fireEvent.click(screen.getByText('Not Installed'))
     await waitFor(() => {
-      expect(screen.getByText(/Install redis/)).toBeTruthy()
+      expect(screen.getByText('Install Package')).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy()
     })
   })
