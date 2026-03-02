@@ -66,6 +66,7 @@ const enUS = {
   'nav.services': 'Services',
   'nav.packages': 'Packages',
   'nav.pages': 'Pages',
+  'nav.monitoring': 'Monitoring',
   'nav.audit_log': 'Audit Log',
   'nav.settings': 'Settings',
   'nav.logo_alt': 'Town OS',
