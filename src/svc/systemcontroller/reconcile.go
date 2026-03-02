@@ -185,6 +185,11 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 				slog.Debug(fmt.Sprintf("reconcile git-seed %s -> %s: %v", vol.Git, volName, err))
 			}
 		}
+
+		// Apply file templates after volume seeding.
+		if len(compiled.Templates) > 0 {
+			reconcileApplyTemplates(cfg, compiled, responses, pi, ip.Description)
+		}
 	}
 
 	// Write per-package network state file.
@@ -373,4 +378,32 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 	}
 
 	return nil
+}
+
+// reconcileApplyTemplates renders Go text/template files into volume
+// directories during reconciliation. Uses the same logic as the install
+// flow: existing files are not overwritten.
+func reconcileApplyTemplates(cfg ReconcileConfig, compiled *packages.Package, responses packages.Responses, pi packages.PackageIdentity, description string) {
+	data := packages.TemplateData{
+		Responses: responses,
+		Package: packages.TemplatePackageInfo{
+			Name:        pi.Name,
+			Version:     pi.Version,
+			Repo:        pi.Repo,
+			Image:       compiled.Image,
+			Description: description,
+		},
+		System: packages.TemplateSystemInfo{},
+	}
+
+	hostname, err := os.Hostname()
+	if err == nil {
+		data.System.Hostname = hostname
+	}
+
+	if err := packages.ApplyPackageTemplates(compiled.Templates, data, func(volName string) string {
+		return fmt.Sprintf("%s/%s/%s/%s/%s/%s", cfg.BtrfsBasePath, PackagesVolumePrefix, pi.Repo, pi.Name, pi.Version, volName)
+	}); err != nil {
+		slog.Debug(fmt.Sprintf("reconcile apply templates %s: %v", pi.String(), err))
+	}
 }

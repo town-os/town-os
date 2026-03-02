@@ -986,3 +986,266 @@ func TestCompileNotes(t *testing.T) {
 		}
 	})
 }
+
+func TestCompileTemplates(t *testing.T) {
+	t.Run("basic template compilation", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"config": {
+					Volume:  "data",
+					Path:    "config.yaml",
+					Content: "host: {{.Responses.hostname}}",
+				},
+			},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		tmpl, ok := p.Templates["config"]
+		if !ok {
+			t.Fatal("expected config template in compiled output")
+		}
+		if tmpl.Volume != "data" {
+			t.Fatalf("expected volume 'data', got %q", tmpl.Volume)
+		}
+		if tmpl.Path != "config.yaml" {
+			t.Fatalf("expected path 'config.yaml', got %q", tmpl.Path)
+		}
+		if tmpl.Content != "host: {{.Responses.hostname}}" {
+			t.Fatalf("expected content preserved, got %q", tmpl.Content)
+		}
+	})
+
+	t.Run("template volume substitution", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes: map[string]InputPackageVolume{
+				"data":   {Mountpoint: "/data"},
+				"config": {Mountpoint: "/config"},
+			},
+			Questions: map[string]Question{"vol": {Query: "Which volume?"}},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {
+					Volume:  "@vol@",
+					Path:    "app.conf",
+					Content: "val={{.Responses.vol}}",
+				},
+			},
+		}
+		p, err := input.Compile(Responses{"vol": "config"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Templates["cfg"].Volume != "config" {
+			t.Fatalf("expected volume 'config', got %q", p.Templates["cfg"].Volume)
+		}
+	})
+
+	t.Run("template path substitution", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{"filename": {Query: "Config filename?"}},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {
+					Volume:  "data",
+					Path:    "etc/@filename@",
+					Content: "content",
+				},
+			},
+		}
+		p, err := input.Compile(Responses{"filename": "app.yaml"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Templates["cfg"].Path != "etc/app.yaml" {
+			t.Fatalf("expected 'etc/app.yaml', got %q", p.Templates["cfg"].Path)
+		}
+	})
+
+	t.Run("template references nonexistent volume rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {
+					Volume:  "nonexistent",
+					Path:    "config.yaml",
+					Content: "content",
+				},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for template referencing nonexistent volume")
+		}
+	})
+
+	t.Run("template with invalid Go template syntax rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"bad": {
+					Volume:  "data",
+					Path:    "config.yaml",
+					Content: "{{.Bad",
+				},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for invalid template syntax")
+		}
+	})
+
+	t.Run("template with absolute path rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {
+					Volume:  "data",
+					Path:    "/etc/config.yaml",
+					Content: "content",
+				},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for absolute template path")
+		}
+	})
+
+	t.Run("template with path traversal rejected", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {
+					Volume:  "data",
+					Path:    "../../etc/passwd",
+					Content: "content",
+				},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for template path traversal")
+		}
+	})
+
+	t.Run("no templates produces nil map", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Templates != nil {
+			t.Fatalf("expected nil templates, got %v", p.Templates)
+		}
+	})
+
+	t.Run("multiple templates compiled", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes: map[string]InputPackageVolume{
+				"data":   {Mountpoint: "/data"},
+				"config": {Mountpoint: "/config"},
+			},
+			Questions: map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"cfg1": {Volume: "data", Path: "a.conf", Content: "a"},
+				"cfg2": {Volume: "config", Path: "b.conf", Content: "b"},
+			},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(p.Templates) != 2 {
+			t.Fatalf("expected 2 templates, got %d", len(p.Templates))
+		}
+	})
+
+	t.Run("template with empty content rejected during validation", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {Volume: "data", Path: "config.yaml", Content: ""},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for empty template content")
+		}
+	})
+
+	t.Run("template with empty volume rejected during validation", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {Volume: "", Path: "config.yaml", Content: "content"},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for empty template volume")
+		}
+	})
+
+	t.Run("template with empty path rejected during validation", func(t *testing.T) {
+		input := InputPackage{
+			Image:       "debian:latest",
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions:   map[string]Question{},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {Volume: "data", Path: "", Content: "content"},
+			},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for empty template path")
+		}
+	})
+}

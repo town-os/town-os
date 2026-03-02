@@ -687,6 +687,39 @@ func (s *SystemControllerHandlers) seedVolumeData(ctx context.Context, ip *packa
 	}
 }
 
+// applyPackageTemplates renders Go text/template files into the appropriate
+// volume directories. Templates are applied after volume seeding (archives,
+// git clones) but before the service is started. Existing files are not
+// overwritten, ensuring user-uploaded data is preserved.
+func (s *SystemControllerHandlers) applyPackageTemplates(compiled *packages.Package, responses packages.Responses, repoName, effectiveName, version, description string) {
+	btrfsBase := s.Controller.GetBtrfsBasePath()
+	data := packages.TemplateData{
+		Responses: responses,
+		Package: packages.TemplatePackageInfo{
+			Name:        effectiveName,
+			Version:     version,
+			Repo:        repoName,
+			Image:       compiled.Image,
+			Description: description,
+		},
+		System: packages.TemplateSystemInfo{
+			ExternalIP: s.Controller.GetExternalIP(),
+			InternalIP: s.Controller.GetInternalIP(),
+		},
+	}
+
+	hostname, err := os.Hostname()
+	if err == nil {
+		data.System.Hostname = hostname
+	}
+
+	if err := packages.ApplyPackageTemplates(compiled.Templates, data, func(volName string) string {
+		return filepath.Join(btrfsBase, packageVolumePath(repoName, effectiveName, version, volName))
+	}); err != nil {
+		slog.Debug(fmt.Sprintf("apply templates %s/%s@%s: %v", repoName, effectiveName, version, err))
+	}
+}
+
 // findActiveVersion returns the currently installed version for a package,
 // or "" if not installed.
 func findActiveVersion(inst packages.Installer, repoName, effectiveName string) (string, error) {
@@ -782,6 +815,11 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	s.seedVolumeData(ctx, &ip, compiled, repoName, parentName, effectiveName, req.Version)
+
+	// Apply file templates after volume seeding but before service boot.
+	if len(compiled.Templates) > 0 {
+		s.applyPackageTemplates(compiled, req.Responses, repoName, effectiveName, req.Version, ip.Description)
+	}
 
 	if err := inst.Install(repoName, effectiveName, req.Version, req.Responses); err != nil {
 		return err

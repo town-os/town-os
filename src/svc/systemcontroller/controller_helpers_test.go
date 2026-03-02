@@ -562,6 +562,60 @@ git_sources:
 	return c, inst, gitCloner
 }
 
+// initInstallWithTemplatesTestClient creates a test server with a package
+// containing templates and volumes. Returns the client, install manager, and
+// the btrfs base path (a temp dir) where template files are written.
+func initInstallWithTemplatesTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, string) { //nolint:unparam // consistent with other init helpers
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	nginx10 := `image: nginx:1.0
+environment:
+  NGINX_HOST: "@hostname@"
+network:
+  external: {}
+  internal: {}
+volumes:
+  config:
+    mountpoint: /etc/nginx
+  data:
+    mountpoint: /var/data
+questions:
+  hostname:
+    query: "What hostname should nginx serve?"
+    type: hostname
+templates:
+  nginx_conf:
+    volume: config
+    path: nginx.conf
+    content: "server_name {{.Responses.hostname}};"
+  readme:
+    volume: data
+    path: info.txt
+    content: "{{.Package.Name}} v{{.Package.Version}}"
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
+
+	btrfsBase := t.TempDir()
+	inst := packages.InitMockInstallManager()
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, BtrfsBasePath: btrfsBase})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst, btrfsBase
+}
+
 func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallManager) {
 	t.Helper()
 	dir := t.TempDir()

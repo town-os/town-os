@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"text/template"
 )
 
 type (
@@ -146,6 +147,22 @@ type InputPackageGitSource struct {
 	Volume string `yaml:"volume"`
 }
 
+// InputPackageTemplate defines a file template in the package manifest.
+// Each template renders a Go text/template into a file within a volume.
+type InputPackageTemplate struct {
+	Volume  string `yaml:"volume"`  // Target volume name (must reference a defined volume)
+	Path    string `yaml:"path"`    // File path within the volume (relative)
+	Content string `yaml:"content"` // Go text/template content
+}
+
+// PackageTemplate is the compiled form of InputPackageTemplate after
+// @variable@ substitution has been applied to the Volume and Path fields.
+type PackageTemplate struct {
+	Volume  string `json:"volume"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
 type PackageNetwork struct {
 	External PortMap
 	Internal PortMap
@@ -157,6 +174,7 @@ type Package struct {
 	Environment map[string]string
 	Network     PackageNetwork
 	Volumes     map[string]PackageVolume
+	Templates   map[string]PackageTemplate
 }
 
 type InputPackageNetwork struct {
@@ -172,17 +190,18 @@ type Question struct {
 }
 
 type InputPackage struct {
-	Image       string                        `yaml:"image"`
-	Command     []string                      `yaml:"command"`
-	Environment map[string]string             `yaml:"environment"`
-	Network     InputPackageNetwork           `yaml:"network"`
-	Volumes     map[string]InputPackageVolume `yaml:"volumes"`
-	Questions   map[string]Question           `yaml:"questions"`
-	Notes       map[string]Note               `yaml:"notes" json:"notes,omitempty"`
-	Description string                        `yaml:"description" json:"description,omitempty"`
-	Supplies    []string                      `yaml:"supplies" json:"supplies,omitempty"`
-	Archives    []InputPackageArchive         `yaml:"archives,omitempty"`
-	GitSources  []InputPackageGitSource       `yaml:"git_sources,omitempty"`
+	Image       string                           `yaml:"image"`
+	Command     []string                         `yaml:"command"`
+	Environment map[string]string                `yaml:"environment"`
+	Network     InputPackageNetwork              `yaml:"network"`
+	Volumes     map[string]InputPackageVolume    `yaml:"volumes"`
+	Questions   map[string]Question              `yaml:"questions"`
+	Notes       map[string]Note                  `yaml:"notes" json:"notes,omitempty"`
+	Description string                           `yaml:"description" json:"description,omitempty"`
+	Supplies    []string                         `yaml:"supplies" json:"supplies,omitempty"`
+	Archives    []InputPackageArchive            `yaml:"archives,omitempty"`
+	GitSources  []InputPackageGitSource          `yaml:"git_sources,omitempty"`
+	Templates   map[string]InputPackageTemplate  `yaml:"templates,omitempty"`
 }
 
 // CompileNotes applies template substitution to the Notes map using the
@@ -276,6 +295,13 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		i.GitSources[idx].URL = applyTemplate(i.GitSources[idx].URL, iv, response)
 		i.GitSources[idx].Branch = applyTemplate(i.GitSources[idx].Branch, iv, response)
 	}
+
+	for name := range i.Templates {
+		tmpl := i.Templates[name]
+		tmpl.Volume = applyTemplate(tmpl.Volume, iv, response)
+		tmpl.Path = applyTemplate(tmpl.Path, iv, response)
+		i.Templates[name] = tmpl
+	}
 }
 
 func convert(p map[string]string) (PortMap, error) {
@@ -347,6 +373,15 @@ func (i *InputPackage) Validate() error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+
+	for name, tmpl := range i.Templates {
+		if err := ValidateTemplateName(name); err != nil {
+			return err
+		}
+		if err := ValidateTemplateSpec(tmpl, i.Volumes); err != nil {
+			return fmt.Errorf("template %q: %w", name, err)
 		}
 	}
 
@@ -481,12 +516,31 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, Git: vol.Git, UID: vol.UID, GID: vol.GID}
 	}
 
+	// Compile templates: validate volume references, paths, and content syntax.
+	var templates map[string]PackageTemplate
+	if len(i.Templates) > 0 {
+		templates = make(map[string]PackageTemplate, len(i.Templates))
+		for name, tmpl := range i.Templates {
+			if _, ok := volumes[tmpl.Volume]; !ok {
+				return nil, fmt.Errorf("template %q: volume %q not found in package volumes", name, tmpl.Volume)
+			}
+			if err := ValidateTemplatePath(tmpl.Path); err != nil {
+				return nil, fmt.Errorf("template %q: %w", name, err)
+			}
+			if _, err := template.New(name).Parse(tmpl.Content); err != nil {
+				return nil, fmt.Errorf("template %q: invalid content: %w", name, err)
+			}
+			templates[name] = PackageTemplate(tmpl)
+		}
+	}
+
 	p := &Package{
 		Image:       image,
 		Command:     i.Command,
 		Environment: i.Environment,
 		Network:     PackageNetwork{External: external, Internal: internal},
 		Volumes:     volumes,
+		Templates:   templates,
 	}
 
 	return p, nil

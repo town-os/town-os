@@ -1091,3 +1091,240 @@ questions: {}
 		}
 	})
 }
+
+func TestValidateTemplateName(t *testing.T) {
+	valid := []string{"config", "my-config", "my_config", "Config1", "a123", "app.conf"}
+	for _, name := range valid {
+		t.Run("valid/"+name, func(t *testing.T) {
+			if err := ValidateTemplateName(name); err != nil {
+				t.Fatalf("expected %q to be valid: %v", name, err)
+			}
+		})
+	}
+
+	invalid := []string{"", "-start", ".hidden", "_start", "has space", "bad!"}
+	for _, name := range invalid {
+		label := name
+		if label == "" {
+			label = "empty"
+		}
+		t.Run("invalid/"+label, func(t *testing.T) {
+			err := ValidateTemplateName(name)
+			if err == nil {
+				t.Fatalf("expected %q to be invalid", name)
+			}
+			if !errors.Is(err, ErrInvalidTemplateName) {
+				t.Fatalf("expected ErrInvalidTemplateName, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateTemplateSpec(t *testing.T) {
+	volumes := map[string]InputPackageVolume{
+		"data": {Mountpoint: "/data"},
+	}
+
+	t.Run("valid spec", func(t *testing.T) {
+		tmpl := InputPackageTemplate{Volume: "data", Path: "config.yaml", Content: "key: value"}
+		if err := ValidateTemplateSpec(tmpl, volumes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty volume rejected", func(t *testing.T) {
+		tmpl := InputPackageTemplate{Volume: "", Path: "config.yaml", Content: "key: value"}
+		err := ValidateTemplateSpec(tmpl, volumes)
+		if err == nil {
+			t.Fatal("expected error for empty volume")
+		}
+		if !errors.Is(err, ErrInvalidTemplateSpec) {
+			t.Fatalf("expected ErrInvalidTemplateSpec, got %v", err)
+		}
+	})
+
+	t.Run("empty path rejected", func(t *testing.T) {
+		tmpl := InputPackageTemplate{Volume: "data", Path: "", Content: "key: value"}
+		err := ValidateTemplateSpec(tmpl, volumes)
+		if err == nil {
+			t.Fatal("expected error for empty path")
+		}
+		if !errors.Is(err, ErrInvalidTemplateSpec) {
+			t.Fatalf("expected ErrInvalidTemplateSpec, got %v", err)
+		}
+	})
+
+	t.Run("empty content rejected", func(t *testing.T) {
+		tmpl := InputPackageTemplate{Volume: "data", Path: "config.yaml", Content: ""}
+		err := ValidateTemplateSpec(tmpl, volumes)
+		if err == nil {
+			t.Fatal("expected error for empty content")
+		}
+		if !errors.Is(err, ErrInvalidTemplateSpec) {
+			t.Fatalf("expected ErrInvalidTemplateSpec, got %v", err)
+		}
+	})
+
+	t.Run("nonexistent volume rejected", func(t *testing.T) {
+		tmpl := InputPackageTemplate{Volume: "missing", Path: "config.yaml", Content: "key: value"}
+		err := ValidateTemplateSpec(tmpl, volumes)
+		if err == nil {
+			t.Fatal("expected error for nonexistent volume")
+		}
+		if !errors.Is(err, ErrInvalidTemplateSpec) {
+			t.Fatalf("expected ErrInvalidTemplateSpec, got %v", err)
+		}
+	})
+
+	t.Run("templated volume skips lookup", func(t *testing.T) {
+		tmpl := InputPackageTemplate{Volume: "@vol@", Path: "config.yaml", Content: "key: value"}
+		if err := ValidateTemplateSpec(tmpl, volumes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestValidateTemplatePath(t *testing.T) {
+	valid := []string{"config.yaml", "etc/app/config.yaml", "a.txt", "sub/dir/file.conf"}
+	for _, path := range valid {
+		t.Run("valid/"+path, func(t *testing.T) {
+			if err := ValidateTemplatePath(path); err != nil {
+				t.Fatalf("expected %q to be valid: %v", path, err)
+			}
+		})
+	}
+
+	t.Run("empty path rejected", func(t *testing.T) {
+		err := ValidateTemplatePath("")
+		if err == nil {
+			t.Fatal("expected error for empty path")
+		}
+		if !errors.Is(err, ErrInvalidTemplatePath) {
+			t.Fatalf("expected ErrInvalidTemplatePath, got %v", err)
+		}
+	})
+
+	t.Run("absolute path rejected", func(t *testing.T) {
+		err := ValidateTemplatePath("/etc/config.yaml")
+		if err == nil {
+			t.Fatal("expected error for absolute path")
+		}
+		if !errors.Is(err, ErrInvalidTemplatePath) {
+			t.Fatalf("expected ErrInvalidTemplatePath, got %v", err)
+		}
+	})
+
+	t.Run("path traversal rejected", func(t *testing.T) {
+		err := ValidateTemplatePath("../../etc/passwd")
+		if err == nil {
+			t.Fatal("expected error for path traversal")
+		}
+		if !errors.Is(err, ErrInvalidTemplatePath) {
+			t.Fatalf("expected ErrInvalidTemplatePath, got %v", err)
+		}
+	})
+
+	t.Run("mid-path traversal rejected", func(t *testing.T) {
+		err := ValidateTemplatePath("sub/../../../etc/passwd")
+		if err == nil {
+			t.Fatal("expected error for mid-path traversal")
+		}
+		if !errors.Is(err, ErrInvalidTemplatePath) {
+			t.Fatalf("expected ErrInvalidTemplatePath, got %v", err)
+		}
+	})
+}
+
+func TestYAMLTemplateParsing(t *testing.T) {
+	t.Run("parse templates from YAML", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /data
+questions: {}
+templates:
+  config:
+    volume: data
+    path: config.yaml
+    content: |
+      host: example.com
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		tmpl, ok := pkg.Templates["config"]
+		if !ok {
+			t.Fatal("expected config template in parsed output")
+		}
+		if tmpl.Volume != "data" {
+			t.Fatalf("expected volume 'data', got %q", tmpl.Volume)
+		}
+		if tmpl.Path != "config.yaml" {
+			t.Fatalf("expected path 'config.yaml', got %q", tmpl.Path)
+		}
+		if tmpl.Content != "host: example.com\n" {
+			t.Fatalf("expected content 'host: example.com\\n', got %q", tmpl.Content)
+		}
+	})
+
+	t.Run("compile YAML with templates", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  data:
+    mountpoint: /data
+questions: {}
+templates:
+  config:
+    volume: data
+    path: config.yaml
+    content: "host: {{.Responses.hostname}}"
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		compiled, err := pkg.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected compile error: %v", err)
+		}
+		if len(compiled.Templates) != 1 {
+			t.Fatalf("expected 1 template, got %d", len(compiled.Templates))
+		}
+		if compiled.Templates["config"].Content != "host: {{.Responses.hostname}}" {
+			t.Fatalf("expected content preserved, got %q", compiled.Templates["config"].Content)
+		}
+	})
+
+	t.Run("no templates field produces nil map", func(t *testing.T) {
+		input := `
+image: nginx
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if len(pkg.Templates) != 0 {
+			t.Fatalf("expected nil/empty templates, got %v", pkg.Templates)
+		}
+	})
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -16,6 +17,9 @@ var (
 	ErrInvalidVolumeName     = errors.New("invalid volume name")
 	ErrInvalidArchiveSpec    = errors.New("invalid archive spec")
 	ErrInvalidGitURL         = errors.New("invalid git URL")
+	ErrInvalidTemplateName   = errors.New("invalid template name")
+	ErrInvalidTemplateSpec   = errors.New("invalid template spec")
+	ErrInvalidTemplatePath   = errors.New("invalid template path")
 )
 
 var (
@@ -181,6 +185,53 @@ func ValidateGitURL(rawURL string) error {
 	}
 	if u.Scheme == "" || (u.Host == "" && u.Scheme != "file") {
 		return fmt.Errorf("%w: %q (must include scheme and host)", ErrInvalidGitURL, rawURL)
+	}
+	return nil
+}
+
+// ValidateTemplateName checks that a template name matches the volume naming
+// convention: starts with an alphanumeric character, followed by alphanumeric
+// characters, dots, dashes, or underscores.
+func ValidateTemplateName(name string) error {
+	if !volumeNameRegexp.MatchString(name) {
+		return fmt.Errorf("%w: %q", ErrInvalidTemplateName, name)
+	}
+	return nil
+}
+
+// ValidateTemplateSpec validates an InputPackageTemplate entry: the volume
+// must be non-empty, the path must be non-empty, and the content must be
+// non-empty. If the volume does not contain template characters, it must
+// reference an existing volume in the package definition.
+func ValidateTemplateSpec(tmpl InputPackageTemplate, volumes map[string]InputPackageVolume) error {
+	if tmpl.Volume == "" {
+		return fmt.Errorf("%w: volume must not be empty", ErrInvalidTemplateSpec)
+	}
+	if tmpl.Path == "" {
+		return fmt.Errorf("%w: path must not be empty", ErrInvalidTemplateSpec)
+	}
+	if tmpl.Content == "" {
+		return fmt.Errorf("%w: content must not be empty", ErrInvalidTemplateSpec)
+	}
+	if !strings.ContainsRune(tmpl.Volume, TemplateChar) {
+		if _, ok := volumes[tmpl.Volume]; !ok {
+			return fmt.Errorf("%w: volume %q not found in package volumes", ErrInvalidTemplateSpec, tmpl.Volume)
+		}
+	}
+	return nil
+}
+
+// ValidateTemplatePath checks that a template file path is a relative path
+// without directory traversal sequences.
+func ValidateTemplatePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("%w: path must not be empty", ErrInvalidTemplatePath)
+	}
+	if strings.HasPrefix(path, "/") {
+		return fmt.Errorf("%w: %q (must be a relative path)", ErrInvalidTemplatePath, path)
+	}
+	if slices.Contains(strings.Split(path, "/"), "..") {
+		return fmt.Errorf("%w: %q (must not contain directory traversal)", ErrInvalidTemplatePath, path)
 	}
 	return nil
 }

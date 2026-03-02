@@ -846,6 +846,150 @@ func TestReconcileGitSeedSkipsNonEmptyDir(t *testing.T) {
 	}
 }
 
+func TestReconcileWithTemplates(t *testing.T) {
+	pkgYAML := `image: nginx:1.0
+volumes:
+  config:
+    mountpoint: /etc/nginx
+questions:
+  hostname:
+    query: "Hostname?"
+templates:
+  nginx_conf:
+    volume: config
+    path: nginx.conf
+    content: "server_name {{.Responses.hostname}};"
+  readme:
+    volume: config
+    path: info.txt
+    content: "{{.Package.Name}} v{{.Package.Version}}"
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+	btrfsBase := t.TempDir()
+
+	responses := packages.Responses{"hostname": "example.com"}
+	if err := inst.Install("repo-a", "nginx", "1.0", responses); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  btrfsBase,
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Verify template files were written.
+	nginxConf := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "nginx", "1.0", "config", "nginx.conf")
+	content, err := os.ReadFile(nginxConf)
+	if err != nil {
+		t.Fatalf("expected nginx.conf: %v", err)
+	}
+	if string(content) != "server_name example.com;" {
+		t.Fatalf("expected 'server_name example.com;', got %q", string(content))
+	}
+
+	readme := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "nginx", "1.0", "config", "info.txt")
+	content, err = os.ReadFile(readme)
+	if err != nil {
+		t.Fatalf("expected info.txt: %v", err)
+	}
+	if string(content) != "nginx v1.0" {
+		t.Fatalf("expected 'nginx v1.0', got %q", string(content))
+	}
+}
+
+func TestReconcileTemplatesDoNotOverwriteExisting(t *testing.T) {
+	pkgYAML := `image: nginx:1.0
+volumes:
+  config:
+    mountpoint: /etc/nginx
+questions: {}
+templates:
+  conf:
+    volume: config
+    path: nginx.conf
+    content: "new content"
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+	btrfsBase := t.TempDir()
+
+	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// Pre-create the template target with existing content.
+	configDir := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "nginx", "1.0", "config")
+	if err := os.MkdirAll(configDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	existing := "user-modified config"
+	if err := os.WriteFile(filepath.Join(configDir, "nginx.conf"), []byte(existing), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  btrfsBase,
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Existing file should not be overwritten.
+	content, err := os.ReadFile(filepath.Join(configDir, "nginx.conf"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(content) != existing {
+		t.Fatalf("expected existing content preserved, got %q", string(content))
+	}
+}
+
+func TestReconcileWithoutTemplatesNoFiles(t *testing.T) {
+	// Packages without templates should reconcile normally.
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\nvolumes:\n  data:\n    mountpoint: /var/data\n",
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+	btrfsBase := t.TempDir()
+
+	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  btrfsBase,
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// No template files should exist in the data volume dir.
+	dataDir := filepath.Join(btrfsBase, PackagesVolumePrefix, "repo-a", "nginx", "1.0", "data")
+	entries, err := os.ReadDir(dataDir)
+	if err == nil && len(entries) > 0 {
+		t.Fatalf("expected no template files in data dir, got %d entries", len(entries))
+	}
+}
+
 func TestReconcileGitSeedVolumeWithoutGitSkipped(t *testing.T) {
 	// Volumes without a git field are not cloned.
 	rr, inst := setupReconcileRepo(t, map[string]string{
