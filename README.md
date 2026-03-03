@@ -50,6 +50,8 @@ The entire interface is internationalized. All user-facing strings -- both backe
 
 A built-in monitoring stack provides system observability out of the box. Prometheus collects metrics, Node Exporter reports host-level statistics, and Grafana serves auto-provisioned dashboards -- all managed as a single unit with no manual configuration required.
 
+Static pages hosting lets you publish HTML content directly from the UI. Three source types are supported: upload a tar archive (the default), extract files from a container image, or clone a git repository. A dropdown in the create dialog selects the source type, and each page is served through a Caddy reverse proxy with its own domain. Archive pages can be updated by uploading a new archive at any time; git and container image pages can be rebuilt on demand to pull the latest content.
+
 Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
 
 For detailed usage instructions, including the packaging system, storage, pages, and API documentation, visit **<https://town-os.github.io>**.
