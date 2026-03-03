@@ -759,6 +759,34 @@ describe('SystemControllerClient integration', () => {
       expect(page.domain).toBe('site.example.com')
     })
 
+    it('returns pending status on create for async provisioning', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.createPage('pending-check-site', 'https://github.com/user/site.git', 'main', 'pending.example.com', 'git')
+      expect(page.status).toBe('pending')
+      expect(typeof page.status).toBe('string')
+    })
+
+    it('creates an archive page', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.createPage('archive-integ-site', '', '', 'archive-integ.example.com', 'archive')
+      expect(page.name).toBe('archive-integ-site')
+      expect(page.source_type).toBe('archive')
+      expect(page.status).toBe('pending')
+    })
+
+    it('creates a container image page', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      const page = await client.createPage('container-integ-site', '', '', 'container-integ.example.com', 'container_image', 'nginx:latest', '/usr/share/nginx/html')
+      expect(page.name).toBe('container-integ-site')
+      expect(page.source_type).toBe('container_image')
+      expect(page.image).toBe('nginx:latest')
+      expect(page.image_directory).toBe('/usr/share/nginx/html')
+      expect(page.status).toBe('pending')
+    })
+
     it('creates a page with default domain', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)

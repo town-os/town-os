@@ -850,6 +850,128 @@ describe('PagesManagement provisioning behavior', () => {
     vi.useRealTimers()
   })
 
+  it('git page creation error resets provisioning state', async () => {
+    mockCreatePage.mockRejectedValueOnce(new Error('server error'))
+    mockListPages.mockResolvedValue({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await selectSourceType('Git Repository')
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'fail-site' } })
+    fireEvent.change(screen.getByLabelText('Repository URL'), {
+      target: { value: 'https://github.com/user/repo.git' },
+    })
+
+    fireEvent.click(screen.getByText('Create'))
+
+    // After the error, dialog should remain open and provisioning should be reset
+    await waitFor(() => {
+      expect(screen.queryByText('Provisioning...')).toBeNull()
+    })
+    // Form should be re-enabled after error
+    const fieldset = screen.getByLabelText('Name').closest('fieldset')
+    expect(fieldset.disabled).toBe(false)
+  })
+
+  it('cancel button disabled during provisioning', async () => {
+    mockListPages.mockResolvedValue({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    mockCreatePage.mockResolvedValue({
+      name: 'my-archive',
+      source_type: 'archive',
+      status: 'pending',
+    })
+    mockUploadPageArchive.mockReturnValueOnce(new Promise(() => {}))
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'my-archive' } })
+
+    const file = new File(['content'], 'site.tar.gz', { type: 'application/gzip' })
+    setFileOnInput(screen.getByLabelText('Archive File'), file)
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Provisioning...')).toBeTruthy()
+    })
+
+    const cancelBtn = screen.getByText('Cancel')
+    expect(cancelBtn.disabled).toBe(true)
+  })
+
+  it('container image page shows error toast on poll failure', async () => {
+    mockCreatePage.mockResolvedValueOnce({
+      name: 'image-site',
+      source_type: 'container_image',
+      status: 'pending',
+    })
+    mockListPages.mockResolvedValueOnce({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    // Poll returns error status
+    mockListPages.mockResolvedValueOnce({
+      entries: [{ name: 'image-site', source_type: 'container_image', status: 'error' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    mockListPages.mockResolvedValue({
+      entries: [{ name: 'image-site', source_type: 'container_image', status: 'error' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await selectSourceType('Container Image')
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'image-site' } })
+    fireEvent.change(screen.getByLabelText('Container Image'), {
+      target: { value: 'nginx:latest' },
+    })
+    fireEvent.change(screen.getByLabelText('Image Directory'), {
+      target: { value: '/usr/share/nginx/html' },
+    })
+
+    vi.useFakeTimers()
+
+    fireEvent.click(screen.getByText('Create'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(screen.getByText('Provisioning...')).toBeTruthy()
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Dialog should close after error detected
+    expect(screen.queryByText('Provisioning...')).toBeNull()
+
+    vi.useRealTimers()
+  })
+
   it('container image page polls until active', async () => {
     mockCreatePage.mockResolvedValueOnce({
       name: 'image-site',

@@ -768,6 +768,50 @@ func createTestTarGz(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
+func TestHTTPCreatePageContainerImageReturnsAsyncPending(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	page, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// The create endpoint should return immediately with pending status
+	// while the image extraction happens asynchronously.
+	if page.Status != "pending" {
+		t.Errorf("expected status %q, got %q", "pending", page.Status)
+	}
+
+	if page.Name != "image-site" {
+		t.Errorf("expected name %q, got %q", "image-site", page.Name)
+	}
+	if page.SourceType != account.PageSourceContainerImage {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceContainerImage, page.SourceType)
+	}
+	if page.Image != "nginx:latest" {
+		t.Errorf("expected image %q, got %q", "nginx:latest", page.Image)
+	}
+	if page.ImageDirectory != "/usr/share/nginx/html" {
+		t.Errorf("expected image_directory %q, got %q", "/usr/share/nginx/html", page.ImageDirectory)
+	}
+
+	// Wait briefly for the background goroutine to process (extraction will
+	// fail in test environments without podman, setting status to error).
+	time.Sleep(100 * time.Millisecond)
+	pages, err := c.ListPages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages.Entries))
+	}
+	// Status should have transitioned from pending (to either active or error
+	// depending on whether podman is available).
+	if pages.Entries[0].Status == "pending" {
+		t.Error("expected status to transition from pending after async extraction")
+	}
+}
+
 func TestHTTPUploadPageArchive(t *testing.T) {
 	if _, err := exec.LookPath("pigz"); err != nil {
 		t.Skip("pigz not installed")
