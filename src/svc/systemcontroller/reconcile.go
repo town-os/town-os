@@ -24,10 +24,13 @@ type ReconcileConfig struct {
 	Storage                  storage.Storage
 	Systemd                  systemd.Manager
 	SettingsMgr              account.SettingsManager
+	PagesManager             account.PagesManager
 	BtrfsBasePath            string
 	NetworkControllerBinPath string
 	NetworkStatePath         string
 	NetworkMode              string
+	CaddyImage               string
+	CaddyPort                string
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -62,7 +65,7 @@ func reconcileDefaultQuota(mgr account.SettingsManager) uint64 {
 func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	// Ensure root subvolumes exist for volume management.
 	if cfg.Storage != nil {
-		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume} {
+		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume, PagesVolumePrefix} {
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: root}); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile: create root volume %s: %v", root, err))
 			}
@@ -74,39 +77,44 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 		return fmt.Errorf("reconcile: list installed: %w", err)
 	}
 
-	if len(installed) == 0 {
-		return nil
+	if len(installed) > 0 {
+		// Group by repo/name, pick only the latest version of each package.
+		// Since only one systemd unit per repo/package-name can be active, we
+		// reconcile only the highest version per repo+name pair.
+		type repoNameKey struct{ repo, name string }
+		byRepoName := map[repoNameKey]packages.PackageIdentity{}
+		for _, identity := range installed {
+			pi, err := packages.ParsePackageIdentity(identity)
+			if err != nil {
+				slog.Error(fmt.Sprintf("reconcile: parse %q: %v", identity, err))
+				continue
+			}
+
+			key := repoNameKey{pi.Repo, pi.Name}
+			existing, ok := byRepoName[key]
+			if !ok || packages.CompareVersions(pi.Version, existing.Version) > 0 {
+				byRepoName[key] = pi
+			}
+		}
+
+		defQuota := reconcileDefaultQuota(cfg.SettingsMgr)
+
+		for _, pi := range byRepoName {
+			identity := pi.String()
+			if err := reconcilePackage(ctx, cfg, pi, defQuota); err != nil {
+				slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
+				continue
+			}
+
+			slog.Info("reconcile: restored " + identity)
+		}
 	}
 
-	// Group by repo/name, pick only the latest version of each package.
-	// Since only one systemd unit per repo/package-name can be active, we
-	// reconcile only the highest version per repo+name pair.
-	type repoNameKey struct{ repo, name string }
-	byRepoName := map[repoNameKey]packages.PackageIdentity{}
-	for _, identity := range installed {
-		pi, err := packages.ParsePackageIdentity(identity)
-		if err != nil {
-			slog.Error(fmt.Sprintf("reconcile: parse %q: %v", identity, err))
-			continue
+	// Reconcile pages: ensure subvolumes, symlinks, and the Caddy unit.
+	if cfg.PagesManager != nil {
+		if err := reconcilePages(ctx, cfg); err != nil {
+			slog.Error(fmt.Sprintf("reconcile: pages: %v", err))
 		}
-
-		key := repoNameKey{pi.Repo, pi.Name}
-		existing, ok := byRepoName[key]
-		if !ok || packages.CompareVersions(pi.Version, existing.Version) > 0 {
-			byRepoName[key] = pi
-		}
-	}
-
-	defQuota := reconcileDefaultQuota(cfg.SettingsMgr)
-
-	for _, pi := range byRepoName {
-		identity := pi.String()
-		if err := reconcilePackage(ctx, cfg, pi, defQuota); err != nil {
-			slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
-			continue
-		}
-
-		slog.Info("reconcile: restored " + identity)
 	}
 
 	return nil
@@ -301,6 +309,67 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 	filePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, repoName, pkgName, version)
 	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("write network state: %w", err)
+	}
+
+	return nil
+}
+
+// reconcilePages ensures all existing pages have btrfs subvolumes, symlinks,
+// and that the Caddy web server unit is installed and started.
+func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
+	if err := EnsurePagesWebroot(cfg.BtrfsBasePath); err != nil {
+		return fmt.Errorf("ensure pages webroot: %w", err)
+	}
+
+	pages, err := cfg.PagesManager.List()
+	if err != nil {
+		return fmt.Errorf("list pages: %w", err)
+	}
+
+	for _, page := range pages {
+		// Ensure subvolume exists.
+		if cfg.Storage != nil {
+			fsName := PagesVolumePrefix + "/" + page.Name
+			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: fsName}); err != nil {
+				slog.Debug(fmt.Sprintf("reconcile: pages subvolume %s: %v", page.Name, err))
+			}
+		}
+
+		// Ensure symlink exists.
+		if err := EnsurePageSymlink(cfg.BtrfsBasePath, page.Name); err != nil {
+			slog.Debug(fmt.Sprintf("reconcile: pages symlink %s: %v", page.Name, err))
+		}
+	}
+
+	// Write Caddyfile and install the Caddy unit.
+	caddyPort := cfg.CaddyPort
+	if caddyPort == "" {
+		caddyPort = DefaultCaddyPort
+	}
+
+	if _, err := WriteCaddyfile(cfg.BtrfsBasePath, caddyPort); err != nil {
+		return fmt.Errorf("write Caddyfile: %w", err)
+	}
+
+	if cfg.Systemd != nil {
+		caddyImage := cfg.CaddyImage
+		if caddyImage == "" {
+			caddyImage = DefaultCaddyImage
+		}
+
+		unit := GeneratePagesUnit(PagesUnitConfig{
+			BtrfsBasePath: cfg.BtrfsBasePath,
+			CaddyImage:    caddyImage,
+			CaddyPort:     caddyPort,
+		})
+
+		if err := cfg.Systemd.InstallUnit(ctx, unit.Name, unit.Content); err != nil {
+			return fmt.Errorf("install pages unit: %w", err)
+		}
+
+		if err := cfg.Systemd.SetStatus(ctx, unit.Name, systemd.Start); err != nil {
+			return fmt.Errorf("start pages unit: %w", err)
+		}
 	}
 
 	return nil

@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,15 +13,33 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 )
 
-func initPagesTestClient(t *testing.T) (*SystemdClient, *git.MockClient) {
-	t.Helper()
-	c, gitClient, _ := initPagesTestClientWithAudit(t)
-	return c, gitClient
+type pagesTestEnv struct {
+	Client    *SystemdClient
+	GitClient *git.MockClient
+	AuditMgr  account.AuditManager
+	Storage   *storage.MockBtrFSController
+	BtrfsBase string
 }
 
-func initPagesTestClientWithAudit(t *testing.T) (*SystemdClient, *git.MockClient, account.AuditManager) {
+func initPagesTestClient(t *testing.T) (*SystemdClient, *git.MockClient) {
+	t.Helper()
+	env := initPagesTestEnv(t)
+	return env.Client, env.GitClient
+}
+
+func initPagesTestClientWithAudit(t *testing.T) (*SystemdClient, account.AuditManager) {
+	t.Helper()
+	env := initPagesTestEnv(t)
+	return env.Client, env.AuditMgr
+}
+
+func initPagesTestEnv(t *testing.T) pagesTestEnv {
 	t.Helper()
 	mock := storage.InitBtrFSMock()
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("expected *storage.MockBtrFSController")
+	}
 
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -51,6 +70,7 @@ func initPagesTestClientWithAudit(t *testing.T) (*SystemdClient, *git.MockClient
 	pagesMgr := account.InitMockPagesManager()
 	gitClient := git.InitMockClient()
 
+	btrfsBase := t.TempDir()
 	ts := InitTestServer(ServerConfig{
 		Storage:       mock,
 		AccountMgr:    mgr,
@@ -58,7 +78,7 @@ func initPagesTestClientWithAudit(t *testing.T) (*SystemdClient, *git.MockClient
 		AuditMgr:      auditMgr,
 		PagesMgr:      pagesMgr,
 		Git:           gitClient,
-		BtrfsBasePath: t.TempDir(),
+		BtrfsBasePath: btrfsBase,
 	})
 	t.Cleanup(ts.Close)
 
@@ -77,7 +97,13 @@ func initPagesTestClientWithAudit(t *testing.T) (*SystemdClient, *git.MockClient
 	}
 	c.Token = resp.Token
 
-	return c, gitClient, auditMgr
+	return pagesTestEnv{
+		Client:    c,
+		GitClient: gitClient,
+		AuditMgr:  auditMgr,
+		Storage:   controller,
+		BtrfsBase: btrfsBase,
+	}
 }
 
 func TestHTTPCreatePageReturnsAsyncPending(t *testing.T) {
@@ -429,7 +455,7 @@ func TestHTTPRebuildArchivePageReturnsError(t *testing.T) {
 }
 
 func TestHTTPPagesAuditCreatePage(t *testing.T) {
-	c, _, auditMgr := initPagesTestClientWithAudit(t)
+	c, auditMgr := initPagesTestClientWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
@@ -462,7 +488,7 @@ func TestHTTPPagesAuditCreatePage(t *testing.T) {
 }
 
 func TestHTTPPagesAuditUpdatePage(t *testing.T) {
-	c, _, auditMgr := initPagesTestClientWithAudit(t)
+	c, auditMgr := initPagesTestClientWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
@@ -494,7 +520,7 @@ func TestHTTPPagesAuditUpdatePage(t *testing.T) {
 }
 
 func TestHTTPPagesAuditRemovePage(t *testing.T) {
-	c, _, auditMgr := initPagesTestClientWithAudit(t)
+	c, auditMgr := initPagesTestClientWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
@@ -525,7 +551,7 @@ func TestHTTPPagesAuditRemovePage(t *testing.T) {
 }
 
 func TestHTTPPagesAuditRebuildPage(t *testing.T) {
-	c, _, auditMgr := initPagesTestClientWithAudit(t)
+	c, auditMgr := initPagesTestClientWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
@@ -559,7 +585,7 @@ func TestHTTPPagesAuditRebuildPage(t *testing.T) {
 }
 
 func TestHTTPPagesAuditListExcluded(t *testing.T) {
-	c, _, auditMgr := initPagesTestClientWithAudit(t)
+	c, auditMgr := initPagesTestClientWithAudit(t)
 
 	// Call list pages - should NOT be audit logged.
 	if _, err := c.ListPages(context.TODO(), ListParams{}); err != nil {
@@ -605,5 +631,105 @@ func TestHTTPListPagesIncludesSourceType(t *testing.T) {
 		if p.Name == "git-page" && p.SourceType != account.PageSourceGit {
 			t.Errorf("expected source_type %q for git-page, got %q", account.PageSourceGit, p.SourceType)
 		}
+	}
+}
+
+func TestHTTPCreatePageCreatesSubvolume(t *testing.T) {
+	env := initPagesTestEnv(t)
+
+	_, err := env.Client.CreatePage(context.TODO(), "my-site", "", "", "site.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	fs := env.Storage.GetFilesystems()
+	found := false
+	for _, f := range fs {
+		if f.Name == "pages/my-site" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		names := make([]string, len(fs))
+		for i, f := range fs {
+			names[i] = f.Name
+		}
+		t.Fatalf("expected pages/my-site subvolume, got %v", names)
+	}
+}
+
+func TestHTTPRemovePageRemovesSubvolume(t *testing.T) {
+	env := initPagesTestEnv(t)
+
+	_, err := env.Client.CreatePage(context.TODO(), "my-site", "", "", "site.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	if err := env.Client.RemovePage(context.TODO(), "my-site"); err != nil {
+		t.Fatalf("RemovePage: %v", err)
+	}
+
+	fs := env.Storage.GetFilesystems()
+	for _, f := range fs {
+		if f.Name == "pages/my-site" {
+			t.Fatal("expected pages/my-site subvolume to be removed")
+		}
+	}
+}
+
+func TestHTTPCreatePageSymlinkCreated(t *testing.T) {
+	env := initPagesTestEnv(t)
+
+	// Ensure the webroot directory exists.
+	if err := EnsurePagesWebroot(env.BtrfsBase); err != nil {
+		t.Fatalf("EnsurePagesWebroot: %v", err)
+	}
+
+	_, err := env.Client.CreatePage(context.TODO(), "my-site", "", "", "site.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	linkPath := filepath.Join(env.BtrfsBase, PagesWebrootDir, "my-site")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+
+	expected := "/data/pages/my-site"
+	if target != expected {
+		t.Fatalf("expected symlink target %q, got %q", expected, target)
+	}
+}
+
+func TestHTTPRemovePageRemovesSymlink(t *testing.T) {
+	env := initPagesTestEnv(t)
+
+	// Ensure the webroot directory exists.
+	if err := EnsurePagesWebroot(env.BtrfsBase); err != nil {
+		t.Fatalf("EnsurePagesWebroot: %v", err)
+	}
+
+	_, err := env.Client.CreatePage(context.TODO(), "my-site", "", "", "site.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// Verify symlink was created.
+	linkPath := filepath.Join(env.BtrfsBase, PagesWebrootDir, "my-site")
+	if _, err := os.Readlink(linkPath); err != nil {
+		t.Fatalf("expected symlink to exist after create: %v", err)
+	}
+
+	// Remove the page.
+	if err := env.Client.RemovePage(context.TODO(), "my-site"); err != nil {
+		t.Fatalf("RemovePage: %v", err)
+	}
+
+	// Verify symlink was removed.
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Fatal("expected symlink to be removed after page removal")
 	}
 }

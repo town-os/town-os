@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -180,8 +181,8 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 7 {
-		t.Fatalf("expected 7 filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 8 {
+		t.Fatalf("expected 8 filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -192,17 +193,20 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	if fs[2].Name != "archives" {
 		t.Fatalf("expected root subvolume archives, got %s", fs[2].Name)
 	}
-	if fs[3].Name != "installed/repo-a" {
-		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[3].Name)
+	if fs[3].Name != "pages" {
+		t.Fatalf("expected root subvolume pages, got %s", fs[3].Name)
 	}
-	if fs[4].Name != "installed/repo-a/nginx" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[4].Name)
+	if fs[4].Name != "installed/repo-a" {
+		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[4].Name)
 	}
-	if fs[5].Name != "installed/repo-a/nginx/1.0" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[5].Name)
+	if fs[5].Name != "installed/repo-a/nginx" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[5].Name)
 	}
-	if fs[6].Name != "installed/repo-a/nginx/1.0/data" {
-		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[6].Name)
+	if fs[6].Name != "installed/repo-a/nginx/1.0" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[6].Name)
+	}
+	if fs[7].Name != "installed/repo-a/nginx/1.0/data" {
+		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[7].Name)
 	}
 }
 
@@ -695,8 +699,8 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 3 {
-		t.Fatalf("expected 3 root filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 4 {
+		t.Fatalf("expected 4 root filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -706,6 +710,9 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 	}
 	if fs[2].Name != "archives" {
 		t.Fatalf("expected root subvolume archives, got %s", fs[2].Name)
+	}
+	if fs[3].Name != "pages" {
+		t.Fatalf("expected root subvolume pages, got %s", fs[3].Name)
 	}
 
 	// No packages installed, so no systemd calls should have been made.
@@ -877,5 +884,113 @@ func TestReconcileGitSeedVolumeWithoutGitSkipped(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("expected empty dir, got %d entries", len(entries))
+	}
+}
+
+func TestReconcilePagesSubvolumesAndSymlinks(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, nil)
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+	controller, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("expected *storage.MockBtrFSController")
+	}
+
+	pagesMgr := account.InitMockPagesManager()
+	pagesMgr.Create("alpha-site", "", "", "alpha.example.com", account.PageSourceArchive, "", "") //nolint:errcheck // test setup
+	pagesMgr.Create("beta-site", "", "", "beta.example.com", account.PageSourceArchive, "", "")   //nolint:errcheck // test setup
+
+	btrfsBase := t.TempDir()
+
+	err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		PagesManager:   pagesMgr,
+		BtrfsBasePath:  btrfsBase,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Verify subvolumes were created: 4 root + 2 page subvolumes = 6.
+	fs := controller.GetFilesystems()
+	fsNames := map[string]bool{}
+	for _, f := range fs {
+		fsNames[f.Name] = true
+	}
+	if !fsNames["pages/alpha-site"] {
+		t.Fatal("expected pages/alpha-site subvolume")
+	}
+	if !fsNames["pages/beta-site"] {
+		t.Fatal("expected pages/beta-site subvolume")
+	}
+
+	// Verify symlinks were created.
+	for _, name := range []string{"alpha-site", "beta-site"} {
+		linkPath := filepath.Join(btrfsBase, PagesWebrootDir, name)
+		target, err := os.Readlink(linkPath)
+		if err != nil {
+			t.Fatalf("Readlink %s: %v", name, err)
+		}
+		expected := "/data/pages/" + name
+		if target != expected {
+			t.Fatalf("expected symlink target %q for %s, got %q", expected, name, target)
+		}
+	}
+}
+
+func TestReconcilePagesInstallsCaddyUnit(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, nil)
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+
+	pagesMgr := account.InitMockPagesManager()
+
+	btrfsBase := t.TempDir()
+
+	err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		PagesManager:   pagesMgr,
+		BtrfsBasePath:  btrfsBase,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+
+	// Should have InstallUnit + SetStatus(Start) for the Caddy unit.
+	var foundInstall, foundStart bool
+	for _, c := range calls {
+		if c.Method == "InstallUnit" {
+			name, ok := c.Args[0].(string)
+			if ok && name == PagesUnitName {
+				foundInstall = true
+			}
+		}
+		if c.Method == "SetStatus" {
+			name, ok := c.Args[0].(string)
+			if ok && name == PagesUnitName && c.Args[1] == systemd.Start {
+				foundStart = true
+			}
+		}
+	}
+
+	if !foundInstall {
+		t.Fatal("expected InstallUnit call for Caddy unit")
+	}
+	if !foundStart {
+		t.Fatal("expected SetStatus(Start) call for Caddy unit")
+	}
+
+	// Verify Caddyfile was written.
+	caddyPath := filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile")
+	if _, err := os.Stat(caddyPath); err != nil {
+		t.Fatalf("expected Caddyfile at %s: %v", caddyPath, err)
 	}
 }

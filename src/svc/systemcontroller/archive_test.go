@@ -488,6 +488,15 @@ func TestIsReservedFilesystemIncludesArchives(t *testing.T) {
 	}
 }
 
+func TestIsReservedFilesystemIncludesPages(t *testing.T) {
+	if !isReservedFilesystem(PagesVolumePrefix) {
+		t.Fatal("expected pages to be reserved")
+	}
+	if !isReservedFilesystem("pages/my-site") {
+		t.Fatal("expected pages/my-site to be reserved")
+	}
+}
+
 func TestServiceNameFromVolumePath(t *testing.T) {
 	tests := map[string]struct {
 		input string
@@ -519,6 +528,17 @@ func TestClassifyFilesystemSkipsArchives(t *testing.T) {
 	state, _ = classifyFilesystem("archives/staging-123")
 	if state != "" {
 		t.Fatalf("expected empty state for archives child, got %q", state)
+	}
+}
+
+func TestClassifyFilesystemSkipsPages(t *testing.T) {
+	state, _ := classifyFilesystem(PagesVolumePrefix)
+	if state != "" {
+		t.Fatalf("expected empty state for pages root, got %q", state)
+	}
+	state, _ = classifyFilesystem("pages/my-site")
+	if state != "" {
+		t.Fatalf("expected empty state for pages child, got %q", state)
 	}
 }
 

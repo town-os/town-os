@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,13 +14,25 @@ import (
 
 // --- Pages integration tests ---
 
+type pagesIntegrationEnv struct {
+	Client    *systemcontroller.SystemdClient
+	AuditMgr  account.AuditManager
+	BtrfsBase string
+}
+
 func initSystemControllerPagesTest(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
-	c, _ := initSystemControllerPagesTestWithAudit(t)
-	return c
+	env := initSystemControllerPagesEnv(t)
+	return env.Client
 }
 
 func initSystemControllerPagesTestWithAudit(t *testing.T) (*systemcontroller.SystemdClient, account.AuditManager) {
+	t.Helper()
+	env := initSystemControllerPagesEnv(t)
+	return env.Client, env.AuditMgr
+}
+
+func initSystemControllerPagesEnv(t *testing.T) pagesIntegrationEnv {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -81,7 +94,11 @@ func initSystemControllerPagesTestWithAudit(t *testing.T) (*systemcontroller.Sys
 	}
 	c.Token = resp.Token
 
-	return c, auditMgr
+	return pagesIntegrationEnv{
+		Client:    c,
+		AuditMgr:  auditMgr,
+		BtrfsBase: dir,
+	}
 }
 
 func TestPagesCreateAndList(t *testing.T) {
@@ -510,5 +527,62 @@ func TestPagesAuditListExcluded(t *testing.T) {
 		if e.Path == "/pages" {
 			t.Fatal("expected /pages (list) to be excluded from audit log")
 		}
+	}
+}
+
+func TestPagesCreateCreatesSymlink(t *testing.T) {
+	env := initSystemControllerPagesEnv(t)
+
+	// Ensure the webroot directory exists.
+	webrootDir := filepath.Join(env.BtrfsBase, "pages-webroot")
+	if err := os.MkdirAll(webrootDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	_, err := env.Client.CreatePage(context.TODO(), "my-site", "", "", "site.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	linkPath := filepath.Join(webrootDir, "my-site")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+
+	expected := "/data/pages/my-site"
+	if target != expected {
+		t.Fatalf("expected symlink target %q, got %q", expected, target)
+	}
+}
+
+func TestPagesRemoveRemovesSymlink(t *testing.T) {
+	env := initSystemControllerPagesEnv(t)
+
+	// Ensure the webroot directory exists.
+	webrootDir := filepath.Join(env.BtrfsBase, "pages-webroot")
+	if err := os.MkdirAll(webrootDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	_, err := env.Client.CreatePage(context.TODO(), "my-site", "", "", "site.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// Verify symlink exists.
+	linkPath := filepath.Join(webrootDir, "my-site")
+	if _, err := os.Readlink(linkPath); err != nil {
+		t.Fatalf("expected symlink to exist: %v", err)
+	}
+
+	// Remove the page.
+	if err := env.Client.RemovePage(context.TODO(), "my-site"); err != nil {
+		t.Fatalf("RemovePage: %v", err)
+	}
+
+	// Verify symlink was removed.
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Fatal("expected symlink to be removed after page removal")
 	}
 }

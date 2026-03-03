@@ -13,12 +13,13 @@ import (
 const (
 	PackagesVolumePrefix    = "installed"
 	UninstalledVolumePrefix = "uninstalled"
+	PagesVolumePrefix       = "pages"
 )
 
 // isReservedFilesystem returns true if the given name is one of the
 // system-managed volume prefixes that users must not create, modify, or delete.
 func isReservedFilesystem(name string) bool {
-	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume {
+	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix {
 		return true
 	}
 	if strings.HasPrefix(name, PackagesVolumePrefix+"/") {
@@ -28,6 +29,9 @@ func isReservedFilesystem(name string) bool {
 		return true
 	}
 	if strings.HasPrefix(name, ArchivesSubvolume+"/") {
+		return true
+	}
+	if strings.HasPrefix(name, PagesVolumePrefix+"/") {
 		return true
 	}
 	return false
@@ -45,12 +49,17 @@ func isPackageVolume(name string) bool {
 // display name with internal prefixes stripped. Root subvolumes (installed,
 // uninstalled, empty name) return empty state to signal they should be skipped.
 func classifyFilesystem(name string) (state, displayName string) {
-	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume {
+	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix {
 		return "", name
 	}
 
 	archivesPrefix := ArchivesSubvolume + "/"
 	if strings.HasPrefix(name, archivesPrefix) {
+		return "", name
+	}
+
+	pagesPrefix := PagesVolumePrefix + "/"
+	if strings.HasPrefix(name, pagesPrefix) {
 		return "", name
 	}
 

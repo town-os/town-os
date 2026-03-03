@@ -10,8 +10,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/storage"
 	"github.com/labstack/echo/v5"
 )
 
@@ -63,13 +65,34 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		return err
 	}
 
-	pagesDir := s.pagesBaseDir()
+	// Create the btrfs subvolume for this page's content.
+	st := s.Controller.GetStorage()
+	if st != nil {
+		fsName := PagesVolumePrefix + "/" + req.Name
+		if err := st.CreateFilesystem(storage.Filesystem{Name: fsName}); err != nil {
+			// Rollback: remove the page from the DB.
+			if rerr := mgr.Remove(req.Name); rerr != nil {
+				slog.Debug(fmt.Sprintf("pages rollback remove %s: %v", req.Name, rerr))
+			}
+			return fmt.Errorf("create pages subvolume: %w", err)
+		}
+	}
+
+	btrfsBase := s.Controller.GetBtrfsBasePath()
+	if btrfsBase != "" {
+		if err := EnsurePageSymlink(btrfsBase, req.Name); err != nil {
+			slog.Debug(fmt.Sprintf("pages symlink %s: %v", req.Name, err))
+		}
+	}
+
+	subvolPath := s.pagesSubvolumePath(req.Name)
 
 	switch req.SourceType {
 	case account.PageSourceGit:
 		// Clone the git repository asynchronously in the background.
 		gitClient := s.Controller.GetGitClient()
-		if gitClient != nil && pagesDir != "" {
+		pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
+		if gitClient != nil && btrfsBase != "" {
 			go func() {
 				cloneErr := gitClient.Clone(context.Background(), pagesDir, req.RepoURL, req.Name)
 
@@ -86,19 +109,9 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		}
 	case account.PageSourceContainerImage:
 		// Extract from container image asynchronously.
-		if pagesDir != "" {
+		if subvolPath != "" {
 			go func() {
-				targetDir := fmt.Sprintf("%s/%s", pagesDir, req.Name)
-				if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // admin-only endpoint
-					slog.Debug(fmt.Sprintf("pages mkdir %s: %v", targetDir, err))
-					status := "error"
-					if _, uerr := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
-						slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, uerr))
-					}
-					return
-				}
-
-				extractErr := reconcileExtractFromImage(context.Background(), req.Image, req.ImageDirectory, targetDir)
+				extractErr := reconcileExtractFromImage(context.Background(), req.Image, req.ImageDirectory, subvolPath)
 
 				status := "active"
 				if extractErr != nil {
@@ -155,12 +168,18 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 		return err
 	}
 
-	// Remove the cloned directory.
-	pagesDir := s.pagesBaseDir()
-	if pagesDir != "" {
-		targetDir := fmt.Sprintf("%s/%s", pagesDir, req.Name)
-		if err := os.RemoveAll(targetDir); err != nil {
-			slog.Debug(fmt.Sprintf("pages remove dir %s: %v", targetDir, err))
+	btrfsBase := s.Controller.GetBtrfsBasePath()
+	if btrfsBase != "" {
+		if err := RemovePageSymlink(btrfsBase, req.Name); err != nil {
+			slog.Debug(fmt.Sprintf("pages remove symlink %s: %v", req.Name, err))
+		}
+	}
+
+	st := s.Controller.GetStorage()
+	if st != nil {
+		fsName := PagesVolumePrefix + "/" + req.Name
+		if err := st.RemoveFilesystem(fsName); err != nil {
+			slog.Debug(fmt.Sprintf("pages remove subvolume %s: %v", req.Name, err))
 		}
 	}
 
@@ -203,12 +222,13 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return err
 	}
 
-	pagesDir := s.pagesBaseDir()
-	if pagesDir == "" {
+	btrfsBase := s.Controller.GetBtrfsBasePath()
+	if btrfsBase == "" {
 		return errors.New("pages directory not configured")
 	}
 
-	targetDir := fmt.Sprintf("%s/%s", pagesDir, page.Name)
+	targetDir := s.pagesSubvolumePath(page.Name)
+	pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
 
 	switch page.SourceType {
 	case account.PageSourceGit, "":
@@ -239,9 +259,6 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		}
 
 	case account.PageSourceContainerImage:
-		if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // admin-only endpoint
-			return fmt.Errorf("pages mkdir %s: %w", targetDir, err)
-		}
 		if err := reconcileExtractFromImage(c.Request().Context(), page.Image, page.ImageDirectory, targetDir); err != nil {
 			status := "error"
 			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
@@ -306,14 +323,9 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 		}
 	}()
 
-	pagesDir := s.pagesBaseDir()
-	if pagesDir == "" {
+	targetDir := s.pagesSubvolumePath(name)
+	if targetDir == "" {
 		return errors.New("pages directory not configured")
-	}
-
-	targetDir := fmt.Sprintf("%s/%s", pagesDir, name)
-	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // admin-only endpoint
-		return fmt.Errorf("create pages dir: %w", err)
 	}
 
 	ctx := c.Request().Context()
@@ -380,12 +392,11 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 	return c.JSON(200, updated)
 }
 
-// pagesBaseDir returns the base directory for page site clones.
-// It is stored alongside the btrfs base path under a "pages" subdirectory.
-func (s *SystemControllerHandlers) pagesBaseDir() string {
+// pagesSubvolumePath returns the filesystem path for a page's btrfs subvolume.
+func (s *SystemControllerHandlers) pagesSubvolumePath(name string) string {
 	base := s.Controller.GetBtrfsBasePath()
 	if base == "" {
 		return ""
 	}
-	return base + "/pages"
+	return filepath.Join(base, PagesVolumePrefix, name)
 }

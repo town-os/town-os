@@ -169,6 +169,7 @@ func run() (err error) {
 		Storage:                  st,
 		Systemd:                  sd,
 		SettingsMgr:              settingsMgr,
+		PagesManager:             pagesMgr,
 		BtrfsBasePath:            *btrfsPath,
 		NetworkControllerBinPath: *networkControllerBin,
 		NetworkStatePath:         *networkStatePath,
