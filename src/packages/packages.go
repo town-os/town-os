@@ -466,7 +466,9 @@ func (i *InputPackage) Validate() error {
 	// Exactly one of image, vm, or proton must provide a runtime.
 	hasImage := i.Image.URL != ""
 	hasVM := i.VM != nil
-	if hasImage && hasVM {
+
+	// VM is mutually exclusive with image and proton.
+	if hasVM && (hasImage || i.Proton != nil) {
 		return ErrMixedRuntime
 	}
 	if !hasImage && !hasVM && i.Proton == nil {
