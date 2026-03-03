@@ -284,7 +284,7 @@ export default function SystemSettings() {
           <h2 className="text-lg font-semibold">{t('settings.quota_title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
             {t('settings.quota_description')}{' '}
-            Current value: <strong>{formatBytes(t, currentQuota)}</strong>
+            {t('settings.current_value', { value: '' })}<strong>{formatBytes(t, currentQuota)}</strong>
           </p>
         </div>
 
@@ -322,7 +322,7 @@ export default function SystemSettings() {
           <h2 className="text-lg font-semibold">{t('settings.archive_size_title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
             {t('settings.archive_size_description')}{' '}
-            Current value: <strong>{formatBytesSize(t, currentMaxArchiveSize)}</strong>
+            {t('settings.current_value', { value: '' })}<strong>{formatBytesSize(t, currentMaxArchiveSize)}</strong>
           </p>
         </div>
 
@@ -360,7 +360,7 @@ export default function SystemSettings() {
           <h2 className="text-lg font-semibold">{t('settings.timeout_title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
             {t('settings.timeout_description')}{' '}
-            Current value: <strong>{formatDuration(t, currentUnpackTimeout)}</strong>
+            {t('settings.current_value', { value: '' })}<strong>{formatDuration(t, currentUnpackTimeout)}</strong>
           </p>
         </div>
 

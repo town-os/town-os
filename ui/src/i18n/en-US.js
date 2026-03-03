@@ -38,9 +38,9 @@ const enUS = {
   'dashboard.internal_ip': 'Internal IP:',
   'dashboard.copy_btn_label': 'Copy to clipboard',
   'dashboard.copied_label': 'Copied',
-  'dashboard.upgrade_available': '{count} package upgrade{count, plural, one {} other {s}} available',
+  'dashboard.upgrade_available': '{count} package upgrade{s} available',
   'dashboard.upgrade_view_details': 'View details',
-  'dashboard.failed_services': '{count} failed service{count, plural, one {} other {s}}',
+  'dashboard.failed_services': '{count} failed service{s}',
   'dashboard.loading': 'Loading...',
   'dashboard.stat_filesystems': 'Filesystems',
   'dashboard.stat_btrfs_subvolumes': 'Btrfs subvolumes',
@@ -54,6 +54,9 @@ const enUS = {
   'dashboard.stat_package_repositories': 'Package repositories',
   'dashboard.stat_audit_log': 'Audit Log',
   'dashboard.stat_no_errors': 'No errors',
+  'dashboard.stat_disk_usage': '{used} / {total} used',
+  'dashboard.stat_volumes_summary': '{installed} installed, {uninstalled} uninstalled volumes',
+  'dashboard.stat_errors': '{count} error{s}',
   'dashboard.stat_last_5_minutes': 'Last 5 minutes',
 
   // --- Navigation ---
@@ -372,6 +375,7 @@ const enUS = {
   'settings.language_description': 'Select the display language for the Town OS interface.',
   'settings.language_label': 'Language',
   'settings.toast_language_updated': 'Language updated',
+  'settings.current_value': 'Current value: {value}',
   'settings.show_all_locales': 'Show all country codes',
   'settings.hide_all_locales': 'Hide country codes',
 

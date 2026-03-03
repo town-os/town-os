@@ -69,7 +69,7 @@ function UpgradeBanner({ count, onDismiss, dismissing, t }) {
         <ArrowUpCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
         <div>
           <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-            {count} package upgrade{count !== 1 ? 's' : ''} available
+            {t('dashboard.upgrade_available', { count, s: count !== 1 ? 's' : '' })}
           </p>
           <Link to="/dashboard/packages" className="text-xs text-blue-700 dark:text-blue-300 underline">
             {t('dashboard.upgrade_view_details')}
@@ -150,7 +150,7 @@ export default function DashboardHome() {
       {ping && ping.units && ping.units.failed > 0 && (
         <div className="flex items-center gap-2">
           <Badge variant="destructive">
-            {ping.units.failed} failed service{ping.units.failed !== 1 ? 's' : ''}
+            {t('dashboard.failed_services', { count: ping.units.failed, s: ping.units.failed !== 1 ? 's' : '' })}
           </Badge>
         </div>
       )}
@@ -167,9 +167,9 @@ export default function DashboardHome() {
           value={ping?.filesystems}
           description={
             ping?.disk_usage
-              ? `${formatBytes(ping.disk_usage.used)} / ${formatBytes(ping.disk_usage.total)} used`
+              ? t('dashboard.stat_disk_usage', { used: formatBytes(ping.disk_usage.used), total: formatBytes(ping.disk_usage.total) })
               : ping && (ping.installed_volumes || ping.uninstalled_volumes)
-                ? `${ping.installed_volumes || 0} installed, ${ping.uninstalled_volumes || 0} uninstalled volumes`
+                ? t('dashboard.stat_volumes_summary', { installed: ping.installed_volumes || 0, uninstalled: ping.uninstalled_volumes || 0 })
                 : t('dashboard.stat_btrfs_subvolumes')
           }
         />
@@ -213,7 +213,7 @@ export default function DashboardHome() {
           label={t('dashboard.stat_audit_log')}
           value={
             ping?.recent_errors > 0
-              ? `${ping.recent_errors} error${ping.recent_errors !== 1 ? 's' : ''}`
+              ? t('dashboard.stat_errors', { count: ping.recent_errors, s: ping.recent_errors !== 1 ? 's' : '' })
               : t('dashboard.stat_no_errors')
           }
           description={t('dashboard.stat_last_5_minutes')}
