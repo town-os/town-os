@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, RefreshCw, Upload } from 'lucide-react'
+import { Loader2, Plus, RefreshCw, Upload } from 'lucide-react'
 
 const SOURCE_TYPE_LABELS = {
   archive: 'Archive Upload',
@@ -47,6 +47,12 @@ export default function PagesManagement() {
   const [sortDirection, setSortDirection] = useState('asc')
   const [search, setSearch] = useState('')
   const [createSourceType, setCreateSourceType] = useState('archive')
+  const [provisioning, setProvisioning] = useState(false)
+  const cancelPollingRef = useRef(false)
+
+  useEffect(() => {
+    return () => { cancelPollingRef.current = true }
+  }, [])
 
   const [pageData, refresh, loading] = usePolling(
     () => getClient().listPages(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, search || undefined),
@@ -57,6 +63,19 @@ export default function PagesManagement() {
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
+  }
+
+  async function pollPageStatus(name) {
+    const maxAttempts = 30
+    for (let i = 0; i < maxAttempts; i++) {
+      if (cancelPollingRef.current) return 'pending'
+      await new Promise((r) => setTimeout(r, 2000))
+      if (cancelPollingRef.current) return 'pending'
+      const result = await getClient().listPages()
+      const found = (result.entries || []).find((p) => p.name === name)
+      if (found && found.status !== 'pending') return found.status
+    }
+    return 'pending'
   }
 
   async function handleCreate(e) {
@@ -78,8 +97,15 @@ export default function PagesManagement() {
           toast.error(t('pages.error_repo_required'))
           return
         }
+        setProvisioning(true)
+        cancelPollingRef.current = false
         await getClient().createPage(name, repoURL, branch, domain, 'git', '', '')
-        toast.success(t('pages.toast_created'))
+        const finalStatus = await pollPageStatus(name)
+        if (finalStatus === 'active') {
+          toast.success(t('pages.toast_provisioned'))
+        } else {
+          toast.error(t('pages.toast_provision_failed'))
+        }
       } else if (createSourceType === 'container_image') {
         const image = form.image.value.trim()
         const imageDirectory = form.image_directory.value.trim()
@@ -91,24 +117,35 @@ export default function PagesManagement() {
           toast.error('Image directory is required')
           return
         }
+        setProvisioning(true)
+        cancelPollingRef.current = false
         await getClient().createPage(name, '', '', domain, 'container_image', image, imageDirectory)
-        toast.success(t('pages.toast_created'))
+        const finalStatus = await pollPageStatus(name)
+        if (finalStatus === 'active') {
+          toast.success(t('pages.toast_provisioned'))
+        } else {
+          toast.error(t('pages.toast_provision_failed'))
+        }
       } else {
         // archive
         const archiveFile = form.archive?.files?.[0]
-        const created = await getClient().createPage(name, '', '', domain, 'archive', '', '')
         if (archiveFile) {
+          setProvisioning(true)
+          const created = await getClient().createPage(name, '', '', domain, 'archive', '', '')
           await getClient().uploadPageArchive(created.name, archiveFile)
-          toast.success(t('pages.toast_created'))
+          toast.success(t('pages.toast_provisioned'))
         } else {
+          await getClient().createPage(name, '', '', domain, 'archive', '', '')
           toast.success(t('pages.toast_created'))
         }
       }
+      setProvisioning(false)
       setCreateDialog(false)
       setCreateSourceType('archive')
       doRefresh()
     } catch (err) {
       toast.error(err.detail || err.message)
+      setProvisioning(false)
     }
   }
 
@@ -211,7 +248,8 @@ export default function PagesManagement() {
       label: t('pages.col_status'),
       transform: (v) => (
         <Badge variant={v === 'active' ? 'default' : v === 'error' ? 'destructive' : 'secondary'}>
-          {v}
+          {v === 'pending' && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+          {v === 'pending' ? t('pages.status_provisioning') : v}
         </Badge>
       ),
     },
@@ -306,13 +344,14 @@ export default function PagesManagement() {
       />
 
       {/* Create dialog */}
-      <Dialog open={createDialog} onOpenChange={(v) => { if (!v) { setCreateDialog(false); setCreateSourceType('archive') } }}>
+      <Dialog open={createDialog} onOpenChange={(v) => { if (!v && !provisioning) { setCreateDialog(false); setCreateSourceType('archive') } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('pages.create_dialog_title')}</DialogTitle>
             <DialogDescription>{t('pages.create_dialog_description')}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate}>
+            <fieldset disabled={provisioning}>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="create-source-type">Source Type</Label>
@@ -375,11 +414,21 @@ export default function PagesManagement() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => { setCreateDialog(false); setCreateSourceType('archive') }}>
+              <Button variant="outline" type="button" disabled={provisioning} onClick={() => { setCreateDialog(false); setCreateSourceType('archive') }}>
                 {t('pages.cancel_btn')}
               </Button>
-              <Button type="submit">{t('pages.create_submit')}</Button>
+              <Button type="submit" disabled={provisioning}>
+                {provisioning ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    {t('pages.create_submit_provisioning')}
+                  </>
+                ) : (
+                  t('pages.create_submit')
+                )}
+              </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

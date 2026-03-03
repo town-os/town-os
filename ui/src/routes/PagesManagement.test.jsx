@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -251,7 +251,7 @@ describe('PagesManagement component', () => {
     })
   })
 
-  it('displays pending status with secondary badge', async () => {
+  it('displays pending status with provisioning spinner', async () => {
     mockListPages.mockResolvedValueOnce({
       entries: [
         {
@@ -273,8 +273,12 @@ describe('PagesManagement component', () => {
     })
     renderPages()
     await waitFor(() => {
-      expect(screen.getByText('pending')).toBeTruthy()
+      expect(screen.getByText('Provisioning')).toBeTruthy()
     })
+    // Verify the spinner icon is present (Loader2 renders as an SVG with animate-spin)
+    const badge = screen.getByText('Provisioning').closest('[class*="badge"]') || screen.getByText('Provisioning').parentElement
+    const spinner = badge.querySelector('.animate-spin')
+    expect(spinner).toBeTruthy()
   })
 
   it('displays archive source type badge', async () => {
@@ -549,5 +553,354 @@ describe('PagesManagement component', () => {
       expect(screen.getByDisplayValue('nginx:latest')).toBeTruthy()
       expect(screen.getByDisplayValue('/usr/share/nginx/html')).toBeTruthy()
     })
+  })
+})
+
+describe('PagesManagement provisioning behavior', () => {
+  beforeAll(() => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    // Radix UI pointer capture methods not available in jsdom
+    HTMLElement.prototype.hasPointerCapture = () => false
+    HTMLElement.prototype.setPointerCapture = () => {}
+    HTMLElement.prototype.releasePointerCapture = () => {}
+    HTMLElement.prototype.scrollIntoView = () => {}
+  })
+
+  beforeEach(() => {
+    mockListPages.mockClear()
+    mockCreatePage.mockClear()
+    mockUpdatePage.mockClear()
+    mockRemovePage.mockClear()
+    mockRebuildPage.mockClear()
+    mockUploadPageArchive.mockClear()
+  })
+
+  function setFileOnInput(input, file) {
+    Object.defineProperty(input, 'files', {
+      value: [file],
+      configurable: true,
+    })
+  }
+
+  async function selectSourceType(label) {
+    const trigger = screen.getByRole('combobox')
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: label })).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('option', { name: label }))
+  }
+
+  it('archive page without file closes immediately', async () => {
+    mockListPages.mockResolvedValue({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    mockCreatePage.mockResolvedValue({
+      name: 'my-archive',
+      source_type: 'archive',
+      status: 'pending',
+    })
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'my-archive' } })
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(mockCreatePage).toHaveBeenCalled()
+    })
+    // Spinner should not appear for archive without file
+    await waitFor(() => {
+      expect(screen.queryByText('Provisioning...')).toBeNull()
+    })
+  })
+
+  it('archive page with file shows provisioning spinner during upload', async () => {
+    mockListPages.mockResolvedValue({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    mockCreatePage.mockResolvedValue({
+      name: 'my-archive',
+      source_type: 'archive',
+      status: 'pending',
+    })
+
+    let resolveUpload
+    mockUploadPageArchive.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveUpload = resolve
+      }),
+    )
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'my-archive' } })
+
+    const file = new File(['content'], 'site.tar.gz', { type: 'application/gzip' })
+    setFileOnInput(screen.getByLabelText('Archive File'), file)
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Provisioning...')).toBeTruthy()
+    })
+
+    resolveUpload({ name: 'my-archive', source_type: 'archive', status: 'active' })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Provisioning...')).toBeNull()
+    })
+  })
+
+  it('form inputs disabled during provisioning', async () => {
+    mockListPages.mockResolvedValue({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    mockCreatePage.mockResolvedValue({
+      name: 'my-archive',
+      source_type: 'archive',
+      status: 'pending',
+    })
+    mockUploadPageArchive.mockReturnValueOnce(new Promise(() => {}))
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'my-archive' } })
+
+    const file = new File(['content'], 'site.tar.gz', { type: 'application/gzip' })
+    setFileOnInput(screen.getByLabelText('Archive File'), file)
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Provisioning...')).toBeTruthy()
+    })
+
+    const fieldset = screen.getByLabelText('Name').closest('fieldset')
+    expect(fieldset.disabled).toBe(true)
+  })
+
+  it('dialog cannot be closed during provisioning', async () => {
+    mockListPages.mockResolvedValue({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    mockCreatePage.mockResolvedValue({
+      name: 'my-archive',
+      source_type: 'archive',
+      status: 'pending',
+    })
+    mockUploadPageArchive.mockReturnValueOnce(new Promise(() => {}))
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'my-archive' } })
+
+    const file = new File(['content'], 'site.tar.gz', { type: 'application/gzip' })
+    setFileOnInput(screen.getByLabelText('Archive File'), file)
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Provisioning...')).toBeTruthy()
+    })
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    // Dialog should still be open
+    expect(screen.getByText('Provisioning...')).toBeTruthy()
+  })
+
+  it('git page shows spinner and closes on active status after polling', async () => {
+    mockCreatePage.mockResolvedValueOnce({
+      name: 'git-site',
+      source_type: 'git',
+      status: 'pending',
+    })
+    // Initial load
+    mockListPages.mockResolvedValueOnce({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    // First poll returns active
+    mockListPages.mockResolvedValueOnce({
+      entries: [{ name: 'git-site', source_type: 'git', status: 'active' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    // Subsequent calls
+    mockListPages.mockResolvedValue({
+      entries: [{ name: 'git-site', source_type: 'git', status: 'active' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await selectSourceType('Git Repository')
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'git-site' } })
+    fireEvent.change(screen.getByLabelText('Repository URL'), {
+      target: { value: 'https://github.com/user/repo.git' },
+    })
+
+    // Install fake timers just before submit so polling setTimeout is controlled
+    vi.useFakeTimers()
+
+    fireEvent.click(screen.getByText('Create'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(screen.getByText('Provisioning...')).toBeTruthy()
+
+    // Advance past the 2s poll delay
+    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(screen.queryByText('Provisioning...')).toBeNull()
+
+    vi.useRealTimers()
+  })
+
+  it('git page shows error toast when polling finds error status', async () => {
+    mockCreatePage.mockResolvedValueOnce({
+      name: 'git-site',
+      source_type: 'git',
+      status: 'pending',
+    })
+    mockListPages.mockResolvedValueOnce({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    // Poll returns error status
+    mockListPages.mockResolvedValueOnce({
+      entries: [{ name: 'git-site', source_type: 'git', status: 'error' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    mockListPages.mockResolvedValue({
+      entries: [{ name: 'git-site', source_type: 'git', status: 'error' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await selectSourceType('Git Repository')
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'git-site' } })
+    fireEvent.change(screen.getByLabelText('Repository URL'), {
+      target: { value: 'https://github.com/user/repo.git' },
+    })
+
+    vi.useFakeTimers()
+
+    fireEvent.click(screen.getByText('Create'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(screen.getByText('Provisioning...')).toBeTruthy()
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(screen.queryByText('Provisioning...')).toBeNull()
+
+    vi.useRealTimers()
+  })
+
+  it('container image page polls until active', async () => {
+    mockCreatePage.mockResolvedValueOnce({
+      name: 'image-site',
+      source_type: 'container_image',
+      status: 'pending',
+    })
+    mockListPages.mockResolvedValueOnce({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    mockListPages.mockResolvedValueOnce({
+      entries: [{ name: 'image-site', source_type: 'container_image', status: 'active' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    mockListPages.mockResolvedValue({
+      entries: [{ name: 'image-site', source_type: 'container_image', status: 'active' }],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+
+    renderPages()
+    await waitFor(() => expect(screen.getByText('Create Page')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Create Page'))
+    await selectSourceType('Container Image')
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'image-site' } })
+    fireEvent.change(screen.getByLabelText('Container Image'), {
+      target: { value: 'nginx:latest' },
+    })
+    fireEvent.change(screen.getByLabelText('Image Directory'), {
+      target: { value: '/usr/share/nginx/html' },
+    })
+
+    vi.useFakeTimers()
+
+    fireEvent.click(screen.getByText('Create'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(screen.getByText('Provisioning...')).toBeTruthy()
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(screen.queryByText('Provisioning...')).toBeNull()
+
+    vi.useRealTimers()
   })
 })

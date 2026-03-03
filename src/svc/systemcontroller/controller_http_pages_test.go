@@ -1,10 +1,14 @@
 package systemcontroller
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -736,25 +740,87 @@ func TestHTTPRemovePageRemovesSymlink(t *testing.T) {
 	}
 }
 
-func TestHTTPUploadPageArchiveWrongSourceType(t *testing.T) {
-	c, _ := initPagesTestClient(t)
+// createTestTarGz builds a small gzip-compressed tar archive containing a
+// single index.html file, suitable for upload handler tests.
+func createTestTarGz(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
 
-	// Create a git page, then try to upload an archive to it.
-	_, err := c.CreatePage(context.TODO(), "git-site", "https://github.com/user/site.git", "main", "git.example.com", account.PageSourceGit, "", "")
+	content := []byte("<html><body>Hello</body></html>")
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "index.html",
+		Size: int64(len(content)),
+		Mode: 0o644,
+	}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar.Close: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip.Close: %v", err)
+	}
+	return &buf
+}
+
+func TestHTTPUploadPageArchive(t *testing.T) {
+	if _, err := exec.LookPath("pigz"); err != nil {
+		t.Skip("pigz not installed")
+	}
+	env := initPagesTestEnv(t)
+
+	_, err := env.Client.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	_, err = c.UploadPageArchive(context.TODO(), "git-site", strings.NewReader("dummy"), "dummy.tar.gz")
-	if err == nil {
-		t.Fatal("expected error when uploading archive to git-type page")
+	// Create the target directory since mock btrfs doesn't create real dirs.
+	targetDir := filepath.Join(env.BtrfsBase, PagesVolumePrefix, "archive-site")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	archive := createTestTarGz(t)
+	page, err := env.Client.UploadPageArchive(context.TODO(), "archive-site", archive, "site.tar.gz")
+	if err != nil {
+		t.Fatalf("UploadPageArchive: %v", err)
+	}
+
+	if page.Status != "active" {
+		t.Errorf("expected status %q, got %q", "active", page.Status)
+	}
+
+	// Verify extracted file exists.
+	if _, err := os.Stat(filepath.Join(targetDir, "index.html")); err != nil {
+		t.Errorf("expected index.html to exist after upload: %v", err)
 	}
 }
 
-func TestHTTPUploadPageArchivePageNotFound(t *testing.T) {
-	c, _ := initPagesTestClient(t)
+func TestHTTPUploadPageArchiveNonArchivePage(t *testing.T) {
+	env := initPagesTestEnv(t)
 
-	_, err := c.UploadPageArchive(context.TODO(), "nonexistent", strings.NewReader("dummy"), "dummy.tar.gz")
+	_, err := env.Client.CreatePage(context.TODO(), "git-site", "https://github.com/user/site.git", "main", "git.example.com", account.PageSourceGit, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	archive := createTestTarGz(t)
+	_, err = env.Client.UploadPageArchive(context.TODO(), "git-site", archive, "site.tar.gz")
+	if err == nil {
+		t.Fatal("expected error when uploading to non-archive page")
+	}
+}
+
+func TestHTTPUploadPageArchiveNotFound(t *testing.T) {
+	env := initPagesTestEnv(t)
+
+	archive := createTestTarGz(t)
+	_, err := env.Client.UploadPageArchive(context.TODO(), "nonexistent", archive, "site.tar.gz")
 	if err == nil {
 		t.Fatal("expected error when uploading to nonexistent page")
 	}
@@ -920,6 +986,9 @@ func TestHTTPPagesAuditUploadPageArchive(t *testing.T) {
 	for _, e := range page.Entries {
 		if e.Action == "upload page archive" && e.Path == "/pages/upload" {
 			found = true
+			if e.Account != "testadmin" {
+				t.Fatalf("expected account %q, got %q", "testadmin", e.Account)
+			}
 			break
 		}
 	}
