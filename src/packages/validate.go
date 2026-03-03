@@ -22,6 +22,7 @@ var (
 	envKeyRegexp      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 	questionRegexp    = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
 	volumeNameRegexp  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	imageRefRegexp    = regexp.MustCompile(`^[a-zA-Z0-9@][a-zA-Z0-9._:/@-]*$`)
 )
 
 // NormalizeImageURL normalizes a container image reference:
@@ -82,10 +83,17 @@ func NormalizeImageURL(image string) string {
 	return image
 }
 
-// ValidateImageURL checks that a container image reference is non-empty.
+// ValidateImageURL checks that a container image reference is non-empty and
+// contains only characters valid in OCI image references. Shell metacharacters
+// (;, $, backticks, spaces, etc.) are rejected to prevent command injection.
+// The @ character is allowed for template variables (e.g. "debian:@tag@") and
+// digest references.
 func ValidateImageURL(image string) error {
 	if image == "" {
 		return fmt.Errorf("%w: image must not be empty", ErrInvalidImage)
+	}
+	if !imageRefRegexp.MatchString(image) {
+		return fmt.Errorf("%w: %q contains invalid characters", ErrInvalidImage, image)
 	}
 	return nil
 }

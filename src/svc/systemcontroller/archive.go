@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +39,56 @@ var (
 	ErrUnpackTimeout      = errors.New("archive unpack timed out")
 	ErrPathTraversal      = errors.New("archive contains path traversal")
 	ErrInvalidTar         = errors.New("archive does not contain a valid tar stream")
+	ErrInvalidArchivePath = errors.New("invalid archive path")
+	ErrSubvolumeTraversal = errors.New("path escapes subvolume base directory")
+	ErrInvalidServiceName = errors.New("invalid systemd service name")
 )
+
+// serviceNameRegexp matches valid systemd unit names: alphanumerics, dashes,
+// underscores, dots, and @ (for template instances), ending with a unit type
+// suffix like .service, .timer, .mount, etc.
+var serviceNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9@._-]+\.(service|timer|mount|socket|target|slice|scope)$`)
+
+// validateArchivePaths checks that none of the user-supplied paths contain
+// directory traversal sequences or start with a dash (which could be
+// interpreted as tar flags).
+func validateArchivePaths(paths []string) error {
+	for _, p := range paths {
+		if strings.HasPrefix(p, "-") {
+			return fmt.Errorf("%w: path must not start with dash: %q", ErrInvalidArchivePath, p)
+		}
+		cleaned := filepath.Clean(p)
+		if strings.Contains(cleaned, "..") {
+			return fmt.Errorf("%w: path must not contain traversal: %q", ErrInvalidArchivePath, p)
+		}
+	}
+	return nil
+}
+
+// safeSubvolumePath joins components onto basePath, cleans the result, and
+// verifies that it stays within basePath. Returns ErrSubvolumeTraversal if the
+// resolved path escapes the base directory.
+func safeSubvolumePath(basePath string, components ...string) (string, error) {
+	parts := append([]string{basePath}, components...)
+	joined := filepath.Clean(filepath.Join(parts...))
+	base := filepath.Clean(basePath)
+	if joined != base && !strings.HasPrefix(joined, base+"/") {
+		return "", fmt.Errorf("%w: %q is outside %q", ErrSubvolumeTraversal, joined, base)
+	}
+	return joined, nil
+}
+
+// validateServiceName checks that a systemd unit name matches the expected
+// format. Empty names are allowed (meaning no service operation).
+func validateServiceName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if !serviceNameRegexp.MatchString(name) {
+		return fmt.Errorf("%w: %q", ErrInvalidServiceName, name)
+	}
+	return nil
+}
 
 type ArchiveUploadResponse struct {
 	NeedsRestart bool   `json:"needs_restart"`
@@ -367,9 +417,15 @@ func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, 
 	}
 
 	basePath := s.Controller.GetBtrfsBasePath()
-	targetPath := filepath.Join(basePath, targetSubvol)
+	targetPath, err := safeSubvolumePath(basePath, targetSubvol)
+	if err != nil {
+		return err
+	}
 	if subpath != "" {
-		targetPath = filepath.Join(targetPath, subpath)
+		targetPath, err = safeSubvolumePath(basePath, targetSubvol, subpath)
+		if err != nil {
+			return err
+		}
 		if err := os.MkdirAll(targetPath, 0755); err != nil { //nolint:gosec // admin-only endpoint
 			return fmt.Errorf("create subpath directory: %w", err)
 		}
@@ -556,7 +612,10 @@ func (s *SystemControllerHandlers) unpackPlainTar(ctx context.Context, cr *count
 // from it into the target subvolume.
 func (s *SystemControllerHandlers) extractFromContainerImage(ctx context.Context, image, directory, targetSubvol string) error {
 	basePath := s.Controller.GetBtrfsBasePath()
-	targetPath := filepath.Join(basePath, targetSubvol)
+	targetPath, err := safeSubvolumePath(basePath, targetSubvol)
+	if err != nil {
+		return err
+	}
 
 	return reconcileExtractFromImage(ctx, image, directory, targetPath)
 }
@@ -571,6 +630,10 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 
 	subpath := c.FormValue("subpath")
 	stopService := c.FormValue("stop_service")
+
+	if err := validateServiceName(stopService); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
 	// Check Content-Length against max size.
 	if c.Request().ContentLength > 0 {
@@ -642,6 +705,14 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "unsupported download format: "+format)
 	}
 
+	if err := validateServiceName(req.StopService); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if err := validateArchivePaths(req.Paths); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	ctx := c.Request().Context()
 	sd := s.Controller.GetSystemdManager()
 
@@ -658,7 +729,10 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	}
 
 	basePath := s.Controller.GetBtrfsBasePath()
-	subvolPath := filepath.Clean(filepath.Join(basePath, req.Subvolume))
+	subvolPath, err := safeSubvolumePath(basePath, req.Subvolume)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
 	// Build tar command rooted at the subvolume, archiving specific paths or everything.
 	prog := compressProgramArg(format)
@@ -669,12 +743,13 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		args = []string{"-cf", "-", "-C", subvolPath}
 	}
 	if len(req.Paths) > 0 {
+		args = append(args, "--")
 		args = append(args, req.Paths...)
 	} else {
 		args = append(args, ".")
 	}
 
-	cmd := exec.CommandContext(ctx, "tar", args...) //nolint:gosec // args constructed from controlled values above
+	cmd := exec.CommandContext(ctx, "tar", args...) //nolint:gosec // G204: paths validated by validateArchivePaths, subvolPath by safeSubvolumePath
 	cmd.Stdout = c.Response()
 
 	stderrPipe, err := cmd.StderrPipe()

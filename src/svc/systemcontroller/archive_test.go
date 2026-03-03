@@ -314,6 +314,171 @@ func TestGitCloneIntoPath(t *testing.T) {
 	})
 }
 
+func TestValidateArchivePaths(t *testing.T) {
+	t.Run("valid paths", func(t *testing.T) {
+		paths := []string{"dir/file.txt", ".", "somedir", "a/b/c"}
+		if err := validateArchivePaths(paths); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		if err := validateArchivePaths(nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("rejects dash prefix", func(t *testing.T) {
+		paths := []string{"safe", "--checkpoint-action=exec=whoami"}
+		err := validateArchivePaths(paths)
+		if err == nil {
+			t.Fatal("expected error for dash-prefixed path")
+		}
+		if !errors.Is(err, ErrInvalidArchivePath) {
+			t.Fatalf("expected ErrInvalidArchivePath, got %v", err)
+		}
+	})
+
+	t.Run("rejects short dash", func(t *testing.T) {
+		err := validateArchivePaths([]string{"-rf"})
+		if err == nil {
+			t.Fatal("expected error for dash-prefixed path")
+		}
+		if !errors.Is(err, ErrInvalidArchivePath) {
+			t.Fatalf("expected ErrInvalidArchivePath, got %v", err)
+		}
+	})
+
+	t.Run("rejects traversal", func(t *testing.T) {
+		err := validateArchivePaths([]string{"../../etc/passwd"})
+		if err == nil {
+			t.Fatal("expected error for traversal path")
+		}
+		if !errors.Is(err, ErrInvalidArchivePath) {
+			t.Fatalf("expected ErrInvalidArchivePath, got %v", err)
+		}
+	})
+
+	t.Run("rejects embedded traversal", func(t *testing.T) {
+		err := validateArchivePaths([]string{"foo/../../etc/shadow"})
+		if err == nil {
+			t.Fatal("expected error for embedded traversal")
+		}
+		if !errors.Is(err, ErrInvalidArchivePath) {
+			t.Fatalf("expected ErrInvalidArchivePath, got %v", err)
+		}
+	})
+}
+
+func TestSafeSubvolumePath(t *testing.T) {
+	t.Run("valid simple", func(t *testing.T) {
+		got, err := safeSubvolumePath("/mnt/data", "mysubvol")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "/mnt/data/mysubvol" {
+			t.Fatalf("expected /mnt/data/mysubvol, got %s", got)
+		}
+	})
+
+	t.Run("valid with subpath", func(t *testing.T) {
+		got, err := safeSubvolumePath("/mnt/data", "subvol", "subdir")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "/mnt/data/subvol/subdir" {
+			t.Fatalf("expected /mnt/data/subvol/subdir, got %s", got)
+		}
+	})
+
+	t.Run("rejects traversal escape", func(t *testing.T) {
+		_, err := safeSubvolumePath("/mnt/data", "../../../etc")
+		if err == nil {
+			t.Fatal("expected error for traversal escape")
+		}
+		if !errors.Is(err, ErrSubvolumeTraversal) {
+			t.Fatalf("expected ErrSubvolumeTraversal, got %v", err)
+		}
+	})
+
+	t.Run("rejects subpath traversal", func(t *testing.T) {
+		_, err := safeSubvolumePath("/mnt/data", "subvol", "../../escape")
+		if err == nil {
+			t.Fatal("expected error for subpath traversal")
+		}
+		if !errors.Is(err, ErrSubvolumeTraversal) {
+			t.Fatalf("expected ErrSubvolumeTraversal, got %v", err)
+		}
+	})
+
+	t.Run("cleans redundant separators", func(t *testing.T) {
+		got, err := safeSubvolumePath("/mnt/data", "subvol//subdir/")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "/mnt/data/subvol/subdir" {
+			t.Fatalf("expected /mnt/data/subvol/subdir, got %s", got)
+		}
+	})
+
+	t.Run("base path itself is allowed", func(t *testing.T) {
+		got, err := safeSubvolumePath("/mnt/data", ".")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "/mnt/data" {
+			t.Fatalf("expected /mnt/data, got %s", got)
+		}
+	})
+}
+
+func TestValidateServiceName(t *testing.T) {
+	t.Run("empty is allowed", func(t *testing.T) {
+		if err := validateServiceName(""); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	valid := []string{
+		"town-os-package--repo-app-1.0.service",
+		"nginx.service",
+		"my-app@instance.service",
+		"backup.timer",
+		"data.mount",
+		"web.socket",
+		"multi-user.target",
+	}
+	for _, name := range valid {
+		t.Run("valid/"+name, func(t *testing.T) {
+			if err := validateServiceName(name); err != nil {
+				t.Fatalf("expected %q to be valid: %v", name, err)
+			}
+		})
+	}
+
+	invalid := []string{
+		"noextension",
+		"bad; rm -rf /.service",
+		"$(whoami).service",
+		"foo`id`.service",
+		"foo bar.service",
+		".service",
+		"bad.exe",
+		"../etc/passwd",
+	}
+	for _, name := range invalid {
+		t.Run("invalid/"+name, func(t *testing.T) {
+			err := validateServiceName(name)
+			if err == nil {
+				t.Fatalf("expected %q to be invalid", name)
+			}
+			if !errors.Is(err, ErrInvalidServiceName) {
+				t.Fatalf("expected ErrInvalidServiceName, got %v", err)
+			}
+		})
+	}
+}
+
 func TestIsReservedFilesystemIncludesArchives(t *testing.T) {
 	if !isReservedFilesystem(ArchivesSubvolume) {
 		t.Fatal("expected archives to be reserved")

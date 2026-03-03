@@ -46,6 +46,8 @@ Packages are able to request input from the user -- similar to debconf -- but th
 
 Services all have adequate logging and supervision. There is a comfortable UI for accessing this information, presented in a way that is intended to be safe for non-technical users to consume. There are separate accounts for admin and normal users: you could help your parents run a Plex (or something similar) if you wanted. You could keep them spyware free.
 
+A built-in monitoring stack provides system observability out of the box. Prometheus collects metrics, Node Exporter reports host-level statistics, and Grafana serves auto-provisioned dashboards -- all managed as a single unit with no manual configuration required.
+
 Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
 
 For detailed usage instructions, including the packaging system, storage, pages, and API documentation, visit **<https://town-os.github.io>**.

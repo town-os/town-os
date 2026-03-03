@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
@@ -405,6 +406,27 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T, networ
 	}
 
 	return c, sd, netStateDir
+}
+
+func initSystemControllerMonitoringTest(t *testing.T) (*systemcontroller.SystemdClient, *monitoring.Manager) {
+	t.Helper()
+
+	mock := storage.InitBtrFSMock()
+	runner := monitoring.InitMockRunner()
+	monMgr := monitoring.NewManager(monitoring.Config{
+		Runner:  runner,
+		DataDir: t.TempDir(),
+	})
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, Monitoring: monMgr})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, monMgr
 }
 
 func initSystemControllerTestWithBtrfsBase(t *testing.T) *systemcontroller.SystemdClient {
