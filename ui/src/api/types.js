@@ -32,6 +32,9 @@
  * @property {string} repo_url
  * @property {string} branch
  * @property {string} domain
+ * @property {string} source_type - Content source: "archive" (default), "container_image", or "git".
+ * @property {string} image - Container image reference (for container_image source type).
+ * @property {string} image_directory - Directory within the container image to extract (for container_image source type).
  * @property {string} status
  * @property {string} created_at
  * @property {string} updated_at
@@ -42,6 +45,9 @@
  * @property {string} [repo_url]
  * @property {string} [branch]
  * @property {string} [domain]
+ * @property {string} [source_type]
+ * @property {string} [image]
+ * @property {string} [image_directory]
  * @property {string} [status]
  */
 

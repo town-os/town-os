@@ -133,6 +133,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/pages/update", s.updatePage, s.requireAdmin)
 	e.Add("POST", "/pages/remove", s.removePage, s.requireAdmin)
 	e.Add("POST", "/pages/rebuild", s.rebuildPage, s.requireAdmin)
+	e.Add("POST", "/pages/upload", s.uploadPageArchive, s.requireAdmin)
 	e.Add("GET", "/pages", s.listPages, s.requireAuth)
 
 	// Monitoring

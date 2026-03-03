@@ -31,10 +31,10 @@ func (m *MockPagesManager) GetCalls() []MockCall {
 	return out
 }
 
-func (m *MockPagesManager) Create(name, repoURL, branch, domain string) (*PageSite, error) {
+func (m *MockPagesManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{name, repoURL, branch, domain}})
+	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{name, repoURL, branch, domain, sourceType, image, imageDirectory}})
 
 	if m.CreateErr != nil {
 		return nil, m.CreateErr
@@ -43,11 +43,29 @@ func (m *MockPagesManager) Create(name, repoURL, branch, domain string) (*PageSi
 	if name == "" {
 		return nil, ErrPageNameRequired
 	}
-	if repoURL == "" {
-		return nil, ErrPageRepoRequired
-	}
 	if domain == "" {
 		return nil, ErrPageDomainRequired
+	}
+
+	if sourceType == "" {
+		sourceType = PageSourceArchive
+	}
+	if !ValidPageSourceType(sourceType) {
+		return nil, ErrPageInvalidSourceType
+	}
+
+	switch sourceType {
+	case PageSourceGit:
+		if repoURL == "" {
+			return nil, ErrPageRepoRequired
+		}
+	case PageSourceContainerImage:
+		if image == "" {
+			return nil, ErrPageImageRequired
+		}
+		if imageDirectory == "" {
+			return nil, ErrPageImageDirectoryRequired
+		}
 	}
 
 	if _, exists := m.pages[name]; exists {
@@ -60,13 +78,16 @@ func (m *MockPagesManager) Create(name, repoURL, branch, domain string) (*PageSi
 
 	now := time.Now()
 	page := &PageSite{
-		Name:      name,
-		RepoURL:   repoURL,
-		Branch:    branch,
-		Domain:    domain,
-		Status:    "pending",
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:           name,
+		RepoURL:        repoURL,
+		Branch:         branch,
+		Domain:         domain,
+		SourceType:     sourceType,
+		Image:          image,
+		ImageDirectory: imageDirectory,
+		Status:         "pending",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	m.pages[name] = page
 
@@ -107,9 +128,6 @@ func (m *MockPagesManager) Update(name string, fields PageSiteUpdate) (*PageSite
 	}
 
 	if fields.RepoURL != nil {
-		if *fields.RepoURL == "" {
-			return nil, ErrPageRepoRequired
-		}
 		page.RepoURL = *fields.RepoURL
 	}
 	if fields.Branch != nil {
@@ -120,6 +138,18 @@ func (m *MockPagesManager) Update(name string, fields PageSiteUpdate) (*PageSite
 			return nil, ErrPageDomainRequired
 		}
 		page.Domain = *fields.Domain
+	}
+	if fields.SourceType != nil {
+		if !ValidPageSourceType(*fields.SourceType) {
+			return nil, ErrPageInvalidSourceType
+		}
+		page.SourceType = *fields.SourceType
+	}
+	if fields.Image != nil {
+		page.Image = *fields.Image
+	}
+	if fields.ImageDirectory != nil {
+		page.ImageDirectory = *fields.ImageDirectory
 	}
 	if fields.Status != nil {
 		page.Status = *fields.Status

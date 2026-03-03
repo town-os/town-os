@@ -1541,7 +1541,7 @@ describe('SystemControllerClient', () => {
       mockFetch(pageData)
       client.setToken('tok')
 
-      const result = await client.createPage('my-site', 'https://github.com/user/site.git', 'main', 'site.example.com')
+      const result = await client.createPage('my-site', 'https://github.com/user/site.git', 'main', 'site.example.com', 'git', '', '')
       expect(result).toEqual(pageData)
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://localhost:5309/pages/create',
@@ -1556,6 +1556,9 @@ describe('SystemControllerClient', () => {
             repo_url: 'https://github.com/user/site.git',
             branch: 'main',
             domain: 'site.example.com',
+            source_type: 'git',
+            image: '',
+            image_directory: '',
           }),
         },
       )
@@ -1579,6 +1582,9 @@ describe('SystemControllerClient', () => {
             repo_url: 'https://github.com/user/site.git',
             branch: 'main',
             domain: '',
+            source_type: 'archive',
+            image: '',
+            image_directory: '',
           }),
         },
       )

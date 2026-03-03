@@ -10,13 +10,14 @@ import (
 )
 
 var pagesAllowedSortColumns = map[string]bool{
-	"name":       true,
-	"repo_url":   true,
-	"branch":     true,
-	"domain":     true,
-	"status":     true,
-	"created_at": true,
-	"updated_at": true,
+	"name":        true,
+	"repo_url":    true,
+	"branch":      true,
+	"domain":      true,
+	"source_type": true,
+	"status":      true,
+	"created_at":  true,
+	"updated_at":  true,
 }
 
 const (
@@ -29,13 +30,16 @@ const (
 )
 
 type Page struct {
-	Name      string `json:"name"`
-	RepoURL   string `json:"repo_url"`
-	Branch    string `json:"branch"`
-	Domain    string `json:"domain"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	Name           string `json:"name"`
+	RepoURL        string `json:"repo_url"`
+	Branch         string `json:"branch"`
+	Domain         string `json:"domain"`
+	SourceType     string `json:"source_type"`
+	Image          string `json:"image"`
+	ImageDirectory string `json:"image_directory"`
+	Status         string `json:"status"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type PagesListOptions struct {
@@ -61,16 +65,35 @@ func InitPagesStore(db *sql.DB) (*PagesStore, error) {
 	ctx := context.Background()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS pages (
-		name       TEXT PRIMARY KEY,
-		repo_url   TEXT NOT NULL,
-		branch     TEXT NOT NULL DEFAULT 'main',
-		domain     TEXT NOT NULL,
-		status     TEXT NOT NULL DEFAULT 'pending',
-		created_at TEXT NOT NULL,
-		updated_at TEXT NOT NULL
+		name            TEXT PRIMARY KEY,
+		repo_url        TEXT NOT NULL DEFAULT '',
+		branch          TEXT NOT NULL DEFAULT 'main',
+		domain          TEXT NOT NULL,
+		source_type     TEXT NOT NULL DEFAULT 'git',
+		image           TEXT NOT NULL DEFAULT '',
+		image_directory TEXT NOT NULL DEFAULT '',
+		status          TEXT NOT NULL DEFAULT 'pending',
+		created_at      TEXT NOT NULL,
+		updated_at      TEXT NOT NULL
 	)`)
 	if err != nil {
 		return nil, fmt.Errorf("create pages table: %w", err)
+	}
+
+	// Migrate existing tables that lack the new columns.
+	for _, col := range []struct {
+		name string
+		def  string
+	}{
+		{"source_type", "TEXT NOT NULL DEFAULT 'git'"},
+		{"image", "TEXT NOT NULL DEFAULT ''"},
+		{"image_directory", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		_, err := db.ExecContext(ctx,
+			fmt.Sprintf("ALTER TABLE pages ADD COLUMN %s %s", col.name, col.def))
+		if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("migrate pages column %s: %w", col.name, err)
+		}
 	}
 
 	return &PagesStore{db: db}, nil
@@ -87,10 +110,13 @@ func (s *PagesStore) Create(page Page) error {
 	if page.Status == "" {
 		page.Status = PageStatusPending
 	}
+	if page.SourceType == "" {
+		page.SourceType = "archive"
+	}
 
 	_, err := s.db.ExecContext(context.Background(),
-		`INSERT INTO pages (name, repo_url, branch, domain, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		page.Name, page.RepoURL, page.Branch, page.Domain, page.Status, now, now,
+		`INSERT INTO pages (name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		page.Name, page.RepoURL, page.Branch, page.Domain, page.SourceType, page.Image, page.ImageDirectory, page.Status, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert page: %w", err)
@@ -103,7 +129,7 @@ func (s *PagesStore) Update(name string, updates map[string]string) error {
 		return nil
 	}
 
-	allowed := map[string]bool{"repo_url": true, "branch": true, "domain": true, "status": true}
+	allowed := map[string]bool{"repo_url": true, "branch": true, "domain": true, "source_type": true, "image": true, "image_directory": true, "status": true}
 
 	var sets []string
 	var args []any
@@ -158,10 +184,10 @@ func (s *PagesStore) Remove(name string) error {
 
 func (s *PagesStore) Get(name string) (*Page, error) {
 	row := s.db.QueryRowContext(context.Background(),
-		`SELECT name, repo_url, branch, domain, status, created_at, updated_at FROM pages WHERE name = ?`, name)
+		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at FROM pages WHERE name = ?`, name)
 
 	var p Page
-	err := row.Scan(&p.Name, &p.RepoURL, &p.Branch, &p.Domain, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.Name, &p.RepoURL, &p.Branch, &p.Domain, &p.SourceType, &p.Image, &p.ImageDirectory, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("page %q not found", name)
@@ -171,6 +197,8 @@ func (s *PagesStore) Get(name string) (*Page, error) {
 
 	return &p, nil
 }
+
+const pagesSelectColumns = "name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at"
 
 func (s *PagesStore) List(opts PagesListOptions) (_ *PagesPage, err error) {
 	limit := opts.Limit
@@ -183,7 +211,7 @@ func (s *PagesStore) List(opts PagesListOptions) (_ *PagesPage, err error) {
 
 	var args []any
 	var qb strings.Builder
-	qb.WriteString("SELECT name, repo_url, branch, domain, status, created_at, updated_at FROM pages")
+	qb.WriteString("SELECT " + pagesSelectColumns + " FROM pages")
 
 	var where []string
 	if opts.Search != "" {
@@ -225,7 +253,7 @@ func (s *PagesStore) List(opts PagesListOptions) (_ *PagesPage, err error) {
 	var entries []Page
 	for rows.Next() {
 		var p Page
-		if err := rows.Scan(&p.Name, &p.RepoURL, &p.Branch, &p.Domain, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.Name, &p.RepoURL, &p.Branch, &p.Domain, &p.SourceType, &p.Image, &p.ImageDirectory, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan page: %w", err)
 		}
 		entries = append(entries, p)

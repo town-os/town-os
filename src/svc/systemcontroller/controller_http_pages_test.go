@@ -83,7 +83,7 @@ func initPagesTestClientWithAudit(t *testing.T) (*SystemdClient, *git.MockClient
 func TestHTTPCreatePageReturnsAsyncPending(t *testing.T) {
 	c, _ := initPagesTestClient(t)
 
-	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -106,6 +106,9 @@ func TestHTTPCreatePageReturnsAsyncPending(t *testing.T) {
 	if page.Domain != "site.example.com" {
 		t.Errorf("expected domain %q, got %q", "site.example.com", page.Domain)
 	}
+	if page.SourceType != account.PageSourceGit {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceGit, page.SourceType)
+	}
 
 	// Wait briefly for the background goroutine to complete, then verify
 	// the status transitioned to active.
@@ -125,7 +128,7 @@ func TestHTTPCreatePageReturnsAsyncPending(t *testing.T) {
 func TestHTTPCreatePageDefaultDomain(t *testing.T) {
 	c, _ := initPagesTestClient(t)
 
-	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "")
+	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -138,21 +141,66 @@ func TestHTTPCreatePageDefaultDomain(t *testing.T) {
 func TestHTTPCreatePageDuplicate(t *testing.T) {
 	c, _ := initPagesTestClient(t)
 
-	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	_, err = c.CreatePage(context.TODO(), "my-site", "https://github.com/user/other.git", "main", "other.example.com")
+	_, err = c.CreatePage(context.TODO(), "my-site", "https://github.com/user/other.git", "main", "other.example.com", account.PageSourceGit, "", "")
 	if err == nil {
 		t.Fatal("expected error for duplicate page name")
+	}
+}
+
+func TestHTTPCreatePageArchiveSourceType(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	page, err := c.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+	if page.SourceType != account.PageSourceArchive {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceArchive, page.SourceType)
+	}
+	if page.Status != "pending" {
+		t.Errorf("expected status %q for archive page, got %q", "pending", page.Status)
+	}
+}
+
+func TestHTTPCreatePageDefaultSourceType(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	page, err := c.CreatePage(context.TODO(), "default-site", "", "", "default.example.com", "", "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+	if page.SourceType != account.PageSourceArchive {
+		t.Errorf("expected default source_type %q, got %q", account.PageSourceArchive, page.SourceType)
+	}
+}
+
+func TestHTTPCreatePageContainerImageSourceType(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	page, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+	if page.SourceType != account.PageSourceContainerImage {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceContainerImage, page.SourceType)
+	}
+	if page.Image != "nginx:latest" {
+		t.Errorf("expected image %q, got %q", "nginx:latest", page.Image)
+	}
+	if page.ImageDirectory != "/usr/share/nginx/html" {
+		t.Errorf("expected image_directory %q, got %q", "/usr/share/nginx/html", page.ImageDirectory)
 	}
 }
 
 func TestHTTPUpdatePage(t *testing.T) {
 	c, _ := initPagesTestClient(t)
 
-	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -181,7 +229,7 @@ func TestHTTPUpdatePageNotFound(t *testing.T) {
 func TestHTTPRemovePage(t *testing.T) {
 	c, _ := initPagesTestClient(t)
 
-	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -222,11 +270,11 @@ func TestHTTPListPages(t *testing.T) {
 	}
 
 	// Create two pages.
-	_, err = c.CreatePage(context.TODO(), "alpha", "https://github.com/user/alpha.git", "main", "alpha.example.com")
+	_, err = c.CreatePage(context.TODO(), "alpha", "https://github.com/user/alpha.git", "main", "alpha.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage alpha: %v", err)
 	}
-	_, err = c.CreatePage(context.TODO(), "beta", "https://github.com/user/beta.git", "develop", "beta.example.com")
+	_, err = c.CreatePage(context.TODO(), "beta", "https://github.com/user/beta.git", "develop", "beta.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage beta: %v", err)
 	}
@@ -243,11 +291,11 @@ func TestHTTPListPages(t *testing.T) {
 func TestHTTPListPagesSearch(t *testing.T) {
 	c, _ := initPagesTestClient(t)
 
-	_, err := c.CreatePage(context.TODO(), "alpha-site", "https://github.com/user/alpha.git", "main", "alpha.example.com")
+	_, err := c.CreatePage(context.TODO(), "alpha-site", "https://github.com/user/alpha.git", "main", "alpha.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage alpha-site: %v", err)
 	}
-	_, err = c.CreatePage(context.TODO(), "beta-site", "https://github.com/user/beta.git", "develop", "beta.example.com")
+	_, err = c.CreatePage(context.TODO(), "beta-site", "https://github.com/user/beta.git", "develop", "beta.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage beta-site: %v", err)
 	}
@@ -267,7 +315,7 @@ func TestHTTPListPagesSearch(t *testing.T) {
 func TestHTTPRebuildPage(t *testing.T) {
 	c, _ := initPagesTestClient(t)
 
-	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -309,7 +357,7 @@ func TestHTTPCreatePageCloneFailureSetsErrorStatus(t *testing.T) {
 
 	gitClient.CloneErr = errors.New("clone failed: repository not found")
 
-	page, err := c.CreatePage(context.TODO(), "bad-site", "https://github.com/user/missing.git", "main", "bad.example.com")
+	page, err := c.CreatePage(context.TODO(), "bad-site", "https://github.com/user/missing.git", "main", "bad.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -337,7 +385,7 @@ func TestHTTPCreatePageCloneFailureSetsErrorStatus(t *testing.T) {
 func TestHTTPRebuildPageCloneFailureSetsErrorStatus(t *testing.T) {
 	c, gitClient := initPagesTestClient(t)
 
-	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -366,10 +414,24 @@ func TestHTTPRebuildPageCloneFailureSetsErrorStatus(t *testing.T) {
 	}
 }
 
+func TestHTTPRebuildArchivePageReturnsError(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	_, err = c.RebuildPage(context.TODO(), "archive-site")
+	if err == nil {
+		t.Fatal("expected error when rebuilding archive page")
+	}
+}
+
 func TestHTTPPagesAuditCreatePage(t *testing.T) {
 	c, _, auditMgr := initPagesTestClientWithAudit(t)
 
-	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
@@ -402,7 +464,7 @@ func TestHTTPPagesAuditCreatePage(t *testing.T) {
 func TestHTTPPagesAuditUpdatePage(t *testing.T) {
 	c, _, auditMgr := initPagesTestClientWithAudit(t)
 
-	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
@@ -434,7 +496,7 @@ func TestHTTPPagesAuditUpdatePage(t *testing.T) {
 func TestHTTPPagesAuditRemovePage(t *testing.T) {
 	c, _, auditMgr := initPagesTestClientWithAudit(t)
 
-	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
@@ -465,7 +527,7 @@ func TestHTTPPagesAuditRemovePage(t *testing.T) {
 func TestHTTPPagesAuditRebuildPage(t *testing.T) {
 	c, _, auditMgr := initPagesTestClientWithAudit(t)
 
-	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com"); err != nil {
+	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
@@ -512,6 +574,36 @@ func TestHTTPPagesAuditListExcluded(t *testing.T) {
 	for _, e := range page.Entries {
 		if e.Path == "/pages" {
 			t.Fatal("expected /pages (list) to be excluded from audit log")
+		}
+	}
+}
+
+func TestHTTPListPagesIncludesSourceType(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "archive-page", "", "", "archive.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+	_, err = c.CreatePage(context.TODO(), "git-page", "https://github.com/user/site.git", "main", "git.example.com", account.PageSourceGit, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	pages, err := c.ListPages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 2 {
+		t.Fatalf("expected 2 pages, got %d", len(pages.Entries))
+	}
+
+	for _, p := range pages.Entries {
+		if p.Name == "archive-page" && p.SourceType != account.PageSourceArchive {
+			t.Errorf("expected source_type %q for archive-page, got %q", account.PageSourceArchive, p.SourceType)
+		}
+		if p.Name == "git-page" && p.SourceType != account.PageSourceGit {
+			t.Errorf("expected source_type %q for git-page, got %q", account.PageSourceGit, p.SourceType)
 		}
 	}
 }

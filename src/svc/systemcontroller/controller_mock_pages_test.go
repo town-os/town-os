@@ -11,7 +11,7 @@ import (
 func TestMockClientCreatePage(t *testing.T) {
 	m := InitMockClient()
 
-	page, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com")
+	page, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -25,17 +25,62 @@ func TestMockClientCreatePage(t *testing.T) {
 	if page.Status != "active" {
 		t.Errorf("expected status %q, got %q", "active", page.Status)
 	}
+	if page.SourceType != account.PageSourceGit {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceGit, page.SourceType)
+	}
+}
+
+func TestMockClientCreatePageArchive(t *testing.T) {
+	m := InitMockClient()
+
+	page, err := m.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+	if page.SourceType != account.PageSourceArchive {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceArchive, page.SourceType)
+	}
+}
+
+func TestMockClientCreatePageContainerImage(t *testing.T) {
+	m := InitMockClient()
+
+	page, err := m.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/html")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+	if page.SourceType != account.PageSourceContainerImage {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceContainerImage, page.SourceType)
+	}
+	if page.Image != "nginx:latest" {
+		t.Errorf("expected image %q, got %q", "nginx:latest", page.Image)
+	}
+	if page.ImageDirectory != "/html" {
+		t.Errorf("expected image_directory %q, got %q", "/html", page.ImageDirectory)
+	}
+}
+
+func TestMockClientCreatePageDefaultSourceType(t *testing.T) {
+	m := InitMockClient()
+
+	page, err := m.CreatePage(context.TODO(), "default-site", "", "", "default.example.com", "", "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+	if page.SourceType != account.PageSourceArchive {
+		t.Errorf("expected default source_type %q, got %q", account.PageSourceArchive, page.SourceType)
+	}
 }
 
 func TestMockClientCreatePageDuplicate(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	_, err = m.CreatePage(context.TODO(), "test-site", "https://github.com/user/other.git", "main", "other.example.com")
+	_, err = m.CreatePage(context.TODO(), "test-site", "https://github.com/user/other.git", "main", "other.example.com", account.PageSourceGit, "", "")
 	if !errors.Is(err, account.ErrDuplicatePageName) {
 		t.Fatalf("expected ErrDuplicatePageName, got %v", err)
 	}
@@ -44,7 +89,7 @@ func TestMockClientCreatePageDuplicate(t *testing.T) {
 func TestMockClientUpdatePage(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -57,6 +102,24 @@ func TestMockClientUpdatePage(t *testing.T) {
 
 	if updated.Domain != newDomain {
 		t.Errorf("expected domain %q, got %q", newDomain, updated.Domain)
+	}
+}
+
+func TestMockClientUpdatePageSourceType(t *testing.T) {
+	m := InitMockClient()
+
+	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	newType := account.PageSourceArchive
+	updated, err := m.UpdatePage(context.TODO(), "test-site", account.PageSiteUpdate{SourceType: &newType})
+	if err != nil {
+		t.Fatalf("UpdatePage: %v", err)
+	}
+	if updated.SourceType != account.PageSourceArchive {
+		t.Errorf("expected source_type %q, got %q", account.PageSourceArchive, updated.SourceType)
 	}
 }
 
@@ -73,7 +136,7 @@ func TestMockClientUpdatePageNotFound(t *testing.T) {
 func TestMockClientRemovePage(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -107,7 +170,7 @@ func TestMockClientListPages(t *testing.T) {
 		t.Fatalf("expected 0 pages, got %d", len(result.Entries))
 	}
 
-	_, err = m.CreatePage(context.TODO(), "alpha", "https://github.com/user/alpha.git", "main", "alpha.example.com")
+	_, err = m.CreatePage(context.TODO(), "alpha", "https://github.com/user/alpha.git", "main", "alpha.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -124,7 +187,7 @@ func TestMockClientListPages(t *testing.T) {
 func TestMockClientRebuildPage(t *testing.T) {
 	m := InitMockClient()
 
-	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
@@ -148,11 +211,37 @@ func TestMockClientRebuildPageNotFound(t *testing.T) {
 	}
 }
 
+func TestMockClientUploadPageArchive(t *testing.T) {
+	m := InitMockClient()
+
+	_, err := m.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	page, err := m.UploadPageArchive(context.TODO(), "archive-site", nil, "site.tar.gz")
+	if err != nil {
+		t.Fatalf("UploadPageArchive: %v", err)
+	}
+	if page.Status != "active" {
+		t.Errorf("expected status %q, got %q", "active", page.Status)
+	}
+}
+
+func TestMockClientUploadPageArchiveNotFound(t *testing.T) {
+	m := InitMockClient()
+
+	_, err := m.UploadPageArchive(context.TODO(), "nonexistent", nil, "site.tar.gz")
+	if !errors.Is(err, account.ErrPageNotFound) {
+		t.Fatalf("expected ErrPageNotFound, got %v", err)
+	}
+}
+
 func TestMockClientCreatePageError(t *testing.T) {
 	m := InitMockClient()
 	m.CreatePageErr = account.ErrPageRepoRequired
 
-	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com")
+	_, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", "")
 	if !errors.Is(err, account.ErrPageRepoRequired) {
 		t.Fatalf("expected ErrPageRepoRequired, got %v", err)
 	}
@@ -161,7 +250,7 @@ func TestMockClientCreatePageError(t *testing.T) {
 func TestMockClientPageCallsTracked(t *testing.T) {
 	m := InitMockClient()
 
-	if _, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com"); err != nil {
+	if _, err := m.CreatePage(context.TODO(), "test-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.ListPages(context.TODO(), ListParams{}); err != nil {

@@ -2,15 +2,16 @@ package systemcontroller
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
 )
 
-func (m *MockClient) CreatePage(_ context.Context, name, repoURL, branch, domain string) (*account.PageSite, error) {
+func (m *MockClient) CreatePage(_ context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*account.PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "CreatePage", Args: []any{name, repoURL, branch, domain}})
+	m.Calls = append(m.Calls, MockCall{Method: "CreatePage", Args: []any{name, repoURL, branch, domain, sourceType, image, imageDirectory}})
 
 	if m.CreatePageErr != nil {
 		return nil, m.CreatePageErr
@@ -20,19 +21,26 @@ func (m *MockClient) CreatePage(_ context.Context, name, repoURL, branch, domain
 		return nil, account.ErrDuplicatePageName
 	}
 
+	if sourceType == "" {
+		sourceType = account.PageSourceArchive
+	}
+
 	if branch == "" {
 		branch = "main"
 	}
 
 	now := time.Now()
 	page := &account.PageSite{
-		Name:      name,
-		RepoURL:   repoURL,
-		Branch:    branch,
-		Domain:    domain,
-		Status:    "active",
-		CreatedAt: now,
-		UpdatedAt: now,
+		Name:           name,
+		RepoURL:        repoURL,
+		Branch:         branch,
+		Domain:         domain,
+		SourceType:     sourceType,
+		Image:          image,
+		ImageDirectory: imageDirectory,
+		Status:         "active",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	m.Pages[name] = page
 
@@ -62,6 +70,15 @@ func (m *MockClient) UpdatePage(_ context.Context, name string, fields account.P
 	}
 	if fields.Domain != nil {
 		page.Domain = *fields.Domain
+	}
+	if fields.SourceType != nil {
+		page.SourceType = *fields.SourceType
+	}
+	if fields.Image != nil {
+		page.Image = *fields.Image
+	}
+	if fields.ImageDirectory != nil {
+		page.ImageDirectory = *fields.ImageDirectory
 	}
 	if fields.Status != nil {
 		page.Status = *fields.Status
@@ -114,6 +131,27 @@ func (m *MockClient) RebuildPage(_ context.Context, name string) (*account.PageS
 
 	if m.RebuildPageErr != nil {
 		return nil, m.RebuildPageErr
+	}
+
+	page, ok := m.Pages[name]
+	if !ok {
+		return nil, account.ErrPageNotFound
+	}
+
+	page.Status = "active"
+	page.UpdatedAt = time.Now()
+
+	out := *page
+	return &out, nil
+}
+
+func (m *MockClient) UploadPageArchive(_ context.Context, name string, _ io.Reader, _ string) (*account.PageSite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "UploadPageArchive", Args: []any{name}})
+
+	if m.UploadPageArchiveErr != nil {
+		return nil, m.UploadPageArchiveErr
 	}
 
 	page, ok := m.Pages[name]

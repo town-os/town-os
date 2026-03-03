@@ -64,4 +64,5 @@ var RouteActions = map[string]string{
 	"/pages/update":                    "update page",
 	"/pages/remove":                    "remove page",
 	"/pages/rebuild":                   "rebuild page",
+	"/pages/upload":                    "upload page archive",
 }

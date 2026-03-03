@@ -191,15 +191,24 @@ type Client interface {
 	RebuildGitSources(ctx context.Context, repo, name, version string) error
 
 	// CreatePage creates a new page site for static hosting.
-	CreatePage(ctx context.Context, name, repoURL, branch, domain string) (*account.PageSite, error)
+	// sourceType selects the content source: "archive" (default), "container_image", or "git".
+	// repoURL and branch are required when sourceType is "git".
+	// image and imageDirectory are required when sourceType is "container_image".
+	CreatePage(ctx context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*account.PageSite, error)
 	// UpdatePage updates fields on an existing page site.
 	UpdatePage(ctx context.Context, name string, fields account.PageSiteUpdate) (*account.PageSite, error)
 	// RemovePage deletes a page site.
 	RemovePage(ctx context.Context, name string) error
 	// ListPages returns a paginated list of page sites.
 	ListPages(ctx context.Context, params ListParams) (*PageResult[account.PageSite], error)
-	// RebuildPage pulls the latest content from the git repository for a page.
+	// RebuildPage refreshes page content. For git pages it pulls the latest
+	// changes; for container_image pages it re-extracts from the image;
+	// archive pages must be rebuilt via UploadPageArchive instead.
 	RebuildPage(ctx context.Context, name string) (*account.PageSite, error)
+	// UploadPageArchive uploads and extracts an archive for an archive-type page.
+	// The archive data is read from archiveReader and the filename is used for
+	// format detection.
+	UploadPageArchive(ctx context.Context, name string, archiveReader io.Reader, filename string) (*account.PageSite, error)
 
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)

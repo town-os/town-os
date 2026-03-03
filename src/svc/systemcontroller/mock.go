@@ -79,12 +79,13 @@ type MockClient struct {
 	DownloadArchiveErr   error
 	DownloadArchiveData  []byte
 	RebuildGitErr        error
-	Pages                map[string]*account.PageSite
-	CreatePageErr        error
-	UpdatePageErr        error
-	RemovePageErr        error
-	ListPagesErr         error
-	RebuildPageErr       error
+	Pages                  map[string]*account.PageSite
+	CreatePageErr          error
+	UpdatePageErr          error
+	RemovePageErr          error
+	ListPagesErr           error
+	RebuildPageErr         error
+	UploadPageArchiveErr   error
 	MonitoringStatusResp *monitoring.Status
 	MonitoringStatusErr  error
 }

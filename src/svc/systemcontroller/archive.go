@@ -290,7 +290,7 @@ func validateUnpackedPaths(destDir string) error {
 		return err
 	}
 
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // G703: root from filepath.Abs
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}

@@ -1,11 +1,14 @@
 package systemcontroller
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -15,10 +18,13 @@ import (
 // --- Pages handlers ---
 
 type CreatePageRequest struct {
-	Name    string `json:"name"`
-	RepoURL string `json:"repo_url"`
-	Branch  string `json:"branch"`
-	Domain  string `json:"domain"`
+	Name           string `json:"name"`
+	RepoURL        string `json:"repo_url"`
+	Branch         string `json:"branch"`
+	Domain         string `json:"domain"`
+	SourceType     string `json:"source_type"`
+	Image          string `json:"image"`
+	ImageDirectory string `json:"image_directory"`
 }
 
 type UpdatePageRequest struct {
@@ -47,28 +53,67 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		req.Domain = req.Name
 	}
 
-	page, err := mgr.Create(req.Name, req.RepoURL, req.Branch, req.Domain)
+	// Default source type to archive.
+	if req.SourceType == "" {
+		req.SourceType = account.PageSourceArchive
+	}
+
+	page, err := mgr.Create(req.Name, req.RepoURL, req.Branch, req.Domain, req.SourceType, req.Image, req.ImageDirectory)
 	if err != nil {
 		return err
 	}
 
-	// Clone the git repository asynchronously in the background.
-	gitClient := s.Controller.GetGitClient()
 	pagesDir := s.pagesBaseDir()
-	if gitClient != nil && pagesDir != "" {
-		go func() {
-			cloneErr := gitClient.Clone(context.Background(), pagesDir, req.RepoURL, req.Name)
 
-			status := "active"
-			if cloneErr != nil {
-				slog.Debug(fmt.Sprintf("pages clone %s: %v", req.Name, cloneErr))
-				status = "error"
-			}
+	switch req.SourceType {
+	case account.PageSourceGit:
+		// Clone the git repository asynchronously in the background.
+		gitClient := s.Controller.GetGitClient()
+		if gitClient != nil && pagesDir != "" {
+			go func() {
+				cloneErr := gitClient.Clone(context.Background(), pagesDir, req.RepoURL, req.Name)
 
-			if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
-				slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
-			}
-		}()
+				status := "active"
+				if cloneErr != nil {
+					slog.Debug(fmt.Sprintf("pages clone %s: %v", req.Name, cloneErr))
+					status = "error"
+				}
+
+				if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
+					slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
+				}
+			}()
+		}
+	case account.PageSourceContainerImage:
+		// Extract from container image asynchronously.
+		if pagesDir != "" {
+			go func() {
+				targetDir := fmt.Sprintf("%s/%s", pagesDir, req.Name)
+				if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // admin-only endpoint
+					slog.Debug(fmt.Sprintf("pages mkdir %s: %v", targetDir, err))
+					status := "error"
+					if _, uerr := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+						slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, uerr))
+					}
+					return
+				}
+
+				extractErr := reconcileExtractFromImage(context.Background(), req.Image, req.ImageDirectory, targetDir)
+
+				status := "active"
+				if extractErr != nil {
+					slog.Debug(fmt.Sprintf("pages extract image %s: %v", req.Name, extractErr))
+					status = "error"
+				}
+
+				if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
+					slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
+				}
+			}()
+		}
+	case account.PageSourceArchive:
+		// Archive pages remain pending until the user uploads an archive
+		// via POST /pages/upload.
 	}
 
 	return c.JSON(200, page)
@@ -158,37 +203,176 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return err
 	}
 
-	gitClient := s.Controller.GetGitClient()
 	pagesDir := s.pagesBaseDir()
-	if gitClient == nil || pagesDir == "" {
-		return errors.New("git client or pages directory not configured")
+	if pagesDir == "" {
+		return errors.New("pages directory not configured")
 	}
 
 	targetDir := fmt.Sprintf("%s/%s", pagesDir, page.Name)
 
-	// Check if the directory exists and has a .git directory.
-	gitDir := targetDir + "/.git"
-	if _, err := os.Stat(gitDir); err != nil {
-		// Not cloned yet; do a fresh clone.
-		if err := gitClient.Clone(c.Request().Context(), pagesDir, page.RepoURL, page.Name); err != nil {
+	switch page.SourceType {
+	case account.PageSourceGit, "":
+		gitClient := s.Controller.GetGitClient()
+		if gitClient == nil {
+			return errors.New("git client not configured")
+		}
+
+		// Check if the directory exists and has a .git directory.
+		gitDir := targetDir + "/.git"
+		if _, err := os.Stat(gitDir); err != nil {
+			// Not cloned yet; do a fresh clone.
+			if err := gitClient.Clone(c.Request().Context(), pagesDir, page.RepoURL, page.Name); err != nil {
+				status := "error"
+				if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+					slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
+				}
+				return fmt.Errorf("pages clone %s: %w", page.Name, err)
+			}
+		} else {
+			if err := gitClient.Pull(c.Request().Context(), targetDir); err != nil {
+				status := "error"
+				if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+					slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
+				}
+				return fmt.Errorf("pages pull %s: %w", page.Name, err)
+			}
+		}
+
+	case account.PageSourceContainerImage:
+		if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // admin-only endpoint
+			return fmt.Errorf("pages mkdir %s: %w", targetDir, err)
+		}
+		if err := reconcileExtractFromImage(c.Request().Context(), page.Image, page.ImageDirectory, targetDir); err != nil {
 			status := "error"
 			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
 			}
-			return fmt.Errorf("pages clone %s: %w", page.Name, err)
+			return fmt.Errorf("pages extract image %s: %w", page.Name, err)
 		}
-	} else {
-		if err := gitClient.Pull(c.Request().Context(), targetDir); err != nil {
-			status := "error"
-			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
-				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
-			}
-			return fmt.Errorf("pages pull %s: %w", page.Name, err)
-		}
+
+	case account.PageSourceArchive:
+		// Archive pages must be rebuilt by uploading a new archive via
+		// POST /pages/upload. This endpoint only refreshes the status.
+		return echo.NewHTTPError(http.StatusBadRequest, "archive pages must be rebuilt by uploading a new archive via /pages/upload")
 	}
 
 	status := "active"
 	updated, err := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status})
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, updated)
+}
+
+// uploadPageArchive handles multipart form upload of an archive file and
+// unpacks it into the pages directory for the named page. Only valid for
+// pages with source_type "archive".
+func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
+	mgr := s.Controller.GetPagesManager()
+	if mgr == nil {
+		return errors.New("pages not configured")
+	}
+
+	name := c.FormValue("name")
+	if name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "name field is required")
+	}
+
+	page, err := mgr.Get(name)
+	if err != nil {
+		return err
+	}
+
+	if page.SourceType != account.PageSourceArchive {
+		return echo.NewHTTPError(http.StatusBadRequest, "upload is only allowed for archive-type pages")
+	}
+
+	// Check Content-Length against max size.
+	if c.Request().ContentLength > 0 {
+		maxSize := s.maxArchiveSize()
+		if c.Request().ContentLength > maxSize {
+			return echo.NewHTTPError(http.StatusForbidden, ErrArchiveTooLarge.Error())
+		}
+	}
+
+	file, header, err := c.Request().FormFile("archive")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("archive file required: %v", err))
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			slog.Debug(fmt.Sprintf("close upload file: %v", err))
+		}
+	}()
+
+	pagesDir := s.pagesBaseDir()
+	if pagesDir == "" {
+		return errors.New("pages directory not configured")
+	}
+
+	targetDir := fmt.Sprintf("%s/%s", pagesDir, name)
+	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // admin-only endpoint
+		return fmt.Errorf("create pages dir: %w", err)
+	}
+
+	ctx := c.Request().Context()
+	br := bufio.NewReader(file)
+
+	// Detect archive format.
+	format, _, fmtErr := detectArchiveFormat(br)
+	if fmtErr != nil {
+		status := "error"
+		if _, uerr := mgr.Update(name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+			slog.Debug(fmt.Sprintf("pages update status %s: %v", name, uerr))
+		}
+		if errors.Is(fmtErr, ErrUnsupportedArchive) {
+			return echo.NewHTTPError(http.StatusBadRequest, fmtErr.Error())
+		}
+		return fmtErr
+	}
+
+	if _, extErr := archiveFormat(header.Filename); extErr != nil {
+		status := "error"
+		if _, uerr := mgr.Update(name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+			slog.Debug(fmt.Sprintf("pages update status %s: %v", name, uerr))
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, extErr.Error())
+	}
+
+	// Enforce size limit.
+	maxSize := s.maxArchiveSize()
+	cr := &countingReader{r: io.LimitReader(br, maxSize+1)}
+
+	timeout := s.archiveUnpackTimeout()
+	unpackCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	decompCmd := decompressCommand(unpackCtx, format)
+
+	var unpackErr error
+	if decompCmd != nil {
+		unpackErr = s.unpackWithValidation(unpackCtx, cr, decompCmd, targetDir, maxSize)
+	} else {
+		unpackErr = s.unpackPlainTar(unpackCtx, cr, targetDir, maxSize)
+	}
+
+	if unpackErr != nil {
+		status := "error"
+		if _, uerr := mgr.Update(name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+			slog.Debug(fmt.Sprintf("pages update status %s: %v", name, uerr))
+		}
+		if errors.Is(unpackErr, ErrArchiveTooLarge) {
+			return echo.NewHTTPError(http.StatusForbidden, unpackErr.Error())
+		}
+		if errors.Is(unpackErr, ErrUnsupportedArchive) || errors.Is(unpackErr, ErrInvalidTar) {
+			return echo.NewHTTPError(http.StatusBadRequest, unpackErr.Error())
+		}
+		return unpackErr
+	}
+
+	status := "active"
+	updated, err := mgr.Update(name, account.PageSiteUpdate{Status: &status})
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,9 @@ const mockListPages = vi.fn(() =>
         repo_url: 'https://github.com/user/repo.git',
         branch: 'main',
         domain: 'my-site',
+        source_type: 'git',
+        image: '',
+        image_directory: '',
         status: 'active',
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
@@ -23,9 +26,12 @@ const mockListPages = vi.fn(() =>
 const mockCreatePage = vi.fn(() =>
   Promise.resolve({
     name: 'new-site',
-    repo_url: 'https://github.com/user/new.git',
-    branch: 'main',
+    repo_url: '',
+    branch: '',
     domain: 'new-site',
+    source_type: 'archive',
+    image: '',
+    image_directory: '',
     status: 'pending',
   }),
 )
@@ -35,6 +41,9 @@ const mockUpdatePage = vi.fn(() =>
     repo_url: 'https://github.com/user/updated.git',
     branch: 'main',
     domain: 'my-site',
+    source_type: 'git',
+    image: '',
+    image_directory: '',
     status: 'active',
   }),
 )
@@ -42,6 +51,14 @@ const mockRemovePage = vi.fn(() => Promise.resolve())
 const mockRebuildPage = vi.fn(() =>
   Promise.resolve({
     name: 'my-site',
+    source_type: 'git',
+    status: 'active',
+  }),
+)
+const mockUploadPageArchive = vi.fn(() =>
+  Promise.resolve({
+    name: 'my-site',
+    source_type: 'archive',
     status: 'active',
   }),
 )
@@ -53,6 +70,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     updatePage: mockUpdatePage,
     removePage: mockRemovePage,
     rebuildPage: mockRebuildPage,
+    uploadPageArchive: mockUploadPageArchive,
   }),
 }))
 
@@ -73,6 +91,7 @@ describe('PagesManagement component', () => {
     mockUpdatePage.mockClear()
     mockRemovePage.mockClear()
     mockRebuildPage.mockClear()
+    mockUploadPageArchive.mockClear()
   })
 
   it('renders the Pages heading', async () => {
@@ -110,14 +129,14 @@ describe('PagesManagement component', () => {
     })
   })
 
-  it('displays the repository URL', async () => {
+  it('displays the repository URL for git pages', async () => {
     renderPages()
     await waitFor(() => {
       expect(screen.getByText('https://github.com/user/repo.git')).toBeTruthy()
     })
   })
 
-  it('displays the branch badge', async () => {
+  it('displays the branch badge for git pages', async () => {
     renderPages()
     await waitFor(() => {
       expect(screen.getByText('main')).toBeTruthy()
@@ -128,6 +147,13 @@ describe('PagesManagement component', () => {
     renderPages()
     await waitFor(() => {
       expect(screen.getByText('active')).toBeTruthy()
+    })
+  })
+
+  it('displays source type badge', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Git Repository')).toBeTruthy()
     })
   })
 
@@ -207,6 +233,9 @@ describe('PagesManagement component', () => {
           repo_url: 'https://example.com/repo.git',
           branch: 'main',
           domain: 'err-site',
+          source_type: 'git',
+          image: '',
+          image_directory: '',
           status: 'error',
           created_at: '2025-01-01T00:00:00Z',
           updated_at: '2025-01-01T00:00:00Z',
@@ -227,9 +256,12 @@ describe('PagesManagement component', () => {
       entries: [
         {
           name: 'pending-site',
-          repo_url: 'https://example.com/repo.git',
-          branch: 'main',
+          repo_url: '',
+          branch: '',
           domain: 'pending-site',
+          source_type: 'archive',
+          image: '',
+          image_directory: '',
           status: 'pending',
           created_at: '2025-01-01T00:00:00Z',
           updated_at: '2025-01-01T00:00:00Z',
@@ -242,6 +274,117 @@ describe('PagesManagement component', () => {
     renderPages()
     await waitFor(() => {
       expect(screen.getByText('pending')).toBeTruthy()
+    })
+  })
+
+  it('displays archive source type badge', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'archive-site',
+          repo_url: '',
+          branch: '',
+          domain: 'archive-site',
+          source_type: 'archive',
+          image: '',
+          image_directory: '',
+          status: 'pending',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Archive Upload')).toBeTruthy()
+    })
+  })
+
+  it('displays container image source type badge', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'image-site',
+          repo_url: '',
+          branch: '',
+          domain: 'image-site',
+          source_type: 'container_image',
+          image: 'nginx:latest',
+          image_directory: '/usr/share/nginx/html',
+          status: 'active',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Container Image')).toBeTruthy()
+    })
+  })
+
+  it('displays container image in repository column for container_image pages', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'image-site',
+          repo_url: '',
+          branch: '',
+          domain: 'image-site',
+          source_type: 'container_image',
+          image: 'nginx:latest',
+          image_directory: '/usr/share/nginx/html',
+          status: 'active',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('nginx:latest')).toBeTruthy()
+    })
+  })
+
+  it('shows upload button for archive pages', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'archive-site',
+          repo_url: '',
+          branch: '',
+          domain: 'archive-site',
+          source_type: 'archive',
+          image: '',
+          image_directory: '',
+          status: 'pending',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByTitle('Upload archive')).toBeTruthy()
+    })
+  })
+
+  it('shows rebuild button for git pages', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByTitle('Rebuild from git')).toBeTruthy()
     })
   })
 

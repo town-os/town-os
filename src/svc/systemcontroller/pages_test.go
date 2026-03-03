@@ -48,6 +48,56 @@ func TestPagesStoreCreateAndGet(t *testing.T) {
 	if page.Status != PageStatusPending {
 		t.Fatalf("expected status pending, got %q", page.Status)
 	}
+	if page.SourceType != "archive" {
+		t.Fatalf("expected default source_type archive, got %q", page.SourceType)
+	}
+}
+
+func TestPagesStoreCreateWithSourceType(t *testing.T) {
+	store := initTestPagesStore(t)
+
+	if err := store.Create(Page{
+		Name:       "git-site",
+		RepoURL:    "https://github.com/example/site",
+		SourceType: "git",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	page, err := store.Get("git-site")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if page.SourceType != "git" {
+		t.Fatalf("expected source_type git, got %q", page.SourceType)
+	}
+}
+
+func TestPagesStoreCreateContainerImage(t *testing.T) {
+	store := initTestPagesStore(t)
+
+	if err := store.Create(Page{
+		Name:           "image-site",
+		SourceType:     "container_image",
+		Image:          "nginx:latest",
+		ImageDirectory: "/usr/share/nginx/html",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	page, err := store.Get("image-site")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if page.SourceType != "container_image" {
+		t.Fatalf("expected source_type container_image, got %q", page.SourceType)
+	}
+	if page.Image != "nginx:latest" {
+		t.Fatalf("expected image nginx:latest, got %q", page.Image)
+	}
+	if page.ImageDirectory != "/usr/share/nginx/html" {
+		t.Fatalf("expected image_directory /usr/share/nginx/html, got %q", page.ImageDirectory)
+	}
 }
 
 func TestPagesStoreUpdate(t *testing.T) {
@@ -76,6 +126,60 @@ func TestPagesStoreUpdate(t *testing.T) {
 	}
 	if page.Status != PageStatusActive {
 		t.Fatalf("expected status active, got %q", page.Status)
+	}
+}
+
+func TestPagesStoreUpdateSourceType(t *testing.T) {
+	store := initTestPagesStore(t)
+
+	if err := store.Create(Page{
+		Name:       "test-page",
+		SourceType: "archive",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := store.Update("test-page", map[string]string{
+		"source_type": "git",
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	page, err := store.Get("test-page")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if page.SourceType != "git" {
+		t.Fatalf("expected source_type git, got %q", page.SourceType)
+	}
+}
+
+func TestPagesStoreUpdateImageFields(t *testing.T) {
+	store := initTestPagesStore(t)
+
+	if err := store.Create(Page{
+		Name:       "test-page",
+		SourceType: "container_image",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := store.Update("test-page", map[string]string{
+		"image":           "alpine:latest",
+		"image_directory": "/srv",
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	page, err := store.Get("test-page")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if page.Image != "alpine:latest" {
+		t.Fatalf("expected image alpine:latest, got %q", page.Image)
+	}
+	if page.ImageDirectory != "/srv" {
+		t.Fatalf("expected image_directory /srv, got %q", page.ImageDirectory)
 	}
 }
 
@@ -138,6 +242,40 @@ func TestPagesStoreList(t *testing.T) {
 	}
 	if result.TotalCount != 3 {
 		t.Fatalf("expected total count 3, got %d", result.TotalCount)
+	}
+}
+
+func TestPagesStoreListIncludesSourceType(t *testing.T) {
+	store := initTestPagesStore(t)
+
+	if err := store.Create(Page{
+		Name:       "git-site",
+		SourceType: "git",
+		RepoURL:    "https://github.com/example/site",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := store.Create(Page{
+		Name:       "archive-site",
+		SourceType: "archive",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	result, err := store.List(PagesListOptions{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(result.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result.Entries))
+	}
+	for _, p := range result.Entries {
+		if p.Name == "git-site" && p.SourceType != "git" {
+			t.Errorf("expected source_type git, got %q", p.SourceType)
+		}
+		if p.Name == "archive-site" && p.SourceType != "archive" {
+			t.Errorf("expected source_type archive, got %q", p.SourceType)
+		}
 	}
 }
 
