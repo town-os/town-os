@@ -394,4 +394,160 @@ describe('PagesManagement component', () => {
       expect(document.title).toBe('Town OS - Pages')
     })
   })
+
+  it('opens upload dialog when upload button is clicked for archive pages', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'archive-site',
+          repo_url: '',
+          branch: '',
+          domain: 'archive-site',
+          source_type: 'archive',
+          image: '',
+          image_directory: '',
+          status: 'pending',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByTitle('Upload archive')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTitle('Upload archive'))
+    await waitFor(() => {
+      expect(screen.getByText('Upload Archive: archive-site')).toBeTruthy()
+    })
+  })
+
+  it('shows archive file input in create dialog when archive source type selected', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Create Page')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => {
+      // Archive is the default source type, so the file input should be visible.
+      expect(screen.getByLabelText('Archive File')).toBeTruthy()
+    })
+  })
+
+  it('create dialog has source type selector', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Create Page')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Source Type')).toBeTruthy()
+      // Default source type is archive so archive file input should be visible.
+      expect(screen.getByLabelText('Archive File')).toBeTruthy()
+    })
+  })
+
+  it('create dialog does not show git fields for default archive source type', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Create Page')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => {
+      // Archive is default, so git/container fields should not be present.
+      expect(screen.queryByLabelText('Repository URL')).toBeNull()
+      expect(screen.queryByLabelText('Branch')).toBeNull()
+      expect(screen.queryByLabelText('Container Image')).toBeNull()
+      expect(screen.queryByLabelText('Image Directory')).toBeNull()
+    })
+  })
+
+  it('shows rebuild button for container_image pages', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'image-site',
+          repo_url: '',
+          branch: '',
+          domain: 'image-site',
+          source_type: 'container_image',
+          image: 'nginx:latest',
+          image_directory: '/usr/share/nginx/html',
+          status: 'active',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByTitle('Re-extract from image')).toBeTruthy()
+    })
+  })
+
+  it('shows dash for branch column on archive pages', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'archive-site',
+          repo_url: '',
+          branch: '',
+          domain: 'archive-site',
+          source_type: 'archive',
+          image: '',
+          image_directory: '',
+          status: 'pending',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      // The branch column shows "-" for archive pages.
+      const dashes = screen.getAllByText('-')
+      expect(dashes.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('shows container image edit fields in edit dialog for container_image pages', async () => {
+    mockListPages.mockResolvedValueOnce({
+      entries: [
+        {
+          name: 'image-site',
+          repo_url: '',
+          branch: '',
+          domain: 'image-site',
+          source_type: 'container_image',
+          image: 'nginx:latest',
+          image_directory: '/usr/share/nginx/html',
+          status: 'active',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      has_more: false,
+      total_pages: 1,
+      total_count: 1,
+    })
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Edit')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Edit'))
+    await waitFor(() => {
+      expect(screen.getByText('Edit Page: image-site')).toBeTruthy()
+      expect(screen.getByDisplayValue('nginx:latest')).toBeTruthy()
+      expect(screen.getByDisplayValue('/usr/share/nginx/html')).toBeTruthy()
+    })
+  })
 })

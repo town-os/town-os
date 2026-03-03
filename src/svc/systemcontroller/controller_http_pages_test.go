@@ -3,8 +3,10 @@ package systemcontroller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -731,5 +733,197 @@ func TestHTTPRemovePageRemovesSymlink(t *testing.T) {
 	// Verify symlink was removed.
 	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
 		t.Fatal("expected symlink to be removed after page removal")
+	}
+}
+
+func TestHTTPUploadPageArchiveWrongSourceType(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	// Create a git page, then try to upload an archive to it.
+	_, err := c.CreatePage(context.TODO(), "git-site", "https://github.com/user/site.git", "main", "git.example.com", account.PageSourceGit, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	_, err = c.UploadPageArchive(context.TODO(), "git-site", strings.NewReader("dummy"), "dummy.tar.gz")
+	if err == nil {
+		t.Fatal("expected error when uploading archive to git-type page")
+	}
+}
+
+func TestHTTPUploadPageArchivePageNotFound(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	_, err := c.UploadPageArchive(context.TODO(), "nonexistent", strings.NewReader("dummy"), "dummy.tar.gz")
+	if err == nil {
+		t.Fatal("expected error when uploading to nonexistent page")
+	}
+}
+
+func TestHTTPUploadPageArchiveContainerImageSourceType(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	// Create a container_image page, then try to upload an archive to it.
+	_, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	_, err = c.UploadPageArchive(context.TODO(), "image-site", strings.NewReader("dummy"), "dummy.tar.gz")
+	if err == nil {
+		t.Fatal("expected error when uploading archive to container_image-type page")
+	}
+}
+
+func TestHTTPRebuildContainerImagePageSetsErrorStatus(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// Rebuild will fail because reconcileExtractFromImage uses podman which is
+	// unavailable in mock tests. The handler should set status to error.
+	_, err = c.RebuildPage(context.TODO(), "image-site")
+	if err == nil {
+		t.Fatal("expected error when rebuilding container_image page in mock env")
+	}
+
+	// Verify the page status was set to error.
+	pages, err := c.ListPages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages.Entries))
+	}
+	if pages.Entries[0].Status != "error" {
+		t.Errorf("expected status %q after rebuild failure, got %q", "error", pages.Entries[0].Status)
+	}
+}
+
+func TestHTTPUpdatePageImageFields(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html")
+	if err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	newImage := "alpine:latest"
+	newDir := "/srv/html"
+	updated, err := c.UpdatePage(context.TODO(), "image-site", account.PageSiteUpdate{
+		Image:          &newImage,
+		ImageDirectory: &newDir,
+	})
+	if err != nil {
+		t.Fatalf("UpdatePage: %v", err)
+	}
+	if updated.Image != newImage {
+		t.Errorf("expected image %q, got %q", newImage, updated.Image)
+	}
+	if updated.ImageDirectory != newDir {
+		t.Errorf("expected image_directory %q, got %q", newDir, updated.ImageDirectory)
+	}
+}
+
+func TestHTTPListPagesSorting(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	_, err := c.CreatePage(context.TODO(), "zeta-site", "", "", "zeta.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage zeta: %v", err)
+	}
+	_, err = c.CreatePage(context.TODO(), "alpha-site", "", "", "alpha.example.com", account.PageSourceArchive, "", "")
+	if err != nil {
+		t.Fatalf("CreatePage alpha: %v", err)
+	}
+
+	// Sort by name ascending (default).
+	pages, err := c.ListPages(context.TODO(), ListParams{SortBy: "name", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 2 {
+		t.Fatalf("expected 2 pages, got %d", len(pages.Entries))
+	}
+	if pages.Entries[0].Name != "alpha-site" {
+		t.Errorf("expected first page %q, got %q", "alpha-site", pages.Entries[0].Name)
+	}
+
+	// Sort by name descending.
+	pages, err = c.ListPages(context.TODO(), ListParams{SortBy: "name", SortOrder: "desc"})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if pages.Entries[0].Name != "zeta-site" {
+		t.Errorf("expected first page %q with desc sort, got %q", "zeta-site", pages.Entries[0].Name)
+	}
+}
+
+func TestHTTPListPagesPagination(t *testing.T) {
+	c, _ := initPagesTestClient(t)
+
+	for i := range 3 {
+		name := fmt.Sprintf("page-%d", i)
+		_, err := c.CreatePage(context.TODO(), name, "", "", name+".example.com", account.PageSourceArchive, "", "")
+		if err != nil {
+			t.Fatalf("CreatePage %s: %v", name, err)
+		}
+	}
+
+	// Request first page with limit 2.
+	pages, err := c.ListPages(context.TODO(), ListParams{Limit: 2})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(pages.Entries))
+	}
+	if !pages.HasMore {
+		t.Error("expected HasMore to be true")
+	}
+	if pages.TotalCount != 3 {
+		t.Errorf("expected TotalCount 3, got %d", pages.TotalCount)
+	}
+
+	// Request second page.
+	pages, err = c.ListPages(context.TODO(), ListParams{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListPages: %v", err)
+	}
+	if len(pages.Entries) != 1 {
+		t.Fatalf("expected 1 entry on second page, got %d", len(pages.Entries))
+	}
+	if pages.HasMore {
+		t.Error("expected HasMore to be false on last page")
+	}
+}
+
+func TestHTTPPagesAuditUploadPageArchive(t *testing.T) {
+	c, auditMgr := initPagesTestClientWithAudit(t)
+
+	if _, err := c.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", ""); err != nil {
+		t.Fatalf("CreatePage: %v", err)
+	}
+
+	// Attempt upload (will fail due to invalid archive content, but audit should still be logged).
+	_, _ = c.UploadPageArchive(context.TODO(), "archive-site", strings.NewReader("not-an-archive"), "test.tar.gz")
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	found := false
+	for _, e := range page.Entries {
+		if e.Action == "upload page archive" && e.Path == "/pages/upload" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected to find 'upload page archive' audit entry")
 	}
 }
