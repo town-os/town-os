@@ -153,9 +153,9 @@ Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the ho
 | Target                     | Description                                                                                                             |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `make test`                | Run lint, Go unit tests, and JS unit tests.                                                                             |
-| `make test-integration`    | Run Go integration tests inside a privileged podman container with systemd and btrfs.                                   |
-| `make test-ui-integration` | Run JS (bun) UI integration tests against a backend container.                                                          |
-| `make test-full`           | Run `test`, `test-integration`, and `test-ui-integration` in sequence.                                                  |
+| `make test-integration`    | Run Go integration tests inside a privileged podman container with systemd and btrfs. Cleans up btrfs loopback on exit. |
+| `make test-ui-integration` | Run JS (bun) UI integration tests against a backend container. Cleans up btrfs loopback on exit.                        |
+| `make test-full`           | Run `test`, `test-integration`, and `test-ui-integration` in sequence. Uses a signal trap for guaranteed cleanup.       |
 | `make test-systemd`        | Run only the systemd-related integration tests (`TestPodman`).                                                          |
 | `make auto-test`           | Watch for `.go`/`.js` file changes and re-run `make test` automatically. Reflex is automatically installed when needed. |
 | `make auto-test-full`      | Watch for file changes and re-run `make test-full` automatically. Reflex is automatically installed when needed.        |
@@ -220,16 +220,16 @@ Dev and integration use separate production base images and build caches so conc
 | Target                 | Description                                                    |
 | ---------------------- | -------------------------------------------------------------- |
 | `make btrfs`           | Create a 50GB btrfs loopback volume for integration tests.     |
-| `make clean-btrfs`     | Unmount and remove the integration test btrfs volume.          |
-| `make btrfs-dev`       | Create a 50GB btrfs loopback volume for the dev environment.   |
-| `make clean-btrfs-dev` | Unmount and remove the dev btrfs volume.                       |
+| `make clean-btrfs`     | Unmount, detach loop devices, and remove the integration test btrfs volume. |
+| `make btrfs-dev`       | Create a 50GB btrfs loopback volume for the dev environment.                |
+| `make clean-btrfs-dev` | Unmount, detach loop devices, and remove the dev btrfs volume.              |
 | `make dev-btrfs`       | Create the dev btrfs volume only if one isn't already mounted. |
 
 The dev and integration test environments use separate btrfs volumes, container images, and build caches so they can run concurrently without conflict.
 
 ### Cleanup
 
-`make test-full` automatically cleans up all integration containers, registry, Gitea, and btrfs volumes after tests complete (even on failure).
+`make test-full` automatically cleans up all integration containers, registry, Gitea, and btrfs loopback volumes after tests complete. A shell EXIT trap ensures cleanup runs even when interrupted by signals. Each integration test target (`test-integration`, `test-ui-integration`) also uses its own EXIT trap to guarantee btrfs loopback cleanup regardless of how the recipe terminates (success, failure, or signal interruption). The `clean-btrfs` target includes a safety net that scans for orphaned loop devices backed by btrfs images in the current directory, handling cases where tracking files are missing.
 
 | Target                   | Description                                                              |
 | ------------------------ | ------------------------------------------------------------------------ |
@@ -237,7 +237,7 @@ The dev and integration test environments use separate btrfs volumes, container 
 | `make clean-dev`         | Stop all dev containers, tear down dev btrfs, remove dev-data/dev-repos. |
 | `make clean-cache`       | Same as `clean-dev` (used as a dependency by `clean`).                   |
 | `make clean-integration` | Remove only the integration test containers and port file.               |
-| `make clean-btrfs`       | Unmount and remove the integration test btrfs volume.                    |
+| `make clean-btrfs`       | Unmount and remove the integration test btrfs volume and orphaned loop devices. |
 | `make clean-containers`  | Remove all town-os containers from any working directory / instance.     |
 | `make clean-all`         | Clean everything: all containers, dev, integration, and btrfs.           |
 
