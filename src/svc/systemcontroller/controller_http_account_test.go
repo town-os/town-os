@@ -447,12 +447,12 @@ func TestHTTPListAccountsSearch(t *testing.T) {
 		}
 	}
 
-	result, err := c.ListAccounts(context.TODO(), ListParams{Search: "ali"})
+	result, err := c.ListAccounts(context.TODO(), ListParams{Search: "alic"})
 	if err != nil {
 		t.Fatalf("ListAccounts search: %v", err)
 	}
 	if len(result.Entries) != 1 {
-		t.Fatalf("expected 1 result for search 'ali', got %d", len(result.Entries))
+		t.Fatalf("expected 1 result for search 'alic', got %d", len(result.Entries))
 	}
 	if result.Entries[0].Username != "alice" {
 		t.Fatalf("expected alice, got %s", result.Entries[0].Username)

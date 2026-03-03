@@ -3,6 +3,7 @@ export TOWN_OS_REPO_USERNAME
 export TOWN_OS_REPO_PASSWORD
 export DOCKER_USERNAME
 export DOCKER_PASSWORD
+export VITE_API_URL
 
 # Unique instance ID from working directory path.
 INSTANCE_ID := $(shell echo -n "$(CURDIR)" | md5sum | cut -c1-8)
@@ -32,8 +33,11 @@ IMAGE_CACHE ?= /var/cache/town-os/images
 # Base images needed to build and test.
 BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim
 
+# Monitoring stack images.
+MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
+
 # All images (base + service) that must be cached before integration runs.
-ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine
+ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine $(MONITORING_IMAGES)
 
 # ---------------------------------------------------------------------------
 # Dependency checks — verify required tools are installed before building.
@@ -282,6 +286,17 @@ test-integration: lint test-image btrfs .integration-port registry-populate .cac
 		sudo -E podman exec $(PODMAN_CONTAINER) test -S /var/run/dbus/system_bus_socket 2>/dev/null && break; \
 		sleep 1; \
 	done
+	@echo "Loading monitoring images into test container..."
+	@for img in $(MONITORING_IMAGES); do \
+		safe=$$(basename "$$img" | tr ':' '-'); \
+		if [ -f "$(IMAGE_CACHE)/$$safe.tar" ]; then \
+			sudo -E podman cp "$(IMAGE_CACHE)/$$safe.tar" $(PODMAN_CONTAINER):/tmp/$$safe.tar; \
+			sudo -E podman exec $(PODMAN_CONTAINER) podman load -i /tmp/$$safe.tar; \
+			sudo -E podman exec $(PODMAN_CONTAINER) rm -f /tmp/$$safe.tar; \
+		else \
+			echo "WARNING: missing cached image $$safe.tar for $$img"; \
+		fi; \
+	done
 	@sudo -E podman exec -w /test $(PODMAN_CONTAINER) /integration-test -test.v -test.timeout 60m
 
 # Run the full test suite and always clean up containers and btrfs afterward.
@@ -338,7 +353,7 @@ dev-btrfs:
 		$(MAKE) btrfs-dev; \
 	fi
 
-dev: check-podman check-runc check-bun check-btrfs dev-image dev-btrfs
+dev: check-podman check-runc check-bun check-btrfs dev-image dev-btrfs ensure-image-cache
 	@sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 	@mkdir -p dev-data dev-repos
 	sudo -E podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
@@ -351,8 +366,19 @@ dev: check-podman check-runc check-bun check-btrfs dev-image dev-btrfs
 		-v $$(pwd)/dev-data:/data/db:z \
 		-v $$(pwd)/dev-repos:/data/repos:z \
 		--name $(PODMAN_DEV_CONTAINER) $(PODMAN_DEV_IMAGE)
+	@echo "Loading monitoring images into dev container..."
+	@for img in $(MONITORING_IMAGES); do \
+		safe=$$(basename "$$img" | tr ':' '-'); \
+		if [ -f "$(IMAGE_CACHE)/$$safe.tar" ]; then \
+			sudo -E podman cp "$(IMAGE_CACHE)/$$safe.tar" $(PODMAN_DEV_CONTAINER):/tmp/$$safe.tar; \
+			sudo -E podman exec $(PODMAN_DEV_CONTAINER) podman load -i /tmp/$$safe.tar; \
+			sudo -E podman exec $(PODMAN_DEV_CONTAINER) rm -f /tmp/$$safe.tar; \
+		else \
+			echo "WARNING: missing cached image $$safe.tar for $$img"; \
+		fi; \
+	done
 	@echo "API server: http://$$(hostname):5309"
-	cd ui && bun install && VITE_API_URL=http://$$(hostname):5309 bun run dev -- --host; \
+	cd ui && bun install && bun run dev -- --host; \
 		sudo -E podman rm -f $(PODMAN_DEV_CONTAINER)
 
 preflight-dev: ensure-image-cache .integration-port

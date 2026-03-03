@@ -29,7 +29,7 @@ export default function MonitoringDashboard() {
   )
 
   const grafanaBaseURL =
-    import.meta.env.VITE_CLIENT_URL || window.location.origin
+    import.meta.env.VITE_API_URL || window.location.origin
   const grafanaURL = `${grafanaBaseURL}/monitoring/grafana/`
 
   const allRunning =

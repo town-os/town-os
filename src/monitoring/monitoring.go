@@ -17,9 +17,9 @@ import (
 
 const (
 	// PrometheusImage is the container image reference for Prometheus.
-	PrometheusImage = "docker.io/prom/prometheus:latest"
+	PrometheusImage = "quay.io/prometheus/prometheus:latest"
 	// NodeExporterImage is the container image reference for Node Exporter.
-	NodeExporterImage = "docker.io/prom/node-exporter:latest"
+	NodeExporterImage = "quay.io/prometheus/node-exporter:latest"
 	// GrafanaImage is the container image reference for Grafana.
 	GrafanaImage = "docker.io/grafana/grafana:latest"
 
@@ -283,13 +283,10 @@ func (m *Manager) startNodeExporter(ctx context.Context) error {
 		"--name", containerPrefix + "node-exporter",
 		"--net", "host",
 		"--pid", "host",
-		"-v", "/proc:/host/proc:ro",
-		"-v", "/sys:/host/sys:ro",
-		"-v", "/:/rootfs:ro",
+		"--cap-add", "SYS_TIME",
+		"-v", "/:/host:ro,rslave",
 		NodeExporterImage,
-		"--path.procfs=/host/proc",
-		"--path.sysfs=/host/sys",
-		"--path.rootfs=/rootfs",
+		"--path.rootfs=/host",
 		"--web.listen-address=:" + m.cfg.nodeExporterHostPort(),
 	})
 }
@@ -305,8 +302,9 @@ func (m *Manager) startPrometheus(ctx context.Context) error {
 		"-d",
 		"--name", containerPrefix + "prometheus",
 		"--net", "host",
-		"-v", configPath + ":/etc/prometheus/prometheus.yml:ro,z",
-		"-v", dataDir + ":/prometheus:rw,z",
+		"-u", "0",
+		"-v", configPath + ":/etc/prometheus/prometheus.yml:ro",
+		"-v", dataDir + ":/prometheus:shared,rw",
 		PrometheusImage,
 		"--config.file=/etc/prometheus/prometheus.yml",
 		"--storage.tsdb.path=/prometheus",
@@ -326,6 +324,7 @@ func (m *Manager) startGrafana(ctx context.Context) error {
 		"-d",
 		"--name", containerPrefix + "grafana",
 		"--net", "host",
+		"-u", "0",
 		"-e", "GF_SECURITY_ADMIN_PASSWORD=admin",
 		"-e", "GF_AUTH_ANONYMOUS_ENABLED=true",
 		"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer",
@@ -333,8 +332,8 @@ func (m *Manager) startGrafana(ctx context.Context) error {
 		"-e", "GF_SERVER_HTTP_PORT=" + m.cfg.grafanaHostPort(),
 		"-e", "GF_SERVER_SERVE_FROM_SUB_PATH=true",
 		"-e", "GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/monitoring/grafana/",
-		"-v", provisioningDir + ":/etc/grafana/provisioning:ro,z",
-		"-v", dataDir + ":/var/lib/grafana:rw,z",
+		"-v", provisioningDir + ":/etc/grafana/provisioning:ro",
+		"-v", dataDir + ":/var/lib/grafana:shared,rw",
 		GrafanaImage,
 	})
 }

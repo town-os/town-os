@@ -92,7 +92,7 @@ export default function Login() {
               />
             </div>
           </CardContent>
-          <CardFooter>
+          <CardFooter className="pt-2">
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>

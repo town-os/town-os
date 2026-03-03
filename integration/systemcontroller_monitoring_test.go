@@ -2,8 +2,10 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"gitea.com/town-os/town-os/src/monitoring"
 )
@@ -175,5 +177,71 @@ func TestMonitoringGrafanaProxyDisabledReturns503(t *testing.T) {
 
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when monitoring disabled, got %d", resp.StatusCode)
+	}
+}
+
+func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
+	promPort := findFreePort(t)
+	nePort := findFreePort(t)
+	grafPort := findFreePort(t)
+
+	dataDir := t.TempDir()
+
+	mgr := monitoring.NewManager(monitoring.Config{
+		Runner:           monitoring.PodmanRunner{},
+		DataDir:          dataDir,
+		PrometheusPort:   promPort,
+		NodeExporterPort: nePort,
+		GrafanaPort:      grafPort,
+	})
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(mgr.Stop)
+
+	status := mgr.Status(ctx)
+	if !status.Prometheus.Running {
+		t.Fatal("expected prometheus running after Start")
+	}
+	if !status.NodeExporter.Running {
+		t.Fatal("expected node-exporter running after Start")
+	}
+	if !status.Grafana.Running {
+		t.Fatal("expected grafana running after Start")
+	}
+
+	endpoints := []struct {
+		name string
+		url  string
+	}{
+		{"prometheus", fmt.Sprintf("http://localhost:%s/-/healthy", promPort)},
+		{"node-exporter", fmt.Sprintf("http://localhost:%s/metrics", nePort)},
+		{"grafana", fmt.Sprintf("http://localhost:%s/api/health", grafPort)},
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, ep := range endpoints {
+		t.Run(ep.name, func(t *testing.T) {
+			deadline := time.Now().Add(30 * time.Second)
+			for time.Now().Before(deadline) {
+				req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, ep.url, nil)
+				if reqErr != nil {
+					t.Fatalf("NewRequest: %v", reqErr)
+				}
+				resp, err := client.Do(req)
+				if err == nil {
+					if closeErr := resp.Body.Close(); closeErr != nil {
+						t.Errorf("resp.Body.Close: %v", closeErr)
+					}
+					if resp.StatusCode == http.StatusOK {
+						return
+					}
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+			t.Fatalf("%s did not become healthy at %s within 30s", ep.name, ep.url)
+		})
 	}
 }

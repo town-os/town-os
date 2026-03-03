@@ -2,9 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
-import os from 'os'
-
-const apiTarget = process.env.VITE_API_URL || 'http://localhost:5309'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -14,17 +11,7 @@ export default defineConfig({
     },
   },
   server: {
-    allowedHosts: [os.hostname()],
-    proxy: {
-      '/status': apiTarget,
-      '/account': apiTarget,
-      '/storage': apiTarget,
-      '/repository': apiTarget,
-      '/packages': apiTarget,
-      '/systemd': apiTarget,
-      '/audit': apiTarget,
-      '/settings': apiTarget,
-    },
+    allowedHosts: true,
   },
   test: {
     environment: 'jsdom',

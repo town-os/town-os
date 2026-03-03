@@ -3,7 +3,9 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
+	"strconv"
 	"path/filepath"
 	"testing"
 
@@ -460,4 +462,23 @@ func initSystemControllerTestWithStorageAndBtrfsBase(t *testing.T) (*systemcontr
 	}
 
 	return c, btr
+}
+
+func findFreePort(t *testing.T) string {
+	t.Helper()
+
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", ":0")
+	if err != nil {
+		t.Fatalf("findFreePort: %v", err)
+	}
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatal("findFreePort: unexpected address type")
+	}
+	port := addr.Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("findFreePort close: %v", err)
+	}
+
+	return strconv.Itoa(port)
 }
