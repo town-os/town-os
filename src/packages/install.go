@@ -95,7 +95,7 @@ func (m *InstallManager) SetDisabled(repoName, pkgName string, disabled bool) er
 		if err != nil {
 			return err
 		}
-		f, err := os.Create(marker) //nolint:gosec // marker validated by SafePath above
+		f, err := os.Create(marker) //nolint:gosec // G304 -- marker path validated by SafePath
 		if err != nil {
 			return err
 		}
@@ -285,7 +285,7 @@ func (m *InstallManager) GetResponses(repoName, pkgName, version string) (_ Resp
 		return nil, err
 	}
 
-	f, err := os.Open(respFile) //nolint:gosec // respFile validated by SafePath above
+	f, err := os.Open(respFile) //nolint:gosec // G304 -- respFile from SafePath
 	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrNotInstalled)
 	}
@@ -335,7 +335,7 @@ func (m *InstallManager) LoadLastResponses(repoName, pkgName string) (_ Response
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
 	if err != nil {
 		return nil, err
 	}
@@ -385,7 +385,7 @@ func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, 
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

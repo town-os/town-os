@@ -148,7 +148,7 @@ func (s *PagesStore) Update(name string, updates map[string]string) error {
 	args = append(args, time.Now().UTC().Format(time.RFC3339))
 	args = append(args, name)
 
-	query := "UPDATE pages SET " + strings.Join(sets, ", ") + " WHERE name = ?" //nolint:gosec // column names are from a fixed whitelist, not user input
+	query := "UPDATE pages SET " + strings.Join(sets, ", ") + " WHERE name = ?" //nolint:gosec // G202 -- columns from allowlist, not user input
 	result, err := s.db.ExecContext(context.Background(), query, args...)
 	if err != nil {
 		return fmt.Errorf("update page: %w", err)

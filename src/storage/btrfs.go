@@ -75,7 +75,7 @@ func (c BtrFSController) binPath() string {
 }
 
 func (c BtrFSController) run(ctx context.Context, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, c.binPath(), args...).CombinedOutput() //nolint:gosec // binPath is a controlled configuration value
+	return exec.CommandContext(ctx, c.binPath(), args...).CombinedOutput() //nolint:gosec // G204 -- args from trusted internal calls
 }
 
 func (c BtrFSController) IsSubvolume(name string) error {
@@ -304,7 +304,7 @@ func (c BtrFSController) QGroupShow(path string) (uint64, error) {
 	out, err := c.run(context.Background(), "qgroup", "show", "--raw", "-r", path)
 	if err != nil {
 		// Quotas not enabled or other failure — not an error, just no quota
-		return 0, nil //nolint:nilerr // intentional: quota absence is not an error
+		return 0, nil //nolint:nilerr // qgroup failure means no quota
 	}
 
 	return parseQGroupShow(string(out), id)

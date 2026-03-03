@@ -70,7 +70,7 @@ type MockClient struct {
 	RevokeSessionErr     error
 	ListSessionsErr      error
 	SessionUsernameErr   error
-	AuthToken            string //nolint:gosec // G117: test mock field
+	AuthToken            string //nolint:gosec // G117 -- test field, not a real token
 	AuditEntries         []account.AuditEntry
 	ListAuditErr         error
 	Settings             map[string]string
@@ -89,6 +89,11 @@ type MockClient struct {
 	ListLocalesErr       error
 	MonitoringStatusResp *monitoring.Status
 	MonitoringStatusErr  error
+	VMImages             []VMImageInfo
+	ListVMImagesErr      error
+	UploadVMImageErr     error
+	UploadVMImageResult  *VMImageInfo
+	DeleteVMImageErr     error
 }
 
 // MockCall records a single method invocation on [MockClient], including

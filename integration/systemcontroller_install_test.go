@@ -501,7 +501,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 	// Create a local file-based package repository as a bare git repo so go-git
 	// can clone it. We build the content in a working copy, push to a bare repo,
 	// then point AddRepository at the bare repo URL.
-	seedURL := fmt.Sprintf("file://%s", seedRepo) //nolint:perfsprint // project convention
+	seedURL := "file://" + seedRepo
 	localBareRepo := filepath.Join(t.TempDir(), "local.git")
 	localWork := filepath.Join(t.TempDir(), "local-work")
 	for _, args := range [][]string{

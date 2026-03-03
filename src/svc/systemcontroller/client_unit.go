@@ -45,7 +45,7 @@ func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action s
 // LogReplay streams historical journal entries for a unit via server-sent
 // events. The returned channel is closed when the replay completes.
 func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {
-	resp, err := c.getClient(ctx, "systemd/logs?unit="+url.QueryEscape(name)) //nolint:bodyclose // closed in goroutine defer below
+	resp, err := c.getClient(ctx, "systemd/logs?unit="+url.QueryEscape(name)) //nolint:bodyclose // closed in goroutine below
 	if err != nil {
 		if resp != nil {
 			err = errors.Join(err, resp.Body.Close())

@@ -47,6 +47,7 @@ var enUSMessages = map[string]string{
 	MsgInstallSummaryNoVols:   "No volumes",
 	MsgInstallSummaryPorts:    "External ports: %s",
 	MsgInstallSummaryConfig:   "Configuration required",
+	MsgInstallSummaryVMImage:  "VM Image: %s",
 
 	// Rebuild git.
 	MsgRebuildFieldsRequired:   "repo, name, and version are required",
@@ -103,4 +104,6 @@ var enUSMessages = map[string]string{
 	MsgAuditUploadPageArchive:       "upload page archive",
 	MsgAuditEnableAccount:           "enable account",
 	MsgAuditRebuildGit:              "rebuild git",
+	MsgAuditUploadVMImage:           "upload vm image",
+	MsgAuditDeleteVMImage:           "delete vm image",
 }

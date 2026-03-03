@@ -16,7 +16,7 @@ import (
 
 type AuthenticateRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"` //nolint:gosec // G117: expected field name
+	Password string `json:"password"` //nolint:gosec // G117 -- request field, not hardcoded
 }
 
 type AuthenticateResponse struct {
@@ -198,6 +198,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/settings/get":                 true,
 			"/pages":                        true,
 			"/locales":                      true,
+			"/vm-images":                    true,
 			"/monitoring/status":             true,
 		}
 

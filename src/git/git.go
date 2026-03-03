@@ -540,7 +540,7 @@ func (c *GoGitClient) Run(ctx context.Context, dir string, args ...string) ([]by
 
 // runConfig handles "git config" operations.
 func (c *GoGitClient) runConfig(dir string, args []string) ([]byte, error) {
-	if len(args) < 2 { //nolint:mnd // config requires key+value
+	if len(args) < 2 {
 		return nil, errors.New("git config: need key and value")
 	}
 
@@ -557,8 +557,8 @@ func (c *GoGitClient) runConfig(dir string, args []string) ([]byte, error) {
 	key := args[0]
 	value := args[1]
 
-	parts := strings.SplitN(key, ".", 2) //nolint:mnd // section.key
-	if len(parts) != 2 {                 //nolint:mnd // section.key
+	parts := strings.SplitN(key, ".", 2)
+	if len(parts) != 2 {
 		return nil, fmt.Errorf("git config: invalid key %q", key)
 	}
 

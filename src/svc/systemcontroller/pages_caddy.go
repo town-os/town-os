@@ -71,13 +71,13 @@ func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
 // Returns the path to the written file.
 func WriteCaddyfile(btrfsBasePath, port string) (string, error) {
 	dir := filepath.Join(btrfsBasePath, PagesCaddyDir)
-	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // admin-managed directory
+	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // G301 -- caddy config directory
 		return "", fmt.Errorf("create caddy dir: %w", err)
 	}
 
 	path := filepath.Join(dir, "Caddyfile")
 	content := GenerateCaddyfile(port)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil { //nolint:gosec // config file, not secrets
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil { //nolint:gosec // G306 -- caddy config readable by container
 		return "", fmt.Errorf("write Caddyfile: %w", err)
 	}
 
@@ -87,7 +87,7 @@ func WriteCaddyfile(btrfsBasePath, port string) (string, error) {
 // EnsurePagesWebroot creates the {btrfsBasePath}/pages-webroot/ directory.
 func EnsurePagesWebroot(btrfsBasePath string) error {
 	dir := filepath.Join(btrfsBasePath, PagesWebrootDir)
-	return os.MkdirAll(dir, 0755) //nolint:gosec // admin-managed directory
+	return os.MkdirAll(dir, 0755) //nolint:gosec // G301 -- webroot directory
 }
 
 // EnsurePageSymlink creates a symlink at {btrfsBasePath}/pages-webroot/{name}

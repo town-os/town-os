@@ -224,6 +224,31 @@ type Client interface {
 	//
 	// Calls GET /monitoring/status on the Control Plane Service.
 	MonitoringStatus(ctx context.Context) (*monitoring.Status, error)
+
+	// ListVMImages returns all cached VM disk images in the vm-images
+	// subvolume. Each entry includes the image filename and size in bytes.
+	//
+	// Calls GET /vm-images on the Control Plane Service.
+	ListVMImages(ctx context.Context) ([]VMImageInfo, error)
+	// UploadVMImage downloads a VM disk image from a remote URL, converts
+	// it to raw format using qemu-img, and caches the result in the
+	// vm-images subvolume.
+	//
+	// Parameters:
+	//   - url: remote URL to download the VM image from (required).
+	//   - name: desired filename for the cached image. When empty, the
+	//     filename is derived from the URL's last path segment.
+	//
+	// Calls POST /vm-images/upload on the Control Plane Service.
+	UploadVMImage(ctx context.Context, url, name string) (*VMImageInfo, error)
+	// DeleteVMImage removes a cached VM disk image from the vm-images
+	// subvolume.
+	//
+	// Parameters:
+	//   - name: filename of the VM image to delete (required).
+	//
+	// Calls POST /vm-images/delete on the Control Plane Service.
+	DeleteVMImage(ctx context.Context, name string) error
 }
 
 // Sentinel errors returned by [SystemdClient] methods.
@@ -298,7 +323,7 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(req) //nolint:gosec // G704: URL from trusted c.route()
+	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
 	if err != nil {
 		return fmt.Errorf("%w: POST %s: %w", ErrHTTPRequest, path, err)
 	}
@@ -323,7 +348,7 @@ func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Res
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	return c.HTTP.Do(req) //nolint:gosec // G704: URL from trusted c.route()
+	return c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
 }
 
 // postJSON sends a POST request with a JSON body and returns the raw response.
@@ -337,5 +362,5 @@ func (c *SystemdClient) postJSON(ctx context.Context, path string, body io.Reade
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	return c.HTTP.Do(req) //nolint:gosec // G704: URL from trusted c.route()
+	return c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
 }

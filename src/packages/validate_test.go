@@ -584,8 +584,8 @@ func TestCompileRejectsEmptyImage(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty image")
 	}
-	if !errors.Is(err, ErrInvalidImage) {
-		t.Fatalf("expected ErrInvalidImage, got %v", err)
+	if !errors.Is(err, ErrNoRuntime) {
+		t.Fatalf("expected ErrNoRuntime, got %v", err)
 	}
 }
 
@@ -806,8 +806,8 @@ func TestValidateInputPackage(t *testing.T) {
 			Questions:   map[string]Question{},
 		}
 		err := pkg.Validate()
-		if !errors.Is(err, ErrInvalidImage) {
-			t.Fatalf("expected ErrInvalidImage, got %v", err)
+		if !errors.Is(err, ErrNoRuntime) {
+			t.Fatalf("expected ErrNoRuntime, got %v", err)
 		}
 	})
 
@@ -1325,6 +1325,72 @@ questions: {}
 		}
 		if len(pkg.Templates) != 0 {
 			t.Fatalf("expected nil/empty templates, got %v", pkg.Templates)
+		}
+	})
+}
+
+func TestValidateVMConfig(t *testing.T) {
+	t.Run("valid local image", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "debian.raw", Memory: "2gb", CPUs: 2}
+		if err := ValidateVMConfig(vm); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("valid URL image", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "https://example.com/debian-12.qcow2", Memory: "1gb", CPUs: 1}
+		if err := ValidateVMConfig(vm); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("valid http URL image", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "http://mirror.local/vm.img", Memory: "1gb", CPUs: 1}
+		if err := ValidateVMConfig(vm); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("valid template image", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "@vmimage@", Memory: "1gb", CPUs: 1}
+		if err := ValidateVMConfig(vm); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty image rejected", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "", Memory: "1gb", CPUs: 1}
+		err := ValidateVMConfig(vm)
+		if err == nil {
+			t.Fatal("expected error for empty image")
+		}
+		if !errors.Is(err, ErrInvalidVMConfig) {
+			t.Fatalf("expected ErrInvalidVMConfig, got %v", err)
+		}
+	})
+
+	t.Run("negative CPUs rejected", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "debian.raw", Memory: "1gb", CPUs: -1}
+		err := ValidateVMConfig(vm)
+		if err == nil {
+			t.Fatal("expected error for negative CPUs")
+		}
+		if !errors.Is(err, ErrInvalidVMConfig) {
+			t.Fatalf("expected ErrInvalidVMConfig, got %v", err)
+		}
+	})
+
+	t.Run("zero CPUs accepted", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "debian.raw", Memory: "1gb", CPUs: 0}
+		if err := ValidateVMConfig(vm); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("no memory accepted", func(t *testing.T) {
+		vm := &InputPackageVM{Image: "debian.raw"}
+		if err := ValidateVMConfig(vm); err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }

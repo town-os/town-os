@@ -98,13 +98,13 @@ func run() error {
 
 func getRepo(client *http.Client, baseURL, user, pass, name string) (*giteaRepo, error) {
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s", baseURL, user, name)
-	req, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx,gosec // short-lived tool; URL from trusted config
+	req, err := http.NewRequest(http.MethodGet, url, nil) //nolint:gosec,noctx // G107 -- URL from trusted baseURL parameter; CLI tool
 	if err != nil {
 		return nil, err
 	}
 	req.SetBasicAuth(user, pass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted baseURL parameter
 	if err != nil {
 		return nil, err
 	}
@@ -134,13 +134,13 @@ func getRepo(client *http.Client, baseURL, user, pass, name string) (*giteaRepo,
 
 func deleteRepo(client *http.Client, baseURL, user, pass, name string) error {
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s", baseURL, user, name)
-	req, err := http.NewRequest(http.MethodDelete, url, nil) //nolint:noctx,gosec // short-lived tool; URL from trusted config
+	req, err := http.NewRequest(http.MethodDelete, url, nil) //nolint:gosec,noctx // G107 -- URL from trusted baseURL parameter; CLI tool
 	if err != nil {
 		return err
 	}
 	req.SetBasicAuth(user, pass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted baseURL parameter
 	if err != nil {
 		return err
 	}
@@ -173,14 +173,14 @@ func migrateRepo(client *http.Client, baseURL, user, pass, name, cloneURL string
 	}
 
 	url := baseURL + "/api/v1/repos/migrate"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body)) //nolint:noctx,gosec // short-lived tool; URL from trusted config
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body)) //nolint:gosec,noctx // G107 -- URL from trusted baseURL parameter; CLI tool
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(user, pass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted baseURL parameter
 	if err != nil {
 		return err
 	}

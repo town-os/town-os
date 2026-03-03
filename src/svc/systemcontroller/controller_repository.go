@@ -14,7 +14,7 @@ type AddRepositoryRequest struct {
 	Name     string `json:"name"`
 	URL      string `json:"url"`
 	Username string `json:"username"`
-	Password string `json:"password"` //nolint:gosec // G117: expected field name
+	Password string `json:"password"` //nolint:gosec // G117 -- request field, not hardcoded
 }
 
 type RepositoryNameRequest struct {

@@ -879,7 +879,7 @@ func TestGoGitClientRunLogMultipleCommits(t *testing.T) {
 		t.Fatalf("Run log -2: %v", err)
 	}
 	lines = strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) != 2 { //nolint:mnd // we expect exactly 2 lines
+	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d: %q", len(lines), string(out))
 	}
 }

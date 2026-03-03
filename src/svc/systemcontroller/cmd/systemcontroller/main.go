@@ -158,7 +158,7 @@ func run() (err error) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				rr.Refresh() //nolint:contextcheck // Refresh is a time-gated method that does not accept context
+				rr.Refresh() //nolint:contextcheck // Refresh does not accept a context
 			}
 		}
 	}()

@@ -37,7 +37,7 @@ const DefaultLocale = "en-US"
 // in their own scripts. This list is shown to users for initial language
 // selection. Each entry maps to a set of country-specific locale codes.
 //
-//nolint:gosmopolitan // Native script names are intentional for language selection.
+
 var CommonLanguages = []Locale{
 	{Code: "ar-SA", NativeName: "العربية", EnglishName: "Arabic"},
 	{Code: "bn-BD", NativeName: "বাংলা", EnglishName: "Bengali"},
@@ -47,7 +47,7 @@ var CommonLanguages = []Locale{
 	{Code: "fr-FR", NativeName: "Français", EnglishName: "French"},
 	{Code: "hi-IN", NativeName: "हिन्दी", EnglishName: "Hindi"},
 	{Code: "it-IT", NativeName: "Italiano", EnglishName: "Italian"},
-	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},
+	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},   //nolint:gosmopolitan // i18n locale data
 	{Code: "ko-KR", NativeName: "한국어", EnglishName: "Korean"},
 	{Code: "nl-NL", NativeName: "Nederlands", EnglishName: "Dutch"},
 	{Code: "pl-PL", NativeName: "Polski", EnglishName: "Polish"},
@@ -59,13 +59,13 @@ var CommonLanguages = []Locale{
 	{Code: "tr-TR", NativeName: "Türkçe", EnglishName: "Turkish"},
 	{Code: "uk-UA", NativeName: "Українська", EnglishName: "Ukrainian"},
 	{Code: "vi-VN", NativeName: "Tiếng Việt", EnglishName: "Vietnamese"},
-	{Code: "zh-CN", NativeName: "中文", EnglishName: "Chinese"},
+	{Code: "zh-CN", NativeName: "中文", EnglishName: "Chinese"}, //nolint:gosmopolitan // i18n locale data
 }
 
 // ExtendedLocales is a comprehensive list of country-specific locale codes
 // for users whose language needs are not met by the common languages list.
 //
-//nolint:gosmopolitan // Native script names are intentional for language selection.
+
 var ExtendedLocales = []Locale{
 	{Code: "af-ZA", NativeName: "Afrikaans", EnglishName: "Afrikaans"},
 	{Code: "am-ET", NativeName: "አማርኛ", EnglishName: "Amharic"},
@@ -112,7 +112,7 @@ var ExtendedLocales = []Locale{
 	{Code: "id-ID", NativeName: "Bahasa Indonesia", EnglishName: "Indonesian"},
 	{Code: "is-IS", NativeName: "Íslenska", EnglishName: "Icelandic"},
 	{Code: "it-IT", NativeName: "Italiano", EnglishName: "Italian"},
-	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},
+	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},   //nolint:gosmopolitan // i18n locale data
 	{Code: "ka-GE", NativeName: "ქართული", EnglishName: "Georgian"},
 	{Code: "kk-KZ", NativeName: "Қазақша", EnglishName: "Kazakh"},
 	{Code: "km-KH", NativeName: "ខ្មែរ", EnglishName: "Khmer"},
@@ -153,8 +153,8 @@ var ExtendedLocales = []Locale{
 	{Code: "ur-PK", NativeName: "اردو", EnglishName: "Urdu"},
 	{Code: "uz-UZ", NativeName: "Oʻzbekcha", EnglishName: "Uzbek"},
 	{Code: "vi-VN", NativeName: "Tiếng Việt", EnglishName: "Vietnamese"},
-	{Code: "zh-CN", NativeName: "中文 (简体)", EnglishName: "Chinese (Simplified)"},
-	{Code: "zh-TW", NativeName: "中文 (繁體)", EnglishName: "Chinese (Traditional)"},
+	{Code: "zh-CN", NativeName: "中文 (简体)", EnglishName: "Chinese (Simplified)"}, //nolint:gosmopolitan // i18n locale data
+	{Code: "zh-TW", NativeName: "中文 (繁體)", EnglishName: "Chinese (Traditional)"}, //nolint:gosmopolitan // i18n locale data
 	{Code: "zu-ZA", NativeName: "IsiZulu", EnglishName: "Zulu"},
 }
 

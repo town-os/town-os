@@ -217,3 +217,36 @@ SystemControllerClient.prototype.disablePackage = async function (repo, name) {
 SystemControllerClient.prototype.enablePackage = async function (repo, name) {
   await this.post('/packages/enable', { repo, name })
 }
+
+/**
+ * List cached VM disk images in the vm-images subvolume.
+ * Calls GET /vm-images on the Control Plane Service.
+ * @returns {Promise<Array<{name: string, size: number}>>}
+ */
+SystemControllerClient.prototype.listVMImages = async function () {
+  return this.getJSON('/vm-images')
+}
+
+/**
+ * Upload (download + convert) a VM image from a remote URL.
+ * The image is cached locally in raw format.
+ * Calls POST /vm-images/upload on the Control Plane Service.
+ * @param {string} url - Remote URL to download the VM image from.
+ * @param {string} [name] - Optional filename for the cached image.
+ * @returns {Promise<{name: string}>}
+ */
+SystemControllerClient.prototype.uploadVMImage = async function (url, name) {
+  const body = { url }
+  if (name) body.name = name
+  return this.postJSON('/vm-images/upload', body)
+}
+
+/**
+ * Delete a cached VM image from the vm-images subvolume.
+ * Calls POST /vm-images/delete on the Control Plane Service.
+ * @param {string} name - Filename of the VM image to delete.
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.deleteVMImage = async function (name) {
+  await this.post('/vm-images/delete', { name })
+}

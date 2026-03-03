@@ -65,7 +65,7 @@ func reconcileDefaultQuota(mgr account.SettingsManager) uint64 {
 func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	// Ensure root subvolumes exist for volume management.
 	if cfg.Storage != nil {
-		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume, PagesVolumePrefix} {
+		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume, PagesVolumePrefix, VMImagesSubvolume} {
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: root}); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile: create root volume %s: %v", root, err))
 			}
@@ -223,6 +223,11 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			NetworkControllerBinPath: cfg.NetworkControllerBinPath,
 			NetworkStatePath:         cfg.NetworkStatePath,
 			NetworkMode:              cfg.NetworkMode,
+			Runtime:                  compiled.Runtime,
+			VM:                       compiled.VM,
+		}
+		if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
+			unitCfg.VMImagePath = resolveVMImagePath(cfg.BtrfsBasePath, compiled.VM.Image)
 		}
 		units := systemd.GeneratePackageUnits(unitCfg)
 

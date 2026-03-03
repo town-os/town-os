@@ -142,7 +142,7 @@ func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content s
 	}
 	unitPath := filepath.Join("/etc/systemd/system", name)
 
-	f, err := os.Create(unitPath) //nolint:gosec // unitPath validated: name checked for path separators above
+	f, err := os.Create(unitPath) //nolint:gosec // G304 -- unitPath validated above (no path separators)
 	if err != nil {
 		return err
 	}

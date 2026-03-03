@@ -24,7 +24,7 @@ func (d DefaultGitCloner) Clone(targetDir, repoURL, branch string) error {
 	}
 
 	// Ensure target directory exists.
-	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // volume directory
+	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // G301 -- clone target needs read access
 		return fmt.Errorf("git clone: create target dir: %w", err)
 	}
 
@@ -72,7 +72,7 @@ func (d DefaultGitCloner) Update(targetDir, branch string) error {
 
 	ref := "origin/main"
 	if branch != "" {
-		ref = fmt.Sprintf("origin/%s", branch) //nolint:perfsprint // project convention: use fmt.Sprintf
+		ref = "origin/" + branch
 	}
 
 	resetCmd := exec.CommandContext(context.Background(), "git", "reset", "--hard", ref)

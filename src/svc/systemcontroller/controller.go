@@ -136,6 +136,10 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/pages/upload", s.uploadPageArchive, s.requireAdmin)
 	e.Add("GET", "/pages", s.listPages, s.requireAuth)
 
+	e.Add("GET", "/vm-images", s.listVMImages, s.requireAuth)
+	e.Add("POST", "/vm-images/upload", s.uploadVMImage, s.requireAdmin)
+	e.Add("POST", "/vm-images/delete", s.deleteVMImage, s.requireAdmin)
+
 	e.Add("GET", "/locales", s.listLocales, s.requireAuth)
 
 	// Monitoring
@@ -180,7 +184,7 @@ func withContext(parent context.Context, handler http.Handler) http.Handler {
 			case <-ctx.Done():
 			}
 		}()
-		handler.ServeHTTP(w, r.WithContext(ctx)) //nolint:contextcheck // merging server lifecycle with request context
+		handler.ServeHTTP(w, r.WithContext(ctx)) //nolint:contextcheck // parent is monitored via goroutine above
 	})
 }
 
@@ -247,7 +251,7 @@ func (s *serverBase) fetchExternalIP(ctx context.Context) {
 		return
 	}
 	client := &http.Client{}
-	resp, err := client.Do(req) //nolint:gosec // G704: URL is a constant
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL is a constant
 	if err != nil {
 		slog.Debug(fmt.Sprintf("fetchExternalIP: %v", err))
 		return
@@ -259,7 +263,7 @@ func (s *serverBase) fetchExternalIP(ctx context.Context) {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Debug(fmt.Sprintf("fetchExternalIP: status %d", resp.StatusCode)) //nolint:gosec // G706: integer status code, no injection risk
+		slog.Debug(fmt.Sprintf("fetchExternalIP: status %d", resp.StatusCode)) //nolint:gosec // G706 -- status code is not tainted
 		return
 	}
 
@@ -323,7 +327,7 @@ func configureRouter(sc systemControllerBackend) http.Handler {
 			}
 			u, err := url.Parse(origin)
 			if err != nil {
-				return "", false, nil //nolint:nilerr // unparseable origin is simply rejected
+				return "", false, nil //nolint:nilerr // invalid origin is rejected, not an error
 			}
 			host := u.Hostname()
 			for _, h := range allowedHosts {

@@ -92,7 +92,7 @@ func cacheRepo(ctx context.Context, cacheDir string, r repo, ghUser, ghPass stri
 	}
 
 	// Check if bare cache already exists.
-	if _, err := os.Stat(repoPath); err == nil { //nolint:gosec // G703: path derived from trusted config
+	if _, err := os.Stat(repoPath); err == nil { //nolint:gosec // G703 -- repoPath from trusted cacheDir
 		return fetchCache(ctx, repoPath, auth)
 	}
 
@@ -147,7 +147,7 @@ func fastForwardHead(repo *gogit.Repository) error {
 	head, err := repo.Head()
 	if err != nil {
 		// No HEAD yet — nothing to fast-forward.
-		return nil //nolint:nilerr // intentional: missing HEAD is not an error here
+		return nil //nolint:nilerr // expected when repo has no commits
 	}
 	localBranch := head.Name()
 	if !localBranch.IsBranch() {
@@ -157,7 +157,7 @@ func fastForwardHead(repo *gogit.Repository) error {
 	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchShort), true)
 	if err != nil {
 		// Remote ref doesn't exist — nothing to do.
-		return nil //nolint:nilerr // intentional: missing remote ref is not an error here
+		return nil //nolint:nilerr // expected when remote ref is missing
 	}
 	if head.Hash() != remoteRef.Hash() {
 		ref := plumbing.NewHashReference(localBranch, remoteRef.Hash())
@@ -223,11 +223,11 @@ func checkGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name str
 	}
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted giteaURL parameter
 	if err != nil {
 		return false, false, fmt.Errorf("check repo: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck // response body
+	defer resp.Body.Close() //nolint:errcheck // best-effort close
 
 	if resp.StatusCode == http.StatusNotFound {
 		return false, false, nil
@@ -269,11 +269,11 @@ func createGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name st
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: URL from trusted CLI flags
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted giteaURL parameter
 	if err != nil {
 		return fmt.Errorf("create repo request: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck // response body
+	defer resp.Body.Close() //nolint:errcheck // best-effort close
 
 	if resp.StatusCode != http.StatusCreated {
 		respBody, err := io.ReadAll(resp.Body)
@@ -309,7 +309,7 @@ func pushRefs(ctx context.Context, repoPath, pushURL string) error {
 	if err != nil {
 		return fmt.Errorf("create remote: %w", err)
 	}
-	defer repo.DeleteRemote(remoteName) //nolint:errcheck // cleanup
+	defer func() { _ = repo.DeleteRemote(remoteName) }()
 
 	auth := &githttp.BasicAuth{
 		Username: adminUser,
@@ -350,11 +350,11 @@ func ensureAdminUser(ctx context.Context, client *http.Client, giteaURL string) 
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: URL from trusted CLI flags
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted giteaURL parameter
 	if err != nil {
 		return fmt.Errorf("create admin user request: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck // response body
+	defer resp.Body.Close() //nolint:errcheck // best-effort close
 
 	switch resp.StatusCode {
 	case http.StatusCreated, http.StatusOK:
@@ -394,11 +394,11 @@ func deleteRepo(ctx context.Context, client *http.Client, giteaURL, name string)
 	}
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: URL from trusted CLI flags
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted giteaURL parameter
 	if err != nil {
 		return fmt.Errorf("delete request: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck // response body
+	defer resp.Body.Close() //nolint:errcheck // best-effort close
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		respBody, err := io.ReadAll(resp.Body)

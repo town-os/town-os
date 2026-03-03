@@ -105,7 +105,7 @@ func (c *SystemdClient) RemovePage(ctx context.Context, name string) error {
 //
 // Calls GET /pages on the Control Plane Service.
 func (c *SystemdClient) ListPages(ctx context.Context, params ListParams) (_ *PageResult[account.PageSite], err error) {
-	resp, err := c.getClient(ctx, fmt.Sprintf("pages%s", params.QueryString())) //nolint:perfsprint // project convention: use fmt.Sprintf
+	resp, err := c.getClient(ctx, "pages"+params.QueryString())
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListPages: %w", ErrHTTPRequest, err)
 	}
@@ -191,7 +191,7 @@ func (c *SystemdClient) UploadPageArchive(ctx context.Context, name string, arch
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(req) //nolint:gosec // G704: URL from trusted c.route()
+	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
 	if err != nil {
 		return nil, fmt.Errorf("%w: POST pages/upload: %w", ErrHTTPRequest, err)
 	}

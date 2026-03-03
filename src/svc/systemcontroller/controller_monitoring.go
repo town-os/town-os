@@ -44,6 +44,6 @@ func (s *SystemControllerHandlers) monitoringGrafanaProxy(c *echo.Context) error
 		},
 	}
 
-	proxy.ServeHTTP(c.Response(), c.Request()) //nolint:gosec // G704: target URL is constructed from internal config, not user input
+	proxy.ServeHTTP(c.Response(), c.Request()) //nolint:gosec // G704 -- internal reverse proxy to trusted target
 	return nil
 }

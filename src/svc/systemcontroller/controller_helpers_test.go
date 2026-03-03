@@ -363,7 +363,7 @@ func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 	return c, resp.Token
 }
 
-func initInstallTestClientWithAuth(t *testing.T) (*SystemdClient, *packages.MockInstallManager) { //nolint:unparam // consistent with other init helpers
+func initInstallTestClientWithAuth(t *testing.T) (*SystemdClient, *packages.MockInstallManager) { //nolint:unparam // callers may use either return value
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
@@ -480,7 +480,7 @@ func initMultiRepoTestClient(t *testing.T) (*SystemdClient, *packages.MockInstal
 	return c, inst
 }
 
-func initInstallWithGitTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, *packages.MockGitCloner) { //nolint:unparam // consistent with other init helpers
+func initInstallWithGitTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager, *packages.MockGitCloner) { //nolint:unparam // callers may use any return value
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)

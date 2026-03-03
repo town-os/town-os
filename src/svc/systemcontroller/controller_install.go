@@ -65,6 +65,7 @@ type InstallPreview struct {
 	Version          string             `json:"version"`
 	Description      string             `json:"description,omitempty"`
 	Image            string             `json:"image"`
+	Runtime          string             `json:"runtime"`
 	Volumes          []VolumePreview    `json:"volumes"`
 	ExternalPorts    []PortPreview      `json:"external_ports"`
 	InternalPorts    []PortPreview      `json:"internal_ports"`
@@ -74,6 +75,7 @@ type InstallPreview struct {
 	TotalQuota       uint64             `json:"total_quota"`
 	QuotaExceedsDisk bool               `json:"quota_exceeds_disk"`
 	Summary          string             `json:"summary"`
+	VM               *packages.InputPackageVM `json:"vm,omitempty"`
 }
 
 // defaultQuota returns the system-wide default quota in bytes.
@@ -161,7 +163,7 @@ func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd
 // packageUnitConfig builds a PackageUnitConfig from a compiled package and
 // backend configuration.
 func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version, description string, compiled *packages.Package) systemd.PackageUnitConfig {
-	return systemd.PackageUnitConfig{
+	cfg := systemd.PackageUnitConfig{
 		RepoName:                 repoName,
 		PkgName:                  pkgName,
 		Version:                  version,
@@ -176,7 +178,13 @@ func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version,
 		NetworkControllerBinPath: s.Controller.GetNetworkControllerBinPath(),
 		NetworkStatePath:         s.Controller.GetNetworkStatePath(),
 		NetworkMode:              s.Controller.GetNetworkMode(),
+		Runtime:                  compiled.Runtime,
+		VM:                       compiled.VM,
 	}
+	if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
+		cfg.VMImagePath = resolveVMImagePath(s.Controller.GetBtrfsBasePath(), compiled.VM.Image)
+	}
+	return cfg
 }
 
 // writePackageNetworkState writes the per-package JSON state file consumed by
@@ -384,11 +392,13 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 		Version:       req.Version,
 		Description:   ip.Description,
 		Image:         ip.Image,
+		Runtime:       string(ip.RuntimeType()),
 		Volumes:       volumes,
 		ExternalPorts: externalPorts,
 		InternalPorts: internalPorts,
 		HasQuestions:  len(ip.Questions) > 0,
 		TotalQuota:    totalQuota,
+		VM:            ip.VM,
 	}
 
 	if activeVersion != "" && activeVersion != req.Version {
@@ -437,7 +447,11 @@ func buildInstallSummary(p *InstallPreview, locale string) string {
 		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryInstall, p.Name, p.Version))
 	}
 
-	parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryImage, p.Image))
+	if p.Runtime == string(packages.RuntimeVM) && p.VM != nil {
+		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryVMImage, p.VM.Image))
+	} else {
+		parts = append(parts, i18n.T(locale, i18n.MsgInstallSummaryImage, p.Image))
+	}
 
 	if len(p.Volumes) > 0 {
 		fresh := 0
@@ -649,8 +663,12 @@ func (s *SystemControllerHandlers) provisionVolumes(repoName, effectiveName, ver
 }
 
 // seedVolumeData populates volumes with auto-archives, git seeds, and
-// git_sources after they are created.
+// git_sources after they are created. For VM packages, volume seeding is
+// skipped because storage downloading is not supported for QEMU.
 func (s *SystemControllerHandlers) seedVolumeData(ctx context.Context, ip *packages.InputPackage, compiled *packages.Package, repoName, parentName, effectiveName, version string) {
+	if compiled.Runtime == packages.RuntimeVM {
+		return
+	}
 	if len(ip.Archives) > 0 {
 		for _, archive := range ip.Archives {
 			volPath := packageVolumePath(repoName, parentName, version, archive.Volume)
@@ -848,6 +866,13 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
+	// For VM packages, download and cache the VM image if it is a URL.
+	if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
+		if err := s.ensureVMImage(ctx, compiled.VM.Image); err != nil {
+			return fmt.Errorf("ensure vm image: %w", err)
+		}
+	}
+
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, ip.Description, compiled)
 		units := systemd.GeneratePackageUnits(cfg)
@@ -860,6 +885,57 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	c.Response().WriteHeader(200)
+	return nil
+}
+
+// ensureVMImage downloads and converts a VM image if it is a remote URL and
+// does not already exist in the local cache.
+func (s *SystemControllerHandlers) ensureVMImage(ctx context.Context, vmImage string) error {
+	if !strings.HasPrefix(vmImage, "http://") && !strings.HasPrefix(vmImage, "https://") {
+		return nil // local image, nothing to download
+	}
+
+	basePath := s.Controller.GetBtrfsBasePath()
+	if basePath == "" {
+		return nil
+	}
+
+	// Ensure vm-images subvolume exists.
+	if st := s.Controller.GetStorage(); st != nil {
+		if err := st.CreateFilesystem(storage.Filesystem{Name: VMImagesSubvolume}); err != nil {
+			slog.Debug(fmt.Sprintf("create vm-images subvolume: %v", err))
+		}
+	}
+
+	rawPath := resolveVMImagePath(basePath, vmImage)
+	if _, err := os.Stat(rawPath); err == nil { //nolint:gosec // G703 -- path from resolveVMImagePath
+		return nil // already cached
+	}
+
+	dir := filepath.Join(basePath, VMImagesSubvolume)
+	if err := os.MkdirAll(dir, 0750); err != nil { //nolint:gosec // G703 -- path from trusted basePath
+		return fmt.Errorf("create vm-images dir: %w", err)
+	}
+
+	parts := strings.Split(vmImage, "/")
+	name := parts[len(parts)-1]
+	downloadPath := filepath.Join(dir, name+".download")
+
+	if err := downloadFile(ctx, vmImage, downloadPath); err != nil {
+		return err
+	}
+
+	if err := convertVMImage(ctx, downloadPath, rawPath); err != nil {
+		if rmErr := os.Remove(downloadPath); rmErr != nil { //nolint:gosec // G703 -- path from trusted basePath
+			slog.Debug(fmt.Sprintf("remove download file: %v", rmErr))
+		}
+		return err
+	}
+
+	if err := os.Remove(downloadPath); err != nil { //nolint:gosec // G703 -- path from trusted basePath
+		slog.Debug(fmt.Sprintf("remove download file: %v", err))
+	}
+
 	return nil
 }
 

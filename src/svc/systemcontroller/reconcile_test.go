@@ -181,8 +181,8 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 8 {
-		t.Fatalf("expected 8 filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 9 {
+		t.Fatalf("expected 9 filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -196,17 +196,20 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	if fs[3].Name != "pages" {
 		t.Fatalf("expected root subvolume pages, got %s", fs[3].Name)
 	}
-	if fs[4].Name != "installed/repo-a" {
-		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[4].Name)
+	if fs[4].Name != "vm-images" {
+		t.Fatalf("expected root subvolume vm-images, got %s", fs[4].Name)
 	}
-	if fs[5].Name != "installed/repo-a/nginx" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[5].Name)
+	if fs[5].Name != "installed/repo-a" {
+		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[5].Name)
 	}
-	if fs[6].Name != "installed/repo-a/nginx/1.0" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[6].Name)
+	if fs[6].Name != "installed/repo-a/nginx" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[6].Name)
 	}
-	if fs[7].Name != "installed/repo-a/nginx/1.0/data" {
-		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[7].Name)
+	if fs[7].Name != "installed/repo-a/nginx/1.0" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[7].Name)
+	}
+	if fs[8].Name != "installed/repo-a/nginx/1.0/data" {
+		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[8].Name)
 	}
 }
 
@@ -699,8 +702,8 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 4 {
-		t.Fatalf("expected 4 root filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 5 {
+		t.Fatalf("expected 5 root filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -713,6 +716,9 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 	}
 	if fs[3].Name != "pages" {
 		t.Fatalf("expected root subvolume pages, got %s", fs[3].Name)
+	}
+	if fs[4].Name != "vm-images" {
+		t.Fatalf("expected root subvolume vm-images, got %s", fs[4].Name)
 	}
 
 	// No packages installed, so no systemd calls should have been made.
@@ -1041,8 +1047,8 @@ func TestReconcilePagesSubvolumesAndSymlinks(t *testing.T) {
 	}
 
 	pagesMgr := account.InitMockPagesManager()
-	pagesMgr.Create("alpha-site", "", "", "alpha.example.com", account.PageSourceArchive, "", "") //nolint:errcheck // test setup
-	pagesMgr.Create("beta-site", "", "", "beta.example.com", account.PageSourceArchive, "", "")   //nolint:errcheck // test setup
+	_, _ = pagesMgr.Create("alpha-site", "", "", "alpha.example.com", account.PageSourceArchive, "", "")
+	_, _ = pagesMgr.Create("beta-site", "", "", "beta.example.com", account.PageSourceArchive, "", "")
 
 	btrfsBase := t.TempDir()
 
@@ -1136,5 +1142,131 @@ func TestReconcilePagesInstallsCaddyUnit(t *testing.T) {
 	caddyPath := filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile")
 	if _, err := os.Stat(caddyPath); err != nil {
 		t.Fatalf("expected Caddyfile at %s: %v", caddyPath, err)
+	}
+}
+
+func TestReconcileVMPackage(t *testing.T) {
+	pkgYAML := `vm:
+  image: debian.raw
+  memory: 2gb
+  cpus: 2
+network:
+  external:
+    8022: 22
+  internal: {}
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"debian-vm/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+	mock := storage.InitBtrFSMock()
+	btrfsBase := t.TempDir()
+
+	err := inst.Install("repo-a", "debian-vm", "1.0", packages.Responses{})
+	if err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	err = Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		BtrfsBasePath:  btrfsBase,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	// VM with 1 external port:
+	//   InstallUnit(service) + InstallUnit(socket) + InstallUnit(networkcontroller)
+	//   + Enable(socket) + Enable(networkcontroller) + Start(service) = 6
+	if len(calls) != 6 {
+		t.Fatalf("expected 6 systemd calls, got %d: %v", len(calls), calls)
+	}
+
+	// First call should install the service unit.
+	if calls[0].Method != "InstallUnit" {
+		t.Fatalf("call 0: expected InstallUnit, got %s", calls[0].Method)
+	}
+	unitName, ok := calls[0].Args[0].(string)
+	if !ok {
+		t.Fatal("expected string arg")
+	}
+	if unitName != "town-os-package--repo-a-debian-vm-1.0.service" {
+		t.Fatalf("expected unit name town-os-package--repo-a-debian-vm-1.0.service, got %s", unitName)
+	}
+
+	// Service unit content should reference qemu, not podman.
+	unitContent, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("expected string content arg")
+	}
+	if !strings.Contains(unitContent, "qemu-system-x86_64") {
+		t.Fatal("VM service unit should contain qemu-system-x86_64")
+	}
+	if strings.Contains(unitContent, "podman") {
+		t.Fatal("VM service unit should not reference podman")
+	}
+	if !strings.Contains(unitContent, "-m 2048") {
+		t.Fatalf("VM service unit missing -m 2048, got:\n%s", unitContent)
+	}
+	if !strings.Contains(unitContent, "-smp 2") {
+		t.Fatalf("VM service unit missing -smp 2, got:\n%s", unitContent)
+	}
+	if !strings.Contains(unitContent, "hostfwd=tcp::8022-:22") {
+		t.Fatalf("VM service unit missing port forwarding, got:\n%s", unitContent)
+	}
+
+	// Last call should be Start.
+	lastCall := calls[len(calls)-1]
+	if lastCall.Method != "SetStatus" || lastCall.Args[1] != systemd.Start {
+		t.Fatalf("last call: expected SetStatus Start, got %s %v", lastCall.Method, lastCall.Args)
+	}
+}
+
+func TestReconcileVMPackageNoPorts(t *testing.T) {
+	pkgYAML := `vm:
+  image: headless.raw
+  memory: 1gb
+  cpus: 1
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"headless/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+	btrfsBase := t.TempDir()
+
+	err := inst.Install("repo-a", "headless", "1.0", packages.Responses{})
+	if err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	err = Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Systemd:        sd,
+		BtrfsBasePath:  btrfsBase,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	// VM with no ports: InstallUnit(service) + Start(service) = 2
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
+	}
+
+	unitContent, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("expected string content arg")
+	}
+	if !strings.Contains(unitContent, "qemu-system-x86_64") {
+		t.Fatal("VM service unit should contain qemu-system-x86_64")
+	}
+	if !strings.Contains(unitContent, "-m 1024") {
+		t.Fatalf("VM service unit missing -m 1024, got:\n%s", unitContent)
 	}
 }

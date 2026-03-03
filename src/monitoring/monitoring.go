@@ -79,7 +79,7 @@ type PodmanRunner struct{}
 //   - ctx: context for cancellation and timeout.
 //   - args: full argument list for `podman run` (image, ports, volumes, etc.).
 func (PodmanRunner) Run(ctx context.Context, args []string) error {
-	cmd := exec.CommandContext(ctx, "podman", append([]string{"run"}, args...)...) //nolint:gosec // G204: args are constructed internally, not from user input
+	cmd := exec.CommandContext(ctx, "podman", append([]string{"run"}, args...)...) //nolint:gosec // G204 -- args from trusted Config
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -92,12 +92,12 @@ func (PodmanRunner) Run(ctx context.Context, args []string) error {
 //   - ctx: context for cancellation and timeout.
 //   - name: the container name to stop and remove.
 func (PodmanRunner) Stop(ctx context.Context, name string) error {
-	stop := exec.CommandContext(ctx, "podman", "stop", "-t", "10", name) //nolint:gosec // G204: name is constructed internally
+	stop := exec.CommandContext(ctx, "podman", "stop", "-t", "10", name) //nolint:gosec // G204 -- name from trusted caller
 	stop.Stdout = os.Stderr
 	stop.Stderr = os.Stderr
 	_ = stop.Run() // best-effort stop before remove
 
-	rm := exec.CommandContext(ctx, "podman", "rm", "-f", name) //nolint:gosec // G204: name is constructed internally
+	rm := exec.CommandContext(ctx, "podman", "rm", "-f", name) //nolint:gosec // G204 -- name from trusted caller
 	rm.Stdout = os.Stderr
 	rm.Stderr = os.Stderr
 	_ = rm.Run() // best-effort removal
@@ -111,10 +111,10 @@ func (PodmanRunner) Stop(ctx context.Context, name string) error {
 //   - ctx: context for cancellation and timeout.
 //   - name: the container name to check.
 func (PodmanRunner) IsRunning(ctx context.Context, name string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "podman", "inspect", "--format", "{{.State.Running}}", name) //nolint:gosec // G204: name is constructed internally
+	cmd := exec.CommandContext(ctx, "podman", "inspect", "--format", "{{.State.Running}}", name) //nolint:gosec // G204 -- name from trusted caller
 	out, err := cmd.Output()
 	if err != nil {
-		return false, nil //nolint:nilerr // container does not exist
+		return false, nil //nolint:nilerr // container not found is not an error
 	}
 	return string(out) == "true\n", nil
 }

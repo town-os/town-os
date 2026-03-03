@@ -30,6 +30,7 @@ type PackageListEntry struct {
 	Version          string   `json:"version"`
 	Description      string   `json:"description,omitempty"`
 	Supplies         []string `json:"supplies,omitempty"`
+	Runtime          string   `json:"runtime"`
 	Installed        bool     `json:"installed"`
 	InstalledVersion string   `json:"installed_version,omitempty"`
 	Featured         bool     `json:"featured,omitempty"`
@@ -169,6 +170,7 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 		if loadErr == nil {
 			entry.Description = ip.Description
 			entry.Supplies = ip.Supplies
+			entry.Runtime = string(ip.RuntimeType())
 		}
 
 		// Check if installed package file has changed.

@@ -173,6 +173,28 @@ func ValidateArchiveSpec(archive InputPackageArchive, volumes map[string]InputPa
 	return nil
 }
 
+// ValidateVMConfig validates an InputPackageVM configuration. The image field
+// must be non-empty and may be a URL (http/https) or a local filename.
+func ValidateVMConfig(vm *InputPackageVM) error {
+	if vm.Image == "" {
+		return fmt.Errorf("%w: image must not be empty", ErrInvalidVMConfig)
+	}
+	// Allow template variables in the image field.
+	if strings.ContainsRune(vm.Image, TemplateChar) {
+		return nil
+	}
+	// Validate URL format if it looks like a URL.
+	if strings.HasPrefix(vm.Image, "http://") || strings.HasPrefix(vm.Image, "https://") {
+		if _, err := url.Parse(vm.Image); err != nil {
+			return fmt.Errorf("%w: invalid image URL: %w", ErrInvalidVMConfig, err)
+		}
+	}
+	if vm.CPUs < 0 {
+		return fmt.Errorf("%w: cpus must be non-negative", ErrInvalidVMConfig)
+	}
+	return nil
+}
+
 // ValidateGitURL validates a git repository URL. Empty strings are accepted
 // (no git seed). Non-empty values must have a valid scheme and host.
 func ValidateGitURL(rawURL string) error {

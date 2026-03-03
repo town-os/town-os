@@ -26,6 +26,7 @@ func TestPackageCompile(t *testing.T) {
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
 				Volumes:     map[string]PackageVolume{},
+				Runtime:     RuntimeContainer,
 			},
 			responses: Responses{},
 			err:       false,
@@ -47,6 +48,7 @@ func TestPackageCompile(t *testing.T) {
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
 				Volumes:     map[string]PackageVolume{},
+				Runtime:     RuntimeContainer,
 			},
 			responses: Responses{
 				"name":     "scarlett",

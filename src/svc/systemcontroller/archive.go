@@ -173,11 +173,11 @@ func matchMagicBytes(header []byte) string {
 func decompressCommand(ctx context.Context, format string) *exec.Cmd {
 	switch format {
 	case "tar.gz":
-		return exec.CommandContext(ctx, "pigz", "-dc") //nolint:gosec // G702: constant command
+		return exec.CommandContext(ctx, "pigz", "-dc") //nolint:gosec // G702 -- constant args
 	case "tar.bz2":
-		return exec.CommandContext(ctx, "lbzip2", "-dc") //nolint:gosec // G702: constant command
+		return exec.CommandContext(ctx, "lbzip2", "-dc") //nolint:gosec // G702 -- constant args
 	case "tar.xz":
-		return exec.CommandContext(ctx, "xz", "-dc") //nolint:gosec // G702: constant command
+		return exec.CommandContext(ctx, "xz", "-dc") //nolint:gosec // G702 -- constant args
 	default:
 		return nil
 	}
@@ -390,7 +390,7 @@ func validateTarStream(ctx context.Context, r io.Reader) <-chan error {
 			}
 			// Discard file bodies so the reader progresses.
 			// Size is bounded by the countingReader limit wrapping the original stream.
-			if _, err := io.Copy(io.Discard, tr); err != nil { //nolint:gosec // size bounded by countingReader
+			if _, err := io.Copy(io.Discard, tr); err != nil { //nolint:gosec // G110 -- size bounded by countingReader
 				ch <- fmt.Errorf("%w: %w", ErrInvalidTar, err)
 				return
 			}
@@ -427,7 +427,7 @@ func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, 
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(targetPath, 0755); err != nil { //nolint:gosec // admin-only endpoint
+		if err := os.MkdirAll(targetPath, 0755); err != nil { //nolint:gosec // G301 -- web-serving directory
 			return fmt.Errorf("create subpath directory: %w", err)
 		}
 	}
@@ -479,7 +479,7 @@ func (s *SystemControllerHandlers) unpackWithValidation(ctx context.Context, cr 
 	validCh := validateTarStream(ctx, validPR)
 
 	// Start the unpack command reading from the tee.
-	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204: constant command with validated path
+	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204 -- targetPath validated by safeSubvolumePath
 	unpackCmd.Stdin = teeReader
 
 	unpackStderr, err := unpackCmd.StderrPipe()
@@ -555,7 +555,7 @@ func (s *SystemControllerHandlers) unpackPlainTar(ctx context.Context, cr *count
 
 	validCh := validateTarStream(ctx, validPR)
 
-	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204: constant command with validated path
+	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204 -- targetPath validated by safeSubvolumePath
 	unpackCmd.Stdin = teeReader
 
 	unpackStderr, err := unpackCmd.StderrPipe()
@@ -752,7 +752,7 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 		args = append(args, ".")
 	}
 
-	cmd := exec.CommandContext(ctx, "tar", args...) //nolint:gosec // G204: paths validated by validateArchivePaths, subvolPath by safeSubvolumePath
+	cmd := exec.CommandContext(ctx, "tar", args...) //nolint:gosec // G204 -- args constructed from validated inputs
 	cmd.Stdout = c.Response()
 
 	stderrPipe, err := cmd.StderrPipe()
@@ -797,20 +797,20 @@ func gitCloneIntoPath(ctx context.Context, gitURL, targetPath string) error {
 // a container image into a target path, used during both install and reconcile.
 func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath string) error {
 	// Pull the image.
-	pullCmd := exec.CommandContext(ctx, "podman", "pull", image) //nolint:gosec // G204: image from validated package metadata
+	pullCmd := exec.CommandContext(ctx, "podman", "pull", image) //nolint:gosec // G204 -- image from validated package config
 	if output, err := pullCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman pull %s: %w: %s", image, err, string(output))
 	}
 
 	// Create a temporary container.
-	createCmd := exec.CommandContext(ctx, "podman", "create", image) //nolint:gosec // G204: image from validated package metadata
+	createCmd := exec.CommandContext(ctx, "podman", "create", image) //nolint:gosec // G204 -- image from validated package config
 	output, err := createCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("podman create %s: %w: %s", image, err, string(output))
 	}
 	containerID := strings.TrimSpace(string(output))
 	defer func() {
-		rmCmd := exec.CommandContext(ctx, "podman", "rm", "-f", containerID) //nolint:gosec // containerID from podman create output
+		rmCmd := exec.CommandContext(ctx, "podman", "rm", "-f", containerID) //nolint:gosec // G204 -- containerID from podman create output
 		if out, err := rmCmd.CombinedOutput(); err != nil {
 			slog.Debug(fmt.Sprintf("podman rm %s: %v: %s", containerID, err, string(out)))
 		}
@@ -819,7 +819,7 @@ func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath
 	// Copy from container to target path.
 	src := fmt.Sprintf("%s:%s", containerID, directory)
 	targetPath = filepath.Clean(targetPath)
-	cpCmd := exec.CommandContext(ctx, "podman", "cp", src, targetPath) //nolint:gosec // targetPath cleaned with filepath.Clean above
+	cpCmd := exec.CommandContext(ctx, "podman", "cp", src, targetPath) //nolint:gosec // G204 -- src/targetPath from validated inputs
 	if output, err := cpCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman cp %s -> %s: %w: %s", src, targetPath, err, string(output))
 	}

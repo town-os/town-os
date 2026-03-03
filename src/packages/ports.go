@@ -26,7 +26,7 @@ func FindAvailablePort(excluded map[uint16]bool) (_ uint16, err error) {
 		if v < 0 || v > math.MaxUint16 {
 			continue
 		}
-		port := uint16(v) //nolint:gosec // G115: bounds checked above
+		port := uint16(v) //nolint:gosec // G115 -- range checked above
 		if excluded[port] {
 			continue
 		}

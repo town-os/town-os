@@ -23,7 +23,43 @@ var (
 	ErrMissingResponse     = errors.New("question has no response")
 	ErrEmptyResponse       = errors.New("empty response")
 	ErrInvalidGitSource    = errors.New("invalid git source")
+	ErrMixedRuntime        = errors.New("package must specify either image (container) or vm, not both")
+	ErrNoRuntime           = errors.New("package must specify either image (container) or vm")
+	ErrInvalidVMConfig     = errors.New("invalid vm configuration")
 )
+
+// RuntimeType indicates whether a package runs as a container or a QEMU VM.
+type RuntimeType string
+
+const (
+	// RuntimeContainer is the default runtime type using podman containers.
+	RuntimeContainer RuntimeType = "container"
+	// RuntimeVM runs the package as a QEMU virtual machine.
+	RuntimeVM RuntimeType = "vm"
+)
+
+// InputPackageVM holds VM-specific configuration for QEMU-based packages.
+type InputPackageVM struct {
+	// Image is a URL or local path to the VM disk image. When a URL is
+	// provided, the image is downloaded and cached to local storage.
+	Image string `yaml:"image" json:"image"`
+	// Memory is the amount of RAM allocated to the VM (e.g. "2gb", "512mb").
+	// Defaults to "1gb" when empty.
+	Memory string `yaml:"memory,omitempty" json:"memory,omitempty"`
+	// CPUs is the number of virtual CPUs. Defaults to 1.
+	CPUs int `yaml:"cpus,omitempty" json:"cpus,omitempty"`
+}
+
+// PackageVM holds compiled VM configuration after template substitution and
+// parsing of human-readable sizes.
+type PackageVM struct {
+	// Image is the resolved VM disk image path or URL.
+	Image string `json:"image"`
+	// Memory is the VM memory in bytes.
+	Memory uint64 `json:"memory"`
+	// CPUs is the number of virtual CPUs.
+	CPUs int `json:"cpus"`
+}
 
 type NoteType string
 
@@ -175,6 +211,8 @@ type Package struct {
 	Network     PackageNetwork
 	Volumes     map[string]PackageVolume
 	Templates   map[string]PackageTemplate
+	Runtime     RuntimeType
+	VM          *PackageVM
 }
 
 type InputPackageNetwork struct {
@@ -202,6 +240,17 @@ type InputPackage struct {
 	Archives    []InputPackageArchive            `yaml:"archives,omitempty"`
 	GitSources  []InputPackageGitSource          `yaml:"git_sources,omitempty"`
 	Templates   map[string]InputPackageTemplate  `yaml:"templates,omitempty"`
+	VM          *InputPackageVM                  `yaml:"vm,omitempty" json:"vm,omitempty"`
+}
+
+// RuntimeType returns the runtime type for this package based on which
+// fields are set. A package with a non-nil VM field uses RuntimeVM;
+// otherwise it uses RuntimeContainer.
+func (i *InputPackage) RuntimeType() RuntimeType {
+	if i.VM != nil {
+		return RuntimeVM
+	}
+	return RuntimeContainer
 }
 
 // CompileNotes applies template substitution to the Notes map using the
@@ -302,6 +351,11 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		tmpl.Path = applyTemplate(tmpl.Path, iv, response)
 		i.Templates[name] = tmpl
 	}
+
+	if i.VM != nil {
+		i.VM.Image = applyTemplate(i.VM.Image, iv, response)
+		i.VM.Memory = applyTemplate(i.VM.Memory, iv, response)
+	}
 }
 
 func convert(p map[string]string) (PortMap, error) {
@@ -342,35 +396,48 @@ func strToPort(input string) (uint16, error) {
 // template substitution so that the raw spec (including template markers) is
 // validated.
 func (i *InputPackage) Validate() error {
-	err := ValidateImageURL(i.Image)
-	if err != nil {
-		return err
+	// Exactly one of image or vm must be set.
+	hasImage := i.Image != ""
+	hasVM := i.VM != nil
+	if hasImage && hasVM {
+		return ErrMixedRuntime
+	}
+	if !hasImage && !hasVM {
+		return ErrNoRuntime
+	}
+
+	if hasImage {
+		if err := ValidateImageURL(i.Image); err != nil {
+			return err
+		}
+	}
+
+	if hasVM {
+		if err := ValidateVMConfig(i.VM); err != nil {
+			return err
+		}
 	}
 
 	for key := range i.Environment {
-		err := ValidateEnvironmentKey(key)
-		if err != nil {
+		if err := ValidateEnvironmentKey(key); err != nil {
 			return err
 		}
 	}
 
 	for name := range i.Questions {
-		err := ValidateQuestionName(name)
-		if err != nil {
+		if err := ValidateQuestionName(name); err != nil {
 			return err
 		}
 	}
 
 	for name, vol := range i.Volumes {
-		err := ValidateVolumeName(name)
-		if err != nil {
+		if err := ValidateVolumeName(name); err != nil {
 			return err
 		}
 		// Mountpoints may contain template variables (e.g. "/mnt/@path@"),
 		// so only validate literal mountpoints here.
 		if !strings.ContainsRune(vol.Mountpoint, TemplateChar) {
-			err := ValidateMountpoint(vol.Mountpoint)
-			if err != nil {
+			if err := ValidateMountpoint(vol.Mountpoint); err != nil {
 				return err
 			}
 		}
@@ -488,14 +555,17 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, err
 	}
 
-	// Normalize the container image URL after template substitution.
-	image := NormalizeImageURL(i.Image)
+	// Normalize the container image URL after template substitution (container only).
+	image := i.Image
+	rt := i.RuntimeType()
+	if rt == RuntimeContainer {
+		image = NormalizeImageURL(image)
+	}
 
 	// Validate mountpoints and parse quotas after template substitution.
 	volumes := map[string]PackageVolume{}
 	for name, vol := range i.Volumes {
-		err := ValidateMountpoint(vol.Mountpoint)
-		if err != nil {
+		if err := ValidateMountpoint(vol.Mountpoint); err != nil {
 			return nil, fmt.Errorf("volume %q: %w", name, err)
 		}
 
@@ -541,7 +611,41 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		Network:     PackageNetwork{External: external, Internal: internal},
 		Volumes:     volumes,
 		Templates:   templates,
+		Runtime:     rt,
+	}
+
+	// Compile VM configuration if present.
+	if i.VM != nil {
+		vmCfg, err := compileVM(i.VM)
+		if err != nil {
+			return nil, err
+		}
+		p.VM = vmCfg
 	}
 
 	return p, nil
+}
+
+// compileVM parses human-readable values in the VM configuration and returns
+// a compiled PackageVM.
+func compileVM(vm *InputPackageVM) (*PackageVM, error) {
+	memory := vm.Memory
+	if memory == "" {
+		memory = "1gb"
+	}
+	memBytes, err := ParseBytes(memory)
+	if err != nil {
+		return nil, fmt.Errorf("vm memory: %w", err)
+	}
+
+	cpus := vm.CPUs
+	if cpus <= 0 {
+		cpus = 1
+	}
+
+	return &PackageVM{
+		Image:  vm.Image,
+		Memory: memBytes,
+		CPUs:   cpus,
+	}, nil
 }

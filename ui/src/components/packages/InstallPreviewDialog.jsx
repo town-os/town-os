@@ -46,9 +46,29 @@ export default function InstallPreviewDialog({ dialog, onClose, onContinue }) {
             <p className="text-sm text-muted-foreground">{dialog.description}</p>
           )}
           <div className="text-sm">
-            <span className="text-muted-foreground">{t('install_preview.image_label')} </span>
-            <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{dialog.image}</code>
+            <span className="text-muted-foreground">
+              {dialog.runtime === 'vm' ? t('install_preview.vm_image_label') : t('install_preview.image_label')}{' '}
+            </span>
+            <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+              {dialog.runtime === 'vm' && dialog.vm ? dialog.vm.image : dialog.image}
+            </code>
           </div>
+          {dialog.runtime === 'vm' && dialog.vm && (
+            <div className="flex gap-4 text-sm">
+              {dialog.vm.memory && (
+                <span>
+                  <span className="text-muted-foreground">{t('install_preview.vm_memory_label')} </span>
+                  <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{dialog.vm.memory}</code>
+                </span>
+              )}
+              {dialog.vm.cpus > 0 && (
+                <span>
+                  <span className="text-muted-foreground">{t('install_preview.vm_cpus_label')} </span>
+                  <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{dialog.vm.cpus}</code>
+                </span>
+              )}
+            </div>
+          )}
           {dialog.volumes?.length > 0 && (
             <div className="space-y-2">
               <h4 className="text-sm font-medium">{t('install_preview.volumes_title')}</h4>

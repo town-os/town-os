@@ -4,7 +4,7 @@ package i18n
 // Keys use a dot-separated namespace: "category.subcategory.description".
 const (
 	// MsgAuthMissingToken indicates a missing authorization token.
-	MsgAuthMissingToken = "auth.missing_token" //nolint:gosec // message key, not a credential
+	MsgAuthMissingToken = "auth.missing_token" //nolint:gosec // G101 -- not a credential
 	// MsgAuthInvalidSession indicates an invalid or expired session.
 	MsgAuthInvalidSession = "auth.invalid_session"
 	// MsgAuthAdminRequired indicates admin access is required.
@@ -70,6 +70,8 @@ const (
 	MsgInstallSummaryPorts = "install.summary.external_ports"
 	// MsgInstallSummaryConfig is the install summary line indicating configuration is required.
 	MsgInstallSummaryConfig = "install.summary.config_required"
+	// MsgInstallSummaryVMImage is the install summary line for a VM disk image.
+	MsgInstallSummaryVMImage = "install.summary.vm_image"
 
 	// MsgRebuildFieldsRequired indicates required fields are missing for a rebuild.
 	MsgRebuildFieldsRequired = "rebuild.fields_required"
@@ -164,4 +166,8 @@ const (
 	MsgAuditEnableAccount = "audit.action.enable_account"
 	// MsgAuditRebuildGit is the audit action for rebuilding from git.
 	MsgAuditRebuildGit = "audit.action.rebuild_git"
+	// MsgAuditUploadVMImage is the audit action for uploading a VM image.
+	MsgAuditUploadVMImage = "audit.action.upload_vm_image"
+	// MsgAuditDeleteVMImage is the audit action for deleting a VM image.
+	MsgAuditDeleteVMImage = "audit.action.delete_vm_image"
 )

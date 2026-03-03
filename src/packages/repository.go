@@ -101,7 +101,7 @@ func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (rr *RepositoryRoot) loadLastRefreshed() {
 	if err != nil {
 		return
 	}
-	data, err := os.ReadFile(fn) //nolint:gosec // fn validated by SafePath above
+	data, err := os.ReadFile(fn) //nolint:gosec // G304 -- fn from SafePath
 	if err != nil {
 		return
 	}
@@ -263,7 +263,7 @@ type Repository struct {
 	Name     string
 	URL      url.URL
 	Username string
-	Password string //nolint:gosec // G117: expected field name
+	Password string //nolint:gosec // G117 -- credential field, not hardcoded
 }
 
 type repositoryJSON struct {
@@ -345,7 +345,7 @@ func SanitizeURL(raw string) string {
 
 const (
 	EnvRepoUsername = "TOWN_OS_REPO_USERNAME"
-	EnvRepoPassword = "TOWN_OS_REPO_PASSWORD" //nolint:gosec // not credentials, struct field name
+	EnvRepoPassword = "TOWN_OS_REPO_PASSWORD" //nolint:gosec // G101 -- env var name, not a credential
 )
 
 var ErrPartialCredentials = errors.New("both username and password must be provided together")
@@ -451,7 +451,7 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 			if err != nil {
 				return nil, err
 			}
-			f, err := os.Open(safeFn) //nolint:gosec // safeFn validated by SafePath above
+			f, err := os.Open(safeFn) //nolint:gosec // G304 -- safeFn from SafePath
 			if err != nil {
 				return nil, err
 			}
@@ -501,7 +501,7 @@ func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ Inpu
 	if err != nil {
 		return InputPackage{}, err
 	}
-	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
 	if err != nil {
 		return InputPackage{}, fmt.Errorf("package %s@%s not found: %w", pkgName, version, err)
 	}
@@ -713,7 +713,7 @@ func (r *Repository) LoadFeatured(baseDir string) (_ []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(fn) //nolint:gosec // fn validated by SafePath above
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

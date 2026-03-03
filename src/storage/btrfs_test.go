@@ -231,7 +231,7 @@ func TestParseQGroupShowBadNumber(t *testing.T) {
 }
 
 func TestParseQGroupShowMultipleQGroups(t *testing.T) {
-	//nolint:dupword // test data intentionally contains repeated "none" values
+	//nolint:dupword // btrfs qgroup output legitimately repeats "none"
 	output := `qgroupid         rfer         excl     max_rfer     max_excl
 --------         ----         ----     --------     --------
 0/256         16384        16384         none         none
