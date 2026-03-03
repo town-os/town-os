@@ -24,17 +24,18 @@ func TestExecuteTemplate(t *testing.T) {
 	t.Run("package info access", func(t *testing.T) {
 		data := TemplateData{
 			Package: TemplatePackageInfo{
-				Name:    "myapp",
-				Version: "1.0",
-				Repo:    "core",
-				Image:   "docker.io/library/nginx:latest",
+				Name:        "myapp",
+				Version:     "1.0",
+				Repo:        "core",
+				Image:       "docker.io/library/nginx:latest",
+				Description: "A test application",
 			},
 		}
-		result, err := ExecuteTemplate("test", "name={{.Package.Name}} version={{.Package.Version}} repo={{.Package.Repo}}", data)
+		result, err := ExecuteTemplate("test", "name={{.Package.Name}} version={{.Package.Version}} repo={{.Package.Repo}} image={{.Package.Image}} desc={{.Package.Description}}", data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expected := "name=myapp version=1.0 repo=core"
+		expected := "name=myapp version=1.0 repo=core image=docker.io/library/nginx:latest desc=A test application"
 		if result != expected {
 			t.Fatalf("expected %q, got %q", expected, result)
 		}
@@ -412,6 +413,71 @@ func TestApplyPackageTemplates(t *testing.T) {
 		}
 		if string(content) != "hostname=myhost" {
 			t.Fatalf("expected 'hostname=myhost', got %q", string(content))
+		}
+	})
+
+	t.Run("writes file with restricted permissions", func(t *testing.T) {
+		dir := t.TempDir()
+		volDir := filepath.Join(dir, "data")
+		if err := os.MkdirAll(volDir, 0750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		templates := map[string]PackageTemplate{
+			"cfg": {
+				Volume:  "data",
+				Path:    "secret.conf",
+				Content: "password={{.Responses.pass}}",
+			},
+		}
+		data := TemplateData{
+			Responses: Responses{"pass": "s3cret"},
+		}
+
+		err := ApplyPackageTemplates(templates, data, func(volName string) string {
+			return filepath.Join(dir, volName)
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		info, err := os.Stat(filepath.Join(volDir, "secret.conf"))
+		if err != nil {
+			t.Fatalf("stat file: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0600 {
+			t.Fatalf("expected permissions 0600, got %04o", perm)
+		}
+	})
+
+	t.Run("creates parent dirs with restricted permissions", func(t *testing.T) {
+		dir := t.TempDir()
+		volDir := filepath.Join(dir, "data")
+		if err := os.MkdirAll(volDir, 0750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		templates := map[string]PackageTemplate{
+			"cfg": {
+				Volume:  "data",
+				Path:    "sub/dir/config.yaml",
+				Content: "key: value",
+			},
+		}
+
+		err := ApplyPackageTemplates(templates, TemplateData{}, func(volName string) string {
+			return filepath.Join(dir, volName)
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		info, err := os.Stat(filepath.Join(volDir, "sub", "dir"))
+		if err != nil {
+			t.Fatalf("stat dir: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0750 {
+			t.Fatalf("expected dir permissions 0750, got %04o", perm)
 		}
 	})
 }

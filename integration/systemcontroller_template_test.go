@@ -62,6 +62,7 @@ questions:
   hostname:
     query: "What hostname?"
     type: hostname
+description: "Test web server"
 templates:
   nginx_conf:
     volume: config
@@ -71,6 +72,10 @@ templates:
     volume: data
     path: info.txt
     content: "{{.Package.Name}} v{{.Package.Version}}"
+  sysinfo:
+    volume: data
+    path: system.txt
+    content: "host={{.System.Hostname}} desc={{.Package.Description}}"
 `
 	pkgDir := filepath.Join(dir, "local", packages.PackagesDir, "nginx")
 	if err := os.MkdirAll(pkgDir, 0750); err != nil {
@@ -126,6 +131,18 @@ func TestIntegrationInstallWithTemplatesWritesFiles(t *testing.T) {
 	}
 	if string(content) != "nginx v1.0" {
 		t.Fatalf("expected 'nginx v1.0', got %q", string(content))
+	}
+
+	// Verify system info and description are available in templates.
+	sysinfo := filepath.Join(btrfsBase, systemcontroller.PackagesVolumePrefix, "local", "nginx", "1.0", "data", "system.txt")
+	content, err = os.ReadFile(sysinfo)
+	if err != nil {
+		t.Fatalf("expected system.txt to be written: %v", err)
+	}
+	expectedHostname, _ := os.Hostname()
+	expectedSysinfo := "host=" + expectedHostname + " desc=Test web server"
+	if string(content) != expectedSysinfo {
+		t.Fatalf("expected %q, got %q", expectedSysinfo, string(content))
 	}
 }
 
@@ -183,6 +200,9 @@ func TestIntegrationReconcileWithTemplatesWritesFiles(t *testing.T) {
 	dataDir := filepath.Join(btrfsBase, systemcontroller.PackagesVolumePrefix, "local", "nginx", "1.0", "data")
 	if err := os.Remove(filepath.Join(dataDir, "info.txt")); err != nil {
 		t.Fatalf("remove info.txt: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dataDir, "system.txt")); err != nil {
+		t.Fatalf("remove system.txt: %v", err)
 	}
 
 	// Run reconciliation.
