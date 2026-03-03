@@ -223,9 +223,10 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return err
 	}
 
+	locale := s.getLocale()
 	btrfsBase := s.Controller.GetBtrfsBasePath()
 	if btrfsBase == "" {
-		return errors.New("pages directory not configured")
+		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
 	}
 
 	targetDir := s.pagesSubvolumePath(page.Name)
@@ -235,7 +236,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 	case account.PageSourceGit, "":
 		gitClient := s.Controller.GetGitClient()
 		if gitClient == nil {
-			return errors.New("git client not configured")
+			return errors.New(i18n.T(locale, i18n.MsgPagesGitNotConfigured))
 		}
 
 		// Check if the directory exists and has a .git directory.
@@ -271,7 +272,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 	case account.PageSourceArchive:
 		// Archive pages must be rebuilt by uploading a new archive via
 		// POST /pages/upload. This endpoint only refreshes the status.
-		return echo.NewHTTPError(http.StatusBadRequest, "archive pages must be rebuilt by uploading a new archive via /pages/upload")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgPagesArchiveRebuildRequired))
 	}
 
 	status := "active"
@@ -287,14 +288,15 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 // unpacks it into the pages directory for the named page. Only valid for
 // pages with source_type "archive".
 func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
+	locale := s.getLocale()
 	mgr := s.Controller.GetPagesManager()
 	if mgr == nil {
-		return errors.New("pages not configured")
+		return errors.New(i18n.T(locale, i18n.MsgPagesNotConfigured))
 	}
 
 	name := c.FormValue("name")
 	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name field is required")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgPagesNameRequired))
 	}
 
 	page, err := mgr.Get(name)
@@ -303,7 +305,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 	}
 
 	if page.SourceType != account.PageSourceArchive {
-		return echo.NewHTTPError(http.StatusBadRequest, "upload is only allowed for archive-type pages")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgPagesUploadArchiveOnly))
 	}
 
 	// Check Content-Length against max size.
@@ -316,7 +318,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 
 	file, header, err := c.Request().FormFile("archive")
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("archive file required: %v", err))
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveFileRequired, err))
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -326,7 +328,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 
 	targetDir := s.pagesSubvolumePath(name)
 	if targetDir == "" {
-		return errors.New("pages directory not configured")
+		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
 	}
 
 	ctx := c.Request().Context()

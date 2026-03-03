@@ -87,6 +87,20 @@ const (
 	// MsgArchiveUnpackSuccess indicates the archive was unpacked successfully.
 	MsgArchiveUnpackSuccess = "archive.unpack_success"
 
+	// MsgPagesDirNotConfigured indicates the pages directory is not configured.
+	MsgPagesDirNotConfigured = "pages.dir_not_configured"
+	// MsgPagesNameRequired indicates the name field is required.
+	MsgPagesNameRequired = "pages.name_required"
+	// MsgPagesUploadArchiveOnly indicates uploads are only allowed for archive-type pages.
+	MsgPagesUploadArchiveOnly = "pages.upload_archive_only"
+	// MsgPagesArchiveRebuildRequired indicates archive pages must be rebuilt via upload.
+	MsgPagesArchiveRebuildRequired = "pages.archive_rebuild_required"
+
+	// MsgMonitoringNotConfigured indicates the monitoring stack is not configured.
+	MsgMonitoringNotConfigured = "monitoring.not_configured"
+	// MsgMonitoringInvalidGrafanaURL indicates the Grafana URL is invalid.
+	MsgMonitoringInvalidGrafanaURL = "monitoring.invalid_grafana_url"
+
 	// MsgUpgradeSettingsMissing indicates the settings manager is missing for upgrades.
 	MsgUpgradeSettingsMissing = "upgrade.settings_missing"
 

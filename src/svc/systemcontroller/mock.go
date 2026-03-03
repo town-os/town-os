@@ -86,6 +86,7 @@ type MockClient struct {
 	ListPagesErr           error
 	RebuildPageErr         error
 	UploadPageArchiveErr   error
+	ListLocalesErr       error
 	MonitoringStatusResp *monitoring.Status
 	MonitoringStatusErr  error
 }

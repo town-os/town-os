@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	"github.com/labstack/echo/v5"
 )
 
@@ -21,13 +22,13 @@ func (s *SystemControllerHandlers) monitoringStatus(c *echo.Context) error {
 func (s *SystemControllerHandlers) monitoringGrafanaProxy(c *echo.Context) error {
 	mon := s.Controller.GetMonitoring()
 	if mon == nil {
-		return echo.NewHTTPError(503, "monitoring is not configured")
+		return echo.NewHTTPError(503, i18n.T(s.getLocale(), i18n.MsgMonitoringNotConfigured))
 	}
 
 	grafanaURL := mon.GrafanaURL()
 	target, err := url.Parse(grafanaURL)
 	if err != nil {
-		return echo.NewHTTPError(500, "invalid grafana URL")
+		return echo.NewHTTPError(500, i18n.T(s.getLocale(), i18n.MsgMonitoringInvalidGrafanaURL))
 	}
 
 	proxy := &httputil.ReverseProxy{

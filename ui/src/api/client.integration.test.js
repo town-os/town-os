@@ -1488,4 +1488,62 @@ describe('SystemControllerClient integration', () => {
       }
     })
   })
+
+  // --- Locales ---
+
+  describe('locales', () => {
+    it('returns locale list with current locale', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getLocales()
+      expect(result.current).toBe('en-US')
+      expect(Array.isArray(result.populated)).toBe(true)
+      expect(result.populated).toContain('en-US')
+    })
+
+    it('returns common languages with native names', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getLocales()
+      expect(result.common_languages.length).toBeGreaterThan(0)
+
+      const english = result.common_languages.find((l) => l.code === 'en-US')
+      expect(english).toBeDefined()
+      expect(english.native_name).toBe('English')
+      expect(english.english_name).toBe('English')
+    })
+
+    it('returns extended locales', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getLocales()
+      expect(result.extended_locales.length).toBeGreaterThan(0)
+
+      for (const locale of result.extended_locales) {
+        expect(locale.code).toBeTruthy()
+        expect(locale.native_name).toBeTruthy()
+        expect(locale.english_name).toBeTruthy()
+      }
+    })
+
+    it('reflects locale setting changes', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      await client.setSetting('locale', 'de-DE')
+      const result = await client.getLocales()
+      expect(result.current).toBe('de-DE')
+
+      // Reset back to default.
+      await client.setSetting('locale', 'en-US')
+    })
+
+    it('requires authentication', async () => {
+      client.setToken('')
+      await expect(client.getLocales()).rejects.toThrow()
+    })
+  })
 })

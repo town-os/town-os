@@ -59,6 +59,16 @@ var enUSMessages = map[string]string{
 	MsgArchiveUnsupportedFormat: "unsupported download format: %s",
 	MsgArchiveUnpackSuccess:     "archive unpacked successfully",
 
+	// Pages extended messages.
+	MsgPagesDirNotConfigured:       "pages directory not configured",
+	MsgPagesNameRequired:           "name field is required",
+	MsgPagesUploadArchiveOnly:      "upload is only allowed for archive-type pages",
+	MsgPagesArchiveRebuildRequired: "archive pages must be rebuilt by uploading a new archive via /pages/upload",
+
+	// Monitoring.
+	MsgMonitoringNotConfigured:     "monitoring is not configured",
+	MsgMonitoringInvalidGrafanaURL: "invalid grafana URL",
+
 	// Upgrades.
 	MsgUpgradeSettingsMissing: "settings manager not available",
 
