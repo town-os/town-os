@@ -31,6 +31,9 @@ test:
 docker-login:
 	@make/images.sh docker-login
 
+quay-login:
+	@make/images.sh quay-login
+
 ensure-image-cache:
 	@make/images.sh ensure-cache
 
@@ -129,6 +132,18 @@ auto-test-full:
 
 build-networkcontroller:
 	@make/build.sh networkcontroller
+
+release-image:
+	@make/build.sh release
+
+push:
+	@$(MAKE) push-rc
+
+push-rc:
+	@make/build.sh push-rc
+
+push-release:
+	@make/build.sh push-release
 
 lint:
 	@make/lint.sh

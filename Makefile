@@ -4,6 +4,8 @@ export TOWN_OS_REPO_USERNAME
 export TOWN_OS_REPO_PASSWORD
 export DOCKER_USERNAME
 export DOCKER_PASSWORD
+export QUAY_USERNAME
+export QUAY_PASSWORD
 export VITE_API_URL
 
 # Unique instance ID from working directory path.
@@ -18,7 +20,8 @@ PODMAN_DEV_BASE      := town-os-dev-base-$(INSTANCE_ID)
 PODMAN_TEST_IMAGE    := town-os-test-$(INSTANCE_ID)
 PODMAN_DEV_IMAGE     := town-os-dev-$(INSTANCE_ID)
 PODMAN_UI_IMAGE      := town-os-ui-integration-$(INSTANCE_ID)
-export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE
+RELEASE_IMAGE        := quay.io/town/town
+export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE
 
 # Container names (unique per working directory).
 PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
@@ -56,11 +59,12 @@ include make/include.mk
 .PHONY: test-ui-integration test-integration test-full
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
+.PHONY: release-build release-image push push-rc push-release quay-login
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
 .cache/.images-pulled: ensure-image-cache docker-login
-pull-images: check-podman check-runc docker-login
+pull-images: check-podman check-runc docker-login quay-login
 ui-integration-image: .cache/.images-pulled
 production-image: check-podman check-runc .cache/.images-pulled
 .integration-port: check-python3
@@ -86,5 +90,10 @@ clean-integration: registry-stop gitea-stop
 clean: clean-cache
 clean-cache: dev-stop clean-btrfs-dev
 clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
+release-image: check-podman check-runc .cache/.images-pulled
+release-build: pull-images test-full release-image
+push: release-build
+push-rc: quay-login
+push-release: release-build quay-login
 lint: check-go check-golangci-lint check-libsystemd
 btrfs: check-btrfs clean-btrfs

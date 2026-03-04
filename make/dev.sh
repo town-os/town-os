@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -e
+. make/lib.sh
 
 case "$1" in
   start)
-    sudo -E podman rm -f "${PODMAN_DEV_CONTAINER}"
+    step "Starting dev environment"
+    ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
     mkdir -p dev-data dev-repos
-    sudo -E podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
+    substep "Launching dev container"
+    ${SUDO} podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
       -e "TOWN_OS_REPO_USERNAME=${TOWN_OS_REPO_USERNAME}" \
       -e "TOWN_OS_REPO_PASSWORD=${TOWN_OS_REPO_PASSWORD}" \
       -e TOWN_OS_NETWORK_MODE=host \
@@ -15,40 +18,35 @@ case "$1" in
       -v "$(pwd)/dev-data:/data/db:z" \
       -v "$(pwd)/dev-repos:/data/repos:z" \
       --name "${PODMAN_DEV_CONTAINER}" "${PODMAN_DEV_IMAGE}"
-    echo "Waiting for dev container to be ready..."
+    substep "Waiting for dev container to be ready"
     for i in $(seq 1 30); do
-      if sudo -E podman exec "${PODMAN_DEV_CONTAINER}" true 2>/dev/null; then
+      if ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" true 2>/dev/null; then
         break
       fi
       sleep 1
     done
-    echo "Loading monitoring images into dev container..."
-    for img in ${MONITORING_IMAGES}; do
-      safe=$(basename "${img}" | tr ':' '-')
-      if [ -f "${IMAGE_CACHE}/${safe}.tar" ]; then
-        sudo -E podman cp "${IMAGE_CACHE}/${safe}.tar" "${PODMAN_DEV_CONTAINER}:/tmp/${safe}.tar"
-        sudo -E podman exec "${PODMAN_DEV_CONTAINER}" podman load -i "/tmp/${safe}.tar"
-        sudo -E podman exec "${PODMAN_DEV_CONTAINER}" rm -f "/tmp/${safe}.tar"
-      else
-        echo "WARNING: missing cached image ${safe}.tar for ${img}"
-      fi
-    done
-    echo "API server: http://$(hostname):5309"
+    step "Loading monitoring images into dev container"
+    load_images_into_container "${PODMAN_DEV_CONTAINER}" ${MONITORING_IMAGES}
+    step "Starting UI dev server"
+    substep "API server: http://$(hostname):5309"
     cd ui && bun install && bun run dev -- --host
-    sudo -E podman rm -f "${PODMAN_DEV_CONTAINER}"
+    ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
     ;;
   logs)
-    sudo podman exec -it "${PODMAN_DEV_CONTAINER}" journalctl -f
+    step "Streaming dev container logs"
+    ${SUDO} podman exec -it "${PODMAN_DEV_CONTAINER}" journalctl -f
     ;;
   stop)
+    step "Stopping dev container"
     # Stop and remove the dev container for this working directory.
-    sudo -E podman rm -f "${PODMAN_DEV_CONTAINER}" 2>/dev/null || true
+    remove_container "${PODMAN_DEV_CONTAINER}"
     ;;
   stop-all)
+    step "Stopping all dev containers"
     # Stop and remove all town-os dev containers (from any working directory).
-    sudo -E podman ps -a --format '{{.Names}}' 2>/dev/null \
+    ${SUDO} podman ps -a --format '{{.Names}}' 2>/dev/null \
       | grep -E '^town-os-dev$' \
-      | xargs -r -I{} sudo -E podman rm -f {} 2>/dev/null || true
+      | xargs -r -I{} ${SUDO} podman rm -f {} 2>/dev/null || true
     ;;
   *)
     echo "Usage: $0 {start|logs|stop|stop-all}"
