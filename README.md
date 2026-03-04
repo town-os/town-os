@@ -50,6 +50,8 @@ The entire interface is internationalized. All user-facing strings -- both backe
 
 A built-in monitoring stack provides system observability out of the box. Prometheus collects metrics, Node Exporter reports host-level statistics, and Grafana serves auto-provisioned dashboards -- all managed as a single unit with no manual configuration required.
 
+QEMU virtual machine support runs alongside containers as a first-class runtime. Packages can declare `runtime_type: vm` with a QEMU disk image, memory, and CPU count. The Control Plane Service downloads images from URLs, converts them to raw format with `qemu-img`, and caches them in a `vm-images` btrfs subvolume. At install time, a systemd service unit launches `qemu-system-x86_64` with KVM acceleration, virtio networking, and user-mode port forwarding. VM images can be listed, uploaded, and deleted through the API and UI.
+
 Static pages hosting lets you publish HTML content directly from the UI. Three source types are supported: upload a tar archive (the default), extract files from a container image, or clone a git repository. A dropdown in the create dialog selects the source type, and each page is served through a Caddy reverse proxy with its own domain. Archive pages can be updated by uploading a new archive at any time; git and container image pages can be rebuilt on demand to pull the latest content.
 
 Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
@@ -65,6 +67,7 @@ Please the try the development build (`make dev` on any linux; see below for mor
 - Go 1.25+
 - [Bun](https://bun.sh) (JS runtime)
 - Podman (rootful, with `sudo`) and `runc` runtime
+- QEMU (`qemu-system-x86_64`, `qemu-img`) for VM package support
 - btrfs-progs (`mkfs.btrfs`)
 - libsystemd (development headers for systemd integration)
 - golangci-lint
@@ -85,7 +88,7 @@ Or install them manually:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y golang btrfs-progs libsystemd-dev podman runc python3 unzip build-essential
+sudo apt-get install -y golang btrfs-progs libsystemd-dev podman runc python3 unzip build-essential qemu-system-x86 qemu-utils
 ```
 
 Install [Bun](https://bun.sh):
@@ -103,7 +106,7 @@ curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install
 ### Arch Linux / Manjaro
 
 ```bash
-sudo pacman -S go podman runc btrfs-progs python
+sudo pacman -S go podman runc btrfs-progs python qemu-full
 ```
 
 Install [Bun](https://bun.sh):
