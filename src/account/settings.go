@@ -7,6 +7,7 @@ var DefaultSettings = map[string]string{
 	"max_archive_size":       "20971520",    // 20 MB
 	"archive_unpack_timeout": "120",         // seconds
 	"locale":                 "en-US",       // BCP 47 locale code
+	"proton_image":           "",            // Proton runner image; must be configured before use
 }
 
 type SettingsManager interface {

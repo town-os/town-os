@@ -379,7 +379,7 @@ func TestValidateDoesNotCheckGitURLs(t *testing.T) {
 	// Validate() does not check git URLs — that happens in Compile().
 	// This verifies the boundary: invalid git URL passes Validate but fails Compile.
 	pkg := InputPackage{
-		Image:       "nginx",
+		Image:       InputPackageImage{URL: "nginx"},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "not-a-url"}},
@@ -487,7 +487,7 @@ func TestCompileNormalizesImage(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			input := InputPackage{
-				Image:       tt.image,
+				Image:       InputPackageImage{URL: tt.image},
 				Environment: map[string]string{},
 				Network:     InputPackageNetwork{},
 				Volumes:     map[string]InputPackageVolume{},
@@ -506,7 +506,7 @@ func TestCompileNormalizesImage(t *testing.T) {
 
 func TestCompileRejectsInvalidQuestionName(t *testing.T) {
 	input := InputPackage{
-		Image:       "nginx",
+		Image:       InputPackageImage{URL: "nginx"},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{},
@@ -523,7 +523,7 @@ func TestCompileRejectsInvalidQuestionName(t *testing.T) {
 
 func TestCompileRejectsInvalidEnvironmentKey(t *testing.T) {
 	input := InputPackage{
-		Image:       "nginx",
+		Image:       InputPackageImage{URL: "nginx"},
 		Environment: map[string]string{"1BAD": "value"},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{},
@@ -540,7 +540,7 @@ func TestCompileRejectsInvalidEnvironmentKey(t *testing.T) {
 
 func TestCompileRejectsInvalidVolumeName(t *testing.T) {
 	input := InputPackage{
-		Image:       "nginx",
+		Image:       InputPackageImage{URL: "nginx"},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{"bad name!": {Mountpoint: "/data"}},
@@ -557,7 +557,7 @@ func TestCompileRejectsInvalidVolumeName(t *testing.T) {
 
 func TestCompileRejectsInvalidMountpoint(t *testing.T) {
 	input := InputPackage{
-		Image:       "nginx",
+		Image:       InputPackageImage{URL: "nginx"},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "relative/path"}},
@@ -574,7 +574,7 @@ func TestCompileRejectsInvalidMountpoint(t *testing.T) {
 
 func TestCompileRejectsEmptyImage(t *testing.T) {
 	input := InputPackage{
-		Image:       "",
+		Image:       InputPackageImage{URL: ""},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{},
@@ -593,7 +593,7 @@ func TestCompileAcceptsTemplateMountpoint(t *testing.T) {
 	// Template variables in mountpoints should be accepted during Validate(),
 	// then validated after substitution.
 	input := InputPackage{
-		Image:       "nginx",
+		Image:       InputPackageImage{URL: "nginx"},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/@path@/files"}},
@@ -612,7 +612,7 @@ func TestCompileRejectsTemplatedMountpointThatResolvesToRelative(t *testing.T) {
 	// If a template resolves such that the mountpoint no longer starts with /,
 	// it should be rejected.
 	input := InputPackage{
-		Image:       "nginx",
+		Image:       InputPackageImage{URL: "nginx"},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "@path@/files"}},
@@ -757,7 +757,7 @@ questions: {}
 func TestValidateInputPackage(t *testing.T) {
 	t.Run("valid package", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "nginx:latest",
+			Image:       InputPackageImage{URL: "nginx:latest"},
 			Environment: map[string]string{"NGINX_HOST": "localhost"},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -771,7 +771,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 	t.Run("empty package minimal", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "alpine",
+			Image:       InputPackageImage{URL: "alpine"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -785,7 +785,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 	t.Run("template in mountpoint skips mountpoint validation", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "nginx",
+			Image:       InputPackageImage{URL: "nginx"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "@prefix@/data"}},
@@ -799,7 +799,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 	t.Run("rejects empty image", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "",
+			Image:       InputPackageImage{URL: ""},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -813,7 +813,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 	t.Run("rejects invalid environment key", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "nginx",
+			Image:       InputPackageImage{URL: "nginx"},
 			Environment: map[string]string{"bad-key": "val"},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -827,7 +827,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 	t.Run("rejects invalid question name", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "nginx",
+			Image:       InputPackageImage{URL: "nginx"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -841,7 +841,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 	t.Run("rejects invalid volume name", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "nginx",
+			Image:       InputPackageImage{URL: "nginx"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{".hidden": {Mountpoint: "/data"}},
@@ -855,7 +855,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 	t.Run("rejects invalid mountpoint", func(t *testing.T) {
 		pkg := InputPackage{
-			Image:       "nginx",
+			Image:       InputPackageImage{URL: "nginx"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "no-slash"}},
@@ -870,7 +870,7 @@ func TestValidateInputPackage(t *testing.T) {
 
 func TestCompileDoesNotTemplateImage(t *testing.T) {
 	input := InputPackage{
-		Image:       "debian:@tag@",
+		Image:       InputPackageImage{URL: "debian:@tag@"},
 		Environment: map[string]string{"TAG": "@tag@"},
 		Network:     InputPackageNetwork{},
 		Volumes:     map[string]InputPackageVolume{},
@@ -953,7 +953,7 @@ func TestValidateGitSource(t *testing.T) {
 func TestCompileWithGitSources(t *testing.T) {
 	t.Run("template substitution in URL and branch", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx",
+			Image:       InputPackageImage{URL: "nginx"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"site": {Mountpoint: "/var/www/html"}},
@@ -975,7 +975,7 @@ func TestCompileWithGitSources(t *testing.T) {
 
 	t.Run("validates volume reference", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx",
+			Image:       InputPackageImage{URL: "nginx"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -1391,6 +1391,217 @@ func TestValidateVMConfig(t *testing.T) {
 		vm := &InputPackageVM{Image: "debian.raw"}
 		if err := ValidateVMConfig(vm); err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestInputPackageImageYAMLUnmarshal(t *testing.T) {
+	t.Run("string form", func(t *testing.T) {
+		input := `
+image: nginx:latest
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Image.Type != ImageTypeOCI {
+			t.Fatalf("expected type %q, got %q", ImageTypeOCI, pkg.Image.Type)
+		}
+		if pkg.Image.URL != "nginx:latest" {
+			t.Fatalf("expected URL nginx:latest, got %q", pkg.Image.URL)
+		}
+	})
+
+	t.Run("object form with url", func(t *testing.T) {
+		input := `
+image:
+  type: oci
+  url: ghcr.io/myorg/myapp:v1
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Image.Type != "oci" {
+			t.Fatalf("expected type oci, got %q", pkg.Image.Type)
+		}
+		if pkg.Image.URL != "ghcr.io/myorg/myapp:v1" {
+			t.Fatalf("expected URL ghcr.io/myorg/myapp:v1, got %q", pkg.Image.URL)
+		}
+	})
+
+	t.Run("object form without type defaults to oci", func(t *testing.T) {
+		input := `
+image:
+  url: ghcr.io/myorg/myapp:v1
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Image.Type != ImageTypeOCI {
+			t.Fatalf("expected type %q, got %q", ImageTypeOCI, pkg.Image.Type)
+		}
+	})
+
+	t.Run("object form without url for proton", func(t *testing.T) {
+		input := `
+image:
+  type: oci
+proton:
+  app_image: mycompany/windows-app:1.0
+  app_directory: /app
+  volume: app
+  exe: /app/myapp.exe
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes:
+  app:
+    mountpoint: /app
+questions: {}
+`
+		var pkg InputPackage
+		err := yaml.NewDecoder(strings.NewReader(input)).Decode(&pkg)
+		if err != nil {
+			t.Fatalf("unexpected YAML decode error: %v", err)
+		}
+		if pkg.Image.URL != "" {
+			t.Fatalf("expected empty URL, got %q", pkg.Image.URL)
+		}
+		if pkg.Proton == nil {
+			t.Fatal("expected non-nil Proton")
+		}
+		if pkg.Proton.AppImage != "mycompany/windows-app:1.0" {
+			t.Fatalf("expected app image, got %q", pkg.Proton.AppImage)
+		}
+	})
+}
+
+func TestValidateImageType(t *testing.T) {
+	t.Run("empty defaults to oci", func(t *testing.T) {
+		err := ValidateImageType("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("oci accepted", func(t *testing.T) {
+		err := ValidateImageType("oci")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("unknown rejected", func(t *testing.T) {
+		err := ValidateImageType("docker")
+		if err == nil {
+			t.Fatal("expected error for unknown image type")
+		}
+		if !errors.Is(err, ErrInvalidImageType) {
+			t.Fatalf("expected ErrInvalidImageType, got %v", err)
+		}
+	})
+}
+
+func TestValidateProtonSpec(t *testing.T) {
+	volumes := map[string]InputPackageVolume{
+		"app": {Mountpoint: "/app"},
+	}
+
+	t.Run("valid spec", func(t *testing.T) {
+		spec := InputPackageProton{
+			AppImage:     "mycompany/app:1.0",
+			AppDirectory: "/app",
+			Volume:       "app",
+			Exe:          "/app/myapp.exe",
+		}
+		if err := ValidateProtonSpec(spec, volumes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing app_image", func(t *testing.T) {
+		spec := InputPackageProton{
+			AppImage:     "",
+			AppDirectory: "/app",
+			Volume:       "app",
+			Exe:          "/app/myapp.exe",
+		}
+		err := ValidateProtonSpec(spec, volumes)
+		if err == nil {
+			t.Fatal("expected error for missing app_image")
+		}
+		if !errors.Is(err, ErrInvalidProtonSpec) {
+			t.Fatalf("expected ErrInvalidProtonSpec, got %v", err)
+		}
+	})
+
+	t.Run("non-absolute app_directory", func(t *testing.T) {
+		spec := InputPackageProton{
+			AppImage:     "mycompany/app:1.0",
+			AppDirectory: "relative/path",
+			Volume:       "app",
+			Exe:          "/app/myapp.exe",
+		}
+		err := ValidateProtonSpec(spec, volumes)
+		if err == nil {
+			t.Fatal("expected error for non-absolute app_directory")
+		}
+		if !errors.Is(err, ErrInvalidProtonSpec) {
+			t.Fatalf("expected ErrInvalidProtonSpec, got %v", err)
+		}
+	})
+
+	t.Run("unknown volume", func(t *testing.T) {
+		spec := InputPackageProton{
+			AppImage:     "mycompany/app:1.0",
+			AppDirectory: "/app",
+			Volume:       "nonexistent",
+			Exe:          "/app/myapp.exe",
+		}
+		err := ValidateProtonSpec(spec, volumes)
+		if err == nil {
+			t.Fatal("expected error for unknown volume")
+		}
+		if !errors.Is(err, ErrInvalidProtonSpec) {
+			t.Fatalf("expected ErrInvalidProtonSpec, got %v", err)
+		}
+	})
+
+	t.Run("missing exe", func(t *testing.T) {
+		spec := InputPackageProton{
+			AppImage:     "mycompany/app:1.0",
+			AppDirectory: "/app",
+			Volume:       "app",
+			Exe:          "",
+		}
+		err := ValidateProtonSpec(spec, volumes)
+		if err == nil {
+			t.Fatal("expected error for missing exe")
+		}
+		if !errors.Is(err, ErrInvalidProtonSpec) {
+			t.Fatalf("expected ErrInvalidProtonSpec, got %v", err)
 		}
 	})
 }

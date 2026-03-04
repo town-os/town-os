@@ -383,6 +383,12 @@ const enUS = {
   'settings.current_value': 'Current value: {value}',
   'settings.show_all_locales': 'Show all country codes',
   'settings.hide_all_locales': 'Hide country codes',
+  'settings.proton_image_title': 'Proton Runner Image',
+  'settings.proton_image_description': "The OCI image used to run Windows applications via Valve's Proton compatibility layer. This must be configured before installing Proton packages.",
+  'settings.proton_image_label': 'Image',
+  'settings.proton_image_placeholder': 'ghcr.io/town-os/proton-runner:latest',
+  'settings.proton_image_current_not_set': 'not set',
+  'settings.toast_proton_image_updated': 'Proton runner image updated',
 
   // --- DataTable ---
   'datatable.search_placeholder': 'Search...',

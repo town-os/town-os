@@ -161,14 +161,19 @@ func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd
 }
 
 // packageUnitConfig builds a PackageUnitConfig from a compiled package and
-// backend configuration.
+// backend configuration. When the package uses proton and has no explicit
+// image URL, the proton_image system setting is used.
 func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version, description string, compiled *packages.Package) systemd.PackageUnitConfig {
+	image := compiled.Image
+	if image == "" && compiled.Proton != nil {
+		image = s.protonImage()
+	}
 	cfg := systemd.PackageUnitConfig{
 		RepoName:                 repoName,
 		PkgName:                  pkgName,
 		Version:                  version,
 		Description:              description,
-		Image:                    compiled.Image,
+		Image:                    image,
 		Command:                  compiled.Command,
 		Environment:              compiled.Environment,
 		External:                 compiled.Network.External,
@@ -185,6 +190,22 @@ func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version,
 		cfg.VMImagePath = resolveVMImagePath(s.Controller.GetBtrfsBasePath(), compiled.VM.Image)
 	}
 	return cfg
+}
+
+// protonImage returns the system-wide Proton runner container image from
+// the proton_image setting. Returns an empty string if not configured.
+func (s *SystemControllerHandlers) protonImage() string {
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return ""
+	}
+
+	val, err := mgr.Get("proton_image")
+	if err != nil {
+		return ""
+	}
+
+	return val
 }
 
 // writePackageNetworkState writes the per-package JSON state file consumed by
@@ -386,12 +407,17 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 		return internalPorts[i].External < internalPorts[j].External
 	})
 
+	previewImage := ip.Image.URL
+	if previewImage == "" && ip.Proton != nil {
+		previewImage = s.protonImage()
+	}
+
 	preview := InstallPreview{
 		Repo:          repoName,
 		Name:          req.Name,
 		Version:       req.Version,
 		Description:   ip.Description,
-		Image:         ip.Image,
+		Image:         previewImage,
 		Runtime:       string(ip.RuntimeType()),
 		Volumes:       volumes,
 		ExternalPorts: externalPorts,
@@ -662,9 +688,9 @@ func (s *SystemControllerHandlers) provisionVolumes(repoName, effectiveName, ver
 	return nil
 }
 
-// seedVolumeData populates volumes with auto-archives, git seeds, and
-// git_sources after they are created. For VM packages, volume seeding is
-// skipped because storage downloading is not supported for QEMU.
+// seedVolumeData populates volumes with auto-archives, proton app extraction,
+// git seeds, and git_sources after they are created. For VM packages, volume
+// seeding is skipped because storage downloading is not supported for QEMU.
 func (s *SystemControllerHandlers) seedVolumeData(ctx context.Context, ip *packages.InputPackage, compiled *packages.Package, repoName, parentName, effectiveName, version string) {
 	if compiled.Runtime == packages.RuntimeVM {
 		return
@@ -675,6 +701,14 @@ func (s *SystemControllerHandlers) seedVolumeData(ctx context.Context, ip *packa
 			if err := s.extractFromContainerImage(ctx, archive.Image, archive.Directory, volPath); err != nil {
 				slog.Debug(fmt.Sprintf("auto-archive %s -> %s: %v", archive.Image, archive.Volume, err))
 			}
+		}
+	}
+
+	// Proton app extraction: extract from app_image into the designated volume.
+	if compiled.Proton != nil {
+		volPath := packageVolumePath(repoName, effectiveName, version, compiled.Proton.Volume)
+		if err := s.extractFromContainerImage(ctx, compiled.Proton.AppImage, compiled.Proton.AppDirectory, volPath); err != nil {
+			slog.Debug(fmt.Sprintf("proton app-extract %s -> %s: %v", compiled.Proton.AppImage, compiled.Proton.Volume, err))
 		}
 	}
 

@@ -285,11 +285,11 @@ func TestMockRepositoryManagerLoadAllPackagesEmpty(t *testing.T) {
 func TestMockRepositoryManagerLoadAllPackages(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
-		"2.0": {Image: "nginx:2.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
+		"2.0": {Image: InputPackageImage{URL: "nginx:2.0"}},
 	}
 	m.Packages["redis"] = map[string]InputPackage{
-		"7.0": {Image: "redis:7.0"},
+		"7.0": {Image: InputPackageImage{URL: "redis:7.0"}},
 	}
 
 	pkgs, err := m.LoadAllPackages()
@@ -305,15 +305,15 @@ func TestMockRepositoryManagerLoadAllPackages(t *testing.T) {
 		t.Fatalf("expected 2 nginx versions, got %d", len(pkgs["nginx"]))
 	}
 
-	if pkgs["nginx"]["1.0"].Image != "nginx:1.0" {
-		t.Fatalf("expected nginx:1.0, got %s", pkgs["nginx"]["1.0"].Image)
+	if pkgs["nginx"]["1.0"].Image.URL != "nginx:1.0" {
+		t.Fatalf("expected nginx:1.0, got %s", pkgs["nginx"]["1.0"].Image.URL)
 	}
 }
 
 func TestMockRepositoryManagerLoadAllPackagesReturnsCopy(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
 	}
 
 	pkgs, err := m.LoadAllPackages()
@@ -321,9 +321,9 @@ func TestMockRepositoryManagerLoadAllPackagesReturnsCopy(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	pkgs["nginx"]["1.0"] = InputPackage{Image: "mutated"}
+	pkgs["nginx"]["1.0"] = InputPackage{Image: InputPackageImage{URL: "mutated"}}
 
-	if m.Packages["nginx"]["1.0"].Image != "nginx:1.0" {
+	if m.Packages["nginx"]["1.0"].Image.URL != "nginx:1.0" {
 		t.Fatal("LoadAllPackages should return a copy, not a reference")
 	}
 }
@@ -357,11 +357,11 @@ func TestMockRepositoryManagerListPackagesEmpty(t *testing.T) {
 func TestMockRepositoryManagerListPackages(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
-		"2.0": {Image: "nginx:2.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
+		"2.0": {Image: InputPackageImage{URL: "nginx:2.0"}},
 	}
 	m.Packages["redis"] = map[string]InputPackage{
-		"7.0": {Image: "redis:7.0"},
+		"7.0": {Image: InputPackageImage{URL: "redis:7.0"}},
 	}
 
 	pkgs, err := m.ListPackages()
@@ -402,8 +402,8 @@ func TestMockRepositoryManagerListPackagesErrorInjection(t *testing.T) {
 func TestMockRepositoryManagerLatestPackage(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
-		"2.0": {Image: "nginx:2.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
+		"2.0": {Image: InputPackageImage{URL: "nginx:2.0"}},
 	}
 
 	pkg, version, err := m.LatestPackage("nginx")
@@ -414,8 +414,8 @@ func TestMockRepositoryManagerLatestPackage(t *testing.T) {
 	if version != "2.0" {
 		t.Fatalf("expected version 2.0, got %s", version)
 	}
-	if pkg.Image != "nginx:2.0" {
-		t.Fatalf("expected image nginx:2.0, got %s", pkg.Image)
+	if pkg.Image.URL != "nginx:2.0" {
+		t.Fatalf("expected image nginx:2.0, got %s", pkg.Image.URL)
 	}
 }
 
@@ -436,7 +436,7 @@ func TestMockRepositoryManagerLatestPackageErrorInjection(t *testing.T) {
 	injected := errors.New("injected error")
 
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
 	}
 
 	m.LatestErr = injected
@@ -451,10 +451,10 @@ func TestMockRepositoryManagerLatestPackageErrorInjection(t *testing.T) {
 func TestMockRepositoryManagerGetPackageQuestions(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0", Questions: map[string]Question{
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}, Questions: map[string]Question{
 			"hostname": {Query: "Old hostname?"},
 		}},
-		"2.0": {Image: "nginx:2.0", Questions: map[string]Question{
+		"2.0": {Image: InputPackageImage{URL: "nginx:2.0"}, Questions: map[string]Question{
 			"hostname": {Query: "What hostname?", Type: Hostname},
 			"port":     {Query: "What port?", Type: Port},
 		}},
@@ -493,7 +493,7 @@ func TestMockRepositoryManagerGetPackageQuestionsErrorInjection(t *testing.T) {
 	injected := errors.New("injected error")
 
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0", Questions: map[string]Question{
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}, Questions: map[string]Question{
 			"hostname": {Query: "What hostname?"},
 		}},
 	}
@@ -510,8 +510,8 @@ func TestMockRepositoryManagerGetPackageQuestionsErrorInjection(t *testing.T) {
 func TestMockRepositoryManagerFindRepoForPackage(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
-		"2.0": {Image: "nginx:2.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
+		"2.0": {Image: InputPackageImage{URL: "nginx:2.0"}},
 	}
 
 	repoName, err := m.FindRepoForPackage("nginx", "1.0")
@@ -538,7 +538,7 @@ func TestMockRepositoryManagerFindRepoForPackageNotFound(t *testing.T) {
 func TestMockRepositoryManagerFindRepoForPackageVersionNotFound(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
 	}
 
 	_, err := m.FindRepoForPackage("nginx", "99.0")
@@ -555,7 +555,7 @@ func TestMockRepositoryManagerFindRepoForPackageErrorInjection(t *testing.T) {
 	injected := errors.New("injected error")
 
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
 	}
 
 	m.FindRepoErr = injected
@@ -570,7 +570,7 @@ func TestMockRepositoryManagerFindRepoForPackageErrorInjection(t *testing.T) {
 func TestMockRepositoryManagerCallLog(t *testing.T) {
 	m := InitMockRepositoryManager()
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0"},
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}},
 	}
 
 	err := m.Add(testRepo(t, "core"))
@@ -713,10 +713,10 @@ func TestMockRepositoryManagerLifecycle(t *testing.T) {
 
 	// Set up packages and list them.
 	m.Packages["nginx"] = map[string]InputPackage{
-		"1.0": {Image: "nginx:1.0", Questions: map[string]Question{
+		"1.0": {Image: InputPackageImage{URL: "nginx:1.0"}, Questions: map[string]Question{
 			"hostname": {Query: "What hostname?"},
 		}},
-		"2.0": {Image: "nginx:2.0", Questions: map[string]Question{
+		"2.0": {Image: InputPackageImage{URL: "nginx:2.0"}, Questions: map[string]Question{
 			"hostname": {Query: "What hostname?", Type: Hostname},
 			"port":     {Query: "What port?", Type: Port},
 		}},
@@ -741,8 +741,8 @@ func TestMockRepositoryManagerLifecycle(t *testing.T) {
 	if version != "2.0" {
 		t.Fatalf("expected version 2.0, got %s", version)
 	}
-	if pkg.Image != "nginx:2.0" {
-		t.Fatalf("expected image nginx:2.0, got %s", pkg.Image)
+	if pkg.Image.URL != "nginx:2.0" {
+		t.Fatalf("expected image nginx:2.0, got %s", pkg.Image.URL)
 	}
 
 	// Get package questions.

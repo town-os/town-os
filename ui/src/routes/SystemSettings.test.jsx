@@ -231,6 +231,7 @@ const defaultSettings = {
   default_quota: '53687091200',
   max_archive_size: '20971520',
   archive_unpack_timeout: '120',
+  proton_image: '',
 }
 
 const mockGetSettings = vi.fn(() => Promise.resolve({ ...defaultSettings }))
@@ -290,11 +291,11 @@ describe('SystemSettings component', () => {
     })
   })
 
-  it('renders four Save buttons', async () => {
+  it('renders five Save buttons', async () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(4)
+      expect(buttons).toHaveLength(5)
     })
   })
 
@@ -558,6 +559,104 @@ describe('SystemSettings Archive Unpack Timeout', () => {
     renderSystemSettings()
     await waitFor(() => {
       expect(screen.getByText(/maximum time allowed for unpacking/)).toBeTruthy()
+    })
+  })
+})
+
+// --- Proton Runner Image section tests ---
+
+describe('SystemSettings Proton Runner Image', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+  })
+
+  it('renders the Proton Runner Image section title', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText('Proton Runner Image')).toBeTruthy()
+    })
+  })
+
+  it('renders the image input field', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Image')).toBeTruthy()
+    })
+  })
+
+  it('displays "not set" when proton_image is empty', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText('not set')).toBeTruthy()
+    })
+  })
+
+  it('displays configured value when proton_image is set', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, proton_image: 'ghcr.io/town-os/proton-runner:latest' })
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText('ghcr.io/town-os/proton-runner:latest')).toBeTruthy()
+    })
+  })
+
+  it('initializes input to empty string when not set', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Image')
+      expect(input.value).toBe('')
+    })
+  })
+
+  it('initializes input with configured value', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, proton_image: 'my-registry/proton:v1' })
+    renderSystemSettings()
+    await waitFor(() => {
+      const input = screen.getByLabelText('Image')
+      expect(input.value).toBe('my-registry/proton:v1')
+    })
+  })
+
+  it('clicking Save calls setSetting with proton_image key', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const buttons = screen.getAllByRole('button', { name: 'Save' })
+      expect(buttons).toHaveLength(5)
+    })
+    const input = screen.getByLabelText('Image')
+    fireEvent.change(input, { target: { value: 'ghcr.io/town-os/proton-runner:latest' } })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[4])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('proton_image', 'ghcr.io/town-os/proton-runner:latest')
+    })
+  })
+
+  it('allows saving empty string to clear the setting', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, proton_image: 'old-image:v1' })
+    renderSystemSettings()
+    await waitFor(() => {
+      const buttons = screen.getAllByRole('button', { name: 'Save' })
+      expect(buttons).toHaveLength(5)
+    })
+    await waitFor(() => {
+      const input = screen.getByLabelText('Image')
+      expect(input.value).toBe('old-image:v1')
+    })
+    const input = screen.getByLabelText('Image')
+    fireEvent.change(input, { target: { value: '' } })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[4])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('proton_image', '')
+    })
+  })
+
+  it('renders description text', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText(/Proton compatibility layer/)).toBeTruthy()
     })
   })
 })

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"go.yaml.in/yaml/v4"
 )
 
 type (
@@ -199,6 +201,54 @@ type PackageTemplate struct {
 	Content string `json:"content"`
 }
 
+const ImageTypeOCI = "oci"
+
+// InputPackageImage supports both a plain string ("nginx:latest") and a
+// structured form ({type: oci, url: nginx:latest}) in YAML.
+type InputPackageImage struct {
+	Type string `yaml:"type" json:"type,omitempty"`
+	URL  string `yaml:"url" json:"url,omitempty"`
+}
+
+func (i *InputPackageImage) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		i.Type = ImageTypeOCI
+		i.URL = node.Value
+		return nil
+	}
+
+	// Decode as struct (avoiding infinite recursion via alias).
+	type raw InputPackageImage
+	var r raw
+	if err := node.Decode(&r); err != nil {
+		return err
+	}
+	*i = InputPackageImage(r)
+	if i.Type == "" {
+		i.Type = ImageTypeOCI
+	}
+	return nil
+}
+
+// InputPackageProton describes how to extract and run a Windows application
+// via Valve's Proton compatibility layer.
+type InputPackageProton struct {
+	AppImage     string   `yaml:"app_image"`
+	AppDirectory string   `yaml:"app_directory"`
+	Volume       string   `yaml:"volume"`
+	Exe          string   `yaml:"exe"`
+	Args         []string `yaml:"args,omitempty"`
+}
+
+// PackageProton is the compiled form of InputPackageProton.
+type PackageProton struct {
+	AppImage     string   `json:"app_image"`
+	AppDirectory string   `json:"app_directory"`
+	Volume       string   `json:"volume"`
+	Exe          string   `json:"exe"`
+	Args         []string `json:"args,omitempty"`
+}
+
 type PackageNetwork struct {
 	External PortMap
 	Internal PortMap
@@ -206,6 +256,7 @@ type PackageNetwork struct {
 
 type Package struct {
 	Image       string
+	ImageType   string
 	Command     []string
 	Environment map[string]string
 	Network     PackageNetwork
@@ -213,6 +264,7 @@ type Package struct {
 	Templates   map[string]PackageTemplate
 	Runtime     RuntimeType
 	VM          *PackageVM
+	Proton      *PackageProton
 }
 
 type InputPackageNetwork struct {
@@ -228,7 +280,7 @@ type Question struct {
 }
 
 type InputPackage struct {
-	Image       string                           `yaml:"image"`
+	Image       InputPackageImage                `yaml:"image"`
 	Command     []string                         `yaml:"command"`
 	Environment map[string]string                `yaml:"environment"`
 	Network     InputPackageNetwork              `yaml:"network"`
@@ -241,6 +293,7 @@ type InputPackage struct {
 	GitSources  []InputPackageGitSource          `yaml:"git_sources,omitempty"`
 	Templates   map[string]InputPackageTemplate  `yaml:"templates,omitempty"`
 	VM          *InputPackageVM                  `yaml:"vm,omitempty" json:"vm,omitempty"`
+	Proton      *InputPackageProton              `yaml:"proton,omitempty"`
 }
 
 // RuntimeType returns the runtime type for this package based on which
@@ -356,6 +409,16 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		i.VM.Image = applyTemplate(i.VM.Image, iv, response)
 		i.VM.Memory = applyTemplate(i.VM.Memory, iv, response)
 	}
+
+	if i.Proton != nil {
+		i.Proton.AppImage = applyTemplate(i.Proton.AppImage, iv, response)
+		i.Proton.AppDirectory = applyTemplate(i.Proton.AppDirectory, iv, response)
+		i.Proton.Volume = applyTemplate(i.Proton.Volume, iv, response)
+		i.Proton.Exe = applyTemplate(i.Proton.Exe, iv, response)
+		for idx := range i.Proton.Args {
+			i.Proton.Args[idx] = applyTemplate(i.Proton.Args[idx], iv, response)
+		}
+	}
 }
 
 func convert(p map[string]string) (PortMap, error) {
@@ -396,18 +459,22 @@ func strToPort(input string) (uint16, error) {
 // template substitution so that the raw spec (including template markers) is
 // validated.
 func (i *InputPackage) Validate() error {
-	// Exactly one of image or vm must be set.
-	hasImage := i.Image != ""
+	if err := ValidateImageType(i.Image.Type); err != nil {
+		return err
+	}
+
+	// Exactly one of image, vm, or proton must provide a runtime.
+	hasImage := i.Image.URL != ""
 	hasVM := i.VM != nil
 	if hasImage && hasVM {
 		return ErrMixedRuntime
 	}
-	if !hasImage && !hasVM {
+	if !hasImage && !hasVM && i.Proton == nil {
 		return ErrNoRuntime
 	}
 
 	if hasImage {
-		if err := ValidateImageURL(i.Image); err != nil {
+		if err := ValidateImageURL(i.Image.URL); err != nil {
 			return err
 		}
 	}
@@ -416,6 +483,11 @@ func (i *InputPackage) Validate() error {
 		if err := ValidateVMConfig(i.VM); err != nil {
 			return err
 		}
+	}
+
+	// Reject having both command and proton set simultaneously.
+	if i.Proton != nil && len(i.Command) > 0 {
+		return fmt.Errorf("%w: cannot specify both command and proton", ErrInvalidProtonSpec)
 	}
 
 	for key := range i.Environment {
@@ -493,6 +565,12 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
+	if i.Proton != nil {
+		if err := ValidateProtonSpec(*i.Proton, i.Volumes); err != nil {
+			return nil, fmt.Errorf("proton: %w", err)
+		}
+	}
+
 	var verrs []ResponseValidationError
 
 	// Check for unknown response keys (question does not exist).
@@ -556,10 +634,16 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	}
 
 	// Normalize the container image URL after template substitution (container only).
-	image := i.Image
+	image := i.Image.URL
 	rt := i.RuntimeType()
 	if rt == RuntimeContainer {
 		image = NormalizeImageURL(image)
+	}
+
+	// Normalize image type: empty defaults to OCI.
+	imageType := i.Image.Type
+	if imageType == "" {
+		imageType = ImageTypeOCI
 	}
 
 	// Validate mountpoints and parse quotas after template substitution.
@@ -604,14 +688,32 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
+	command := i.Command
+	var proton *PackageProton
+
+	if i.Proton != nil {
+		// Auto-generate command: ["proton", "run", exe, ...args]
+		command = append([]string{"proton", "run", i.Proton.Exe}, i.Proton.Args...)
+		appImage := NormalizeImageURL(i.Proton.AppImage)
+		proton = &PackageProton{
+			AppImage:     appImage,
+			AppDirectory: i.Proton.AppDirectory,
+			Volume:       i.Proton.Volume,
+			Exe:          i.Proton.Exe,
+			Args:         i.Proton.Args,
+		}
+	}
+
 	p := &Package{
 		Image:       image,
-		Command:     i.Command,
+		ImageType:   imageType,
+		Command:     command,
 		Environment: i.Environment,
 		Network:     PackageNetwork{External: external, Internal: internal},
 		Volumes:     volumes,
 		Templates:   templates,
 		Runtime:     rt,
+		Proton:      proton,
 	}
 
 	// Compile VM configuration if present.

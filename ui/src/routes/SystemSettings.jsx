@@ -13,6 +13,7 @@ const MAX_ARCHIVE_SIZE_KEY = 'max_archive_size'
 const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 20 * 1024 * 1024 // 20 MB
 const ARCHIVE_UNPACK_TIMEOUT_KEY = 'archive_unpack_timeout'
 const DEFAULT_ARCHIVE_UNPACK_TIMEOUT = 120 // seconds
+const PROTON_IMAGE_KEY = 'proton_image'
 
 function formatBytes(t, bytes) {
   if (bytes === 0) return t('settings.format_no_quota')
@@ -224,6 +225,26 @@ export default function SystemSettings() {
     }
   }
 
+  // --- Proton Runner Image ---
+  const currentProtonImage = settings[PROTON_IMAGE_KEY] || ''
+
+  const [protonImageInput, setProtonImageInput] = useState('')
+
+  useEffect(() => {
+    setProtonImageInput(settings[PROTON_IMAGE_KEY] || '')
+  }, [settings])
+
+  async function handleSaveProtonImage(e) {
+    e.preventDefault()
+    try {
+      await getClient().setSetting(PROTON_IMAGE_KEY, protonImageInput)
+      toast.success(t('settings.toast_proton_image_updated'))
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
   const populated = new Set(localeData?.populated || [])
 
   return (
@@ -388,6 +409,31 @@ export default function SystemSettings() {
               <option value="minutes">{t('settings.unit_option_minutes')}</option>
               <option value="hours">{t('settings.unit_option_hours')}</option>
             </select>
+          </div>
+          <Button type="submit">{t('settings.save_btn')}</Button>
+        </form>
+      </div>
+
+      <div className="rounded-lg border p-6 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold">{t('settings.proton_image_title')}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t('settings.proton_image_description')}{' '}
+            {t('settings.current_value', { value: '' })}<strong>{currentProtonImage || t('settings.proton_image_current_not_set')}</strong>
+          </p>
+        </div>
+
+        <form onSubmit={handleSaveProtonImage} className="flex items-end gap-3">
+          <div className="space-y-2">
+            <Label htmlFor="proton-image-value">{t('settings.proton_image_label')}</Label>
+            <Input
+              id="proton-image-value"
+              type="text"
+              value={protonImageInput}
+              onChange={(e) => setProtonImageInput(e.target.value)}
+              placeholder={t('settings.proton_image_placeholder')}
+              className="w-96"
+            />
           </div>
           <Button type="submit">{t('settings.save_btn')}</Button>
         </form>

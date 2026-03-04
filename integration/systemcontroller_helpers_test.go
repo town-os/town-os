@@ -3,10 +3,12 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"net"
 	"os"
-	"strconv"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -481,4 +483,29 @@ func findFreePort(t *testing.T) string {
 	}
 
 	return strconv.Itoa(port)
+}
+
+// mockSettingsManager is a minimal in-memory settings manager for integration
+// tests that need to configure system settings like proton_image.
+type mockSettingsManager struct {
+	values map[string]string
+}
+
+func (m *mockSettingsManager) Get(key string) (string, error) {
+	v, ok := m.values[key]
+	if !ok {
+		return "", fmt.Errorf("setting %q not found", key)
+	}
+	return v, nil
+}
+
+func (m *mockSettingsManager) Set(key, value string) error {
+	m.values[key] = value
+	return nil
+}
+
+func (m *mockSettingsManager) List() (map[string]string, error) {
+	out := make(map[string]string, len(m.values))
+	maps.Copy(out, m.values)
+	return out, nil
 }

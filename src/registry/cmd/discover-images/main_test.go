@@ -10,11 +10,11 @@ import (
 func TestCollectImagesBasic(t *testing.T) {
 	pkgs := packages.PackageTable{
 		"nginx": {
-			"1.0": packages.InputPackage{Image: "nginx:1.0"},
-			"2.0": packages.InputPackage{Image: "nginx:2.0"},
+			"1.0": packages.InputPackage{Image: packages.InputPackageImage{URL: "nginx:1.0"}},
+			"2.0": packages.InputPackage{Image: packages.InputPackageImage{URL: "nginx:2.0"}},
 		},
 		"redis": {
-			"7.0": packages.InputPackage{Image: "redis:7.0"},
+			"7.0": packages.InputPackage{Image: packages.InputPackageImage{URL: "redis:7.0"}},
 		},
 	}
 
@@ -37,8 +37,8 @@ func TestCollectImagesBasic(t *testing.T) {
 func TestCollectImagesDeduplication(t *testing.T) {
 	pkgs := packages.PackageTable{
 		"nginx": {
-			"1.0": packages.InputPackage{Image: "nginx:1.0"},
-			"1.1": packages.InputPackage{Image: "nginx:1.0"}, // same image
+			"1.0": packages.InputPackage{Image: packages.InputPackageImage{URL: "nginx:1.0"}},
+			"1.1": packages.InputPackage{Image: packages.InputPackageImage{URL: "nginx:1.0"}}, // same image
 		},
 	}
 
@@ -53,7 +53,7 @@ func TestCollectImagesWithArchives(t *testing.T) {
 	pkgs := packages.PackageTable{
 		"myapp": {
 			"1.0": packages.InputPackage{
-				Image: "myapp:1.0",
+				Image: packages.InputPackageImage{URL: "myapp:1.0"},
 				Archives: []packages.InputPackageArchive{
 					{Image: "backup-tool:latest"},
 					{Image: "ghcr.io/org/archive-runner:v2"},
@@ -78,7 +78,7 @@ func TestCollectImagesWithArchives(t *testing.T) {
 func TestCollectImagesEmptyImage(t *testing.T) {
 	pkgs := packages.PackageTable{
 		"pkg": {
-			"1.0": packages.InputPackage{Image: ""},
+			"1.0": packages.InputPackage{Image: packages.InputPackageImage{URL: ""}},
 		},
 	}
 
@@ -95,6 +95,28 @@ func TestCollectImagesEmptyTable(t *testing.T) {
 
 	if len(seen) != 0 {
 		t.Fatalf("expected 0 images for empty table, got %d", len(seen))
+	}
+}
+
+func TestCollectImagesWithProton(t *testing.T) {
+	pkgs := packages.PackageTable{
+		"winapp": {
+			"1.0": packages.InputPackage{
+				Image: packages.InputPackageImage{Type: packages.ImageTypeOCI},
+				Proton: &packages.InputPackageProton{
+					AppImage:     "mycompany/windows-app:1.0",
+					AppDirectory: "/app",
+					Volume:       "app",
+					Exe:          "/app/myapp.exe",
+				},
+			},
+		},
+	}
+
+	seen := collectImages(pkgs)
+
+	if !seen["docker.io/mycompany/windows-app:1.0"] {
+		t.Error("expected proton app_image to be collected")
 	}
 }
 

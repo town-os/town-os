@@ -15,7 +15,7 @@ func TestPackageCompile(t *testing.T) {
 	}{
 		"basic": {
 			input: InputPackage{
-				Image:       "debian:latest",
+				Image:       InputPackageImage{URL: "debian:latest"},
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     InputPackageNetwork{External: map[string]string{"80": "80"}, Internal: map[string]string{"128": "128"}},
 				Volumes:     map[string]InputPackageVolume{},
@@ -23,6 +23,7 @@ func TestPackageCompile(t *testing.T) {
 			},
 			output: Package{
 				Image:       "docker.io/library/debian:latest",
+				ImageType:   ImageTypeOCI,
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
 				Volumes:     map[string]PackageVolume{},
@@ -33,7 +34,7 @@ func TestPackageCompile(t *testing.T) {
 		},
 		"basic-template": {
 			input: InputPackage{
-				Image:       "debian:latest",
+				Image:       InputPackageImage{URL: "debian:latest"},
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
 				Volumes:     map[string]InputPackageVolume{},
@@ -45,6 +46,7 @@ func TestPackageCompile(t *testing.T) {
 			},
 			output: Package{
 				Image:       "docker.io/library/debian:latest",
+				ImageType:   ImageTypeOCI,
 				Environment: map[string]string{"HELLO": "scarlett"},
 				Network:     PackageNetwork{External: PortMap{80: 80}, Internal: PortMap{128: 128}},
 				Volumes:     map[string]PackageVolume{},
@@ -59,7 +61,7 @@ func TestPackageCompile(t *testing.T) {
 		},
 		"template-errors": {
 			input: InputPackage{
-				Image:       "debian:latest",
+				Image:       InputPackageImage{URL: "debian:latest"},
 				Environment: map[string]string{"HELLO": "@name@"},
 				Network:     InputPackageNetwork{External: map[string]string{"@external@": "80"}, Internal: map[string]string{"128": "@internal@"}},
 				Volumes:     map[string]InputPackageVolume{},
@@ -101,7 +103,7 @@ func TestPackageCompile(t *testing.T) {
 func TestPackageCompileAdditional(t *testing.T) {
 	t.Run("invalid response key", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -115,7 +117,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 
 	t.Run("volume template substitution", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/mnt/@path@"}},
@@ -135,7 +137,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 
 	t.Run("port 65535 valid", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{External: map[string]string{"65535": "65535"}},
 			Volumes:     map[string]InputPackageVolume{},
@@ -152,7 +154,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 
 	t.Run("port 0 rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{External: map[string]string{"0": "80"}},
 			Volumes:     map[string]InputPackageVolume{},
@@ -168,7 +170,7 @@ func TestPackageCompileAdditional(t *testing.T) {
 func TestPackageCompileTypeValidation(t *testing.T) {
 	t.Run("valid port type", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -182,7 +184,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 
 	t.Run("valid hostname type", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{"HOST": "@hostname@"},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -199,7 +201,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 
 	t.Run("valid volume type", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/mnt/@vol@"}},
@@ -216,7 +218,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 
 	t.Run("invalid port type", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -237,7 +239,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 
 	t.Run("invalid hostname type", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -258,7 +260,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 
 	t.Run("valid secret type", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{"DB_PASSWORD": "@dbpass@"},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -275,7 +277,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 
 	t.Run("untyped question accepts any string", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{"NAME": "@name@"},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -294,7 +296,7 @@ func TestPackageCompileTypeValidation(t *testing.T) {
 func TestPackageCompileVolumeQuota(t *testing.T) {
 	t.Run("literal quota in gb", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "1gb"}},
@@ -311,7 +313,7 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 
 	t.Run("literal quota in mb", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "500mb"}},
@@ -328,7 +330,7 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 
 	t.Run("literal quota in tb", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "2tb"}},
@@ -345,7 +347,7 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 
 	t.Run("literal quota in bytes", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "1073741824"}},
@@ -362,7 +364,7 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 
 	t.Run("templated quota via bytes type", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "@size@"}},
@@ -381,7 +383,7 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 
 	t.Run("no quota is zero", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -398,7 +400,7 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 
 	t.Run("invalid quota rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Quota: "notasize"}},
@@ -414,7 +416,7 @@ func TestPackageCompileVolumeQuota(t *testing.T) {
 func TestPackageCompileUnansweredQuestion(t *testing.T) {
 	t.Run("missing response rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{"HOST": "@hostname@"},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -437,7 +439,7 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 
 	t.Run("partial responses rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{"HOST": "@hostname@"},
 			Network:     InputPackageNetwork{External: map[string]string{"@port@": "80"}, Internal: map[string]string{}},
 			Volumes:     map[string]InputPackageVolume{},
@@ -461,7 +463,7 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 
 	t.Run("all responses provided succeeds", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{"HOST": "@hostname@"},
 			Network:     InputPackageNetwork{External: map[string]string{"@port@": "80"}, Internal: map[string]string{}},
 			Volumes:     map[string]InputPackageVolume{},
@@ -478,7 +480,7 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 
 	t.Run("no questions no responses succeeds", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -492,7 +494,7 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 
 	t.Run("collects all validation errors", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -532,7 +534,7 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 
 	t.Run("empty response rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -554,7 +556,7 @@ func TestPackageCompileUnansweredQuestion(t *testing.T) {
 
 func TestPackageCompileCommand(t *testing.T) {
 	input := InputPackage{
-		Image:       "redis:7.0-alpine",
+		Image:       InputPackageImage{URL: "redis:7.0-alpine"},
 		Command:     []string{"redis-server", "--bind", "0.0.0.0"},
 		Environment: map[string]string{},
 		Network:     InputPackageNetwork{},
@@ -576,7 +578,7 @@ func TestPackageCompileCommand(t *testing.T) {
 func TestCompileArchiveFieldPropagation(t *testing.T) {
 	t.Run("archive field propagated through compile", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Archive: "myarchive.tar.gz"}},
@@ -593,7 +595,7 @@ func TestCompileArchiveFieldPropagation(t *testing.T) {
 
 	t.Run("archive field template substitution", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data", Archive: "@archivename@"}},
@@ -610,7 +612,7 @@ func TestCompileArchiveFieldPropagation(t *testing.T) {
 
 	t.Run("no archive field is empty", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -629,7 +631,7 @@ func TestCompileArchiveFieldPropagation(t *testing.T) {
 func TestCompileGitFieldPropagation(t *testing.T) {
 	t.Run("git field propagated through compile", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "https://github.com/example/repo.git"}},
@@ -646,7 +648,7 @@ func TestCompileGitFieldPropagation(t *testing.T) {
 
 	t.Run("git field template substitution", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "@giturl@"}},
@@ -663,7 +665,7 @@ func TestCompileGitFieldPropagation(t *testing.T) {
 
 	t.Run("no git field is empty", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -680,7 +682,7 @@ func TestCompileGitFieldPropagation(t *testing.T) {
 
 	t.Run("invalid git URL rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "not-a-url"}},
@@ -697,7 +699,7 @@ func TestCompileGitFieldPropagation(t *testing.T) {
 
 	t.Run("file URL accepted", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"config": {Mountpoint: "/config", Git: "file:///tmp/repo.git"}},
@@ -714,7 +716,7 @@ func TestCompileGitFieldPropagation(t *testing.T) {
 
 	t.Run("git coexists with archive", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes: map[string]InputPackageVolume{
@@ -739,7 +741,7 @@ func TestCompileGitFieldPropagation(t *testing.T) {
 func TestCompileArchivesField(t *testing.T) {
 	t.Run("archives parsed and validated", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -756,7 +758,7 @@ func TestCompileArchivesField(t *testing.T) {
 
 	t.Run("archives with invalid volume rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -775,7 +777,7 @@ func TestCompileArchivesField(t *testing.T) {
 func TestCompileNotes(t *testing.T) {
 	t.Run("templates notes with responses", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -793,7 +795,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("nil notes returns nil", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -810,7 +812,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("empty notes returns nil", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -828,7 +830,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("notes with no templates pass through", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -846,7 +848,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("valid URL note with template", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -864,7 +866,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("valid phone note", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -882,7 +884,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("valid email note", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -900,7 +902,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("email note via template", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -918,7 +920,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("invalid URL note", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -936,7 +938,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("invalid phone note", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -954,7 +956,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("invalid email note", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -972,7 +974,7 @@ func TestCompileNotes(t *testing.T) {
 
 	t.Run("untyped note passthrough", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "nginx:1.0",
+			Image:       InputPackageImage{URL: "nginx:1.0"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -992,7 +994,7 @@ func TestCompileNotes(t *testing.T) {
 func TestCompileTemplates(t *testing.T) {
 	t.Run("basic template compilation", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1026,7 +1028,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template volume substitution", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes: map[string]InputPackageVolume{
@@ -1053,7 +1055,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template path substitution", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1077,7 +1079,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template references nonexistent volume rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1098,7 +1100,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template with invalid Go template syntax rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1119,7 +1121,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template with absolute path rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1140,7 +1142,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template with path traversal rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1161,7 +1163,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("no templates produces nil map", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -1178,7 +1180,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("multiple templates compiled", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes: map[string]InputPackageVolume{
@@ -1202,7 +1204,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template with empty content rejected during validation", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1219,7 +1221,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template with empty volume rejected during validation", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1236,7 +1238,7 @@ func TestCompileTemplates(t *testing.T) {
 
 	t.Run("template with empty path rejected during validation", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
@@ -1248,6 +1250,212 @@ func TestCompileTemplates(t *testing.T) {
 		_, err := input.Compile(Responses{})
 		if err == nil {
 			t.Fatal("expected error for empty template path")
+		}
+	})
+}
+
+func TestCompileProtonCommandGeneration(t *testing.T) {
+	t.Run("generates proton run command", func(t *testing.T) {
+		input := InputPackage{
+			Image: InputPackageImage{Type: ImageTypeOCI},
+			Proton: &InputPackageProton{
+				AppImage:     "mycompany/windows-app:1.0",
+				AppDirectory: "/app",
+				Volume:       "app",
+				Exe:          "/app/myapp.exe",
+			},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(p.Command) != 3 {
+			t.Fatalf("expected 3 command args, got %d: %v", len(p.Command), p.Command)
+		}
+		if p.Command[0] != "proton" || p.Command[1] != "run" || p.Command[2] != "/app/myapp.exe" {
+			t.Fatalf("expected [proton run /app/myapp.exe], got %v", p.Command)
+		}
+	})
+
+	t.Run("generates proton run command with args", func(t *testing.T) {
+		input := InputPackage{
+			Image: InputPackageImage{Type: ImageTypeOCI},
+			Proton: &InputPackageProton{
+				AppImage:     "mycompany/windows-app:1.0",
+				AppDirectory: "/app",
+				Volume:       "app",
+				Exe:          "/app/myapp.exe",
+				Args:         []string{"-fullscreen", "-config", "/app/config.ini"},
+			},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(p.Command) != 6 {
+			t.Fatalf("expected 6 command args, got %d: %v", len(p.Command), p.Command)
+		}
+		expected := []string{"proton", "run", "/app/myapp.exe", "-fullscreen", "-config", "/app/config.ini"}
+		for i, v := range expected {
+			if p.Command[i] != v {
+				t.Fatalf("command[%d] = %q, want %q", i, p.Command[i], v)
+			}
+		}
+	})
+
+	t.Run("proton populates Package.Proton", func(t *testing.T) {
+		input := InputPackage{
+			Image: InputPackageImage{Type: ImageTypeOCI},
+			Proton: &InputPackageProton{
+				AppImage:     "mycompany/windows-app:1.0",
+				AppDirectory: "/app",
+				Volume:       "app",
+				Exe:          "/app/myapp.exe",
+			},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Proton == nil {
+			t.Fatal("expected non-nil Proton")
+		}
+		if p.Proton.AppImage != "docker.io/mycompany/windows-app:1.0" {
+			t.Fatalf("expected normalized app image, got %s", p.Proton.AppImage)
+		}
+		if p.Proton.AppDirectory != "/app" {
+			t.Fatalf("expected /app, got %s", p.Proton.AppDirectory)
+		}
+		if p.Proton.Volume != "app" {
+			t.Fatalf("expected app volume, got %s", p.Proton.Volume)
+		}
+		if p.Proton.Exe != "/app/myapp.exe" {
+			t.Fatalf("expected /app/myapp.exe, got %s", p.Proton.Exe)
+		}
+	})
+
+	t.Run("proton with image url uses that url", func(t *testing.T) {
+		input := InputPackage{
+			Image: InputPackageImage{Type: ImageTypeOCI, URL: "my-custom-proton:latest"},
+			Proton: &InputPackageProton{
+				AppImage:     "mycompany/windows-app:1.0",
+				AppDirectory: "/app",
+				Volume:       "app",
+				Exe:          "/app/myapp.exe",
+			},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Image != "docker.io/library/my-custom-proton:latest" {
+			t.Fatalf("expected normalized custom proton image, got %s", p.Image)
+		}
+	})
+
+	t.Run("proton without image url leaves image empty", func(t *testing.T) {
+		input := InputPackage{
+			Image: InputPackageImage{Type: ImageTypeOCI},
+			Proton: &InputPackageProton{
+				AppImage:     "mycompany/windows-app:1.0",
+				AppDirectory: "/app",
+				Volume:       "app",
+				Exe:          "/app/myapp.exe",
+			},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Image != "" {
+			t.Fatalf("expected empty image, got %s", p.Image)
+		}
+	})
+
+	t.Run("rejects both command and proton", func(t *testing.T) {
+		input := InputPackage{
+			Image:   InputPackageImage{Type: ImageTypeOCI},
+			Command: []string{"custom", "command"},
+			Proton: &InputPackageProton{
+				AppImage:     "mycompany/windows-app:1.0",
+				AppDirectory: "/app",
+				Volume:       "app",
+				Exe:          "/app/myapp.exe",
+			},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+			Questions:   map[string]Question{},
+		}
+		_, err := input.Compile(Responses{})
+		if err == nil {
+			t.Fatal("expected error for both command and proton")
+		}
+		if !errors.Is(err, ErrInvalidProtonSpec) {
+			t.Fatalf("expected ErrInvalidProtonSpec, got %v", err)
+		}
+	})
+
+	t.Run("proton template substitution", func(t *testing.T) {
+		input := InputPackage{
+			Image: InputPackageImage{Type: ImageTypeOCI},
+			Proton: &InputPackageProton{
+				AppImage:     "mycompany/@appname@:1.0",
+				AppDirectory: "/app",
+				Volume:       "app",
+				Exe:          "/app/@appname@.exe",
+			},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+			Questions:   map[string]Question{"appname": {Query: "App name?"}},
+		}
+		p, err := input.Compile(Responses{"appname": "myapp"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Proton.Exe != "/app/myapp.exe" {
+			t.Fatalf("expected /app/myapp.exe, got %s", p.Proton.Exe)
+		}
+		if p.Command[2] != "/app/myapp.exe" {
+			t.Fatalf("expected /app/myapp.exe in command, got %s", p.Command[2])
+		}
+	})
+
+	t.Run("no proton leaves Package.Proton nil", func(t *testing.T) {
+		input := InputPackage{
+			Image:       InputPackageImage{URL: "nginx:latest"},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+		}
+		p, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Proton != nil {
+			t.Fatal("expected nil Proton")
 		}
 	})
 }

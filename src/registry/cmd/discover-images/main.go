@@ -25,11 +25,16 @@ func collectImages(pkgs packages.PackageTable) map[string]bool {
 	seen := map[string]bool{}
 	for _, versions := range pkgs {
 		for _, pkg := range versions {
-			if img := packages.NormalizeImageURL(pkg.Image); img != "" {
+			if img := packages.NormalizeImageURL(pkg.Image.URL); img != "" {
 				seen[img] = true
 			}
 			for _, archive := range pkg.Archives {
 				if img := packages.NormalizeImageURL(archive.Image); img != "" {
+					seen[img] = true
+				}
+			}
+			if pkg.Proton != nil {
+				if img := packages.NormalizeImageURL(pkg.Proton.AppImage); img != "" {
 					seen[img] = true
 				}
 			}

@@ -170,6 +170,18 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			}
 		}
 
+		// Proton app extraction: extract from app_image into empty volumes.
+		if compiled.Proton != nil {
+			volPath := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, compiled.Proton.Volume)
+			targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
+			entries, err := os.ReadDir(targetPath)
+			if err == nil && len(entries) == 0 {
+				if err := reconcileExtractFromImage(ctx, compiled.Proton.AppImage, compiled.Proton.AppDirectory, targetPath); err != nil {
+					slog.Debug(fmt.Sprintf("reconcile proton app-extract %s -> %s: %v", compiled.Proton.AppImage, compiled.Proton.Volume, err))
+				}
+			}
+		}
+
 		// Git seed: clone git repositories into empty volumes.
 		for volName, vol := range compiled.Volumes {
 			if vol.Git == "" {
@@ -209,11 +221,15 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	}
 
 	if cfg.Systemd != nil {
+		image := compiled.Image
+		if image == "" && compiled.Proton != nil {
+			image = reconcileProtonImage(cfg.SettingsMgr)
+		}
 		unitCfg := systemd.PackageUnitConfig{
 			RepoName:                 repoName,
 			PkgName:                  pi.Name,
 			Version:                  pi.Version,
-			Image:                    compiled.Image,
+			Image:                    image,
 			Command:                  compiled.Command,
 			Environment:              compiled.Environment,
 			External:                 compiled.Network.External,
@@ -270,6 +286,21 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	}
 
 	return nil
+}
+
+// reconcileProtonImage returns the system-wide proton runner image from the
+// settings manager. Returns an empty string if not configured.
+func reconcileProtonImage(mgr account.SettingsManager) string {
+	if mgr == nil {
+		return ""
+	}
+
+	val, err := mgr.Get("proton_image")
+	if err != nil {
+		return ""
+	}
+
+	return val
 }
 
 // reconcileWriteNetworkState writes the per-package network state file during

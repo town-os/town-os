@@ -11,6 +11,7 @@ import (
 
 var (
 	ErrInvalidImage          = errors.New("invalid container image")
+	ErrInvalidImageType      = errors.New("invalid image type")
 	ErrInvalidEnvironmentKey = errors.New("invalid environment key")
 	ErrInvalidQuestionName   = errors.New("invalid question name")
 	ErrInvalidMountpoint     = errors.New("invalid mountpoint")
@@ -20,6 +21,7 @@ var (
 	ErrInvalidTemplateName   = errors.New("invalid template name")
 	ErrInvalidTemplateSpec   = errors.New("invalid template spec")
 	ErrInvalidTemplatePath   = errors.New("invalid template path")
+	ErrInvalidProtonSpec     = errors.New("invalid proton spec")
 )
 
 var (
@@ -191,6 +193,36 @@ func ValidateVMConfig(vm *InputPackageVM) error {
 	}
 	if vm.CPUs < 0 {
 		return fmt.Errorf("%w: cpus must be non-negative", ErrInvalidVMConfig)
+	}
+	return nil
+}
+
+// ValidateImageType checks that the image type is a recognized value.
+// Empty defaults to "oci". Currently only "oci" is accepted.
+func ValidateImageType(t string) error {
+	switch t {
+	case "", ImageTypeOCI:
+		return nil
+	default:
+		return fmt.Errorf("%w: %q (must be %q)", ErrInvalidImageType, t, ImageTypeOCI)
+	}
+}
+
+// ValidateProtonSpec validates an InputPackageProton entry: app_image must be
+// non-empty, app_directory must be an absolute path, volume must reference an
+// existing volume, and exe must be non-empty.
+func ValidateProtonSpec(proton InputPackageProton, volumes map[string]InputPackageVolume) error {
+	if proton.AppImage == "" {
+		return fmt.Errorf("%w: app_image must not be empty", ErrInvalidProtonSpec)
+	}
+	if !strings.HasPrefix(proton.AppDirectory, "/") {
+		return fmt.Errorf("%w: app_directory %q must be an absolute path", ErrInvalidProtonSpec, proton.AppDirectory)
+	}
+	if _, ok := volumes[proton.Volume]; !ok {
+		return fmt.Errorf("%w: volume %q not found in package volumes", ErrInvalidProtonSpec, proton.Volume)
+	}
+	if proton.Exe == "" {
+		return fmt.Errorf("%w: exe must not be empty", ErrInvalidProtonSpec)
 	}
 	return nil
 }

@@ -291,7 +291,9 @@ func validateUnpackedPaths(destDir string) error {
 		return err
 	}
 
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // root is sanitized via filepath.Abs above
+	root = filepath.Clean(root)
+
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // root is sanitized via filepath.Abs and Clean above
 		if err != nil {
 			return err
 		}

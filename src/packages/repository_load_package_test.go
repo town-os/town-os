@@ -24,8 +24,8 @@ volumes:
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if ip.Image != "nginx:1.0" {
-			t.Fatalf("expected image %q, got %q", "nginx:1.0", ip.Image)
+		if ip.Image.URL != "nginx:1.0" {
+			t.Fatalf("expected image %q, got %q", "nginx:1.0", ip.Image.URL)
 		}
 		if ip.Volumes["data"].Mountpoint != "/var/lib/data" {
 			t.Fatalf("expected mountpoint %q, got %q", "/var/lib/data", ip.Volumes["data"].Mountpoint)
@@ -88,8 +88,8 @@ environment:
 			t.Fatal("expected version 1.0")
 		}
 
-		if ip.Image != "nginx:1.0" {
-			t.Fatalf("expected image %q, got %q", "nginx:1.0", ip.Image)
+		if ip.Image.URL != "nginx:1.0" {
+			t.Fatalf("expected image %q, got %q", "nginx:1.0", ip.Image.URL)
 		}
 
 		if ip.Environment["FOO"] != "bar" {
@@ -221,8 +221,8 @@ func TestLatestPackage(t *testing.T) {
 		if version != "2.0" {
 			t.Fatalf("expected version 2.0, got %s", version)
 		}
-		if pkg.Image != "nginx:2.0" {
-			t.Fatalf("expected image nginx:2.0, got %s", pkg.Image)
+		if pkg.Image.URL != "nginx:2.0" {
+			t.Fatalf("expected image nginx:2.0, got %s", pkg.Image.URL)
 		}
 	})
 
@@ -253,8 +253,8 @@ func TestLatestPackage(t *testing.T) {
 		if version != "3.0" {
 			t.Fatalf("expected version 3.0, got %s", version)
 		}
-		if pkg.Image != "nginx:3.0" {
-			t.Fatalf("expected image nginx:3.0, got %s", pkg.Image)
+		if pkg.Image.URL != "nginx:3.0" {
+			t.Fatalf("expected image nginx:3.0, got %s", pkg.Image.URL)
 		}
 	})
 
@@ -285,8 +285,8 @@ func TestLatestPackage(t *testing.T) {
 		if version != "2.0" {
 			t.Fatalf("expected version 2.0, got %s", version)
 		}
-		if pkg.Image != "nginx:2.0-from-a" {
-			t.Fatalf("expected preferred repo (repo-a) image, got %s", pkg.Image)
+		if pkg.Image.URL != "nginx:2.0-from-a" {
+			t.Fatalf("expected preferred repo (repo-a) image, got %s", pkg.Image.URL)
 		}
 	})
 
