@@ -95,7 +95,7 @@ func TestVMPackageCompile(t *testing.T) {
 
 	t.Run("mixed runtime rejected", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -163,7 +163,7 @@ func TestVMPackageCompile(t *testing.T) {
 
 	t.Run("container package sets RuntimeContainer", func(t *testing.T) {
 		input := InputPackage{
-			Image:       "debian:latest",
+			Image:       InputPackageImage{URL: "debian:latest"},
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
@@ -225,7 +225,7 @@ func TestVMPackageCompile(t *testing.T) {
 
 func TestRuntimeType(t *testing.T) {
 	t.Run("container package", func(t *testing.T) {
-		ip := InputPackage{Image: "nginx:latest"}
+		ip := InputPackage{Image: InputPackageImage{URL: "nginx:latest"}}
 		if ip.RuntimeType() != RuntimeContainer {
 			t.Fatalf("expected RuntimeContainer, got %s", ip.RuntimeType())
 		}
