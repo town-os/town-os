@@ -15,6 +15,13 @@ case "$1" in
       -v "$(pwd)/dev-data:/data/db:z" \
       -v "$(pwd)/dev-repos:/data/repos:z" \
       --name "${PODMAN_DEV_CONTAINER}" "${PODMAN_DEV_IMAGE}"
+    echo "Waiting for dev container to be ready..."
+    for i in $(seq 1 30); do
+      if sudo -E podman exec "${PODMAN_DEV_CONTAINER}" true 2>/dev/null; then
+        break
+      fi
+      sleep 1
+    done
     echo "Loading monitoring images into dev container..."
     for img in ${MONITORING_IMAGES}; do
       safe=$(basename "${img}" | tr ':' '-')
