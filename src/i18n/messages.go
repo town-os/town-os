@@ -100,8 +100,6 @@ const (
 
 	// MsgMonitoringNotConfigured indicates the monitoring stack is not configured.
 	MsgMonitoringNotConfigured = "monitoring.not_configured"
-	// MsgMonitoringInvalidGrafanaURL indicates the Grafana URL is invalid.
-	MsgMonitoringInvalidGrafanaURL = "monitoring.invalid_grafana_url"
 
 	// MsgUpgradeSettingsMissing indicates the settings manager is missing for upgrades.
 	MsgUpgradeSettingsMissing = "upgrade.settings_missing"

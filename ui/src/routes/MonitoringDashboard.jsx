@@ -1,5 +1,5 @@
 import { usePolling } from '@/lib/hooks.js'
-import getClient from '@/lib/client-instance.js'
+import getClient, { getBaseURLForPort } from '@/lib/client-instance.js'
 import {
   Card,
   CardContent,
@@ -28,9 +28,7 @@ export default function MonitoringDashboard() {
     15000,
   )
 
-  const grafanaBaseURL =
-    import.meta.env.VITE_API_URL || window.location.origin
-  const grafanaURL = `${grafanaBaseURL}/monitoring/grafana/`
+  const grafanaURL = status ? getBaseURLForPort(status.grafana.port) + '/' : null
 
   const allRunning =
     status &&
@@ -123,7 +121,7 @@ export default function MonitoringDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {allRunning ? (
+          {allRunning && grafanaURL ? (
             <iframe
               src={grafanaURL}
               title="Grafana Dashboard"

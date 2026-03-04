@@ -128,31 +128,6 @@ func TestHTTPMonitoringStatusReportsPorts(t *testing.T) {
 	}
 }
 
-func TestHTTPMonitoringGrafanaProxyWithoutMonitoring(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	ts := InitTestServer(ServerConfig{Storage: mock})
-	t.Cleanup(ts.Close)
-
-	c, err := ts.Client()
-	if err != nil {
-		t.Fatalf("ts.Client: %v", err)
-	}
-
-	resp, err := c.getClient(context.TODO(), "monitoring/grafana/")
-	if err != nil {
-		t.Fatalf("getClient: %v", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Errorf("resp.Body.Close: %v", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when monitoring disabled, got %d", resp.StatusCode)
-	}
-}
-
 func TestMockClientMonitoringStatus(t *testing.T) {
 	m := InitMockClient()
 

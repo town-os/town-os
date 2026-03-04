@@ -202,7 +202,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/monitoring/status":             true,
 		}
 
-		if excluded[path] || strings.HasPrefix(path, "/monitoring/grafana") {
+		if excluded[path] {
 			return next(c)
 		}
 

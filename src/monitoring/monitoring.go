@@ -244,11 +244,6 @@ func (m *Manager) Status(ctx context.Context) Status {
 	}
 }
 
-// GrafanaURL returns the URL where Grafana is accessible on the host.
-func (m *Manager) GrafanaURL() string {
-	return "http://127.0.0.1:" + m.cfg.grafanaHostPort()
-}
-
 func (m *Manager) containerNames() []string {
 	return []string{
 		containerPrefix + "node-exporter",
@@ -325,13 +320,12 @@ func (m *Manager) startGrafana(ctx context.Context) error {
 		"--name", containerPrefix + "grafana",
 		"--net", "host",
 		"-u", "0",
-		"-e", "GF_SECURITY_ADMIN_PASSWORD=admin",
 		"-e", "GF_AUTH_ANONYMOUS_ENABLED=true",
-		"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer",
+		"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin",
+		"-e", "GF_AUTH_DISABLE_LOGIN_FORM=true",
 		"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
+		"-e", "GF_SERVER_ENABLE_GZIP=true",
 		"-e", "GF_SERVER_HTTP_PORT=" + m.cfg.grafanaHostPort(),
-		"-e", "GF_SERVER_SERVE_FROM_SUB_PATH=true",
-		"-e", "GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/monitoring/grafana/",
 		"-v", provisioningDir + ":/etc/grafana/provisioning:ro",
 		"-v", dataDir + ":/var/lib/grafana:shared,rw",
 		GrafanaImage,

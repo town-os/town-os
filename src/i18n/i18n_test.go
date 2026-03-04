@@ -122,7 +122,6 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 		MsgPagesUploadArchiveOnly,
 		MsgPagesArchiveRebuildRequired,
 		MsgMonitoringNotConfigured,
-		MsgMonitoringInvalidGrafanaURL,
 		MsgUpgradeSettingsMissing,
 		MsgAuditCreateFilesystem,
 		MsgAuditModifyFilesystem,

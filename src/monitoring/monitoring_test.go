@@ -140,33 +140,6 @@ func TestStatusReportsCorrectImages(t *testing.T) {
 	}
 }
 
-func TestGrafanaURL(t *testing.T) {
-	runner := InitMockRunner()
-	m := NewManager(Config{
-		Runner:     runner,
-		DataDir:    t.TempDir(),
-		GrafanaPort: "4000",
-	})
-
-	url := m.GrafanaURL()
-	if url != "http://127.0.0.1:4000" {
-		t.Fatalf("expected http://127.0.0.1:4000, got %s", url)
-	}
-}
-
-func TestGrafanaURLDefault(t *testing.T) {
-	runner := InitMockRunner()
-	m := NewManager(Config{
-		Runner:  runner,
-		DataDir: t.TempDir(),
-	})
-
-	url := m.GrafanaURL()
-	if url != "http://127.0.0.1:3001" {
-		t.Fatalf("expected http://127.0.0.1:3001, got %s", url)
-	}
-}
-
 func TestWriteConfigs(t *testing.T) {
 	dataDir := t.TempDir()
 	runner := InitMockRunner()
@@ -213,6 +186,15 @@ func TestWriteConfigs(t *testing.T) {
 	}
 	if !strings.Contains(string(dashJSON), "System Overview") {
 		t.Fatal("dashboard JSON should contain System Overview title")
+	}
+
+	// Verify Town OS Overview dashboard was created.
+	overviewJSON, err := os.ReadFile(filepath.Join(dataDir, "grafana-provisioning", "dashboard-json", "town-os-overview.json"))
+	if err != nil {
+		t.Fatalf("read town-os-overview.json: %v", err)
+	}
+	if !strings.Contains(string(overviewJSON), "Town OS Overview") {
+		t.Fatal("town-os-overview.json should contain Town OS Overview title")
 	}
 }
 
@@ -305,7 +287,7 @@ func TestContainerRunArgs(t *testing.T) {
 
 	calls := runner.GetCalls()
 
-	// Find the Grafana Run call and check for embedding env var.
+	// Find the Grafana Run call and check for expected env vars.
 	for _, c := range calls {
 		if c.Method != "Run" {
 			continue
@@ -318,13 +300,21 @@ func TestContainerRunArgs(t *testing.T) {
 			continue
 		}
 
-		// Verify Grafana has anonymous auth and embedding enabled.
 		argsStr := strings.Join(args, " ")
 		if !strings.Contains(argsStr, "GF_AUTH_ANONYMOUS_ENABLED=true") {
 			t.Fatal("grafana should have anonymous auth enabled")
 		}
 		if !strings.Contains(argsStr, "GF_SECURITY_ALLOW_EMBEDDING=true") {
 			t.Fatal("grafana should have embedding enabled")
+		}
+		if !strings.Contains(argsStr, "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin") {
+			t.Fatal("grafana should have anonymous org role Admin")
+		}
+		if !strings.Contains(argsStr, "GF_AUTH_DISABLE_LOGIN_FORM=true") {
+			t.Fatal("grafana should have login form disabled")
+		}
+		if !strings.Contains(argsStr, "GF_SERVER_ENABLE_GZIP=true") {
+			t.Fatal("grafana should have gzip enabled")
 		}
 	}
 }

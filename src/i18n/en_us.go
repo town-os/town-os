@@ -67,8 +67,7 @@ var enUSMessages = map[string]string{
 	MsgPagesArchiveRebuildRequired: "archive pages must be rebuilt by uploading a new archive via /pages/upload",
 
 	// Monitoring.
-	MsgMonitoringNotConfigured:     "monitoring is not configured",
-	MsgMonitoringInvalidGrafanaURL: "invalid grafana URL",
+	MsgMonitoringNotConfigured: "monitoring is not configured",
 
 	// Upgrades.
 	MsgUpgradeSettingsMissing: "settings manager not available",

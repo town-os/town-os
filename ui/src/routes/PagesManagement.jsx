@@ -41,6 +41,7 @@ export default function PagesManagement() {
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [rebuildConfirm, setRebuildConfirm] = useState(null)
   const [uploadDialog, setUploadDialog] = useState(null)
+  const [uploading, setUploading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('name')
@@ -209,12 +210,15 @@ export default function PagesManagement() {
     }
 
     try {
+      setUploading(true)
       await getClient().uploadPageArchive(uploadDialog.name, archiveFile)
       toast.success(`Archive uploaded for "${uploadDialog.name}"`)
+      setUploading(false)
       setUploadDialog(null)
       doRefresh()
     } catch (err) {
       toast.error(err.detail || err.message)
+      setUploading(false)
     }
   }
 
@@ -482,13 +486,14 @@ export default function PagesManagement() {
       </Dialog>
 
       {/* Upload archive dialog */}
-      <Dialog open={!!uploadDialog} onOpenChange={(v) => !v && setUploadDialog(null)}>
+      <Dialog open={!!uploadDialog} onOpenChange={(v) => { if (!v && !uploading) setUploadDialog(null) }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Upload Archive: {uploadDialog?.name}</DialogTitle>
             <DialogDescription>Upload a new archive to update this page&apos;s content.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpload}>
+            <fieldset disabled={uploading}>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="upload-archive">Archive File</Label>
@@ -505,11 +510,21 @@ export default function PagesManagement() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setUploadDialog(null)}>
+              <Button variant="outline" type="button" disabled={uploading} onClick={() => setUploadDialog(null)}>
                 {t('pages.cancel_btn')}
               </Button>
-              <Button type="submit">Upload</Button>
+              <Button type="submit" disabled={uploading}>
+                {uploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    Uploading...
+                  </>
+                ) : (
+                  'Upload'
+                )}
+              </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

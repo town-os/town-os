@@ -157,29 +157,6 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	}
 }
 
-func TestMonitoringGrafanaProxyDisabledReturns503(t *testing.T) {
-	c := initSystemControllerTest(t)
-
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, c.BaseURL+"/monitoring/grafana/", nil)
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		t.Fatalf("GET /monitoring/grafana/: %v", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Errorf("resp.Body.Close: %v", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when monitoring disabled, got %d", resp.StatusCode)
-	}
-}
-
 func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 	promPort := findFreePort(t)
 	nePort := findFreePort(t)

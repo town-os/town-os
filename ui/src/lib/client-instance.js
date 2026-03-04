@@ -1,11 +1,15 @@
 import { SystemControllerClient } from '../api/client.js'
 import { getToken } from './auth.js'
 
-function getBaseURL() {
+export function getBaseURLForPort(port) {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL
   }
-  return `${window.location.protocol}//${window.location.hostname}:5309`
+  return `${window.location.protocol}//${window.location.hostname}:${port}`
+}
+
+function getBaseURL() {
+  return getBaseURLForPort(5309)
 }
 
 const client = new SystemControllerClient(getBaseURL())

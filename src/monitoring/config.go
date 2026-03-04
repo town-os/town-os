@@ -10,8 +10,8 @@ import (
 // that scrapes the local Node Exporter and Prometheus itself.
 func writePrometheusConfig(dataDir, nodeExporterPort string) error {
 	config := fmt.Sprintf(`global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  scrape_interval: 5s
+  evaluation_interval: 5s
 
 scrape_configs:
   - job_name: "prometheus"
@@ -59,12 +59,12 @@ datasources:
 	// Dashboard provisioning: point Grafana at the dashboard JSON directory.
 	dashConfig := `apiVersion: 1
 providers:
-  - name: "default"
+  - name: "Town OS Status"
     orgId: 1
     folder: ""
     type: file
-    disableDeletion: false
-    editable: true
+    disableDeletion: true
+    editable: false
     options:
       path: /etc/grafana/provisioning/dashboard-json
       foldersFromFilesStructure: false
@@ -78,8 +78,174 @@ providers:
 		return fmt.Errorf("write node exporter dashboard: %w", err)
 	}
 
+	if err := os.WriteFile(filepath.Join(dashJSONDir, "town-os-overview.json"), []byte(townOSOverviewDashboard), 0600); err != nil {
+		return fmt.Errorf("write town-os overview dashboard: %w", err)
+	}
+
 	return nil
 }
+
+// townOSOverviewDashboard is a Grafana dashboard with Disk I/O, Free Storage
+// Space, Network Stats, and CPU % Usage panels sourced from the platform repo.
+const townOSOverviewDashboard = `{
+  "annotations": {},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false,
+            "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line",
+            "fillOpacity": 0, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1,
+            "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "showValues": false, "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 80 }] },
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 0 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "rate(node_disk_read_bytes_total[$__rate_interval])", "legendFormat": "{{device}} Rx", "range": true, "refId": "A" },
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "rate(node_disk_written_bytes_total[$__rate_interval])", "legendFormat": "{{device}} Tx", "range": true, "refId": "B" }
+      ],
+      "title": "Disk I/O",
+      "type": "timeseries"
+    },
+    {
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false,
+            "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line",
+            "fillOpacity": 0, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1,
+            "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "showValues": false, "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 80 }] },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "node_filesystem_avail_bytes{mountpoint=\"/trunk\", instance=\"localhost:9100\"}", "legendFormat": "Trunk Storage", "range": true, "refId": "A" },
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "node_filesystem_avail_bytes{mountpoint=\"/\", instance=\"localhost:9100\"}", "legendFormat": "Host Machine", "range": true, "refId": "B" }
+      ],
+      "title": "Free Storage Space",
+      "type": "timeseries"
+    },
+    {
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false,
+            "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line",
+            "fillOpacity": 0, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1,
+            "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "showValues": false, "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 80 }] },
+          "unit": "decbits"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "id": 3,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "rate(node_network_receive_bytes_total{device!~\"lo|veth.|eth.|podman.|tailscale.\"}[$__rate_interval]) * 8", "legendFormat": "{{device}} Rx", "range": true, "refId": "A" },
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|eth.|veth.|podman.|tailscale.\"}[$__rate_interval]) * 8", "legendFormat": "{{device}} Tx", "range": true, "refId": "B" }
+      ],
+      "title": "Network Stats",
+      "type": "timeseries"
+    },
+    {
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false, "axisCenteredZero": false,
+            "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line",
+            "fillOpacity": 0, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1,
+            "pointSize": 5, "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto", "showValues": false, "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "displayName": "Total Usage",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 80 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "(sum(rate(node_cpu_seconds_total{mode!~\"idle|iowait\"}[$__rate_interval])) * 100) / (count(node_cpu_seconds_total{mode=\"user\"}))", "legendFormat": "{{label_name}}", "range": true, "refId": "A" }
+      ],
+      "title": "CPU %Usage",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": { "hidden": false, "refresh_intervals": ["5s","10s","30s","1m","5m","15m","30m","1h","2h","1d"] },
+  "timezone": "browser",
+  "title": "Town OS Overview",
+  "uid": "town-os-overview",
+  "version": 1,
+  "id": null
+}`
 
 // nodeExporterDashboard is a minimal Grafana dashboard JSON that displays
 // key Node Exporter metrics: CPU usage, memory usage, disk usage, and
