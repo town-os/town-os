@@ -6,13 +6,6 @@ import { usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from '@/components/ui/tooltip'
 import {
   LayoutDashboard,
   HardDrive,
@@ -57,85 +50,93 @@ export default function Dashboard({ children }) {
   }, [ping?.locale])
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-14 items-center px-6 gap-4">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link to="/dashboard" className="mr-4 flex items-center">
-                  <img src="/48.png" alt={t('nav.logo_alt')} className="h-8 w-8" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>{t('nav.home_tooltip')}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <Separator orientation="vertical" className="h-6" />
-          <nav className="flex items-center gap-1">
-            {NAV_KEYS.filter(
-              (item) => !item.adminOnly || account?.admin,
-            ).map(({ to, key, icon: Icon }) => {
-              const active = location.pathname === to
-              return (
-                <Button
-                  key={to}
-                  variant={active ? 'secondary' : 'ghost'}
-                  size="sm"
-                  asChild
-                >
-                  <Link to={to}>
-                    <Icon className="h-4 w-4 mr-1" />
-                    {t(key)}
-                  </Link>
-                </Button>
-              )
-            })}
-          </nav>
-          <div className="ml-auto flex items-center gap-3">
-            {loading && !ping && (
-              <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5 animate-pulse">
-                <span className="text-sm text-muted-foreground">{t('nav.loading')}</span>
-              </div>
-            )}
-            {ping && ping.status !== 'ok' && (
-              <div className="flex items-center rounded-full bg-red-600 px-3 py-1.5">
-                <span className="text-sm text-white font-bold">{t('nav.api_offline')}</span>
-              </div>
-            )}
-            {ping && ping.status === 'ok' && (
-              <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5">
-                <span className="text-sm text-muted-foreground">{t('nav.online')}</span>
-              </div>
-            )}
-            {account && (
-              <div className="flex items-center gap-1 rounded-full bg-gray-600 px-3 py-1.5">
-                <span className="text-sm font-bold text-white">
-                  {account.username}
-                </span>
-                {account.admin && (
-                  <Badge variant="secondary" className="ml-1 text-xs">
-                    {t('nav.admin_badge')}
-                  </Badge>
-                )}
-              </div>
-            )}
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/logout">
-                <LogOut className="h-4 w-4 mr-1" />
-                {t('nav.logout')}
-              </Link>
-            </Button>
-          </div>
+    <div className="flex min-h-screen bg-background">
+      <aside className="sticky top-0 h-screen w-56 flex-shrink-0 border-r bg-background flex flex-col">
+        <div className="flex h-14 items-center px-4">
+          <Link to="/dashboard" className="flex w-full items-center justify-center gap-2 rounded-sm px-3 py-1.5" style={{ backgroundColor: '#ababab' }}>
+            <img src="/48.png" alt={t('nav.logo_alt')} className="h-8 w-8" />
+            <span className="text-lg font-semibold tracking-normal text-white" style={{ fontFamily: '"Raleway", "Montserrat", "Poppins", sans-serif' }}>Town OS</span>
+          </Link>
         </div>
-      </header>
-      <main className="relative mx-auto max-w-6xl px-6 py-6">
-        <img
-          src="/512.png"
-          alt=""
-          className="pointer-events-none fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 opacity-5"
-        />
-        {children}
-      </main>
+        <nav className="flex flex-col gap-1 px-3 py-2">
+          {NAV_KEYS.filter(
+            (item) => !item.adminOnly || account?.admin,
+          ).map(({ to, key, icon: Icon }) => {
+            const active = location.pathname === to
+            return (
+              <Button
+                key={to}
+                variant={active ? 'secondary' : 'ghost'}
+                size="sm"
+                className="w-full justify-start"
+                asChild
+              >
+                <Link to={to}>
+                  <Icon className="h-4 w-4 mr-2" />
+                  {t(key)}
+                </Link>
+              </Button>
+            )
+          })}
+        </nav>
+      </aside>
+      <div className="flex-1 flex flex-col">
+        <header className="sticky top-0 z-50 flex h-14 items-center justify-end border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6 gap-3">
+          {loading && !ping && (
+            <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5 animate-pulse">
+              <span className="text-sm text-muted-foreground">{t('nav.loading')}</span>
+            </div>
+          )}
+          {ping && ping.status !== 'ok' && (
+            <div className="flex items-center rounded-full bg-red-600 px-3 py-1.5">
+              <span className="text-sm text-white font-bold">{t('nav.api_offline')}</span>
+            </div>
+          )}
+          {ping && ping.status === 'ok' && (
+            <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5">
+              <span className="text-sm text-muted-foreground">{t('nav.online')}</span>
+            </div>
+          )}
+          {ping?.system_services?.failed > 0 && (
+            <Link to="/dashboard/system?expand=system">
+              <div className="flex items-center rounded-full bg-red-600 px-3 py-1.5">
+                <span className="text-sm text-white font-bold">
+                  {t('nav.system_services_down', {
+                    count: ping.system_services.failed,
+                    s: ping.system_services.failed === 1 ? '' : 's',
+                  })}
+                </span>
+              </div>
+            </Link>
+          )}
+          {account && (
+            <div className="flex items-center gap-1 rounded-full bg-gray-600 px-3 py-1.5">
+              <span className="text-sm font-bold text-white">
+                {account.username}
+              </span>
+              {account.admin && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {t('nav.admin_badge')}
+                </Badge>
+              )}
+            </div>
+          )}
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/logout">
+              <LogOut className="h-4 w-4 mr-1" />
+              {t('nav.logout')}
+            </Link>
+          </Button>
+        </header>
+        <main className="relative mx-auto w-full max-w-6xl px-6 py-6">
+          <img
+            src="/512.png"
+            alt=""
+            className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 opacity-5"
+          />
+          {children}
+        </main>
+      </div>
     </div>
   )
 }
