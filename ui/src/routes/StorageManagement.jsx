@@ -42,20 +42,19 @@ function buildUnifiedVolumeTree(installedFilesystems, uninstalledFilesystems) {
   function addToTree(filesystems, state) {
     for (const fs of filesystems) {
       const parts = fs.name.split('/')
-      if (parts.length >= 4) {
-        const pkgKey = `${parts[0]}/${parts[1]}`
-        const version = parts[2]
-        const volName = parts.slice(3).join('/')
+      if (parts.length >= 3) {
+        const pkgKey = parts[0]
+        const version = parts[1]
+        const volName = parts.slice(2).join('/')
         if (!tree[pkgKey]) tree[pkgKey] = {}
         if (!tree[pkgKey][version]) tree[pkgKey][version] = { state, volumes: [] }
         tree[pkgKey][version].volumes.push({ ...fs, volumeName: volName, state })
       } else {
         const pkgName = parts[0] || fs.name
         const version = parts.length > 1 ? parts[1] : ''
-        const volName = parts.length > 2 ? parts.slice(2).join('/') : ''
         if (!tree[pkgName]) tree[pkgName] = {}
         if (!tree[pkgName][version]) tree[pkgName][version] = { state, volumes: [] }
-        tree[pkgName][version].volumes.push({ ...fs, volumeName: volName, state })
+        tree[pkgName][version].volumes.push({ ...fs, volumeName: '', state })
       }
     }
   }
@@ -69,7 +68,7 @@ function buildUnifiedVolumeTree(installedFilesystems, uninstalledFilesystems) {
  * Compute total quota across all volumes in a version group or package group.
  */
 function sumQuota(volumes) {
-  return volumes.reduce((sum, v) => sum + (v.quota || 0), 0)
+  return volumes.reduce((sum, v) => sum + Number(v.quota || 0), 0)
 }
 
 function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showUninstalled, onModifyVolume, onDownloadVolume, onUploadVolume }) {
@@ -255,6 +254,17 @@ export default function StorageManagement() {
   const [sortDirection, setSortDirection] = useState('asc')
   const [showAll, setShowAll] = useState(false)
   const [search, setSearch] = useState('')
+  const [defaultQuota, setDefaultQuota] = useState({ value: '', unit: 'GB' })
+
+  useEffect(() => {
+    getClient().getSetting('default_quota').then((raw) => {
+      const bytes = parseInt(raw, 10)
+      if (bytes > 0) {
+        const [v, u] = decomposeQuota(bytes)
+        setDefaultQuota({ value: v, unit: u })
+      }
+    }).catch(() => {})
+  }, [])
 
   const [userData, , userLoading] = usePolling(
     () => getClient().listFilesystems('', sortKey, sortDirection, 'user', PAGE_SIZE, page * PAGE_SIZE, search || undefined),
@@ -336,17 +346,12 @@ export default function StorageManagement() {
     }
   }
 
-  function volumeInternalName(vol) {
-    const prefix = vol.state === 'installed' ? 'installed/' : 'uninstalled/'
-    return prefix + vol.name
-  }
-
   function openDownloadDialog(vol) {
     setDownloadDialog({
       open: true,
       displayName: vol.name,
-      internalName: volumeInternalName(vol),
-      serviceName: deriveServiceName(vol.name),
+      internalName: vol.internal_name,
+      serviceName: deriveServiceName(vol.internal_name),
     })
   }
 
@@ -354,18 +359,18 @@ export default function StorageManagement() {
     setUploadDialog({
       open: true,
       displayName: vol.name,
-      internalName: volumeInternalName(vol),
-      serviceName: deriveServiceName(vol.name),
+      internalName: vol.internal_name,
+      serviceName: deriveServiceName(vol.internal_name),
     })
   }
 
   function openVolumeModifyDialog(vol, pkg, version) {
     const [qv, qu] = decomposeQuota(vol.quota)
-    const serviceName = deriveServiceName(vol.name)
+    const serviceName = deriveServiceName(vol.internal_name)
     setVolumeModifyDialog({
       open: true,
       displayName: vol.name,
-      internalName: volumeInternalName(vol),
+      internalName: vol.internal_name,
       volumeName: vol.volumeName,
       pkg,
       version,
@@ -530,7 +535,7 @@ export default function StorageManagement() {
           </label>
           <Button
             onClick={() =>
-              setEditDialog({ open: true, create: true, name: '', quotaValue: '', quotaUnit: 'GB' })
+              setEditDialog({ open: true, create: true, name: '', quotaValue: defaultQuota.value, quotaUnit: defaultQuota.unit })
             }
           >
             <Plus className="h-4 w-4 mr-1" />

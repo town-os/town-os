@@ -14,9 +14,10 @@ var ErrInvalidName = errors.New("invalid filesystem name")
 var ErrPackageVolumeRename = errors.New("cannot rename package volume")
 
 type Filesystem struct {
-	Name  string `json:"name"`
-	Quota uint64 `json:"quota"`
-	State string `json:"state,omitempty"`
+	Name         string `json:"name"`
+	InternalName string `json:"internal_name,omitempty"`
+	Quota        uint64 `json:"quota"`
+	State        string `json:"state,omitempty"`
 }
 
 type SubvolInfo struct {

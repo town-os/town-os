@@ -200,6 +200,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/locales":                      true,
 			"/vm-images":                    true,
 			"/monitoring/status":             true,
+			"/system-services":              true,
 		}
 
 		if excluded[path] {

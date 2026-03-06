@@ -502,10 +502,11 @@ func TestServiceNameFromVolumePath(t *testing.T) {
 		input string
 		want  string
 	}{
-		"full path":   {"repo/nginx/1.0/data", "town-os-package--repo-nginx-1.0.service"},
-		"no vol name": {"repo/nginx/1.0", "town-os-package--repo-nginx-1.0.service"},
-		"deep path":   {"myrepo/app/2.5/logs/sub", "town-os-package--myrepo-app-2.5.service"},
-		"too short":   {"repo/name", ""},
+		"full path":   {"installed/repo/nginx/1.0/data", "town-os-package--repo-nginx-1.0.service"},
+		"no vol name": {"installed/repo/nginx/1.0", "town-os-package--repo-nginx-1.0.service"},
+		"deep path":   {"installed/myrepo/app/2.5/logs/sub", "town-os-package--myrepo-app-2.5.service"},
+		"uninstalled": {"uninstalled/repo/nginx/1.0/data", "town-os-package--repo-nginx-1.0.service"},
+		"too short":   {"installed/repo/name", ""},
 		"single":      {"repo", ""},
 		"empty":       {"", ""},
 	}

@@ -30,13 +30,13 @@ function decomposeQuota(bytes) {
 }
 
 /**
- * Derive the systemd service unit name from a volume display name.
- * e.g. "repo/name/version/volName" -> "town-os-package--repo-name-version.service"
+ * Derive the systemd service unit name from a volume internal name.
+ * e.g. "installed/repo/name/version/volName" -> "town-os-package--repo-name-version.service"
  */
-function deriveServiceName(volumeName) {
-  const parts = volumeName.split('/')
-  if (parts.length < 3) return ''
-  return `town-os-package--${parts[0]}-${parts[1]}-${parts[2]}.service`
+function deriveServiceName(internalName) {
+  const parts = internalName.split('/')
+  if (parts.length < 4) return ''
+  return `town-os-package--${parts[1]}-${parts[2]}-${parts[3]}.service`
 }
 
 export { UNITS, formatQuotaText, formatQuota, decomposeQuota, deriveServiceName }

@@ -47,10 +47,20 @@ func isPackageVolume(name string) bool {
 		strings.HasPrefix(name, UninstalledVolumePrefix+"/")
 }
 
+// stripRepoComponent removes the leading repository segment from a package
+// volume path. e.g. "default/nginx/2.0/data" becomes "nginx/2.0/data".
+func stripRepoComponent(path string) string {
+	if _, after, ok := strings.Cut(path, "/"); ok {
+		return after
+	}
+	return path
+}
+
 // classifyFilesystem determines the state of a filesystem based on its name
 // prefix. Returns the state ("user", "installed", "uninstalled") and the
-// display name with internal prefixes stripped. Root subvolumes (installed,
-// uninstalled, empty name) return empty state to signal they should be skipped.
+// display name with internal prefixes and repository component stripped.
+// Root subvolumes (installed, uninstalled, empty name) return empty state to
+// signal they should be skipped.
 func classifyFilesystem(name string) (state, displayName string) {
 	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume {
 		return "", name
@@ -75,24 +85,25 @@ func classifyFilesystem(name string) (state, displayName string) {
 	uninstalledPrefix := UninstalledVolumePrefix + "/"
 
 	if after, ok := strings.CutPrefix(name, installedPrefix); ok {
-		return "installed", after
+		return "installed", stripRepoComponent(after)
 	}
 	if after, ok := strings.CutPrefix(name, uninstalledPrefix); ok {
-		return "uninstalled", after
+		return "uninstalled", stripRepoComponent(after)
 	}
 
 	return "user", name
 }
 
 // serviceNameFromVolumePath derives the systemd service unit name from a
-// volume display name like "repo/name/version/volName". Returns empty string
-// if the path does not have enough components.
-func serviceNameFromVolumePath(volumePath string) string {
-	parts := strings.SplitN(volumePath, "/", 4)
-	if len(parts) < 3 {
+// volume internal name like "installed/repo/name/version/volName". Returns
+// empty string if the path does not have enough components.
+func serviceNameFromVolumePath(internalName string) string {
+	parts := strings.SplitN(internalName, "/", 5)
+	if len(parts) < 4 {
 		return ""
 	}
-	return systemd.UnitName(parts[0], parts[1], parts[2])
+	// parts: [prefix, repo, name, version, ...]
+	return systemd.UnitName(parts[1], parts[2], parts[3])
 }
 
 func packageVolumePath(repo, name, version, volName string) string {
@@ -134,10 +145,6 @@ func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 
 	if isReservedFilesystem(fs.Name) {
 		return storage.ErrReservedFilesystem
-	}
-
-	if fs.Quota == 0 {
-		fs.Quota = s.defaultQuota()
 	}
 
 	fs.State = ""
@@ -225,6 +232,9 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 		}
 		if fs.State != "" && state != fs.State {
 			continue
+		}
+		if state == "installed" || state == "uninstalled" {
+			f.InternalName = f.Name
 		}
 		f.Name = displayName
 		f.State = state
