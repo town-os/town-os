@@ -229,8 +229,8 @@ describe('timeoutToSeconds logic', () => {
 
 const defaultSettings = {
   default_quota: '53687091200',
-  max_archive_size: '20971520',
-  archive_unpack_timeout: '120',
+  max_archive_size: '1073741824',
+  archive_unpack_timeout: '600',
   proton_image: '',
 }
 
@@ -412,16 +412,16 @@ describe('SystemSettings Max Archive Size', () => {
   it('displays current archive size value', async () => {
     renderSystemSettings()
     await waitFor(() => {
-      // 20971520 = 20 MB
-      expect(screen.getByText(/20 MB/)).toBeTruthy()
+      // 1073741824 = 1 GB
+      expect(screen.getByText(/1 GB/)).toBeTruthy()
     })
   })
 
-  it('initializes archive size input to 20 MB', async () => {
+  it('initializes archive size input to 1 GB', async () => {
     renderSystemSettings()
     await waitFor(() => {
       const input = screen.getByLabelText('Size')
-      expect(input.value).toBe('20')
+      expect(input.value).toBe('1')
     })
   })
 
@@ -429,13 +429,13 @@ describe('SystemSettings Max Archive Size', () => {
     renderSystemSettings()
     await waitFor(() => {
       const input = screen.getByLabelText('Size')
-      expect(input.value).toBe('20')
+      expect(input.value).toBe('1')
     })
     // Submit the archive size form (third Save button, after Language and Quota)
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     fireEvent.click(saveButtons[2])
     await waitFor(() => {
-      expect(mockSetSetting).toHaveBeenCalledWith('max_archive_size', '20971520')
+      expect(mockSetSetting).toHaveBeenCalledWith('max_archive_size', '1073741824')
     })
   })
 
@@ -495,11 +495,11 @@ describe('SystemSettings Archive Unpack Timeout', () => {
     })
   })
 
-  it('initializes timeout input to 2 minutes', async () => {
+  it('initializes timeout input to 10 minutes', async () => {
     renderSystemSettings()
     await waitFor(() => {
       const input = screen.getByLabelText('Timeout')
-      expect(input.value).toBe('2')
+      expect(input.value).toBe('10')
     })
   })
 
@@ -507,13 +507,13 @@ describe('SystemSettings Archive Unpack Timeout', () => {
     renderSystemSettings()
     await waitFor(() => {
       const input = screen.getByLabelText('Timeout')
-      expect(input.value).toBe('2')
+      expect(input.value).toBe('10')
     })
     // Submit the timeout form (fourth Save button, after Language, Quota, Archive Size)
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     fireEvent.click(saveButtons[3])
     await waitFor(() => {
-      expect(mockSetSetting).toHaveBeenCalledWith('archive_unpack_timeout', '120')
+      expect(mockSetSetting).toHaveBeenCalledWith('archive_unpack_timeout', '600')
     })
   })
 

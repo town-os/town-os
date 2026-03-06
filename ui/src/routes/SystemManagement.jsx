@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
@@ -31,12 +32,15 @@ import {
   X,
   FileText,
   Terminal,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 
 export default function SystemManagement() {
   const { t } = useI18n()
   useEffect(() => { document.title = t('system.page_title') }, [t])
+  const [searchParams] = useSearchParams()
   const [actionConfirm, setActionConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
@@ -48,6 +52,17 @@ export default function SystemManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [customLogDialog, setCustomLogDialog] = useState(false)
   const [customLogUnit, setCustomLogUnit] = useState('')
+
+  const [systemServicesOpen, setSystemServicesOpen] = useState(
+    searchParams.get('expand') === 'system'
+  )
+
+  const [systemServices] = usePolling(
+    () => getClient().listSystemServices().catch(() => []),
+    [],
+    [refreshKey],
+    15000,
+  )
 
   const effectiveSearch = searchTerm
 
@@ -83,6 +98,16 @@ export default function SystemManagement() {
     } catch (err) {
       toast.error(err.message)
       setActionConfirm(null)
+    }
+  }
+
+  async function handleSystemServiceAction(key, action) {
+    try {
+      await getClient().setSystemServiceStatus(key, action)
+      toast.success(`${action[0].toUpperCase()}${action.slice(1)} succeeded`)
+      doRefresh()
+    } catch (err) {
+      toast.error(err.message)
     }
   }
 
@@ -176,6 +201,86 @@ export default function SystemManagement() {
         </div>
       </div>
 
+      {/* System Services Section */}
+      {systemServices.length > 0 && (
+        <div>
+          <Button
+            variant="ghost"
+            className="w-full justify-start px-4 py-3 h-auto border rounded-lg"
+            onClick={() => setSystemServicesOpen((v) => !v)}
+          >
+            <div className="flex items-center gap-2">
+              {systemServicesOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+              <span className="font-semibold">{t('system.system_services_title')}</span>
+              <span className="text-muted-foreground text-sm">{t('system.system_services_description')}</span>
+            </div>
+          </Button>
+          {systemServicesOpen && (
+            <div className="border rounded-lg mt-2 overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left px-4 py-2 text-sm font-medium">Service</th>
+                    <th className="text-left px-4 py-2 text-sm font-medium">{t('system.col_status')}</th>
+                    <th className="px-4 py-2 text-sm font-medium">
+                      <div className="text-right pr-2">{t('system.col_actions')}</div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {systemServices.map((svc) => {
+                    const isActive = svc.ActiveState === 'active'
+                    const isFailed = svc.ActiveState === 'failed'
+                    const variant = isActive ? 'default' : isFailed ? 'destructive' : 'secondary'
+                    return (
+                      <tr key={svc.key} className="border-b last:border-b-0">
+                        <td className="px-4 py-2 text-sm font-medium">{svc.display_name}</td>
+                        <td className="px-4 py-2">
+                          <Badge variant={variant}>
+                            {svc.ActiveState || 'unknown'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" aria-label={t('system.actions_label')}>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                              <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'start')}>
+                                <Play className="h-3 w-3 mr-2" />
+                                {t('system.action_start')}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'stop')}>
+                                <Square className="h-3 w-3 mr-2" />
+                                {t('system.action_stop')}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'restart')}>
+                                <RotateCcw className="h-3 w-3 mr-2" />
+                                {t('system.action_restart')}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openJournal(svc.Name || svc.unit_name)}>
+                                <FileText className="h-3 w-3 mr-2" />
+                                {t('system.action_service_logs')}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {unitsLoading && units.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">{t('system.loading')}</div>
       )}
@@ -224,13 +329,6 @@ export default function SystemManagement() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="flex flex-col gap-2">
-              <Button variant="outline" className="justify-start" onClick={() => {
-                setCustomLogDialog(false)
-                openJournal('town-os-systemcontroller.service')
-              }}>
-                <FileText className="h-4 w-4 mr-2" />
-                {t('system.controller_logs')}
-              </Button>
               <Button variant="outline" className="justify-start" onClick={() => {
                 setCustomLogDialog(false)
                 openJournal('__system__')

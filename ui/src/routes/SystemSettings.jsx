@@ -10,9 +10,9 @@ import { toast } from 'sonner'
 const DEFAULT_QUOTA_KEY = 'default_quota'
 const DEFAULT_QUOTA_BYTES = 50 * 1024 * 1024 * 1024 // 50 GB
 const MAX_ARCHIVE_SIZE_KEY = 'max_archive_size'
-const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 20 * 1024 * 1024 // 20 MB
+const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 1024 * 1024 * 1024 // 1 GB
 const ARCHIVE_UNPACK_TIMEOUT_KEY = 'archive_unpack_timeout'
-const DEFAULT_ARCHIVE_UNPACK_TIMEOUT = 120 // seconds
+const DEFAULT_ARCHIVE_UNPACK_TIMEOUT = 600 // seconds (10 min)
 const PROTON_IMAGE_KEY = 'proton_image'
 
 function formatBytes(t, bytes) {

@@ -182,7 +182,7 @@ func run() (err error) {
 	// Start the monitoring stack (Prometheus + Node Exporter + Grafana).
 	monDataDir := filepath.Join(repoBase, "monitoring")
 	monMgr := monitoring.NewManager(monitoring.Config{
-		Runner:  monitoring.PodmanRunner{},
+		Systemd: sd,
 		DataDir: monDataDir,
 	})
 	if err := monMgr.Start(ctx); err != nil {

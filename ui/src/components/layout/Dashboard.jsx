@@ -53,9 +53,9 @@ export default function Dashboard({ children }) {
     <div className="flex min-h-screen bg-background">
       <aside className="sticky top-0 h-screen w-56 flex-shrink-0 border-r bg-background flex flex-col">
         <div className="flex h-14 items-center px-4">
-          <Link to="/dashboard" className="flex w-full items-center justify-center gap-2 rounded-sm px-3 py-1.5" style={{ backgroundColor: '#ababab' }}>
+          <Link to="/dashboard" className="flex w-full items-center justify-center gap-2 rounded-sm px-3 py-1.5" style={{ backgroundColor: '#ddd' }}>
             <img src="/48.png" alt={t('nav.logo_alt')} className="h-8 w-8" />
-            <span className="text-lg font-semibold tracking-normal text-white" style={{ fontFamily: '"Raleway", "Montserrat", "Poppins", sans-serif' }}>Town OS</span>
+            <span className="text-lg font-semibold tracking-normal text-black" style={{ fontFamily: '"Raleway", "Montserrat", "Poppins", sans-serif' }}>Town OS</span>
           </Link>
         </div>
         <nav className="flex flex-col gap-1 px-3 py-2">

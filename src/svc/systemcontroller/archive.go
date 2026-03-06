@@ -26,8 +26,8 @@ import (
 
 const (
 	ArchivesSubvolume    = "archives"
-	DefaultMaxArchiveSize = 20 * 1024 * 1024  // 20 MB
-	DefaultUnpackTimeout  = 120               // seconds
+	DefaultMaxArchiveSize = 1024 * 1024 * 1024 // 1 GB
+	DefaultUnpackTimeout  = 600               // seconds (10 min)
 
 	// magicPeekSize is the number of bytes needed to detect all supported
 	// compression formats by their magic bytes.

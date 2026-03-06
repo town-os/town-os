@@ -76,6 +76,7 @@ const enUS = {
   'nav.online': 'Online',
   'nav.admin_badge': 'admin',
   'nav.logout': 'Logout',
+  'nav.system_services_down': '{count} Service{s} Down',
 
   // --- Storage Management ---
   'storage.page_title': 'Town OS - Storage',
@@ -206,6 +207,11 @@ const enUS = {
   'system.toast_action_success': '{action} succeeded',
   'system.confirm_action_title': '{action} service',
   'system.confirm_action_message': '{action} {name}?',
+  'system.system_services_title': 'System Services',
+  'system.system_services_description': 'Infrastructure services managed by Town OS.',
+  'system.system_service_name_prometheus': 'Prometheus',
+  'system.system_service_name_node_exporter': 'Node Exporter',
+  'system.system_service_name_grafana': 'Grafana',
 
   // --- Package Management ---
   'packages.page_title': 'Town OS - Packages',

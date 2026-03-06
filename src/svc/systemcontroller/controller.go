@@ -144,6 +144,10 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	// Monitoring
 	e.Add("GET", "/monitoring/status", s.monitoringStatus, s.requireAuth)
+
+	// System Services
+	e.Add("GET", "/system-services", s.listSystemServices, s.requireAuth)
+	e.Add("POST", "/system-services/status", s.setSystemServiceStatus, s.requireAdmin)
 }
 
 // --- Server infrastructure ---

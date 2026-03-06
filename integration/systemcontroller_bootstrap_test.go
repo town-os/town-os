@@ -137,37 +137,11 @@ func TestBootstrapRejectsAfterAdminExists(t *testing.T) {
 		t.Fatalf("bootstrap CreateAccount: %v", err)
 	}
 
-	// Authenticate to create an active session.
-	_, err := c.Authenticate(context.TODO(), "admin", "adminpass")
-	if err != nil {
-		t.Fatalf("Authenticate: %v", err)
-	}
-
-	// Unauthenticated create should now be rejected (active session exists).
+	// Unauthenticated create should be rejected (admin exists).
 	c.Token = ""
-	_, err = c.CreateAccount(context.TODO(), "intruder", "password1", "i@test.com", "555-9999", "Intruder", false)
+	_, err := c.CreateAccount(context.TODO(), "intruder", "password1", "i@test.com", "555-9999", "Intruder", false)
 	if err == nil {
-		t.Fatal("expected error for unauthenticated create when enabled admin exists with active session")
-	}
-}
-
-func TestBootstrapNoActiveAdminSessions(t *testing.T) {
-	c, _ := initBootstrapTest(t)
-
-	// Bootstrap first admin.
-	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
-		t.Fatalf("bootstrap CreateAccount: %v", err)
-	}
-
-	// Admin exists but was never authenticated — no active sessions.
-	// Bootstrap should re-engage.
-	c.Token = ""
-	acct, err := c.CreateAccount(context.TODO(), "newadmin", "password1", "new@test.com", "555-0002", "New Admin", true)
-	if err != nil {
-		t.Fatalf("bootstrap CreateAccount with no active sessions: %v", err)
-	}
-	if acct.Username != "newadmin" {
-		t.Fatalf("expected username %q, got %q", "newadmin", acct.Username)
+		t.Fatal("expected error for unauthenticated create when enabled admin exists")
 	}
 }
 
@@ -188,28 +162,12 @@ func TestBootstrapPingNeedsSetup(t *testing.T) {
 		t.Fatalf("bootstrap CreateAccount: %v", err)
 	}
 
-	// Admin exists but no session — needs_setup should still be true.
-	ping, err = c.Ping(context.TODO())
-	if err != nil {
-		t.Fatalf("Ping: %v", err)
-	}
-	if !ping.NeedsSetup {
-		t.Fatal("expected needs_setup=true with admin but no active sessions")
-	}
-
-	// Authenticate to create a session.
-	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
-	if err != nil {
-		t.Fatalf("Authenticate: %v", err)
-	}
-	c.Token = resp.Token
-
-	// Now needs_setup should be false.
+	// Admin exists — needs_setup should be false regardless of sessions.
 	ping, err = c.Ping(context.TODO())
 	if err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
 	if ping.NeedsSetup {
-		t.Fatal("expected needs_setup=false with active admin session")
+		t.Fatal("expected needs_setup=false with admin account present")
 	}
 }

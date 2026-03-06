@@ -10,12 +10,19 @@ const (
 	// MsgAuthAdminRequired indicates admin access is required.
 	MsgAuthAdminRequired = "auth.admin_required"
 
+	// MsgAuthInvalidCredentials is a generic authentication failure message
+	// that does not reveal whether the account exists.
+	MsgAuthInvalidCredentials = "auth.invalid_credentials"
+
 	// MsgAccountAdminStatusImmutable indicates admin status cannot be changed.
 	MsgAccountAdminStatusImmutable = "account.admin_status_immutable"
 	// MsgAccountListError indicates a failure listing accounts.
 	MsgAccountListError = "account.list_error"
 	// MsgAccountCheckSessions indicates a failure checking active sessions.
 	MsgAccountCheckSessions = "account.check_sessions"
+	// MsgAccountCreateFailed is a generic account creation failure message
+	// that does not reveal whether the username is taken.
+	MsgAccountCreateFailed = "account.create_failed"
 
 	// MsgSettingNotFound indicates a setting key was not found.
 	MsgSettingNotFound = "settings.not_found"

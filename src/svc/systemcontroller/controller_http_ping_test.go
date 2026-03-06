@@ -184,29 +184,13 @@ func TestHTTPPingNeedsSetup(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	// Admin exists but no session — needs_setup should still be true.
-	ping, err = c.Ping(context.TODO())
-	if err != nil {
-		t.Fatalf("Ping: %v", err)
-	}
-	if !ping.NeedsSetup {
-		t.Fatal("expected needs_setup=true with admin but no active sessions")
-	}
-
-	// Authenticate to create a session.
-	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
-	if err != nil {
-		t.Fatalf("Authenticate: %v", err)
-	}
-	c.Token = resp.Token
-
-	// Now needs_setup should be false.
+	// Admin exists — needs_setup should be false regardless of sessions.
 	ping, err = c.Ping(context.TODO())
 	if err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
 	if ping.NeedsSetup {
-		t.Fatal("expected needs_setup=false with active admin session")
+		t.Fatal("expected needs_setup=false with admin account present")
 	}
 }
 

@@ -1,18 +1,17 @@
 // Package monitoring manages an integrated Prometheus, Node Exporter, and
-// Grafana monitoring stack. The stack is started automatically when the
-// Control Plane Service boots and provides system metrics via Grafana
-// dashboards embedded in the web UI.
+// Grafana monitoring stack. The stack runs as systemd-supervised podman
+// containers (system services) with Restart=always, providing system metrics
+// via Grafana dashboards embedded in the web UI.
 package monitoring
 
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
-	"time"
+
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 const (
@@ -27,19 +26,11 @@ const (
 	PrometheusPort = "9090"
 	NodeExporterPort = "9100"
 	GrafanaPort      = "3000"
-
-	// containerPrefix is prepended to all monitoring container names to avoid
-	// collisions with user-installed packages.
-	containerPrefix = "town-os-monitoring-"
-
-	// healthCheckInterval controls how often the manager verifies that each
-	// container is still running and restarts any that have stopped.
-	healthCheckInterval = 30 * time.Second
 )
 
 // ContainerStatus represents the state of a single monitoring container.
 type ContainerStatus struct {
-	// Name is the container name (e.g. "town-os-monitoring-grafana").
+	// Name is the container name (e.g. "town-os-system--prometheus").
 	Name string `json:"name"`
 	// Image is the container image reference.
 	Image string `json:"image"`
@@ -56,73 +47,19 @@ type Status struct {
 	Grafana      ContainerStatus `json:"grafana"`
 }
 
-// Runner abstracts container lifecycle operations so that tests can supply
-// a mock implementation without requiring a real podman installation.
-type Runner interface {
-	// Run starts a container with the given arguments. The args slice contains
-	// the full argument list passed to `podman run` (excluding the `podman run`
-	// prefix itself).
-	Run(ctx context.Context, args []string) error
-	// Stop stops and removes a container by name. It is not an error if the
-	// container does not exist.
-	Stop(ctx context.Context, name string) error
-	// IsRunning returns true if the named container exists and is running.
-	IsRunning(ctx context.Context, name string) (bool, error)
-}
-
-// PodmanRunner implements Runner using the podman CLI.
-type PodmanRunner struct{}
-
-// Run starts a container by executing `podman run` with the provided args.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout.
-//   - args: full argument list for `podman run` (image, ports, volumes, etc.).
-func (PodmanRunner) Run(ctx context.Context, args []string) error {
-	cmd := exec.CommandContext(ctx, "podman", append([]string{"run"}, args...)...) //nolint:gosec // G204 -- args from trusted Config
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-// Stop stops and removes a container by name. It is a no-op if the container
-// does not exist.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout.
-//   - name: the container name to stop and remove.
-func (PodmanRunner) Stop(ctx context.Context, name string) error {
-	stop := exec.CommandContext(ctx, "podman", "stop", "-t", "10", name) //nolint:gosec // G204 -- name from trusted caller
-	stop.Stdout = os.Stderr
-	stop.Stderr = os.Stderr
-	_ = stop.Run() // best-effort stop before remove
-
-	rm := exec.CommandContext(ctx, "podman", "rm", "-f", name) //nolint:gosec // G204 -- name from trusted caller
-	rm.Stdout = os.Stderr
-	rm.Stderr = os.Stderr
-	_ = rm.Run() // best-effort removal
-
-	return nil
-}
-
-// IsRunning returns true if the named container exists and is in a running state.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout.
-//   - name: the container name to check.
-func (PodmanRunner) IsRunning(ctx context.Context, name string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "podman", "inspect", "--format", "{{.State.Running}}", name) //nolint:gosec // G204 -- name from trusted caller
-	out, err := cmd.Output()
-	if err != nil {
-		return false, nil //nolint:nilerr // container not found is not an error
-	}
-	return string(out) == "true\n", nil
+// SystemService describes a system service managed by the monitoring stack.
+type SystemService struct {
+	Key         string `json:"key"`
+	DisplayName string `json:"display_name"`
+	Image       string `json:"image"`
+	Port        string `json:"port"`
+	UnitName    string `json:"unit_name"`
 }
 
 // Config holds the configuration for the monitoring stack.
 type Config struct {
-	// Runner executes container lifecycle commands.
-	Runner Runner
+	// Systemd manages systemd unit lifecycle.
+	Systemd systemd.Manager
 	// DataDir is the directory where monitoring configuration and data files
 	// are stored (prometheus config, grafana provisioning, etc.).
 	DataDir string
@@ -158,9 +95,8 @@ func (c *Config) grafanaHostPort() string {
 
 // Manager controls the lifecycle of the monitoring stack.
 type Manager struct {
-	cfg    Config
-	mu     sync.Mutex
-	cancel context.CancelFunc
+	cfg Config
+	mu  sync.Mutex
 }
 
 // NewManager creates a new monitoring Manager with the given configuration.
@@ -169,13 +105,8 @@ func NewManager(cfg Config) *Manager {
 	return &Manager{cfg: cfg}
 }
 
-// Start boots all three monitoring containers and begins a background health
-// check loop that restarts any stopped containers. The provided context
-// controls the lifetime of the health check loop; cancelling it triggers
-// graceful shutdown of all containers.
-//
-// Parameters:
-//   - ctx: parent context; cancellation stops the health check loop and all containers.
+// Start writes monitoring configs and installs systemd units for each service.
+// Systemd handles restarts via Restart=always — no health loop needed.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -184,190 +115,143 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("write monitoring configs: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	m.cancel = cancel
-
-	if err := m.startAll(ctx); err != nil {
-		cancel()
-		return err
+	for _, unit := range m.unitConfigs() {
+		uf := systemd.GenerateSystemServiceUnit(unit)
+		if err := m.cfg.Systemd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
+			return fmt.Errorf("install unit %s: %w", uf.Name, err)
+		}
+		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
+			return fmt.Errorf("enable unit %s: %w", uf.Name, err)
+		}
+		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
+			return fmt.Errorf("start unit %s: %w", uf.Name, err)
+		}
 	}
 
-	go m.healthLoop(ctx)
 	return nil
 }
 
-// Stop gracefully shuts down all monitoring containers.
-func (m *Manager) Stop() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// Stop is a no-op — system services persist across controller restarts.
+func (m *Manager) Stop() {}
 
-	if m.cancel != nil {
-		m.cancel()
-		m.cancel = nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	for _, name := range m.containerNames() {
-		if err := m.cfg.Runner.Stop(ctx, name); err != nil {
-			slog.Debug(fmt.Sprintf("monitoring: stop %s: %v", name, err))
+// Status returns the current state of all monitoring containers by querying
+// systemd unit states.
+func (m *Manager) Status(ctx context.Context) Status {
+	unitStates := map[string]bool{}
+	units, err := m.cfg.Systemd.ListUnits(ctx)
+	if err == nil {
+		for _, u := range units {
+			if systemd.IsSystemServiceUnit(u.Name) {
+				unitStates[u.Name] = u.ActiveState == "active"
+			}
 		}
 	}
-}
-
-// Status returns the current state of all monitoring containers.
-func (m *Manager) Status(ctx context.Context) Status {
-	promRunning, _ := m.cfg.Runner.IsRunning(ctx, containerPrefix+"prometheus")
-	neRunning, _ := m.cfg.Runner.IsRunning(ctx, containerPrefix+"node-exporter")
-	grafRunning, _ := m.cfg.Runner.IsRunning(ctx, containerPrefix+"grafana")
 
 	return Status{
 		Prometheus: ContainerStatus{
-			Name:    containerPrefix + "prometheus",
+			Name:    systemd.SystemServiceContainerName("prometheus"),
 			Image:   PrometheusImage,
-			Running: promRunning,
+			Running: unitStates[systemd.SystemServiceUnitName("prometheus")],
 			Port:    m.cfg.prometheusHostPort(),
 		},
 		NodeExporter: ContainerStatus{
-			Name:    containerPrefix + "node-exporter",
+			Name:    systemd.SystemServiceContainerName("node-exporter"),
 			Image:   NodeExporterImage,
-			Running: neRunning,
+			Running: unitStates[systemd.SystemServiceUnitName("node-exporter")],
 			Port:    m.cfg.nodeExporterHostPort(),
 		},
 		Grafana: ContainerStatus{
-			Name:    containerPrefix + "grafana",
+			Name:    systemd.SystemServiceContainerName("grafana"),
 			Image:   GrafanaImage,
-			Running: grafRunning,
+			Running: unitStates[systemd.SystemServiceUnitName("grafana")],
 			Port:    m.cfg.grafanaHostPort(),
 		},
 	}
 }
 
-func (m *Manager) containerNames() []string {
-	return []string{
-		containerPrefix + "node-exporter",
-		containerPrefix + "prometheus",
-		containerPrefix + "grafana",
+// SystemServices returns metadata for all system services managed by this stack.
+func (m *Manager) SystemServices() []SystemService {
+	return []SystemService{
+		{
+			Key:         "prometheus",
+			DisplayName: "Prometheus",
+			Image:       PrometheusImage,
+			Port:        m.cfg.prometheusHostPort(),
+			UnitName:    systemd.SystemServiceUnitName("prometheus"),
+		},
+		{
+			Key:         "node-exporter",
+			DisplayName: "Node Exporter",
+			Image:       NodeExporterImage,
+			Port:        m.cfg.nodeExporterHostPort(),
+			UnitName:    systemd.SystemServiceUnitName("node-exporter"),
+		},
+		{
+			Key:         "grafana",
+			DisplayName: "Grafana",
+			Image:       GrafanaImage,
+			Port:        m.cfg.grafanaHostPort(),
+			UnitName:    systemd.SystemServiceUnitName("grafana"),
+		},
 	}
 }
 
-func (m *Manager) startAll(ctx context.Context) error {
-	// Stop any existing containers first for idempotency.
-	for _, name := range m.containerNames() {
-		if err := m.cfg.Runner.Stop(ctx, name); err != nil {
-			slog.Debug(fmt.Sprintf("monitoring: pre-stop %s: %v", name, err))
-		}
-	}
-
-	if err := m.startNodeExporter(ctx); err != nil {
-		return fmt.Errorf("start node-exporter: %w", err)
-	}
-	if err := m.startPrometheus(ctx); err != nil {
-		return fmt.Errorf("start prometheus: %w", err)
-	}
-	if err := m.startGrafana(ctx); err != nil {
-		return fmt.Errorf("start grafana: %w", err)
-	}
-	return nil
-}
-
-func (m *Manager) startNodeExporter(ctx context.Context) error {
-	return m.cfg.Runner.Run(ctx, []string{
-		"-d",
-		"--name", containerPrefix + "node-exporter",
-		"--net", "host",
-		"--pid", "host",
-		"--cap-add", "SYS_TIME",
-		"-v", "/:/host:ro,rslave",
-		NodeExporterImage,
-		"--path.rootfs=/host",
-		"--web.listen-address=:" + m.cfg.nodeExporterHostPort(),
-	})
-}
-
-func (m *Manager) startPrometheus(ctx context.Context) error {
+func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 	configPath := filepath.Join(m.cfg.DataDir, "prometheus.yml")
-	dataDir := filepath.Join(m.cfg.DataDir, "prometheus-data")
-	if err := os.MkdirAll(dataDir, 0750); err != nil {
-		return fmt.Errorf("create prometheus data dir: %w", err)
-	}
-
-	return m.cfg.Runner.Run(ctx, []string{
-		"-d",
-		"--name", containerPrefix + "prometheus",
-		"--net", "host",
-		"-u", "0",
-		"-v", configPath + ":/etc/prometheus/prometheus.yml:ro",
-		"-v", dataDir + ":/prometheus:shared,rw",
-		PrometheusImage,
-		"--config.file=/etc/prometheus/prometheus.yml",
-		"--storage.tsdb.path=/prometheus",
-		"--storage.tsdb.retention.time=30d",
-		"--web.listen-address=:" + m.cfg.prometheusHostPort(),
-	})
-}
-
-func (m *Manager) startGrafana(ctx context.Context) error {
+	promDataDir := filepath.Join(m.cfg.DataDir, "prometheus-data")
 	provisioningDir := filepath.Join(m.cfg.DataDir, "grafana-provisioning")
-	dataDir := filepath.Join(m.cfg.DataDir, "grafana-data")
-	if err := os.MkdirAll(dataDir, 0750); err != nil {
-		return fmt.Errorf("create grafana data dir: %w", err)
-	}
+	grafDataDir := filepath.Join(m.cfg.DataDir, "grafana-data")
 
-	return m.cfg.Runner.Run(ctx, []string{
-		"-d",
-		"--name", containerPrefix + "grafana",
-		"--net", "host",
-		"-u", "0",
-		"-e", "GF_AUTH_ANONYMOUS_ENABLED=true",
-		"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin",
-		"-e", "GF_AUTH_DISABLE_LOGIN_FORM=true",
-		"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
-		"-e", "GF_SERVER_ENABLE_GZIP=true",
-		"-e", "GF_SERVER_HTTP_PORT=" + m.cfg.grafanaHostPort(),
-		"-v", provisioningDir + ":/etc/grafana/provisioning:ro",
-		"-v", dataDir + ":/var/lib/grafana:shared,rw",
-		GrafanaImage,
-	})
-}
-
-func (m *Manager) healthLoop(ctx context.Context) {
-	ticker := time.NewTicker(healthCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			m.ensureRunning(ctx)
-		}
-	}
-}
-
-func (m *Manager) ensureRunning(ctx context.Context) {
-	containers := map[string]func(context.Context) error{
-		containerPrefix + "node-exporter": m.startNodeExporter,
-		containerPrefix + "prometheus":    m.startPrometheus,
-		containerPrefix + "grafana":       m.startGrafana,
-	}
-
-	for name, startFn := range containers {
-		running, err := m.cfg.Runner.IsRunning(ctx, name)
-		if err != nil {
-			slog.Debug(fmt.Sprintf("monitoring: health check %s: %v", name, err))
-			continue
-		}
-		if !running {
-			slog.Info("monitoring: restarting " + name)
-			if err := m.cfg.Runner.Stop(ctx, name); err != nil {
-				slog.Debug(fmt.Sprintf("monitoring: pre-stop %s: %v", name, err))
-			}
-			if err := startFn(ctx); err != nil {
-				slog.Error(fmt.Sprintf("monitoring: restart %s: %v", name, err))
-			}
-		}
+	return []systemd.SystemServiceUnitConfig{
+		{
+			Key:         "node-exporter",
+			Description: "Node Exporter",
+			Image:       NodeExporterImage,
+			Args: []string{
+				"--net", "host",
+				"--pid", "host",
+				"--cap-add", "SYS_TIME",
+				"-v", "/:/host:ro,rslave",
+			},
+			Command: []string{
+				"--path.rootfs=/host",
+				"--web.listen-address=:" + m.cfg.nodeExporterHostPort(),
+			},
+		},
+		{
+			Key:         "prometheus",
+			Description: "Prometheus",
+			Image:       PrometheusImage,
+			Args: []string{
+				"--net", "host",
+				"-u", "0",
+				"-v", configPath + ":/etc/prometheus/prometheus.yml:ro",
+				"-v", promDataDir + ":/prometheus:shared,rw",
+			},
+			Command: []string{
+				"--config.file=/etc/prometheus/prometheus.yml",
+				"--storage.tsdb.path=/prometheus",
+				"--storage.tsdb.retention.time=30d",
+				fmt.Sprintf("--web.listen-address=:%s", m.cfg.prometheusHostPort()),
+			},
+		},
+		{
+			Key:         "grafana",
+			Description: "Grafana",
+			Image:       GrafanaImage,
+			Args: []string{
+				"--net", "host",
+				"-u", "0",
+				"-e", "GF_AUTH_ANONYMOUS_ENABLED=true",
+				"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin",
+				"-e", "GF_AUTH_DISABLE_LOGIN_FORM=true",
+				"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
+				"-e", "GF_SERVER_ENABLE_GZIP=true",
+				"-e", fmt.Sprintf("GF_SERVER_HTTP_PORT=%s", m.cfg.grafanaHostPort()),
+				"-v", fmt.Sprintf("%s:/etc/grafana/provisioning:ro", provisioningDir),
+				"-v", fmt.Sprintf("%s:/var/lib/grafana:shared,rw", grafDataDir),
+			},
+		},
 	}
 }
 
@@ -376,6 +260,16 @@ func (m *Manager) ensureRunning(ctx context.Context) {
 func (m *Manager) writeConfigs() error {
 	if err := os.MkdirAll(m.cfg.DataDir, 0750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
+	}
+
+	promDataDir := filepath.Join(m.cfg.DataDir, "prometheus-data")
+	if err := os.MkdirAll(promDataDir, 0750); err != nil {
+		return fmt.Errorf("create prometheus data dir: %w", err)
+	}
+
+	grafDataDir := filepath.Join(m.cfg.DataDir, "grafana-data")
+	if err := os.MkdirAll(grafDataDir, 0750); err != nil {
+		return fmt.Errorf("create grafana data dir: %w", err)
 	}
 
 	if err := writePrometheusConfig(m.cfg.DataDir, m.cfg.nodeExporterHostPort()); err != nil {

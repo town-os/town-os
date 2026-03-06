@@ -9,18 +9,19 @@ import (
 
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
-func initMonitoringTestClient(t *testing.T) (*SystemdClient, *monitoring.Manager) {
+func initMonitoringTestClient(t *testing.T) (*SystemdClient, *monitoring.Manager, *systemd.MockManager) {
 	t.Helper()
 	mock := storage.InitBtrFSMock()
-	runner := monitoring.InitMockRunner()
+	sd := systemd.InitMockManager()
 	monMgr := monitoring.NewManager(monitoring.Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: t.TempDir(),
 	})
 
-	ts := InitTestServer(ServerConfig{Storage: mock, Monitoring: monMgr})
+	ts := InitTestServer(ServerConfig{Storage: mock, Monitoring: monMgr, Systemd: sd})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -28,7 +29,7 @@ func initMonitoringTestClient(t *testing.T) (*SystemdClient, *monitoring.Manager
 		t.Fatalf("ts.Client: %v", err)
 	}
 
-	return c, monMgr
+	return c, monMgr, sd
 }
 
 func TestHTTPMonitoringStatusWithoutMonitoring(t *testing.T) {
@@ -65,13 +66,20 @@ func TestHTTPMonitoringStatusWithoutMonitoring(t *testing.T) {
 }
 
 func TestHTTPMonitoringStatusWithMonitoring(t *testing.T) {
-	c, monMgr := initMonitoringTestClient(t)
+	c, monMgr, sd := initMonitoringTestClient(t)
 
 	ctx := context.Background()
 	if err := monMgr.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer monMgr.Stop()
+
+	// Pre-populate systemd mock with active units to simulate running state.
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "active"},
+	}
 
 	status, err := c.MonitoringStatus(context.TODO())
 	if err != nil {
@@ -90,7 +98,7 @@ func TestHTTPMonitoringStatusWithMonitoring(t *testing.T) {
 }
 
 func TestHTTPMonitoringStatusReportsImages(t *testing.T) {
-	c, _ := initMonitoringTestClient(t)
+	c, _, _ := initMonitoringTestClient(t)
 
 	status, err := c.MonitoringStatus(context.TODO())
 	if err != nil {
@@ -109,7 +117,7 @@ func TestHTTPMonitoringStatusReportsImages(t *testing.T) {
 }
 
 func TestHTTPMonitoringStatusReportsPorts(t *testing.T) {
-	c, _ := initMonitoringTestClient(t)
+	c, _, _ := initMonitoringTestClient(t)
 
 	status, err := c.MonitoringStatus(context.TODO())
 	if err != nil {

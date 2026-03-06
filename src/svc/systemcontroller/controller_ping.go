@@ -24,6 +24,7 @@ type PingResponse struct {
 	Accounts           int                `json:"accounts"`
 	Admins             int                `json:"admins"`
 	Units              *UnitCounts        `json:"units,omitempty"`
+	SystemServices     *UnitCounts        `json:"system_services,omitempty"`
 	RecentErrors       int                `json:"recent_errors"`
 	NeedsSetup         bool               `json:"needs_setup,omitempty"`
 	ExternalIP         string             `json:"external_ip,omitempty"`
@@ -48,27 +49,20 @@ type UnitCounts struct {
 func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp := PingResponse{Status: "ok"}
 
-	// Always compute NeedsSetup — it must be visible before any user exists.
+	// NeedsSetup is true only when no enabled admin account exists.
 	if am := s.Controller.GetAccountManager(); am != nil {
 		accounts, err := am.List()
 		if err != nil {
 			return err
 		}
-		var adminUsernames []string
+		hasAdmin := false
 		for _, a := range accounts {
 			if !a.Disabled && a.Admin {
-				adminUsernames = append(adminUsernames, a.Username)
+				hasAdmin = true
+				break
 			}
 		}
-		if len(adminUsernames) == 0 {
-			resp.NeedsSetup = true
-		} else if sm := s.Controller.GetSessionManager(); sm != nil {
-			hasActive, err := sm.HasActiveAdminSessions(adminUsernames)
-			if err != nil {
-				return err
-			}
-			resp.NeedsSetup = !hasActive
-		}
+		resp.NeedsSetup = !hasAdmin
 	}
 
 	// Check for optional auth — if a session manager is configured and no
@@ -178,7 +172,18 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 
 		counts := &UnitCounts{}
+		sysCounts := &UnitCounts{}
 		for _, u := range units {
+			if systemd.IsSystemServiceUnit(u.Name) {
+				sysCounts.Total++
+				switch u.ActiveState {
+				case "active":
+					sysCounts.Active++
+				case "failed":
+					sysCounts.Failed++
+				}
+				continue
+			}
 			if !systemd.IsPackageServiceUnit(u.Name) {
 				continue
 			}
@@ -194,6 +199,9 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 			}
 		}
 		resp.Units = counts
+		if sysCounts.Total > 0 {
+			resp.SystemServices = sysCounts
+		}
 	}
 
 	if am := s.Controller.GetAuditManager(); am != nil {

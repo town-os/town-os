@@ -42,7 +42,7 @@ func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {
 
 	acct, err := s.Controller.GetAccountManager().Authenticate(req.Username, req.Password)
 	if err != nil {
-		return echo.NewHTTPError(401, err.Error())
+		return echo.NewHTTPError(401, i18n.T(s.getLocale(), i18n.MsgAuthInvalidCredentials))
 	}
 
 	token, err := s.Controller.GetSessionManager().Create(req.Username)

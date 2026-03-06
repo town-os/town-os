@@ -2,17 +2,19 @@ package monitoring
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
+
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 func TestNewManager(t *testing.T) {
-	runner := InitMockRunner()
+	sd := systemd.InitMockManager()
 	m := NewManager(Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: t.TempDir(),
 	})
 	if m == nil {
@@ -20,77 +22,68 @@ func TestNewManager(t *testing.T) {
 	}
 }
 
-func TestStartCreatesContainers(t *testing.T) {
-	runner := InitMockRunner()
+func TestStartInstallsUnits(t *testing.T) {
+	sd := systemd.InitMockManager()
 	m := NewManager(Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: t.TempDir(),
 	})
 
 	if err := m.Start(t.Context()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer m.Stop()
 
-	calls := runner.GetCalls()
-	// Expect: 3 Stop calls (pre-cleanup) + 3 Run calls.
-	runCalls := 0
+	calls := sd.GetCalls()
+
+	// Should have InstallUnit + Enable + Start for each of the 3 services.
+	installCalls := 0
+	enableCalls := 0
+	startCalls := 0
 	for _, c := range calls {
-		if c.Method == "Run" {
-			runCalls++
+		switch c.Method {
+		case "InstallUnit":
+			installCalls++
+		case "SetStatus":
+			if len(c.Args) >= 2 {
+				if c.Args[1] == systemd.Enable {
+					enableCalls++
+				}
+				if c.Args[1] == systemd.Start {
+					startCalls++
+				}
+			}
 		}
 	}
-	if runCalls != 3 {
-		t.Fatalf("expected 3 Run calls, got %d", runCalls)
+
+	if installCalls != 3 {
+		t.Fatalf("expected 3 InstallUnit calls, got %d", installCalls)
+	}
+	if enableCalls != 3 {
+		t.Fatalf("expected 3 Enable calls, got %d", enableCalls)
+	}
+	if startCalls != 3 {
+		t.Fatalf("expected 3 Start calls, got %d", startCalls)
 	}
 
-	// All three containers should be "running" in the mock.
-	for _, name := range []string{
-		containerPrefix + "node-exporter",
-		containerPrefix + "prometheus",
-		containerPrefix + "grafana",
-	} {
-		if !runner.Running[name] {
-			t.Fatalf("expected container %s to be running", name)
-		}
-	}
-}
-
-func TestStopRemovesContainers(t *testing.T) {
-	runner := InitMockRunner()
-	m := NewManager(Config{
-		Runner:  runner,
-		DataDir: t.TempDir(),
-	})
-
-	if err := m.Start(t.Context()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-
-	m.Stop()
-
-	// After Stop, all containers should not be running.
-	for _, name := range []string{
-		containerPrefix + "node-exporter",
-		containerPrefix + "prometheus",
-		containerPrefix + "grafana",
-	} {
-		if runner.Running[name] {
-			t.Fatalf("expected container %s to be stopped after Stop()", name)
+	// Verify units were installed with correct names.
+	for _, key := range []string{"node-exporter", "prometheus", "grafana"} {
+		unitName := systemd.SystemServiceUnitName(key)
+		if !sd.InstalledUnits[unitName] {
+			t.Fatalf("expected unit %s to be installed", unitName)
 		}
 	}
 }
 
 func TestStatusReportsRunningState(t *testing.T) {
-	runner := InitMockRunner()
+	sd := systemd.InitMockManager()
 	m := NewManager(Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: t.TempDir(),
 	})
 
 	ctx := context.Background()
 
-	// Before start, nothing is running.
+	// Before start, nothing is running (no units in mock).
 	status := m.Status(ctx)
 	if status.Prometheus.Running {
 		t.Fatal("expected prometheus not running before start")
@@ -102,28 +95,29 @@ func TestStatusReportsRunningState(t *testing.T) {
 		t.Fatal("expected grafana not running before start")
 	}
 
-	// Start the stack.
-	if err := m.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
+	// Pre-populate systemd mock with active units.
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "active"},
 	}
-	defer m.Stop()
 
 	status = m.Status(ctx)
 	if !status.Prometheus.Running {
-		t.Fatal("expected prometheus running after start")
+		t.Fatal("expected prometheus running")
 	}
 	if !status.NodeExporter.Running {
-		t.Fatal("expected node-exporter running after start")
+		t.Fatal("expected node-exporter running")
 	}
 	if !status.Grafana.Running {
-		t.Fatal("expected grafana running after start")
+		t.Fatal("expected grafana running")
 	}
 }
 
 func TestStatusReportsCorrectImages(t *testing.T) {
-	runner := InitMockRunner()
+	sd := systemd.InitMockManager()
 	m := NewManager(Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: t.TempDir(),
 	})
 
@@ -142,9 +136,9 @@ func TestStatusReportsCorrectImages(t *testing.T) {
 
 func TestWriteConfigs(t *testing.T) {
 	dataDir := t.TempDir()
-	runner := InitMockRunner()
+	sd := systemd.InitMockManager()
 	m := NewManager(Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: dataDir,
 	})
 
@@ -198,37 +192,23 @@ func TestWriteConfigs(t *testing.T) {
 	}
 }
 
-func TestStartWithRunError(t *testing.T) {
-	runner := InitMockRunner()
-	runner.RunErr = os.ErrPermission
-	m := NewManager(Config{
-		Runner:  runner,
-		DataDir: t.TempDir(),
-	})
-
-	err := m.Start(context.Background())
-	if err == nil {
-		t.Fatal("expected error when Run fails")
-	}
-}
-
 func TestCustomPorts(t *testing.T) {
-	runner := InitMockRunner()
+	sd := systemd.InitMockManager()
+	// Pre-populate active units so Status reports running.
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "active"},
+	}
 	m := NewManager(Config{
-		Runner:           runner,
+		Systemd:          sd,
 		DataDir:          t.TempDir(),
 		PrometheusPort:   "19090",
 		NodeExporterPort: "19100",
 		GrafanaPort:      "13000",
 	})
 
-	ctx := context.Background()
-	if err := m.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer m.Stop()
-
-	status := m.Status(ctx)
+	status := m.Status(context.Background())
 	if status.Prometheus.Port != "19090" {
 		t.Fatalf("expected prometheus port 19090, got %s", status.Prometheus.Port)
 	}
@@ -237,6 +217,66 @@ func TestCustomPorts(t *testing.T) {
 	}
 	if status.Grafana.Port != "13000" {
 		t.Fatalf("expected grafana port 13000, got %s", status.Grafana.Port)
+	}
+}
+
+func TestStartWithInstallError(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.InstallUnitErr = os.ErrPermission
+	m := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+	})
+
+	err := m.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected error when InstallUnit fails")
+	}
+}
+
+func TestSystemServices(t *testing.T) {
+	sd := systemd.InitMockManager()
+	m := NewManager(Config{
+		Systemd:          sd,
+		DataDir:          t.TempDir(),
+		PrometheusPort:   "19090",
+		NodeExporterPort: "19100",
+		GrafanaPort:      "13000",
+	})
+
+	svcs := m.SystemServices()
+	if len(svcs) != 3 {
+		t.Fatalf("expected 3 system services, got %d", len(svcs))
+	}
+
+	expected := []struct {
+		key         string
+		displayName string
+		image       string
+		port        string
+	}{
+		{"prometheus", "Prometheus", PrometheusImage, "19090"},
+		{"node-exporter", "Node Exporter", NodeExporterImage, "19100"},
+		{"grafana", "Grafana", GrafanaImage, "13000"},
+	}
+
+	for i, e := range expected {
+		if svcs[i].Key != e.key {
+			t.Fatalf("service %d: expected key %q, got %q", i, e.key, svcs[i].Key)
+		}
+		if svcs[i].DisplayName != e.displayName {
+			t.Fatalf("service %d: expected display name %q, got %q", i, e.displayName, svcs[i].DisplayName)
+		}
+		if svcs[i].Image != e.image {
+			t.Fatalf("service %d: expected image %q, got %q", i, e.image, svcs[i].Image)
+		}
+		if svcs[i].Port != e.port {
+			t.Fatalf("service %d: expected port %q, got %q", i, e.port, svcs[i].Port)
+		}
+		expectedUnit := systemd.SystemServiceUnitName(e.key)
+		if svcs[i].UnitName != expectedUnit {
+			t.Fatalf("service %d: expected unit name %q, got %q", i, expectedUnit, svcs[i].UnitName)
+		}
 	}
 }
 
@@ -272,125 +312,11 @@ func TestGrafanaProvisioningIncludesPrometheus(t *testing.T) {
 	}
 }
 
-func TestContainerRunArgs(t *testing.T) {
-	runner := InitMockRunner()
-	m := NewManager(Config{
-		Runner:  runner,
-		DataDir: t.TempDir(),
-	})
-
-	ctx := context.Background()
-	if err := m.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer m.Stop()
-
-	calls := runner.GetCalls()
-
-	// Find the Grafana Run call and check for expected env vars.
-	for _, c := range calls {
-		if c.Method != "Run" {
-			continue
-		}
-		args, ok := c.Args[0].([]string)
-		if !ok {
-			continue
-		}
-		if !slices.Contains(args, containerPrefix+"grafana") {
-			continue
-		}
-
-		argsStr := strings.Join(args, " ")
-		if !strings.Contains(argsStr, "GF_AUTH_ANONYMOUS_ENABLED=true") {
-			t.Fatal("grafana should have anonymous auth enabled")
-		}
-		if !strings.Contains(argsStr, "GF_SECURITY_ALLOW_EMBEDDING=true") {
-			t.Fatal("grafana should have embedding enabled")
-		}
-		if !strings.Contains(argsStr, "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin") {
-			t.Fatal("grafana should have anonymous org role Admin")
-		}
-		if !strings.Contains(argsStr, "GF_AUTH_DISABLE_LOGIN_FORM=true") {
-			t.Fatal("grafana should have login form disabled")
-		}
-		if !strings.Contains(argsStr, "GF_SERVER_ENABLE_GZIP=true") {
-			t.Fatal("grafana should have gzip enabled")
-		}
-	}
-}
-
-func TestMockRunnerRecordsCalls(t *testing.T) {
-	runner := InitMockRunner()
-	ctx := context.Background()
-
-	if err := runner.Run(ctx, []string{"--name", "test", "nginx"}); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if err := runner.Stop(ctx, "test"); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-	if _, err := runner.IsRunning(ctx, "test"); err != nil {
-		t.Fatalf("IsRunning: %v", err)
-	}
-
-	calls := runner.GetCalls()
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 calls, got %d", len(calls))
-	}
-	if calls[0].Method != "Run" {
-		t.Fatalf("expected Run, got %s", calls[0].Method)
-	}
-	if calls[1].Method != "Stop" {
-		t.Fatalf("expected Stop, got %s", calls[1].Method)
-	}
-	if calls[2].Method != "IsRunning" {
-		t.Fatalf("expected IsRunning, got %s", calls[2].Method)
-	}
-}
-
-func TestMockRunnerTracksRunningState(t *testing.T) {
-	runner := InitMockRunner()
-	ctx := context.Background()
-
-	// Initially not running.
-	running, err := runner.IsRunning(ctx, "test")
-	if err != nil {
-		t.Fatalf("IsRunning: %v", err)
-	}
-	if running {
-		t.Fatal("expected not running initially")
-	}
-
-	// After Run, should be running.
-	if err := runner.Run(ctx, []string{"--name", "test", "nginx"}); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	running, err = runner.IsRunning(ctx, "test")
-	if err != nil {
-		t.Fatalf("IsRunning: %v", err)
-	}
-	if !running {
-		t.Fatal("expected running after Run")
-	}
-
-	// After Stop, should not be running.
-	if err := runner.Stop(ctx, "test"); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-	running, err = runner.IsRunning(ctx, "test")
-	if err != nil {
-		t.Fatalf("IsRunning: %v", err)
-	}
-	if running {
-		t.Fatal("expected not running after Stop")
-	}
-}
-
 func TestStartWritesConfigsToDataDir(t *testing.T) {
 	dataDir := t.TempDir()
-	runner := InitMockRunner()
+	sd := systemd.InitMockManager()
 	m := NewManager(Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: dataDir,
 	})
 
@@ -398,7 +324,6 @@ func TestStartWritesConfigsToDataDir(t *testing.T) {
 	if err := m.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer m.Stop()
 
 	// prometheus.yml should exist.
 	if _, err := os.Stat(filepath.Join(dataDir, "prometheus.yml")); err != nil {
@@ -421,5 +346,65 @@ func TestDefaultPortValues(t *testing.T) {
 	}
 	if cfg.grafanaHostPort() != "3001" {
 		t.Fatalf("expected default grafana port 3001, got %s", cfg.grafanaHostPort())
+	}
+}
+
+func TestStatusPartialFailure(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "failed"},
+		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "inactive"},
+	}
+	m := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+	})
+
+	status := m.Status(context.Background())
+	if !status.Prometheus.Running {
+		t.Fatal("expected prometheus running")
+	}
+	if status.NodeExporter.Running {
+		t.Fatal("expected node-exporter not running (failed)")
+	}
+	if status.Grafana.Running {
+		t.Fatal("expected grafana not running (inactive)")
+	}
+}
+
+func TestStopIsNoOp(t *testing.T) {
+	sd := systemd.InitMockManager()
+	m := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+	})
+
+	// Stop should not panic or produce errors.
+	m.Stop()
+
+	calls := sd.GetCalls()
+	if len(calls) != 0 {
+		t.Fatalf("expected 0 systemd calls from Stop, got %d", len(calls))
+	}
+}
+
+func TestStatusContainerNames(t *testing.T) {
+	sd := systemd.InitMockManager()
+	m := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+	})
+
+	status := m.Status(context.Background())
+
+	if status.Prometheus.Name != fmt.Sprintf("%sprometheus", systemd.SystemServiceUnitPrefix) {
+		t.Fatalf("expected prometheus container name %q, got %q", fmt.Sprintf("%sprometheus", systemd.SystemServiceUnitPrefix), status.Prometheus.Name)
+	}
+	if status.NodeExporter.Name != fmt.Sprintf("%snode-exporter", systemd.SystemServiceUnitPrefix) {
+		t.Fatalf("expected node-exporter container name %q, got %q", fmt.Sprintf("%snode-exporter", systemd.SystemServiceUnitPrefix), status.NodeExporter.Name)
+	}
+	if status.Grafana.Name != fmt.Sprintf("%sgrafana", systemd.SystemServiceUnitPrefix) {
+		t.Fatalf("expected grafana container name %q, got %q", fmt.Sprintf("%sgrafana", systemd.SystemServiceUnitPrefix), status.Grafana.Name)
 	}
 }

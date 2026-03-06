@@ -51,7 +51,7 @@ func (m *SystemdManager) ListUnits(ctx context.Context) ([]UnitStatus, error) {
 	// all states (active, inactive, not-loaded). ListUnitsContext only
 	// returns loaded units, so stopped-and-unloaded services would be
 	// missing from the results.
-	units, err := conn.ListUnitsByPatternsContext(ctx, []string{}, []string{PackageUnitPrefix + "*"})
+	units, err := conn.ListUnitsByPatternsContext(ctx, []string{}, []string{PackageUnitPrefix + "*", SystemServiceUnitPrefix + "*"})
 	if err != nil {
 		return nil, err
 	}

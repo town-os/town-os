@@ -2,6 +2,7 @@ package systemcontroller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -46,31 +47,25 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgAccountListError), err)
 		}
 
-		var adminUsernames []string
+		hasAdmin := false
 		for _, a := range accounts {
 			if !a.Disabled && a.Admin {
-				adminUsernames = append(adminUsernames, a.Username)
+				hasAdmin = true
+				break
 			}
 		}
 
-		if len(adminUsernames) > 0 {
-			hasActiveSessions, err := sessMgr.HasActiveAdminSessions(adminUsernames)
-			if err != nil {
-				return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgAccountCheckSessions), err)
+		if hasAdmin {
+			token := extractBearerToken(c.Request())
+			if token == "" {
+				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 			}
-
-			if hasActiveSessions {
-				token := extractBearerToken(c.Request())
-				if token == "" {
-					return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
-				}
-				_, acct, err := sessMgr.Validate(token)
-				if err != nil {
-					return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
-				}
-				if !acct.Admin {
-					return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthAdminRequired))
-				}
+			_, acct, err := sessMgr.Validate(token)
+			if err != nil {
+				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
+			}
+			if !acct.Admin {
+				return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthAdminRequired))
 			}
 		}
 	}
@@ -84,6 +79,9 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 
 	acct, err := s.Controller.GetAccountManager().Create(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Admin)
 	if err != nil {
+		if errors.Is(err, account.ErrDuplicateUsername) {
+			return echo.NewHTTPError(400, i18n.T(locale, i18n.MsgAccountCreateFailed))
+		}
 		return err
 	}
 

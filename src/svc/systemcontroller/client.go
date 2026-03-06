@@ -225,6 +225,16 @@ type Client interface {
 	// Calls GET /monitoring/status on the Control Plane Service.
 	MonitoringStatus(ctx context.Context) (*monitoring.Status, error)
 
+	// ListSystemServices returns system services with their current status.
+	//
+	// Calls GET /system-services on the Control Plane Service.
+	ListSystemServices(ctx context.Context) ([]SystemServiceEntry, error)
+	// SetSystemServiceStatus applies an action (start, stop, restart) to a
+	// system service identified by key. Enable and disable are rejected.
+	//
+	// Calls POST /system-services/status on the Control Plane Service.
+	SetSystemServiceStatus(ctx context.Context, key string, action systemd.StatusAction) error
+
 	// ListVMImages returns all cached VM disk images in the vm-images
 	// subvolume. Each entry includes the image filename and size in bytes.
 	//

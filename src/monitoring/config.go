@@ -159,8 +159,8 @@ const townOSOverviewDashboard = `{
         "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
       },
       "targets": [
-        { "datasource": "Prometheus", "editorMode": "builder", "expr": "node_filesystem_avail_bytes{mountpoint=\"/trunk\", instance=\"localhost:9100\"}", "legendFormat": "Trunk Storage", "range": true, "refId": "A" },
-        { "datasource": "Prometheus", "editorMode": "builder", "expr": "node_filesystem_avail_bytes{mountpoint=\"/\", instance=\"localhost:9100\"}", "legendFormat": "Host Machine", "range": true, "refId": "B" }
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "node_filesystem_avail_bytes{mountpoint=\"/trunk\"}", "legendFormat": "Trunk Storage", "range": true, "refId": "A" },
+        { "datasource": "Prometheus", "editorMode": "builder", "expr": "node_filesystem_avail_bytes{mountpoint=\"/\"}", "legendFormat": "Host Machine", "range": true, "refId": "B" }
       ],
       "title": "Free Storage Space",
       "type": "timeseries"

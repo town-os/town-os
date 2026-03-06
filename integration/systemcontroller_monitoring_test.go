@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/monitoring"
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 func TestMonitoringStatusDisabledByDefault(t *testing.T) {
@@ -39,7 +40,7 @@ func TestMonitoringStatusDisabledByDefault(t *testing.T) {
 }
 
 func TestMonitoringStatusBeforeStart(t *testing.T) {
-	c, _ := initSystemControllerMonitoringTest(t)
+	c, _, _ := initSystemControllerMonitoringTest(t)
 
 	status, err := c.MonitoringStatus(context.TODO())
 	if err != nil {
@@ -78,12 +79,19 @@ func TestMonitoringStatusBeforeStart(t *testing.T) {
 }
 
 func TestMonitoringStatusAfterStart(t *testing.T) {
-	c, monMgr := initSystemControllerMonitoringTest(t)
+	c, monMgr, sd := initSystemControllerMonitoringTest(t)
 
 	if err := monMgr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer monMgr.Stop()
+
+	// Pre-populate systemd mock with active units to simulate running state.
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "active"},
+	}
 
 	status, err := c.MonitoringStatus(context.TODO())
 	if err != nil {
@@ -102,12 +110,19 @@ func TestMonitoringStatusAfterStart(t *testing.T) {
 }
 
 func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
-	c, monMgr := initSystemControllerMonitoringTest(t)
+	c, monMgr, sd := initSystemControllerMonitoringTest(t)
 
 	if err := monMgr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer monMgr.Stop()
+
+	// Pre-populate systemd mock with active units.
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "active"},
+	}
 
 	status, err := c.MonitoringStatus(context.TODO())
 	if err != nil {
@@ -115,8 +130,9 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	}
 
 	// Prometheus
-	if status.Prometheus.Name != "town-os-monitoring-prometheus" {
-		t.Fatalf("expected prometheus name %q, got %q", "town-os-monitoring-prometheus", status.Prometheus.Name)
+	expectedPromName := systemd.SystemServiceContainerName("prometheus")
+	if status.Prometheus.Name != expectedPromName {
+		t.Fatalf("expected prometheus name %q, got %q", expectedPromName, status.Prometheus.Name)
 	}
 	if status.Prometheus.Image != monitoring.PrometheusImage {
 		t.Fatalf("expected prometheus image %q, got %q", monitoring.PrometheusImage, status.Prometheus.Image)
@@ -129,8 +145,9 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	}
 
 	// Node Exporter
-	if status.NodeExporter.Name != "town-os-monitoring-node-exporter" {
-		t.Fatalf("expected node-exporter name %q, got %q", "town-os-monitoring-node-exporter", status.NodeExporter.Name)
+	expectedNEName := systemd.SystemServiceContainerName("node-exporter")
+	if status.NodeExporter.Name != expectedNEName {
+		t.Fatalf("expected node-exporter name %q, got %q", expectedNEName, status.NodeExporter.Name)
 	}
 	if status.NodeExporter.Image != monitoring.NodeExporterImage {
 		t.Fatalf("expected node-exporter image %q, got %q", monitoring.NodeExporterImage, status.NodeExporter.Image)
@@ -143,8 +160,9 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	}
 
 	// Grafana
-	if status.Grafana.Name != "town-os-monitoring-grafana" {
-		t.Fatalf("expected grafana name %q, got %q", "town-os-monitoring-grafana", status.Grafana.Name)
+	expectedGrafName := systemd.SystemServiceContainerName("grafana")
+	if status.Grafana.Name != expectedGrafName {
+		t.Fatalf("expected grafana name %q, got %q", expectedGrafName, status.Grafana.Name)
 	}
 	if status.Grafana.Image != monitoring.GrafanaImage {
 		t.Fatalf("expected grafana image %q, got %q", monitoring.GrafanaImage, status.Grafana.Image)
@@ -163,9 +181,10 @@ func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 	grafPort := findFreePort(t)
 
 	dataDir := t.TempDir()
+	sd := systemd.NewManager()
 
 	mgr := monitoring.NewManager(monitoring.Config{
-		Runner:           monitoring.PodmanRunner{},
+		Systemd:          sd,
 		DataDir:          dataDir,
 		PrometheusPort:   promPort,
 		NodeExporterPort: nePort,
@@ -176,7 +195,14 @@ func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(mgr.Stop)
+	t.Cleanup(func() {
+		// Stop and remove the systemd units installed by Start.
+		for _, key := range []string{"node-exporter", "prometheus", "grafana"} {
+			unitName := systemd.SystemServiceUnitName(key)
+			_ = sd.SetStatus(ctx, unitName, systemd.Stop)
+			_ = sd.UninstallUnit(ctx, unitName)
+		}
+	})
 
 	status := mgr.Status(ctx)
 	if !status.Prometheus.Running {

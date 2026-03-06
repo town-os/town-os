@@ -449,6 +449,56 @@ WantedBy=multi-user.target
 	}
 }
 
+// SystemServiceUnitConfig holds the information needed to generate a systemd
+// unit for a system service (e.g. a monitoring container).
+type SystemServiceUnitConfig struct {
+	Key         string   // unique service key (e.g. "prometheus")
+	Description string   // human-readable description
+	Image       string   // container image reference
+	Args        []string // additional podman run arguments (before the image)
+	Command     []string // command and arguments (after the image)
+}
+
+// GenerateSystemServiceUnit produces a systemd unit file for a system service.
+func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
+	var b strings.Builder
+	containerName := SystemServiceContainerName(cfg.Key)
+
+	// [Unit]
+	b.WriteString("[Unit]\n")
+	fmt.Fprintf(&b, "Description=Town OS System Service: %s\n", cfg.Description)
+	b.WriteString("After=network-online.target\n")
+
+	// [Service]
+	b.WriteString("\n[Service]\n")
+	b.WriteString("Type=simple\n")
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
+
+	// ExecStart
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --name %s", containerName)
+	for _, arg := range cfg.Args {
+		fmt.Fprintf(&b, " \\\n  %s", arg)
+	}
+	fmt.Fprintf(&b, " \\\n  %s", cfg.Image)
+	for _, cmd := range cfg.Command {
+		fmt.Fprintf(&b, " \\\n  %s", cmd)
+	}
+	b.WriteString("\n")
+
+	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName)
+	b.WriteString("Restart=always\n")
+
+	// [Install]
+	b.WriteString("\n[Install]\n")
+	b.WriteString("WantedBy=multi-user.target\n")
+
+	return UnitFile{
+		Name:    SystemServiceUnitName(cfg.Key),
+		Content: b.String(),
+	}
+}
+
 // PackageUnitNames returns the list of all systemd unit names that would be
 // generated for a package with the given port maps. This is used during
 // uninstall to know which units to tear down.

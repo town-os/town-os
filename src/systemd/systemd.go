@@ -149,6 +149,24 @@ type Manager interface {
 // PackageUnitPrefix is the prefix for all package-related systemd units.
 const PackageUnitPrefix = "town-os-package--"
 
+// SystemServiceUnitPrefix is the prefix for all system service systemd units.
+const SystemServiceUnitPrefix = "town-os-system--"
+
+// SystemServiceUnitName returns the systemd service unit name for a system service key.
+func SystemServiceUnitName(key string) string {
+	return fmt.Sprintf("%s%s.service", SystemServiceUnitPrefix, key)
+}
+
+// SystemServiceContainerName returns the podman container name for a system service key.
+func SystemServiceContainerName(key string) string {
+	return fmt.Sprintf("%s%s", SystemServiceUnitPrefix, key)
+}
+
+// IsSystemServiceUnit returns true if the unit name is a system service unit.
+func IsSystemServiceUnit(name string) bool {
+	return strings.HasPrefix(name, SystemServiceUnitPrefix) && strings.HasSuffix(name, ".service")
+}
+
 // UnitName returns the systemd service unit name for a given package.
 func UnitName(repo, pkgName, version string) string {
 	return fmt.Sprintf("%s%s-%s-%s.service", PackageUnitPrefix, repo, pkgName, version)

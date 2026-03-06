@@ -729,9 +729,9 @@ func TestHTTPCreateAccountBootstrapAllDisabledWithStaleToken(t *testing.T) {
 	}
 }
 
-func TestHTTPCreateAccountBootstrapNoActiveSessions(t *testing.T) {
-	// Admin exists but was never authenticated — no active sessions.
-	// Bootstrap should re-engage and allow unauthenticated create.
+func TestHTTPCreateAccountRejectsWhenAdminExistsNoSession(t *testing.T) {
+	// Admin exists but was never authenticated — unauthenticated create should
+	// be rejected because an enabled admin account exists.
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
@@ -766,18 +766,30 @@ func TestHTTPCreateAccountBootstrapNoActiveSessions(t *testing.T) {
 		t.Fatalf("bootstrap CreateAccount: %v", err)
 	}
 
-	// Admin exists but no session — bootstrap should allow another create.
-	acct, err := c.CreateAccount(context.TODO(), "second", "password1", "s@b.com", "555", "Second", true)
+	// Admin exists — unauthenticated create should be rejected.
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(`{"username":"second","password":"password1","email":"s@b.com","phone":"555","real_name":"Second","admin":true}`))
 	if err != nil {
-		t.Fatalf("bootstrap CreateAccount with no active sessions: %v", err)
+		t.Fatalf("NewRequest: %v", err)
 	}
-	if acct.Username != "second" {
-		t.Fatalf("expected username %q, got %q", "second", acct.Username)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP Do: %v", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if httpResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated create when admin exists, got %d", httpResp.StatusCode)
 	}
 }
 
-func TestHTTPCreateAccountBootstrapNoActiveSessionsWithStaleToken(t *testing.T) {
-	// Admin exists, no active sessions, stale token — bootstrap should still work.
+func TestHTTPCreateAccountRejectsStaleTokenWhenAdminExists(t *testing.T) {
+	// Admin exists, stale token — should be rejected because admin exists.
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
@@ -812,20 +824,17 @@ func TestHTTPCreateAccountBootstrapNoActiveSessionsWithStaleToken(t *testing.T) 
 		t.Fatalf("bootstrap CreateAccount: %v", err)
 	}
 
-	// Set a stale token — no active sessions, should still bootstrap.
+	// Set a stale token — admin exists, should reject.
 	c.Token = "stale-garbage-token-from-previous-session"
 
-	acct, err := c.CreateAccount(context.TODO(), "second", "password1", "s@b.com", "555", "Second", true)
-	if err != nil {
-		t.Fatalf("bootstrap CreateAccount with stale token and no active sessions: %v", err)
-	}
-	if acct.Username != "second" {
-		t.Fatalf("expected username %q, got %q", "second", acct.Username)
+	_, err = c.CreateAccount(context.TODO(), "second", "password1", "s@b.com", "555", "Second", true)
+	if err == nil {
+		t.Fatal("expected error creating account with stale token when admin exists")
 	}
 }
 
-func TestHTTPCreateAccountRejectsWithActiveSession(t *testing.T) {
-	// Admin exists with active session + no token → 401.
+func TestHTTPCreateAccountRejectsWithoutToken(t *testing.T) {
+	// Admin exists + no token → 401.
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
@@ -860,13 +869,7 @@ func TestHTTPCreateAccountRejectsWithActiveSession(t *testing.T) {
 		t.Fatalf("bootstrap CreateAccount: %v", err)
 	}
 
-	// Authenticate to create an active session.
-	_, err = c.Authenticate(context.TODO(), "first", "password1")
-	if err != nil {
-		t.Fatalf("Authenticate: %v", err)
-	}
-
-	// Clear token — active session exists, should require auth.
+	// Clear token — admin exists, should require auth.
 	c.Token = ""
 
 	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route("account/create"), bytes.NewBufferString(`{"username":"intruder","password":"password1","email":"i@b.com","phone":"555","real_name":"Intruder","admin":false}`))
@@ -886,6 +889,6 @@ func TestHTTPCreateAccountRejectsWithActiveSession(t *testing.T) {
 	}()
 
 	if httpResp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for unauthenticated create with active admin session, got %d", httpResp.StatusCode)
+		t.Fatalf("expected 401 for unauthenticated create when admin exists, got %d", httpResp.StatusCode)
 	}
 }

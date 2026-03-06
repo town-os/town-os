@@ -412,17 +412,17 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T, networ
 	return c, sd, netStateDir
 }
 
-func initSystemControllerMonitoringTest(t *testing.T) (*systemcontroller.SystemdClient, *monitoring.Manager) {
+func initSystemControllerMonitoringTest(t *testing.T) (*systemcontroller.SystemdClient, *monitoring.Manager, *systemd.MockManager) {
 	t.Helper()
 
 	mock := storage.InitBtrFSMock()
-	runner := monitoring.InitMockRunner()
+	sd := systemd.InitMockManager()
 	monMgr := monitoring.NewManager(monitoring.Config{
-		Runner:  runner,
+		Systemd: sd,
 		DataDir: t.TempDir(),
 	})
 
-	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, Monitoring: monMgr})
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, Monitoring: monMgr, Systemd: sd})
 	t.Cleanup(func() { ts.Server.Close() })
 
 	c, err := ts.Client()
@@ -430,7 +430,7 @@ func initSystemControllerMonitoringTest(t *testing.T) (*systemcontroller.Systemd
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return c, monMgr
+	return c, monMgr, sd
 }
 
 func initSystemControllerTestWithBtrfsBase(t *testing.T) *systemcontroller.SystemdClient {

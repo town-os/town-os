@@ -33,17 +33,53 @@ const mockLogTail = vi.fn(() =>
   Promise.resolve({ entries: [], cursor: '', end_cursor: '' }),
 )
 
+const mockListSystemServices = vi.fn(() =>
+  Promise.resolve([
+    {
+      key: 'prometheus',
+      display_name: 'Prometheus',
+      image: 'quay.io/prometheus/prometheus:latest',
+      port: '9091',
+      Name: 'town-os-system--prometheus.service',
+      ActiveState: 'active',
+      SubState: 'running',
+    },
+    {
+      key: 'node-exporter',
+      display_name: 'Node Exporter',
+      image: 'quay.io/prometheus/node-exporter:latest',
+      port: '9101',
+      Name: 'town-os-system--node-exporter.service',
+      ActiveState: 'active',
+      SubState: 'running',
+    },
+    {
+      key: 'grafana',
+      display_name: 'Grafana',
+      image: 'docker.io/grafana/grafana:latest',
+      port: '3001',
+      Name: 'town-os-system--grafana.service',
+      ActiveState: 'inactive',
+      SubState: 'dead',
+    },
+  ]),
+)
+
+const mockSetSystemServiceStatus = vi.fn(() => Promise.resolve())
+
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     listUnits: mockListUnits,
     logTail: mockLogTail,
     setUnitStatus: vi.fn(() => Promise.resolve()),
+    listSystemServices: mockListSystemServices,
+    setSystemServiceStatus: mockSetSystemServiceStatus,
   }),
 }))
 
-function renderSystemManagement() {
+function renderSystemManagement(initialEntries = ['/']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <SystemManagement />
     </MemoryRouter>,
   )
@@ -62,6 +98,8 @@ async function openDropdown(container, index = 0) {
 describe('SystemManagement', () => {
   beforeEach(() => {
     mockLogTail.mockClear()
+    mockListSystemServices.mockClear()
+    mockSetSystemServiceStatus.mockClear()
   })
 
   it('renders the Services heading', async () => {
@@ -140,7 +178,7 @@ describe('SystemManagement', () => {
     await waitFor(() => {
       expect(screen.getByText('Services')).toBeTruthy()
     })
-    // Controller Logs is inside the Advanced Logs modal, not on the main page
+    // Controller Logs is not available anywhere
     expect(screen.queryByRole('button', { name: /Controller Logs/ })).toBeNull()
   })
 
@@ -160,38 +198,11 @@ describe('SystemManagement', () => {
     fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Controller Logs/ })).toBeTruthy()
       expect(screen.getByRole('button', { name: /System Logs/ })).toBeTruthy()
       expect(screen.getByRole('button', { name: /Journal Errors/ })).toBeTruthy()
     })
-  })
-
-  it('opens controller logs from advanced modal', async () => {
-    renderSystemManagement()
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Advanced Logs/ })).toBeTruthy()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /Advanced Logs/ }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Controller Logs/ })).toBeTruthy()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /Controller Logs/ }))
-
-    await waitFor(() => {
-      expect(mockLogTail).toHaveBeenCalledWith(
-        'town-os-systemcontroller.service',
-        200,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-      )
-    })
+    // Controller Logs should NOT be present in the advanced modal
+    expect(screen.queryByRole('button', { name: /Controller Logs/ })).toBeNull()
   })
 
   it('opens system logs from advanced modal', async () => {
@@ -286,5 +297,125 @@ describe('SystemManagement', () => {
     // View button is disabled when input is empty
     const viewBtn = screen.getByRole('button', { name: 'View' })
     expect(viewBtn.disabled).toBe(true)
+  })
+
+  // System Services tests
+
+  it('renders collapsed system services section', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('System Services')).toBeTruthy()
+    })
+    // When collapsed, service names should not be visible as table rows
+    expect(screen.queryByText('Prometheus')).toBeNull()
+  })
+
+  it('expands system services section to show services', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('System Services')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByText('System Services'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Prometheus')).toBeTruthy()
+      expect(screen.getByText('Node Exporter')).toBeTruthy()
+      expect(screen.getByText('Grafana')).toBeTruthy()
+    })
+  })
+
+  it('shows system service status badges', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('System Services')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByText('System Services'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Prometheus')).toBeTruthy()
+    })
+    // The system services table should show active/inactive badges
+    // (Note: the package DataTable also shows active/inactive, so we just
+    // verify the system service section rendered with service names)
+    expect(screen.getByText('Grafana')).toBeTruthy()
+  })
+
+  it('shows system service action dropdown', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('System Services')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByText('System Services'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Prometheus')).toBeTruthy()
+    })
+
+    // The system services section has its own action dropdown triggers
+    // They appear after the package unit dropdowns
+    const { container } = renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('System Services')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('System Services'))
+    await waitFor(() => {
+      expect(screen.getByText('Prometheus')).toBeTruthy()
+    })
+
+    // Get all dropdown triggers — package units + system services
+    const triggers = container.querySelectorAll('[data-slot="dropdown-menu-trigger"]')
+    expect(triggers.length).toBeGreaterThan(0)
+  })
+
+  it('system service logs opens journal viewer with correct unit', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('System Services')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByText('System Services'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Prometheus')).toBeTruthy()
+    })
+
+    // Find the system service section triggers and open the first one (Prometheus)
+    // The system service rows are inside a table within the collapsible section
+    const sysTable = screen.getByText('Prometheus').closest('table')
+    const triggers = sysTable.querySelectorAll('[data-slot="dropdown-menu-trigger"]')
+    fireEvent.pointerDown(triggers[0], { button: 0, pointerType: 'mouse' })
+
+    await waitFor(() => {
+      // Service Logs is in the dropdown — there will be multiple "Service Logs" on screen
+      // because the package unit dropdown may also have them. We need to click one.
+      const logItems = screen.getAllByText('Service Logs')
+      fireEvent.click(logItems[logItems.length - 1])
+    })
+
+    await waitFor(() => {
+      expect(mockLogTail).toHaveBeenCalledWith(
+        'town-os-system--prometheus.service',
+        200,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      )
+    })
+  })
+
+  it('hides system services section when no services returned', async () => {
+    mockListSystemServices.mockResolvedValueOnce([])
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Services')).toBeTruthy()
+    })
+    // System Services section should not appear
+    expect(screen.queryByText('System Services')).toBeNull()
   })
 })

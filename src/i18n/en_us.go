@@ -7,10 +7,14 @@ var enUSMessages = map[string]string{
 	MsgAuthInvalidSession: "invalid session",
 	MsgAuthAdminRequired:  "admin access required",
 
+	// Authentication.
+	MsgAuthInvalidCredentials: "invalid credentials",
+
 	// Account management.
 	MsgAccountAdminStatusImmutable: "admin status cannot be changed after account creation",
 	MsgAccountListError:            "list accounts",
 	MsgAccountCheckSessions:        "check active admin sessions",
+	MsgAccountCreateFailed:         "account creation failed",
 
 	// Settings.
 	MsgSettingNotFound:     "setting %q not found",

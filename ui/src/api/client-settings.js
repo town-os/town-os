@@ -2,8 +2,8 @@ import { SystemControllerClient } from './core.js'
 
 /**
  * Returns all system settings as a key-value map. Default settings include
- * "default_quota" (50 GB), "max_archive_size" (20 MB),
- * "archive_unpack_timeout" (120 seconds), and "proton_image" (container
+ * "default_quota" (50 GB), "max_archive_size" (1 GB),
+ * "archive_unpack_timeout" (600 seconds / 10 min), and "proton_image" (container
  * image for Valve's Proton compatibility layer, empty by default).
  *
  * Calls GET /settings on the Control Plane Service.
@@ -21,7 +21,7 @@ SystemControllerClient.prototype.getSettings = async function () {
  *
  * @param {string} key - the setting key to retrieve. Valid keys:
  *   "default_quota" (bytes, default 50 GB), "max_archive_size" (bytes,
- *   default 20 MB), "archive_unpack_timeout" (seconds, default 120),
+ *   default 1 GB), "archive_unpack_timeout" (seconds, default 600),
  *   "proton_image" (Proton runner container image, empty by default).
  * @returns {Promise<string>}
  */
@@ -41,7 +41,7 @@ SystemControllerClient.prototype.getSetting = async function (key) {
  *
  * @param {string} key - the setting key to set.
  * @param {string} value - the new value. For byte-value settings, accepts
- *   human-readable strings (e.g., "50GB", "20MB"). For "archive_unpack_timeout",
+ *   human-readable strings (e.g., "50GB", "1GB"). For "archive_unpack_timeout",
  *   the value is stored as a number of seconds.
  * @returns {Promise<void>}
  */

@@ -87,8 +87,11 @@ type MockClient struct {
 	RebuildPageErr         error
 	UploadPageArchiveErr   error
 	ListLocalesErr       error
-	MonitoringStatusResp *monitoring.Status
-	MonitoringStatusErr  error
+	MonitoringStatusResp       *monitoring.Status
+	MonitoringStatusErr        error
+	SystemServices             []SystemServiceEntry
+	ListSystemServicesErr      error
+	SetSystemServiceStatusErr  error
 	VMImages             []VMImageInfo
 	ListVMImagesErr      error
 	UploadVMImageErr     error
