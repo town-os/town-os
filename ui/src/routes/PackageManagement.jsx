@@ -71,6 +71,7 @@ export default function PackageManagement() {
   const [repoExpanded, setRepoExpanded] = useState({})
   const [showInstalledOnly, setShowInstalledOnly] = useState(true)
 
+
   // Sort state for packages tab
   const [pkgSortKey, setPkgSortKey] = useState('name')
   const [pkgSortDirection, setPkgSortDirection] = useState('asc')
@@ -564,55 +565,71 @@ export default function PackageManagement() {
       </div>
 
       <Tabs defaultValue="packages">
-        <div className="flex items-start gap-6">
-          <TabsList className="shrink-0">
-            <TabsTrigger value="packages">{t('packages.tab_packages')}</TabsTrigger>
-            <TabsTrigger value="repositories">{t('packages.tab_repositories')}</TabsTrigger>
-          </TabsList>
+        <TabsList>
+          <TabsTrigger value="packages">{t('packages.tab_packages')}</TabsTrigger>
+          <TabsTrigger value="repositories">{t('packages.tab_repositories')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="packages" className="mt-4 space-y-4">
           {featuredGroups.length > 0 ? (
-            <Card className="bg-yellow-50/80 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700 py-3 flex-1 min-w-0 mx-[5%]" data-testid="featured-card">
-              <CardHeader className="pb-0 pt-0 px-4 gap-1">
-                <CardTitle className="text-sm flex items-center gap-1.5">
-                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                  {t('packages.featured_title')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pt-0">
-                <div className="flex flex-wrap items-start gap-4">
-                  {featuredGroups.map((group) => (
-                    <table key={group.repo} className="border-collapse text-xs">
-                      <tbody>
-                        {group.packages.map((pkg) => (
-                          <tr key={`${pkg.repo}/${pkg.name}`}>
-                            <td className="pr-3 py-0.5 font-medium whitespace-nowrap">{pkg.name}</td>
-                            <td className="pr-3 py-0.5 text-muted-foreground truncate max-w-[12rem]">{pkg.description || ''}</td>
-                            <td className="py-0.5 whitespace-nowrap">
-                              {pkg.installed ? (
-                                <Badge variant={pkg.service_status === 'active' ? 'default' : pkg.service_status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px] px-1.5 py-0">
-                                  {pkg.service_status || 'installed'}
-                                </Badge>
-                              ) : (
+            <div className="bg-yellow-50/80 dark:bg-yellow-950/30 border border-yellow-300 dark:border-yellow-700 rounded-md py-3 px-4" data-testid="featured-card">
+              <div className="text-sm flex items-center gap-1.5 font-semibold mb-2">
+                <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                {t('packages.featured_title')}
+              </div>
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr>
+                    <th className="pr-3 py-1 text-left font-medium text-muted-foreground"></th>
+                    <th className="pr-3 py-1 text-left font-medium text-muted-foreground"></th>
+                    <th className="pr-3 py-1 text-center font-medium text-muted-foreground">{t('packages.col_details')}</th>
+                    <th className="py-1 text-right font-medium text-muted-foreground"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {featuredGroups.flatMap((group) =>
+                    group.packages.map((pkg) => (
+                      <tr key={`${pkg.repo}/${pkg.name}`}>
+                        <td className="pr-3 py-1 font-medium whitespace-nowrap">{pkg.name}</td>
+                        <td className="pr-3 py-1 text-muted-foreground truncate max-w-[12rem]">{pkg.description || ''}</td>
+                        <td className="pr-3 py-1 whitespace-nowrap text-center">
+                          {pkg.installed && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
                                 <Button
-                                  variant="outline"
+                                  variant="ghost"
                                   size="sm"
-                                  className="shrink-0 h-5 text-[10px] gap-0.5 px-1.5"
-                                  onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => handleShowInfo(pkg.repo, pkg.name, pkg.installed_version || pkg.version)}
+                                  aria-label={t('packages.details_label')}
                                 >
-                                  <Download className="h-2.5 w-2.5" />
-                                  {t('packages.install_btn')}
+                                  <Info className="h-3.5 w-3.5" />
                                 </Button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">{t('packages.tooltip_view_config')}</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </td>
+                        <td className="py-1 whitespace-nowrap text-right">
+                          <Badge
+                            variant={pkg.installed ? 'default' : 'secondary'}
+                            className="cursor-pointer"
+                            onClick={() => {
+                              if (!pkg.installed) {
+                                handleStartInstall(pkg.repo, pkg.name, pkg.version)
+                              }
+                            }}
+                          >
+                            {pkg.installed ? t('packages.status_installed') : t('packages.status_not_installed')}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <div className="text-sm text-muted-foreground pt-1" data-testid="no-featured-packages">
+            <div className="text-sm text-muted-foreground" data-testid="no-featured-packages">
               {t('packages.no_featured')}{' '}
               <a
                 href="https://github.com/town-os/default-packages"
@@ -624,8 +641,6 @@ export default function PackageManagement() {
               </a>
             </div>
           )}
-        </div>
-        <TabsContent value="packages" className="mt-4 space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4 pt-1">
               <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">

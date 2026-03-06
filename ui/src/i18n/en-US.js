@@ -232,6 +232,7 @@ const enUS = {
   'packages.col_description': 'Description',
   'packages.col_version': 'Version',
   'packages.col_status': 'Status',
+  'packages.col_details': 'Details',
   'packages.status_installed': 'Installed',
   'packages.status_not_installed': 'Not Installed',
   'packages.tooltip_install': 'Click to install',
