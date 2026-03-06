@@ -69,7 +69,7 @@ export default function PackageManagement() {
   // Group by repository toggle
   const [groupByRepo, setGroupByRepo] = useState(false)
   const [repoExpanded, setRepoExpanded] = useState({})
-  const [showInstalledOnly, setShowInstalledOnly] = useState(false)
+  const [showInstalledOnly, setShowInstalledOnly] = useState(true)
 
   // Sort state for packages tab
   const [pkgSortKey, setPkgSortKey] = useState('name')
@@ -564,13 +564,13 @@ export default function PackageManagement() {
       </div>
 
       <Tabs defaultValue="packages">
-        <div className="flex items-start justify-between gap-6">
-          <TabsList>
+        <div className="flex items-start gap-6">
+          <TabsList className="shrink-0">
             <TabsTrigger value="packages">{t('packages.tab_packages')}</TabsTrigger>
             <TabsTrigger value="repositories">{t('packages.tab_repositories')}</TabsTrigger>
           </TabsList>
           {featuredGroups.length > 0 && featuredGroups.some((g) => g.packages.some((p) => !p.installed)) ? (
-            <Card className="bg-yellow-50/80 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700 py-3 max-w-sm" data-testid="featured-card">
+            <Card className="bg-yellow-50/80 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700 py-3 flex-1 min-w-0 mx-[5%]" data-testid="featured-card">
               <CardHeader className="pb-0 pt-0 px-4 gap-1">
                 <CardTitle className="text-sm flex items-center gap-1.5">
                   <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
@@ -578,26 +578,20 @@ export default function PackageManagement() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pt-0">
-                <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {featuredGroups.map((group) =>
                     group.packages.filter((pkg) => !pkg.installed).map((pkg) => (
-                      <div key={`${pkg.repo}/${pkg.name}`} className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{pkg.name}</div>
-                          {pkg.description && (
-                            <div className="text-xs text-muted-foreground line-clamp-2">{pkg.description}</div>
-                          )}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0 h-7 text-xs gap-1"
-                          onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
-                        >
-                          <Download className="h-3 w-3" />
-                          {t('packages.install_btn')}
-                        </Button>
-                      </div>
+                      <Button
+                        key={`${pkg.repo}/${pkg.name}`}
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 h-7 text-xs gap-1"
+                        onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
+                        title={pkg.description || ''}
+                      >
+                        <Download className="h-3 w-3" />
+                        {pkg.name}
+                      </Button>
                     ))
                   )}
                 </div>
