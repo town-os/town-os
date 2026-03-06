@@ -128,6 +128,7 @@ const townOSOverviewDashboard = `{
         { "datasource": "Prometheus", "editorMode": "builder", "expr": "rate(node_disk_written_bytes_total[$__rate_interval])", "legendFormat": "{{device}} Tx", "range": true, "refId": "B" }
       ],
       "title": "Disk I/O",
+      "transparent": true,
       "type": "timeseries"
     },
     {
@@ -163,6 +164,7 @@ const townOSOverviewDashboard = `{
         { "datasource": "Prometheus", "editorMode": "builder", "expr": "node_filesystem_avail_bytes{mountpoint=\"/\"}", "legendFormat": "Host Machine", "range": true, "refId": "B" }
       ],
       "title": "Free Storage Space",
+      "transparent": true,
       "type": "timeseries"
     },
     {
@@ -198,6 +200,7 @@ const townOSOverviewDashboard = `{
         { "datasource": "Prometheus", "editorMode": "builder", "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|eth.|veth.|podman.|tailscale.\"}[$__rate_interval]) * 8", "legendFormat": "{{device}} Tx", "range": true, "refId": "B" }
       ],
       "title": "Network Stats",
+      "transparent": true,
       "type": "timeseries"
     },
     {
@@ -232,6 +235,7 @@ const townOSOverviewDashboard = `{
         { "datasource": "Prometheus", "editorMode": "builder", "expr": "(sum(rate(node_cpu_seconds_total{mode!~\"idle|iowait\"}[$__rate_interval])) * 100) / (count(node_cpu_seconds_total{mode=\"user\"}))", "legendFormat": "{{label_name}}", "range": true, "refId": "A" }
       ],
       "title": "CPU %Usage",
+      "transparent": true,
       "type": "timeseries"
     }
   ],
@@ -293,6 +297,7 @@ const nodeExporterDashboard = `{
       "id": 1,
       "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "title": "CPU Usage",
+      "transparent": true,
       "type": "timeseries",
       "targets": [
         {
@@ -337,6 +342,7 @@ const nodeExporterDashboard = `{
       "id": 2,
       "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "title": "Memory Usage",
+      "transparent": true,
       "type": "timeseries",
       "targets": [
         {
@@ -381,6 +387,7 @@ const nodeExporterDashboard = `{
       "id": 3,
       "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "title": "Disk Usage",
+      "transparent": true,
       "type": "timeseries",
       "targets": [
         {
@@ -423,6 +430,7 @@ const nodeExporterDashboard = `{
       "id": 4,
       "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "title": "Network I/O",
+      "transparent": true,
       "type": "timeseries",
       "targets": [
         {

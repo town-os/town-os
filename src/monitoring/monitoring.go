@@ -246,6 +246,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin",
 				"-e", "GF_AUTH_DISABLE_LOGIN_FORM=true",
 				"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
+				"-e", "GF_USERS_DEFAULT_THEME=light",
 				"-e", "GF_SERVER_ENABLE_GZIP=true",
 				"-e", fmt.Sprintf("GF_SERVER_HTTP_PORT=%s", m.cfg.grafanaHostPort()),
 				"-v", fmt.Sprintf("%s:/etc/grafana/provisioning:ro", provisioningDir),

@@ -3,9 +3,6 @@ import getClient, { getBaseURLForPort } from '@/lib/client-instance.js'
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card'
 import { Activity, AlertCircle } from 'lucide-react'
 
@@ -24,7 +21,7 @@ export default function MonitoringDashboard() {
     15000,
   )
 
-  const grafanaURL = status ? getBaseURLForPort(status.grafana.port) + '/d/town-os-overview/town-os-overview?kiosk' : null
+  const grafanaURL = status ? getBaseURLForPort(status.grafana.port) + '/d/town-os-overview/town-os-overview?kiosk&theme=light' : null
 
   const allRunning =
     status &&
@@ -37,14 +34,7 @@ export default function MonitoringDashboard() {
     .map((s) => s.display_name)
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Monitoring</h1>
-        <p className="text-muted-foreground">
-          System metrics and dashboards powered by Prometheus and Grafana.
-        </p>
-      </div>
-
+    <div className="space-y-4">
       {status && !allRunning && (
         <Card className="border-yellow-500/50 bg-yellow-50/50">
           <CardContent className="flex items-center gap-2 py-3">
@@ -58,38 +48,25 @@ export default function MonitoringDashboard() {
         </Card>
       )}
 
-      <Card className="overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            System Dashboard
-          </CardTitle>
-          <CardDescription>
-            Live system metrics from Grafana. Use the panels to explore CPU,
-            memory, disk, and network usage.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          {allRunning && grafanaURL ? (
-            <iframe
-              src={grafanaURL}
-              title="Grafana Dashboard"
-              className="w-full border-0"
-              style={{ height: 'calc(100vh - 320px)', minHeight: '500px' }}
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <Activity className="h-12 w-12 mb-4 opacity-30" />
-              <p className="text-sm">
-                {loading
-                  ? 'Checking monitoring status...'
-                  : 'Monitoring services are starting up. The dashboard will appear once Grafana is running.'}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <div className="rounded-lg border" style={{ height: 'calc(100vh - 104px)', minHeight: '500px' }}>
+        {allRunning && grafanaURL ? (
+          <iframe
+            src={grafanaURL}
+            title="Grafana Dashboard"
+            className="h-full w-full rounded border-0"
+            sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+          />
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+            <Activity className="h-12 w-12 mb-4 opacity-30" />
+            <p className="text-sm">
+              {loading
+                ? 'Checking monitoring status...'
+                : 'Monitoring services are starting up. The dashboard will appear once Grafana is running.'}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
