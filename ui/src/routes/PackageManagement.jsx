@@ -569,7 +569,7 @@ export default function PackageManagement() {
             <TabsTrigger value="packages">{t('packages.tab_packages')}</TabsTrigger>
             <TabsTrigger value="repositories">{t('packages.tab_repositories')}</TabsTrigger>
           </TabsList>
-          {featuredGroups.length > 0 && featuredGroups.some((g) => g.packages.some((p) => !p.installed)) ? (
+          {featuredGroups.length > 0 ? (
             <Card className="bg-yellow-50/80 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700 py-3 flex-1 min-w-0 mx-[5%]" data-testid="featured-card">
               <CardHeader className="pb-0 pt-0 px-4 gap-1">
                 <CardTitle className="text-sm flex items-center gap-1.5">
@@ -578,22 +578,36 @@ export default function PackageManagement() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pt-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  {featuredGroups.map((group) =>
-                    group.packages.filter((pkg) => !pkg.installed).map((pkg) => (
-                      <Button
-                        key={`${pkg.repo}/${pkg.name}`}
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 h-7 text-xs gap-1"
-                        onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
-                        title={pkg.description || ''}
-                      >
-                        <Download className="h-3 w-3" />
-                        {pkg.name}
-                      </Button>
-                    ))
-                  )}
+                <div className="flex flex-wrap items-start gap-4">
+                  {featuredGroups.map((group) => (
+                    <table key={group.repo} className="border-collapse text-xs">
+                      <tbody>
+                        {group.packages.map((pkg) => (
+                          <tr key={`${pkg.repo}/${pkg.name}`}>
+                            <td className="pr-3 py-0.5 font-medium whitespace-nowrap">{pkg.name}</td>
+                            <td className="pr-3 py-0.5 text-muted-foreground truncate max-w-[12rem]">{pkg.description || ''}</td>
+                            <td className="py-0.5 whitespace-nowrap">
+                              {pkg.installed ? (
+                                <Badge variant={pkg.service_status === 'active' ? 'default' : pkg.service_status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px] px-1.5 py-0">
+                                  {pkg.service_status || 'installed'}
+                                </Badge>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0 h-5 text-[10px] gap-0.5 px-1.5"
+                                  onClick={() => handleStartInstall(pkg.repo, pkg.name, pkg.version)}
+                                >
+                                  <Download className="h-2.5 w-2.5" />
+                                  {t('packages.install_btn')}
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ))}
                 </div>
               </CardContent>
             </Card>

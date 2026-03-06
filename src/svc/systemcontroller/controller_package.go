@@ -75,6 +75,7 @@ type FeaturedPackageEntry struct {
 	Description      string `json:"description,omitempty"`
 	Installed        bool   `json:"installed"`
 	InstalledVersion string `json:"installed_version,omitempty"`
+	ServiceStatus    string `json:"service_status,omitempty"`
 }
 
 // FeaturedRepoGroup groups featured packages by repository.
@@ -255,6 +256,19 @@ func (s *SystemControllerHandlers) listFeaturedPackages(c *echo.Context) error {
 		}
 	}
 
+	// Build unit status lookup for installed packages.
+	unitStatusMap := map[string]string{}
+	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		units, unitsErr := sd.ListUnits(c.Request().Context())
+		if unitsErr == nil {
+			for _, u := range units {
+				if systemd.IsPackageServiceUnit(u.Name) {
+					unitStatusMap[u.Name] = u.ActiveState
+				}
+			}
+		}
+	}
+
 	var result []FeaturedRepoGroup
 	for _, g := range groups {
 		if len(g.Featured) == 0 {
@@ -282,6 +296,11 @@ func (s *SystemControllerHandlers) listFeaturedPackages(c *echo.Context) error {
 			if instVer, ok := installedVersions[key]; ok {
 				entry.Installed = true
 				entry.InstalledVersion = instVer
+
+				unitName := systemd.UnitName(pkg.Repo, pkg.Name, instVer)
+				if status, ok := unitStatusMap[unitName]; ok {
+					entry.ServiceStatus = status
+				}
 			}
 
 			ip, loadErr := rr.LoadPackage(pkg.Repo, pkg.Name, pkg.Version)

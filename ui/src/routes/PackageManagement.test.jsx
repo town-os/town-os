@@ -1618,22 +1618,24 @@ describe('PackageManagement', () => {
     expect(screen.queryByTestId('featured-card')).toBeNull()
   })
 
-  it('shows no-featured-packages message when all featured packages are installed', async () => {
+  it('shows featured card even when all featured packages are installed', async () => {
     mockClient.listFeaturedPackages.mockImplementation(() =>
       Promise.resolve([
         {
           repo: 'core',
           packages: [
-            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0' },
+            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0', service_status: 'active' },
           ],
         },
       ]),
     )
     renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
+      expect(screen.getByTestId('featured-card')).toBeTruthy()
     })
-    expect(screen.queryByTestId('featured-card')).toBeNull()
+    const card = screen.getByTestId('featured-card')
+    expect(card.textContent).toContain('nginx')
+    expect(card.textContent).toContain('active')
   })
 
   it('shows featured package name and description in the card', async () => {
@@ -1698,13 +1700,13 @@ describe('PackageManagement', () => {
     })
   })
 
-  it('hides installed featured packages from the card', async () => {
+  it('shows both installed and uninstalled featured packages in the card', async () => {
     mockClient.listFeaturedPackages.mockImplementation(() =>
       Promise.resolve([
         {
           repo: 'core',
           packages: [
-            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0' },
+            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0', service_status: 'active' },
             { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
           ],
         },
@@ -1713,8 +1715,12 @@ describe('PackageManagement', () => {
     renderPackageManagement()
     await waitFor(() => {
       const card = screen.getByTestId('featured-card')
+      expect(card.textContent).toContain('nginx')
+      expect(card.textContent).toContain('Web server')
+      expect(card.textContent).toContain('active')
       expect(card.textContent).toContain('mosquitto')
-      expect(card.textContent).not.toContain('Web server')
+      expect(card.textContent).toContain('MQTT broker')
+      expect(card.textContent).toContain('Install')
     })
   })
 
@@ -1795,7 +1801,6 @@ describe('PackageManagement', () => {
     const el = screen.getByTestId('no-featured-packages')
     const flexRow = el.parentElement
     expect(flexRow.className).toContain('flex')
-    expect(flexRow.className).toContain('justify-between')
     expect(flexRow.querySelector('[role="tablist"]')).toBeTruthy()
   })
 
