@@ -490,8 +490,8 @@ describe('SystemSettings Archive Unpack Timeout', () => {
   it('displays current timeout value', async () => {
     renderSystemSettings()
     await waitFor(() => {
-      // 120 seconds = 2 minutes
-      expect(screen.getByText(/2 minutes/)).toBeTruthy()
+      // 600 seconds = 10 minutes
+      expect(screen.getByText(/10 minutes/)).toBeTruthy()
     })
   })
 

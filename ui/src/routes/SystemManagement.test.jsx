@@ -343,24 +343,13 @@ describe('SystemManagement', () => {
   })
 
   it('shows system service action dropdown', async () => {
-    renderSystemManagement()
-    await waitFor(() => {
-      expect(screen.getByText('System Services')).toBeTruthy()
-    })
-
-    fireEvent.click(screen.getByText('System Services'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Prometheus')).toBeTruthy()
-    })
-
-    // The system services section has its own action dropdown triggers
-    // They appear after the package unit dropdowns
     const { container } = renderSystemManagement()
     await waitFor(() => {
       expect(screen.getByText('System Services')).toBeTruthy()
     })
+
     fireEvent.click(screen.getByText('System Services'))
+
     await waitFor(() => {
       expect(screen.getByText('Prometheus')).toBeTruthy()
     })

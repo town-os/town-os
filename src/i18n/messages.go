@@ -12,7 +12,7 @@ const (
 
 	// MsgAuthInvalidCredentials is a generic authentication failure message
 	// that does not reveal whether the account exists.
-	MsgAuthInvalidCredentials = "auth.invalid_credentials"
+	MsgAuthInvalidCredentials = "auth.invalid_credentials" //nolint:gosec // G101 -- message key, not a credential
 
 	// MsgAccountAdminStatusImmutable indicates admin status cannot be changed.
 	MsgAccountAdminStatusImmutable = "account.admin_status_immutable"

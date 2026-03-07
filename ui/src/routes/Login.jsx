@@ -94,7 +94,7 @@ export default function Login() {
               />
             </div>
           </CardContent>
-          <CardFooter className="pt-2">
+          <CardFooter className="pt-6">
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? t('login.submit_loading') : t('login.submit')}
             </Button>

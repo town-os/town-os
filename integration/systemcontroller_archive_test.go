@@ -337,7 +337,7 @@ func TestModifyInstalledVolumeQuota(t *testing.T) {
 
 	found := false
 	for _, f := range result.Entries {
-		if f.Name == "testrepo/quotapkg/1.0/data" {
+		if f.Name == "quotapkg/1.0/data" {
 			found = true
 			if f.Quota != 1073741824 {
 				t.Fatalf("expected quota 1073741824, got %d", f.Quota)

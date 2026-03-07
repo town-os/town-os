@@ -18,6 +18,7 @@ type ListParams struct {
 	Offset        int    `json:"offset"`
 	Search        string `json:"search"`
 	InstalledOnly bool   `json:"installed_only"`
+	FeaturedOnly  bool   `json:"featured_only"`
 }
 
 // PageResult wraps a paginated slice of entries with metadata.
@@ -83,6 +84,7 @@ func readListParams(c *echo.Context) ListParams {
 		Offset:        offset,
 		Search:        c.QueryParam("search"),
 		InstalledOnly: c.QueryParam("installed_only") == "true",
+		FeaturedOnly:  c.QueryParam("featured_only") == "true",
 	}
 }
 
@@ -107,6 +109,9 @@ func (p ListParams) QueryString() string {
 	}
 	if p.InstalledOnly {
 		params.Set("installed_only", "true")
+	}
+	if p.FeaturedOnly {
+		params.Set("featured_only", "true")
 	}
 	if len(params) == 0 {
 		return ""

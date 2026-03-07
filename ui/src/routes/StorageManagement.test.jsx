@@ -312,6 +312,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     removeFilesystem: mockRemoveFilesystem,
     downloadArchive: vi.fn(() => Promise.resolve({ body: null, blob: () => Promise.resolve(new Blob()) })),
     uploadArchive: vi.fn(() => Promise.resolve({ message: 'ok' })),
+    getSetting: vi.fn(() => Promise.resolve('53687091200')),
   }),
 }))
 
@@ -485,7 +486,7 @@ describe('StorageManagement component', () => {
         total_count: 0,
       })
       .mockResolvedValueOnce({
-        entries: [{ name: 'core/nginx/1.0/data', quota: 0 }],
+        entries: [{ name: 'nginx/1.0/data', internal_name: 'installed/core/nginx/1.0/data', quota: 0 }],
         has_more: false,
         total_pages: 1,
         total_count: 1,
@@ -502,7 +503,7 @@ describe('StorageManagement component', () => {
       expect(screen.getByText('Package Volumes')).toBeTruthy()
     })
     // Click the package row to expand it
-    const pkgRow = screen.getByText('core/nginx')
+    const pkgRow = screen.getByText('nginx')
     fireEvent.click(pkgRow)
     // Now click the Modify button on the volume row
     await waitFor(() => {

@@ -67,9 +67,13 @@ export default function PackageManagement() {
   const [deleteRepoConfirm, setDeleteRepoConfirm] = useState(null)
 
   // Group by repository toggle
-  const [groupByRepo, setGroupByRepo] = useState(false)
+  const [groupByRepo, setGroupByRepo] = useState(() => localStorage.getItem('pkg_group_by_repo') === 'true')
   const [repoExpanded, setRepoExpanded] = useState({})
-  const [showInstalledOnly, setShowInstalledOnly] = useState(true)
+  const [showInstalledOnly, setShowInstalledOnly] = useState(() => localStorage.getItem('pkg_installed_only') === 'true')
+  const [showFeaturedOnly, setShowFeaturedOnly] = useState(() => {
+    const v = localStorage.getItem('pkg_featured_only')
+    return v === null ? true : v === 'true'
+  })
 
 
   // Sort state for packages tab
@@ -88,23 +92,16 @@ export default function PackageManagement() {
   const [repoSearch, setRepoSearch] = useState('')
 
   const [pkgData, , pkgLoading] = usePolling(
-    () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined, showInstalledOnly || undefined),
+    () => getClient().listPackages(pkgSortKey, pkgSortDirection, PAGE_SIZE, pkgPage * PAGE_SIZE, pkgSearch || undefined, showInstalledOnly || undefined, showFeaturedOnly || undefined),
     { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch, showInstalledOnly],
+    [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch, showInstalledOnly, showFeaturedOnly],
   )
   const packages = pkgData.entries || []
 
-  const [featuredData] = usePolling(
-    () => getClient().listFeaturedPackages(),
-    [],
-    [refreshKey],
-  )
-  const featuredGroups = featuredData || []
-
   const [byRepoData] = usePolling(
-    () => groupByRepo ? getClient().listPackagesByRepo(pkgSearch || undefined) : Promise.resolve([]),
+    () => groupByRepo ? getClient().listPackagesByRepo(pkgSearch || undefined, showFeaturedOnly || undefined) : Promise.resolve([]),
     [],
-    [refreshKey, groupByRepo, pkgSearch],
+    [refreshKey, groupByRepo, pkgSearch, showFeaturedOnly],
   )
   const packagesByRepo = byRepoData || []
 
@@ -379,7 +376,7 @@ export default function PackageManagement() {
     },
     {
       key: '_info',
-      label: '',
+      label: t('packages.col_details'),
       sortable: false,
       transform: (_, row) => {
         const instVer = installedVersion(row)
@@ -412,12 +409,6 @@ export default function PackageManagement() {
         const hasUpgrade = isInst && instVer !== '' && instVer !== row.version
         return (
           <div className="flex items-center justify-end gap-1">
-            {row.featured && (
-              <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-600">
-                <Star className="h-3 w-3" />
-                {t('packages.badge_featured')}
-              </Badge>
-            )}
             {hasUpgrade && (
               <Tooltip>
                 <TooltipTrigger>
@@ -570,84 +561,16 @@ export default function PackageManagement() {
           <TabsTrigger value="repositories">{t('packages.tab_repositories')}</TabsTrigger>
         </TabsList>
         <TabsContent value="packages" className="mt-4 space-y-4">
-          {featuredGroups.length > 0 ? (
-            <div className="bg-yellow-50/80 dark:bg-yellow-950/30 border border-yellow-300 dark:border-yellow-700 rounded-md py-3 px-4" data-testid="featured-card">
-              <div className="text-sm flex items-center gap-1.5 font-semibold mb-2">
-                <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                {t('packages.featured_title')}
-              </div>
-              <table className="w-full border-collapse text-xs">
-                <thead>
-                  <tr>
-                    <th className="pr-3 py-1 text-left font-medium text-muted-foreground"></th>
-                    <th className="pr-3 py-1 text-left font-medium text-muted-foreground"></th>
-                    <th className="pr-3 py-1 text-center font-medium text-muted-foreground">{t('packages.col_details')}</th>
-                    <th className="py-1 text-right font-medium text-muted-foreground"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {featuredGroups.flatMap((group) =>
-                    group.packages.map((pkg) => (
-                      <tr key={`${pkg.repo}/${pkg.name}`}>
-                        <td className="pr-3 py-1 font-medium whitespace-nowrap">{pkg.name}</td>
-                        <td className="pr-3 py-1 text-muted-foreground truncate max-w-[12rem]">{pkg.description || ''}</td>
-                        <td className="pr-3 py-1 whitespace-nowrap text-center">
-                          {pkg.installed && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0"
-                                  onClick={() => handleShowInfo(pkg.repo, pkg.name, pkg.installed_version || pkg.version)}
-                                  aria-label={t('packages.details_label')}
-                                >
-                                  <Info className="h-3.5 w-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="right">{t('packages.tooltip_view_config')}</TooltipContent>
-                            </Tooltip>
-                          )}
-                        </td>
-                        <td className="py-1 whitespace-nowrap text-right">
-                          <Badge
-                            variant={pkg.installed ? 'default' : 'secondary'}
-                            className="cursor-pointer"
-                            onClick={() => {
-                              if (!pkg.installed) {
-                                handleStartInstall(pkg.repo, pkg.name, pkg.version)
-                              }
-                            }}
-                          >
-                            {pkg.installed ? t('packages.status_installed') : t('packages.status_not_installed')}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground" data-testid="no-featured-packages">
-              {t('packages.no_featured')}{' '}
-              <a
-                href="https://github.com/town-os/default-packages"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:text-foreground"
-              >
-                {t('packages.learn_featured_link')}
-              </a>
-            </div>
-          )}
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4 pt-1">
               <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={groupByRepo}
-                  onChange={(e) => setGroupByRepo(e.target.checked)}
+                  onChange={(e) => {
+                    setGroupByRepo(e.target.checked)
+                    localStorage.setItem('pkg_group_by_repo', String(e.target.checked))
+                  }}
                   className="rounded border-input"
                 />
                 {t('packages.group_by_repo')}
@@ -658,11 +581,25 @@ export default function PackageManagement() {
                   checked={showInstalledOnly}
                   onChange={(e) => {
                     setShowInstalledOnly(e.target.checked)
+                    localStorage.setItem('pkg_installed_only', String(e.target.checked))
                     setPkgPage(0)
                   }}
                   className="rounded border-input"
                 />
                 {t('packages.installed_only')}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showFeaturedOnly}
+                  onChange={(e) => {
+                    setShowFeaturedOnly(e.target.checked)
+                    localStorage.setItem('pkg_featured_only', String(e.target.checked))
+                    setPkgPage(0)
+                  }}
+                  className="rounded border-input"
+                />
+                {t('packages.featured_only')}
               </label>
             </div>
             {groupByRepo && (
@@ -687,7 +624,7 @@ export default function PackageManagement() {
                 return (
                   <div key={group.repo} className="rounded-md border">
                     <Table>
-                      <TableBody>
+                      <TableHeader>
                         <TableRow
                           className="cursor-pointer hover:bg-muted/50"
                           onClick={() => setRepoExpanded((prev) => ({
@@ -695,7 +632,7 @@ export default function PackageManagement() {
                             [group.repo]: !isExpanded,
                           }))}
                         >
-                          <TableCell className="font-medium" colSpan={4}>
+                          <TableHead colSpan={4}>
                             <div className="flex items-center gap-1">
                               {isExpanded
                                 ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -706,8 +643,16 @@ export default function PackageManagement() {
                                 ({group.packages.length} package{group.packages.length !== 1 ? 's' : ''})
                               </span>
                             </div>
-                          </TableCell>
+                          </TableHead>
                         </TableRow>
+                        {isExpanded && <TableRow>
+                          <TableHead>{t('packages.col_name')}</TableHead>
+                          <TableHead>{t('packages.col_version')}</TableHead>
+                          <TableHead>{t('packages.col_details')}</TableHead>
+                          <TableHead className="text-right"><div className="pr-2">{t('packages.col_status')}</div></TableHead>
+                        </TableRow>}
+                      </TableHeader>
+                      <TableBody>
                         {isExpanded && group.packages.map((pkg) => {
                           const instVer = installedVersion(pkg)
                           const isInst = instVer !== null
@@ -736,12 +681,6 @@ export default function PackageManagement() {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
-                                  {isFeatured && (
-                                    <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-600">
-                                      <Star className="h-3 w-3" />
-                                      {t('packages.badge_featured')}
-                                    </Badge>
-                                  )}
                                   {hasUpgrade && (
                                     <Badge
                                       variant="outline"

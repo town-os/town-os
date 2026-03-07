@@ -173,10 +173,10 @@ func TestListFilesystemsExcludesReserved(t *testing.T) {
 	controller.Lock.Lock()
 	controller.Filesystems = append(controller.Filesystems,
 		storage.SubvolInfo{Name: "installed", ID: 100},
-		storage.SubvolInfo{Name: "installed/nginx", ID: 101},
-		storage.SubvolInfo{Name: "installed/nginx/1.0/data", ID: 102},
+		storage.SubvolInfo{Name: "installed/core/nginx", ID: 101},
+		storage.SubvolInfo{Name: "installed/core/nginx/1.0/data", ID: 102},
 		storage.SubvolInfo{Name: "uninstalled", ID: 200},
-		storage.SubvolInfo{Name: "uninstalled/nginx", ID: 201},
+		storage.SubvolInfo{Name: "uninstalled/core/nginx", ID: 201},
 	)
 	controller.Lock.Unlock()
 
@@ -192,9 +192,9 @@ func TestListFilesystemsExcludesReserved(t *testing.T) {
 
 	// Should see:
 	//   user-vol (state="user")
-	//   nginx (stripped from installed/nginx, state="installed")
-	//   nginx/1.0/data (stripped from installed/nginx/1.0/data, state="installed")
-	//   nginx (stripped from uninstalled/nginx, state="uninstalled")
+	//   nginx (stripped from installed/core/nginx, state="installed")
+	//   nginx/1.0/data (stripped from installed/core/nginx/1.0/data, state="installed")
+	//   nginx (stripped from uninstalled/core/nginx, state="uninstalled")
 	// Should NOT see: installed, uninstalled (root subvolumes).
 	if len(fsResult.Entries) != 4 {
 		t.Fatalf("expected 4 filesystems, got %d: %v", len(fsResult.Entries), fsResult.Entries)

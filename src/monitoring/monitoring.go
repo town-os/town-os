@@ -232,7 +232,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"--config.file=/etc/prometheus/prometheus.yml",
 				"--storage.tsdb.path=/prometheus",
 				"--storage.tsdb.retention.time=30d",
-				fmt.Sprintf("--web.listen-address=:%s", m.cfg.prometheusHostPort()),
+				"--web.listen-address=:" + m.cfg.prometheusHostPort(),
 			},
 		},
 		{
@@ -248,9 +248,9 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
 				"-e", "GF_USERS_DEFAULT_THEME=light",
 				"-e", "GF_SERVER_ENABLE_GZIP=true",
-				"-e", fmt.Sprintf("GF_SERVER_HTTP_PORT=%s", m.cfg.grafanaHostPort()),
-				"-v", fmt.Sprintf("%s:/etc/grafana/provisioning:ro", provisioningDir),
-				"-v", fmt.Sprintf("%s:/var/lib/grafana:shared,rw", grafDataDir),
+				"-e", "GF_SERVER_HTTP_PORT=" + m.cfg.grafanaHostPort(),
+				"-v", provisioningDir + ":/etc/grafana/provisioning:ro",
+				"-v", grafDataDir + ":/var/lib/grafana:shared,rw",
 			},
 		},
 	}

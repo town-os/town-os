@@ -80,6 +80,17 @@ describe('Login', () => {
     })
   })
 
+  it('has vertical spacing between password field and sign in button', async () => {
+    renderLogin()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Password')).toBeTruthy()
+    })
+    const button = screen.getByRole('button', { name: 'Sign In' })
+    const footer = button.closest('[data-slot="card-footer"]')
+    expect(footer).toBeTruthy()
+    expect(footer.className).toMatch(/pt-6/)
+  })
+
   it('stays on login when token is invalid', async () => {
     mockToken = 'bad-token'
     mockSessionUsernameResult = Promise.reject(new Error('invalid'))

@@ -224,6 +224,7 @@ const enUS = {
   'packages.learn_featured_link': 'Learn about package configuration',
   'packages.group_by_repo': 'Group by repository',
   'packages.installed_only': 'Installed only',
+  'packages.featured_only': 'Featured only',
   'packages.search_placeholder': 'Search packages...',
   'packages.no_packages': 'No packages found',
   'packages.loading': 'Loading...',

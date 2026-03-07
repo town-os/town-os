@@ -2,7 +2,6 @@ package monitoring
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -398,13 +397,13 @@ func TestStatusContainerNames(t *testing.T) {
 
 	status := m.Status(context.Background())
 
-	if status.Prometheus.Name != fmt.Sprintf("%sprometheus", systemd.SystemServiceUnitPrefix) {
-		t.Fatalf("expected prometheus container name %q, got %q", fmt.Sprintf("%sprometheus", systemd.SystemServiceUnitPrefix), status.Prometheus.Name)
+	if status.Prometheus.Name != systemd.SystemServiceUnitPrefix+"prometheus" {
+		t.Fatalf("expected prometheus container name %q, got %q", systemd.SystemServiceUnitPrefix+"prometheus", status.Prometheus.Name)
 	}
-	if status.NodeExporter.Name != fmt.Sprintf("%snode-exporter", systemd.SystemServiceUnitPrefix) {
-		t.Fatalf("expected node-exporter container name %q, got %q", fmt.Sprintf("%snode-exporter", systemd.SystemServiceUnitPrefix), status.NodeExporter.Name)
+	if status.NodeExporter.Name != systemd.SystemServiceUnitPrefix+"node-exporter" {
+		t.Fatalf("expected node-exporter container name %q, got %q", systemd.SystemServiceUnitPrefix+"node-exporter", status.NodeExporter.Name)
 	}
-	if status.Grafana.Name != fmt.Sprintf("%sgrafana", systemd.SystemServiceUnitPrefix) {
-		t.Fatalf("expected grafana container name %q, got %q", fmt.Sprintf("%sgrafana", systemd.SystemServiceUnitPrefix), status.Grafana.Name)
+	if status.Grafana.Name != systemd.SystemServiceUnitPrefix+"grafana" {
+		t.Fatalf("expected grafana container name %q, got %q", systemd.SystemServiceUnitPrefix+"grafana", status.Grafana.Name)
 	}
 }

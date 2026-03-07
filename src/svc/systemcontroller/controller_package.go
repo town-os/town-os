@@ -197,6 +197,16 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 		entries = filtered
 	}
 
+	if p.FeaturedOnly {
+		filtered := make([]PackageListEntry, 0, len(entries))
+		for _, e := range entries {
+			if e.Featured {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
 	entries = filterSearch(entries, p.Search)
 	sortSlice(entries, p.SortBy, p.SortOrder)
 
@@ -219,6 +229,26 @@ func (s *SystemControllerHandlers) listPackagesByRepo(c *echo.Context) error {
 			var matching []packages.PackageIdentity
 			for _, pkg := range g.Packages {
 				if strings.Contains(strings.ToLower(pkg.Name), searchLower) {
+					matching = append(matching, pkg)
+				}
+			}
+			if len(matching) > 0 {
+				filtered = append(filtered, packages.RepoPackageGroup{Repo: g.Repo, Packages: matching, Featured: g.Featured})
+			}
+		}
+		groups = filtered
+	}
+
+	if p.FeaturedOnly {
+		var filtered []packages.RepoPackageGroup
+		for _, g := range groups {
+			featuredSet := map[string]bool{}
+			for _, f := range g.Featured {
+				featuredSet[f] = true
+			}
+			var matching []packages.PackageIdentity
+			for _, pkg := range g.Packages {
+				if featuredSet[pkg.Name] {
 					matching = append(matching, pkg)
 				}
 			}

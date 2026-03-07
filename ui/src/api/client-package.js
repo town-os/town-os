@@ -12,7 +12,7 @@ import { ApiError, SystemControllerClient } from './core.js'
  * @param {boolean} [installedOnly] - When true, only return packages that are currently installed. Default false.
  * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number, total_count: number}>}
  */
-SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrder, limit, offset, search, installedOnly) {
+SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrder, limit, offset, search, installedOnly, featuredOnly) {
   const params = new URLSearchParams()
   if (sortBy) params.set('sort_by', sortBy)
   if (sortOrder) params.set('sort_order', sortOrder)
@@ -20,19 +20,9 @@ SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrde
   if (offset) params.set('offset', String(offset))
   if (search) params.set('search', search)
   if (installedOnly) params.set('installed_only', 'true')
+  if (featuredOnly) params.set('featured_only', 'true')
   const qs = params.toString()
   return this.getJSON(`/packages${qs ? `?${qs}` : ''}`)
-}
-
-/**
- * List featured packages grouped by repository, including descriptions and install status.
- * Only returns packages that appear in a repository's featured.json file.
- * Calls GET /packages/featured on the Control Plane Service.
- * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string, description?: string, installed: boolean, installed_version?: string}>}>>}
- *   Each group contains featured packages for that repository with descriptions and install status.
- */
-SystemControllerClient.prototype.listFeaturedPackages = async function () {
-  return this.getJSON('/packages/featured')
 }
 
 /**
@@ -42,9 +32,10 @@ SystemControllerClient.prototype.listFeaturedPackages = async function () {
  * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string}>, featured?: string[]}>>}
  *   Each group includes an optional `featured` array of package names marked as featured in that repository.
  */
-SystemControllerClient.prototype.listPackagesByRepo = async function (search) {
+SystemControllerClient.prototype.listPackagesByRepo = async function (search, featuredOnly) {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
+  if (featuredOnly) params.set('featured_only', 'true')
   const qs = params.toString()
   return this.getJSON(`/packages/by-repo${qs ? `?${qs}` : ''}`)
 }

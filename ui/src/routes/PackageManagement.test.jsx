@@ -4,6 +4,16 @@ import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import PackageManagement from './PackageManagement.jsx'
 
+// Polyfill localStorage if not available or incomplete (bun test environment).
+if (!globalThis.localStorage || typeof globalThis.localStorage.removeItem !== 'function') {
+  const store = {}
+  globalThis.localStorage = {
+    getItem: (k) => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v) },
+    removeItem: (k) => { delete store[k] },
+  }
+}
+
 // Radix UI uses ResizeObserver which is not available in JSDOM.
 beforeAll(() => {
   globalThis.ResizeObserver = class {
@@ -72,6 +82,9 @@ function renderPackageManagement() {
 
 // Reset all mocks to their default implementations before each test.
 beforeEach(() => {
+  localStorage.removeItem('pkg_group_by_repo')
+  localStorage.removeItem('pkg_installed_only')
+  localStorage.removeItem('pkg_featured_only')
   mockClient.listPackages.mockImplementation(() =>
     Promise.resolve({
       entries: [
@@ -123,6 +136,39 @@ describe('PackageManagement', () => {
     await waitFor(() => {
       expect(screen.getByText('Status')).toBeTruthy()
     })
+  })
+
+  it('renders the Details column header in flat view', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Details')).toBeTruthy()
+    })
+  })
+
+  it('renders column headings in grouped view when expanded', async () => {
+    mockClient.listPackagesByRepo.mockResolvedValueOnce([
+      {
+        repo: 'core',
+        packages: [
+          { repo: 'core', name: 'nginx', version: '1.0' },
+        ],
+        featured: [],
+      },
+    ])
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Group by repository')).toBeTruthy()
+    })
+    const checkbox = screen.getByText('Group by repository').closest('label').querySelector('input')
+    fireEvent.click(checkbox)
+    await waitFor(() => {
+      expect(screen.getByText('nginx')).toBeTruthy()
+    })
+    // Grouped view should show column headings
+    expect(screen.getByText('Name')).toBeTruthy()
+    expect(screen.getByText('Version')).toBeTruthy()
+    expect(screen.getByText('Details')).toBeTruthy()
+    expect(screen.getByText('Status')).toBeTruthy()
   })
 
   it('renders installed badge for installed package', async () => {
@@ -460,46 +506,29 @@ describe('PackageManagement', () => {
     })
   })
 
-  // --- Featured badge ---
+  // --- Featured badge removed from status column ---
 
-  it('shows Featured badge for featured packages in flat view', async () => {
+  it('does not show Featured badge in status column for featured packages', async () => {
     mockClient.listPackages.mockResolvedValueOnce({
       entries: [
         { repo: 'core', name: 'nginx', version: '1.0', installed: false, featured: true },
-        { repo: 'core', name: 'redis', version: '7.0', installed: false, featured: false },
       ],
       has_more: false,
       total_pages: 1,
     })
     renderPackageManagement()
     await waitFor(() => {
-      const badges = screen.getAllByText('Featured')
-      expect(badges.length).toBe(1)
-    })
-  })
-
-  it('does not show Featured badge for non-featured packages', async () => {
-    mockClient.listPackages.mockResolvedValueOnce({
-      entries: [
-        { repo: 'core', name: 'redis', version: '7.0', installed: false, featured: false },
-      ],
-      has_more: false,
-      total_pages: 1,
-    })
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByText('redis')).toBeTruthy()
+      expect(screen.getByText('nginx')).toBeTruthy()
     })
     expect(screen.queryByText('Featured')).toBeNull()
   })
 
-  it('shows Featured badge for featured packages in grouped view', async () => {
+  it('does not show Featured badge in grouped view status column', async () => {
     mockClient.listPackagesByRepo.mockResolvedValueOnce([
       {
         repo: 'core',
         packages: [
           { repo: 'core', name: 'nginx', version: '1.0' },
-          { repo: 'core', name: 'redis', version: '7.0' },
         ],
         featured: ['nginx'],
       },
@@ -511,9 +540,122 @@ describe('PackageManagement', () => {
     const checkbox = screen.getByText('Group by repository').closest('label').querySelector('input')
     fireEvent.click(checkbox)
     await waitFor(() => {
-      const badges = screen.getAllByText('Featured')
-      expect(badges.length).toBe(1)
+      expect(screen.getByText('nginx')).toBeTruthy()
     })
+    expect(screen.queryByText('Featured')).toBeNull()
+  })
+
+  // --- Featured only checkbox ---
+
+  it('renders featured only checkbox checked by default', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Featured only')).toBeTruthy()
+    })
+    const checkbox = screen.getByText('Featured only').closest('label').querySelector('input')
+    expect(checkbox.checked).toBe(true)
+  })
+
+  it('renders installed only checkbox unchecked by default', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed only')).toBeTruthy()
+    })
+    const checkbox = screen.getByText('Installed only').closest('label').querySelector('input')
+    expect(checkbox.checked).toBe(false)
+  })
+
+  it('passes featuredOnly=true to listPackages on initial render', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(mockClient.listPackages).toHaveBeenCalled()
+    })
+    const lastCall = mockClient.listPackages.mock.calls[mockClient.listPackages.mock.calls.length - 1]
+    expect(lastCall[6]).toBe(true) // featuredOnly (7th arg)
+  })
+
+  it('passes featuredOnly=undefined to listPackages when featured only is unchecked', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Featured only')).toBeTruthy()
+    })
+    mockClient.listPackages.mockClear()
+    const checkbox = screen.getByText('Featured only').closest('label').querySelector('input')
+    fireEvent.click(checkbox)
+    await waitFor(() => {
+      expect(mockClient.listPackages).toHaveBeenCalled()
+    })
+    const lastCall = mockClient.listPackages.mock.calls[mockClient.listPackages.mock.calls.length - 1]
+    expect(lastCall[6]).toBeUndefined() // featuredOnly (7th arg)
+  })
+
+  it('passes featuredOnly=true to listPackagesByRepo on initial render in grouped view', async () => {
+    mockClient.listPackagesByRepo.mockResolvedValue([])
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Group by repository')).toBeTruthy()
+    })
+    const groupCheckbox = screen.getByText('Group by repository').closest('label').querySelector('input')
+    fireEvent.click(groupCheckbox)
+    await waitFor(() => {
+      expect(mockClient.listPackagesByRepo).toHaveBeenCalled()
+    })
+    const lastCall = mockClient.listPackagesByRepo.mock.calls[mockClient.listPackagesByRepo.mock.calls.length - 1]
+    expect(lastCall[1]).toBe(true) // featuredOnly (2nd arg)
+  })
+
+  // --- localStorage persistence ---
+
+  it('persists featured only checkbox state in localStorage', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Featured only')).toBeTruthy()
+    })
+    const checkbox = screen.getByText('Featured only').closest('label').querySelector('input')
+    fireEvent.click(checkbox)
+    expect(localStorage.getItem('pkg_featured_only')).toBe('false')
+    fireEvent.click(checkbox)
+    expect(localStorage.getItem('pkg_featured_only')).toBe('true')
+  })
+
+  it('persists installed only checkbox state in localStorage', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Installed only')).toBeTruthy()
+    })
+    const checkbox = screen.getByText('Installed only').closest('label').querySelector('input')
+    fireEvent.click(checkbox)
+    expect(localStorage.getItem('pkg_installed_only')).toBe('true')
+    fireEvent.click(checkbox)
+    expect(localStorage.getItem('pkg_installed_only')).toBe('false')
+  })
+
+  it('persists group by repo checkbox state in localStorage', async () => {
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Group by repository')).toBeTruthy()
+    })
+    const checkbox = screen.getByText('Group by repository').closest('label').querySelector('input')
+    fireEvent.click(checkbox)
+    expect(localStorage.getItem('pkg_group_by_repo')).toBe('true')
+    fireEvent.click(checkbox)
+    expect(localStorage.getItem('pkg_group_by_repo')).toBe('false')
+  })
+
+  it('restores checkbox state from localStorage', async () => {
+    localStorage.setItem('pkg_featured_only', 'false')
+    localStorage.setItem('pkg_installed_only', 'true')
+    localStorage.setItem('pkg_group_by_repo', 'true')
+    renderPackageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Featured only')).toBeTruthy()
+    })
+    const featured = screen.getByText('Featured only').closest('label').querySelector('input')
+    const installed = screen.getByText('Installed only').closest('label').querySelector('input')
+    const grouped = screen.getByText('Group by repository').closest('label').querySelector('input')
+    expect(featured.checked).toBe(false)
+    expect(installed.checked).toBe(true)
+    expect(grouped.checked).toBe(true)
   })
 
   // --- Install flow with version select ---
@@ -1581,268 +1723,6 @@ describe('PackageManagement', () => {
 
     // getLastResponses should have been called since current responses were empty.
     expect(mockClient.getLastResponses).toHaveBeenCalledWith('core', 'redis')
-  })
-
-  // --- Featured repositories card ---
-
-  it('renders featured card when uninstalled featured packages exist', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('featured-card')).toBeTruthy()
-      expect(screen.getByText('Featured Packages')).toBeTruthy()
-    })
-  })
-
-  it('shows no-featured-packages message when no featured packages exist', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
-    })
-    const el = screen.getByTestId('no-featured-packages')
-    expect(el.textContent).toContain('No featured packages.')
-    const link = el.querySelector('a')
-    expect(link).toBeTruthy()
-    expect(link.href).toBe('https://github.com/town-os/default-packages')
-    expect(link.target).toBe('_blank')
-    expect(screen.queryByTestId('featured-card')).toBeNull()
-  })
-
-  it('shows featured card even when all featured packages are installed', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0', service_status: 'active' },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('featured-card')).toBeTruthy()
-    })
-    const card = screen.getByTestId('featured-card')
-    expect(card.textContent).toContain('nginx')
-    expect(card.textContent).toContain('active')
-  })
-
-  it('shows featured package name and description in the card', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      const card = screen.getByTestId('featured-card')
-      expect(card.textContent).toContain('mosquitto')
-      expect(card.textContent).toContain('MQTT broker')
-    })
-  })
-
-  it('shows Install button for uninstalled featured packages', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      const card = screen.getByTestId('featured-card')
-      const installBtn = card.querySelector('button')
-      expect(installBtn).toBeTruthy()
-      expect(installBtn.textContent).toContain('Install')
-    })
-  })
-
-  it('triggers install flow when featured card Install button is clicked', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('featured-card')).toBeTruthy()
-    })
-    const card = screen.getByTestId('featured-card')
-    const installBtn = card.querySelector('button')
-    fireEvent.click(installBtn)
-    await waitFor(() => {
-      expect(mockClient.listPackageVersions).toHaveBeenCalledWith('mosquitto')
-    })
-  })
-
-  it('shows both installed and uninstalled featured packages in the card', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: true, installed_version: '1.0', service_status: 'active' },
-            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      const card = screen.getByTestId('featured-card')
-      expect(card.textContent).toContain('nginx')
-      expect(card.textContent).toContain('Web server')
-      expect(card.textContent).toContain('active')
-      expect(card.textContent).toContain('mosquitto')
-      expect(card.textContent).toContain('MQTT broker')
-      expect(card.textContent).toContain('Install')
-    })
-  })
-
-  it('featured card has yellow background styling', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      const card = screen.getByTestId('featured-card')
-      expect(card.className).toContain('bg-yellow-50/80')
-    })
-  })
-
-  it('shows multiple uninstalled featured packages from different repos', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'nginx', version: '1.0', description: 'Web server', installed: false },
-          ],
-        },
-        {
-          repo: 'extras',
-          packages: [
-            { repo: 'extras', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      const card = screen.getByTestId('featured-card')
-      expect(card.textContent).toContain('nginx')
-      expect(card.textContent).toContain('mosquitto')
-    })
-  })
-
-  it('featured card is positioned next to the tab strip in a flex row', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('featured-card')).toBeTruthy()
-    })
-    const card = screen.getByTestId('featured-card')
-    const flexRow = card.parentElement
-    expect(flexRow.className).toContain('flex')
-    expect(flexRow.className).toContain('items-start')
-    expect(flexRow.className).toContain('justify-between')
-    expect(flexRow.className).toContain('gap-6')
-    // The TabsList (containing Packages/Repositories triggers) should be a sibling
-    expect(flexRow.querySelector('[role="tablist"]')).toBeTruthy()
-  })
-
-  it('empty state is positioned next to the tab strip in a flex row', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
-    })
-    const el = screen.getByTestId('no-featured-packages')
-    const flexRow = el.parentElement
-    expect(flexRow.className).toContain('flex')
-    expect(flexRow.querySelector('[role="tablist"]')).toBeTruthy()
-  })
-
-  it('empty state link has noopener noreferrer for security', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
-    })
-    const link = screen.getByTestId('no-featured-packages').querySelector('a')
-    expect(link.rel).toBe('noopener noreferrer')
-  })
-
-  it('featured card remains visible when switching to Repositories tab', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() =>
-      Promise.resolve([
-        {
-          repo: 'core',
-          packages: [
-            { repo: 'core', name: 'mosquitto', version: '2.0', description: 'MQTT broker', installed: false },
-          ],
-        },
-      ]),
-    )
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('featured-card')).toBeTruthy()
-    })
-    // Switch to Repositories tab
-    fireEvent.click(screen.getByRole('tab', { name: 'Repositories' }))
-    // Featured card should still be visible since it's outside tab content
-    expect(screen.getByTestId('featured-card')).toBeTruthy()
-  })
-
-  it('no-featured-packages message remains visible when switching to Repositories tab', async () => {
-    mockClient.listFeaturedPackages.mockImplementation(() => Promise.resolve([]))
-    renderPackageManagement()
-    await waitFor(() => {
-      expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
-    })
-    fireEvent.click(screen.getByRole('tab', { name: 'Repositories' }))
-    expect(screen.getByTestId('no-featured-packages')).toBeTruthy()
   })
 
   it('validation error does not appear on fresh dialog open', async () => {

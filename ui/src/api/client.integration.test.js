@@ -720,15 +720,6 @@ describe('SystemControllerClient integration', () => {
       expect(entry).toBeUndefined()
     })
 
-    it('listFeaturedPackages does not create an audit log entry', async () => {
-      const resp = await client.authenticate('admin', 'adminpass')
-      client.setToken(resp.token)
-      await client.listFeaturedPackages()
-      const page = await client.listAuditLog({ limit: 200 })
-      const entry = page.entries.find((e) => e.path === '/packages/featured')
-      expect(entry).toBeUndefined()
-    })
-
     it('listPages does not create an audit log entry', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
@@ -1475,6 +1466,47 @@ describe('SystemControllerClient integration', () => {
       if (result.total_count > 1) {
         expect(result.has_more).toBe(true)
         expect(result.total_pages).toBeGreaterThan(1)
+      }
+    })
+  })
+
+  // --- Package featured_only filter ---
+
+  describe('package featured_only filter', () => {
+    it('returns only featured packages when featuredOnly is true', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      // List all packages first
+      const all = await client.listPackages()
+      expect(all.entries.length).toBeGreaterThan(0)
+
+      // List with featured_only=true: all returned entries should have featured=true
+      const featured = await client.listPackages(undefined, undefined, undefined, undefined, undefined, undefined, true)
+      for (const pkg of featured.entries) {
+        expect(pkg.featured).toBe(true)
+      }
+      // Should have fewer or equal entries compared to the full list
+      expect(featured.entries.length).toBeLessThanOrEqual(all.entries.length)
+      expect(featured.total_count).toBeLessThanOrEqual(all.total_count)
+    })
+
+    it('intersects with installed_only filter', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const installedOnly = await client.listPackages(undefined, undefined, undefined, undefined, undefined, true)
+      const featuredOnly = await client.listPackages(undefined, undefined, undefined, undefined, undefined, undefined, true)
+      const both = await client.listPackages(undefined, undefined, undefined, undefined, undefined, true, true)
+
+      // Combined filter should be <= either individual filter
+      expect(both.total_count).toBeLessThanOrEqual(installedOnly.total_count)
+      expect(both.total_count).toBeLessThanOrEqual(featuredOnly.total_count)
+
+      // Every entry in the combined result must be both installed and featured
+      for (const pkg of both.entries) {
+        expect(pkg.installed).toBe(true)
+        expect(pkg.featured).toBe(true)
       }
     })
   })
