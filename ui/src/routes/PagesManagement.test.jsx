@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 const mockListPages = vi.fn(() =>
@@ -785,13 +785,13 @@ describe('PagesManagement provisioning behavior', () => {
     vi.useFakeTimers()
 
     fireEvent.click(screen.getByText('Create'))
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(screen.getByText('Provisioning...')).toBeTruthy()
 
     // Advance past the 2s poll delay
-    await vi.advanceTimersByTimeAsync(2000)
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(screen.queryByText('Provisioning...')).toBeNull()
 
@@ -838,12 +838,12 @@ describe('PagesManagement provisioning behavior', () => {
     vi.useFakeTimers()
 
     fireEvent.click(screen.getByText('Create'))
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(screen.getByText('Provisioning...')).toBeTruthy()
 
-    await vi.advanceTimersByTimeAsync(2000)
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(screen.queryByText('Provisioning...')).toBeNull()
 
@@ -959,12 +959,12 @@ describe('PagesManagement provisioning behavior', () => {
     vi.useFakeTimers()
 
     fireEvent.click(screen.getByText('Create'))
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(screen.getByText('Provisioning...')).toBeTruthy()
 
-    await vi.advanceTimersByTimeAsync(2000)
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     // Dialog should close after error detected
     expect(screen.queryByText('Provisioning...')).toBeNull()
@@ -1014,12 +1014,12 @@ describe('PagesManagement provisioning behavior', () => {
     vi.useFakeTimers()
 
     fireEvent.click(screen.getByText('Create'))
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(screen.getByText('Provisioning...')).toBeTruthy()
 
-    await vi.advanceTimersByTimeAsync(2000)
-    await vi.advanceTimersByTimeAsync(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(screen.queryByText('Provisioning...')).toBeNull()
 
