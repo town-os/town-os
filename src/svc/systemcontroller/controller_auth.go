@@ -170,6 +170,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		path := c.Request().URL.Path
 
 		excluded := map[string]bool{
+			"/":                             true,
 			"/account/sessions":             true,
 			"/account/me":                   true,
 			"/status/ping":                  true,
