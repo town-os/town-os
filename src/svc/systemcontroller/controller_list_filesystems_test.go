@@ -177,6 +177,7 @@ func TestListFilesystemsExcludesReserved(t *testing.T) {
 		storage.SubvolInfo{Name: "installed/core/nginx/1.0/data", ID: 102},
 		storage.SubvolInfo{Name: "uninstalled", ID: 200},
 		storage.SubvolInfo{Name: "uninstalled/core/nginx", ID: 201},
+		storage.SubvolInfo{Name: "user", ID: 300},
 	)
 	controller.Lock.Unlock()
 
@@ -231,7 +232,7 @@ func TestListFilesystemsExcludesReserved(t *testing.T) {
 
 	// Verify root subvolumes are excluded.
 	for _, f := range fsResult.Entries {
-		if f.Name == "installed" || f.Name == "uninstalled" {
+		if f.Name == "installed" || f.Name == "uninstalled" || f.Name == "user" {
 			t.Fatalf("expected root subvolume %q to be hidden, but it was visible", f.Name)
 		}
 	}

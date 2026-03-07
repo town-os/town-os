@@ -55,9 +55,21 @@ func run() (err error) {
 		}
 	}()
 
+	// Ensure required directories exist.
+	for _, d := range []string{*btrfsPath, *networkStatePath} {
+		if d != "" {
+			if err := os.MkdirAll(d, 0750); err != nil {
+				return fmt.Errorf("create directory %s: %w", d, err)
+			}
+		}
+	}
+
 	dbFile := filepath.Join(dir, "test.db")
 	if *dbPath != "" {
 		dbFile = *dbPath
+		if err := os.MkdirAll(filepath.Dir(dbFile), 0750); err != nil {
+			return fmt.Errorf("create db directory: %w", err)
+		}
 	}
 
 	db, err := account.OpenDB(dbFile)

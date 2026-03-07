@@ -21,8 +21,12 @@ func TestRemoveFilesystem(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 0 {
-		t.Fatalf("expected 0 filesystems after removal, got %d", len(fs))
+	// Only the "user" root subvolume should remain.
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 filesystem after removal (user root), got %d", len(fs))
+	}
+	if fs[0].Name != "user" {
+		t.Fatalf("expected remaining filesystem %q, got %q", "user", fs[0].Name)
 	}
 }
 
@@ -41,12 +45,19 @@ func TestRemoveFilesystemPreservesOthers(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(fs))
+	// "user" root + "user/keep" = 2
+	if len(fs) != 2 {
+		t.Fatalf("expected 2 filesystems, got %d", len(fs))
 	}
 
-	if fs[0].Name != "keep" {
-		t.Fatalf("expected remaining filesystem %q, got %q", "keep", fs[0].Name)
+	found := false
+	for _, f := range fs {
+		if f.Name == "user/keep" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected remaining filesystem %q to be present", "user/keep")
 	}
 }
 

@@ -183,8 +183,8 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 9 {
-		t.Fatalf("expected 9 filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 10 {
+		t.Fatalf("expected 10 filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -201,17 +201,20 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	if fs[4].Name != "vm-images" {
 		t.Fatalf("expected root subvolume vm-images, got %s", fs[4].Name)
 	}
-	if fs[5].Name != "installed/repo-a" {
-		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[5].Name)
+	if fs[5].Name != "user" {
+		t.Fatalf("expected root subvolume user, got %s", fs[5].Name)
 	}
-	if fs[6].Name != "installed/repo-a/nginx" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[6].Name)
+	if fs[6].Name != "installed/repo-a" {
+		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[6].Name)
 	}
-	if fs[7].Name != "installed/repo-a/nginx/1.0" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[7].Name)
+	if fs[7].Name != "installed/repo-a/nginx" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[7].Name)
 	}
-	if fs[8].Name != "installed/repo-a/nginx/1.0/data" {
-		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[8].Name)
+	if fs[8].Name != "installed/repo-a/nginx/1.0" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[8].Name)
+	}
+	if fs[9].Name != "installed/repo-a/nginx/1.0/data" {
+		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[9].Name)
 	}
 }
 
@@ -704,8 +707,8 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 5 {
-		t.Fatalf("expected 5 root filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 6 {
+		t.Fatalf("expected 6 root filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -721,6 +724,9 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 	}
 	if fs[4].Name != "vm-images" {
 		t.Fatalf("expected root subvolume vm-images, got %s", fs[4].Name)
+	}
+	if fs[5].Name != "user" {
+		t.Fatalf("expected root subvolume user, got %s", fs[5].Name)
 	}
 
 	// No packages installed, so no systemd calls should have been made.

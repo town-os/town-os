@@ -27,6 +27,5 @@ FROM runtime-deps
 COPY --from=go-builder /systemcontroller /systemcontroller
 COPY --from=go-builder /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=ui-builder /ui/dist /ui
-RUN mkdir -p /var/run/town-os
 EXPOSE 5309
 CMD ["/systemcontroller"]

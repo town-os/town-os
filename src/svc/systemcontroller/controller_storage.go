@@ -14,12 +14,13 @@ const (
 	PackagesVolumePrefix    = "installed"
 	UninstalledVolumePrefix = "uninstalled"
 	PagesVolumePrefix       = "pages"
+	UserVolumePrefix        = "user"
 )
 
 // isReservedFilesystem returns true if the given name is one of the
 // system-managed volume prefixes that users must not create, modify, or delete.
 func isReservedFilesystem(name string) bool {
-	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume {
+	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix {
 		return true
 	}
 	if strings.HasPrefix(name, PackagesVolumePrefix+"/") {
@@ -35,6 +36,9 @@ func isReservedFilesystem(name string) bool {
 		return true
 	}
 	if strings.HasPrefix(name, VMImagesSubvolume+"/") {
+		return true
+	}
+	if strings.HasPrefix(name, UserVolumePrefix+"/") {
 		return true
 	}
 	return false
@@ -62,7 +66,7 @@ func stripRepoComponent(path string) string {
 // Root subvolumes (installed, uninstalled, empty name) return empty state to
 // signal they should be skipped.
 func classifyFilesystem(name string) (state, displayName string) {
-	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume {
+	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix {
 		return "", name
 	}
 
@@ -91,7 +95,12 @@ func classifyFilesystem(name string) (state, displayName string) {
 		return "uninstalled", stripRepoComponent(after)
 	}
 
-	return "user", name
+	userPrefix := UserVolumePrefix + "/"
+	if after, ok := strings.CutPrefix(name, userPrefix); ok {
+		return "user", after
+	}
+
+	return "", name
 }
 
 // serviceNameFromVolumePath derives the systemd service unit name from a
@@ -129,6 +138,24 @@ type ModifyFilesystemRequest struct {
 	Filesystem storage.Filesystem `json:"filesystem"`
 }
 
+// resolveArchiveSubvolume applies the user/ prefix to subvolume names that
+// don't already carry an internal prefix (installed/, uninstalled/, etc.).
+func resolveArchiveSubvolume(name string) string {
+	for _, prefix := range []string{
+		PackagesVolumePrefix + "/",
+		UninstalledVolumePrefix + "/",
+		ArchivesSubvolume + "/",
+		PagesVolumePrefix + "/",
+		VMImagesSubvolume + "/",
+		UserVolumePrefix + "/",
+	} {
+		if strings.HasPrefix(name, prefix) {
+			return name
+		}
+	}
+	return fmt.Sprintf("%s/%s", UserVolumePrefix, name)
+}
+
 // --- Storage handlers ---
 
 func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
@@ -148,6 +175,7 @@ func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 	}
 
 	fs.State = ""
+	fs.Name = fmt.Sprintf("%s/%s", UserVolumePrefix, fs.Name)
 
 	if err := s.Controller.GetStorage().CreateFilesystem(fs); err != nil {
 		return err
@@ -177,7 +205,7 @@ func (s *SystemControllerHandlers) removeFilesystem(c *echo.Context) error {
 		return storage.ErrReservedFilesystem
 	}
 
-	if err := s.Controller.GetStorage().RemoveFilesystem(fs.Name); err != nil {
+	if err := s.Controller.GetStorage().RemoveFilesystem(fmt.Sprintf("%s/%s", UserVolumePrefix, fs.Name)); err != nil {
 		return err
 	}
 
@@ -203,6 +231,11 @@ func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
 
 	req.Filesystem.State = ""
 
+	if !isPackageVolume(req.Name) {
+		req.Name = fmt.Sprintf("%s/%s", UserVolumePrefix, req.Name)
+		req.Filesystem.Name = fmt.Sprintf("%s/%s", UserVolumePrefix, req.Filesystem.Name)
+	}
+
 	if err := s.Controller.GetStorage().ModifyFilesystem(req.Name, req.Filesystem); err != nil {
 		return err
 	}
@@ -219,7 +252,12 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 		return err
 	}
 
-	list, err := s.Controller.GetStorage().ListFilesystems(fs.Name)
+	prefix := fs.Name
+	if prefix != "" {
+		prefix = fmt.Sprintf("%s/%s", UserVolumePrefix, prefix)
+	}
+
+	list, err := s.Controller.GetStorage().ListFilesystems(prefix)
 	if err != nil {
 		return err
 	}

@@ -17,12 +17,19 @@ func TestCreateFilesystem(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(fs))
+	// "user" root subvolume + "user/test-vol" = 2
+	if len(fs) != 2 {
+		t.Fatalf("expected 2 filesystems, got %d", len(fs))
 	}
 
-	if fs[0].Name != "test-vol" {
-		t.Fatalf("expected filesystem name %q, got %q", "test-vol", fs[0].Name)
+	found := false
+	for _, f := range fs {
+		if f.Name == "user/test-vol" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected filesystem %q to be present", "user/test-vol")
 	}
 }
 
@@ -37,8 +44,9 @@ func TestCreateFilesystemMultiple(t *testing.T) {
 	}
 
 	fs := controller.GetFilesystems()
-	if len(fs) != 3 {
-		t.Fatalf("expected 3 filesystems, got %d", len(fs))
+	// 3 user volumes + "user" root subvolume = 4
+	if len(fs) != 4 {
+		t.Fatalf("expected 4 filesystems, got %d", len(fs))
 	}
 }
 
@@ -78,6 +86,7 @@ func TestCreateFilesystemRejectsReserved(t *testing.T) {
 		"uninstalled",
 		"uninstalled/nginx",
 		"uninstalled/nginx/1.0/data",
+		"user",
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name})

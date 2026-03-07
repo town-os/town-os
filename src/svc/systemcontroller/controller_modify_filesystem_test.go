@@ -20,8 +20,8 @@ func TestModifyFilesystemQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem quota: %v", err)
 	}
 
-	if controller.Quotas["test-vol"] != 1024 {
-		t.Fatalf("expected quota 1024, got %d", controller.Quotas["test-vol"])
+	if controller.Quotas["user/test-vol"] != 1024 {
+		t.Fatalf("expected quota 1024, got %d", controller.Quotas["user/test-vol"])
 	}
 }
 
@@ -66,8 +66,8 @@ func TestModifyFilesystemRenameAndQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem: %v", err)
 	}
 
-	if controller.Quotas["renamed"] != 2048 {
-		t.Fatalf("expected quota 2048 on renamed, got %d", controller.Quotas["renamed"])
+	if controller.Quotas["user/renamed"] != 2048 {
+		t.Fatalf("expected quota 2048 on renamed, got %d", controller.Quotas["user/renamed"])
 	}
 }
 

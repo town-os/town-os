@@ -27,7 +27,7 @@ COPY --from=builder /integration-test /integration-test
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 COPY integration/testdata/town-os-package--repo-test-1.0.service /etc/systemd/system/
 RUN systemctl enable town-os-systemcontroller.service town-os-package--repo-test-1.0.service
-RUN mkdir -p /test /town-os /data/repos /data/db /var/run/town-os /etc/containers/registries.conf.d \
+RUN mkdir -p /test /etc/containers/registries.conf.d \
     && mkdir -p /data/repos/repo/packages/test /data/repos/installed/repo/test \
     && printf 'image: test:1.0\n' > /data/repos/repo/packages/test/1.0.yaml \
     && ln /data/repos/repo/packages/test/1.0.yaml /data/repos/installed/repo/test/1.0.yaml

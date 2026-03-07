@@ -672,6 +672,8 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		}()
 	}
 
+	subvolume = resolveArchiveSubvolume(subvolume)
+
 	br := bufio.NewReader(file)
 	if err := s.streamUnpackToSubvolume(ctx, br, header.Filename, subvolume, subpath); err != nil {
 		if errors.Is(err, ErrArchiveTooLarge) {
@@ -734,7 +736,7 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 	}
 
 	basePath := s.Controller.GetBtrfsBasePath()
-	subvolPath, err := safeSubvolumePath(basePath, req.Subvolume)
+	subvolPath, err := safeSubvolumePath(basePath, resolveArchiveSubvolume(req.Subvolume))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
