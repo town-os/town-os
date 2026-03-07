@@ -315,10 +315,7 @@ func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, err
 
 	compiled := make(map[string]string, len(i.Notes))
 	for k, note := range i.Notes {
-		v := note.Value
-		for rk, rv := range responses {
-			v = applyTemplate(v, rk, rv)
-		}
+		v := applyTemplates(note.Value, responses)
 		if err := ValidateNote(v, note.Type); err != nil {
 			return nil, fmt.Errorf("note %q: %w", k, err)
 		}
@@ -346,6 +343,52 @@ func applyTemplate(input string, v string, repl string) string {
 				}
 
 				tv = ""
+			} else {
+				inside = true
+			}
+		case inside:
+			tv = string(append([]byte(tv), input[x]))
+		default:
+			out = string(append([]byte(out), input[x]))
+		}
+	}
+
+	if inside {
+		out += fmt.Sprintf("%c%s", TemplateChar, tv)
+	}
+
+	return out
+}
+
+// applyTemplates resolves all template variables in a single pass, avoiding
+// re-parsing of @ characters introduced by earlier substitutions. Consecutive
+// @@ are treated as a literal @ followed by the start of a new template
+// variable (e.g. "git@@domain@" → "git@" + template "domain").
+func applyTemplates(input string, responses Responses) string {
+	var inside bool
+	tv := ""
+	out := ""
+
+	for x := range len(input) {
+		switch {
+		case input[x] == TemplateChar:
+			if inside {
+				if tv == "" {
+					// Consecutive @@ — emit a literal @ and stay
+					// inside so the next characters form the real
+					// variable name (e.g. "git@@domain@" → "git@" + @domain@).
+					out += string(TemplateChar)
+				} else {
+					inside = false
+
+					if repl, ok := responses[tv]; ok {
+						out += repl
+					} else {
+						out += fmt.Sprintf("%c%s%c", TemplateChar, tv, TemplateChar)
+					}
+
+					tv = ""
+				}
 			} else {
 				inside = true
 			}

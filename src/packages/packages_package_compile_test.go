@@ -972,6 +972,26 @@ func TestCompileNotes(t *testing.T) {
 		}
 	})
 
+	t.Run("ssh url with adjacent at signs", func(t *testing.T) {
+		input := InputPackage{
+			Image:       InputPackageImage{URL: "gitea:1.0"},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{},
+			Notes: map[string]Note{
+				"SSH": {Value: "ssh://git@@domain@:@sshport@", Type: NoteURL},
+			},
+		}
+		notes, err := input.CompileNotes(Responses{"domain": "example.com", "sshport": "2222"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if notes["SSH"] != "ssh://git@example.com:2222" {
+			t.Fatalf("expected ssh://git@example.com:2222, got %s", notes["SSH"])
+		}
+	})
+
 	t.Run("untyped note passthrough", func(t *testing.T) {
 		input := InputPackage{
 			Image:       InputPackageImage{URL: "nginx:1.0"},

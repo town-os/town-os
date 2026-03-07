@@ -50,6 +50,64 @@ func TestApplyTemplateAdditional(t *testing.T) {
 	}
 }
 
+func TestApplyTemplates(t *testing.T) {
+	tests := map[string]struct {
+		input     string
+		responses Responses
+		expected  string
+	}{
+		"basic": {
+			"http://@host@:@port@",
+			Responses{"host": "example.com", "port": "8080"},
+			"http://example.com:8080",
+		},
+		"no match": {
+			"@unknown@",
+			Responses{"host": "x"},
+			"@unknown@",
+		},
+		"ssh url with adjacent at signs": {
+			"ssh://git@@domain@:@sshport@",
+			Responses{"domain": "example.com", "sshport": "2222"},
+			"ssh://git@example.com:2222",
+		},
+		"double at literal": {
+			"@@",
+			Responses{"v": "x"},
+			"@@",
+		},
+		"triple at": {
+			"@@@v@",
+			Responses{"v": "X"},
+			"@@X",
+		},
+		"plain text": {
+			"no templates",
+			Responses{"v": "x"},
+			"no templates",
+		},
+		"unclosed template": {
+			"@trailing",
+			Responses{"trailing": "x"},
+			"@trailing",
+		},
+		"empty responses": {
+			"@v@",
+			Responses{},
+			"@v@",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := applyTemplates(tt.input, tt.responses)
+			if got != tt.expected {
+				t.Fatalf("expected %q, got %q", tt.expected, got)
+			}
+		})
+	}
+}
+
 func TestStrToPort(t *testing.T) {
 	tests := map[string]struct {
 		input   string
