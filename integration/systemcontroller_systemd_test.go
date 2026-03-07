@@ -727,7 +727,7 @@ func TestSystemControllerListUnitsDescriptionEnrichment(t *testing.T) {
 		{Name: "town-os-package--repo-redis-7.0.service", ActiveState: "active"},
 	}
 
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 	inst := packages.InitMockInstallManager()
 	inst.Installed = []packages.PackageIdentity{
 		{Repo: "repo", Name: "nginx", Version: "1.0"},

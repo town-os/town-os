@@ -114,7 +114,7 @@ func TestArchiveUploadAndDownload(t *testing.T) {
 	}
 
 	// Verify the file was unpacked on disk.
-	got, err := os.ReadFile(filepath.Join("/data/btrfs", subvol, "hello.txt"))
+	got, err := os.ReadFile(filepath.Join("/town-os", subvol, "hello.txt"))
 	if err != nil {
 		t.Fatalf("ReadFile hello.txt: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestArchiveUploadWithSubpath(t *testing.T) {
 		t.Fatalf("UploadArchive with subpath: %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join("/data/btrfs", subvol, "deep/sub/nested.txt"))
+	got, err := os.ReadFile(filepath.Join("/town-os", subvol, "deep/sub/nested.txt"))
 	if err != nil {
 		t.Fatalf("ReadFile nested.txt: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
 		t.Fatalf("UploadArchive on installed volume: %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join("/data/btrfs", subvol, "pkg-data.txt"))
+	got, err := os.ReadFile(filepath.Join("/town-os", subvol, "pkg-data.txt"))
 	if err != nil {
 		t.Fatalf("ReadFile pkg-data.txt: %v", err)
 	}

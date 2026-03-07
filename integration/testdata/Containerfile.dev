@@ -15,6 +15,6 @@ COPY --from=town-os /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=town-os /ui /ui
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 RUN systemctl enable town-os-systemcontroller.service
-RUN mkdir -p /data/btrfs /data/repos /data/db /var/run/town-os
+RUN mkdir -p /town-os /data/repos /data/db /var/run/town-os
 EXPOSE 5309
 CMD ["/lib/systemd/systemd"]

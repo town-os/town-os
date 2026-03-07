@@ -23,7 +23,7 @@ case "$1" in
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-extras.git" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
-      -v "$(cat town-os.mount):/data/btrfs:z" \
+      -v "$(cat town-os.mount):/town-os:z" \
       -v "$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
       --name="${PODMAN_CONTAINER}" "${PODMAN_TEST_IMAGE}"
     substep "Waiting for systemd to be ready"
@@ -50,7 +50,7 @@ case "$1" in
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-extras.git" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
-      -v "$(cat town-os.mount):/data/btrfs:z" \
+      -v "$(cat town-os.mount):/town-os:z" \
       -v "$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
       --name="${PODMAN_UI_BACKEND}" "${PODMAN_TEST_IMAGE}"
     substep "Waiting for systemd to be ready"

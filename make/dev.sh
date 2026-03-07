@@ -14,7 +14,7 @@ case "$1" in
       -e TOWN_OS_NETWORK_MODE=host \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
-      -v "$(cat town-os-dev.mount):/data/btrfs:z" \
+      -v "$(cat town-os-dev.mount):/town-os:z" \
       -v "$(pwd)/dev-data:/data/db:z" \
       -v "$(pwd)/dev-repos:/data/repos:z" \
       --name "${PODMAN_DEV_CONTAINER}" "${PODMAN_DEV_IMAGE}"

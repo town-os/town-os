@@ -323,7 +323,7 @@ func configureRouter(sc systemControllerBackend) http.Handler {
 	e.Use(middleware.RequestLogger())
 	allowedHosts := sc.GetAllowedHosts()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		UnsafeAllowOriginFunc: func(_ *echo.Context, origin string) (string, bool, error) {
+		UnsafeAllowOriginFunc: func(c *echo.Context, origin string) (string, bool, error) {
 			if os.Getenv("DEBUG") != "" {
 				return origin, true, nil
 			}
@@ -331,9 +331,21 @@ func configureRouter(sc systemControllerBackend) http.Handler {
 			if err != nil {
 				return "", false, nil //nolint:nilerr // invalid origin is rejected, not an error
 			}
-			host := u.Hostname()
+			originHost := u.Hostname()
+
+			// Allow cross-port requests from the same hostname the
+			// browser used to reach this server.
+			if reqHost := c.Request().Host; reqHost != "" {
+				if h, _, err := net.SplitHostPort(reqHost); err == nil {
+					reqHost = h
+				}
+				if strings.EqualFold(originHost, reqHost) {
+					return origin, true, nil
+				}
+			}
+
 			for _, h := range allowedHosts {
-				if strings.EqualFold(host, h) {
+				if strings.EqualFold(originHost, h) {
 					return origin, true, nil
 				}
 			}

@@ -1,6 +1,7 @@
 package systemcontroller
 
 import (
+	"log/slog"
 	"time"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -84,7 +85,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	if st := s.Controller.GetStorage(); st != nil {
 		fs, err := st.ListFilesystems("")
 		if err != nil {
-			return err
+			slog.Error("listing filesystems", "error", err)
 		}
 		userCount := 0
 		installedVols := 0

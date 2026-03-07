@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -452,6 +453,10 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 	// produce path-relative names that don't match the expected prefix.
 	info, err := b.Controller.SubvolList(b.BasePath)
 	if err != nil {
+		if errors.Is(err, ErrMountNotFound) {
+			slog.Warn("listing filesystems: no btrfs mount point found", "path", b.BasePath)
+			return []Filesystem{}, nil
+		}
 		return nil, err
 	}
 

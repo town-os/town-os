@@ -37,7 +37,7 @@ func initSystemControllerTest(t *testing.T) *systemcontroller.SystemdClient {
 func initSystemControllerTestWithStorage(t *testing.T) (*systemcontroller.SystemdClient, *storage.BtrFS) {
 	t.Helper()
 
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -143,7 +143,7 @@ func initSystemControllerInstallSystemdTest(t *testing.T) (*systemcontroller.Sys
 func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager, installed ...packages.PackageIdentity) *systemcontroller.SystemdClient {
 	t.Helper()
 
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 	inst := packages.InitMockInstallManager()
 	inst.Installed = installed
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: btr, Installer: inst, Systemd: sd})
@@ -212,7 +212,7 @@ func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdCli
 		t.Fatalf("InitSettingsManager: %v", err)
 	}
 
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:     btr,
 		AccountMgr:  mgr,
@@ -435,10 +435,10 @@ func initSystemControllerMonitoringTest(t *testing.T) (*systemcontroller.Systemd
 
 func initSystemControllerTestWithBtrfsBase(t *testing.T) *systemcontroller.SystemdClient {
 	t.Helper()
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       btr,
-		BtrfsBasePath: "/data/btrfs",
+		BtrfsBasePath: "/town-os",
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 	c, err := ts.Client()
@@ -451,10 +451,10 @@ func initSystemControllerTestWithBtrfsBase(t *testing.T) *systemcontroller.Syste
 func initSystemControllerTestWithStorageAndBtrfsBase(t *testing.T) (*systemcontroller.SystemdClient, *storage.BtrFS) {
 	t.Helper()
 
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       btr,
-		BtrfsBasePath: "/data/btrfs",
+		BtrfsBasePath: "/town-os",
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 

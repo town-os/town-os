@@ -17,7 +17,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 		External:                 packages.PortMap{8080: 80},
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{"data": {Mountpoint: "/var/data"}},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -39,7 +39,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(svc, "-e NGINX_HOST=example.com") {
 		t.Fatal("service missing environment variable")
 	}
-	if !strings.Contains(svc, "-v /data/btrfs/installed/test-repo/nginx/1.0/data:/var/data:rw,z") {
+	if !strings.Contains(svc, "-v /town-os/installed/test-repo/nginx/1.0/data:/var/data:rw,z") {
 		t.Fatalf("service missing volume mount, got:\n%s", svc)
 	}
 	if !strings.Contains(svc, "systemctl stop town-os-package--test-repo-nginx-1.0-8080-tcp.socket") {
@@ -107,7 +107,7 @@ func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 		External:                 packages.PortMap{8080: 80, 8443: 443},
 		Internal:                 packages.PortMap{9090: 9090},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -155,7 +155,7 @@ func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{6379: 6379},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -195,7 +195,7 @@ func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -247,7 +247,7 @@ func TestGeneratePackageUnitsEnvironmentSorted(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -396,7 +396,7 @@ func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{6379: 6379},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 		NetworkMode:              "host",
@@ -424,7 +424,7 @@ func TestGeneratePackageUnitsCommand(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{6379: 6379},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -464,7 +464,7 @@ func TestGeneratePackageUnitsCommandWithHostNetwork(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{6379: 6379},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 		NetworkMode:              "host",
@@ -500,7 +500,7 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 			"data":   {Mountpoint: "/var/lib/data"},
 			"config": {Mountpoint: "/etc/myapp"},
 		},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -509,8 +509,8 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 	svc := units.Service.Content
 
 	// Volumes should be sorted by name (config before data).
-	configIdx := strings.Index(svc, "/data/btrfs/installed/test-repo/myapp/1.0/config:/etc/myapp:rw,z")
-	dataIdx := strings.Index(svc, "/data/btrfs/installed/test-repo/myapp/1.0/data:/var/lib/data:rw,z")
+	configIdx := strings.Index(svc, "/town-os/installed/test-repo/myapp/1.0/config:/etc/myapp:rw,z")
+	dataIdx := strings.Index(svc, "/town-os/installed/test-repo/myapp/1.0/data:/var/lib/data:rw,z")
 
 	if configIdx == -1 {
 		t.Fatalf("service missing config volume, got:\n%s", svc)
@@ -534,7 +534,7 @@ func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 		External:                 packages.PortMap{8080: 80},
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -569,7 +569,7 @@ func TestGeneratePackageUnitsNetworkControllerHostMode(t *testing.T) {
 		External:                 packages.PortMap{8080: 80},
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 		NetworkMode:              "host",
@@ -606,7 +606,7 @@ func TestGeneratePackageUnitsInternalPortForwardingHostMode(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{9999: 3000},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 		NetworkMode:              "host",
@@ -645,7 +645,7 @@ func TestGeneratePackageUnitsInternalSamePortHostMode(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{6379: 6379},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 		NetworkMode:              "host",
@@ -675,7 +675,7 @@ func TestGeneratePackageUnitsInternalPortForwardingBridgeMode(t *testing.T) {
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{9999: 3000},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -710,14 +710,14 @@ func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
 			Volumes: map[string]packages.PackageVolume{
 				"data": {Mountpoint: "/data", UID: &uid, GID: &gid},
 			},
-			BtrfsBase:                "/data/btrfs",
+			BtrfsBase:                "/town-os",
 			NetworkControllerBinPath: "/town-os-networkcontroller",
 		}
 
 		units := GeneratePackageUnits(cfg)
 		svc := units.Service.Content
 
-		if !strings.Contains(svc, "ExecStartPre=/bin/chown -R 1000:1000 /data/btrfs/installed/test-repo/mattermost/1.0/data") {
+		if !strings.Contains(svc, "ExecStartPre=/bin/chown -R 1000:1000 /town-os/installed/test-repo/mattermost/1.0/data") {
 			t.Fatalf("service missing chown ExecStartPre, got:\n%s", svc)
 		}
 	})
@@ -734,7 +734,7 @@ func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
 			Volumes: map[string]packages.PackageVolume{
 				"data": {Mountpoint: "/data"},
 			},
-			BtrfsBase:                "/data/btrfs",
+			BtrfsBase:                "/town-os",
 			NetworkControllerBinPath: "/town-os-networkcontroller",
 		}
 
@@ -841,7 +841,7 @@ func TestGenerateServiceUnitWithDescription(t *testing.T) {
 		External:    packages.PortMap{},
 		Internal:    packages.PortMap{},
 		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
+		BtrfsBase:   "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 	}
 
@@ -866,7 +866,7 @@ func TestGenerateServiceUnitWithoutDescription(t *testing.T) {
 		External:    packages.PortMap{},
 		Internal:    packages.PortMap{},
 		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
+		BtrfsBase:   "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 	}
 
@@ -892,7 +892,7 @@ func TestGeneratePackageUnitsProtonCommand(t *testing.T) {
 			"app":        {Mountpoint: "/app"},
 			"compatdata": {Mountpoint: "/proton-data"},
 		},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -915,10 +915,10 @@ func TestGeneratePackageUnitsProtonCommand(t *testing.T) {
 	if !strings.Contains(svc, "-e STEAM_COMPAT_DATA_PATH=/proton-data") {
 		t.Fatalf("service missing STEAM_COMPAT_DATA_PATH env var, got:\n%s", svc)
 	}
-	if !strings.Contains(svc, "/data/btrfs/installed/test-repo/winapp/1.0/app:/app:rw,z") {
+	if !strings.Contains(svc, "/town-os/installed/test-repo/winapp/1.0/app:/app:rw,z") {
 		t.Fatalf("service missing app volume mount, got:\n%s", svc)
 	}
-	if !strings.Contains(svc, "/data/btrfs/installed/test-repo/winapp/1.0/compatdata:/proton-data:rw,z") {
+	if !strings.Contains(svc, "/town-os/installed/test-repo/winapp/1.0/compatdata:/proton-data:rw,z") {
 		t.Fatalf("service missing compatdata volume mount, got:\n%s", svc)
 	}
 
@@ -954,7 +954,7 @@ func TestGeneratePackageUnitsProtonWithArgs(t *testing.T) {
 			"app":        {Mountpoint: "/app"},
 			"compatdata": {Mountpoint: "/proton-data"},
 		},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}

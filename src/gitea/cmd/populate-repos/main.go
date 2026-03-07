@@ -60,7 +60,7 @@ func run() error {
 	ghUser := os.Getenv("TOWN_OS_REPO_USERNAME")
 	ghPass := os.Getenv("TOWN_OS_REPO_PASSWORD")
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 2 * time.Minute}
 	ctx := context.Background()
 
 	// Phase 1: Cache repos as bare clones from GitHub.

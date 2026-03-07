@@ -2,6 +2,7 @@ package systemcontroller
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -191,6 +192,38 @@ func TestHTTPPingNeedsSetup(t *testing.T) {
 	}
 	if ping.NeedsSetup {
 		t.Fatal("expected needs_setup=false with admin account present")
+	}
+}
+
+func TestHTTPPingContinuesOnListFilesystemsError(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ctrl, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("expected MockBtrFSController")
+	}
+	ctrl.SubvolListErr = errors.New("btrfs: filesystem error")
+
+	ts := InitTestServer(ServerConfig{Storage: mock})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping should succeed despite ListFilesystems error: %v", err)
+	}
+
+	if ping.Filesystems != 0 {
+		t.Fatalf("expected 0 filesystems, got %d", ping.Filesystems)
+	}
+	if ping.InstalledVolumes != 0 {
+		t.Fatalf("expected 0 installed volumes, got %d", ping.InstalledVolumes)
+	}
+	if ping.UninstalledVolumes != 0 {
+		t.Fatalf("expected 0 uninstalled volumes, got %d", ping.UninstalledVolumes)
 	}
 }
 

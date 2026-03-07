@@ -19,11 +19,12 @@ type Call struct {
 }
 
 type MockBtrFSController struct {
-	Lock        *sync.Mutex
-	Call        []Call
-	NextID      uint64
-	Filesystems []SubvolInfo
-	Quotas      map[string]uint64
+	Lock          *sync.Mutex
+	Call          []Call
+	NextID        uint64
+	Filesystems   []SubvolInfo
+	Quotas        map[string]uint64
+	SubvolListErr error
 }
 
 func InitBtrFSMockController() *MockBtrFSController {
@@ -173,6 +174,11 @@ func (m *MockBtrFSController) subvolListLocked(name string) []SubvolInfo {
 func (m *MockBtrFSController) SubvolList(name string) ([]SubvolInfo, error) {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
+
+	if m.SubvolListErr != nil {
+		m.addCallLocked("SubvolList", m.SubvolListErr, name)
+		return nil, m.SubvolListErr
+	}
 
 	info := m.subvolListLocked(name)
 	m.addCallLocked("SubvolList", nil, info)

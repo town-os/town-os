@@ -14,12 +14,12 @@ func TestGenerateVMPackageUnitsBasic(t *testing.T) {
 		Version:                  "1.0",
 		Runtime:                  packages.RuntimeVM,
 		VM:                       &packages.PackageVM{Image: "debian.raw", Memory: 2147483648, CPUs: 2},
-		VMImagePath:              "/data/btrfs/vm-images/debian.raw",
+		VMImagePath:              "/town-os/vm-images/debian.raw",
 		External:                 packages.PortMap{8022: 22},
 		Internal:                 packages.PortMap{},
 		Environment:              map[string]string{},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -54,7 +54,7 @@ func TestGenerateVMPackageUnitsBasic(t *testing.T) {
 	}
 
 	// Should have the disk drive.
-	if !strings.Contains(svc, "-drive file=/data/btrfs/vm-images/debian.raw,format=raw,if=virtio") {
+	if !strings.Contains(svc, "-drive file=/town-os/vm-images/debian.raw,format=raw,if=virtio") {
 		t.Fatalf("VM service missing disk drive, got:\n%s", svc)
 	}
 
@@ -99,12 +99,12 @@ func TestGenerateVMPackageUnitsNoPorts(t *testing.T) {
 		Version:                  "1.0",
 		Runtime:                  packages.RuntimeVM,
 		VM:                       &packages.PackageVM{Image: "headless.raw", Memory: 1073741824, CPUs: 1},
-		VMImagePath:              "/data/btrfs/vm-images/headless.raw",
+		VMImagePath:              "/town-os/vm-images/headless.raw",
 		External:                 packages.PortMap{},
 		Internal:                 packages.PortMap{},
 		Environment:              map[string]string{},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -148,12 +148,12 @@ func TestGenerateVMPackageUnitsMultiplePorts(t *testing.T) {
 		Version:                  "1.0",
 		Runtime:                  packages.RuntimeVM,
 		VM:                       &packages.PackageVM{Image: "multi.raw", Memory: 4294967296, CPUs: 4},
-		VMImagePath:              "/data/btrfs/vm-images/multi.raw",
+		VMImagePath:              "/town-os/vm-images/multi.raw",
 		External:                 packages.PortMap{8022: 22, 8080: 80},
 		Internal:                 packages.PortMap{9090: 9090},
 		Environment:              map[string]string{},
 		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/data/btrfs",
+		BtrfsBase:                "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	}
@@ -201,12 +201,12 @@ func TestGenerateVMPackageUnitsWithDescription(t *testing.T) {
 		Description: "Debian virtual machine",
 		Runtime:     packages.RuntimeVM,
 		VM:          &packages.PackageVM{Image: "debian.raw", Memory: 1073741824, CPUs: 1},
-		VMImagePath: "/data/btrfs/vm-images/debian.raw",
+		VMImagePath: "/town-os/vm-images/debian.raw",
 		External:    packages.PortMap{},
 		Internal:    packages.PortMap{},
 		Environment: map[string]string{},
 		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
+		BtrfsBase:   "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 	}
 
@@ -229,7 +229,7 @@ func TestContainerDispatchDoesNotGenerateVM(t *testing.T) {
 		External:    packages.PortMap{},
 		Internal:    packages.PortMap{},
 		Volumes:     map[string]packages.PackageVolume{},
-		BtrfsBase:   "/data/btrfs",
+		BtrfsBase:   "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 	}
 

@@ -204,7 +204,17 @@ func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 		}
 	})
 
-	status := mgr.Status(ctx)
+	// Wait for systemd to bring the containers up (Start installs the
+	// units, but activation is asynchronous).
+	var status monitoring.Status
+	statusDeadline := time.Now().Add(time.Minute)
+	for time.Now().Before(statusDeadline) {
+		status = mgr.Status(ctx)
+		if status.Prometheus.Running && status.NodeExporter.Running && status.Grafana.Running {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 	if !status.Prometheus.Running {
 		t.Fatal("expected prometheus running after Start")
 	}

@@ -150,24 +150,24 @@ func TestDeleteVMImageSanitizesPath(t *testing.T) {
 }
 
 func TestResolveVMImagePathURLNoExtension(t *testing.T) {
-	path := resolveVMImagePath("/data/btrfs", "https://example.com/images/myvm")
-	expected := "/data/btrfs/vm-images/myvm.raw"
+	path := resolveVMImagePath("/town-os", "https://example.com/images/myvm")
+	expected := "/town-os/vm-images/myvm.raw"
 	if path != expected {
 		t.Fatalf("expected %s, got %s", expected, path)
 	}
 }
 
 func TestResolveVMImagePathLocalNoExtension(t *testing.T) {
-	path := resolveVMImagePath("/data/btrfs", "myimage")
-	expected := "/data/btrfs/vm-images/myimage.raw"
+	path := resolveVMImagePath("/town-os", "myimage")
+	expected := "/town-os/vm-images/myimage.raw"
 	if path != expected {
 		t.Fatalf("expected %s, got %s", expected, path)
 	}
 }
 
 func TestResolveVMImagePathURLWithMultipleDots(t *testing.T) {
-	path := resolveVMImagePath("/data/btrfs", "https://example.com/my.special.image.qcow2")
-	expected := "/data/btrfs/vm-images/my.special.image.raw"
+	path := resolveVMImagePath("/town-os", "https://example.com/my.special.image.qcow2")
+	expected := "/town-os/vm-images/my.special.image.raw"
 	if path != expected {
 		t.Fatalf("expected %s, got %s", expected, path)
 	}

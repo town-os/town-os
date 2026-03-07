@@ -7,7 +7,7 @@ import (
 )
 
 func TestBtrFS(t *testing.T) {
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 
 	baseList, err := btr.ListFilesystems("")
 	if err != nil {

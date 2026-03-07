@@ -166,14 +166,14 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 	}
 
 	inst := packages.NewInstallManager(dir)
-	btr := storage.InitBtrFS("/data/btrfs")
+	btr := storage.InitBtrFS("/town-os")
 	sd := systemd.NewManager()
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:                  btr,
 		RepositoryRoot:           rr,
 		Installer:                inst,
 		Systemd:                  sd,
-		BtrfsBasePath:            "/data/btrfs",
+		BtrfsBasePath:            "/town-os",
 		NetworkControllerBinPath: "/town-os-networkcontroller",
 		NetworkStatePath:         "/var/run/town-os",
 	})
@@ -271,7 +271,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	})
 
 	// Wait for the container to start (includes image pull).
-	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
+	waitForContainer(t, "core", "redis", "7.0", 3 * time.Minute)
 
 	// Verify the systemd unit is active.
 	containerName := systemd.ContainerName("core", "redis", "7.0")
@@ -299,7 +299,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	// Retry with short dials because nested podman port forwarding can be slow.
 	dialAddr := "127.0.0.1:" + assignedPort
 	var conn net.Conn
-	dialDeadline := time.Now().Add(60 * time.Second)
+	dialDeadline := time.Now().Add(time.Minute)
 	for time.Now().Before(dialDeadline) {
 		conn, err = (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 		if err == nil {
@@ -380,7 +380,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
-	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
+	waitForContainer(t, "core", "redis", "7.0", 3 * time.Minute)
 
 	// Discover the dynamically assigned port.
 	responses, err := c.GetResponses(context.TODO(), "core", "redis", "7.0")
@@ -409,7 +409,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	}
 
 	// Wait for the new container to come up.
-	waitForContainer(t, "core", "redis", "7.0", 180*time.Second)
+	waitForContainer(t, "core", "redis", "7.0", 3 * time.Minute)
 
 	// Discover the port after reinstall (may have changed).
 	responses, err = c.GetResponses(context.TODO(), "core", "redis", "7.0")
@@ -441,7 +441,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 	// Retry with short dials because nested podman port forwarding can be slow.
 	dialAddr := "127.0.0.1:" + reinstallPort
 	var conn net.Conn
-	tcpDeadline := time.Now().Add(60 * time.Second)
+	tcpDeadline := time.Now().Add(time.Minute)
 	for time.Now().Before(tcpDeadline) {
 		conn, err = (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.TODO(), "tcp", dialAddr)
 		if err == nil {

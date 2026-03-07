@@ -209,7 +209,7 @@ func TestArchiveUnpackTimeoutFromSettings(t *testing.T) {
 	}}
 	s := &SystemControllerHandlers{Controller: &archiveTestBackend{settingsMgr: mgr}}
 	got := s.archiveUnpackTimeout()
-	expected := 300 * time.Second
+	expected := 5 * time.Minute
 	if got != expected {
 		t.Fatalf("expected %v, got %v", expected, got)
 	}

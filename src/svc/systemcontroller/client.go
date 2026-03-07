@@ -290,7 +290,7 @@ func InitClient(sock string) (*SystemdClient, error) {
 
 			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
 		}},
-		Timeout: 60 * time.Second,
+		Timeout: time.Minute,
 	}
 
 	return FromClient(client, "http://localhost")
