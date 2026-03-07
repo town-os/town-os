@@ -747,6 +747,56 @@ func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
 	})
 }
 
+func TestGenerateSystemServiceUnitVolumeDirs(t *testing.T) {
+	t.Run("with volume dirs", func(t *testing.T) {
+		cfg := SystemServiceUnitConfig{
+			Key:         "prometheus",
+			Description: "Prometheus",
+			Image:       "quay.io/prometheus/prometheus:latest",
+			Args:        []string{"--net", "host"},
+			VolumeDirs:  []string{"/data/monitoring", "/data/monitoring/prometheus-data"},
+		}
+
+		uf := GenerateSystemServiceUnit(cfg)
+		content := uf.Content
+
+		if !strings.Contains(content, "ExecStartPre=/bin/mkdir -p /data/monitoring\n") {
+			t.Fatalf("missing mkdir for /data/monitoring, got:\n%s", content)
+		}
+		if !strings.Contains(content, "ExecStartPre=/bin/mkdir -p /data/monitoring/prometheus-data\n") {
+			t.Fatalf("missing mkdir for /data/monitoring/prometheus-data, got:\n%s", content)
+		}
+
+		// mkdir lines should appear after podman rm and before ExecStart.
+		rmIdx := strings.Index(content, "podman rm")
+		mkdirIdx := strings.Index(content, "mkdir -p")
+		startIdx := strings.Index(content, "ExecStart=/usr/bin/podman run")
+		if rmIdx == -1 || mkdirIdx == -1 || startIdx == -1 {
+			t.Fatalf("missing expected lines, got:\n%s", content)
+		}
+		if mkdirIdx < rmIdx {
+			t.Fatal("mkdir should appear after podman rm")
+		}
+		if mkdirIdx > startIdx {
+			t.Fatal("mkdir should appear before ExecStart podman run")
+		}
+	})
+
+	t.Run("without volume dirs", func(t *testing.T) {
+		cfg := SystemServiceUnitConfig{
+			Key:         "node-exporter",
+			Description: "Node Exporter",
+			Image:       "quay.io/prometheus/node-exporter:latest",
+			Args:        []string{"--net", "host"},
+		}
+
+		uf := GenerateSystemServiceUnit(cfg)
+		if strings.Contains(uf.Content, "mkdir") {
+			t.Fatalf("should not contain mkdir when VolumeDirs is empty, got:\n%s", uf.Content)
+		}
+	})
+}
+
 func TestIsPackageServiceUnit(t *testing.T) {
 	tests := []struct {
 		name   string

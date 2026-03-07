@@ -234,6 +234,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"--storage.tsdb.retention.time=30d",
 				"--web.listen-address=:" + m.cfg.prometheusHostPort(),
 			},
+			VolumeDirs: []string{m.cfg.DataDir, promDataDir},
 		},
 		{
 			Key:         "grafana",
@@ -252,6 +253,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"-v", provisioningDir + ":/etc/grafana/provisioning:ro",
 				"-v", grafDataDir + ":/var/lib/grafana:shared,rw",
 			},
+			VolumeDirs: []string{provisioningDir, grafDataDir},
 		},
 	}
 }

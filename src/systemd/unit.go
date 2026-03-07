@@ -457,6 +457,7 @@ type SystemServiceUnitConfig struct {
 	Image       string   // container image reference
 	Args        []string // additional podman run arguments (before the image)
 	Command     []string // command and arguments (after the image)
+	VolumeDirs  []string // host directories to mkdir -p before starting
 }
 
 // GenerateSystemServiceUnit produces a systemd unit file for a system service.
@@ -474,6 +475,9 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	b.WriteString("Type=simple\n")
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
+	for _, dir := range cfg.VolumeDirs {
+		fmt.Fprintf(&b, "ExecStartPre=/bin/mkdir -p %s\n", dir)
+	}
 
 	// ExecStart
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --name %s", containerName)
