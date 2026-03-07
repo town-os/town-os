@@ -1,0 +1,11 @@
+FROM oven/bun:latest AS ui-builder
+COPY ui/package.json ui/bun.lock /ui/
+WORKDIR /ui
+RUN bun install --frozen-lockfile
+COPY ui/ /ui/
+RUN bun run build
+
+FROM docker.io/library/caddy:latest
+COPY Caddyfile.ui /etc/caddy/Caddyfile
+COPY --from=ui-builder /ui/dist /srv
+EXPOSE 80

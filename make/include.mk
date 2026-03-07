@@ -136,6 +136,9 @@ build-networkcontroller:
 release-image:
 	@make/build.sh release
 
+release-ui-image:
+	@make/build.sh release-ui
+
 push:
 	@$(MAKE) push-rc
 
@@ -144,6 +147,12 @@ push-rc:
 
 push-release:
 	@make/build.sh push-release
+
+push-ui-rc:
+	@make/build.sh push-ui-rc
+
+push-ui-release:
+	@make/build.sh push-ui-release
 
 lint:
 	@make/lint.sh

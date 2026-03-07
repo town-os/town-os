@@ -21,7 +21,8 @@ PODMAN_TEST_IMAGE    := town-os-test-$(INSTANCE_ID)
 PODMAN_DEV_IMAGE     := town-os-dev-$(INSTANCE_ID)
 PODMAN_UI_IMAGE      := town-os-ui-integration-$(INSTANCE_ID)
 RELEASE_IMAGE        := quay.io/town/town
-export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE
+RELEASE_UI_IMAGE     := quay.io/town/ui
+export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE
 
 # Container names (unique per working directory).
 PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
@@ -40,7 +41,7 @@ IMAGE_CACHE ?= /var/cache/town-os/images
 export IMAGE_CACHE
 
 # Image lists.
-BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim
+BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine $(MONITORING_IMAGES)
 export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES
@@ -59,7 +60,7 @@ include make/include.mk
 .PHONY: test-ui-integration test-integration test-full
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
-.PHONY: release-build release-image push push-rc push-release quay-login
+.PHONY: release-build release-image release-ui-image push push-rc push-release push-ui-rc push-ui-release quay-login
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
@@ -91,7 +92,8 @@ clean: clean-cache
 clean-cache: dev-stop clean-btrfs-dev
 clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
 release-image: check-podman check-runc .cache/.images-pulled
-release-build: pull-images test-full release-image
+release-ui-image: check-podman check-runc .cache/.images-pulled
+release-build: pull-images test-full release-image release-ui-image
 push: release-build
 push-rc: quay-login
 push-release: release-build quay-login

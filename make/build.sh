@@ -47,6 +47,11 @@ case "$1" in
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_IMAGE}" -f Containerfile .
     ;;
+  release-ui)
+    step "Building UI release image"
+    ${SUDO} podman build --pull=never \
+      -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
+    ;;
   push-rc)
     step "Pushing release candidate"
     DATE_TAG="$(date +%Y%m%d)"
@@ -58,6 +63,14 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_IMAGE}:rc.${DATE_TAG}"
     substep "Pushing ${RELEASE_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_IMAGE}:rc.latest"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
     ;;
   push-release)
     step "Pushing release"
@@ -70,13 +83,45 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_IMAGE}:release.${DATE_TAG}"
     substep "Pushing ${RELEASE_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_IMAGE}:latest"
+    substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:latest"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest"
+    substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:latest"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
+    ;;
+  push-ui-rc)
+    step "Pushing UI release candidate"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
+    ;;
+  push-ui-release)
+    step "Pushing UI release"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:latest"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest"
+    substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:latest"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
     ;;
   networkcontroller)
     step "Building network controller binary"
     CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
     ;;
   *)
-    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|push-rc|push-release}"
+    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|push-rc|push-release|push-ui-rc|push-ui-release}"
     exit 1
     ;;
 esac
