@@ -217,6 +217,14 @@ const enUS = {
   'system.system_service_name_prometheus': 'Prometheus',
   'system.system_service_name_node_exporter': 'Node Exporter',
   'system.system_service_name_grafana': 'Grafana',
+  'system.refresh_btn': 'Refresh Core Services',
+  'system.refresh_dialog_title': 'Refresh Core Services',
+  'system.refresh_warning_1': 'This will pull the latest container images and restart ALL core services including the system controller.',
+  'system.refresh_warning_2': 'A reboot may be required if services do not return after a period.',
+  'system.refresh_warning_3': 'This operation may cause a service disruption.',
+  'system.refresh_confirm_btn': 'Refresh All Services',
+  'system.refresh_toast_started': 'Refreshing core services...',
+  'system.refresh_toast_complete': 'System controller is back online.',
 
   // --- Package Management ---
   'packages.page_title': 'Town OS - Packages',

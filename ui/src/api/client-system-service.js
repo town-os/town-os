@@ -23,3 +23,14 @@ SystemControllerClient.prototype.listSystemServices = async function () {
 SystemControllerClient.prototype.setSystemServiceStatus = async function (key, action) {
   await this.postJSON('/system-services/status', { key, action })
 }
+
+/**
+ * Pulls latest container images and restarts all core services.
+ *
+ * Calls POST /system-services/refresh on the Control Plane Service.
+ *
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.refreshSystemServices = async function () {
+  await this.postJSON('/system-services/refresh', {})
+}

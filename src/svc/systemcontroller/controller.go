@@ -21,6 +21,7 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	"gitea.com/town-os/town-os/src/ui"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 )
@@ -49,6 +50,7 @@ type systemControllerBackend interface {
 	GetMonitoring() *monitoring.Manager
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
+	GetUI() *ui.Manager
 }
 
 type SystemController interface {
@@ -153,6 +155,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// System Services
 	e.Add("GET", "/system-services", s.listSystemServices, s.requireAuth)
 	e.Add("POST", "/system-services/status", s.setSystemServiceStatus, s.requireAdmin)
+	e.Add("POST", "/system-services/refresh", s.refreshSystemServices, s.requireAdmin)
 
 	// DNS
 	e.Add("GET", "/dns/status", s.dnsStatus, s.requireAuth)
@@ -189,6 +192,7 @@ type ServerConfig struct {
 	Monitoring               *monitoring.Manager
 	Rolodex                  *rolodex.Manager
 	RolodexClient            rolodex.Client
+	UI                       *ui.Manager
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {
@@ -238,7 +242,8 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 }
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
 func (s *serverBase) GetMonitoring() *monitoring.Manager     { return s.Monitoring }
-func (s *serverBase) GetRolodex() *rolodex.Manager { return s.Rolodex }
+func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
+func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
 func (s *serverBase) GetRolodexClient() rolodex.Client {
 	if s.RolodexClient != nil {
 		return s.RolodexClient

@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -20,6 +22,7 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
+	"gitea.com/town-os/town-os/src/ui"
 )
 
 func run() (err error) {
@@ -162,6 +165,15 @@ func run() (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Read the tag baked into the image at push time. This lets us derive
+	// matching tags for sibling images (UI, rolodex) at runtime.
+	tag := "rc.latest"
+	if data, err := os.ReadFile("/town-os.tag"); err == nil {
+		if t := strings.TrimSpace(string(data)); t != "" {
+			tag = t
+		}
+	}
+
 	// Start a background goroutine to periodically refresh repositories.
 	go func() {
 		ticker := time.NewTicker(packages.DefaultRefreshInterval)
@@ -192,6 +204,31 @@ func run() (err error) {
 		return fmt.Errorf("reconcile: %w", err)
 	}
 
+	// Derive rolodex image early so we can pull it alongside monitoring images.
+	rolImage := os.Getenv("ROLODEX_IMAGE")
+	if rolImage == "" {
+		rolImage = "quay.io/town/rolodex:" + tag
+	}
+
+	// Derive UI image.
+	uiImage := os.Getenv("UI_IMAGE")
+	if uiImage == "" {
+		uiImage = "quay.io/town/ui:" + tag
+	}
+
+	// Pull system service container images (non-fatal).
+	for _, img := range []string{
+		monitoring.PrometheusImage,
+		monitoring.NodeExporterImage,
+		monitoring.GrafanaImage,
+		rolImage,
+		uiImage,
+	} {
+		if out, err := exec.CommandContext(ctx, "podman", "pull", img).CombinedOutput(); err != nil { //nolint:gosec // G204 -- image constants
+			fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", img, err, string(out))
+		}
+	}
+
 	// Start the monitoring stack (Prometheus + Node Exporter + Grafana).
 	monDataDir := filepath.Join(repoBase, "monitoring")
 	monMgr := monitoring.NewManager(monitoring.Config{
@@ -208,10 +245,6 @@ func run() (err error) {
 	// Start the rolodex DNS server. Data lives on the root filesystem so
 	// it is available before the btrfs volume is mounted.
 	rolDataDir := rolodex.DefaultDataDir
-	rolImage := os.Getenv("ROLODEX_IMAGE")
-	if rolImage == "" {
-		rolImage = "quay.io/town/rolodex:rc.latest"
-	}
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
 		DataDir:        rolDataDir,
@@ -225,6 +258,15 @@ func run() (err error) {
 		// controller from starting.
 		fmt.Fprintf(os.Stderr, "rolodex: %v\n", err)
 		rolMgr = nil
+	}
+
+	// Start the UI container (Caddy web server).
+	uiMgr := ui.NewManager(ui.Config{Systemd: sd, Image: uiImage})
+	if err := uiMgr.Start(ctx); err != nil {
+		// Non-fatal: UI failure should not prevent the system
+		// controller from starting.
+		fmt.Fprintf(os.Stderr, "ui: %v\n", err)
+		uiMgr = nil
 	}
 
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
@@ -245,6 +287,7 @@ func run() (err error) {
 		NetworkMode:              *networkMode,
 		Monitoring:               monMgr,
 		Rolodex:                  rolMgr,
+		UI:                       uiMgr,
 	})
 
 	srv := &http.Server{

@@ -20,6 +20,7 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	"gitea.com/town-os/town-os/src/ui"
 )
 
 func TestArchiveFormatFromExtension(t *testing.T) {
@@ -156,6 +157,7 @@ func (b *archiveTestBackend) GetInternalIP() string                             
 func (b *archiveTestBackend) GetMonitoring() *monitoring.Manager                  { return nil }
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
+func (b *archiveTestBackend) GetUI() *ui.Manager                                 { return nil }
 
 type testSettingsManager struct {
 	values map[string]string

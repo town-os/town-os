@@ -55,14 +55,21 @@ case "$1" in
   push-rc)
     step "Pushing release candidate"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_IMAGE}" "${RELEASE_IMAGE}:rc.${DATE_TAG}"
+
+    # Bake the tag into the systemcontroller image so it can derive
+    # matching tags for sibling images (UI, rolodex) at runtime.
+    # All quay.io/town/* images MUST use the same tag within a release.
+    substep "Baking tag rc.${DATE_TAG} into ${RELEASE_IMAGE}"
+    printf 'FROM %s\nRUN echo "rc.%s" > /town-os.tag\n' "${RELEASE_IMAGE}" "${DATE_TAG}" | \
+      ${SUDO} podman build --pull=never -t "${RELEASE_IMAGE}:rc.${DATE_TAG}" -
     substep "Tagging ${RELEASE_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_IMAGE}" "${RELEASE_IMAGE}:rc.latest"
+    ${SUDO} podman tag "${RELEASE_IMAGE}:rc.${DATE_TAG}" "${RELEASE_IMAGE}:rc.latest"
     substep "Pushing ${RELEASE_IMAGE}:rc.${DATE_TAG}"
     ${SUDO} podman push "${RELEASE_IMAGE}:rc.${DATE_TAG}"
     substep "Pushing ${RELEASE_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_IMAGE}:rc.latest"
+
+    # UI image — tagged to match but no tag file needed (systemcontroller derives it).
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
     ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest"
@@ -75,14 +82,21 @@ case "$1" in
   push-release)
     step "Pushing release"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_IMAGE}" "${RELEASE_IMAGE}:release.${DATE_TAG}"
+
+    # Bake the tag into the systemcontroller image so it can derive
+    # matching tags for sibling images (UI, rolodex) at runtime.
+    # All quay.io/town/* images MUST use the same tag within a release.
+    substep "Baking tag release.${DATE_TAG} into ${RELEASE_IMAGE}"
+    printf 'FROM %s\nRUN echo "release.%s" > /town-os.tag\n' "${RELEASE_IMAGE}" "${DATE_TAG}" | \
+      ${SUDO} podman build --pull=never -t "${RELEASE_IMAGE}:release.${DATE_TAG}" -
     substep "Tagging ${RELEASE_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_IMAGE}" "${RELEASE_IMAGE}:latest"
+    ${SUDO} podman tag "${RELEASE_IMAGE}:release.${DATE_TAG}" "${RELEASE_IMAGE}:latest"
     substep "Pushing ${RELEASE_IMAGE}:release.${DATE_TAG}"
     ${SUDO} podman push "${RELEASE_IMAGE}:release.${DATE_TAG}"
     substep "Pushing ${RELEASE_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_IMAGE}:latest"
+
+    # UI image — tagged to match but no tag file needed (systemcontroller derives it).
     substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
     ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
     substep "Tagging ${RELEASE_UI_IMAGE}:latest"

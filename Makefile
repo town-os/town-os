@@ -45,8 +45,10 @@ BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest 
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
 ROLODEX_IMAGE_TAG ?= rc.latest
 ROLODEX_IMAGE := quay.io/town/rolodex:$(ROLODEX_IMAGE_TAG)
+UI_IMAGE_TAG ?= rc.latest
+UI_IMAGE := quay.io/town/ui:$(UI_IMAGE_TAG)
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine $(MONITORING_IMAGES) $(ROLODEX_IMAGE)
-export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE
+export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE_TAG UI_IMAGE
 export TEST_RUN TEST_TIMEOUT
 
 include make/include.mk
@@ -100,8 +102,11 @@ clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
 release-image: check-podman check-runc .cache/.images-pulled
 release-ui-image: check-podman check-runc .cache/.images-pulled
 release-build: pull-images test-full release-image release-ui-image
+# Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build
-push-rc: quay-login
+push-rc: release-image release-ui-image quay-login
 push-release: release-build quay-login
+push-ui-rc: release-ui-image quay-login
+push-ui-release: release-ui-image quay-login
 lint: check-go check-golangci-lint check-libsystemd
 btrfs: check-btrfs clean-btrfs

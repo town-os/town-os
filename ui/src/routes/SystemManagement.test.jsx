@@ -66,6 +66,8 @@ const mockListSystemServices = vi.fn(() =>
 )
 
 const mockSetSystemServiceStatus = vi.fn(() => Promise.resolve())
+const mockRefreshSystemServices = vi.fn(() => Promise.resolve())
+const mockPing = vi.fn(() => Promise.resolve({ username: 'admin' }))
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
@@ -74,8 +76,20 @@ vi.mock('@/lib/client-instance.js', () => ({
     setUnitStatus: vi.fn(() => Promise.resolve()),
     listSystemServices: mockListSystemServices,
     setSystemServiceStatus: mockSetSystemServiceStatus,
+    refreshSystemServices: mockRefreshSystemServices,
+    ping: mockPing,
   }),
 }))
+
+const mockUseRequireAuth = vi.fn(() => ({ username: 'admin', admin: true }))
+
+vi.mock('@/lib/hooks.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    useRequireAuth: (...args) => mockUseRequireAuth(...args),
+  }
+})
 
 function renderSystemManagement(initialEntries = ['/']) {
   return render(

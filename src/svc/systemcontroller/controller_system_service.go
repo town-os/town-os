@@ -1,8 +1,12 @@
 package systemcontroller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
+	"strings"
+	"time"
 
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -61,6 +65,18 @@ func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 		}
 	}
 
+	if uiMgr := s.Controller.GetUI(); uiMgr != nil {
+		for _, svc := range uiMgr.SystemServices() {
+			all = append(all, systemServiceInfo{
+				Key:         svc.Key,
+				DisplayName: svc.DisplayName,
+				Image:       svc.Image,
+				Port:        svc.Port,
+				UnitName:    svc.UnitName,
+			})
+		}
+	}
+
 	return all
 }
 
@@ -101,6 +117,74 @@ func (s *SystemControllerHandlers) listSystemServices(c *echo.Context) error {
 	}
 
 	return c.JSON(200, entries)
+}
+
+// pullImage pulls a container image using podman.
+func pullImage(ctx context.Context, image string) error {
+	out, err := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from system service config
+	if err != nil {
+		return fmt.Errorf("podman pull %s: %w: %s", image, err, string(out))
+	}
+	return nil
+}
+
+func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error {
+	ctx := c.Request().Context()
+	svcs := s.collectSystemServices()
+
+	// Collect unique images.
+	seen := map[string]struct{}{}
+	var images []string
+	for _, svc := range svcs {
+		if _, ok := seen[svc.Image]; ok {
+			continue
+		}
+		seen[svc.Image] = struct{}{}
+		images = append(images, svc.Image)
+	}
+
+	// Pull all images, collecting errors but continuing.
+	var pullErrors []string
+	for _, img := range images {
+		if err := pullImage(ctx, img); err != nil {
+			pullErrors = append(pullErrors, err.Error())
+		}
+	}
+
+	sd := s.Controller.GetSystemdManager()
+	if sd == nil {
+		return echo.NewHTTPError(500, "systemd manager not available")
+	}
+
+	// Restart all system service units.
+	for _, svc := range svcs {
+		if err := sd.SetStatus(ctx, svc.UnitName, systemd.Restart); err != nil {
+			pullErrors = append(pullErrors, fmt.Sprintf("restart %s: %v", svc.UnitName, err))
+		}
+	}
+
+	// Find and restart all networkcontroller units.
+	units, err := sd.ListUnits(ctx)
+	if err == nil {
+		for _, u := range units {
+			if strings.HasSuffix(u.Name, "-network.service") && strings.HasPrefix(u.Name, systemd.PackageUnitPrefix) {
+				if err := sd.SetStatus(ctx, u.Name, systemd.Restart); err != nil {
+					pullErrors = append(pullErrors, fmt.Sprintf("restart %s: %v", u.Name, err))
+				}
+			}
+		}
+	}
+
+	// Schedule systemcontroller restart in a goroutine with 1s delay.
+	go func() {
+		time.Sleep(1 * time.Second)
+		_ = sd.SetStatus(context.Background(), "town-os-systemcontroller.service", systemd.Restart)
+	}()
+
+	if len(pullErrors) > 0 {
+		return c.JSON(200, map[string]string{"status": "ok", "errors": strings.Join(pullErrors, "; ")})
+	}
+	return c.JSON(200, map[string]string{"status": "ok"})
 }
 
 func (s *SystemControllerHandlers) setSystemServiceStatus(c *echo.Context) error {

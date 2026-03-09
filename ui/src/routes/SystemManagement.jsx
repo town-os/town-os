@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
-import { usePolling } from '@/lib/hooks.js'
+import { useRequireAuth, usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
@@ -29,20 +29,25 @@ import {
   Play,
   Square,
   RotateCcw,
+  RefreshCw,
   X,
   FileText,
   Terminal,
   ChevronDown,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 
 export default function SystemManagement() {
   const { t } = useI18n()
+  const account = useRequireAuth()
   useEffect(() => { document.title = t('system.page_title') }, [t])
   const [searchParams] = useSearchParams()
   const [actionConfirm, setActionConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [refreshDialog, setRefreshDialog] = useState(false)
+  const pollRef = useRef(null)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('package_identifier')
   const [sortDirection, setSortDirection] = useState('asc')
@@ -63,6 +68,36 @@ export default function SystemManagement() {
     [refreshKey],
     15000,
   )
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  const handleRefreshServices = useCallback(async () => {
+    try {
+      await getClient().refreshSystemServices()
+      toast.success(t('system.refresh_toast_started'))
+      setRefreshDialog(false)
+      // After 3s delay, start polling ping to detect when systemcontroller returns.
+      setTimeout(() => {
+        pollRef.current = setInterval(async () => {
+          try {
+            await getClient().ping()
+            clearInterval(pollRef.current)
+            pollRef.current = null
+            toast.success(t('system.refresh_toast_complete'))
+            setRefreshKey((k) => k + 1)
+          } catch {
+            // Controller not back yet.
+          }
+        }, 2000)
+      }, 3000)
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }, [t])
 
   const effectiveSearch = searchTerm
 
@@ -199,6 +234,12 @@ export default function SystemManagement() {
           <h1 className="text-3xl font-bold tracking-tight">{t('system.title')}</h1>
           <p className="text-muted-foreground">{t('system.description')}</p>
         </div>
+        {account?.admin && (
+          <Button variant="outline" onClick={() => setRefreshDialog(true)}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            {t('system.refresh_btn')}
+          </Button>
+        )}
       </div>
 
       {/* System Services Section */}
@@ -375,6 +416,34 @@ export default function SystemManagement() {
       >
         {t('system.confirm_action_message', { action: `${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)}`, name: actionConfirm?.name })}
       </ConfirmDialog>
+
+      {/* Refresh Core Services Dialog */}
+      <Dialog open={refreshDialog} onOpenChange={(v) => !v && setRefreshDialog(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('system.refresh_dialog_title')}</DialogTitle>
+            <DialogDescription className="sr-only">{t('system.refresh_dialog_title')}</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-destructive bg-destructive/10 p-4 space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+              <div className="space-y-1 text-sm">
+                <p>{t('system.refresh_warning_1')}</p>
+                <p>{t('system.refresh_warning_2')}</p>
+                <p className="font-semibold">{t('system.refresh_warning_3')}</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setRefreshDialog(false)}>
+              {t('confirm.default_cancel_label')}
+            </Button>
+            <Button variant="destructive" onClick={handleRefreshServices}>
+              {t('system.refresh_confirm_btn')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <JournalViewer
         journalUnit={journalUnit}
