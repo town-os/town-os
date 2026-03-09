@@ -8,8 +8,6 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 
 **GITHUB USERS:** Please note the source repository is <https://gitea.com/town-os/town-os> -- the package repositories are kept here for simplicity's sake. Issues and Pull Requests must be filed there, as well as any other interactivity with the repository. This repository may also occasionally be out of data or missing other data the Gitea repository has. Do not rely on it.
 
-_([Wondering about the insane patch velocity with high quality? I'm doing it with a $200/mo Claude Account](https://github.com/erikh/hydra))_
-
 ## Table of Contents
 
 - [Why It Matters](#why-it-matters)
@@ -257,9 +255,3 @@ The dev and integration test environments use separate btrfs volumes, container 
 ## License
 
 GNU Affero GPL 3.0
-
-## From
-
-Town OS is not a one-man show -- it's supposed to be here for everyone to contribute ideas to. A solution that's free isn't really free if it's just done by one person. The licensing is deliberately chosen to ensure that people can audit, fix, and contribute back to a product where you know what you're getting on the label.
-
-[Erik Hollensbe](mailto:erik@hollensbe.org) conceived this project. Several people have already made significant financial contributions to keep me housed and living fairly well, considering I'm in the Bay Area. Lots of people contributed lots and lots of ideas. And Claude helped too. This is as much from them as it is from me.
