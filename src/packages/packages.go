@@ -252,6 +252,7 @@ type PackageProton struct {
 type PackageNetwork struct {
 	External PortMap
 	Internal PortMap
+	Domains  []string
 }
 
 type Package struct {
@@ -270,7 +271,7 @@ type Package struct {
 type InputPackageNetwork struct {
 	External map[string]string `yaml:"external"`
 	Internal map[string]string `yaml:"internal"`
-	// TODO: hostname (with validation)
+	Domains  []string          `yaml:"domains,omitempty"`
 }
 
 type Question struct {
@@ -426,6 +427,10 @@ func (i *InputPackage) iterateFields(iv, response string) {
 	}
 
 	i.Network.Internal = out
+
+	for idx := range i.Network.Domains {
+		i.Network.Domains[idx] = applyTemplate(i.Network.Domains[idx], iv, response)
+	}
 
 	for name := range i.Volumes {
 		pv := i.Volumes[name]
@@ -754,7 +759,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		ImageType:   imageType,
 		Command:     command,
 		Environment: i.Environment,
-		Network:     PackageNetwork{External: external, Internal: internal},
+		Network:     PackageNetwork{External: external, Internal: internal, Domains: i.Network.Domains},
 		Volumes:     volumes,
 		Templates:   templates,
 		Runtime:     rt,

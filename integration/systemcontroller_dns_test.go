@@ -1,0 +1,358 @@
+package integration_test
+
+import (
+	"context"
+	"net"
+	"slices"
+	"testing"
+	"time"
+
+	upstream "gitea.com/town-os/rolodex-dns/go"
+	"gitea.com/town-os/town-os/src/rolodex"
+	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/svc/systemcontroller"
+	"gitea.com/town-os/town-os/src/systemd"
+)
+
+// initDNSMockTest creates a test server with a mock rolodex client and
+// settings manager, suitable for testing DNS API endpoints without a real
+// rolodex container.
+func initDNSMockTest(t *testing.T) (*systemcontroller.SystemdClient, *rolodex.MockClient) {
+	t.Helper()
+
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	rc := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
+
+	rolMgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        sd,
+		DataDir:        rolodexTempDir(t, "dns-mock-*"),
+		Image:          rolodexTestImage(),
+		UnixSocketPath: "/tmp/dns-test.sock",
+	})
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:       mock,
+		Systemd:       sd,
+		Rolodex:       rolMgr,
+		RolodexClient: rc,
+		SettingsMgr:   settings,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, rc
+}
+
+// --- Mock tests ---
+
+func TestDNSStatusDisabled(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage: mock,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	status, err := c.DNSStatus(context.TODO())
+	if err != nil {
+		t.Fatalf("DNSStatus: %v", err)
+	}
+
+	if status.Enabled {
+		t.Fatal("expected DNS disabled when no rolodex manager")
+	}
+}
+
+func TestDNSStatusEnabled(t *testing.T) {
+	c, _ := initDNSMockTest(t)
+
+	status, err := c.DNSStatus(context.TODO())
+	if err != nil {
+		t.Fatalf("DNSStatus: %v", err)
+	}
+
+	if !status.Enabled {
+		t.Fatal("expected DNS enabled")
+	}
+	if status.TLD != "home" {
+		t.Fatalf("expected TLD %q, got %q", "home", status.TLD)
+	}
+}
+
+func TestDNSTLDDefault(t *testing.T) {
+	c, _ := initDNSMockTest(t)
+
+	tld, err := c.GetDNSTLD(context.TODO())
+	if err != nil {
+		t.Fatalf("GetDNSTLD: %v", err)
+	}
+
+	if tld != "home" {
+		t.Fatalf("expected default TLD %q, got %q", "home", tld)
+	}
+}
+
+func TestDNSTLDGetSet(t *testing.T) {
+	c, _ := initDNSMockTest(t)
+
+	if err := c.SetDNSTLD(context.TODO(), "local"); err != nil {
+		t.Fatalf("SetDNSTLD: %v", err)
+	}
+
+	tld, err := c.GetDNSTLD(context.TODO())
+	if err != nil {
+		t.Fatalf("GetDNSTLD: %v", err)
+	}
+
+	if tld != "local" {
+		t.Fatalf("expected TLD %q, got %q", "local", tld)
+	}
+}
+
+func TestDNSSetupCreatesZone(t *testing.T) {
+	c, rc := initDNSMockTest(t)
+
+	if err := c.SetupDNS(context.TODO()); err != nil {
+		t.Fatalf("SetupDNS: %v", err)
+	}
+
+	// Verify authoritative zone was created.
+	zones := rc.AuthZones
+	if len(zones) != 1 {
+		t.Fatalf("expected 1 authoritative zone, got %d", len(zones))
+	}
+	if zones[0] != "home." {
+		t.Fatalf("expected zone %q, got %q", "home.", zones[0])
+	}
+
+	// Verify SOA, NS, and A records were created.
+	records := rc.Records
+	var hasSOA, hasNS, hasA bool
+	for _, r := range records {
+		switch {
+		case r.RecordType == upstream.RecordTypeSOA && r.Name == "home.":
+			hasSOA = true
+		case r.RecordType == upstream.RecordTypeNS && r.Name == "home.":
+			hasNS = true
+		case r.RecordType == upstream.RecordTypeA && r.Name == "ns1.home.":
+			hasA = true
+		}
+	}
+
+	if !hasSOA {
+		t.Fatal("expected SOA record for home.")
+	}
+	if !hasNS {
+		t.Fatal("expected NS record for home.")
+	}
+	if !hasA {
+		t.Fatal("expected A record for ns1.home.")
+	}
+}
+
+func TestDNSRecordAddRemove(t *testing.T) {
+	c, _ := initDNSMockTest(t)
+
+	ctx := context.TODO()
+
+	// Add a record via the API.
+	if err := c.AddDNSRecord(ctx, &upstream.DnsRecord{
+		Name:       "test.home.",
+		RecordType: upstream.RecordTypeA,
+		Value:      "10.0.0.5",
+		Ttl:        300,
+	}); err != nil {
+		t.Fatalf("AddDNSRecord: %v", err)
+	}
+
+	// List records.
+	records, err := c.ListDNSRecords(ctx)
+	if err != nil {
+		t.Fatalf("ListDNSRecords: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	if records[0].Name != "test.home." {
+		t.Fatalf("expected record name %q, got %q", "test.home.", records[0].Name)
+	}
+
+	// Remove the record.
+	aType := upstream.RecordTypeA
+	removed, err := c.RemoveDNSRecord(ctx, "test.home.", &aType)
+	if err != nil {
+		t.Fatalf("RemoveDNSRecord: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("expected 1 removed, got %d", removed)
+	}
+
+	// Verify empty.
+	records, err = c.ListDNSRecords(ctx)
+	if err != nil {
+		t.Fatalf("ListDNSRecords after remove: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d", len(records))
+	}
+}
+
+func TestDNSTLDChangeReprovisionsRecords(t *testing.T) {
+	c, rc := initDNSMockTest(t)
+	ctx := context.TODO()
+
+	// Setup initial TLD.
+	if err := c.SetupDNS(ctx); err != nil {
+		t.Fatalf("SetupDNS: %v", err)
+	}
+
+	// Verify we have records under "home.".
+	initialRecords := len(rc.Records)
+	if initialRecords == 0 {
+		t.Fatal("expected records after setup")
+	}
+
+	// Change TLD.
+	if err := c.SetDNSTLD(ctx, "lan"); err != nil {
+		t.Fatalf("SetDNSTLD: %v", err)
+	}
+
+	// Verify old zone removed and new zone created.
+	hasOldZone := false
+	hasNewZone := false
+	for _, z := range rc.AuthZones {
+		if z == "home." {
+			hasOldZone = true
+		}
+		if z == "lan." {
+			hasNewZone = true
+		}
+	}
+	if hasOldZone {
+		t.Fatal("expected old zone home. to be removed")
+	}
+	if !hasNewZone {
+		t.Fatal("expected new zone lan. to be created")
+	}
+
+	// Verify records are now under "lan.".
+	for _, r := range rc.Records {
+		if r.RecordType == upstream.RecordTypeSOA || r.RecordType == upstream.RecordTypeNS {
+			if r.Name != "lan." {
+				t.Fatalf("expected record under lan., got %q", r.Name)
+			}
+		}
+		if r.RecordType == upstream.RecordTypeA && r.Name == "ns1.home." {
+			t.Fatal("found stale A record for ns1.home.")
+		}
+	}
+}
+
+// --- Real container tests ---
+
+func TestDNSRealSetupAndQuery(t *testing.T) {
+	client := initRolodexRealTest(t)
+	ctx := context.Background()
+	if dl, ok := t.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, dl.Add(-15*time.Second))
+		t.Cleanup(cancel)
+	}
+
+	// Setup TLD using the real client.
+	if err := rolodex.SetupTLD(ctx, client, "home", rolodex.DNSLoopback, ""); err != nil {
+		t.Fatalf("SetupTLD: %v", err)
+	}
+
+	// Verify ns1.home. resolves via DNS.
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":53")
+		},
+	}
+
+	var addrs []string
+	var resolveErr error
+	for ctx.Err() == nil {
+		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		addrs, resolveErr = resolver.LookupHost(lookupCtx, "ns1.home.")
+		cancel()
+		if resolveErr == nil && len(addrs) > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if resolveErr != nil {
+		t.Fatalf("LookupHost(ns1.home.): %v", resolveErr)
+	}
+	if len(addrs) == 0 {
+		t.Fatal("expected at least 1 address for ns1.home.")
+	}
+
+	if !slices.Contains(addrs, rolodex.DNSLoopback) {
+		t.Fatalf("expected ns1.home. to resolve to %s, got %v", rolodex.DNSLoopback, addrs)
+	}
+}
+
+func TestDNSRealPackageRecord(t *testing.T) {
+	client := initRolodexRealTest(t)
+	ctx := context.Background()
+	if dl, ok := t.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, dl.Add(-15*time.Second))
+		t.Cleanup(cancel)
+	}
+
+	// Setup TLD.
+	if err := rolodex.SetupTLD(ctx, client, "home", rolodex.DNSLoopback, ""); err != nil {
+		t.Fatalf("SetupTLD: %v", err)
+	}
+
+	// Register a package.
+	if err := rolodex.RegisterPackageDNS(ctx, client, "core", "nginx", "home", rolodex.DNSLoopback, "", nil); err != nil {
+		t.Fatalf("RegisterPackageDNS: %v", err)
+	}
+
+	// Verify nginx.core.home. resolves via DNS.
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":53")
+		},
+	}
+
+	var addrs []string
+	var resolveErr error
+	for ctx.Err() == nil {
+		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		addrs, resolveErr = resolver.LookupHost(lookupCtx, "nginx.core.home.")
+		cancel()
+		if resolveErr == nil && len(addrs) > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if resolveErr != nil {
+		t.Fatalf("LookupHost(nginx.core.home.): %v", resolveErr)
+	}
+	if len(addrs) == 0 {
+		t.Fatal("expected at least 1 address for nginx.core.home.")
+	}
+
+	if !slices.Contains(addrs, rolodex.DNSLoopback) {
+		t.Fatalf("expected nginx.core.home. to resolve to %s, got %v", rolodex.DNSLoopback, addrs)
+	}
+}

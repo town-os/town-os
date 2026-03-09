@@ -75,6 +75,11 @@ func NewManager(cfg Config) *Manager {
 	return &Manager{cfg: cfg}
 }
 
+// SocketPath returns the configured gRPC Unix socket path.
+func (m *Manager) SocketPath() string {
+	return m.cfg.UnixSocketPath
+}
+
 // Start writes the rolodex config, rewrites resolv.conf (if configured),
 // and installs/enables/starts the systemd unit. Systemd handles restarts
 // via Restart=always — no health loop needed.

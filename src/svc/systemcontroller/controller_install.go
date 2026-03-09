@@ -918,6 +918,8 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
+	s.registerPackageDNS(ctx, repoName, effectiveName, compiled.Network.Domains)
+
 	c.Response().WriteHeader(200)
 	return nil
 }
@@ -990,6 +992,9 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 
 	ctx := c.Request().Context()
 	inst := s.Controller.GetInstaller()
+
+	// Unregister DNS before removing units.
+	s.unregisterPackageDNS(ctx, req.Repo, parentName, effectiveName, req.Version)
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		if err := s.uninstallPackageUnits(ctx, sd, req.Repo, effectiveName, req.Version); err != nil {

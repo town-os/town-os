@@ -4,6 +4,7 @@ import (
 	"maps"
 	"sync"
 
+	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
@@ -97,6 +98,18 @@ type MockClient struct {
 	UploadVMImageErr     error
 	UploadVMImageResult  *VMImageInfo
 	DeleteVMImageErr     error
+
+	DNSStatusResp       *DNSStatusResponse
+	DNSStatusErr        error
+	DNSRecords          []*upstream.DnsRecord
+	ListDNSRecordsErr   error
+	AddDNSRecordErr     error
+	RemoveDNSRecordErr  error
+	DNSRemoveCount      uint32
+	DNSTLD              string
+	GetDNSTLDErr        error
+	SetDNSTLDErr        error
+	SetupDNSErr         error
 }
 
 // MockCall records a single method invocation on [MockClient], including

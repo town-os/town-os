@@ -155,6 +155,7 @@ func (b *archiveTestBackend) GetExternalIP() string                             
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetMonitoring() *monitoring.Manager                  { return nil }
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
+func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
 
 type testSettingsManager struct {
 	values map[string]string

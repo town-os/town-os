@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
@@ -234,6 +235,39 @@ type Client interface {
 	//
 	// Calls POST /system-services/status on the Control Plane Service.
 	SetSystemServiceStatus(ctx context.Context, key string, action systemd.StatusAction) error
+
+	// DNSStatus returns the current state of the DNS service including
+	// whether rolodex is enabled/running, the current TLD, and record count.
+	//
+	// Calls GET /dns/status on the Control Plane Service.
+	DNSStatus(ctx context.Context) (*DNSStatusResponse, error)
+	// ListDNSRecords returns all DNS records from the rolodex service.
+	//
+	// Calls GET /dns/records on the Control Plane Service.
+	ListDNSRecords(ctx context.Context) ([]*upstream.DnsRecord, error)
+	// AddDNSRecord adds a custom DNS record via the rolodex service.
+	//
+	// Calls POST /dns/records/add on the Control Plane Service.
+	AddDNSRecord(ctx context.Context, record *upstream.DnsRecord) error
+	// RemoveDNSRecord removes DNS records matching the given name and
+	// optional record type. Returns the number of records removed.
+	//
+	// Calls POST /dns/records/remove on the Control Plane Service.
+	RemoveDNSRecord(ctx context.Context, name string, recordType *upstream.RecordType) (uint32, error)
+	// GetDNSTLD returns the current TLD setting for DNS records.
+	//
+	// Calls GET /dns/tld on the Control Plane Service.
+	GetDNSTLD(ctx context.Context) (string, error)
+	// SetDNSTLD changes the TLD and re-provisions all DNS records under
+	// the new TLD.
+	//
+	// Calls POST /dns/tld on the Control Plane Service.
+	SetDNSTLD(ctx context.Context, tld string) error
+	// SetupDNS initializes or reconciles the TLD zone and registers DNS
+	// records for all installed packages.
+	//
+	// Calls POST /dns/setup on the Control Plane Service.
+	SetupDNS(ctx context.Context) error
 
 	// ListVMImages returns all cached VM disk images in the vm-images
 	// subvolume. Each entry includes the image filename and size in bytes.

@@ -12,6 +12,9 @@ type Client interface {
 	AddRecord(ctx context.Context, record *upstream.DnsRecord) error
 	RemoveRecord(ctx context.Context, name string, opts *upstream.RemoveRecordOptions) (uint32, error)
 	ListRecords(ctx context.Context, opts *upstream.ListRecordsOptions) ([]*upstream.DnsRecord, error)
+	AddAuthoritativeZone(ctx context.Context, zone string) error
+	RemoveAuthoritativeZone(ctx context.Context, zone string) error
+	ListAuthoritativeZones(ctx context.Context) ([]string, error)
 	FlushDnsCache(ctx context.Context) error
 	Close() error
 }
@@ -40,6 +43,18 @@ func (c *client) RemoveRecord(ctx context.Context, name string, opts *upstream.R
 
 func (c *client) ListRecords(ctx context.Context, opts *upstream.ListRecordsOptions) ([]*upstream.DnsRecord, error) {
 	return c.c.ListRecords(ctx, opts)
+}
+
+func (c *client) AddAuthoritativeZone(ctx context.Context, zone string) error {
+	return c.c.AddAuthoritativeZone(ctx, zone)
+}
+
+func (c *client) RemoveAuthoritativeZone(ctx context.Context, zone string) error {
+	return c.c.RemoveAuthoritativeZone(ctx, zone)
+}
+
+func (c *client) ListAuthoritativeZones(ctx context.Context) ([]string, error) {
+	return c.c.ListAuthoritativeZones(ctx)
 }
 
 func (c *client) FlushDnsCache(ctx context.Context) error {

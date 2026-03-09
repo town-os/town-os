@@ -48,6 +48,7 @@ type systemControllerBackend interface {
 	GetPagesManager() account.PagesManager
 	GetMonitoring() *monitoring.Manager
 	GetRolodex() *rolodex.Manager
+	GetRolodexClient() rolodex.Client
 }
 
 type SystemController interface {
@@ -152,6 +153,15 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// System Services
 	e.Add("GET", "/system-services", s.listSystemServices, s.requireAuth)
 	e.Add("POST", "/system-services/status", s.setSystemServiceStatus, s.requireAdmin)
+
+	// DNS
+	e.Add("GET", "/dns/status", s.dnsStatus, s.requireAuth)
+	e.Add("GET", "/dns/records", s.listDNSRecords, s.requireAuth)
+	e.Add("POST", "/dns/records/add", s.addDNSRecord, s.requireAdmin)
+	e.Add("POST", "/dns/records/remove", s.removeDNSRecord, s.requireAdmin)
+	e.Add("GET", "/dns/tld", s.getDNSTLD, s.requireAuth)
+	e.Add("POST", "/dns/tld", s.setDNSTLD, s.requireAdmin)
+	e.Add("POST", "/dns/setup", s.setupDNS, s.requireAdmin)
 }
 
 // --- Server infrastructure ---
@@ -178,6 +188,7 @@ type ServerConfig struct {
 	GitCloner                packages.GitCloner
 	Monitoring               *monitoring.Manager
 	Rolodex                  *rolodex.Manager
+	RolodexClient            rolodex.Client
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {
@@ -227,7 +238,26 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 }
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
 func (s *serverBase) GetMonitoring() *monitoring.Manager     { return s.Monitoring }
-func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
+func (s *serverBase) GetRolodex() *rolodex.Manager { return s.Rolodex }
+func (s *serverBase) GetRolodexClient() rolodex.Client {
+	if s.RolodexClient != nil {
+		return s.RolodexClient
+	}
+	if s.Rolodex == nil {
+		return nil
+	}
+	socketPath := s.Rolodex.SocketPath()
+	if socketPath == "" {
+		return nil
+	}
+	c, err := rolodex.Dial(context.Background(), socketPath)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("lazy rolodex dial: %v", err))
+		return nil
+	}
+	s.RolodexClient = c
+	return c
+}
 func (s *serverBase) GetExternalIP() string {
 	v := s.externalIP.Load()
 	if v == nil {
