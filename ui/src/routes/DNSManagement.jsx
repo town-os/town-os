@@ -75,7 +75,14 @@ export default function DNSManagement() {
     15000,
   )
 
+  const [removedRecords, setRemovedRecords] = useState([])
+
+  const displayedRecords = records.filter(
+    (r) => !removedRecords.some((rm) => rm.name === r.name && rm.record_type === r.record_type)
+  )
+
   function doRefresh() {
+    setRemovedRecords([])
     setRefreshKey((k) => k + 1)
   }
 
@@ -100,14 +107,14 @@ export default function DNSManagement() {
 
   async function handleRemoveRecord() {
     if (!removeConfirm) return
+    const removed = { name: removeConfirm.name, record_type: removeConfirm.record_type }
+    setRemoveConfirm(null)
     try {
-      await getClient().removeDNSRecord(removeConfirm.name, removeConfirm.record_type)
+      await getClient().removeDNSRecord(removed.name, removed.record_type)
       toast.success(t('dns.toast_record_removed'))
-      setRemoveConfirm(null)
-      doRefresh()
+      setRemovedRecords((prev) => [...prev, removed])
     } catch (err) {
       toast.error(err.message)
-      setRemoveConfirm(null)
     }
   }
 
@@ -232,12 +239,12 @@ export default function DNSManagement() {
       {/* Records table */}
       {(!status || status.enabled) && (
         <>
-          {recordsLoading && records.length === 0 && (
+          {recordsLoading && displayedRecords.length === 0 && (
             <div className="text-center py-8 text-muted-foreground animate-pulse">{t('dns.loading')}</div>
           )}
 
           <DataTable
-            data={records}
+            data={displayedRecords}
             columns={columns}
             entryKey="name"
           />

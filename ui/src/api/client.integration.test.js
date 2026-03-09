@@ -1606,4 +1606,87 @@ describe('SystemControllerClient integration', () => {
       await expect(client.getLocales()).rejects.toThrow()
     })
   })
+
+  // --- DNS ---
+
+  describe('dns', () => {
+    it('returns dns status', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const status = await client.dnsStatus()
+      expect(typeof status.enabled).toBe('boolean')
+      expect(typeof status.running).toBe('boolean')
+      expect(typeof status.tld).toBe('string')
+      expect(typeof status.record_count).toBe('number')
+    })
+
+    it('returns dns tld with default value', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getDNSTLD()
+      expect(result.tld).toBeTruthy()
+      // Default TLD is "home" if not configured
+      expect(typeof result.tld).toBe('string')
+    })
+
+    it('dnsStatus requires auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.dnsStatus()).rejects.toThrow(/GET \/dns\/status:.*missing authorization token/)
+    })
+
+    it('listDNSRecords requires auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.listDNSRecords()).rejects.toThrow(/GET \/dns\/records:.*missing authorization token/)
+    })
+
+    it('addDNSRecord requires auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.addDNSRecord('test', 0, '1.2.3.4', 300)).rejects.toThrow(/POST \/dns\/records\/add:.*missing authorization token/)
+    })
+
+    it('removeDNSRecord requires auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.removeDNSRecord('test', 0)).rejects.toThrow(/POST \/dns\/records\/remove:.*missing authorization token/)
+    })
+
+    it('getDNSTLD requires auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.getDNSTLD()).rejects.toThrow(/GET \/dns\/tld:.*missing authorization token/)
+    })
+
+    it('setDNSTLD requires auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.setDNSTLD('test')).rejects.toThrow(/POST \/dns\/tld:.*missing authorization token/)
+    })
+
+    it('setupDNS requires auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.setupDNS()).rejects.toThrow(/POST \/dns\/setup:.*missing authorization token/)
+    })
+
+    it('non-admin can read dns status', async () => {
+      // Authenticate as non-admin user
+      const adminResp = await client.authenticate('admin', 'adminpass')
+      client.setToken(adminResp.token)
+
+      // Ensure user1 exists and is enabled
+      try {
+        const acct = await client.getAccount('user1')
+        if (acct.disabled) {
+          await client.enableAccount('user1')
+        }
+      } catch {
+        // user1 may already exist from earlier tests
+      }
+
+      const userClient = new SystemControllerClient(baseURL)
+      const userResp = await userClient.authenticate('user1', 'userpass')
+      userClient.setToken(userResp.token)
+
+      const status = await userClient.dnsStatus()
+      expect(typeof status.enabled).toBe('boolean')
+    })
+  })
 })

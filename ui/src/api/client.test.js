@@ -1699,4 +1699,132 @@ describe('SystemControllerClient', () => {
       )
     })
   })
+
+  // --- DNS ---
+
+  describe('dnsStatus', () => {
+    it('returns status object', async () => {
+      const statusData = { enabled: true, running: true, tld: 'town', record_count: 5 }
+      mockFetch(statusData)
+      client.setToken('tok')
+
+      const result = await client.dnsStatus()
+      expect(result).toEqual(statusData)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/dns/status',
+        { headers: { Authorization: 'Bearer tok' } },
+      )
+    })
+  })
+
+  describe('listDNSRecords', () => {
+    it('returns array of records', async () => {
+      const records = [
+        { name: 'app.town', record_type: 0, value: '192.168.1.1', ttl: 300, priority: 0 },
+      ]
+      mockFetch(records)
+      client.setToken('tok')
+
+      const result = await client.listDNSRecords()
+      expect(result).toEqual(records)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/dns/records',
+        { headers: { Authorization: 'Bearer tok' } },
+      )
+    })
+  })
+
+  describe('addDNSRecord', () => {
+    it('sends correct POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.addDNSRecord('app.town', 0, '192.168.1.1', 300)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/dns/records/add',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'app.town', record_type: 0, value: '192.168.1.1', ttl: 300 }),
+        },
+      )
+    })
+  })
+
+  describe('removeDNSRecord', () => {
+    it('sends name and record_type', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.removeDNSRecord('app.town', 0)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/dns/records/remove',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ name: 'app.town', record_type: 0 }),
+        },
+      )
+    })
+  })
+
+  describe('getDNSTLD', () => {
+    it('returns tld object', async () => {
+      mockFetch({ tld: 'town' })
+      client.setToken('tok')
+
+      const result = await client.getDNSTLD()
+      expect(result).toEqual({ tld: 'town' })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/dns/tld',
+        { headers: { Authorization: 'Bearer tok' } },
+      )
+    })
+  })
+
+  describe('setDNSTLD', () => {
+    it('sends tld in POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.setDNSTLD('example')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/dns/tld',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ tld: 'example' }),
+        },
+      )
+    })
+  })
+
+  describe('setupDNS', () => {
+    it('sends empty POST body', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.setupDNS()
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/dns/setup',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({}),
+        },
+      )
+    })
+  })
 })
