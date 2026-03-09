@@ -27,6 +27,8 @@ case "$1" in
     done
     step "Loading monitoring images into dev container"
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${MONITORING_IMAGES}
+    step "Loading rolodex image into dev container"
+    load_images_into_container "${PODMAN_DEV_CONTAINER}" ${ROLODEX_IMAGE}
     step "Starting UI dev server"
     substep "API server: http://$(hostname):5309"
     cd ui && bun install && bun run dev -- --host

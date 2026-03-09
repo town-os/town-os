@@ -91,8 +91,14 @@ test-ui-integration-local:
 test-ui-integration:
 	@make/test.sh ui-integration
 
+test-integration-build:
+	@make/test.sh integration-build
+
 test-integration:
 	@make/test.sh integration
+
+test-integration-rerun:
+	@make/test.sh integration-rerun
 
 test-full:
 	@make/test.sh full

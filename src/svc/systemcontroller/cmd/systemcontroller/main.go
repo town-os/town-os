@@ -16,6 +16,7 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -204,6 +205,28 @@ func run() (err error) {
 		monMgr = nil
 	}
 
+	// Start the rolodex DNS server. Data lives on the root filesystem so
+	// it is available before the btrfs volume is mounted.
+	rolDataDir := rolodex.DefaultDataDir
+	rolImage := os.Getenv("ROLODEX_IMAGE")
+	if rolImage == "" {
+		rolImage = "quay.io/town/rolodex:rc.latest"
+	}
+	rolMgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        sd,
+		DataDir:        rolDataDir,
+		Image:          rolImage,
+		Local:          os.Getenv("ROLODEX_LOCAL") != "",
+		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
+		ResolvConfPath: "/etc/resolv.conf",
+	})
+	if err := rolMgr.Start(ctx); err != nil {
+		// Non-fatal: rolodex failure should not prevent the system
+		// controller from starting.
+		fmt.Fprintf(os.Stderr, "rolodex: %v\n", err)
+		rolMgr = nil
+	}
+
 	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
 		Storage:                  st,
 		RepositoryRoot:           rr,
@@ -221,6 +244,7 @@ func run() (err error) {
 		NetworkStatePath:         *networkStatePath,
 		NetworkMode:              *networkMode,
 		Monitoring:               monMgr,
+		Rolodex:                  rolMgr,
 	})
 
 	srv := &http.Server{
@@ -235,6 +259,11 @@ func run() (err error) {
 	go func() {
 		<-sig
 		cancel()
+		if rolMgr != nil {
+			if stopErr := rolMgr.Stop(context.Background()); stopErr != nil {
+				fmt.Fprintf(os.Stderr, "rolodex stop: %v\n", stopErr)
+			}
+		}
 		shutdownErr := srv.Shutdown(context.Background())
 		if shutdownErr != nil {
 			fmt.Fprintf(os.Stderr, "shutdown: %v\n", shutdownErr)

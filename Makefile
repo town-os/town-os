@@ -43,8 +43,11 @@ export IMAGE_CACHE
 # Image lists.
 BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
-ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine $(MONITORING_IMAGES)
-export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES
+ROLODEX_IMAGE_TAG ?= rc.latest
+ROLODEX_IMAGE := quay.io/town/rolodex:$(ROLODEX_IMAGE_TAG)
+ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine $(MONITORING_IMAGES) $(ROLODEX_IMAGE)
+export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE
+export TEST_RUN TEST_TIMEOUT
 
 include make/include.mk
 
@@ -57,7 +60,7 @@ include make/include.mk
 .PHONY: ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
-.PHONY: test-ui-integration test-integration test-full
+.PHONY: test-ui-integration test-integration-build test-integration test-integration-rerun test-full
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
 .PHONY: release-build release-image release-ui-image push push-rc push-release push-ui-rc push-ui-release quay-login
@@ -80,7 +83,8 @@ registry-populate: registry .cache/.registry-images
 gitea: check-podman check-runc ensure-image-cache .gitea-port
 gitea-populate: gitea
 test-ui-integration: test-image ui-integration-image .integration-port registry-populate .cache/registries.conf gitea-populate
-test-integration: lint test-image .integration-port registry-populate .cache/registries.conf gitea-populate
+test-integration-build: lint test-image .integration-port registry-populate .cache/registries.conf gitea-populate
+test-integration: test-integration-build
 test-full: test
 test-image: production-image
 dev-production-image: .cache/.images-pulled

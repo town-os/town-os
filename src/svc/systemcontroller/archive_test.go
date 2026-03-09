@@ -17,6 +17,7 @@ import (
 	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -153,6 +154,7 @@ func (b *archiveTestBackend) GetPagesManager() account.PagesManager             
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetMonitoring() *monitoring.Manager                  { return nil }
+func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 
 type testSettingsManager struct {
 	values map[string]string

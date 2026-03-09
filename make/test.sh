@@ -9,8 +9,10 @@ case "$1" in
     step "Running UI unit tests"
     cd ui && bun install && bun run test
     ;;
-  # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
-  integration)
+  # Build integration test image and start the container with all images loaded.
+  # Does not run any tests. Called by test-integration; can also be used standalone
+  # to prepare the container for test-integration-rerun.
+  integration-build)
     step "Creating btrfs volume for integration tests"
     ${MAKE} btrfs
     step "Starting integration test container"
@@ -21,6 +23,7 @@ case "$1" in
       -e "TOWN_OS_LISTEN=:$(cat .integration-port)" \
       -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-core.git" \
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-extras.git" \
+      -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat town-os.mount):/town-os:z" \
@@ -30,9 +33,39 @@ case "$1" in
     wait_for_systemd "${PODMAN_CONTAINER}"
     step "Loading monitoring images into test container"
     load_images_into_container "${PODMAN_CONTAINER}" ${MONITORING_IMAGES}
+    step "Loading rolodex image into test container"
+    load_images_into_container "${PODMAN_CONTAINER}" ${ROLODEX_IMAGE}
+    ;;
+  # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
+  integration)
     step "Running integration tests"
     rc=0
-    ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test -test.v -test.timeout 60m || rc=$?
+    run_args=(-test.v -test.timeout "${TEST_TIMEOUT:-60m}")
+    if [[ -n "${TEST_RUN:-}" ]]; then
+      run_args+=(-test.run "${TEST_RUN}")
+    fi
+    ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test "${run_args[@]}" || rc=$?
+    exit ${rc}
+    ;;
+  # Run integration tests in an already-running container. Use after
+  # make test-integration to re-run tests without rebuilding.
+  integration-rerun)
+    if ! ${SUDO} podman inspect "${PODMAN_CONTAINER}" >/dev/null 2>&1; then
+      echo "Error: container ${PODMAN_CONTAINER} not found. Run 'make test-integration' first." >&2
+      exit 1
+    fi
+    if ! ${SUDO} podman inspect --format '{{.State.Running}}' "${PODMAN_CONTAINER}" 2>/dev/null | grep -q true; then
+      ${SUDO} podman start "${PODMAN_CONTAINER}"
+      substep "Waiting for systemd to be ready"
+      wait_for_systemd "${PODMAN_CONTAINER}"
+    fi
+    step "Running integration tests"
+    rc=0
+    run_args=(-test.v -test.timeout "${TEST_TIMEOUT:-60m}")
+    if [[ -n "${TEST_RUN:-}" ]]; then
+      run_args+=(-test.run "${TEST_RUN}")
+    fi
+    ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test "${run_args[@]}" || rc=$?
     exit ${rc}
     ;;
   ui-unit)
@@ -56,6 +89,7 @@ case "$1" in
       -e "TOWN_OS_LISTEN=:$(cat .integration-port)" \
       -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-core.git" \
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-extras.git" \
+      -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat town-os.mount):/town-os:z" \
@@ -65,6 +99,8 @@ case "$1" in
     wait_for_systemd "${PODMAN_UI_BACKEND}"
     step "Loading monitoring images into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" ${MONITORING_IMAGES}
+    step "Loading rolodex image into UI integration container"
+    load_images_into_container "${PODMAN_UI_BACKEND}" ${ROLODEX_IMAGE}
     substep "Waiting for systemcontroller API to be ready"
     wait_for_url "http://localhost:$(cat .integration-port)/status/ping" 60
     step "Running UI integration tests"
@@ -104,7 +140,7 @@ case "$1" in
     ${SUDO} "$(go env GOPATH)/bin/reflex" -r '\.(go|js)$' make test-full
     ;;
   *)
-    echo "Usage: $0 {unit|ui-unit|ui-integration-local|integration|ui-integration|full|auto|auto-full}"
+    echo "Usage: $0 {unit|ui-unit|ui-integration-local|integration-build|integration|integration-rerun|ui-integration|full|auto|auto-full}"
     exit 1
     ;;
 esac

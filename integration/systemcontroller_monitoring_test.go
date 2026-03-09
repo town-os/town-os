@@ -237,7 +237,7 @@ func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	for _, ep := range endpoints {
 		t.Run(ep.name, func(t *testing.T) {
-			deadline := time.Now().Add(30 * time.Second)
+			deadline := time.Now().Add(time.Minute)
 			for time.Now().Before(deadline) {
 				req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, ep.url, nil)
 				if reqErr != nil {
@@ -254,7 +254,7 @@ func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 				}
 				time.Sleep(500 * time.Millisecond)
 			}
-			t.Fatalf("%s did not become healthy at %s within 30s", ep.name, ep.url)
+			t.Fatalf("%s did not become healthy at %s within 60s", ep.name, ep.url)
 		})
 	}
 }

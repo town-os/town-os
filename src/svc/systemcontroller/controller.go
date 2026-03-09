@@ -18,6 +18,7 @@ import (
 	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -46,6 +47,7 @@ type systemControllerBackend interface {
 	GetGitCloner() packages.GitCloner
 	GetPagesManager() account.PagesManager
 	GetMonitoring() *monitoring.Manager
+	GetRolodex() *rolodex.Manager
 }
 
 type SystemController interface {
@@ -175,6 +177,7 @@ type ServerConfig struct {
 	PagesMgr                 account.PagesManager
 	GitCloner                packages.GitCloner
 	Monitoring               *monitoring.Manager
+	Rolodex                  *rolodex.Manager
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {
@@ -224,6 +227,7 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 }
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
 func (s *serverBase) GetMonitoring() *monitoring.Manager     { return s.Monitoring }
+func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetExternalIP() string {
 	v := s.externalIP.Load()
 	if v == nil {

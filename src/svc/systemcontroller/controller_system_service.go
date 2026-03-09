@@ -24,13 +24,52 @@ type SetSystemServiceStatusRequest struct {
 	Action systemd.StatusAction `json:"action"`
 }
 
+// systemServiceInfo is a unified view of a system service from any provider.
+type systemServiceInfo struct {
+	Key         string
+	DisplayName string
+	Image       string
+	Port        string
+	UnitName    string
+}
+
+// collectSystemServices gathers system service metadata from all providers.
+func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
+	var all []systemServiceInfo
+
+	if mon := s.Controller.GetMonitoring(); mon != nil {
+		for _, svc := range mon.SystemServices() {
+			all = append(all, systemServiceInfo{
+				Key:         svc.Key,
+				DisplayName: svc.DisplayName,
+				Image:       svc.Image,
+				Port:        svc.Port,
+				UnitName:    svc.UnitName,
+			})
+		}
+	}
+
+	if rol := s.Controller.GetRolodex(); rol != nil {
+		for _, svc := range rol.SystemServices() {
+			all = append(all, systemServiceInfo{
+				Key:         svc.Key,
+				DisplayName: svc.DisplayName,
+				Image:       svc.Image,
+				Port:        svc.Port,
+				UnitName:    svc.UnitName,
+			})
+		}
+	}
+
+	return all
+}
+
 func (s *SystemControllerHandlers) listSystemServices(c *echo.Context) error {
-	mon := s.Controller.GetMonitoring()
-	if mon == nil {
+	svcs := s.collectSystemServices()
+	if len(svcs) == 0 {
 		return c.JSON(200, []SystemServiceEntry{})
 	}
 
-	svcs := mon.SystemServices()
 	sd := s.Controller.GetSystemdManager()
 
 	unitStates := map[string]systemd.UnitStatus{}
@@ -65,9 +104,9 @@ func (s *SystemControllerHandlers) listSystemServices(c *echo.Context) error {
 }
 
 func (s *SystemControllerHandlers) setSystemServiceStatus(c *echo.Context) error {
-	mon := s.Controller.GetMonitoring()
-	if mon == nil {
-		return echo.NewHTTPError(404, "monitoring not configured")
+	svcs := s.collectSystemServices()
+	if len(svcs) == 0 {
+		return echo.NewHTTPError(404, "no system services configured")
 	}
 
 	var req SetSystemServiceStatusRequest
@@ -81,7 +120,6 @@ func (s *SystemControllerHandlers) setSystemServiceStatus(c *echo.Context) error
 	}
 
 	// Validate key against known services.
-	svcs := mon.SystemServices()
 	var unitName string
 	for _, svc := range svcs {
 		if svc.Key == req.Key {

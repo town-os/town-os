@@ -102,21 +102,27 @@ func (m *SystemdManager) SetStatus(ctx context.Context, unit string, action Stat
 		if err != nil {
 			return err
 		}
-		<-ch
+		if result := <-ch; result != "done" {
+			return fmt.Errorf("start %s: job result %q", unit, result)
+		}
 	case Stop:
 		ch := make(chan string, 1)
 		_, err = conn.StopUnitContext(ctx, unit, "replace", ch)
 		if err != nil {
 			return err
 		}
-		<-ch
+		if result := <-ch; result != "done" {
+			return fmt.Errorf("stop %s: job result %q", unit, result)
+		}
 	case Restart:
 		ch := make(chan string, 1)
 		_, err = conn.RestartUnitContext(ctx, unit, "replace", ch)
 		if err != nil {
 			return err
 		}
-		<-ch
+		if result := <-ch; result != "done" {
+			return fmt.Errorf("restart %s: job result %q", unit, result)
+		}
 	case Enable:
 		_, _, err = conn.EnableUnitFilesContext(ctx, []string{unit}, false, false)
 		if err != nil {

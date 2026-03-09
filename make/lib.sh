@@ -2,6 +2,16 @@
 # Source this file: . make/lib.sh
 
 # ---------------------------------------------------------------------------
+# Go module boundary for dev-repos
+# ---------------------------------------------------------------------------
+# dev-repos/ contains root-owned directories that Go tooling (go mod tidy,
+# go vet, etc.) cannot read. Placing a go.mod here marks it as a separate
+# module so the parent module scan skips it entirely.
+if [ -d dev-repos ] && [ ! -f dev-repos/go.mod ]; then
+  printf 'module dev-repos\n' > dev-repos/go.mod 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
 # Privileged execution
 # ---------------------------------------------------------------------------
 

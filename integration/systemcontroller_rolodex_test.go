@@ -1,0 +1,419 @@
+package integration_test
+
+import (
+	"context"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	upstream "gitea.com/town-os/rolodex-dns/go"
+	"gitea.com/town-os/town-os/src/rolodex"
+	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/svc/systemcontroller"
+	"gitea.com/town-os/town-os/src/systemd"
+)
+
+func rolodexTestImage() string {
+	if img := os.Getenv("ROLODEX_IMAGE"); img != "" {
+		return img
+	}
+	return "quay.io/town/rolodex:rc.latest"
+}
+
+// rolodexTempDir creates a temporary directory with a dash-case name and
+// registers cleanup with t.Cleanup.
+func rolodexTempDir(t *testing.T, pattern string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", pattern) //nolint:usetesting // dash-case dir names
+	if err != nil {
+		t.Fatalf("MkdirTemp(%s): %v", pattern, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func initSystemControllerRolodexTest(t *testing.T) (*systemcontroller.SystemdClient, *systemd.MockManager) {
+	t.Helper()
+
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	rolMgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        sd,
+		DataDir:        rolodexTempDir(t, "rolodex-mock-*"),
+		Image:          rolodexTestImage(),
+		UnixSocketPath: "/tmp/rolodex.sock",
+	})
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage: mock,
+		Systemd: sd,
+		Rolodex: rolMgr,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	return c, sd
+}
+
+// initRolodexRealTest creates a rolodex manager with real systemd, starts it,
+// and returns a connected client + cleanup.
+func initRolodexRealTest(t *testing.T) rolodex.Client {
+	t.Helper()
+
+	dataDir := rolodexTempDir(t, "rolodex-data-*")
+	sd := systemd.NewManager()
+	socketPath := filepath.Join(dataDir, "rolodex.sock")
+
+	mgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        sd,
+		DataDir:        dataDir,
+		Image:          rolodexTestImage(),
+		Local:          true,
+		UnixSocketPath: socketPath,
+	})
+
+	ctx := context.Background()
+	if dl, ok := t.Deadline(); ok {
+		var cancel context.CancelFunc
+		// Leave 15s headroom so diagnostics print before -test.timeout panics.
+		ctx, cancel = context.WithDeadline(ctx, dl.Add(-15*time.Second))
+		t.Cleanup(cancel)
+	}
+
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		unitName := systemd.SystemServiceUnitName("rolodex")
+		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Stop); err != nil {
+			t.Logf("cleanup SetStatus(stop): %v", err)
+		}
+		if err := sd.UninstallUnit(cleanupCtx, unitName); err != nil {
+			t.Logf("cleanup UninstallUnit: %v", err)
+		}
+	})
+
+	// Verify the unit actually started before waiting for the socket.
+	time.Sleep(2 * time.Second)
+	status := mgr.Status(ctx)
+	if !status.Running {
+		dumpRolodexDiagnostics(ctx, t, dataDir)
+		t.Fatal("rolodex not running 2s after Start")
+	}
+
+	client := waitForRolodexClient(t, ctx, socketPath, dataDir)
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+
+	return client
+}
+
+func TestRolodexSystemServiceListed(t *testing.T) {
+	c, _ := initSystemControllerRolodexTest(t)
+
+	entries, err := c.ListSystemServices(context.TODO())
+	if err != nil {
+		t.Fatalf("ListSystemServices: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 system service, got %d", len(entries))
+	}
+
+	if entries[0].Key != "rolodex" {
+		t.Fatalf("expected key %q, got %q", "rolodex", entries[0].Key)
+	}
+}
+
+func TestRolodexStartStopRestart(t *testing.T) {
+	c, sd := initSystemControllerRolodexTest(t)
+
+	for _, action := range []systemd.StatusAction{systemd.Start, systemd.Stop, systemd.Restart} {
+		if err := c.SetSystemServiceStatus(context.TODO(), "rolodex", action); err != nil {
+			t.Fatalf("SetSystemServiceStatus(%s): %v", action, err)
+		}
+	}
+
+	calls := sd.GetCalls()
+	statusCalls := 0
+	for _, call := range calls {
+		if call.Method == "SetStatus" {
+			statusCalls++
+		}
+	}
+
+	if statusCalls != 3 {
+		t.Fatalf("expected 3 SetStatus calls, got %d", statusCalls)
+	}
+}
+
+func TestRolodexRealContainerStart(t *testing.T) {
+	dataDir := rolodexTempDir(t, "rolodex-start-*")
+	sd := systemd.NewManager()
+
+	mgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        sd,
+		DataDir:        dataDir,
+		Image:          rolodexTestImage(),
+		Local:          true,
+		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
+	})
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		unitName := systemd.SystemServiceUnitName("rolodex")
+		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
+			t.Logf("cleanup SetStatus(stop): %v", err)
+		}
+		if err := sd.UninstallUnit(ctx, unitName); err != nil {
+			t.Logf("cleanup UninstallUnit: %v", err)
+		}
+	})
+
+	// Wait for systemd to bring the container up.
+	var status rolodex.Status
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		status = mgr.Status(ctx)
+		if status.Running {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !status.Running {
+		t.Fatal("expected rolodex running after Start")
+	}
+}
+
+func TestRolodexClientConnect(t *testing.T) {
+	client := initRolodexRealTest(t)
+
+	// Verify the connection works by listing records.
+	records, err := client.ListRecords(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+	// New server should have no records.
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d", len(records))
+	}
+}
+
+func TestRolodexClientAddRemoveRecords(t *testing.T) {
+	client := initRolodexRealTest(t)
+	ctx := context.Background()
+
+	// Add an A record.
+	if err := client.AddRecord(ctx, &upstream.DnsRecord{
+		Name:       "test.local.",
+		RecordType: upstream.RecordTypeA,
+		Value:      "10.0.0.1",
+		Ttl:        300,
+	}); err != nil {
+		t.Fatalf("AddRecord A: %v", err)
+	}
+
+	// Add an AAAA record.
+	if err := client.AddRecord(ctx, &upstream.DnsRecord{
+		Name:       "test.local.",
+		RecordType: upstream.RecordTypeAAAA,
+		Value:      "::1",
+		Ttl:        300,
+	}); err != nil {
+		t.Fatalf("AddRecord AAAA: %v", err)
+	}
+
+	// List and verify.
+	records, err := client.ListRecords(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+	if len(records) < 2 {
+		t.Fatalf("expected at least 2 records, got %d", len(records))
+	}
+
+	// Remove records for test.local. by type.
+	aType := upstream.RecordTypeA
+	removed, err := client.RemoveRecord(ctx, "test.local.", &upstream.RemoveRecordOptions{RecordType: &aType})
+	if err != nil {
+		t.Fatalf("RemoveRecord A: %v", err)
+	}
+	if removed == 0 {
+		t.Fatal("expected at least 1 A record removed")
+	}
+	aaaaType := upstream.RecordTypeAAAA
+	removed, err = client.RemoveRecord(ctx, "test.local.", &upstream.RemoveRecordOptions{RecordType: &aaaaType})
+	if err != nil {
+		t.Fatalf("RemoveRecord AAAA: %v", err)
+	}
+	if removed == 0 {
+		t.Fatal("expected at least 1 AAAA record removed")
+	}
+
+	// Verify empty.
+	records, err = client.ListRecords(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListRecords after remove: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records after remove, got %d", len(records))
+	}
+}
+
+func TestRolodexDNSQueryExampleOrg(t *testing.T) {
+	testRolodexDNSQuery(t, "example.org.")
+}
+
+func TestRolodexDNSQueryExampleCom(t *testing.T) {
+	testRolodexDNSQuery(t, "example.com.")
+}
+
+func testRolodexDNSQuery(t *testing.T, domain string) {
+	t.Helper()
+
+	initRolodexRealTest(t)
+	ctx := context.Background()
+	if dl, ok := t.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, dl)
+		defer cancel()
+	}
+
+	// Rolodex is running on host port 53 (local mode) and handles its own
+	// forwarding. Use a custom resolver pointing at localhost:53.
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":53")
+		},
+	}
+
+	var addrs []string
+	var resolveErr error
+	for ctx.Err() == nil {
+		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		addrs, resolveErr = resolver.LookupHost(lookupCtx, domain)
+		cancel()
+		if resolveErr == nil && len(addrs) > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if resolveErr != nil {
+		t.Fatalf("LookupHost(%s): %v", domain, resolveErr)
+	}
+	if len(addrs) == 0 {
+		t.Fatalf("expected at least 1 address for %s", domain)
+	}
+}
+
+// dumpRolodexDiagnostics logs unit status, journal entries, directory
+// contents, and the unit file to help debug socket-not-appearing failures.
+func dumpRolodexDiagnostics(ctx context.Context, t *testing.T, dataDir string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	unitName := systemd.SystemServiceUnitName("rolodex")
+
+	// Unit status via systemctl.
+	if out, err := exec.CommandContext(ctx, "systemctl", "status", unitName).CombinedOutput(); err != nil {
+		t.Logf("systemctl status %s (exit %v):\n%s", unitName, err, out)
+	} else {
+		t.Logf("systemctl status %s:\n%s", unitName, out)
+	}
+
+	// Recent journal entries.
+	if out, err := exec.CommandContext(ctx, "journalctl", "-u", unitName, "-n", "40", "--no-pager").CombinedOutput(); err != nil {
+		t.Logf("journalctl (exit %v):\n%s", err, out)
+	} else {
+		t.Logf("journalctl -u %s:\n%s", unitName, out)
+	}
+
+	// Unit file content.
+	unitPath := "/etc/systemd/system/" + unitName
+	if content, err := os.ReadFile(unitPath); err != nil {
+		t.Logf("unit file %s: %v", unitPath, err)
+	} else {
+		t.Logf("unit file %s:\n%s", unitPath, content)
+	}
+
+	// Data directory listing.
+	if entries, err := os.ReadDir(dataDir); err != nil {
+		t.Logf("ReadDir(%s): %v", dataDir, err)
+	} else {
+		t.Logf("dataDir %s contents:", dataDir)
+		for _, e := range entries {
+			info, _ := e.Info()
+			if info != nil {
+				t.Logf("  %s (mode=%s size=%d)", e.Name(), info.Mode(), info.Size())
+			} else {
+				t.Logf("  %s", e.Name())
+			}
+		}
+	}
+
+	// Container status.
+	if out, err := exec.CommandContext(ctx, "podman", "ps", "-a", "--filter", "name="+systemd.SystemServiceContainerName("rolodex")).CombinedOutput(); err != nil {
+		t.Logf("podman ps (exit %v):\n%s", err, out)
+	} else {
+		t.Logf("podman ps:\n%s", out)
+	}
+}
+
+// waitForRolodexClient waits for the rolodex Unix socket to become available
+// and returns a connected client. The wait is bounded by ctx's deadline
+// (set from -test.timeout via t.Deadline).
+func waitForRolodexClient(t *testing.T, ctx context.Context, socketPath, dataDir string) rolodex.Client {
+	t.Helper()
+
+	poll := 100 * time.Millisecond
+
+	var lastDialErr, lastRPCErr error
+	for ctx.Err() == nil {
+		attemptCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		client, err := rolodex.Dial(attemptCtx, socketPath)
+		if err != nil {
+			lastDialErr = err
+			cancel()
+			time.Sleep(poll)
+			continue
+		}
+		// Verify the connection is actually live.
+		_, err = client.ListRecords(attemptCtx, nil)
+		cancel()
+		if err != nil {
+			lastRPCErr = err
+			if closeErr := client.Close(); closeErr != nil {
+				t.Logf("waitForRolodexClient: close after failed ListRecords: %v", closeErr)
+			}
+			time.Sleep(poll)
+			continue
+		}
+		return client
+	}
+	if lastDialErr != nil {
+		t.Logf("waitForRolodexClient: last Dial error: %v", lastDialErr)
+	}
+	if lastRPCErr != nil {
+		t.Logf("waitForRolodexClient: last ListRecords error: %v", lastRPCErr)
+	}
+	dumpRolodexDiagnostics(ctx, t, dataDir)
+	t.Fatalf("waitForRolodexClient: timed out waiting for %s", socketPath)
+	return nil
+}

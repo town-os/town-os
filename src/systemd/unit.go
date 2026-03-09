@@ -469,6 +469,7 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	b.WriteString("[Unit]\n")
 	fmt.Fprintf(&b, "Description=Town OS System Service: %s\n", cfg.Description)
 	b.WriteString("After=network-online.target\n")
+	b.WriteString("StartLimitIntervalSec=0\n")
 
 	// [Service]
 	b.WriteString("\n[Service]\n")
