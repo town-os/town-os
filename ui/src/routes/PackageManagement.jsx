@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
@@ -97,6 +97,16 @@ export default function PackageManagement() {
     [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch, showInstalledOnly, showFeaturedOnly],
   )
   const packages = pkgData.entries || []
+
+  // Auto-uncheck "installed only" when no installed packages exist
+  const hasAutoUncheckedInstalled = useRef(false)
+  useEffect(() => {
+    if (!hasAutoUncheckedInstalled.current && showInstalledOnly && !pkgLoading && packages.length === 0) {
+      hasAutoUncheckedInstalled.current = true
+      setShowInstalledOnly(false)
+      localStorage.setItem('pkg_installed_only', 'false')
+    }
+  }, [showInstalledOnly, pkgLoading, packages])
 
   const [byRepoData] = usePolling(
     () => groupByRepo ? getClient().listPackagesByRepo(pkgSearch || undefined, showFeaturedOnly || undefined) : Promise.resolve([]),

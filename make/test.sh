@@ -35,6 +35,14 @@ case "$1" in
     ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test -test.v -test.timeout 60m || rc=$?
     exit ${rc}
     ;;
+  ui-unit)
+    step "Running UI unit tests"
+    cd ui && bun install && bun run test
+    ;;
+  ui-integration-local)
+    step "Running UI integration tests (local backend)"
+    cd ui && bun install && bun run test:integration
+    ;;
   # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
   ui-integration)
     step "Creating btrfs volume for UI integration tests"
@@ -96,7 +104,7 @@ case "$1" in
     ${SUDO} "$(go env GOPATH)/bin/reflex" -r '\.(go|js)$' make test-full
     ;;
   *)
-    echo "Usage: $0 {unit|integration|ui-integration|full|auto|auto-full}"
+    echo "Usage: $0 {unit|ui-unit|ui-integration-local|integration|ui-integration|full|auto|auto-full}"
     exit 1
     ;;
 esac

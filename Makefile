@@ -53,7 +53,7 @@ include make/include.mk
 # ---------------------------------------------------------------------------
 
 .PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
-.PHONY: test docker-login ensure-image-cache pull-images
+.PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images
 .PHONY: ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
@@ -64,6 +64,8 @@ include make/include.mk
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
+test-ui-unit: check-bun
+test-ui-integration-local: check-bun
 .cache/.images-pulled: ensure-image-cache docker-login
 pull-images: check-podman check-runc docker-login quay-login
 ui-integration-image: .cache/.images-pulled

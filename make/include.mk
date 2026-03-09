@@ -82,6 +82,12 @@ gitea-populate:
 gitea-stop:
 	@make/gitea.sh stop
 
+test-ui-unit:
+	@make/test.sh ui-unit
+
+test-ui-integration-local:
+	@make/test.sh ui-integration-local
+
 test-ui-integration:
 	@make/test.sh ui-integration
 
