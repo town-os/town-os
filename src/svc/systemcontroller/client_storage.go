@@ -78,3 +78,32 @@ func (c *SystemdClient) ListFilesystems(ctx context.Context, prefix string, stat
 	var page PageResult[storage.Filesystem]
 	return &page, json.NewDecoder(resp.Body).Decode(&page)
 }
+
+// ListPackageVolumes returns package volumes grouped by package name.
+func (c *SystemdClient) ListPackageVolumes(ctx context.Context, includeUninstalled bool) ([]PackageVolumeGroup, error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageVolumesRequest{IncludeUninstalled: includeUninstalled})
+
+	resp, err := c.postJSON(ctx, "storage/package-volumes", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListPackageVolumes: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "POST", "storage/package-volumes")
+	}
+
+	var groups []PackageVolumeGroup
+	return groups, json.NewDecoder(resp.Body).Decode(&groups)
+}
+
+// RemovePackageVolume deletes a package volume by its internal name.
+func (c *SystemdClient) RemovePackageVolume(ctx context.Context, internalName string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, RemovePackageVolumeRequest{InternalName: internalName})
+
+	return c.postClient(ctx, "storage/remove-package-volume", pr)
+}

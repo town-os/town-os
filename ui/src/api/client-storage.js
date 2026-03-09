@@ -57,3 +57,21 @@ SystemControllerClient.prototype.listFilesystems = async function (prefix, sortB
   if (search) body.search = search
   return this.postJSON('/storage', body)
 }
+
+/**
+ * List package volumes grouped by package.
+ * @param {boolean} includeUninstalled - Whether to include uninstalled volumes.
+ * @returns {Promise<Array<{package: string, repo: string, volumes: Array<{name: string, internal_name: string, repo: string, quota: number, state: string}>}>>}
+ */
+SystemControllerClient.prototype.listPackageVolumes = async function (includeUninstalled) {
+  return this.postJSON('/storage/package-volumes', { include_uninstalled: !!includeUninstalled })
+}
+
+/**
+ * Remove a package volume by its internal name.
+ * @param {string} internalName - Full internal path (e.g. "installed/repo/pkg/1.0/data").
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.removePackageVolume = async function (internalName) {
+  await this.post('/storage/remove-package-volume', { internal_name: internalName })
+}

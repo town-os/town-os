@@ -3,6 +3,8 @@ package systemcontroller
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"sort"
 	"strings"
 
 	"gitea.com/town-os/town-os/src/storage"
@@ -237,6 +239,141 @@ func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
 	}
 
 	if err := s.Controller.GetStorage().ModifyFilesystem(req.Name, req.Filesystem); err != nil {
+		return err
+	}
+
+	c.Response().WriteHeader(200)
+	return nil
+}
+
+// --- Package volume types ---
+
+type PackageVolume struct {
+	Name         string `json:"name"`          // volume sub-path e.g. "1.0/data"
+	InternalName string `json:"internal_name"` // full path e.g. "installed/repo-a/nginx/1.0/data"
+	Repo         string `json:"repo"`          // repository name
+	Quota        uint64 `json:"quota"`
+	State        string `json:"state"` // "installed" or "uninstalled"
+}
+
+type PackageVolumeGroup struct {
+	Package string          `json:"package"` // display name, e.g. "nginx" or "repo-a/nginx" on collision
+	Repo    string          `json:"repo"`    // always present for API calls
+	Volumes []PackageVolume `json:"volumes"`
+}
+
+type PackageVolumesRequest struct {
+	IncludeUninstalled bool `json:"include_uninstalled"`
+}
+
+type RemovePackageVolumeRequest struct {
+	InternalName string `json:"internal_name"`
+}
+
+func (s *SystemControllerHandlers) listPackageVolumes(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := PackageVolumesRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	list, err := s.Controller.GetStorage().ListFilesystems("")
+	if err != nil {
+		return err
+	}
+
+	// Group volumes by repo/name key.
+	type groupKey struct {
+		repo string
+		name string
+	}
+	groups := map[groupKey][]PackageVolume{}
+	nameToRepos := map[string]map[string]bool{} // package name → set of repos
+
+	for _, f := range list {
+		var prefix, state string
+		if after, ok := strings.CutPrefix(f.Name, PackagesVolumePrefix+"/"); ok {
+			prefix = after
+			state = "installed"
+		} else if after, ok := strings.CutPrefix(f.Name, UninstalledVolumePrefix+"/"); ok {
+			prefix = after
+			state = "uninstalled"
+		} else {
+			continue
+		}
+
+		if !req.IncludeUninstalled && state == "uninstalled" {
+			continue
+		}
+
+		// Parse: repo/name/version/volName
+		parts := strings.SplitN(prefix, "/", 4)
+		if len(parts) < 4 {
+			continue // intermediate subvolume, skip
+		}
+
+		repo := parts[0]
+		pkgName := parts[1]
+		subPath := parts[2] + "/" + parts[3] // version/volName
+
+		key := groupKey{repo: repo, name: pkgName}
+		groups[key] = append(groups[key], PackageVolume{
+			Name:         subPath,
+			InternalName: f.Name,
+			Repo:         repo,
+			Quota:        f.Quota,
+			State:        state,
+		})
+
+		if nameToRepos[pkgName] == nil {
+			nameToRepos[pkgName] = map[string]bool{}
+		}
+		nameToRepos[pkgName][repo] = true
+	}
+
+	// Build result, detecting name collisions.
+	result := make([]PackageVolumeGroup, 0, len(groups))
+	for key, vols := range groups {
+		displayName := key.name
+		if len(nameToRepos[key.name]) > 1 {
+			displayName = key.repo + "/" + key.name
+		}
+
+		sort.Slice(vols, func(i, j int) bool {
+			return vols[i].Name < vols[j].Name
+		})
+
+		result = append(result, PackageVolumeGroup{
+			Package: displayName,
+			Repo:    key.repo,
+			Volumes: vols,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Package < result[j].Package
+	})
+
+	return c.JSON(200, result)
+}
+
+func (s *SystemControllerHandlers) removePackageVolume(c *echo.Context) error {
+	de := json.NewDecoder(c.Request().Body)
+	req := RemovePackageVolumeRequest{}
+
+	if err := de.Decode(&req); err != nil {
+		return err
+	}
+
+	if !strings.HasPrefix(req.InternalName, PackagesVolumePrefix+"/") &&
+		!strings.HasPrefix(req.InternalName, UninstalledVolumePrefix+"/") {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "internal_name must start with installed/ or uninstalled/",
+		})
+	}
+
+	if err := s.Controller.GetStorage().RemoveFilesystem(req.InternalName); err != nil {
 		return err
 	}
 

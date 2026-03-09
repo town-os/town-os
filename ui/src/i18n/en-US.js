@@ -115,6 +115,10 @@ const enUS = {
   'storage.toast_archive_uploaded': 'Archive uploaded',
   'storage.toast_volume_modified': 'Volume modified',
   'storage.delete_confirm_message': 'Are you sure you want to delete filesystem {name}? This cannot be undone.',
+  'storage.col_pkg_delete': 'Delete',
+  'storage.delete_pkg_volume_title': 'Delete Package Volume',
+  'storage.delete_pkg_volume_message': 'Are you sure you want to delete volume {name}? This cannot be undone.',
+  'storage.toast_pkg_volume_removed': 'Package volume removed',
 
   // --- User Management ---
   'users.page_title': 'Town OS - Users',

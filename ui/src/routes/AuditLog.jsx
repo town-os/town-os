@@ -151,28 +151,26 @@ export default function AuditLog() {
     {
       key: 'success',
       label: t('audit.col_status'),
+      sortable: false,
+      className: 'text-center',
       transform: (v, row) =>
         v ? (
-          <div className="flex items-center justify-end pr-2">
-            <span role="status" aria-label={t('audit.success_label')}>
-              <Check className="h-4 w-4 text-green-600" aria-hidden="true" />
-              <span className="sr-only">{t('audit.success_label')}</span>
-            </span>
-          </div>
+          <span role="status" aria-label={t('audit.success_label')}>
+            <Check className="h-4 w-4 text-green-600 inline-block" aria-hidden="true" />
+            <span className="sr-only">{t('audit.success_label')}</span>
+          </span>
         ) : (
-          <div className="flex items-center justify-end pr-2">
-            <button
-              className="inline-flex items-center"
-              onClick={() => {
-                setErrorRow(row)
-                setErrorOpen(true)
-              }}
-              aria-label={t('audit.view_error_label')}
-            >
-              <CircleAlert className="h-4 w-4 text-destructive cursor-pointer" aria-hidden="true" />
-              <span className="sr-only">{t('audit.error_label')}</span>
-            </button>
-          </div>
+          <button
+            className="inline-flex items-center"
+            onClick={() => {
+              setErrorRow(row)
+              setErrorOpen(true)
+            }}
+            aria-label={t('audit.view_error_label')}
+          >
+            <CircleAlert className="h-4 w-4 text-destructive cursor-pointer" aria-hidden="true" />
+            <span className="sr-only">{t('audit.error_label')}</span>
+          </button>
         ),
     },
   ]

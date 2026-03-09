@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
@@ -31,58 +31,13 @@ import {
 } from '@/components/ui/table'
 import { Plus, Trash2, Pencil, HardDrive, ChevronRight, ChevronDown, Package, Upload, Download } from 'lucide-react'
 
-/**
- * Build a unified tree structure from package volume names with state info.
- * Merges installed and uninstalled volumes into a single tree.
- * Returns { [repo/name]: { [version]: { state, volumes: Filesystem[] } } }
- */
-function buildUnifiedVolumeTree(installedFilesystems, uninstalledFilesystems) {
-  const tree = {}
-
-  function addToTree(filesystems, state) {
-    for (const fs of filesystems) {
-      const parts = fs.name.split('/')
-      if (parts.length >= 3) {
-        const pkgKey = parts[0]
-        const version = parts[1]
-        const volName = parts.slice(2).join('/')
-        if (!tree[pkgKey]) tree[pkgKey] = {}
-        if (!tree[pkgKey][version]) tree[pkgKey][version] = { state, volumes: [] }
-        tree[pkgKey][version].volumes.push({ ...fs, volumeName: volName, state })
-      } else {
-        const pkgName = parts[0] || fs.name
-        const version = parts.length > 1 ? parts[1] : ''
-        if (!tree[pkgName]) tree[pkgName] = {}
-        if (!tree[pkgName][version]) tree[pkgName][version] = { state, volumes: [] }
-        tree[pkgName][version].volumes.push({ ...fs, volumeName: '', state })
-      }
-    }
-  }
-
-  addToTree(installedFilesystems, 'installed')
-  addToTree(uninstalledFilesystems, 'uninstalled')
-  return tree
-}
-
-/**
- * Compute total quota across all volumes in a version group or package group.
- */
-function sumQuota(volumes) {
-  return volumes.reduce((sum, v) => sum + Number(v.quota || 0), 0)
-}
-
-function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showUninstalled, onModifyVolume, onDownloadVolume, onUploadVolume }) {
+function PackageVolumeTree({ packageGroups, onModifyVolume, onDownloadVolume, onUploadVolume, onDeleteVolume }) {
   const { t } = useI18n()
   const [expanded, setExpanded] = useState({})
-  const tree = useMemo(
-    () => buildUnifiedVolumeTree(installedFilesystems, showUninstalled ? uninstalledFilesystems : []),
-    [installedFilesystems, uninstalledFilesystems, showUninstalled],
-  )
-  const packageNames = Object.keys(tree).sort()
 
-  const totalVolumes = installedFilesystems.length + (showUninstalled ? uninstalledFilesystems.length : 0)
+  const totalVolumes = packageGroups.reduce((sum, g) => sum + g.volumes.length, 0)
 
-  if (packageNames.length === 0) return null
+  if (packageGroups.length === 0) return null
 
   function togglePkg(pkg) {
     setExpanded((prev) => ({ ...prev, [pkg]: !prev[pkg] }))
@@ -101,35 +56,33 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead style={{ width: '40%' }}>{t('storage.col_name')}</TableHead>
-              <TableHead style={{ width: '20%' }}>{t('storage.col_quota')}</TableHead>
+              <TableHead style={{ width: '35%' }}>{t('storage.col_name')}</TableHead>
+              <TableHead style={{ width: '15%' }}>{t('storage.col_quota')}</TableHead>
               <TableHead style={{ width: '15%' }}>{t('storage.col_state')}</TableHead>
               <TableHead className="text-right" style={{ width: '25%' }}>{t('storage.col_actions')}</TableHead>
+              <TableHead className="text-center" style={{ width: '10%' }}>{t('storage.col_pkg_delete')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {packageNames.map((pkg) => {
-              const versions = Object.keys(tree[pkg]).sort()
-              const isExpanded = !!expanded[pkg]
-              const allVolumes = versions.flatMap((v) => tree[pkg][v].volumes)
-              const totalVols = allVolumes.length
-              const totalQ = sumQuota(allVolumes)
-              const states = [...new Set(versions.map((v) => tree[pkg][v].state))]
+            {packageGroups.map((group) => {
+              const isExpanded = !!expanded[group.package]
+              const totalQ = group.volumes.reduce((sum, v) => sum + Number(v.quota || 0), 0)
+              const states = [...new Set(group.volumes.map((v) => v.state))]
               return (
                 <>{/* Fragment for package group */}
                   <TableRow
-                    key={pkg}
+                    key={group.package}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => togglePkg(pkg)}
+                    onClick={() => togglePkg(group.package)}
                   >
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-1">
                         {isExpanded
                           ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
                           : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-                        <span className="font-mono text-sm">{pkg}</span>
+                        <span className="font-mono text-sm">{group.package}</span>
                         <span className="text-xs text-muted-foreground ml-2">
-                          ({totalVols} volume{totalVols !== 1 ? 's' : ''}, {versions.length} version{versions.length !== 1 ? 's' : ''})
+                          ({group.volumes.length} volume{group.volumes.length !== 1 ? 's' : ''})
                         </span>
                       </div>
                     </TableCell>
@@ -144,92 +97,77 @@ function PackageVolumeTree({ installedFilesystems, uninstalledFilesystems, showU
                       </div>
                     </TableCell>
                     <TableCell />
+                    <TableCell />
                   </TableRow>
-                  {isExpanded && versions.map((version) => {
-                    const versionState = tree[pkg][version].state
-                    const versionVolumes = tree[pkg][version].volumes
-                    const versionQ = sumQuota(versionVolumes)
-                    return (
-                      <>{/* Version header */}
-                        {versions.length > 1 && (
-                          <TableRow key={`${pkg}/${version}`} className="bg-muted/30">
-                            <TableCell>
-                              <span className="font-mono text-sm pl-6 font-medium text-muted-foreground">
-                                v{version}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
-                              {versionQ > 0 ? formatQuotaText(versionQ) : ''}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={versionState === 'installed' ? 'default' : 'secondary'}>
-                                {versionState}
-                              </Badge>
-                            </TableCell>
-                            <TableCell />
-                          </TableRow>
-                        )}
-                        {versionVolumes.map((vol) => (
-                          <TableRow key={`${pkg}/${version}/${vol.volumeName}`}>
-                            <TableCell>
-                              <span className="font-mono text-sm pl-8 text-muted-foreground">
-                                {versions.length > 1 ? '' : `${version}/`}{vol.volumeName}
-                              </span>
-                            </TableCell>
-                            <TableCell>{formatQuota(vol.quota)}</TableCell>
-                            <TableCell>
-                              {versions.length <= 1 && (
-                                <Badge variant={vol.state === 'installed' ? 'default' : 'secondary'}>
-                                  {vol.state}
-                                </Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  title={t('storage.download_archive_label')}
-                                  aria-label={t('storage.download_archive_label')}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    onDownloadVolume(vol, pkg, version)
-                                  }}
-                                >
-                                  <Download className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  title={t('storage.upload_archive_label')}
-                                  aria-label={t('storage.upload_archive_label')}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    onUploadVolume(vol, pkg, version)
-                                  }}
-                                >
-                                  <Upload className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    onModifyVolume(vol, pkg, version)
-                                  }}
-                                >
-                                  <Pencil className="h-3 w-3 mr-1" />
-                                  {t('storage.modify_btn')}
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </>
-                    )
-                  })}
+                  {isExpanded && group.volumes.map((vol) => (
+                    <TableRow key={vol.internal_name}>
+                      <TableCell>
+                        <span className="font-mono text-sm pl-8 text-muted-foreground">
+                          {vol.name}
+                        </span>
+                      </TableCell>
+                      <TableCell>{formatQuota(vol.quota)}</TableCell>
+                      <TableCell>
+                        <Badge variant={vol.state === 'installed' ? 'default' : 'secondary'}>
+                          {vol.state}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title={t('storage.download_archive_label')}
+                            aria-label={t('storage.download_archive_label')}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onDownloadVolume(vol)
+                            }}
+                          >
+                            <Download className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title={t('storage.upload_archive_label')}
+                            aria-label={t('storage.upload_archive_label')}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onUploadVolume(vol)
+                            }}
+                          >
+                            <Upload className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onModifyVolume(vol)
+                            }}
+                          >
+                            <Pencil className="h-3 w-3 mr-1" />
+                            {t('storage.modify_btn')}
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onDeleteVolume(vol.internal_name)
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </>
               )
             })}
@@ -248,6 +186,7 @@ export default function StorageManagement() {
   const [downloadDialog, setDownloadDialog] = useState({ open: false })
   const [uploadDialog, setUploadDialog] = useState({ open: false })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [deletePkgVolume, setDeletePkgVolume] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('name')
@@ -273,21 +212,13 @@ export default function StorageManagement() {
   )
   const userFilesystems = userData.entries || []
 
-  const [installedData, , installedLoading] = usePolling(
-    () => getClient().listFilesystems('', 'name', 'asc', 'installed'),
-    { entries: [], has_more: false, total_pages: 1, total_count: 0 },
-    [refreshKey],
+  const [packageGroups, , pkgLoading] = usePolling(
+    () => getClient().listPackageVolumes(showAll),
+    [],
+    [refreshKey, showAll],
   )
-  const installedFilesystems = installedData.entries || []
 
-  const [uninstalledData, , uninstalledLoading] = usePolling(
-    () => getClient().listFilesystems('', 'name', 'asc', 'uninstalled'),
-    { entries: [], has_more: false, total_pages: 1, total_count: 0 },
-    [refreshKey],
-  )
-  const uninstalledFilesystems = uninstalledData.entries || []
-
-  const loading = userLoading || installedLoading || uninstalledLoading
+  const loading = userLoading || pkgLoading
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
@@ -346,6 +277,18 @@ export default function StorageManagement() {
     }
   }
 
+  async function handleDeletePkgVolume() {
+    try {
+      await getClient().removePackageVolume(deletePkgVolume)
+      toast.success(t('storage.toast_pkg_volume_removed'))
+      setDeletePkgVolume(null)
+      doRefresh()
+    } catch (err) {
+      toast.error(err.message)
+      setDeletePkgVolume(null)
+    }
+  }
+
   function openDownloadDialog(vol) {
     setDownloadDialog({
       open: true,
@@ -364,16 +307,13 @@ export default function StorageManagement() {
     })
   }
 
-  function openVolumeModifyDialog(vol, pkg, version) {
+  function openVolumeModifyDialog(vol) {
     const [qv, qu] = decomposeQuota(vol.quota)
     const serviceName = deriveServiceName(vol.internal_name)
     setVolumeModifyDialog({
       open: true,
       displayName: vol.name,
       internalName: vol.internal_name,
-      volumeName: vol.volumeName,
-      pkg,
-      version,
       state: vol.state,
       quota: vol.quota,
       quotaValue: qv,
@@ -544,7 +484,7 @@ export default function StorageManagement() {
         </div>
       </div>
 
-      {loading && userFilesystems.length === 0 && installedFilesystems.length === 0 && (
+      {loading && userFilesystems.length === 0 && packageGroups.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">{t('storage.loading')}</div>
       )}
 
@@ -589,12 +529,11 @@ export default function StorageManagement() {
 
       {/* Unified package volumes section */}
       <PackageVolumeTree
-        installedFilesystems={installedFilesystems}
-        uninstalledFilesystems={uninstalledFilesystems}
-        showUninstalled={showAll}
+        packageGroups={packageGroups}
         onModifyVolume={openVolumeModifyDialog}
         onDownloadVolume={(vol) => openDownloadDialog(vol)}
         onUploadVolume={(vol) => openUploadDialog(vol)}
+        onDeleteVolume={(internalName) => setDeletePkgVolume(internalName)}
       />
 
       {/* Create/Modify user filesystem dialog */}
@@ -674,6 +613,17 @@ export default function StorageManagement() {
         variant="destructive"
       >
         {t('storage.delete_confirm_message', { name: deleteConfirm })}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!deletePkgVolume}
+        title={t('storage.delete_pkg_volume_title')}
+        onConfirm={handleDeletePkgVolume}
+        onCancel={() => setDeletePkgVolume(null)}
+        confirmLabel={t('storage.delete_confirm_btn')}
+        variant="destructive"
+      >
+        {t('storage.delete_pkg_volume_message', { name: deletePkgVolume })}
       </ConfirmDialog>
 
       <DownloadArchiveDialog

@@ -79,6 +79,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/storage/modify", s.modifyFilesystem, s.requireAuth)
 	e.Add("POST", "/storage/remove", s.removeFilesystem, s.requireAuth)
 	e.Add("POST", "/storage", s.listFilesystems, s.requireAuth)
+	e.Add("POST", "/storage/package-volumes", s.listPackageVolumes, s.requireAuth)
+	e.Add("POST", "/storage/remove-package-volume", s.removePackageVolume, s.requireAdmin)
 
 	e.Add("POST", "/repository/add", s.addRepository, s.requireAuth)
 	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAuth)

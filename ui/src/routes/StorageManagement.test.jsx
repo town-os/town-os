@@ -35,39 +35,6 @@ function deriveServiceName(volumeName) {
   return `town-os-package--${parts[0]}-${parts[1]}-${parts[2]}.service`
 }
 
-function buildUnifiedVolumeTree(installedFilesystems, uninstalledFilesystems) {
-  const tree = {}
-
-  function addToTree(filesystems, state) {
-    for (const fs of filesystems) {
-      const parts = fs.name.split('/')
-      if (parts.length >= 4) {
-        const pkgKey = `${parts[0]}/${parts[1]}`
-        const version = parts[2]
-        const volName = parts.slice(3).join('/')
-        if (!tree[pkgKey]) tree[pkgKey] = {}
-        if (!tree[pkgKey][version]) tree[pkgKey][version] = { state, volumes: [] }
-        tree[pkgKey][version].volumes.push({ ...fs, volumeName: volName, state })
-      } else {
-        const pkgName = parts[0] || fs.name
-        const version = parts.length > 1 ? parts[1] : ''
-        const volName = parts.length > 2 ? parts.slice(2).join('/') : ''
-        if (!tree[pkgName]) tree[pkgName] = {}
-        if (!tree[pkgName][version]) tree[pkgName][version] = { state, volumes: [] }
-        tree[pkgName][version].volumes.push({ ...fs, volumeName: volName, state })
-      }
-    }
-  }
-
-  addToTree(installedFilesystems, 'installed')
-  addToTree(uninstalledFilesystems, 'uninstalled')
-  return tree
-}
-
-function sumQuota(volumes) {
-  return volumes.reduce((sum, v) => sum + (v.quota || 0), 0)
-}
-
 // --- Pure function unit tests ---
 
 describe('formatQuotaText', () => {
@@ -190,103 +157,6 @@ describe('deriveServiceName', () => {
   })
 })
 
-describe('buildUnifiedVolumeTree', () => {
-  it('builds tree from installed filesystems', () => {
-    const installed = [
-      { name: 'core/nginx/1.0/data', quota: 1024 },
-      { name: 'core/nginx/1.0/config', quota: 512 },
-    ]
-    const tree = buildUnifiedVolumeTree(installed, [])
-    expect(tree['core/nginx']).toBeDefined()
-    expect(tree['core/nginx']['1.0']).toBeDefined()
-    expect(tree['core/nginx']['1.0'].state).toBe('installed')
-    expect(tree['core/nginx']['1.0'].volumes).toHaveLength(2)
-    expect(tree['core/nginx']['1.0'].volumes[0].volumeName).toBe('data')
-    expect(tree['core/nginx']['1.0'].volumes[1].volumeName).toBe('config')
-  })
-
-  it('builds tree from uninstalled filesystems', () => {
-    const uninstalled = [
-      { name: 'core/nginx/1.0/data', quota: 0 },
-    ]
-    const tree = buildUnifiedVolumeTree([], uninstalled)
-    expect(tree['core/nginx']['1.0'].state).toBe('uninstalled')
-    expect(tree['core/nginx']['1.0'].volumes[0].state).toBe('uninstalled')
-  })
-
-  it('merges installed and uninstalled with different versions', () => {
-    const installed = [{ name: 'core/nginx/2.0/data', quota: 0 }]
-    const uninstalled = [{ name: 'core/nginx/1.0/data', quota: 0 }]
-    const tree = buildUnifiedVolumeTree(installed, uninstalled)
-    expect(tree['core/nginx']['2.0'].state).toBe('installed')
-    expect(tree['core/nginx']['1.0'].state).toBe('uninstalled')
-  })
-
-  it('returns empty tree for no filesystems', () => {
-    const tree = buildUnifiedVolumeTree([], [])
-    expect(Object.keys(tree)).toHaveLength(0)
-  })
-
-  it('handles short paths (fewer than 4 parts)', () => {
-    const installed = [{ name: 'simple', quota: 0 }]
-    const tree = buildUnifiedVolumeTree(installed, [])
-    expect(tree['simple']).toBeDefined()
-    expect(tree['simple']['']).toBeDefined()
-  })
-
-  it('handles 2-part names', () => {
-    const installed = [{ name: 'pkg/1.0', quota: 0 }]
-    const tree = buildUnifiedVolumeTree(installed, [])
-    expect(tree['pkg']).toBeDefined()
-    expect(tree['pkg']['1.0']).toBeDefined()
-  })
-
-  it('handles 3-part names', () => {
-    const installed = [{ name: 'repo/pkg/1.0', quota: 0 }]
-    const tree = buildUnifiedVolumeTree(installed, [])
-    expect(tree['repo']).toBeDefined()
-    expect(tree['repo']['pkg']).toBeDefined()
-  })
-
-  it('handles deeply nested volume names', () => {
-    const installed = [{ name: 'core/nginx/1.0/data/nested/deep', quota: 0 }]
-    const tree = buildUnifiedVolumeTree(installed, [])
-    expect(tree['core/nginx']['1.0'].volumes[0].volumeName).toBe('data/nested/deep')
-  })
-
-  it('groups multiple packages', () => {
-    const installed = [
-      { name: 'core/nginx/1.0/data', quota: 0 },
-      { name: 'core/redis/7.0/data', quota: 0 },
-    ]
-    const tree = buildUnifiedVolumeTree(installed, [])
-    expect(Object.keys(tree)).toHaveLength(2)
-    expect(tree['core/nginx']).toBeDefined()
-    expect(tree['core/redis']).toBeDefined()
-  })
-})
-
-describe('sumQuota', () => {
-  it('sums quotas across volumes', () => {
-    const volumes = [{ quota: 1000 }, { quota: 2000 }, { quota: 3000 }]
-    expect(sumQuota(volumes)).toBe(6000)
-  })
-
-  it('returns 0 for empty array', () => {
-    expect(sumQuota([])).toBe(0)
-  })
-
-  it('treats missing quota as 0', () => {
-    const volumes = [{ quota: 1000 }, {}, { quota: 2000 }]
-    expect(sumQuota(volumes)).toBe(3000)
-  })
-
-  it('treats quota: 0 as 0', () => {
-    const volumes = [{ quota: 0 }, { quota: 0 }]
-    expect(sumQuota(volumes)).toBe(0)
-  })
-})
-
 // --- Component rendering tests ---
 
 const mockListFilesystems = vi.fn(() =>
@@ -300,6 +170,8 @@ const mockListFilesystems = vi.fn(() =>
   }),
 )
 
+const mockListPackageVolumes = vi.fn(() => Promise.resolve([]))
+const mockRemovePackageVolume = vi.fn(() => Promise.resolve())
 const mockCreateFilesystem = vi.fn(() => Promise.resolve())
 const mockModifyFilesystem = vi.fn(() => Promise.resolve())
 const mockRemoveFilesystem = vi.fn(() => Promise.resolve())
@@ -307,6 +179,8 @@ const mockRemoveFilesystem = vi.fn(() => Promise.resolve())
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     listFilesystems: mockListFilesystems,
+    listPackageVolumes: mockListPackageVolumes,
+    removePackageVolume: mockRemovePackageVolume,
     createFilesystem: mockCreateFilesystem,
     modifyFilesystem: mockModifyFilesystem,
     removeFilesystem: mockRemoveFilesystem,
@@ -329,9 +203,21 @@ function renderStorageManagement() {
 describe('StorageManagement component', () => {
   beforeEach(() => {
     mockListFilesystems.mockClear()
+    mockListPackageVolumes.mockClear()
+    mockRemovePackageVolume.mockClear()
     mockCreateFilesystem.mockClear()
     mockModifyFilesystem.mockClear()
     mockRemoveFilesystem.mockClear()
+    // Reset to defaults
+    mockListFilesystems.mockImplementation(() =>
+      Promise.resolve({
+        entries: [{ name: 'mydata', quota: 1073741824, state: 'user' }],
+        has_more: false,
+        total_pages: 1,
+        total_count: 1,
+      }),
+    )
+    mockListPackageVolumes.mockImplementation(() => Promise.resolve([]))
   })
 
   it('renders the Storage heading', async () => {
@@ -383,6 +269,13 @@ describe('StorageManagement component', () => {
     })
   })
 
+  it('calls listPackageVolumes on mount', async () => {
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(mockListPackageVolumes).toHaveBeenCalled()
+    })
+  })
+
   it('renders Modify button for user filesystems', async () => {
     renderStorageManagement()
     await waitFor(() => {
@@ -402,26 +295,16 @@ describe('StorageManagement component', () => {
     })
   })
 
-  it('renders Package Volumes section when installed volumes exist', async () => {
-    mockListFilesystems
-      .mockResolvedValueOnce({
-        entries: [],
-        has_more: false,
-        total_pages: 1,
-        total_count: 0,
-      })
-      .mockResolvedValueOnce({
-        entries: [{ name: 'core/nginx/1.0/data', quota: 0 }],
-        has_more: false,
-        total_pages: 1,
-        total_count: 1,
-      })
-      .mockResolvedValueOnce({
-        entries: [],
-        has_more: false,
-        total_pages: 1,
-        total_count: 0,
-      })
+  it('renders Package Volumes section when package groups exist', async () => {
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
     renderStorageManagement()
     await waitFor(() => {
       expect(screen.getByText('Package Volumes')).toBeTruthy()
@@ -478,25 +361,22 @@ describe('StorageManagement component', () => {
   })
 
   it('package volume modify dialog does not show Name field', async () => {
-    mockListFilesystems
-      .mockResolvedValueOnce({
-        entries: [],
-        has_more: false,
-        total_pages: 1,
-        total_count: 0,
-      })
-      .mockResolvedValueOnce({
-        entries: [{ name: 'nginx/1.0/data', internal_name: 'installed/core/nginx/1.0/data', quota: 0 }],
-        has_more: false,
-        total_pages: 1,
-        total_count: 1,
-      })
-      .mockResolvedValueOnce({
-        entries: [],
-        has_more: false,
-        total_pages: 1,
-        total_count: 0,
-      })
+    // No user filesystems for this test to avoid ambiguity
+    mockListFilesystems.mockResolvedValue({
+      entries: [],
+      has_more: false,
+      total_pages: 1,
+      total_count: 0,
+    })
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
     renderStorageManagement()
     // Expand the package tree to see individual volumes
     await waitFor(() => {
@@ -511,7 +391,7 @@ describe('StorageManagement component', () => {
       expect(modifyButtons.length).toBeGreaterThanOrEqual(1)
     })
     const modifyButtons = screen.getAllByRole('button', { name: /Modify/ })
-    fireEvent.click(modifyButtons[0])
+    fireEvent.click(modifyButtons[modifyButtons.length - 1])
     await waitFor(() => {
       expect(screen.getByText('Save Changes')).toBeTruthy()
     })
@@ -543,6 +423,70 @@ describe('StorageManagement component', () => {
         name: 'newfs',
         quota: 2 * 1024 * 1024 * 1024,
       })
+    })
+  })
+
+  it('renders delete button for package volumes', async () => {
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    // Expand the package
+    fireEvent.click(screen.getByText('nginx'))
+    await waitFor(() => {
+      expect(screen.getByText('1.0/data')).toBeTruthy()
+    })
+    // Should have a delete button in the package volume row
+    const deleteButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    // At least 2: one for user filesystem, one for package volume
+    expect(deleteButtons.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('clicking delete on package volume shows confirm dialog and calls removePackageVolume', async () => {
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    // Expand the package
+    fireEvent.click(screen.getByText('nginx'))
+    await waitFor(() => {
+      expect(screen.getByText('1.0/data')).toBeTruthy()
+    })
+    // Find all destructive buttons; the last one should be in the package volume row
+    const deleteButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    // Click the last destructive button (the package volume delete)
+    fireEvent.click(deleteButtons[deleteButtons.length - 1])
+    // Confirm dialog should appear with package volume title
+    await waitFor(() => {
+      expect(screen.getByText('Delete Package Volume')).toBeTruthy()
+    })
+    // Click the confirm button
+    const confirmButton = screen.getByRole('button', { name: 'Delete' })
+    fireEvent.click(confirmButton)
+    await waitFor(() => {
+      expect(mockRemovePackageVolume).toHaveBeenCalledWith('installed/core/nginx/1.0/data')
     })
   })
 })
