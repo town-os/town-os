@@ -13,7 +13,7 @@ case "$1" in
     ;;
   cache)
     step "Cleaning dev data cache"
-    ${SUDO} rm -rf dev-data dev-repos
+    ${SUDO} rm -rf dev-data dev-repos dev-rolodex
     ;;
   main)
     step "Cleaning build cache"

@@ -6,7 +6,7 @@ case "$1" in
   start)
     step "Starting dev environment"
     ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
-    mkdir -p dev-data dev-repos
+    mkdir -p dev-data dev-repos dev-rolodex
     substep "Launching dev container"
     ${SUDO} podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
       -e "TOWN_OS_REPO_USERNAME=${TOWN_OS_REPO_USERNAME}" \
@@ -17,6 +17,7 @@ case "$1" in
       -v "$(cat town-os-dev.mount):/town-os:z" \
       -v "$(pwd)/dev-data:/data/db:z" \
       -v "$(pwd)/dev-repos:/data/repos:z" \
+      -v "$(pwd)/dev-rolodex:/var/lib/town-os/rolodex:z" \
       --name "${PODMAN_DEV_CONTAINER}" "${PODMAN_DEV_IMAGE}"
     substep "Waiting for dev container to be ready"
     for i in $(seq 1 30); do
