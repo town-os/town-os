@@ -17,6 +17,7 @@ import {
   LogOut,
   Settings,
   Activity,
+  Wifi,
 } from 'lucide-react'
 
 const NAV_KEYS = [
@@ -26,6 +27,7 @@ const NAV_KEYS = [
   { to: '/dashboard/system', key: 'nav.services', icon: Cog },
   { to: '/dashboard/packages', key: 'nav.packages', icon: Package },
   { to: '/dashboard/pages', key: 'nav.pages', icon: Globe },
+  { to: '/dashboard/dns', key: 'nav.dns', icon: Wifi },
   { to: '/dashboard/monitoring', key: 'nav.monitoring', icon: Activity },
   { to: '/dashboard/log', key: 'nav.audit_log', icon: FileText },
   { to: '/dashboard/settings', key: 'nav.settings', icon: Settings, adminOnly: true },
