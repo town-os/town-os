@@ -1,3 +1,6 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package integration_test
 
 import (
@@ -40,11 +43,12 @@ func initSystemControllerRolodexTest(t *testing.T) (*systemcontroller.SystemdCli
 
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
+	dataDir := rolodexTempDir(t, "rolodex-mock-*")
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
-		DataDir:        rolodexTempDir(t, "rolodex-mock-*"),
+		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
-		UnixSocketPath: "/tmp/rolodex.sock",
+		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
 	})
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{

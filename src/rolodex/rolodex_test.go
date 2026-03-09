@@ -1,7 +1,11 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package rolodex
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +14,25 @@ import (
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/systemd"
 )
+
+// selectiveErrMock wraps MockManager but returns a custom error for a
+// specific unit+action pair on SetStatus. All other calls pass through.
+type selectiveErrMock struct {
+	*systemd.MockManager
+
+	failUnit   string
+	failAction systemd.StatusAction
+	failErr    error
+}
+
+func (s *selectiveErrMock) SetStatus(ctx context.Context, unit string, action systemd.StatusAction) error {
+	// Record the call via the wrapped mock (StatusErr is nil so this always succeeds).
+	_ = s.MockManager.SetStatus(ctx, unit, action)
+	if unit == s.failUnit && action == s.failAction {
+		return s.failErr
+	}
+	return nil
+}
 
 func rolodexTestDir(t *testing.T, pattern string) string {
 	t.Helper()
@@ -72,7 +95,7 @@ func TestUnitConfigsLocal(t *testing.T) {
 		t.Fatalf("expected key %q, got %q", "rolodex", cfg.Key)
 	}
 
-	// Local mode should forward DNSLoopback:53 to container port 53.
+	// Local mode should bind DNSLoopback:53 to container port 53.
 	wantTCP := DNSLoopback + ":53:53/tcp"
 	wantUDP := DNSLoopback + ":53:53/udp"
 	hasLocalMapping := false
@@ -86,10 +109,10 @@ func TestUnitConfigsLocal(t *testing.T) {
 		t.Fatalf("expected %s port mapping in local mode, got args: %v", wantTCP, cfg.Args)
 	}
 
-	// Should NOT have remote port mappings.
+	// Should NOT have production port mappings (53:53).
 	for _, arg := range cfg.Args {
-		if strings.HasPrefix(arg, "5300:") {
-			t.Fatalf("unexpected remote port mapping in local mode: %s", arg)
+		if arg == "53:53/tcp" || arg == "53:53/udp" {
+			t.Fatalf("unexpected production port mapping in local mode: %s", arg)
 		}
 	}
 }
@@ -111,16 +134,16 @@ func TestUnitConfigsRemote(t *testing.T) {
 
 	cfg := configs[0]
 
-	// Remote mode should have -p port mappings.
+	// Production mode should bind 0.0.0.0:53 to container port 53.
 	hasPortMapping := false
 	for _, arg := range cfg.Args {
-		if arg == "5300:53/tcp" || arg == "5300:53/udp" {
+		if arg == "53:53/tcp" || arg == "53:53/udp" {
 			hasPortMapping = true
 			break
 		}
 	}
 	if !hasPortMapping {
-		t.Fatalf("expected port mappings in remote mode, got args: %v", cfg.Args)
+		t.Fatalf("expected 53:53 port mappings in production mode, got args: %v", cfg.Args)
 	}
 
 	// Should NOT have --net host.
@@ -161,11 +184,12 @@ func TestUnitConfigsVolumeMount(t *testing.T) {
 }
 
 func TestSystemServices(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-svc-*")
 	mgr := NewManager(Config{
 		Systemd:        systemd.InitMockManager(),
-		DataDir:        rolodexTestDir(t, "rolodex-svc-*"),
+		DataDir:        dir,
 		Image:          "quay.io/town/rolodex:test",
-		UnixSocketPath: "/tmp/rolodex.sock",
+		UnixSocketPath: filepath.Join(dir, "rolodex.sock"),
 	})
 
 	svcs := mgr.SystemServices()
@@ -248,5 +272,304 @@ func TestMockClientListRecords(t *testing.T) {
 	calls := mc.GetCalls()
 	if len(calls) != 1 || calls[0].Method != "ListRecords" {
 		t.Fatalf("expected 1 ListRecords call, got %v", calls)
+	}
+}
+
+func TestStartProductionDisablesResolved(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-prod-start-*")
+	mock := systemd.InitMockManager()
+
+	// Create a symlink as resolv.conf to simulate systemd-resolved.
+	stubFile := filepath.Join(dir, "stub-resolv.conf")
+	if err := os.WriteFile(stubFile, []byte("nameserver 127.0.0.53\n"), 0644); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	resolvPath := filepath.Join(dir, "resolv.conf")
+	if err := os.Symlink(stubFile, resolvPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Systemd:        mock,
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          false,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+		ResolvConfPath: resolvPath,
+	})
+
+	if err := mgr.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Verify resolv.conf is a regular file with 127.0.0.1.
+	fi, err := os.Lstat(resolvPath)
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("expected regular file, got symlink")
+	}
+	data, err := os.ReadFile(resolvPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if got := string(data); got != "nameserver 127.0.0.1\n" {
+		t.Fatalf("expected resolv.conf %q, got %q", "nameserver 127.0.0.1\n", got)
+	}
+
+	// Verify systemd-resolved was stopped and disabled.
+	calls := mock.GetCalls()
+	hasStop := false
+	hasDisable := false
+	for _, c := range calls {
+		if c.Method != "SetStatus" || len(c.Args) < 2 {
+			continue
+		}
+		unit, _ := c.Args[0].(string)
+		action, _ := c.Args[1].(systemd.StatusAction)
+		if unit == resolvedUnit && action == systemd.Stop {
+			hasStop = true
+		}
+		if unit == resolvedUnit && action == systemd.Disable {
+			hasDisable = true
+		}
+	}
+	if !hasStop {
+		t.Error("expected SetStatus(systemd-resolved.service, stop)")
+	}
+	if !hasDisable {
+		t.Error("expected SetStatus(systemd-resolved.service, disable)")
+	}
+
+	// Verify rolodex unit was installed and started.
+	unitName := systemd.SystemServiceUnitName("rolodex")
+	if !mock.InstalledUnits[unitName] {
+		t.Errorf("expected unit %s to be installed", unitName)
+	}
+	hasStart := false
+	for _, c := range calls {
+		if c.Method == "SetStatus" && len(c.Args) >= 2 {
+			u, _ := c.Args[0].(string)
+			a, _ := c.Args[1].(systemd.StatusAction)
+			if u == unitName && a == systemd.Start {
+				hasStart = true
+			}
+		}
+	}
+	if !hasStart {
+		t.Errorf("expected SetStatus(%s, start)", unitName)
+	}
+}
+
+func TestStartProductionRollbackOnFailure(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-prod-rollback-*")
+	inner := systemd.InitMockManager()
+
+	unitName := systemd.SystemServiceUnitName("rolodex")
+	mock := &selectiveErrMock{
+		MockManager: inner,
+		failUnit:    unitName,
+		failAction:  systemd.Start,
+		failErr:     errors.New("container start failed"),
+	}
+
+	// Create a symlink as resolv.conf.
+	stubFile := filepath.Join(dir, "stub-resolv.conf")
+	if err := os.WriteFile(stubFile, []byte("nameserver 127.0.0.53\n"), 0644); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	resolvPath := filepath.Join(dir, "resolv.conf")
+	if err := os.Symlink(stubFile, resolvPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Systemd:        mock,
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          false,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+		ResolvConfPath: resolvPath,
+	})
+
+	err := mgr.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected error from Start")
+	}
+
+	// Verify rollback: resolved was re-enabled and re-started.
+	calls := inner.GetCalls()
+	hasEnable := false
+	hasStart := false
+	for _, c := range calls {
+		if c.Method != "SetStatus" || len(c.Args) < 2 {
+			continue
+		}
+		unit, _ := c.Args[0].(string)
+		action, _ := c.Args[1].(systemd.StatusAction)
+		if unit == resolvedUnit && action == systemd.Enable {
+			hasEnable = true
+		}
+		if unit == resolvedUnit && action == systemd.Start {
+			hasStart = true
+		}
+	}
+	if !hasEnable {
+		t.Error("expected rollback SetStatus(systemd-resolved.service, enable)")
+	}
+	if !hasStart {
+		t.Error("expected rollback SetStatus(systemd-resolved.service, start)")
+	}
+
+	// Verify resolv.conf was restored as a symlink.
+	fi, err := os.Lstat(resolvPath)
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlink after rollback, got regular file")
+	}
+	target, err := os.Readlink(resolvPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+	if target != stubFile {
+		t.Fatalf("expected symlink target %q, got %q", stubFile, target)
+	}
+}
+
+func TestStopProductionRestoresResolved(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-prod-stop-*")
+	mock := systemd.InitMockManager()
+
+	// Create a symlink as resolv.conf.
+	stubFile := filepath.Join(dir, "stub-resolv.conf")
+	if err := os.WriteFile(stubFile, []byte("nameserver 127.0.0.53\n"), 0644); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	resolvPath := filepath.Join(dir, "resolv.conf")
+	if err := os.Symlink(stubFile, resolvPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Systemd:        mock,
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          false,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+		ResolvConfPath: resolvPath,
+	})
+
+	// Start first so the manager has state to restore.
+	if err := mgr.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Clear call log so we only see Stop-phase calls.
+	mock.Calls = nil
+
+	if err := mgr.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// Verify ordering: resolved enable+start must come BEFORE rolodex stop.
+	calls := mock.GetCalls()
+	unitName := systemd.SystemServiceUnitName("rolodex")
+	resolvedEnableIdx := -1
+	resolvedStartIdx := -1
+	rolodexStopIdx := -1
+	for i, c := range calls {
+		if c.Method != "SetStatus" || len(c.Args) < 2 {
+			continue
+		}
+		unit, _ := c.Args[0].(string)
+		action, _ := c.Args[1].(systemd.StatusAction)
+		if unit == resolvedUnit && action == systemd.Enable && resolvedEnableIdx == -1 {
+			resolvedEnableIdx = i
+		}
+		if unit == resolvedUnit && action == systemd.Start && resolvedStartIdx == -1 {
+			resolvedStartIdx = i
+		}
+		if unit == unitName && action == systemd.Stop && rolodexStopIdx == -1 {
+			rolodexStopIdx = i
+		}
+	}
+
+	if resolvedEnableIdx == -1 {
+		t.Fatal("missing SetStatus(systemd-resolved.service, enable)")
+	}
+	if resolvedStartIdx == -1 {
+		t.Fatal("missing SetStatus(systemd-resolved.service, start)")
+	}
+	if rolodexStopIdx == -1 {
+		t.Fatalf("missing SetStatus(%s, stop)", unitName)
+	}
+	if resolvedEnableIdx > rolodexStopIdx {
+		t.Fatalf("resolved enable (idx %d) must come before rolodex stop (idx %d)", resolvedEnableIdx, rolodexStopIdx)
+	}
+	if resolvedStartIdx > rolodexStopIdx {
+		t.Fatalf("resolved start (idx %d) must come before rolodex stop (idx %d)", resolvedStartIdx, rolodexStopIdx)
+	}
+
+	// Verify resolv.conf was restored as a symlink.
+	fi, err := os.Lstat(resolvPath)
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlink after Stop, got regular file")
+	}
+	target, err := os.Readlink(resolvPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+	if target != stubFile {
+		t.Fatalf("expected symlink target %q, got %q", stubFile, target)
+	}
+}
+
+func TestStartLocalSkipsResolved(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-local-skip-*")
+	mock := systemd.InitMockManager()
+
+	// Write a regular resolv.conf.
+	resolvPath := filepath.Join(dir, "resolv.conf")
+	origContent := "nameserver 8.8.8.8\n"
+	if err := os.WriteFile(resolvPath, []byte(origContent), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Systemd:        mock,
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          true,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+		ResolvConfPath: resolvPath,
+	})
+
+	if err := mgr.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Verify NO calls to systemd-resolved.service.
+	for _, c := range mock.GetCalls() {
+		if c.Method == "SetStatus" && len(c.Args) >= 1 {
+			unit, _ := c.Args[0].(string)
+			if unit == resolvedUnit {
+				t.Fatalf("unexpected call to %s in local mode: %v", resolvedUnit, c)
+			}
+		}
+	}
+
+	// Verify resolv.conf is unchanged.
+	data, err := os.ReadFile(resolvPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if got := string(data); got != origContent {
+		t.Fatalf("resolv.conf changed in local mode: got %q, want %q", got, origContent)
 	}
 }

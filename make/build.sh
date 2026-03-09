@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# IRON RULE: make test-full must always be able to run simultaneously in the
+# same repository without conflicting. Nothing else matters more than this.
 set -e
 . make/lib.sh
 
@@ -7,6 +10,7 @@ case "$1" in
     step "Building production image"
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
+      --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${PODMAN_IMAGE}" -f Containerfile .
@@ -43,6 +47,7 @@ case "$1" in
     step "Building release image"
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
+      --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_IMAGE}" -f Containerfile .
@@ -56,12 +61,15 @@ case "$1" in
     step "Pushing release candidate"
     DATE_TAG="$(date +%Y%m%d)"
 
-    # Bake the tag into the systemcontroller image so it can derive
-    # matching tags for sibling images (UI, rolodex) at runtime.
+    # Rebuild systemcontroller with tag baked in.
     # All quay.io/town/* images MUST use the same tag within a release.
-    substep "Baking tag rc.${DATE_TAG} into ${RELEASE_IMAGE}"
-    printf 'FROM %s\nRUN echo "rc.%s" > /town-os.tag\n' "${RELEASE_IMAGE}" "${DATE_TAG}" | \
-      ${SUDO} podman build --pull=never -t "${RELEASE_IMAGE}:rc.${DATE_TAG}" -
+    substep "Building ${RELEASE_IMAGE} with tag rc.${DATE_TAG}"
+    mkdir -p .cache/go-mod .cache/go-build
+    ${SUDO} podman build --pull=never \
+      --build-arg "TOWN_OS_TAG=rc.${DATE_TAG}" \
+      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
+      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      -t "${RELEASE_IMAGE}:rc.${DATE_TAG}" -f Containerfile .
     substep "Tagging ${RELEASE_IMAGE}:rc.latest"
     ${SUDO} podman tag "${RELEASE_IMAGE}:rc.${DATE_TAG}" "${RELEASE_IMAGE}:rc.latest"
     substep "Pushing ${RELEASE_IMAGE}:rc.${DATE_TAG}"
@@ -69,7 +77,7 @@ case "$1" in
     substep "Pushing ${RELEASE_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_IMAGE}:rc.latest"
 
-    # UI image — tagged to match but no tag file needed (systemcontroller derives it).
+    # UI image — tagged to match (systemcontroller derives the tag at runtime).
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
     ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest"
@@ -78,17 +86,26 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
+
+    # Rolodex image — tagged to match from rc.latest.
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
     ;;
   push-release)
     step "Pushing release"
     DATE_TAG="$(date +%Y%m%d)"
 
-    # Bake the tag into the systemcontroller image so it can derive
-    # matching tags for sibling images (UI, rolodex) at runtime.
+    # Rebuild systemcontroller with tag baked in.
     # All quay.io/town/* images MUST use the same tag within a release.
-    substep "Baking tag release.${DATE_TAG} into ${RELEASE_IMAGE}"
-    printf 'FROM %s\nRUN echo "release.%s" > /town-os.tag\n' "${RELEASE_IMAGE}" "${DATE_TAG}" | \
-      ${SUDO} podman build --pull=never -t "${RELEASE_IMAGE}:release.${DATE_TAG}" -
+    substep "Building ${RELEASE_IMAGE} with tag release.${DATE_TAG}"
+    mkdir -p .cache/go-mod .cache/go-build
+    ${SUDO} podman build --pull=never \
+      --build-arg "TOWN_OS_TAG=release.${DATE_TAG}" \
+      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
+      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      -t "${RELEASE_IMAGE}:release.${DATE_TAG}" -f Containerfile .
     substep "Tagging ${RELEASE_IMAGE}:latest"
     ${SUDO} podman tag "${RELEASE_IMAGE}:release.${DATE_TAG}" "${RELEASE_IMAGE}:latest"
     substep "Pushing ${RELEASE_IMAGE}:release.${DATE_TAG}"
@@ -96,7 +113,7 @@ case "$1" in
     substep "Pushing ${RELEASE_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_IMAGE}:latest"
 
-    # UI image — tagged to match but no tag file needed (systemcontroller derives it).
+    # UI image — tagged to match (systemcontroller derives the tag at runtime).
     substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
     ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
     substep "Tagging ${RELEASE_UI_IMAGE}:latest"
@@ -105,6 +122,16 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
     substep "Pushing ${RELEASE_UI_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
+
+    # Rolodex image — tagged to match from rc.latest.
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:latest"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:latest"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:latest"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:latest"
     ;;
   push-ui-rc)
     step "Pushing UI release candidate"

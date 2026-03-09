@@ -1,3 +1,6 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package systemd
 
 import (
@@ -336,7 +339,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	}
 
 	// ExecStart: podman run with network configuration.
-	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --name %s --systemd=true", containerName)
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)
 
 	if cfg.NetworkMode == "host" {
 		b.WriteString(" --net host")
@@ -481,7 +484,7 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	}
 
 	// ExecStart
-	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --name %s", containerName)
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s", containerName)
 	for _, arg := range cfg.Args {
 		fmt.Fprintf(&b, " \\\n  %s", arg)
 	}

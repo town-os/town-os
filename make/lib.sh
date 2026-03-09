@@ -1,5 +1,19 @@
 # make/lib.sh - Shared helpers for make scripts.
 # Source this file: . make/lib.sh
+#
+# IRON RULE: make test-full must always be able to run simultaneously in the
+# same repository without conflicting. Nothing else matters more than this.
+
+# ---------------------------------------------------------------------------
+# Privileged execution
+# ---------------------------------------------------------------------------
+
+SUDO="sudo -E"
+
+# ---------------------------------------------------------------------------
+# Ephemeral state directory
+# ---------------------------------------------------------------------------
+mkdir -p "${STATE_DIR}" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Go module boundary for dev-repos
@@ -7,15 +21,9 @@
 # dev-repos/ contains root-owned directories that Go tooling (go mod tidy,
 # go vet, etc.) cannot read. Placing a go.mod here marks it as a separate
 # module so the parent module scan skips it entirely.
-if [ -d dev-repos ] && [ ! -f dev-repos/go.mod ]; then
-  printf 'module dev-repos\n' > dev-repos/go.mod 2>/dev/null || true
+if [ -d "${STATE_DIR}/dev-repos" ] && [ ! -f "${STATE_DIR}/dev-repos/go.mod" ]; then
+  printf 'module dev-repos\n' > "${STATE_DIR}/dev-repos/go.mod" 2>/dev/null || true
 fi
-
-# ---------------------------------------------------------------------------
-# Privileged execution
-# ---------------------------------------------------------------------------
-
-SUDO="sudo -E"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -43,6 +51,7 @@ warn() {
 # ---------------------------------------------------------------------------
 
 # remove_container NAME — force-remove a container, ignoring errors.
+# Part of the iron rule: every container must be cleanable for concurrent runs.
 remove_container() {
   ${SUDO} podman rm -f "$1" 2>/dev/null || true
 }

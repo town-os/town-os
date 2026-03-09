@@ -1,3 +1,6 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package integration_test
 
 import (
@@ -8,6 +11,7 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
+	"gitea.com/town-os/town-os/src/ui"
 )
 
 func initSystemServiceIntegrationTest(t *testing.T) (*systemcontroller.SystemdClient, *systemd.MockManager) {
@@ -19,10 +23,16 @@ func initSystemServiceIntegrationTest(t *testing.T) (*systemcontroller.SystemdCl
 		DataDir: t.TempDir(),
 	})
 
+	uiMgr := ui.NewManager(ui.Config{
+		Systemd: sd,
+		Image:   "quay.io/town/ui:rc.latest",
+	})
+
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:    mock,
 		Systemd:    sd,
 		Monitoring: monMgr,
+		UI:         uiMgr,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -56,15 +66,15 @@ func TestSystemControllerListSystemServicesPopulated(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	if len(entries) != 3 {
-		t.Fatalf("expected 3 system services, got %d", len(entries))
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 system services, got %d", len(entries))
 	}
 
 	keys := map[string]bool{}
 	for _, e := range entries {
 		keys[e.Key] = true
 	}
-	for _, key := range []string{"prometheus", "node-exporter", "grafana"} {
+	for _, key := range []string{"prometheus", "node-exporter", "grafana", "ui"} {
 		if !keys[key] {
 			t.Fatalf("missing expected key %q", key)
 		}
@@ -131,9 +141,9 @@ func TestSystemControllerSystemServicesIsolatedFromPackageUnits(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	// Should return 3 services (all configured), with status for prometheus and grafana.
-	if len(entries) != 3 {
-		t.Fatalf("expected 3 system services, got %d", len(entries))
+	// Should return 4 services (all configured), with status for prometheus and grafana.
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 system services, got %d", len(entries))
 	}
 
 	for _, e := range entries {

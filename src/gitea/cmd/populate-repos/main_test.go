@@ -1,3 +1,6 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package main
 
 import (
@@ -1060,7 +1063,7 @@ func TestDeleteRepoUsesBasicAuth(t *testing.T) {
 
 func TestRunMissingGiteaURL(t *testing.T) {
 	t.Setenv("GITEA_URL", "")
-	t.Setenv("GIT_CACHE_DIR", "/tmp/test")
+	t.Setenv("GIT_CACHE_DIR", t.TempDir())
 	err := run()
 	if err == nil {
 		t.Fatal("expected error when GITEA_URL is not set")

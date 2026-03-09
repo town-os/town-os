@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# IRON RULE: make test-full must always be able to run simultaneously in the
+# same repository without conflicting. Nothing else matters more than this.
 set -e
 . make/lib.sh
 
@@ -6,18 +9,18 @@ case "$1" in
   start)
     step "Starting dev environment"
     ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
-    mkdir -p dev-data dev-repos dev-rolodex
+    mkdir -p "${STATE_DIR}/dev-data" "${STATE_DIR}/dev-repos" "${STATE_DIR}/dev-rolodex"
     substep "Launching dev container"
-    ${SUDO} podman run -d --net host -e LOG_LEVEL=debug -e DEBUG=1 \
+    ${SUDO} podman run -d --replace --net host -e LOG_LEVEL=debug -e DEBUG=1 \
       -e "TOWN_OS_REPO_USERNAME=${TOWN_OS_REPO_USERNAME}" \
       -e "TOWN_OS_REPO_PASSWORD=${TOWN_OS_REPO_PASSWORD}" \
       -e TOWN_OS_NETWORK_MODE=host \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
-      -v "$(cat town-os-dev.mount):/town-os:z" \
-      -v "$(pwd)/dev-data:/data/db:z" \
-      -v "$(pwd)/dev-repos:/data/repos:z" \
-      -v "$(pwd)/dev-rolodex:/var/lib/town-os/rolodex:z" \
+      -v "$(cat "${STATE_DIR}/town-os-dev.mount"):/town-os:z" \
+      -v "${STATE_DIR}/dev-data:/data/db:z" \
+      -v "${STATE_DIR}/dev-repos:/data/repos:z" \
+      -v "${STATE_DIR}/dev-rolodex:/var/lib/town-os/rolodex:z" \
       --name "${PODMAN_DEV_CONTAINER}" "${PODMAN_DEV_IMAGE}"
     substep "Waiting for dev container to be ready"
     for i in $(seq 1 30); do

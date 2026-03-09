@@ -12,6 +12,7 @@ FROM ${TOWN_OS_IMAGE} AS town-os
 FROM runtime-deps
 COPY --from=town-os /systemcontroller /systemcontroller
 COPY --from=town-os /town-os-networkcontroller /town-os-networkcontroller
+COPY --from=town-os /town-os.tag /town-os.tag
 COPY --from=town-os /ui /ui
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 RUN printf 'nameserver 127.0.0.1\n' > /etc/resolv.conf

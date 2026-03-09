@@ -1,3 +1,6 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package monitoring
 
 import (
@@ -281,7 +284,7 @@ func TestSystemServices(t *testing.T) {
 
 func TestPrometheusConfigIncludesNodeExporterTarget(t *testing.T) {
 	dataDir := t.TempDir()
-	if err := writePrometheusConfig(dataDir, "9101"); err != nil {
+	if err := writePrometheusConfig(dataDir, "9091", "9101"); err != nil {
 		t.Fatalf("writePrometheusConfig: %v", err)
 	}
 

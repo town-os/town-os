@@ -1,3 +1,6 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package systemcontroller
 
 import (
@@ -23,6 +26,7 @@ type PagesUnitConfig struct {
 	BtrfsBasePath string
 	CaddyImage    string
 	CaddyPort     string
+	ContainerName string // defaults to PagesContainerName when empty
 }
 
 // GenerateCaddyfile returns the Caddyfile content for the pages web server.
@@ -37,6 +41,11 @@ func GenerateCaddyfile(port string) string {
 
 // GeneratePagesUnit generates a systemd service unit for the Caddy container.
 func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
+	containerName := cfg.ContainerName
+	if containerName == "" {
+		containerName = PagesContainerName
+	}
+
 	var b strings.Builder
 
 	// [Unit]
@@ -47,14 +56,14 @@ func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
 	// [Service]
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=simple\n")
-	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", PagesContainerName)
-	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", PagesContainerName)
-	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --name %s --net host", PagesContainerName)
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --net host", containerName)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s:/data/pages:ro,z", cfg.BtrfsBasePath, PagesVolumePrefix)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s:/srv:ro,z", cfg.BtrfsBasePath, PagesWebrootDir)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s/Caddyfile:/etc/caddy/Caddyfile:ro,z", cfg.BtrfsBasePath, PagesCaddyDir)
 	fmt.Fprintf(&b, " \\\n  %s\n", cfg.CaddyImage)
-	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", PagesContainerName)
+	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName)
 	b.WriteString("Restart=on-failure\n")
 
 	// [Install]

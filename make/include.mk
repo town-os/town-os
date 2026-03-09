@@ -37,7 +37,7 @@ quay-login:
 ensure-image-cache:
 	@make/images.sh ensure-cache
 
-.cache/.images-pulled:
+$(STATE_DIR)/.images-pulled:
 	@make/images.sh load-base
 
 pull-images:
@@ -49,16 +49,16 @@ ui-integration-image:
 production-image:
 	@make/build.sh production
 
-.integration-port:
-	@make/port.sh .integration-port
+$(STATE_DIR)/.integration-port:
+	@make/port.sh $(STATE_DIR)/.integration-port
 
-.registry-port:
-	@make/port.sh .registry-port
+$(STATE_DIR)/.registry-port:
+	@make/port.sh $(STATE_DIR)/.registry-port
 
-.gitea-port:
-	@make/port.sh .gitea-port
+$(STATE_DIR)/.gitea-port:
+	@make/port.sh $(STATE_DIR)/.gitea-port
 
-.cache/.registry-images:
+$(STATE_DIR)/.registry-images:
 	@make/registry.sh discover-images
 
 registry:
@@ -67,7 +67,7 @@ registry:
 registry-populate:
 	@make/registry.sh populate
 
-.cache/registries.conf:
+$(STATE_DIR)/registries.conf:
 	@make/registry.sh gen-config
 
 registry-stop:
@@ -165,6 +165,9 @@ push-ui-rc:
 
 push-ui-release:
 	@make/build.sh push-ui-release
+
+ssh:
+	sshpass -p enjoytownos ssh -o StrictHostKeyChecking=no root@town-os.local
 
 lint:
 	@make/lint.sh

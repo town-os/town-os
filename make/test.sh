@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# IRON RULE: make test-full must always be able to run simultaneously in the
+# same repository without conflicting. Nothing else matters more than this.
 set -e
 . make/lib.sh
 
@@ -17,35 +19,37 @@ case "$1" in
     ${MAKE} btrfs
     step "Starting integration test container"
     remove_container "${PODMAN_CONTAINER}"
+    # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run -e "LOG_LEVEL=${LOG_LEVEL}" -e TOWN_OS_TEST=1 \
       -e TOWN_OS_REPO_USERNAME=town-os \
       -e TOWN_OS_REPO_PASSWORD=town-os-test \
-      -e "TOWN_OS_LISTEN=:$(cat .integration-port)" \
-      -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-core.git" \
-      -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-extras.git" \
+      -e "TOWN_OS_LISTEN=:$(cat "${STATE_DIR}/.integration-port")" \
+      -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-core.git" \
+      -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-extras.git" \
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
+      -e "UI_IMAGE=${UI_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
-      -v "$(cat town-os.mount):/town-os:z" \
-      -v "$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
-      --name="${PODMAN_CONTAINER}" "${PODMAN_TEST_IMAGE}"
+      -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
+      -v "${STATE_DIR}/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
+      --replace --name="${PODMAN_CONTAINER}" "${PODMAN_TEST_IMAGE}"
     substep "Waiting for systemd to be ready"
     wait_for_systemd "${PODMAN_CONTAINER}"
     step "Loading monitoring images into test container"
     load_images_into_container "${PODMAN_CONTAINER}" ${MONITORING_IMAGES}
     step "Loading rolodex image into test container"
     load_images_into_container "${PODMAN_CONTAINER}" ${ROLODEX_IMAGE}
+    step "Loading UI image into test container"
+    load_images_into_container "${PODMAN_CONTAINER}" ${UI_IMAGE}
     ;;
   # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
   integration)
     step "Running integration tests"
-    rc=0
     run_args=(-test.v -test.timeout "${TEST_TIMEOUT:-60m}")
     if [[ -n "${TEST_RUN:-}" ]]; then
       run_args+=(-test.run "${TEST_RUN}")
     fi
-    ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test "${run_args[@]}" || rc=$?
-    exit ${rc}
+    ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test "${run_args[@]}"
     ;;
   # Run integration tests in an already-running container. Use after
   # make test-integration to re-run tests without rebuilding.
@@ -60,13 +64,11 @@ case "$1" in
       wait_for_systemd "${PODMAN_CONTAINER}"
     fi
     step "Running integration tests"
-    rc=0
     run_args=(-test.v -test.timeout "${TEST_TIMEOUT:-60m}")
     if [[ -n "${TEST_RUN:-}" ]]; then
       run_args+=(-test.run "${TEST_RUN}")
     fi
-    ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test "${run_args[@]}" || rc=$?
-    exit ${rc}
+    ${SUDO} podman exec -w /test "${PODMAN_CONTAINER}" /integration-test "${run_args[@]}"
     ;;
   ui-unit)
     step "Running UI unit tests"
@@ -83,51 +85,64 @@ case "$1" in
     step "Starting UI integration backend container"
     remove_container "${PODMAN_UI_CONTAINER}"
     remove_container "${PODMAN_UI_BACKEND}"
+    # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run -e LOG_LEVEL=debug -e DEBUG=1 -e TOWN_OS_TEST=1 \
       -e TOWN_OS_REPO_USERNAME=town-os \
       -e TOWN_OS_REPO_PASSWORD=town-os-test \
-      -e "TOWN_OS_LISTEN=:$(cat .integration-port)" \
-      -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-core.git" \
-      -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-extras.git" \
+      -e "TOWN_OS_LISTEN=:$(cat "${STATE_DIR}/.integration-port")" \
+      -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-core.git" \
+      -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-extras.git" \
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
+      -e "UI_IMAGE=${UI_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
-      -v "$(cat town-os.mount):/town-os:z" \
-      -v "$(pwd)/.cache/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
-      --name="${PODMAN_UI_BACKEND}" "${PODMAN_TEST_IMAGE}"
+      -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
+      -v "${STATE_DIR}/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
+      --replace --name="${PODMAN_UI_BACKEND}" "${PODMAN_TEST_IMAGE}"
     substep "Waiting for systemd to be ready"
     wait_for_systemd "${PODMAN_UI_BACKEND}"
     step "Loading monitoring images into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" ${MONITORING_IMAGES}
     step "Loading rolodex image into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" ${ROLODEX_IMAGE}
+    step "Loading UI image into UI integration container"
+    load_images_into_container "${PODMAN_UI_BACKEND}" ${UI_IMAGE}
     substep "Waiting for systemcontroller API to be ready"
-    wait_for_url "http://localhost:$(cat .integration-port)/status/ping" 60
+    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 60
     step "Running UI integration tests"
-    rc=0
+    # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run \
       --net host \
-      -e "INTEGRATION_URL=http://localhost:$(cat .integration-port)" \
-      -e "VITE_API_URL=http://localhost:$(cat .integration-port)" \
+      -e "INTEGRATION_URL=http://localhost:$(cat "${STATE_DIR}/.integration-port")" \
+      -e "VITE_API_URL=http://localhost:$(cat "${STATE_DIR}/.integration-port")" \
       -e TOWN_OS_REPO_USERNAME=town-os \
       -e TOWN_OS_REPO_PASSWORD=town-os-test \
-      -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat .gitea-port)/town-os/test-packages-core.git" \
-      --name "${PODMAN_UI_CONTAINER}" "${PODMAN_UI_IMAGE}" \
-      bun run test:integration -- --reporter=verbose || rc=$?
-    exit ${rc}
+      -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-core.git" \
+      --replace --name "${PODMAN_UI_CONTAINER}" "${PODMAN_UI_IMAGE}" \
+      bun run test:integration -- --reporter=verbose
     ;;
   full)
     step "Running full test suite"
     # Run the full test suite and always clean up containers afterward.
-    trap '${MAKE} clean-integration' EXIT
-    rc=0
-    ${MAKE} test-integration || rc=$?
+    # IRON RULE: fail fast — if any test phase fails, stop immediately.
+    # The EXIT trap guarantees cleanup runs regardless.
+    # Inline cleanup — avoid nested make invocations so Ctrl+C exits fast.
+    cleanup() {
+      remove_container "${PODMAN_CONTAINER}"
+      remove_container "${PODMAN_UI_BACKEND}"
+      remove_container "${PODMAN_UI_CONTAINER}"
+      remove_container "${REGISTRY_CONTAINER}"
+      remove_container "${GITEA_CONTAINER}"
+      rm -f "${STATE_DIR}/.integration-port" "${STATE_DIR}/.registry-port" "${STATE_DIR}/.gitea-port"
+      make/btrfs.sh clean 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    ${MAKE} test-integration
     # Stop the integration container and clean btrfs before UI tests so the
     # integration port is released and the btrfs volume can be recreated.
     remove_container "${PODMAN_CONTAINER}"
     ${MAKE} clean-btrfs
-    ${MAKE} test-ui-integration || rc=$?
-    exit ${rc}
+    ${MAKE} test-ui-integration
     ;;
   auto)
     step "Starting auto-test watcher"

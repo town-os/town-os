@@ -226,7 +226,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"--net", "host",
 				"-u", "0",
 				"-v", configPath + ":/etc/prometheus/prometheus.yml:ro",
-				"-v", promDataDir + ":/prometheus:shared,rw",
+				"-v", promDataDir + ":/prometheus:rw",
 			},
 			Command: []string{
 				"--config.file=/etc/prometheus/prometheus.yml",
@@ -251,7 +251,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"-e", "GF_SERVER_ENABLE_GZIP=true",
 				"-e", "GF_SERVER_HTTP_PORT=" + m.cfg.grafanaHostPort(),
 				"-v", provisioningDir + ":/etc/grafana/provisioning:ro",
-				"-v", grafDataDir + ":/var/lib/grafana:shared,rw",
+				"-v", grafDataDir + ":/var/lib/grafana:rw",
 			},
 			VolumeDirs: []string{provisioningDir, grafDataDir},
 		},
@@ -275,7 +275,7 @@ func (m *Manager) writeConfigs() error {
 		return fmt.Errorf("create grafana data dir: %w", err)
 	}
 
-	if err := writePrometheusConfig(m.cfg.DataDir, m.cfg.nodeExporterHostPort()); err != nil {
+	if err := writePrometheusConfig(m.cfg.DataDir, m.cfg.prometheusHostPort(), m.cfg.nodeExporterHostPort()); err != nil {
 		return fmt.Errorf("prometheus config: %w", err)
 	}
 

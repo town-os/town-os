@@ -10,6 +10,14 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
+// Status describes the runtime state of the UI service.
+type Status struct {
+	Name    string `json:"name"`
+	Image   string `json:"image"`
+	Running bool   `json:"running"`
+	Port    string `json:"port"`
+}
+
 // SystemService describes the UI system service metadata.
 type SystemService struct {
 	Key         string `json:"key"`
@@ -62,6 +70,27 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop is a no-op — system services persist across controller restarts.
 func (m *Manager) Stop() {}
+
+// Status queries systemd for the current state of the UI service.
+func (m *Manager) Status(ctx context.Context) Status {
+	running := false
+	units, err := m.cfg.Systemd.ListUnits(ctx)
+	if err == nil {
+		unitName := systemd.SystemServiceUnitName("ui")
+		for _, u := range units {
+			if u.Name == unitName {
+				running = u.ActiveState == "active"
+				break
+			}
+		}
+	}
+	return Status{
+		Name:    systemd.SystemServiceContainerName("ui"),
+		Image:   m.cfg.Image,
+		Running: running,
+		Port:    "80",
+	}
+}
 
 // SystemServices returns metadata for the UI system service.
 func (m *Manager) SystemServices() []SystemService {

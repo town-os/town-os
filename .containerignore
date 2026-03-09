@@ -17,4 +17,5 @@ Makefile
 ui/node_modules
 ui/dist
 dev-data
+dev-repos
 dev.btrfs

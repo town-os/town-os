@@ -24,6 +24,8 @@ RUN apt-get update && apt-get install -y \
 RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
 
 FROM runtime-deps
+ARG TOWN_OS_TAG=rc.latest
+RUN echo "${TOWN_OS_TAG}" > /town-os.tag
 COPY --from=go-builder /systemcontroller /systemcontroller
 COPY --from=go-builder /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=ui-builder /ui/dist /ui

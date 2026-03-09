@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# IRON RULE: make test-full must always be able to run simultaneously in the
+# same repository without conflicting. Nothing else matters more than this.
 # Cleanup is best-effort; do not set -e.
 . make/lib.sh
 
@@ -8,12 +11,12 @@ case "$1" in
     remove_container "${PODMAN_CONTAINER}"
     remove_container "${PODMAN_UI_BACKEND}"
     remove_container "${PODMAN_UI_CONTAINER}"
-    rm -f .integration-port
+    rm -f "${STATE_DIR}/.integration-port"
     ${MAKE} clean-btrfs
     ;;
   cache)
     step "Cleaning dev data cache"
-    ${SUDO} rm -rf dev-data dev-repos dev-rolodex
+    ${SUDO} rm -rf "${STATE_DIR}/dev-data" "${STATE_DIR}/dev-repos" "${STATE_DIR}/dev-rolodex"
     ;;
   main)
     step "Cleaning build cache"

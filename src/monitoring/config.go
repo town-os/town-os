@@ -8,7 +8,7 @@ import (
 
 // writePrometheusConfig creates a prometheus.yml in the given data directory
 // that scrapes the local Node Exporter and Prometheus itself.
-func writePrometheusConfig(dataDir, nodeExporterPort string) error {
+func writePrometheusConfig(dataDir, prometheusPort, nodeExporterPort string) error {
 	config := fmt.Sprintf(`global:
   scrape_interval: 5s
   evaluation_interval: 5s
@@ -16,12 +16,12 @@ func writePrometheusConfig(dataDir, nodeExporterPort string) error {
 scrape_configs:
   - job_name: "prometheus"
     static_configs:
-      - targets: ["localhost:9091"]
+      - targets: ["localhost:%s"]
 
   - job_name: "node-exporter"
     static_configs:
       - targets: ["localhost:%s"]
-`, nodeExporterPort)
+`, prometheusPort, nodeExporterPort)
 
 	return os.WriteFile(filepath.Join(dataDir, "prometheus.yml"), []byte(config), 0600)
 }

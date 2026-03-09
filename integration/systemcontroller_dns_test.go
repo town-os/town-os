@@ -1,8 +1,12 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package integration_test
 
 import (
 	"context"
 	"net"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -25,11 +29,12 @@ func initDNSMockTest(t *testing.T) (*systemcontroller.SystemdClient, *rolodex.Mo
 	rc := &rolodex.MockClient{}
 	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
 
+	dataDir := rolodexTempDir(t, "dns-mock-*")
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
-		DataDir:        rolodexTempDir(t, "dns-mock-*"),
+		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
-		UnixSocketPath: "/tmp/dns-test.sock",
+		UnixSocketPath: filepath.Join(dataDir, "dns-test.sock"),
 	})
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{

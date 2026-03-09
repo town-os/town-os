@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# IRON RULE: make test-full must always be able to run simultaneously in the
+# same repository without conflicting. Nothing else matters more than this.
 set -e
 . make/lib.sh
 
@@ -16,8 +18,8 @@ test -n "${TOWN_OS_REPO_PASSWORD}" || { echo "ERROR: TOWN_OS_REPO_PASSWORD not s
 
 substep "Checking bridge networking"
 ${SUDO} podman load -i "${IMAGE_CACHE}/nginx-1.27-alpine.tar"
-port=$(cat .integration-port)
-if ${SUDO} podman run --pull=never --rm -d --name "${PREFLIGHT_CONTAINER}" -p "${port}:80" docker.io/library/nginx:1.27-alpine >/dev/null 2>&1 && \
+port=$(cat "${STATE_DIR}/.integration-port")
+if ${SUDO} podman run --replace --pull=never --rm -d --name "${PREFLIGHT_CONTAINER}" -p "${port}:80" docker.io/library/nginx:1.27-alpine >/dev/null 2>&1 && \
    sleep 2 && \
    curl -sf "http://127.0.0.1:${port}/" >/dev/null 2>&1; then
   substep "Bridge networking: OK"

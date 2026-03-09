@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# IRON RULE: make test-full must always be able to run simultaneously in the
+# same repository without conflicting. Nothing else matters more than this.
 set -e
 . make/lib.sh
 
@@ -26,8 +29,7 @@ case "$1" in
     for img in ${BASE_IMAGES}; do
       ensure_image "${img}"
     done
-    mkdir -p .cache
-    touch .cache/.images-pulled
+    touch "${STATE_DIR}/.images-pulled"
     ;;
   pull)
     step "Pulling all container images"
@@ -38,8 +40,7 @@ case "$1" in
       substep "${img}: saving to cache"
       save_image_cache "${img}"
     done
-    mkdir -p .cache
-    touch .cache/.images-pulled
+    touch "${STATE_DIR}/.images-pulled"
     ;;
   *)
     echo "Usage: $0 {docker-login|quay-login|ensure-cache|load-base|pull}"
