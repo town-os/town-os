@@ -242,9 +242,12 @@ func run() (err error) {
 		monMgr = nil
 	}
 
-	// Start the rolodex DNS server. Data lives on the root filesystem so
-	// it is available before the btrfs volume is mounted.
-	rolDataDir := rolodex.DefaultDataDir
+	// Start the rolodex DNS server. Data lives on the btrfs partition so
+	// it persists across rebuilds and is never recreated from scratch.
+	rolDataDir := filepath.Join(*btrfsPath, "rolodex")
+	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
+		return fmt.Errorf("create rolodex data dir: %w", err)
+	}
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
 		DataDir:        rolDataDir,

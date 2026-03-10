@@ -67,13 +67,14 @@ func initSystemControllerRolodexTest(t *testing.T) (*systemcontroller.SystemdCli
 }
 
 // initRolodexRealTest creates a rolodex manager with real systemd, starts it,
-// and returns a connected client + cleanup.
-func initRolodexRealTest(t *testing.T) rolodex.Client {
+// and returns a connected client and the DNS port it is listening on.
+func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	t.Helper()
 
 	dataDir := rolodexTempDir(t, "rolodex-data-*")
 	sd := systemd.NewManager()
 	socketPath := filepath.Join(dataDir, "rolodex.sock")
+	dnsPort := findFreePort(t)
 
 	mgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
@@ -81,6 +82,7 @@ func initRolodexRealTest(t *testing.T) rolodex.Client {
 		Image:          rolodexTestImage(),
 		Local:          true,
 		UnixSocketPath: socketPath,
+		DNSPort:        dnsPort,
 	})
 
 	ctx := context.Background()
@@ -90,6 +92,11 @@ func initRolodexRealTest(t *testing.T) rolodex.Client {
 		ctx, cancel = context.WithDeadline(ctx, dl.Add(-15*time.Second))
 		t.Cleanup(cancel)
 	}
+
+	// Stop any rolodex unit left by the systemcontroller or a previous test.
+	unitName := systemd.SystemServiceUnitName("rolodex")
+	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
+	_ = sd.UninstallUnit(ctx, unitName)
 
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -120,7 +127,7 @@ func initRolodexRealTest(t *testing.T) rolodex.Client {
 		}
 	})
 
-	return client
+	return client, dnsPort
 }
 
 func TestRolodexSystemServiceListed(t *testing.T) {
@@ -172,9 +179,16 @@ func TestRolodexRealContainerStart(t *testing.T) {
 		Image:          rolodexTestImage(),
 		Local:          true,
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
+		DNSPort:        findFreePort(t),
 	})
 
 	ctx := context.Background()
+
+	// Stop any rolodex unit left by the systemcontroller or a previous test.
+	unitName := systemd.SystemServiceUnitName("rolodex")
+	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
+	_ = sd.UninstallUnit(ctx, unitName)
+
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -204,7 +218,7 @@ func TestRolodexRealContainerStart(t *testing.T) {
 }
 
 func TestRolodexClientConnect(t *testing.T) {
-	client := initRolodexRealTest(t)
+	client, _ := initRolodexRealTest(t)
 
 	// Verify the connection works by listing records.
 	records, err := client.ListRecords(context.Background(), nil)
@@ -218,7 +232,7 @@ func TestRolodexClientConnect(t *testing.T) {
 }
 
 func TestRolodexClientAddRemoveRecords(t *testing.T) {
-	client := initRolodexRealTest(t)
+	client, _ := initRolodexRealTest(t)
 	ctx := context.Background()
 
 	// Add an A record.
@@ -289,7 +303,7 @@ func TestRolodexDNSQueryExampleCom(t *testing.T) {
 func testRolodexDNSQuery(t *testing.T, domain string) {
 	t.Helper()
 
-	initRolodexRealTest(t)
+	_, dnsPort := initRolodexRealTest(t)
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {
 		var cancel context.CancelFunc
@@ -297,13 +311,13 @@ func testRolodexDNSQuery(t *testing.T, domain string) {
 		defer cancel()
 	}
 
-	// Rolodex is running on host port 53 (local mode) and handles its own
-	// forwarding. Use a custom resolver pointing at localhost:53.
+	// Rolodex is running on a random high port (local mode) and handles its
+	// own forwarding. Use a custom resolver pointing at that port.
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			d := net.Dialer{Timeout: 5 * time.Second}
-			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":53")
+			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":"+dnsPort)
 		},
 	}
 

@@ -266,7 +266,7 @@ func TestDNSTLDChangeReprovisionsRecords(t *testing.T) {
 // --- Real container tests ---
 
 func TestDNSRealSetupAndQuery(t *testing.T) {
-	client := initRolodexRealTest(t)
+	client, dnsPort := initRolodexRealTest(t)
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {
 		var cancel context.CancelFunc
@@ -284,7 +284,7 @@ func TestDNSRealSetupAndQuery(t *testing.T) {
 		PreferGo: true,
 		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			d := net.Dialer{Timeout: 5 * time.Second}
-			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":53")
+			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":"+dnsPort)
 		},
 	}
 
@@ -312,7 +312,7 @@ func TestDNSRealSetupAndQuery(t *testing.T) {
 }
 
 func TestDNSRealPackageRecord(t *testing.T) {
-	client := initRolodexRealTest(t)
+	client, dnsPort := initRolodexRealTest(t)
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {
 		var cancel context.CancelFunc
@@ -335,7 +335,7 @@ func TestDNSRealPackageRecord(t *testing.T) {
 		PreferGo: true,
 		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			d := net.Dialer{Timeout: 5 * time.Second}
-			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":53")
+			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":"+dnsPort)
 		},
 	}
 

@@ -19,8 +19,6 @@ const (
 	DefaultDNSPort = "53"
 	// DefaultGRPCSocket is the default filename for the gRPC Unix socket.
 	DefaultGRPCSocket = "rolodex.sock"
-	// DefaultDataDir is the default root-filesystem path for rolodex data.
-	DefaultDataDir = "/var/lib/town-os/rolodex"
 	// DNSLoopback is the loopback address used for local DNS resolution.
 	// Using 127.0.0.2 avoids conflicts with systemd-resolved (127.0.0.53)
 	// and other services commonly bound to 127.0.0.1.
@@ -60,18 +58,19 @@ type Config struct {
 	// rewrites this file to use 127.0.0.1 as the sole nameserver;
 	// Stop restores the original contents.
 	ResolvConfPath string
+	// DNSPort is the host-side port for DNS queries. If empty,
+	// DefaultDNSPort ("53") is used. The container always binds 0.0.0.0:53
+	// internally; this only controls the -p host mapping.
+	DNSPort string
 }
 
 // Manager controls the lifecycle of the rolodex DNS server.
 type Manager struct {
 	cfg              Config
-	mu               sync.Mutex
-	origResolvConf   []byte // saved on Start, restored on Stop
-	origResolvLink   string // symlink target if resolv.conf was a symlink
-	disabledResolved bool   // true if we stopped/disabled systemd-resolved
+	mu             sync.Mutex
+	origResolvConf []byte // saved on Start, restored on Stop
+	origResolvLink string // symlink target if resolv.conf was a symlink
 }
-
-const resolvedUnit = "systemd-resolved.service"
 
 // NewManager creates a new rolodex Manager with the given configuration.
 // Call Start to boot the rolodex service.
@@ -84,10 +83,18 @@ func (m *Manager) SocketPath() string {
 	return m.cfg.UnixSocketPath
 }
 
+// dnsPort returns the configured host-side DNS port, defaulting to DefaultDNSPort.
+func (m *Manager) dnsPort() string {
+	if m.cfg.DNSPort != "" {
+		return m.cfg.DNSPort
+	}
+	return DefaultDNSPort
+}
+
 // Start writes the rolodex config, installs/enables/starts the systemd unit.
-// In production mode (!Local), it disables systemd-resolved and rewrites
-// resolv.conf before starting rolodex, ensuring exactly one DNS provider is
-// active. On failure, it rolls back by re-enabling systemd-resolved.
+// In production mode (!Local), it rewrites resolv.conf to point at the
+// rolodex loopback address. Both modes bind DNS to 127.0.0.2:53 which
+// coexists with systemd-resolved.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -108,50 +115,35 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 
 	if !m.cfg.Local {
-		// Production: disable systemd-resolved, rewrite resolv.conf, start rolodex.
-		m.disableResolved(ctx)
-
 		if err := m.setResolv(); err != nil {
-			m.enableResolved(ctx)
 			return fmt.Errorf("set resolv.conf: %w", err)
 		}
+	}
 
-		for _, unit := range m.unitConfigs() {
-			uf := systemd.GenerateSystemServiceUnit(unit)
-			// Stop before Start to pick up new configuration. Ignore
-			// stop errors — the unit may not be running.
-			_ = m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop)
-			if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
+	for _, unit := range m.unitConfigs() {
+		uf := systemd.GenerateSystemServiceUnit(unit)
+		// Stop before Start to pick up new configuration. Ignore
+		// stop errors — the unit may not be running.
+		_ = m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop)
+		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
+			if !m.cfg.Local {
 				_ = m.restoreResolv()
-				m.enableResolved(ctx)
-				return fmt.Errorf("start unit %s: %w", uf.Name, err)
 			}
-		}
-	} else {
-		// Local: start directly (127.0.0.2:53 coexists with resolved).
-		for _, unit := range m.unitConfigs() {
-			uf := systemd.GenerateSystemServiceUnit(unit)
-			_ = m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop)
-			if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
-				return fmt.Errorf("start unit %s: %w", uf.Name, err)
-			}
+			return fmt.Errorf("start unit %s: %w", uf.Name, err)
 		}
 	}
 
 	return nil
 }
 
-// Stop stops the rolodex systemd unit. In production mode, it re-enables
-// systemd-resolved and restores resolv.conf BEFORE stopping rolodex so
-// there is always a working DNS provider.
+// Stop stops the rolodex systemd unit. In production mode, it restores
+// resolv.conf BEFORE stopping rolodex so there is always a working DNS
+// provider.
 func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if !m.cfg.Local {
-		// Production: restore system DNS before stopping rolodex.
-		m.enableResolved(ctx)
-
 		if err := m.restoreResolv(); err != nil {
 			return fmt.Errorf("restore resolv.conf: %w", err)
 		}
@@ -172,7 +164,7 @@ func (m *Manager) SystemServices() []SystemService {
 			Key:         "rolodex",
 			DisplayName: "Rolodex DNS",
 			Image:       m.cfg.Image,
-			Port:        DefaultDNSPort,
+			Port:        m.dnsPort(),
 			UnitName:    systemd.SystemServiceUnitName("rolodex"),
 		},
 	}
@@ -197,7 +189,7 @@ func (m *Manager) Status(ctx context.Context) Status {
 		Name:    systemd.SystemServiceContainerName("rolodex"),
 		Image:   m.cfg.Image,
 		Running: running,
-		Port:    DefaultDNSPort,
+		Port:    m.dnsPort(),
 	}
 }
 
@@ -237,17 +229,11 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 		"-v", m.cfg.DataDir + ":/data",
 	}
 
-	if m.cfg.Local {
-		args = append([]string{
-			"-p", DNSLoopback + ":53:53/tcp",
-			"-p", DNSLoopback + ":53:53/udp",
-		}, args...)
-	} else {
-		args = append([]string{
-			"-p", "53:53/tcp",
-			"-p", "53:53/udp",
-		}, args...)
-	}
+	port := m.dnsPort()
+	args = append([]string{
+		"-p", DNSLoopback + ":" + port + ":53/tcp",
+		"-p", DNSLoopback + ":" + port + ":53/udp",
+	}, args...)
 
 	return []systemd.SystemServiceUnitConfig{
 		{
@@ -261,27 +247,8 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 	}
 }
 
-// disableResolved stops and disables systemd-resolved. Errors are ignored
-// because the system may not have systemd-resolved installed.
-func (m *Manager) disableResolved(ctx context.Context) {
-	_ = m.cfg.Systemd.SetStatus(ctx, resolvedUnit, systemd.Stop)
-	_ = m.cfg.Systemd.SetStatus(ctx, resolvedUnit, systemd.Disable)
-	m.disabledResolved = true
-}
-
-// enableResolved re-enables and starts systemd-resolved if it was previously
-// disabled by disableResolved. Errors are ignored (best-effort).
-func (m *Manager) enableResolved(ctx context.Context) {
-	if !m.disabledResolved {
-		return
-	}
-	_ = m.cfg.Systemd.SetStatus(ctx, resolvedUnit, systemd.Enable)
-	_ = m.cfg.Systemd.SetStatus(ctx, resolvedUnit, systemd.Start)
-	m.disabledResolved = false
-}
-
 // setResolv saves the current resolv.conf state and rewrites it to point at
-// 127.0.0.1 (rolodex). Handles both regular files and symlinks (e.g.
+// DNSLoopback (127.0.0.2). Handles both regular files and symlinks (e.g.
 // systemd-resolved's /run/systemd/resolve/stub-resolv.conf link).
 func (m *Manager) setResolv() error {
 	if m.cfg.ResolvConfPath == "" {
@@ -312,7 +279,7 @@ func (m *Manager) setResolv() error {
 		m.origResolvLink = ""
 	}
 
-	if err := os.WriteFile(m.cfg.ResolvConfPath, []byte("nameserver 127.0.0.1\n"), 0644); err != nil { //nolint:gosec // resolv.conf must be world-readable
+	if err := os.WriteFile(m.cfg.ResolvConfPath, []byte("nameserver "+DNSLoopback+"\n"), 0644); err != nil { //nolint:gosec // resolv.conf must be world-readable
 		return fmt.Errorf("write %s: %w", m.cfg.ResolvConfPath, err)
 	}
 

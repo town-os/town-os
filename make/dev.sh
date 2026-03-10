@@ -20,7 +20,7 @@ case "$1" in
       -v "$(cat "${STATE_DIR}/town-os-dev.mount"):/town-os:z" \
       -v "${STATE_DIR}/dev-data:/data/db:z" \
       -v "${STATE_DIR}/dev-repos:/data/repos:z" \
-      -v "${STATE_DIR}/dev-rolodex:/var/lib/town-os/rolodex:z" \
+      -v "${STATE_DIR}/dev-rolodex:/town-os/rolodex:z" \
       --name "${PODMAN_DEV_CONTAINER}" "${PODMAN_DEV_IMAGE}"
     substep "Waiting for dev container to be ready"
     for i in $(seq 1 30); do

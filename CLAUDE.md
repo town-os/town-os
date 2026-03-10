@@ -22,9 +22,15 @@
    live in `/tmp/town-os-$(INSTANCE_ID)/`, not the working directory. Only the image cache
    (`/var/cache/town-os/images`) and Go build caches (`.cache/go-*`) persist in the repo.
 
-10. **DNS provider continuity** — the rolodex Start/Stop sequence must ensure exactly one DNS
-    provider is active at all times. Production Start: disable systemd-resolved, write resolv.conf
-    stub, start rolodex. On failure, immediately re-enable systemd-resolved. Production Stop:
-    re-enable systemd-resolved BEFORE stopping rolodex.
+10. **DNS provider continuity** — rolodex binds to 127.0.0.2:53 in both local and production
+    modes, coexisting with systemd-resolved. Never disable or re-enable systemd-resolved.
+    Production Start: write resolv.conf stub pointing at 127.0.0.2, start rolodex. On failure,
+    restore resolv.conf. Production Stop: restore resolv.conf BEFORE stopping rolodex.
 
 11. **Only commit or push when told** — never run `git commit` or `git push` unless the user explicitly asks. Never force push (`--force` or `--force-with-lease`).
+
+12. systemcontroller should never call os.Exit unless the service is actually being terminated - critical errors should be addressed with fatal logging
+
+13. please check all errors. do not underscore or skip error checking for any reason in any part of code ever
+
+14. **Test services use random high ports** — integration tests that start network services (DNS, HTTP, gRPC, etc.) must bind to random high ports via `findFreePort`, never well-known ports like 53 or 80. This prevents conflicts when multiple test runs execute simultaneously.
