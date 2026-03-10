@@ -1223,6 +1223,26 @@ func TestHTTPGetInstalledInfo(t *testing.T) {
 	}
 }
 
+func TestHTTPGetInstalledInfoPackageDNS(t *testing.T) {
+	c, _ := initInstallWithDNSTestClient(t)
+
+	// Install dnsapp with no questions
+	if err := c.InstallPackage(context.TODO(), "dnsapp", "1.0", packages.Responses{}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	info, err := c.GetInstalledInfo(context.TODO(), "repo-a", "dnsapp", "1.0")
+	if err != nil {
+		t.Fatalf("GetInstalledInfo: %v", err)
+	}
+
+	// @PACKAGE_DNS@ should resolve to name.repo.tld = dnsapp.repo-a.example.local
+	expected := "http://dnsapp.repo-a.example.local/admin"
+	if info.Notes["URL"] != expected {
+		t.Fatalf("expected URL=%q, got %q", expected, info.Notes["URL"])
+	}
+}
+
 func TestHTTPGetInstalledInfoNotInstalled(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 

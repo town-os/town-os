@@ -118,6 +118,9 @@ func TestCompileWithContextPackageDNS(t *testing.T) {
 		Environment: map[string]string{
 			"MY_DNS": "@PACKAGE_DNS@",
 		},
+		Notes: map[string]Note{
+			"dns_url": {Value: "http://@PACKAGE_DNS@/admin", Type: "url"},
+		},
 	}
 
 	compiled, err := ip.CompileWithContext(Responses{}, CompileContext{
@@ -129,6 +132,83 @@ func TestCompileWithContextPackageDNS(t *testing.T) {
 
 	if compiled.Environment["MY_DNS"] != "nginx.core.home" {
 		t.Fatalf("expected %q, got %q", "nginx.core.home", compiled.Environment["MY_DNS"])
+	}
+
+	if compiled.Notes["dns_url"] != "http://nginx.core.home/admin" {
+		t.Fatalf("expected %q, got %q", "http://nginx.core.home/admin", compiled.Notes["dns_url"])
+	}
+}
+
+func TestCompileNotesWithContextPackageDNSOnly(t *testing.T) {
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "test-image"},
+		Notes: map[string]Note{
+			"dns_url": {Value: "http://@PACKAGE_DNS@/admin", Type: "url"},
+		},
+	}
+
+	notes, err := ip.CompileNotesWithContext(Responses{}, CompileContext{
+		PackageDNS: "nginx.core.home",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if notes["dns_url"] != "http://nginx.core.home/admin" {
+		t.Fatalf("expected %q, got %q", "http://nginx.core.home/admin", notes["dns_url"])
+	}
+}
+
+func TestCompileNotesWithContextMixed(t *testing.T) {
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "test-image"},
+		Notes: map[string]Note{
+			"url": {Value: "http://@PACKAGE_DNS@:@port@", Type: "url"},
+		},
+		Questions: map[string]Question{
+			"port": {Query: "Port?"},
+		},
+	}
+
+	notes, err := ip.CompileNotesWithContext(Responses{"port": "8080"}, CompileContext{
+		PackageDNS: "app.repo.home",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if notes["url"] != "http://app.repo.home:8080" {
+		t.Fatalf("expected %q, got %q", "http://app.repo.home:8080", notes["url"])
+	}
+}
+
+func TestCompileNotesWithContextAllVars(t *testing.T) {
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "test-image"},
+		Notes: map[string]Note{
+			"ext":  {Value: "http://@LOCAL_EXTERNAL_HOST@/ext"},
+			"int":  {Value: "http://@LOCAL_INTERNAL_HOST@/int"},
+			"dns":  {Value: "http://@PACKAGE_DNS@/dns"},
+		},
+	}
+
+	notes, err := ip.CompileNotesWithContext(Responses{}, CompileContext{
+		ExternalHost: "1.2.3.4",
+		InternalHost: "192.168.1.1",
+		PackageDNS:   "pkg.repo.home",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if notes["ext"] != "http://1.2.3.4/ext" {
+		t.Fatalf("expected %q, got %q", "http://1.2.3.4/ext", notes["ext"])
+	}
+	if notes["int"] != "http://192.168.1.1/int" {
+		t.Fatalf("expected %q, got %q", "http://192.168.1.1/int", notes["int"])
+	}
+	if notes["dns"] != "http://pkg.repo.home/dns" {
+		t.Fatalf("expected %q, got %q", "http://pkg.repo.home/dns", notes["dns"])
 	}
 }
 

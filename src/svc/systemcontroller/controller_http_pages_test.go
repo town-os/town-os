@@ -88,6 +88,9 @@ func initPagesTestEnv(t *testing.T) pagesTestEnv {
 		PagesMgr:      pagesMgr,
 		Git:           gitClient,
 		BtrfsBasePath: btrfsBase,
+		ImageExtractFunc: func(_ context.Context, _, _, _ string) error {
+			return errors.New("mock: podman not available in test")
+		},
 	})
 	t.Cleanup(ts.Close)
 
@@ -1041,5 +1044,32 @@ func TestHTTPPagesAuditUploadPageArchive(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected to find 'upload page archive' audit entry")
+	}
+}
+
+func TestGetImageExtractFuncDefault(t *testing.T) {
+	sb := &serverBase{ServerConfig: ServerConfig{}}
+	fn := sb.GetImageExtractFunc()
+	if fn == nil {
+		t.Fatal("expected non-nil default image extract func")
+	}
+}
+
+func TestGetImageExtractFuncCustom(t *testing.T) {
+	called := false
+	custom := func(_ context.Context, _, _, _ string) error {
+		called = true
+		return nil
+	}
+	sb := &serverBase{ServerConfig: ServerConfig{ImageExtractFunc: custom}}
+	fn := sb.GetImageExtractFunc()
+	if fn == nil {
+		t.Fatal("expected non-nil custom image extract func")
+	}
+	if err := fn(context.Background(), "", "", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected custom func to be called")
 	}
 }

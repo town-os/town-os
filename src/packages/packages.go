@@ -263,6 +263,7 @@ type Package struct {
 	Network     PackageNetwork
 	Volumes     map[string]PackageVolume
 	Templates   map[string]PackageTemplate
+	Notes       map[string]string
 	Runtime     RuntimeType
 	VM          *PackageVM
 	Proton      *PackageProton
@@ -311,7 +312,7 @@ func (i *InputPackage) RuntimeType() RuntimeType {
 // provided responses, validates typed notes, and returns the compiled result.
 func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, error) {
 	if len(i.Notes) == 0 {
-		return map[string]string{}, nil
+		return nil, nil //nolint:nilnil // nil notes is the correct zero value when no notes are defined
 	}
 
 	compiled := make(map[string]string, len(i.Notes))
@@ -324,6 +325,31 @@ func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, err
 	}
 
 	return compiled, nil
+}
+
+// CompileNotesWithContext applies built-in context variables to notes before
+// compiling them with user responses. This is used when notes need context
+// substitution (e.g. @PACKAGE_DNS@) outside of a full Compile call.
+func (i *InputPackage) CompileNotesWithContext(responses Responses, ctx CompileContext) (map[string]string, error) {
+	if ctx.ExternalHost != "" {
+		for name, note := range i.Notes {
+			note.Value = applyTemplate(note.Value, "LOCAL_EXTERNAL_HOST", ctx.ExternalHost)
+			i.Notes[name] = note
+		}
+	}
+	if ctx.InternalHost != "" {
+		for name, note := range i.Notes {
+			note.Value = applyTemplate(note.Value, "LOCAL_INTERNAL_HOST", ctx.InternalHost)
+			i.Notes[name] = note
+		}
+	}
+	if ctx.PackageDNS != "" {
+		for name, note := range i.Notes {
+			note.Value = applyTemplate(note.Value, "PACKAGE_DNS", ctx.PackageDNS)
+			i.Notes[name] = note
+		}
+	}
+	return i.CompileNotes(responses)
 }
 
 func applyTemplate(input string, v string, repl string) string {
@@ -466,6 +492,11 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		for idx := range i.Proton.Args {
 			i.Proton.Args[idx] = applyTemplate(i.Proton.Args[idx], iv, response)
 		}
+	}
+
+	for name, note := range i.Notes {
+		note.Value = applyTemplate(note.Value, iv, response)
+		i.Notes[name] = note
 	}
 }
 
@@ -758,6 +789,11 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
+	notes, err := i.CompileNotes(Responses{})
+	if err != nil {
+		return nil, err
+	}
+
 	p := &Package{
 		Image:       image,
 		ImageType:   imageType,
@@ -766,6 +802,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		Network:     PackageNetwork{External: external, Internal: internal, Domains: i.Network.Domains},
 		Volumes:     volumes,
 		Templates:   templates,
+		Notes:       notes,
 		Runtime:     rt,
 		Proton:      proton,
 	}

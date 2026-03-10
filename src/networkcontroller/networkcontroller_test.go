@@ -4,11 +4,14 @@
 package networkcontroller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -648,6 +651,47 @@ func TestUPnPTTLAndRefreshInterval(t *testing.T) {
 	}
 	if renewTTL != 1800 {
 		t.Fatalf("expected renewal TTL 1800, got %d", renewTTL)
+	}
+}
+
+func TestRunEmitsStartupLog(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	state := PackageNetworkState{
+		Repo:    "core",
+		Package: "nginx",
+		Version: "1.0",
+		Ports:   []PortConfig{},
+	}
+	writeState(t, path, state)
+
+	// Capture slog output.
+	var buf bytes.Buffer
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(oldLogger)
+
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunner(mock, runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ctrl.Run(ctx, path)
+	}()
+
+	// Give Run a moment to start and log.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-errCh
+
+	logged := buf.String()
+	if !strings.Contains(logged, "networkcontroller starting: core/nginx@1.0") {
+		t.Fatalf("expected startup log message, got: %s", logged)
 	}
 }
 

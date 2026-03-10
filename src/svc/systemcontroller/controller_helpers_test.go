@@ -137,6 +137,48 @@ notes:
 	return c, inst
 }
 
+func initInstallWithDNSTestClient(t *testing.T) (*SystemdClient, *packages.MockInstallManager) {
+	t.Helper()
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{
+		{Name: "repo-a", URL: *u},
+	}
+	dnsPkg := `image: nginx:1.0
+environment: {}
+network:
+  external: {}
+  internal: {}
+volumes: {}
+questions: {}
+notes:
+  URL:
+    value: "http://@PACKAGE_DNS@/admin"
+    type: url
+`
+	writeTestPackage(t, rr.BaseDir, "repo-a", "dnsapp", "1.0", dnsPkg)
+
+	inst := packages.InitMockInstallManager()
+	settingsMgr := &mockSettingsManager{
+		values: map[string]string{
+			"dns_tld": "example.local",
+		},
+	}
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst, SettingsMgr: settingsMgr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	return c, inst
+}
+
 func initInstallWithVolumesTestClient(t *testing.T) (*SystemdClient, *storage.MockBtrFSController) {
 	t.Helper()
 	mock := storage.InitBtrFSMock()

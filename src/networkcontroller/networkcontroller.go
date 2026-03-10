@@ -119,6 +119,7 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 	if err != nil {
 		return fmt.Errorf("read initial state: %w", err)
 	}
+	slog.Info(fmt.Sprintf("networkcontroller starting: %s/%s@%s", state.Repo, state.Package, state.Version))
 	c.reconcile(state)
 
 	watcher, err := fsnotify.NewWatcher()

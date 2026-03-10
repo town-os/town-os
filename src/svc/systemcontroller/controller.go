@@ -51,6 +51,7 @@ type systemControllerBackend interface {
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
 	GetUI() *ui.Manager
+	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
 }
 
 type SystemController interface {
@@ -193,6 +194,7 @@ type ServerConfig struct {
 	Rolodex                  *rolodex.Manager
 	RolodexClient            rolodex.Client
 	UI                       *ui.Manager
+	ImageExtractFunc         func(ctx context.Context, image, directory, targetPath string) error
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {
@@ -243,7 +245,13 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
 func (s *serverBase) GetMonitoring() *monitoring.Manager     { return s.Monitoring }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
-func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
+func (s *serverBase) GetUI() *ui.Manager { return s.UI }
+func (s *serverBase) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
+	if s.ImageExtractFunc != nil {
+		return s.ImageExtractFunc
+	}
+	return reconcileExtractFromImage
+}
 func (s *serverBase) GetRolodexClient() rolodex.Client {
 	if s.RolodexClient != nil {
 		return s.RolodexClient

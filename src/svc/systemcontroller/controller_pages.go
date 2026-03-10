@@ -111,8 +111,9 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 	case account.PageSourceContainerImage:
 		// Extract from container image asynchronously.
 		if subvolPath != "" {
+			extractFn := s.Controller.GetImageExtractFunc()
 			go func() {
-				extractErr := reconcileExtractFromImage(context.Background(), req.Image, req.ImageDirectory, subvolPath)
+				extractErr := extractFn(context.Background(), req.Image, req.ImageDirectory, subvolPath)
 
 				status := "active"
 				if extractErr != nil {
@@ -261,7 +262,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		}
 
 	case account.PageSourceContainerImage:
-		if err := reconcileExtractFromImage(c.Request().Context(), page.Image, page.ImageDirectory, targetDir); err != nil {
+		if err := s.Controller.GetImageExtractFunc()(c.Request().Context(), page.Image, page.ImageDirectory, targetDir); err != nil {
 			status := "error"
 			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))

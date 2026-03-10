@@ -511,7 +511,12 @@ func (s *SystemControllerHandlers) getInstalledInfo(c *echo.Context) error {
 		return err
 	}
 
-	notes, err := ip.CompileNotes(responses)
+	ctx := packages.CompileContext{
+		ExternalHost: s.Controller.GetExternalIP(),
+		InternalHost: s.Controller.GetInternalIP(),
+		PackageDNS:   req.Name + "." + req.Repo + "." + s.getDNSTLDValue(),
+	}
+	notes, err := ip.CompileNotesWithContext(responses, ctx)
 	if err != nil {
 		return err
 	}

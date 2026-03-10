@@ -160,7 +160,10 @@ func (b *archiveTestBackend) GetInternalIP() string                             
 func (b *archiveTestBackend) GetMonitoring() *monitoring.Manager                  { return nil }
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
-func (b *archiveTestBackend) GetUI() *ui.Manager                                 { return nil }
+func (b *archiveTestBackend) GetUI() *ui.Manager { return nil }
+func (b *archiveTestBackend) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
+	return reconcileExtractFromImage
+}
 
 type testSettingsManager struct {
 	values map[string]string

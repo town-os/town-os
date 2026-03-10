@@ -20,6 +20,7 @@ type UnitListEntry struct {
 	PackageIdentifier  string `json:"package_identifier,omitempty"`
 	PackageDescription string `json:"package_description,omitempty"`
 	NCFailed           bool   `json:"nc_failed,omitempty"`
+	NCActive           bool   `json:"nc_active,omitempty"`
 }
 
 type SetStatusRequest struct {
@@ -97,12 +98,17 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 			PackageDescription: descriptionMap[u.Name],
 		}
 
-		// Check if the corresponding network controller unit has failed.
+		// Check the corresponding network controller unit status.
 		ncName := strings.TrimSuffix(u.Name, ".service") + "-network.service"
-		if ncUnit, ok := ncUnitMap[ncName]; ok && ncUnit.ActiveState == "failed" {
-			entry.NCFailed = true
-			if entry.ActiveState != "failed" {
-				entry.ActiveState = "failed"
+		if ncUnit, ok := ncUnitMap[ncName]; ok {
+			if ncUnit.ActiveState == "failed" {
+				entry.NCFailed = true
+				if entry.ActiveState != "failed" {
+					entry.ActiveState = "failed"
+				}
+			}
+			if ncUnit.ActiveState == "active" {
+				entry.NCActive = true
 			}
 		}
 

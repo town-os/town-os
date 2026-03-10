@@ -214,13 +214,15 @@ export default function SystemManagement() {
               <FileText className="h-3 w-3 mr-2" />
               {t('system.action_service_logs')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => {
-              const ncUnit = row.Name.replace('.service', '-network.service')
-              openJournal(ncUnit)
-            }}>
-              <FileText className="h-3 w-3 mr-2" />
-              {t('system.action_network_logs')}
-            </DropdownMenuItem>
+            {row.nc_active && (
+              <DropdownMenuItem onClick={() => {
+                const ncUnit = row.Name.replace('.service', '-network.service')
+                openJournal(ncUnit)
+              }}>
+                <FileText className="h-3 w-3 mr-2" />
+                {t('system.action_network_logs')}
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),

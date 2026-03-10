@@ -13,6 +13,7 @@ const mockListUnits = vi.fn(() =>
         package_identifier: 'foo',
         package_description: 'Foo service',
         nc_failed: false,
+        nc_active: true,
       },
       {
         Name: 'town-os-bar.service',
@@ -185,6 +186,20 @@ describe('SystemManagement', () => {
     await waitFor(() => {
       expect(mockLogTail).toHaveBeenCalledWith('town-os-foo-network.service', 200, undefined, undefined, undefined, undefined, undefined, undefined)
     })
+  })
+
+  it('hides Network Logs when network controller is not active', async () => {
+    // bar has no active NC unit, so Network Logs should not appear
+    const { container } = renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('bar')).toBeTruthy()
+    })
+    // bar is the second row (index 1)
+    await openDropdown(container, 1)
+    await waitFor(() => {
+      expect(screen.getByText('Service Logs')).toBeTruthy()
+    })
+    expect(screen.queryByText('Network Logs')).toBeNull()
   })
 
   it('does not show Controller Logs button on main page', async () => {

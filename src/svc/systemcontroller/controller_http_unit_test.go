@@ -599,6 +599,9 @@ func TestHTTPListUnitsDegenerateWithNCUnit(t *testing.T) {
 	if units.Entries[0].NCFailed {
 		t.Fatal("expected NCFailed=false for valid unit with active NC")
 	}
+	if !units.Entries[0].NCActive {
+		t.Fatal("expected NCActive=true for valid unit with active NC")
+	}
 }
 
 func TestHTTPListUnitsDegenerateVariations(t *testing.T) {
@@ -834,6 +837,78 @@ func TestHTTPListUnitsDescriptionPartialLoadError(t *testing.T) {
 	}
 }
 
+func TestHTTPListUnitsNCActivePropagation(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "nginx", Version: "1.0"},
+		{Repo: "repo", Name: "redis", Version: "7.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-nginx-1.0-network.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-redis-7.0.service", ActiveState: "active"},
+		// redis has no NC unit at all
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 2 {
+		t.Fatalf("expected 2 units, got %d", len(units.Entries))
+	}
+
+	entryMap := map[string]UnitListEntry{}
+	for _, e := range units.Entries {
+		entryMap[e.Name] = e
+	}
+
+	nginxEntry := entryMap["town-os-package--repo-nginx-1.0.service"]
+	if !nginxEntry.NCActive {
+		t.Fatal("expected NCActive=true when network controller unit is active")
+	}
+	if nginxEntry.NCFailed {
+		t.Fatal("expected NCFailed=false when network controller unit is active")
+	}
+
+	redisEntry := entryMap["town-os-package--repo-redis-7.0.service"]
+	if redisEntry.NCActive {
+		t.Fatal("expected NCActive=false when no network controller unit exists")
+	}
+}
+
+func TestHTTPListUnitsNCActiveNotSetWhenInactive(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "repo", Name: "app", Version: "1.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--repo-app-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--repo-app-1.0-network.service", ActiveState: "inactive"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+
+	if len(units.Entries) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(units.Entries))
+	}
+
+	if units.Entries[0].NCActive {
+		t.Fatal("expected NCActive=false when network controller unit is inactive")
+	}
+	if units.Entries[0].NCFailed {
+		t.Fatal("expected NCFailed=false when network controller unit is inactive")
+	}
+}
+
 func TestHTTPListUnitsDegenerateNCDoesNotCorruptValidNC(t *testing.T) {
 	c, sd, inst := initSystemdTestClient(t)
 
@@ -866,6 +941,9 @@ func TestHTTPListUnitsDegenerateNCDoesNotCorruptValidNC(t *testing.T) {
 	// The valid unit's NC is active, so NCFailed should be false despite degenerate NCs being failed.
 	if units.Entries[0].NCFailed {
 		t.Fatal("expected NCFailed=false — degenerate NC failures should not affect valid unit")
+	}
+	if !units.Entries[0].NCActive {
+		t.Fatal("expected NCActive=true — valid unit has an active NC")
 	}
 	if units.Entries[0].ActiveState != "active" {
 		t.Fatalf("expected ActiveState %q, got %q", "active", units.Entries[0].ActiveState)

@@ -236,6 +236,12 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
     }
   }, [journalUnit, journalEntries.length, journalLoading, journalInitial])
 
+  useEffect(() => {
+    if (followMode && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [followMode])
+
   return (
     <Dialog open={journalUnit !== null} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
