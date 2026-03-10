@@ -7,6 +7,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -248,19 +250,27 @@ func run() (err error) {
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
 	}
+	rolLocal := os.Getenv("ROLODEX_LOCAL") != ""
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
 		DataDir:        rolDataDir,
 		Image:          rolImage,
-		Local:          os.Getenv("ROLODEX_LOCAL") != "",
+		Local:          rolLocal,
 		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
 		ResolvConfPath: "/etc/resolv.conf",
+		PublicAddr:     getInternalIP(),
 	})
 	if err := rolMgr.Start(ctx); err != nil {
 		// Non-fatal: rolodex failure should not prevent the system
 		// controller from starting.
 		fmt.Fprintf(os.Stderr, "rolodex: %v\n", err)
 		rolMgr = nil
+	}
+
+	// Poll for internal IP changes (DHCP lease renewals) and restart
+	// rolodex when the public address changes.
+	if rolMgr != nil && !rolLocal {
+		go watchInternalIP(ctx, rolMgr)
 	}
 
 	// Start the UI container (Caddy web server).
@@ -339,6 +349,44 @@ func generateSigningKey() ([]byte, error) {
 	}
 
 	return key, nil
+}
+
+// getInternalIP returns the first non-loopback IPv4 address, or "" if none found.
+func getInternalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
+		}
+	}
+	return ""
+}
+
+// watchInternalIP polls for internal IP changes every 30 seconds and restarts
+// rolodex when the public address changes (e.g. DHCP lease renewal).
+func watchInternalIP(ctx context.Context, mgr *rolodex.Manager) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			newIP := getInternalIP()
+			if newIP == "" {
+				continue
+			}
+			if mgr.SetPublicAddr(newIP) {
+				slog.Info(fmt.Sprintf("internal IP changed to %s, restarting rolodex", newIP))
+				if err := mgr.Start(ctx); err != nil {
+					slog.Error(fmt.Sprintf("restart rolodex after IP change: %v", err))
+				}
+			}
+		}
+	}
 }
 
 func main() {

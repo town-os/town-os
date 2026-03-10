@@ -22,8 +22,8 @@
    live in `/tmp/town-os-$(INSTANCE_ID)/`, not the working directory. Only the image cache
    (`/var/cache/town-os/images`) and Go build caches (`.cache/go-*`) persist in the repo.
 
-10. **DNS provider continuity** — rolodex binds to 127.0.0.2:53 in both local and production
-    modes, coexisting with systemd-resolved. Never disable or re-enable systemd-resolved.
+10. **DNS provider continuity** — rolodex always binds to 127.0.0.2:53 (coexisting with
+    systemd-resolved) plus optionally the public LAN address. Never disable or re-enable systemd-resolved.
     Production Start: write resolv.conf stub pointing at 127.0.0.2, start rolodex. On failure,
     restore resolv.conf. Production Stop: restore resolv.conf BEFORE stopping rolodex.
 

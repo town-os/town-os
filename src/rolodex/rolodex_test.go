@@ -134,7 +134,7 @@ func TestUnitConfigsRemote(t *testing.T) {
 
 	cfg := configs[0]
 
-	// Production mode should bind DNSLoopback:53 to container port 53.
+	// Production mode without PublicAddr should bind DNSLoopback:53 to container port 53.
 	wantTCP := DNSLoopback + ":53:53/tcp"
 	wantUDP := DNSLoopback + ":53:53/udp"
 	hasPortMapping := false
@@ -153,6 +153,63 @@ func TestUnitConfigsRemote(t *testing.T) {
 		if arg == "--net" && i+1 < len(cfg.Args) && cfg.Args[i+1] == "host" {
 			t.Fatal("unexpected --net host in remote mode")
 		}
+	}
+}
+
+func TestUnitConfigsPublicAddr(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-unit-public-*")
+	mgr := NewManager(Config{
+		Systemd:        systemd.InitMockManager(),
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          false,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+		PublicAddr:     "192.168.5.9",
+	})
+
+	configs := mgr.unitConfigs()
+	cfg := configs[0]
+
+	// Should have both DNSLoopback and PublicAddr bindings.
+	wantLoopTCP := DNSLoopback + ":53:53/tcp"
+	wantLoopUDP := DNSLoopback + ":53:53/udp"
+	wantPubTCP := "192.168.5.9:53:53/tcp"
+	wantPubUDP := "192.168.5.9:53:53/udp"
+
+	found := map[string]bool{}
+	for _, arg := range cfg.Args {
+		found[arg] = true
+	}
+
+	for _, want := range []string{wantLoopTCP, wantLoopUDP, wantPubTCP, wantPubUDP} {
+		if !found[want] {
+			t.Fatalf("expected mapping %s, got args: %v", want, cfg.Args)
+		}
+	}
+}
+
+func TestSetPublicAddr(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-set-pub-*")
+	mgr := NewManager(Config{
+		Systemd:        systemd.InitMockManager(),
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+	})
+
+	// First set should return true (changed).
+	if !mgr.SetPublicAddr("10.0.0.1") {
+		t.Fatal("expected SetPublicAddr to return true on first set")
+	}
+
+	// Same value should return false.
+	if mgr.SetPublicAddr("10.0.0.1") {
+		t.Fatal("expected SetPublicAddr to return false for same value")
+	}
+
+	// Different value should return true.
+	if !mgr.SetPublicAddr("10.0.0.2") {
+		t.Fatal("expected SetPublicAddr to return true for different value")
 	}
 }
 

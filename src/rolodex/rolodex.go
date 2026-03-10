@@ -62,6 +62,10 @@ type Config struct {
 	// DefaultDNSPort ("53") is used. The container always binds 0.0.0.0:53
 	// internally; this only controls the -p host mapping.
 	DNSPort string
+	// PublicAddr, when set, adds an additional -p binding on this address
+	// so that DNS is reachable from the LAN (e.g. "192.168.5.9").
+	// DNSLoopback is always bound regardless.
+	PublicAddr string
 }
 
 // Manager controls the lifecycle of the rolodex DNS server.
@@ -89,6 +93,18 @@ func (m *Manager) dnsPort() string {
 		return m.cfg.DNSPort
 	}
 	return DefaultDNSPort
+}
+
+// SetPublicAddr updates the public address and returns true if it changed.
+// The caller should call Start again to apply the new binding.
+func (m *Manager) SetPublicAddr(addr string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg.PublicAddr == addr {
+		return false
+	}
+	m.cfg.PublicAddr = addr
+	return true
 }
 
 // Start writes the rolodex config, installs/enables/starts the systemd unit.
@@ -230,10 +246,17 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 	}
 
 	port := m.dnsPort()
-	args = append([]string{
+	portArgs := []string{
 		"-p", DNSLoopback + ":" + port + ":53/tcp",
 		"-p", DNSLoopback + ":" + port + ":53/udp",
-	}, args...)
+	}
+	if m.cfg.PublicAddr != "" {
+		portArgs = append(portArgs,
+			"-p", m.cfg.PublicAddr+":"+port+":53/tcp",
+			"-p", m.cfg.PublicAddr+":"+port+":53/udp",
+		)
+	}
+	args = append(portArgs, args...)
 
 	return []systemd.SystemServiceUnitConfig{
 		{

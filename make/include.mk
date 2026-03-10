@@ -167,7 +167,8 @@ push-ui-release:
 	@make/build.sh push-ui-release
 
 ssh:
-	sshpass -p enjoytownos ssh -o StrictHostKeyChecking=no root@town-os.local
+	@ssh-keygen -R town-os.local 2>/dev/null; true
+	sshpass -p enjoytownos ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@town-os.local
 
 lint:
 	@make/lint.sh
