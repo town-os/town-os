@@ -34,3 +34,5 @@
 13. please check all errors. do not underscore or skip error checking for any reason in any part of code ever
 
 14. **Test services use random high ports** — integration tests that start network services (DNS, HTTP, gRPC, etc.) must bind to random high ports via `findFreePort`, never well-known ports like 53 or 80. This prevents conflicts when multiple test runs execute simultaneously.
+
+15. Please fix all warnings in tests that can be fixed as they arrive
