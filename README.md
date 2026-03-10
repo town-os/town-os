@@ -6,7 +6,7 @@
 
 Town OS is a self-service platform that runs entirely from a USB drive, turning any computer into a personal cloud server. It manages its own storage, networking, and services in containers -- no installation required. Designed for anyone, not just experts: a friendly UI guides you through everything, so you don't have to know how any of this works unless you want to.
 
-**GITHUB USERS:** Please note the source repository is <https://gitea.com/town-os/town-os> -- the package repositories are kept here for simplicity's sake. Issues and Pull Requests must be filed there, as well as any other interactivity with the repository. This repository may also occasionally be out of data or missing other data the Gitea repository has. Do not rely on it.
+**GITHUB IS A MIRROR:** The origin repository is at <https://gitea.com/town-os/town-os>.
 
 ## Table of Contents
 
@@ -16,13 +16,13 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 - [Prerequisites](#prerequisites)
 - [Development](#development)
 - [Makefile Targets](#makefile-targets)
-  - [Testing](#testing)
-  - [Local Registry](#local-registry)
-  - [Local Gitea Server](#local-gitea-server)
-  - [Building](#building)
-  - [Btrfs Management](#btrfs-management)
-  - [Cleanup](#cleanup)
-  - [Linting](#linting)
+    - [Testing](#testing)
+    - [Local Registry](#local-registry)
+    - [Local Gitea Server](#local-gitea-server)
+    - [Building](#building)
+    - [Btrfs Management](#btrfs-management)
+    - [Cleanup](#cleanup)
+    - [Linting](#linting)
 - [License](#license)
 - [From](#from)
 
@@ -209,26 +209,26 @@ Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concu
 
 ### Building
 
-| Target                       | Description                                                        |
-| ---------------------------- | ------------------------------------------------------------------ |
-| `make production-image`      | Build the production base image (for integration tests).           |
-| `make dev-production-image`  | Build the production base image (for dev).                         |
-| `make test-image`            | Build the test container image (includes integration test binary). |
-| `make dev-image`             | Build the dev container image.                                     |
-| `make ui-integration-image`  | Build the UI integration test container image.                     |
-| `make pull-images`           | Pull all container images from Docker Hub and save to global cache. Runs automatically if any cached image is missing. |
+| Target                      | Description                                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `make production-image`     | Build the production base image (for integration tests).                                                               |
+| `make dev-production-image` | Build the production base image (for dev).                                                                             |
+| `make test-image`           | Build the test container image (includes integration test binary).                                                     |
+| `make dev-image`            | Build the dev container image.                                                                                         |
+| `make ui-integration-image` | Build the UI integration test container image.                                                                         |
+| `make pull-images`          | Pull all container images from Docker Hub and save to global cache. Runs automatically if any cached image is missing. |
 
 Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
 
 ### Btrfs Management
 
-| Target                 | Description                                                    |
-| ---------------------- | -------------------------------------------------------------- |
-| `make btrfs`           | Create a 50GB btrfs loopback volume for integration tests.     |
+| Target                 | Description                                                                 |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `make btrfs`           | Create a 50GB btrfs loopback volume for integration tests.                  |
 | `make clean-btrfs`     | Unmount, detach loop devices, and remove the integration test btrfs volume. |
 | `make btrfs-dev`       | Create a 50GB btrfs loopback volume for the dev environment.                |
 | `make clean-btrfs-dev` | Unmount, detach loop devices, and remove the dev btrfs volume.              |
-| `make dev-btrfs`       | Create the dev btrfs volume only if one isn't already mounted. |
+| `make dev-btrfs`       | Create the dev btrfs volume only if one isn't already mounted.              |
 
 The dev and integration test environments use separate btrfs volumes, container images, and build caches so they can run concurrently without conflict.
 
@@ -236,15 +236,15 @@ The dev and integration test environments use separate btrfs volumes, container 
 
 `make test-full` automatically cleans up all integration containers, registry, Gitea, and btrfs loopback volumes after tests complete. A shell EXIT trap ensures cleanup runs even when interrupted by signals. Each integration test target (`test-integration`, `test-ui-integration`) also uses its own EXIT trap to guarantee btrfs loopback cleanup regardless of how the recipe terminates (success, failure, or signal interruption). The `clean-btrfs` target includes a safety net that scans for orphaned loop devices backed by btrfs images in the current directory, handling cases where tracking files are missing.
 
-| Target                   | Description                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `make clean`             | Clean dev resources (containers, btrfs, dev-data, dev-repos) and caches. |
-| `make clean-dev`         | Stop all dev containers, tear down dev btrfs, remove dev-data/dev-repos. |
-| `make clean-cache`       | Same as `clean-dev` (used as a dependency by `clean`).                   |
-| `make clean-integration` | Remove only the integration test containers and port file.               |
+| Target                   | Description                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------- |
+| `make clean`             | Clean dev resources (containers, btrfs, dev-data, dev-repos) and caches.        |
+| `make clean-dev`         | Stop all dev containers, tear down dev btrfs, remove dev-data/dev-repos.        |
+| `make clean-cache`       | Same as `clean-dev` (used as a dependency by `clean`).                          |
+| `make clean-integration` | Remove only the integration test containers and port file.                      |
 | `make clean-btrfs`       | Unmount and remove the integration test btrfs volume and orphaned loop devices. |
-| `make clean-containers`  | Remove all town-os containers from any working directory / instance.     |
-| `make clean-all`         | Clean everything: all containers, dev, integration, and btrfs.           |
+| `make clean-containers`  | Remove all town-os containers from any working directory / instance.            |
+| `make clean-all`         | Clean everything: all containers, dev, integration, and btrfs.                  |
 
 ### Linting
 
