@@ -123,7 +123,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
 			return fmt.Errorf("enable unit %s: %w", uf.Name, err)
 		}
-		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
+		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Restart); err != nil {
 			return fmt.Errorf("start unit %s: %w", uf.Name, err)
 		}
 	}

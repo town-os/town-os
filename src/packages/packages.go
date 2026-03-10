@@ -582,6 +582,7 @@ func (i *InputPackage) Validate() error {
 type CompileContext struct {
 	ExternalHost string // Replaces @LOCAL_EXTERNAL_HOST@
 	InternalHost string // Replaces @LOCAL_INTERNAL_HOST@
+	PackageDNS   string // Replaces @PACKAGE_DNS@ — the root DNS name (package.repo.tld)
 }
 
 // CompileWithContext compiles the package with both user responses and
@@ -593,6 +594,9 @@ func (i *InputPackage) CompileWithContext(response Responses, ctx CompileContext
 	}
 	if ctx.InternalHost != "" {
 		i.iterateFields("LOCAL_INTERNAL_HOST", ctx.InternalHost)
+	}
+	if ctx.PackageDNS != "" {
+		i.iterateFields("PACKAGE_DNS", ctx.PackageDNS)
 	}
 	return i.Compile(response)
 }

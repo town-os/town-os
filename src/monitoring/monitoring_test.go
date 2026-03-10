@@ -40,7 +40,7 @@ func TestStartInstallsUnits(t *testing.T) {
 	// Should have InstallUnit + Enable + Start for each of the 3 services.
 	installCalls := 0
 	enableCalls := 0
-	startCalls := 0
+	restartCalls := 0
 	for _, c := range calls {
 		switch c.Method {
 		case "InstallUnit":
@@ -50,8 +50,8 @@ func TestStartInstallsUnits(t *testing.T) {
 				if c.Args[1] == systemd.Enable {
 					enableCalls++
 				}
-				if c.Args[1] == systemd.Start {
-					startCalls++
+				if c.Args[1] == systemd.Restart {
+					restartCalls++
 				}
 			}
 		}
@@ -63,8 +63,8 @@ func TestStartInstallsUnits(t *testing.T) {
 	if enableCalls != 3 {
 		t.Fatalf("expected 3 Enable calls, got %d", enableCalls)
 	}
-	if startCalls != 3 {
-		t.Fatalf("expected 3 Start calls, got %d", startCalls)
+	if restartCalls != 3 {
+		t.Fatalf("expected 3 Restart calls, got %d", restartCalls)
 	}
 
 	// Verify units were installed with correct names.

@@ -66,6 +66,10 @@ type Config struct {
 	// so that DNS is reachable from the LAN (e.g. "192.168.5.9").
 	// DNSLoopback is always bound regardless.
 	PublicAddr string
+	// Key overrides the service key used for systemd unit and container
+	// naming. Defaults to "rolodex". Tests should set a unique value to
+	// avoid colliding with a production rolodex service.
+	Key string
 }
 
 // Manager controls the lifecycle of the rolodex DNS server.
@@ -80,6 +84,19 @@ type Manager struct {
 // Call Start to boot the rolodex service.
 func NewManager(cfg Config) *Manager {
 	return &Manager{cfg: cfg}
+}
+
+// Key returns the service key used for systemd unit and container naming.
+func (m *Manager) Key() string {
+	return m.key()
+}
+
+// key returns the configured key or "rolodex" as default.
+func (m *Manager) key() string {
+	if m.cfg.Key != "" {
+		return m.cfg.Key
+	}
+	return "rolodex"
 }
 
 // SocketPath returns the configured gRPC Unix socket path.
@@ -165,7 +182,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		}
 	}
 
-	unitName := systemd.SystemServiceUnitName("rolodex")
+	unitName := systemd.SystemServiceUnitName(m.key())
 	if err := m.cfg.Systemd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
 		return fmt.Errorf("stop unit %s: %w", unitName, err)
 	}
@@ -177,11 +194,11 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (m *Manager) SystemServices() []SystemService {
 	return []SystemService{
 		{
-			Key:         "rolodex",
+			Key:         m.key(),
 			DisplayName: "Rolodex DNS",
 			Image:       m.cfg.Image,
 			Port:        m.dnsPort(),
-			UnitName:    systemd.SystemServiceUnitName("rolodex"),
+			UnitName:    systemd.SystemServiceUnitName(m.key()),
 		},
 	}
 }
@@ -192,7 +209,7 @@ func (m *Manager) Status(ctx context.Context) Status {
 	running := false
 	units, err := m.cfg.Systemd.ListUnits(ctx)
 	if err == nil {
-		unitName := systemd.SystemServiceUnitName("rolodex")
+		unitName := systemd.SystemServiceUnitName(m.key())
 		for _, u := range units {
 			if u.Name == unitName {
 				running = u.ActiveState == "active"
@@ -202,7 +219,7 @@ func (m *Manager) Status(ctx context.Context) Status {
 	}
 
 	return Status{
-		Name:    systemd.SystemServiceContainerName("rolodex"),
+		Name:    systemd.SystemServiceContainerName(m.key()),
 		Image:   m.cfg.Image,
 		Running: running,
 		Port:    m.dnsPort(),
@@ -260,7 +277,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 
 	return []systemd.SystemServiceUnitConfig{
 		{
-			Key:         "rolodex",
+			Key:         m.key(),
 			Description: "Rolodex DNS",
 			Image:       m.cfg.Image,
 			Args:        args,

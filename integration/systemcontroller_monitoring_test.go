@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -178,10 +179,57 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	}
 }
 
+// dumpMonitoringDiagnostics logs systemd unit status and container logs for
+// each monitoring service. Called on test failure to aid debugging.
+func dumpMonitoringDiagnostics(ctx context.Context, t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"prometheus", "node-exporter", "grafana"} {
+		unitName := systemd.SystemServiceUnitName(key)
+		containerName := systemd.SystemServiceContainerName(key)
+
+		out, err := exec.CommandContext(ctx, "systemctl", "status", unitName).CombinedOutput()
+		if err != nil {
+			t.Logf("systemctl status %s (exit: %v):\n%s", unitName, err, out)
+		} else {
+			t.Logf("systemctl status %s:\n%s", unitName, out)
+		}
+
+		out, err = exec.CommandContext(ctx, "journalctl", "-u", unitName, "--no-pager", "-n", "50").CombinedOutput()
+		if err != nil {
+			t.Logf("journalctl -u %s (exit: %v):\n%s", unitName, err, out)
+		} else {
+			t.Logf("journalctl -u %s:\n%s", unitName, out)
+		}
+
+		out, err = exec.CommandContext(ctx, "podman", "logs", "--tail", "50", containerName).CombinedOutput()
+		if err != nil {
+			t.Logf("podman logs %s (exit: %v):\n%s", containerName, err, out)
+		} else {
+			t.Logf("podman logs %s:\n%s", containerName, out)
+		}
+
+		out, err = exec.CommandContext(ctx, "podman", "inspect", containerName).CombinedOutput()
+		if err != nil {
+			t.Logf("podman inspect %s (exit: %v):\n%s", containerName, err, out)
+		} else {
+			t.Logf("podman inspect %s:\n%s", containerName, out)
+		}
+	}
+
+	out, err := exec.CommandContext(ctx, "podman", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}\t{{.Ports}}").CombinedOutput()
+	if err != nil {
+		t.Logf("podman ps -a (exit: %v):\n%s", err, out)
+	} else {
+		t.Logf("podman ps -a:\n%s", out)
+	}
+}
+
 func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 	promPort := findFreePort(t)
 	nePort := findFreePort(t)
 	grafPort := findFreePort(t)
+
+	t.Logf("ports: prometheus=%s node-exporter=%s grafana=%s", promPort, nePort, grafPort)
 
 	dataDir := t.TempDir()
 	sd := systemd.NewManager()
@@ -208,41 +256,46 @@ func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 	})
 
 	// Wait for systemd to bring the containers up (Start installs the
-	// units, but activation is asynchronous).
+	// units, but activation is asynchronous). Require containers to be
+	// "active" on two consecutive checks to avoid catching a brief window
+	// in a crash-loop cycle.
 	var status monitoring.Status
+	consecutiveActive := 0
 	statusDeadline := time.Now().Add(time.Minute)
 	for time.Now().Before(statusDeadline) {
 		status = mgr.Status(ctx)
 		if status.Prometheus.Running && status.NodeExporter.Running && status.Grafana.Running {
-			break
+			consecutiveActive++
+			if consecutiveActive >= 3 {
+				break
+			}
+		} else {
+			consecutiveActive = 0
 		}
-		time.Sleep(time.Second)
+		time.Sleep(2 * time.Second)
 	}
-	if !status.Prometheus.Running {
-		t.Fatal("expected prometheus running after Start")
-	}
-	if !status.NodeExporter.Running {
-		t.Fatal("expected node-exporter running after Start")
-	}
-	if !status.Grafana.Running {
-		t.Fatal("expected grafana running after Start")
+	if consecutiveActive < 3 {
+		dumpMonitoringDiagnostics(ctx, t)
+		t.Fatalf("monitoring containers not stably running (prometheus=%v node-exporter=%v grafana=%v, consecutive=%d)",
+			status.Prometheus.Running, status.NodeExporter.Running, status.Grafana.Running, consecutiveActive)
 	}
 
 	endpoints := []struct {
 		name string
 		url  string
 	}{
-		{"prometheus", fmt.Sprintf("http://localhost:%s/-/healthy", promPort)},
-		{"node-exporter", fmt.Sprintf("http://localhost:%s/metrics", nePort)},
-		{"grafana", fmt.Sprintf("http://localhost:%s/api/health", grafPort)},
+		{"prometheus", fmt.Sprintf("http://127.0.0.1:%s/-/healthy", promPort)},
+		{"node-exporter", fmt.Sprintf("http://127.0.0.1:%s/metrics", nePort)},
+		{"grafana", fmt.Sprintf("http://127.0.0.1:%s/api/health", grafPort)},
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	for _, ep := range endpoints {
 		t.Run(ep.name, func(t *testing.T) {
+			var lastErr error
 			deadline := time.Now().Add(time.Minute)
 			for time.Now().Before(deadline) {
-				req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, ep.url, nil)
+				req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, ep.url, nil)
 				if reqErr != nil {
 					t.Fatalf("NewRequest: %v", reqErr)
 				}
@@ -254,10 +307,14 @@ func TestMonitoringContainersRealStartAndAccessible(t *testing.T) {
 					if resp.StatusCode == http.StatusOK {
 						return
 					}
+					lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+				} else {
+					lastErr = err
 				}
 				time.Sleep(500 * time.Millisecond)
 			}
-			t.Fatalf("%s did not become healthy at %s within 60s", ep.name, ep.url)
+			dumpMonitoringDiagnostics(ctx, t)
+			t.Fatalf("%s did not become healthy at %s within 60s (last error: %v)", ep.name, ep.url, lastErr)
 		})
 	}
 }

@@ -5,10 +5,12 @@ package integration_test
 
 import (
 	"context"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -66,6 +68,12 @@ func initSystemControllerRolodexTest(t *testing.T) (*systemcontroller.SystemdCli
 	return c, sd
 }
 
+// rolodexTestKey returns a unique service key for test isolation so the test
+// unit/container does not collide with the production rolodex service.
+func rolodexTestKey() string {
+	return "rolodex-test-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatUint(rand.Uint64(), 36)
+}
+
 // initRolodexRealTest creates a rolodex manager with real systemd, starts it,
 // and returns a connected client and the DNS port it is listening on.
 func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
@@ -75,6 +83,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	sd := systemd.NewManager()
 	socketPath := filepath.Join(dataDir, "rolodex.sock")
 	dnsPort := findFreePort(t)
+	key := rolodexTestKey()
 
 	mgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
@@ -83,6 +92,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 		Local:          true,
 		UnixSocketPath: socketPath,
 		DNSPort:        dnsPort,
+		Key:            key,
 	})
 
 	ctx := context.Background()
@@ -93,8 +103,8 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 		t.Cleanup(cancel)
 	}
 
-	// Stop any rolodex unit left by the systemcontroller or a previous test.
-	unitName := systemd.SystemServiceUnitName("rolodex")
+	// Clean up any leftover unit with this key (unlikely but safe).
+	unitName := systemd.SystemServiceUnitName(key)
 	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
 	_ = sd.UninstallUnit(ctx, unitName)
 
@@ -103,7 +113,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	}
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		unitName := systemd.SystemServiceUnitName("rolodex")
+		unitName := systemd.SystemServiceUnitName(mgr.Key())
 		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Stop); err != nil {
 			t.Logf("cleanup SetStatus(stop): %v", err)
 		}
@@ -116,11 +126,11 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	time.Sleep(2 * time.Second)
 	status := mgr.Status(ctx)
 	if !status.Running {
-		dumpRolodexDiagnostics(ctx, t, dataDir)
+		dumpRolodexDiagnostics(ctx, t, dataDir, key)
 		t.Fatal("rolodex not running 2s after Start")
 	}
 
-	client := waitForRolodexClient(t, ctx, socketPath, dataDir)
+	client := waitForRolodexClient(t, ctx, socketPath, dataDir, key)
 	t.Cleanup(func() {
 		if err := client.Close(); err != nil {
 			t.Errorf("Close: %v", err)
@@ -172,6 +182,7 @@ func TestRolodexStartStopRestart(t *testing.T) {
 func TestRolodexRealContainerStart(t *testing.T) {
 	dataDir := rolodexTempDir(t, "rolodex-start-*")
 	sd := systemd.NewManager()
+	key := rolodexTestKey()
 
 	mgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
@@ -180,12 +191,13 @@ func TestRolodexRealContainerStart(t *testing.T) {
 		Local:          true,
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
 		DNSPort:        findFreePort(t),
+		Key:            key,
 	})
 
 	ctx := context.Background()
 
-	// Stop any rolodex unit left by the systemcontroller or a previous test.
-	unitName := systemd.SystemServiceUnitName("rolodex")
+	// Clean up any leftover unit with this key (unlikely but safe).
+	unitName := systemd.SystemServiceUnitName(key)
 	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
 	_ = sd.UninstallUnit(ctx, unitName)
 
@@ -193,7 +205,7 @@ func TestRolodexRealContainerStart(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() {
-		unitName := systemd.SystemServiceUnitName("rolodex")
+		unitName := systemd.SystemServiceUnitName(mgr.Key())
 		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
 			t.Logf("cleanup SetStatus(stop): %v", err)
 		}
@@ -342,12 +354,12 @@ func testRolodexDNSQuery(t *testing.T, domain string) {
 
 // dumpRolodexDiagnostics logs unit status, journal entries, directory
 // contents, and the unit file to help debug socket-not-appearing failures.
-func dumpRolodexDiagnostics(ctx context.Context, t *testing.T, dataDir string) {
+func dumpRolodexDiagnostics(ctx context.Context, t *testing.T, dataDir, key string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	unitName := systemd.SystemServiceUnitName("rolodex")
+	unitName := systemd.SystemServiceUnitName(key)
 
 	// Unit status via systemctl.
 	if out, err := exec.CommandContext(ctx, "systemctl", "status", unitName).CombinedOutput(); err != nil {
@@ -387,7 +399,7 @@ func dumpRolodexDiagnostics(ctx context.Context, t *testing.T, dataDir string) {
 	}
 
 	// Container status.
-	if out, err := exec.CommandContext(ctx, "podman", "ps", "-a", "--filter", "name="+systemd.SystemServiceContainerName("rolodex")).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "podman", "ps", "-a", "--filter", "name="+systemd.SystemServiceContainerName(key)).CombinedOutput(); err != nil {
 		t.Logf("podman ps (exit %v):\n%s", err, out)
 	} else {
 		t.Logf("podman ps:\n%s", out)
@@ -397,7 +409,7 @@ func dumpRolodexDiagnostics(ctx context.Context, t *testing.T, dataDir string) {
 // waitForRolodexClient waits for the rolodex Unix socket to become available
 // and returns a connected client. The wait is bounded by ctx's deadline
 // (set from -test.timeout via t.Deadline).
-func waitForRolodexClient(t *testing.T, ctx context.Context, socketPath, dataDir string) rolodex.Client {
+func waitForRolodexClient(t *testing.T, ctx context.Context, socketPath, dataDir, key string) rolodex.Client {
 	t.Helper()
 
 	poll := 100 * time.Millisecond
@@ -431,7 +443,7 @@ func waitForRolodexClient(t *testing.T, ctx context.Context, socketPath, dataDir
 	if lastRPCErr != nil {
 		t.Logf("waitForRolodexClient: last ListRecords error: %v", lastRPCErr)
 	}
-	dumpRolodexDiagnostics(ctx, t, dataDir)
+	dumpRolodexDiagnostics(ctx, t, dataDir, key)
 	t.Fatalf("waitForRolodexClient: timed out waiting for %s", socketPath)
 	return nil
 }

@@ -301,6 +301,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	// [Service]
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=simple\n")
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman container cleanup %s\n", containerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
 
@@ -477,6 +478,7 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	// [Service]
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=simple\n")
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman container cleanup %s\n", containerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
 	for _, dir := range cfg.VolumeDirs {

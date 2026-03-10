@@ -851,6 +851,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	compiled, err := ip.CompileWithContext(req.Responses, packages.CompileContext{
 		ExternalHost: s.Controller.GetExternalIP(),
 		InternalHost: s.Controller.GetInternalIP(),
+		PackageDNS:   effectiveName + "." + repoName + "." + s.getDNSTLDValue(),
 	})
 	if err != nil {
 		return err

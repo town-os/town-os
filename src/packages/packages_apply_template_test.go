@@ -111,6 +111,27 @@ func TestApplyTemplates(t *testing.T) {
 	}
 }
 
+func TestCompileWithContextPackageDNS(t *testing.T) {
+	ip := InputPackage{
+		Image:       InputPackageImage{URL: "test-image"},
+		Description: "test",
+		Environment: map[string]string{
+			"MY_DNS": "@PACKAGE_DNS@",
+		},
+	}
+
+	compiled, err := ip.CompileWithContext(Responses{}, CompileContext{
+		PackageDNS: "nginx.core.home",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if compiled.Environment["MY_DNS"] != "nginx.core.home" {
+		t.Fatalf("expected %q, got %q", "nginx.core.home", compiled.Environment["MY_DNS"])
+	}
+}
+
 func TestStrToPort(t *testing.T) {
 	tests := map[string]struct {
 		input   string
