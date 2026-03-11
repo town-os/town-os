@@ -6,3 +6,7 @@
 /.cache
 /.todo
 /.hack
+# --- combust managed (do not edit) ---
+.combust/work/
+.combust/*.lock
+# --- end combust managed ---

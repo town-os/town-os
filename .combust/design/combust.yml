@@ -1,0 +1,14 @@
+# Commands that Claude runs before committing.
+#
+# IMPORTANT: These commands may run concurrently across multiple combust tasks,
+# each in its own work directory (cloned repo). Make sure your test and lint
+# commands are safe to run in parallel without trampling each other. Avoid
+# commands that write to shared global state, fixed file paths outside the
+# work directory, or shared network ports. Each invocation should be fully
+# isolated to its own working tree.
+commands:
+  # before: "make deps"
+  # clean: "make clean"
+  # dev: "npm run dev"
+  # lint: "golangci-lint run ./..."
+  # test: "go test ./... -count=1"
