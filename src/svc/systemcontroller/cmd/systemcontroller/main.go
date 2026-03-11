@@ -27,6 +27,9 @@ import (
 	"gitea.com/town-os/town-os/src/ui"
 )
 
+// Version is set at build time via ldflags (e.g. -ldflags "-X main.Version=v1.0.0").
+var Version string
+
 func run() (err error) {
 	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
 	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
@@ -144,7 +147,7 @@ func run() (err error) {
 				defaults[i].Password = repoPass
 			}
 		}
-		repoData, err := json.Marshal(defaults)
+		repoData, err := json.Marshal(defaults) //nolint:gosec // G117 -- Password field is internal config, not user-facing
 		if err != nil {
 			return fmt.Errorf("marshal default repo list: %w", err)
 		}
@@ -170,7 +173,9 @@ func run() (err error) {
 	// Read the tag baked into the image at push time. This lets us derive
 	// matching tags for sibling images (UI, rolodex) at runtime.
 	tag := "rc.latest"
-	if data, err := os.ReadFile("/town-os.tag"); err == nil {
+	if Version != "" {
+		tag = Version
+	} else if data, err := os.ReadFile("/town-os.tag"); err == nil {
 		if t := strings.TrimSpace(string(data)); t != "" {
 			tag = t
 		}

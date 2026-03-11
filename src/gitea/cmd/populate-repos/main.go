@@ -217,7 +217,7 @@ func pushToGitea(ctx context.Context, client *http.Client, giteaURL, cacheDir st
 // Returns (empty, exists, error).
 func checkGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name string) (bool, bool, error) {
 	checkURL := fmt.Sprintf("%s/api/v1/repos/%s/%s", giteaURL, adminUser, name)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil) //nolint:gosec // G704 -- URL from trusted config
 	if err != nil {
 		return false, false, err
 	}
@@ -262,7 +262,7 @@ func createGiteaRepo(ctx context.Context, client *http.Client, giteaURL, name st
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, giteaURL+"/api/v1/user/repos", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, giteaURL+"/api/v1/user/repos", bytes.NewReader(data)) //nolint:gosec // G704 -- URL from trusted config
 	if err != nil {
 		return err
 	}
@@ -388,7 +388,7 @@ func isRepoEmpty(ctx context.Context, client *http.Client, giteaURL, name string
 // deleteRepo removes a repository via the Gitea API.
 func deleteRepo(ctx context.Context, client *http.Client, giteaURL, name string) error {
 	delURL := fmt.Sprintf("%s/api/v1/repos/%s/%s", giteaURL, adminUser, name)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, delURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, delURL, nil) //nolint:gosec // G704 -- URL from trusted config
 	if err != nil {
 		return err
 	}

@@ -4,7 +4,6 @@ import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
 import DataTable from '@/components/DataTable.jsx'
-import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -40,12 +39,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Plus, Trash2, FolderGit2, RefreshCw, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star, Download } from 'lucide-react'
+import { Trash2, FolderGit2, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star, Download } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import InstallPreviewDialog from '@/components/packages/InstallPreviewDialog.jsx'
 import InstallQuestionsDialog from '@/components/packages/InstallQuestionsDialog.jsx'
 import PackageInfoDialog from '@/components/packages/PackageInfoDialog.jsx'
 import VolumeReuseDialog from '@/components/packages/VolumeReuseDialog.jsx'
+import RepositoryTab from '@/components/packages/RepositoryTab.jsx'
+import RepositoryDialogs from '@/components/packages/RepositoryDialogs.jsx'
 
 export default function PackageManagement() {
   const { t } = useI18n()
@@ -768,48 +769,22 @@ export default function PackageManagement() {
           )}
         </TabsContent>
         <TabsContent value="repositories" className="mt-4 space-y-4">
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={handleRefreshRepos} disabled={refreshing}>
-              <RefreshCw className={`h-4 w-4 mr-1${refreshing ? ' animate-spin' : ''}`} />
-              {refreshing ? t('packages.refreshing_btn') : t('packages.refresh_btn')}
-            </Button>
-            <Button onClick={() => setRepoDialog(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              {t('packages.add_repo_btn')}
-            </Button>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {t('packages.repo_priority_hint')}
-          </p>
-          {repoLoading && repositories.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground animate-pulse">{t('packages.loading')}</div>
-          )}
-          <DataTable
-            data={displayRepos}
-            columns={repoColumns}
-            entryKey="name"
-            page={repoPage}
-            setPage={setRepoPage}
-            hasMore={repoData.has_more}
-            totalPages={repoData.total_pages}
-            totalCount={repoData.total_count}
-            sortKey={repoSortKey}
-            sortDirection={repoSortDirection}
-            onSortChange={(key, dir) => {
-              setRepoSortKey(key)
-              setRepoSortDirection(dir)
-              setRepoPage(0)
-            }}
-            onReset={() => {
-              setRepoSortKey('')
-              setRepoSortDirection('')
-              setRepoSearch('')
-              setRepoPage(0)
-            }}
-            onSearchChange={(s) => {
-              setRepoSearch(s)
-              setRepoPage(0)
-            }}
+          <RepositoryTab
+            repositories={repositories}
+            repoColumns={repoColumns}
+            repoPage={repoPage}
+            setRepoPage={setRepoPage}
+            repoData={repoData}
+            repoSortKey={repoSortKey}
+            repoSortDirection={repoSortDirection}
+            setRepoSortKey={setRepoSortKey}
+            setRepoSortDirection={setRepoSortDirection}
+            setRepoSearch={setRepoSearch}
+            repoLoading={repoLoading}
+            handleRefreshRepos={handleRefreshRepos}
+            refreshing={refreshing}
+            setRepoDialog={setRepoDialog}
+            displayRepos={displayRepos}
           />
         </TabsContent>
       </Tabs>
@@ -839,50 +814,14 @@ export default function PackageManagement() {
         onClose={() => setInfoDialog({ open: false })}
       />
 
-      {/* Add Repository Dialog */}
-      <Dialog open={repoDialog} onOpenChange={setRepoDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              <FolderGit2 className="h-4 w-4 inline mr-2" />
-              {t('packages.add_repo_dialog_title')}
-            </DialogTitle>
-            <DialogDescription>{t('packages.add_repo_dialog_description')}</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleAddRepo}>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">{t('packages.repo_name_label')}</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  placeholder={t('packages.repo_name_placeholder')}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="url">{t('packages.repo_url_label')}</Label>
-                <Input
-                  id="url"
-                  name="url"
-                  placeholder={t('packages.repo_url_placeholder')}
-                  required
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => setRepoDialog(false)}
-              >
-                {t('packages.cancel_btn')}
-              </Button>
-              <Button type="submit">{t('packages.add_btn')}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <RepositoryDialogs
+        repoDialog={repoDialog}
+        setRepoDialog={setRepoDialog}
+        handleAddRepo={handleAddRepo}
+        deleteRepoConfirm={deleteRepoConfirm}
+        setDeleteRepoConfirm={setDeleteRepoConfirm}
+        handleRemoveRepo={handleRemoveRepo}
+      />
 
       {/* Version Select Dialog */}
       <Dialog
@@ -998,22 +937,6 @@ export default function PackageManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Remove Repo Confirm */}
-      <ConfirmDialog
-        open={!!deleteRepoConfirm}
-        title={t('packages.remove_repo_dialog_title')}
-        onConfirm={handleRemoveRepo}
-        onCancel={() => setDeleteRepoConfirm(null)}
-        confirmLabel={t('packages.remove_confirm_btn')}
-        variant="destructive"
-      >
-        {t('packages.remove_confirm_btn')}{' '}
-        <code className="font-mono text-sm bg-muted px-1 rounded">
-          {deleteRepoConfirm}
-        </code>
-        ?
-      </ConfirmDialog>
 
     </div>
   )
