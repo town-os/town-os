@@ -28,3 +28,5 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 12. **Test services use random high ports** — integration tests that start network services (DNS, HTTP, gRPC, etc.) must bind to random high ports via `findFreePort`, never well-known ports like 53 or 80. This prevents conflicts when multiple test runs execute simultaneously.
 
 13. Please fix all warnings in tests that can be fixed as they arrive
+
+14. Package variables should always be translated as a part of the compile step. Fixed package variables should always be tested.
