@@ -316,6 +316,48 @@ func TestHTTPAuditLogExcludesReadOnlyPackageRoutes(t *testing.T) {
 	}
 }
 
+func TestHTTPAuditLogExcludesDNSReadOnlyRoutes(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create admin and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// Hit DNS read-only endpoints. Handlers will likely error (no DNS service
+	// in unit tests), but the audit middleware exclusion fires regardless.
+	dnsReadOnly := []string{"/dns/status", "/dns/records", "/dns/tld"}
+	for _, path := range dnsReadOnly {
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, c.route(path[1:]), nil)
+		if err != nil {
+			t.Fatalf("NewRequest GET %s: %v", path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		httpResp, err := c.HTTP.Do(req)
+		if err == nil {
+			_ = httpResp.Body.Close()
+		}
+	}
+
+	// Verify none of the DNS read-only paths appear in the audit log
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, e := range page.Entries {
+		for _, path := range dnsReadOnly {
+			if e.Path == path {
+				t.Fatalf("expected DNS read-only path %q to be excluded from audit log", path)
+			}
+		}
+	}
+}
+
 func TestHTTPAuditLogIncludesAuthRoutes(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 

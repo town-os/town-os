@@ -155,14 +155,14 @@ export default function AuditLog() {
       className: 'text-center',
       transform: (v, row) =>
         v ? (
-          <div className="flex items-center justify-end pr-2">
+          <div className="flex items-center justify-center">
             <span role="status" aria-label={t('audit.success_label')}>
               <Check className="h-4 w-4 text-green-600" aria-hidden="true" />
               <span className="sr-only">{t('audit.success_label')}</span>
             </span>
           </div>
         ) : (
-          <div className="flex items-center justify-end pr-2">
+          <div className="flex items-center justify-center">
             <button
               className="inline-flex items-center"
               onClick={() => {

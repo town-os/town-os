@@ -202,9 +202,16 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/vm-images":                    true,
 			"/monitoring/status":             true,
 			"/system-services":              true,
+			"/dns/status":                   true,
+			"/dns/records":                  true,
 		}
 
 		if excluded[path] {
+			return next(c)
+		}
+
+		// Exclude read-only endpoints that share a path with write endpoints.
+		if c.Request().Method == "GET" && path == "/dns/tld" {
 			return next(c)
 		}
 
