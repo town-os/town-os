@@ -460,7 +460,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
-	notes, err := i.CompileNotes(Responses{})
+	notes, err := i.CompileNotes(response)
 	if err != nil {
 		return nil, err
 	}

@@ -139,6 +139,29 @@ func TestCompileWithContextPackageDNS(t *testing.T) {
 	}
 }
 
+func TestCompileNotesDoubleAtResponseSubstitution(t *testing.T) {
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "test-image"},
+		Notes: map[string]Note{
+			"git_url": {Value: "ssh://git@@sshhost@:@sshport@/repo"},
+		},
+		Questions: map[string]Question{
+			"sshhost": {Query: "SSH host?"},
+			"sshport": {Query: "SSH port?"},
+		},
+	}
+
+	compiled, err := ip.Compile(Responses{"sshhost": "example.com", "sshport": "2222"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := "ssh://git@example.com:2222/repo"
+	if compiled.Notes["git_url"] != want {
+		t.Fatalf("expected %q, got %q", want, compiled.Notes["git_url"])
+	}
+}
+
 func TestCompileNotesWithContextPackageDNSOnly(t *testing.T) {
 	ip := InputPackage{
 		Image: InputPackageImage{URL: "test-image"},
