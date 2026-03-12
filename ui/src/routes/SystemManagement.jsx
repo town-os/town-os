@@ -88,7 +88,7 @@ export default function SystemManagement() {
             clearInterval(pollRef.current)
             pollRef.current = null
             toast.success(t('system.refresh_toast_complete'))
-            setRefreshKey((k) => k + 1)
+            window.location.reload()
           } catch {
             // Controller not back yet.
           }
