@@ -1667,6 +1667,7 @@ environment:
 		t.Fatalf("expected LOCAL_INTERNAL_HOST substitution '192.168.1.50' in unit content, got:\n%s", unitContent)
 	}
 }
+
 // mockSettingsManager is a minimal in-memory settings manager for tests.
 type mockSettingsManager struct {
 	values map[string]string
