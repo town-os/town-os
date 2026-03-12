@@ -26,16 +26,16 @@ import {
 
 function renderFields(text, keyPrefix) {
   const fields = parseFields(text)
-  if (fields.length === 0) return <span style={{ color: '#444' }}>{text}</span>
-  if (fields.length === 1 && fields[0].type === 'text') return <span style={{ color: '#444' }}>{text}</span>
+  if (fields.length === 0) return <span style={{ color: 'var(--log-text-dim)' }}>{text}</span>
+  if (fields.length === 1 && fields[0].type === 'text') return <span style={{ color: 'var(--log-text-dim)' }}>{text}</span>
   return fields.map((f, i) => {
     if (f.type === 'text') {
-      return <span key={`${keyPrefix}-t${i}`} style={{ color: '#444' }}>{f.value}</span>
+      return <span key={`${keyPrefix}-t${i}`} style={{ color: 'var(--log-text-dim)' }}>{f.value}</span>
     }
     return [
-      <span key={`${keyPrefix}-k${i}`} style={{ color: '#666', fontWeight: 'bold' }}>{f.name}</span>,
-      <span key={`${keyPrefix}-e${i}`} style={{ color: '#555' }}>{f.eq}</span>,
-      <span key={`${keyPrefix}-v${i}`} style={{ color: '#555' }}>{f.value}</span>,
+      <span key={`${keyPrefix}-k${i}`} style={{ color: 'var(--log-field-name)', fontWeight: 'bold' }}>{f.name}</span>,
+      <span key={`${keyPrefix}-e${i}`} style={{ color: 'var(--log-field-eq)' }}>{f.eq}</span>,
+      <span key={`${keyPrefix}-v${i}`} style={{ color: 'var(--log-field-eq)' }}>{f.value}</span>,
     ]
   })
 }
@@ -443,7 +443,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
               </Button>
             </div>
           )}
-          <pre className="font-mono text-xs whitespace-pre-wrap break-all" style={{ color: '#888' }}>
+          <pre className="font-mono text-xs whitespace-pre-wrap break-all" style={{ color: 'var(--log-text)' }}>
             {journalEntries.length === 0 && !journalLoading
               ? t('journal.no_entries')
               : flatMode
@@ -451,9 +451,9 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                     <div
                       key={e.Cursor || i}
                       className="px-1 py-0.5"
-                      style={{ background: i % 2 === 0 ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.05)' }}
+                      style={{ background: i % 2 === 0 ? 'var(--log-row-even)' : 'var(--log-row-odd)' }}
                     >
-                      <span style={{ color: '#000', background: 'rgba(0,0,0,0.08)', padding: '0 0.3em', borderRadius: '3px', fontWeight: 'bold' }}>
+                      <span className="text-foreground" style={{ background: 'var(--log-timestamp-bg)', padding: '0 0.3em', borderRadius: '3px', fontWeight: 'bold' }}>
                         {new Date(e.RealtimeTimestamp).toLocaleString()}
                       </span>{' '}
                       {formatMessage(e.Message)}
@@ -465,14 +465,14 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                     <div key={group.key}>
                       <div
                         className="px-1 py-0.5 cursor-pointer select-none"
-                        style={{ background: gi % 2 === 0 ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.1)' }}
+                        style={{ background: gi % 2 === 0 ? 'var(--log-group-even)' : 'var(--log-group-odd)' }}
                         onClick={() => toggleGroup(group.key)}
                       >
                         {expanded
                           ? <Triangle className="h-4 w-4 inline-block mr-1 align-middle" fill="currentColor" style={{ transform: 'rotate(180deg)' }} />
                           : <Play className="h-4 w-4 inline-block mr-1 align-middle" fill="currentColor" />}
-                        <span style={{ color: '#000', fontWeight: 'bold' }}>{group.label}</span>
-                        <span style={{ color: '#333', marginLeft: '0.5em' }}>(count: {group.entries.length})</span>
+                        <span className="text-foreground" style={{ fontWeight: 'bold' }}>{group.label}</span>
+                        <span className="text-muted-foreground" style={{ marginLeft: '0.5em' }}>(count: {group.entries.length})</span>
                         {!expanded && group.entries.length > 0 && (
                           <>{' '}{formatMessage(group.entries[0].Message)}</>
                         )}
@@ -481,9 +481,9 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                         <div
                           key={e.Cursor || i}
                           className="px-1 py-0.5"
-                          style={{ paddingLeft: '1.25rem', background: i % 2 === 0 ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.05)' }}
+                          style={{ paddingLeft: '1.25rem', background: i % 2 === 0 ? 'var(--log-row-even)' : 'var(--log-row-odd)' }}
                         >
-                          <span style={{ color: '#000' }}>
+                          <span className="text-foreground">
                             {new Date(e.RealtimeTimestamp).toLocaleString()}
                           </span>{' '}
                           {formatMessage(e.Message)}

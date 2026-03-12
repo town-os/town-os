@@ -1,9 +1,9 @@
 // Greyscale ANSI mapping: darker codes get darker greys, brighter get lighter.
 export const ANSI_GREYS = {
-  '30': '#3a3a3a', '31': '#888', '32': '#aaa', '33': '#999',
-  '34': '#888', '35': '#999', '36': '#aaa', '37': '#ccc',
-  '90': '#666', '91': '#888', '92': '#aaa', '93': '#999',
-  '94': '#888', '95': '#999', '96': '#aaa', '97': '#ddd',
+  '30': 'var(--log-ansi-30)', '31': 'var(--log-ansi-31)', '32': 'var(--log-ansi-32)', '33': 'var(--log-ansi-33)',
+  '34': 'var(--log-ansi-34)', '35': 'var(--log-ansi-35)', '36': 'var(--log-ansi-36)', '37': 'var(--log-ansi-37)',
+  '90': 'var(--log-ansi-90)', '91': 'var(--log-ansi-91)', '92': 'var(--log-ansi-92)', '93': 'var(--log-ansi-93)',
+  '94': 'var(--log-ansi-94)', '95': 'var(--log-ansi-95)', '96': 'var(--log-ansi-96)', '97': 'var(--log-ansi-97)',
 }
 
 /**

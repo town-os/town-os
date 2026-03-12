@@ -47,6 +47,31 @@
 
 :root {
     --radius: 0.625rem;
+    --log-text: #888;
+    --log-text-dim: #555;
+    --log-field-name: #666;
+    --log-field-eq: #555;
+    --log-row-even: rgba(0,0,0,0.15);
+    --log-row-odd: rgba(0,0,0,0.05);
+    --log-group-even: rgba(0,0,0,0.2);
+    --log-group-odd: rgba(0,0,0,0.1);
+    --log-timestamp-bg: rgba(0,0,0,0.08);
+    --log-ansi-30: #3a3a3a;
+    --log-ansi-31: #888;
+    --log-ansi-32: #aaa;
+    --log-ansi-33: #999;
+    --log-ansi-34: #888;
+    --log-ansi-35: #999;
+    --log-ansi-36: #aaa;
+    --log-ansi-37: #ccc;
+    --log-ansi-90: #666;
+    --log-ansi-91: #888;
+    --log-ansi-92: #aaa;
+    --log-ansi-93: #999;
+    --log-ansi-94: #888;
+    --log-ansi-95: #999;
+    --log-ansi-96: #aaa;
+    --log-ansi-97: #ddd;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -82,6 +107,31 @@
 
 .dark {
     --background: oklch(0.145 0 0);
+    --log-text: #aaa;
+    --log-text-dim: #999;
+    --log-field-name: #bbb;
+    --log-field-eq: #999;
+    --log-row-even: rgba(255,255,255,0.08);
+    --log-row-odd: rgba(255,255,255,0.03);
+    --log-group-even: rgba(255,255,255,0.1);
+    --log-group-odd: rgba(255,255,255,0.05);
+    --log-timestamp-bg: rgba(255,255,255,0.1);
+    --log-ansi-30: #888;
+    --log-ansi-31: #aaa;
+    --log-ansi-32: #ccc;
+    --log-ansi-33: #bbb;
+    --log-ansi-34: #aaa;
+    --log-ansi-35: #bbb;
+    --log-ansi-36: #ccc;
+    --log-ansi-37: #eee;
+    --log-ansi-90: #999;
+    --log-ansi-91: #aaa;
+    --log-ansi-92: #ccc;
+    --log-ansi-93: #bbb;
+    --log-ansi-94: #aaa;
+    --log-ansi-95: #bbb;
+    --log-ansi-96: #ccc;
+    --log-ansi-97: #eee;
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
     --card-foreground: oklch(0.985 0 0);
