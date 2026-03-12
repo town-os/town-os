@@ -102,7 +102,7 @@ test-ui-integration: test-image ui-integration-image $(STATE_DIR)/.integration-p
 test-integration-build: lint test-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration: test-integration-build
 test-full: test
-test-full-log: test
+test-full-log:
 test-image: production-image
 dev-production-image: $(STATE_DIR)/.images-pulled
 dev-image: dev-production-image

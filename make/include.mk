@@ -104,7 +104,7 @@ test-full:
 	@make/test.sh full
 
 test-full-log:
-	@bash -o pipefail -c 'make/test.sh full 2>&1 | tee "$(STATE_DIR)/test-full-$$(date +%Y%m%d-%H%M%S).log"'
+	@bash -o pipefail -c 'logfile="$(STATE_DIR)/test-full-$$(date +%Y%m%d-%H%M%S).log"; echo "Logging to: $$logfile"; $(MAKE) test-full 2>&1 | tee "$$logfile"'
 
 test-image:
 	@make/build.sh test
