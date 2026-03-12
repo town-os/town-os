@@ -32,8 +32,8 @@ type ReconcileConfig struct {
 	NetworkMode              string
 	CaddyImage               string
 	CaddyPort                string
-	InternalIP               string
 	ExternalIP               string
+	InternalIP               string
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -142,7 +142,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
 		ExternalHost: cfg.ExternalIP,
 		InternalHost: cfg.InternalIP,
-		PackageDNS:   pi.Name + "." + repoName + "." + tld,
+		PackageDNS:   pi.Name + "." + pi.Repo + "." + tld,
 	})
 	if err != nil {
 		return fmt.Errorf("compile: %w", err)

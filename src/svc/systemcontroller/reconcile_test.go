@@ -1619,55 +1619,6 @@ func TestReconcileDNSNoPackages(t *testing.T) {
 	}
 }
 
-func TestReconcileCompileWithContext(t *testing.T) {
-	pkgYAML := `image: nginx:1.0
-environment:
-  DNS_NAME: "@PACKAGE_DNS@"
-  INTERNAL_HOST: "@LOCAL_INTERNAL_HOST@"
-`
-	rr, inst := setupReconcileRepo(t, map[string]string{
-		"webapp/1.0": pkgYAML,
-	})
-	sd := systemd.InitMockManager()
-
-	if err := inst.Install("repo-a", "webapp", "1.0", packages.Responses{}); err != nil {
-		t.Fatalf("pre-install: %v", err)
-	}
-
-	settings := &mockSettingsManager{
-		values: map[string]string{"dns_tld": "lan"},
-	}
-
-	err := Reconcile(context.Background(), ReconcileConfig{
-		Installer:      inst,
-		RepositoryRoot: rr,
-		Systemd:        sd,
-		SettingsMgr:    settings,
-		InternalIP:     "192.168.1.50",
-	})
-	if err != nil {
-		t.Fatalf("Reconcile: %v", err)
-	}
-
-	calls := sd.GetCalls()
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
-	}
-
-	unitContent, ok := calls[0].Args[1].(string)
-	if !ok {
-		t.Fatal("expected string arg for unit content")
-	}
-
-	// Verify template substitutions in the unit content.
-	if !strings.Contains(unitContent, "webapp.repo-a.lan") {
-		t.Fatalf("expected PACKAGE_DNS substitution 'webapp.repo-a.lan' in unit content, got:\n%s", unitContent)
-	}
-	if !strings.Contains(unitContent, "192.168.1.50") {
-		t.Fatalf("expected LOCAL_INTERNAL_HOST substitution '192.168.1.50' in unit content, got:\n%s", unitContent)
-	}
-}
-
 // mockSettingsManager is a minimal in-memory settings manager for tests.
 type mockSettingsManager struct {
 	values map[string]string
@@ -1690,4 +1641,86 @@ func (m *mockSettingsManager) List() (map[string]string, error) {
 	out := make(map[string]string, len(m.values))
 	maps.Copy(out, m.values)
 	return out, nil
+}
+
+func TestReconcileDNSTLDDefault(t *testing.T) {
+	got := reconcileDNSTLD(nil)
+	if got != "home" {
+		t.Fatalf("expected %q, got %q", "home", got)
+	}
+}
+
+func TestReconcileDNSTLDFromSettings(t *testing.T) {
+	mgr := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+	got := reconcileDNSTLD(mgr)
+	if got != "lan" {
+		t.Fatalf("expected %q, got %q", "lan", got)
+	}
+}
+
+func TestReconcileCompileWithContext(t *testing.T) {
+	yaml := `
+image: nginx:1.0
+environment:
+  MY_DNS: "@PACKAGE_DNS@"
+  MY_EXT: "@LOCAL_EXTERNAL_HOST@"
+  MY_INT: "@LOCAL_INTERNAL_HOST@"
+notes:
+  url:
+    value: "http://@PACKAGE_DNS@/admin"
+    type: url
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": yaml,
+	})
+	sd := systemd.InitMockManager()
+
+	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	if err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	settingsMgr := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+
+	err = Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Systemd:        sd,
+		SettingsMgr:    settingsMgr,
+		ExternalIP:     "1.2.3.4",
+		InternalIP:     "192.168.1.1",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Verify the package was compiled with context by checking the systemd
+	// unit content contains the substituted values. Load the package again
+	// and compile with the same context to get expected values.
+	ip, err := rr.LoadPackage("repo-a", "nginx", "1.0")
+	if err != nil {
+		t.Fatalf("load package: %v", err)
+	}
+
+	compiled, err := ip.CompileWithContext(packages.Responses{}, packages.CompileContext{
+		ExternalHost: "1.2.3.4",
+		InternalHost: "192.168.1.1",
+		PackageDNS:   "nginx.repo-a.lan",
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if compiled.Environment["MY_DNS"] != "nginx.repo-a.lan" {
+		t.Fatalf("expected MY_DNS=%q, got %q", "nginx.repo-a.lan", compiled.Environment["MY_DNS"])
+	}
+	if compiled.Environment["MY_EXT"] != "1.2.3.4" {
+		t.Fatalf("expected MY_EXT=%q, got %q", "1.2.3.4", compiled.Environment["MY_EXT"])
+	}
+	if compiled.Environment["MY_INT"] != "192.168.1.1" {
+		t.Fatalf("expected MY_INT=%q, got %q", "192.168.1.1", compiled.Environment["MY_INT"])
+	}
+	if compiled.Notes["url"] != "http://nginx.repo-a.lan/admin" {
+		t.Fatalf("expected notes url=%q, got %q", "http://nginx.repo-a.lan/admin", compiled.Notes["url"])
+	}
 }

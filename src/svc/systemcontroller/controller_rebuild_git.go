@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"gitea.com/town-os/town-os/src/i18n"
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 )
@@ -46,7 +47,12 @@ func (s *SystemControllerHandlers) rebuildGit(c *echo.Context) error {
 		return fmt.Errorf("get responses: %w", err)
 	}
 
-	compiled, err := ip.Compile(responses)
+	tld := s.getDNSTLDValue()
+	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
+		ExternalHost: s.Controller.GetExternalIP(),
+		InternalHost: s.Controller.GetInternalIP(),
+		PackageDNS:   req.Name + "." + req.Repo + "." + tld,
+	})
 	if err != nil {
 		return fmt.Errorf("compile package: %w", err)
 	}
