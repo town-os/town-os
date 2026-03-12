@@ -366,6 +366,7 @@ const enUS = {
   'audit.error_unknown': 'Unknown error',
   'audit.error_request_label': 'Request',
   'audit.error_failed': '{action} failed',
+  'audit.view_logs_label': 'View system logs around this time',
 
   // --- System Settings ---
   'settings.page_title': 'Town OS - Settings',

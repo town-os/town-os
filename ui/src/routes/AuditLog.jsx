@@ -4,9 +4,10 @@ import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
 import { JsonTree } from '@/lib/json-tree.jsx'
 import DataTable from '@/components/DataTable.jsx'
+import JournalViewer from '@/components/JournalViewer.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Check, CircleAlert, FileText } from 'lucide-react'
+import { Check, CircleAlert, FileText, Clock } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -72,6 +73,8 @@ export default function AuditLog() {
   const [detailAction, setDetailAction] = useState('')
   const [errorOpen, setErrorOpen] = useState(false)
   const [errorRow, setErrorRow] = useState(null)
+  const [journalUnit, setJournalUnit] = useState(null)
+  const [journalTimestamp, setJournalTimestamp] = useState(null)
 
   const [auditData, , auditLoading] = usePolling(
     () =>
@@ -108,6 +111,14 @@ export default function AuditLog() {
     setDetailOpen(true)
   }
 
+  function openJournal(timestamp) {
+    setJournalUnit(null)
+    setJournalTimestamp(timestamp)
+    queueMicrotask(() => {
+      setJournalUnit('__system__')
+    })
+  }
+
   const columns = [
     {
       key: 'id',
@@ -118,7 +129,19 @@ export default function AuditLog() {
       key: 'created_at',
       label: t('audit.col_time'),
       transform: (v) => (
-        <span className="text-sm">{formatTime(v)}</span>
+        <span className="text-sm flex items-center gap-1">
+          {formatTime(v)}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0"
+            onClick={() => openJournal(v)}
+            aria-label={t('audit.view_logs_label')}
+            title={t('audit.view_logs_label')}
+          >
+            <Clock className="h-3 w-3" />
+          </Button>
+        </span>
       ),
     },
     { key: 'action', label: t('audit.col_action') },
@@ -234,6 +257,13 @@ export default function AuditLog() {
           {errorRow && <ErrorDetail row={errorRow} t={t} />}
         </DialogContent>
       </Dialog>
+
+      <JournalViewer
+        journalUnit={journalUnit}
+        onClose={() => setJournalUnit(null)}
+        units={[]}
+        initialTimestamp={journalTimestamp}
+      />
     </div>
   )
 }

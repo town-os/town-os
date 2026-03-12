@@ -58,7 +58,7 @@ function formatMessage(text) {
   })
 }
 
-export default function JournalViewer({ journalUnit, onClose, units, initialPriority }) {
+export default function JournalViewer({ journalUnit, onClose, units, initialPriority, initialTimestamp }) {
   const { t } = useI18n()
   const [journalEntries, setJournalEntries] = useState([])
   const [journalCursor, setJournalCursor] = useState(null)
@@ -179,9 +179,33 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
     if (journalUnit) {
       const p = initialPriority || 0
       setJournalPriority(p)
-      loadEntries(journalUnit, undefined, '', undefined, undefined, p)
+      if (initialTimestamp) {
+        const ts = new Date(initialTimestamp)
+        const since = new Date(ts.getTime() - 5 * 60 * 1000)
+        const until = new Date(ts.getTime() + 5 * 60 * 1000)
+        const pad = (n) => String(n).padStart(2, '0')
+        const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+        const sd = localDate(since)
+        const sh = String(since.getHours())
+        const ud = localDate(until)
+        const untilNextHour = until.getHours() + 1
+        const uh = untilNextHour > 23 ? '' : String(untilNextHour)
+        setSinceDate(sd)
+        setSinceHour(sh)
+        setUntilDate(ud)
+        setUntilHour(uh)
+        setPendingSinceDate(sd)
+        setPendingSinceHour(sh)
+        setPendingUntilDate(ud)
+        setPendingUntilHour(uh)
+        const sinceUnix = Math.floor(since.getTime() / 1000)
+        const untilUnix = Math.floor(until.getTime() / 1000)
+        loadEntries(journalUnit, undefined, '', sinceUnix, untilUnix, p)
+      } else {
+        loadEntries(journalUnit, undefined, '', undefined, undefined, p)
+      }
     }
-  }, [journalUnit, initialPriority, loadEntries])
+  }, [journalUnit, initialPriority, initialTimestamp, loadEntries])
 
   function loadMore() {
     if (journalUnit && journalCursor) {
