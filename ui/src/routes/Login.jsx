@@ -21,6 +21,7 @@ export default function Login() {
   const { t } = useI18n()
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [apiOffline, setApiOffline] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => { document.title = t('login.page_title') }, [t])
@@ -40,12 +41,19 @@ export default function Login() {
         .catch((err) => console.debug('session check failed:', err))
     }
 
-    getClient()
-      .ping()
-      .then((resp) => {
-        if (resp.needs_setup) navigate('/register')
-      })
-      .catch((err) => console.debug('ping failed:', err))
+    const pingCheck = () => {
+      getClient()
+        .ping()
+        .then((resp) => {
+          setApiOffline(false)
+          if (resp.needs_setup) navigate('/register')
+        })
+        .catch(() => setApiOffline(true))
+    }
+
+    pingCheck()
+    const pingInterval = setInterval(pingCheck, 30000)
+    return () => clearInterval(pingInterval)
   }, [navigate])
 
   async function handleSubmit(e) {
@@ -82,6 +90,11 @@ export default function Login() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            {apiOffline && (
+              <Alert variant="destructive">
+                <AlertDescription>{t('login.api_offline_message')}</AlertDescription>
+              </Alert>
+            )}
             {error && (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>

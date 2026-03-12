@@ -6,6 +6,7 @@ import { usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   LayoutDashboard,
   HardDrive,
@@ -18,6 +19,7 @@ import {
   Settings,
   Activity,
   Wifi,
+  AlertTriangle,
 } from 'lucide-react'
 
 const NAV_KEYS = [
@@ -125,6 +127,14 @@ export default function Dashboard({ children }) {
             alt=""
             className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 opacity-5"
           />
+          {ping && ping.status !== 'ok' && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {t('nav.api_offline_message')}
+              </AlertDescription>
+            </Alert>
+          )}
           {children}
         </main>
       </div>
