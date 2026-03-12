@@ -259,6 +259,14 @@ export default function SystemManagement() {
                 <ChevronRight className="h-4 w-4" />
               )}
               <span className="font-semibold">{t('system.system_services_title')}</span>
+              {systemServices.filter((s) => s.ActiveState === 'failed').length > 0 && (
+                <Badge variant="destructive">
+                  {t('nav.system_services_down', {
+                    count: systemServices.filter((s) => s.ActiveState === 'failed').length,
+                    s: systemServices.filter((s) => s.ActiveState === 'failed').length === 1 ? '' : 's',
+                  })}
+                </Badge>
+              )}
               <span className="text-muted-foreground text-sm">{t('system.system_services_description')}</span>
             </div>
           </Button>

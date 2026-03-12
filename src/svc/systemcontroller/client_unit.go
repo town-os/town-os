@@ -72,11 +72,14 @@ func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan sy
 			}
 
 			var entry systemd.JournalEntry
-			err := json.NewDecoder(strings.NewReader(strings.TrimPrefix(line, "data: "))).Decode(&entry)
-			if err != nil {
+			if err := json.NewDecoder(strings.NewReader(strings.TrimPrefix(line, "data: "))).Decode(&entry); err != nil {
 				return
 			}
-			ch <- entry
+			select {
+			case ch <- entry:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 

@@ -44,7 +44,7 @@ func (m *MockClient) SetUnitStatus(_ context.Context, name string, action system
 	}
 }
 
-func (m *MockClient) LogReplay(_ context.Context, name string) (<-chan systemd.JournalEntry, error) {
+func (m *MockClient) LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "LogReplay", Args: []any{name}})
@@ -60,7 +60,11 @@ func (m *MockClient) LogReplay(_ context.Context, name string) (<-chan systemd.J
 	go func() {
 		defer close(ch)
 		for _, e := range entries {
-			ch <- e
+			select {
+			case ch <- e:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 

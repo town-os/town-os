@@ -99,18 +99,7 @@ export default function Dashboard({ children }) {
               <span className="text-sm text-muted-foreground">{t('nav.online')}</span>
             </div>
           )}
-          {ping?.system_services?.failed > 0 && (
-            <Link to="/dashboard/system?expand=system">
-              <div className="flex items-center rounded-full bg-red-600 px-3 py-1.5">
-                <span className="text-sm text-white font-bold">
-                  {t('nav.system_services_down', {
-                    count: ping.system_services.failed,
-                    s: ping.system_services.failed === 1 ? '' : 's',
-                  })}
-                </span>
-              </div>
-            </Link>
-          )}
+
           {account && (
             <div className="flex items-center gap-1 rounded-full bg-gray-600 px-3 py-1.5">
               <span className="text-sm font-bold text-white">
