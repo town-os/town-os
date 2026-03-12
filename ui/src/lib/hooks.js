@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import getClient from './client-instance.js'
-import { getToken, clearToken, getAccount } from './auth.js'
+import { getToken, clearToken, getAccount, setSessionExpired } from './auth.js'
 import { ApiError } from '../api/client.js'
 
 /**
@@ -63,12 +63,14 @@ export function useRequireAuth() {
         .ping()
         .then((resp) => {
           if (!resp.username) {
+            setSessionExpired()
             clearToken()
             navigate('/')
           }
         })
         .catch((err) => {
           if (err instanceof ApiError && err.status === 401) {
+            setSessionExpired()
             clearToken()
             navigate('/')
           }

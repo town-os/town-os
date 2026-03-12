@@ -10,6 +10,7 @@ const enUS = {
   'login.password_label': 'Password',
   'login.submit_loading': 'Signing in...',
   'login.submit': 'Sign In',
+  'login.session_expired_update': 'You have been signed out because the system was updated. Please sign in again.',
 
   // --- Register ---
   'register.page_title': 'Town OS - Register',

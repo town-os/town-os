@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Login from './Login.jsx'
@@ -7,6 +7,7 @@ const mockNavigate = vi.fn()
 let mockPingResponse = { accounts: 1, admins: 1, needs_setup: false }
 let mockToken = null
 let mockSessionUsernameResult = Promise.resolve({ username: 'admin' })
+let mockSessionExpired = false
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
@@ -23,10 +24,16 @@ vi.mock('@/lib/client-instance.js', () => ({
   }),
 }))
 
+const mockToastInfo = vi.fn()
+vi.mock('sonner', () => ({
+  toast: { info: (...args) => mockToastInfo(...args) },
+}))
+
 vi.mock('@/lib/auth.js', () => ({
   getToken: () => mockToken,
   setToken: vi.fn(),
   setAccount: vi.fn(),
+  getAndClearSessionExpired: () => mockSessionExpired,
 }))
 
 function renderLogin() {
@@ -41,8 +48,10 @@ describe('Login', () => {
   beforeEach(() => {
     mockPingResponse = { accounts: 1, admins: 1, needs_setup: false }
     mockToken = null
+    mockSessionExpired = false
     mockSessionUsernameResult = Promise.resolve({ username: 'admin' })
     mockNavigate.mockReset()
+    mockToastInfo.mockReset()
   })
 
   it('renders the login form', async () => {
@@ -89,6 +98,27 @@ describe('Login', () => {
     const footer = button.closest('[data-slot="card-footer"]')
     expect(footer).toBeTruthy()
     expect(footer.className).toMatch(/pt-6/)
+  })
+
+  it('shows a toast when session expired due to system update', async () => {
+    mockSessionExpired = true
+    renderLogin()
+
+    await waitFor(() => {
+      expect(mockToastInfo).toHaveBeenCalledWith(
+        'You have been signed out because the system was updated. Please sign in again.',
+      )
+    })
+  })
+
+  it('does not show session expired toast when flag is not set', async () => {
+    mockSessionExpired = false
+    renderLogin()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Username')).toBeTruthy()
+    })
+    expect(mockToastInfo).not.toHaveBeenCalled()
   })
 
   it('stays on login when token is invalid', async () => {

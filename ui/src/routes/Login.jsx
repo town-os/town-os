@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
-import { setToken, setAccount, getToken } from '@/lib/auth.js'
+import { setToken, setAccount, getToken, getAndClearSessionExpired } from '@/lib/auth.js'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,6 +24,12 @@ export default function Login() {
   const navigate = useNavigate()
 
   useEffect(() => { document.title = t('login.page_title') }, [t])
+
+  useEffect(() => {
+    if (getAndClearSessionExpired()) {
+      toast.info(t('login.session_expired_update'))
+    }
+  }, [t])
 
   useEffect(() => {
     const token = getToken()
