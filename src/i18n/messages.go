@@ -175,4 +175,12 @@ const (
 	MsgAuditUploadVMImage = "audit.action.upload_vm_image"
 	// MsgAuditDeleteVMImage is the audit action for deleting a VM image.
 	MsgAuditDeleteVMImage = "audit.action.delete_vm_image"
+	// MsgAuditAddDNSRecord is the audit action for adding a DNS record.
+	MsgAuditAddDNSRecord = "audit.action.add_dns_record"
+	// MsgAuditRemoveDNSRecord is the audit action for removing a DNS record.
+	MsgAuditRemoveDNSRecord = "audit.action.remove_dns_record"
+	// MsgAuditSetDNSTLD is the audit action for setting the DNS TLD.
+	MsgAuditSetDNSTLD = "audit.action.set_dns_tld"
+	// MsgAuditSetupDNS is the audit action for setting up DNS.
+	MsgAuditSetupDNS = "audit.action.setup_dns"
 )

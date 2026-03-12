@@ -74,6 +74,10 @@ var RouteActionKeys = map[string]string{
 	"/packages/rebuild-git":               i18n.MsgAuditRebuildGit,
 	"/vm-images/upload":                   i18n.MsgAuditUploadVMImage,
 	"/vm-images/delete":                   i18n.MsgAuditDeleteVMImage,
+	"/dns/records/add":                     i18n.MsgAuditAddDNSRecord,
+	"/dns/records/remove":                  i18n.MsgAuditRemoveDNSRecord,
+	"/dns/tld":                             i18n.MsgAuditSetDNSTLD,
+	"/dns/setup":                           i18n.MsgAuditSetupDNS,
 }
 
 // RouteActions maps API paths to their localized audit action descriptions

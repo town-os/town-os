@@ -723,6 +723,63 @@ func TestHTTPAuditDetailAuthenticateRedactsPassword(t *testing.T) {
 	t.Fatal("expected to find authenticate audit entry with detail")
 }
 
+func TestHTTPAuditLogIncludesDNSWriteRoutes(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	// create admin and authenticate
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	// DNS write endpoints with their expected audit action strings
+	dnsWriteRoutes := []struct {
+		path   string
+		action string
+		body   string
+	}{
+		{"/dns/records/add", "add dns record", `{"name":"test.example.com","type":"A","value":"1.2.3.4"}`},
+		{"/dns/records/remove", "remove dns record", `{"name":"test.example.com","type":"A","value":"1.2.3.4"}`},
+		{"/dns/tld", "set dns tld", `{"tld":"example.com"}`},
+		{"/dns/setup", "setup dns", `{}`},
+	}
+
+	for _, rt := range dnsWriteRoutes {
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route(rt.path[1:]), bytes.NewBufferString(rt.body))
+		if err != nil {
+			t.Fatalf("NewRequest POST %s: %v", rt.path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		req.Header.Set("Content-Type", "application/json")
+		httpResp, err := c.HTTP.Do(req)
+		if err == nil {
+			_ = httpResp.Body.Close()
+		}
+	}
+
+	// Verify each DNS write route appears in the audit log with the correct action
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, rt := range dnsWriteRoutes {
+		found := false
+		for _, e := range page.Entries {
+			if e.Path == rt.path && e.Action == rt.action {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected audit entry with path=%q action=%q", rt.path, rt.action)
+		}
+	}
+}
+
 func TestHTTPAuditDetailNeverContainsPassword(t *testing.T) {
 	c, auditMgr := initAccountTestClient(t)
 

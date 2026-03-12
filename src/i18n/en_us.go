@@ -109,4 +109,8 @@ var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRebuildGit:              "rebuild git",
 	MsgAuditUploadVMImage:           "upload vm image",
 	MsgAuditDeleteVMImage:           "delete vm image",
+	MsgAuditAddDNSRecord:            "add dns record",
+	MsgAuditRemoveDNSRecord:         "remove dns record",
+	MsgAuditSetDNSTLD:               "set dns tld",
+	MsgAuditSetupDNS:                "setup dns",
 }
