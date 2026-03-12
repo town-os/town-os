@@ -103,6 +103,9 @@ test-integration-rerun:
 test-full:
 	@make/test.sh full
 
+test-full-log:
+	@bash -o pipefail -c 'make/test.sh full 2>&1 | tee "$(STATE_DIR)/test-full-$$(date +%Y%m%d-%H%M%S).log"'
+
 test-image:
 	@make/build.sh test
 

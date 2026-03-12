@@ -77,7 +77,7 @@ include make/include.mk
 .PHONY: gitea gitea-populate gitea-stop
 .PHONY: test-ui-integration test-integration-build test-integration test-integration-rerun test-full
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
-.PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
+.PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
 .PHONY: release-build release-image release-ui-image release-proton-image push push-rc push-release push-ui-rc push-ui-release push-proton-rc push-proton-release quay-login
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
@@ -102,6 +102,7 @@ test-ui-integration: test-image ui-integration-image $(STATE_DIR)/.integration-p
 test-integration-build: lint test-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration: test-integration-build
 test-full: test
+test-full-log: test
 test-image: production-image
 dev-production-image: $(STATE_DIR)/.images-pulled
 dev-image: dev-production-image
