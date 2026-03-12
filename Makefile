@@ -33,7 +33,8 @@ PODMAN_DEV_IMAGE     := town-os-dev-$(INSTANCE_ID)
 PODMAN_UI_IMAGE      := town-os-ui-integration-$(INSTANCE_ID)
 RELEASE_IMAGE        := quay.io/town/town
 RELEASE_UI_IMAGE     := quay.io/town/ui
-export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE
+RELEASE_PROTON_IMAGE := quay.io/town/proton
+export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE RELEASE_PROTON_IMAGE
 
 # Container names (unique per working directory).
 PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
@@ -78,7 +79,7 @@ include make/include.mk
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
 .PHONY: ssh
-.PHONY: release-build release-image release-ui-image push push-rc push-release push-ui-rc push-ui-release quay-login
+.PHONY: release-build release-image release-ui-image release-proton-image push push-rc push-release push-ui-rc push-ui-release push-proton-rc push-proton-release quay-login
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
@@ -114,10 +115,10 @@ clean-cache: dev-stop clean-btrfs-dev
 clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
 release-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
-release-build: pull-images test-full release-image release-ui-image
+release-build: pull-images test-full release-image release-ui-image release-proton-image
 # Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build
-push-rc: release-image release-ui-image quay-login
+push-rc: release-image release-ui-image release-proton-image quay-login
 push-release: release-build quay-login
 push-ui-rc: release-ui-image quay-login
 push-ui-release: release-ui-image quay-login

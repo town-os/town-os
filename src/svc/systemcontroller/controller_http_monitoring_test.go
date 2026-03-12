@@ -128,14 +128,14 @@ func TestHTTPMonitoringStatusReportsPorts(t *testing.T) {
 	}
 
 	// Default ports.
-	if status.Prometheus.Port != "9091" {
-		t.Fatalf("expected prometheus port 9091, got %q", status.Prometheus.Port)
+	if status.Prometheus.Port != "9090" {
+		t.Fatalf("expected prometheus port 9090, got %q", status.Prometheus.Port)
 	}
-	if status.NodeExporter.Port != "9101" {
-		t.Fatalf("expected node-exporter port 9101, got %q", status.NodeExporter.Port)
+	if status.NodeExporter.Port != "9100" {
+		t.Fatalf("expected node-exporter port 9100, got %q", status.NodeExporter.Port)
 	}
-	if status.Grafana.Port != "3001" {
-		t.Fatalf("expected grafana port 3001, got %q", status.Grafana.Port)
+	if status.Grafana.Port != "3000" {
+		t.Fatalf("expected grafana port 3000, got %q", status.Grafana.Port)
 	}
 }
 

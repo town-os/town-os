@@ -141,6 +141,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	// Monitoring
 	e.Add("GET", "/monitoring/status", s.monitoringStatus, s.requireAuth)
+	e.Add("GET", "/monitoring/grafana/*", s.grafanaProxy)
 
 	// System Services
 	e.Add("GET", "/system-services", s.listSystemServices, s.requireAuth)

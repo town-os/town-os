@@ -151,6 +151,9 @@ release-image:
 release-ui-image:
 	@make/build.sh release-ui
 
+release-proton-image:
+	@make/build.sh release-proton
+
 push:
 	@$(MAKE) push-rc
 
@@ -165,6 +168,12 @@ push-ui-rc:
 
 push-ui-release:
 	@make/build.sh push-ui-release
+
+push-proton-rc: release-proton-image quay-login
+	@make/build.sh push-proton-rc
+
+push-proton-release: release-proton-image quay-login
+	@make/build.sh push-proton-release
 
 ssh:
 	@ssh-keygen -R town-os.local 2>/dev/null; true

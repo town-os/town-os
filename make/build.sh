@@ -57,6 +57,11 @@ case "$1" in
     ${SUDO} podman build --pull=never \
       -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
     ;;
+  release-proton)
+    step "Building Proton runner image"
+    ${SUDO} podman build \
+      -t "${RELEASE_PROTON_IMAGE}" -f Containerfile.proton .
+    ;;
   push-rc)
     step "Pushing release candidate"
     DATE_TAG="$(date +%Y%m%d)"
@@ -92,6 +97,16 @@ case "$1" in
     ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
     substep "Pushing ${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
     ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+
+    # Proton runner image.
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
     ;;
   push-release)
     step "Pushing release"
@@ -132,6 +147,16 @@ case "$1" in
     ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
     substep "Pushing ${ROLODEX_IMAGE%%:*}:latest"
     ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:latest"
+
+    # Proton runner image.
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:latest"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
     ;;
   push-ui-rc)
     step "Pushing UI release candidate"
@@ -157,12 +182,36 @@ case "$1" in
     substep "Pushing ${RELEASE_UI_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
     ;;
+  push-proton-rc)
+    step "Pushing Proton runner release candidate"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
+    ;;
+  push-proton-release)
+    step "Pushing Proton runner release"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:latest"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
+    ;;
   networkcontroller)
     step "Building network controller binary"
     CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
     ;;
   *)
-    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|push-rc|push-release|push-ui-rc|push-ui-release}"
+    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|push-rc|push-release|push-ui-rc|push-ui-release}"
     exit 1
     ;;
 esac

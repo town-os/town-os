@@ -6,7 +6,8 @@ COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
 COPY . /src
-RUN CGO_ENABLED=1 go build -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
+ARG TOWN_OS_TAG=rc.latest
+RUN CGO_ENABLED=1 go build -ldflags "-X main.Version=${TOWN_OS_TAG}" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
 RUN CGO_ENABLED=0 go build -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
 FROM oven/bun:latest AS ui-builder

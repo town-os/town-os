@@ -57,8 +57,8 @@ func TestMonitoringStatusBeforeStart(t *testing.T) {
 	if status.Prometheus.Image == "" {
 		t.Fatal("expected prometheus image to be populated")
 	}
-	if status.Prometheus.Port != "9091" {
-		t.Fatalf("expected prometheus port 9091, got %q", status.Prometheus.Port)
+	if status.Prometheus.Port != "9090" {
+		t.Fatalf("expected prometheus port 9090, got %q", status.Prometheus.Port)
 	}
 
 	if status.NodeExporter.Running {
@@ -67,8 +67,8 @@ func TestMonitoringStatusBeforeStart(t *testing.T) {
 	if status.NodeExporter.Image == "" {
 		t.Fatal("expected node-exporter image to be populated")
 	}
-	if status.NodeExporter.Port != "9101" {
-		t.Fatalf("expected node-exporter port 9101, got %q", status.NodeExporter.Port)
+	if status.NodeExporter.Port != "9100" {
+		t.Fatalf("expected node-exporter port 9100, got %q", status.NodeExporter.Port)
 	}
 
 	if status.Grafana.Running {
@@ -77,8 +77,8 @@ func TestMonitoringStatusBeforeStart(t *testing.T) {
 	if status.Grafana.Image == "" {
 		t.Fatal("expected grafana image to be populated")
 	}
-	if status.Grafana.Port != "3001" {
-		t.Fatalf("expected grafana port 3001, got %q", status.Grafana.Port)
+	if status.Grafana.Port != "3000" {
+		t.Fatalf("expected grafana port 3000, got %q", status.Grafana.Port)
 	}
 }
 
@@ -141,8 +141,8 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	if status.Prometheus.Image != monitoring.PrometheusImage {
 		t.Fatalf("expected prometheus image %q, got %q", monitoring.PrometheusImage, status.Prometheus.Image)
 	}
-	if status.Prometheus.Port != "9091" {
-		t.Fatalf("expected prometheus port 9091, got %q", status.Prometheus.Port)
+	if status.Prometheus.Port != "9090" {
+		t.Fatalf("expected prometheus port 9090, got %q", status.Prometheus.Port)
 	}
 	if !status.Prometheus.Running {
 		t.Fatal("expected prometheus running")
@@ -156,8 +156,8 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	if status.NodeExporter.Image != monitoring.NodeExporterImage {
 		t.Fatalf("expected node-exporter image %q, got %q", monitoring.NodeExporterImage, status.NodeExporter.Image)
 	}
-	if status.NodeExporter.Port != "9101" {
-		t.Fatalf("expected node-exporter port 9101, got %q", status.NodeExporter.Port)
+	if status.NodeExporter.Port != "9100" {
+		t.Fatalf("expected node-exporter port 9100, got %q", status.NodeExporter.Port)
 	}
 	if !status.NodeExporter.Running {
 		t.Fatal("expected node-exporter running")
@@ -171,8 +171,8 @@ func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
 	if status.Grafana.Image != monitoring.GrafanaImage {
 		t.Fatalf("expected grafana image %q, got %q", monitoring.GrafanaImage, status.Grafana.Image)
 	}
-	if status.Grafana.Port != "3001" {
-		t.Fatalf("expected grafana port 3001, got %q", status.Grafana.Port)
+	if status.Grafana.Port != "3000" {
+		t.Fatalf("expected grafana port 3000, got %q", status.Grafana.Port)
 	}
 	if !status.Grafana.Running {
 		t.Fatal("expected grafana running")

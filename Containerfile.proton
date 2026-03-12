@@ -1,0 +1,101 @@
+# Town OS Proton Runner
+#
+# A headless container image for running Windows executables via Valve's
+# Proton (GE-Proton community build). Packages that declare a `proton:`
+# section use this image as their runtime container.
+#
+# The image bundles GE-Proton, Xvfb (virtual framebuffer), and a wrapper
+# script that sets up the environment so `proton run /path/to/app.exe`
+# works without a display server or Steam client.
+#
+# Build:
+#   podman build -f Containerfile.proton -t quay.io/town/proton:latest .
+#
+# Usage (by the package system, not directly):
+#   podman run --replace --name <unit> \
+#     -e STEAM_COMPAT_DATA_PATH=/compat \
+#     -v /data/app:/app:ro \
+#     -v /data/compat:/compat:rw \
+#     quay.io/town/proton:latest proton run /app/myapp.exe
+
+ARG GE_PROTON_VERSION=GE-Proton10-32
+
+FROM debian:bookworm-slim AS downloader
+ARG GE_PROTON_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL \
+    "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON_VERSION}/${GE_PROTON_VERSION}.tar.gz" \
+    -o /tmp/proton.tar.gz \
+    && mkdir -p /opt/proton \
+    && tar -xzf /tmp/proton.tar.gz -C /opt/proton --strip-components=1 \
+    && rm /tmp/proton.tar.gz
+
+FROM debian:bookworm-slim
+ARG GE_PROTON_VERSION
+
+LABEL org.opencontainers.image.title="Town OS Proton Runner" \
+      org.opencontainers.image.description="Headless Proton/Wine runner for Windows executables" \
+      org.opencontainers.image.source="https://github.com/town-os/town-os" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      town-os.proton.version="${GE_PROTON_VERSION}" \
+      town-os.proton.upstream="https://github.com/GloriousEggroll/proton-ge-custom"
+
+# Wine and display dependencies for headless operation.
+RUN dpkg --add-architecture i386 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        # Core Wine/Proton dependencies (64-bit + 32-bit)
+        libc6:i386 libstdc++6:i386 libgcc-s1:i386 \
+        libx11-6 libx11-6:i386 \
+        libxext6 libxext6:i386 \
+        libxrandr2 libxrandr2:i386 \
+        libxrender1 libxrender1:i386 \
+        libxfixes3 libxfixes3:i386 \
+        libxcursor1 libxcursor1:i386 \
+        libxi6 libxi6:i386 \
+        libxcomposite1 libxcomposite1:i386 \
+        libfreetype6 libfreetype6:i386 \
+        libfontconfig1 libfontconfig1:i386 \
+        libgnutls30 libgnutls30:i386 \
+        libsdl2-2.0-0 \
+        # Virtual framebuffer for headless operation
+        xvfb \
+        # Networking and general utilities
+        ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=downloader /opt/proton /opt/proton
+
+# Wrapper script: sets up Xvfb and Proton environment, then execs into
+# the real proton binary. This allows `proton run /app/foo.exe` to work
+# as the container command without any Steam client dependency.
+RUN printf '#!/bin/bash\n\
+set -e\n\
+\n\
+# Start virtual framebuffer if no display is set.\n\
+if [ -z "${DISPLAY:-}" ]; then\n\
+    export DISPLAY=:99\n\
+    Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &\n\
+    XVFB_PID=$!\n\
+    # Wait for Xvfb to be ready.\n\
+    for i in $(seq 1 20); do\n\
+        if xdpyinfo -display :99 >/dev/null 2>&1; then break; fi\n\
+        sleep 0.1\n\
+    done\n\
+fi\n\
+\n\
+# Proton environment setup.\n\
+export STEAM_COMPAT_CLIENT_INSTALL_PATH="${STEAM_COMPAT_CLIENT_INSTALL_PATH:-/opt/proton}"\n\
+export STEAM_COMPAT_DATA_PATH="${STEAM_COMPAT_DATA_PATH:-/compat}"\n\
+mkdir -p "${STEAM_COMPAT_DATA_PATH}"\n\
+\n\
+exec /opt/proton/proton "$@"\n' > /usr/local/bin/proton \
+    && chmod +x /usr/local/bin/proton
+
+# x11-utils provides xdpyinfo used by the wrapper to detect Xvfb readiness.
+RUN apt-get update && apt-get install -y --no-install-recommends x11-utils \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["/usr/local/bin/proton"]
+CMD ["--help"]

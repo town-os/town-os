@@ -63,12 +63,11 @@ type Config struct {
 	// DataDir is the directory where monitoring configuration and data files
 	// are stored (prometheus config, grafana provisioning, etc.).
 	DataDir string
-	// PrometheusPort is the host port for Prometheus. Defaults to "9091" to
-	// avoid conflicts with user-installed packages.
+	// PrometheusPort is the host port for Prometheus. Defaults to "9090".
 	PrometheusPort string
-	// NodeExporterPort is the host port for Node Exporter. Defaults to "9101".
+	// NodeExporterPort is the host port for Node Exporter. Defaults to "9100".
 	NodeExporterPort string
-	// GrafanaPort is the host port for Grafana. Defaults to "3001".
+	// GrafanaPort is the host port for Grafana. Defaults to "3000".
 	GrafanaPort string
 }
 
@@ -76,21 +75,21 @@ func (c *Config) prometheusHostPort() string {
 	if c.PrometheusPort != "" {
 		return c.PrometheusPort
 	}
-	return "9091"
+	return "9090"
 }
 
 func (c *Config) nodeExporterHostPort() string {
 	if c.NodeExporterPort != "" {
 		return c.NodeExporterPort
 	}
-	return "9101"
+	return "9100"
 }
 
 func (c *Config) grafanaHostPort() string {
 	if c.GrafanaPort != "" {
 		return c.GrafanaPort
 	}
-	return "3001"
+	return "3000"
 }
 
 // Manager controls the lifecycle of the monitoring stack.
@@ -244,12 +243,12 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 				"--net", "host",
 				"-u", "0",
 				"-e", "GF_AUTH_ANONYMOUS_ENABLED=true",
-				"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin",
-				"-e", "GF_AUTH_DISABLE_LOGIN_FORM=true",
+				"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer",
 				"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
 				"-e", "GF_USERS_DEFAULT_THEME=light",
 				"-e", "GF_SERVER_ENABLE_GZIP=true",
 				"-e", "GF_SERVER_HTTP_PORT=" + m.cfg.grafanaHostPort(),
+				"-e", "GF_SERVER_ROOT_URL=http://localhost:" + m.cfg.grafanaHostPort() + "/monitoring/grafana/",
 				"-v", provisioningDir + ":/etc/grafana/provisioning:ro",
 				"-v", grafDataDir + ":/var/lib/grafana:rw",
 			},

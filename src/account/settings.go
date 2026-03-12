@@ -7,7 +7,7 @@ var DefaultSettings = map[string]string{
 	"max_archive_size":       "1073741824",   // 1 GB
 	"archive_unpack_timeout": "600",          // seconds (10 min)
 	"locale":                 "en-US",       // BCP 47 locale code
-	"proton_image":           "",            // Proton runner image; must be configured before use
+	"proton_image":           "quay.io/town/proton:latest", // Proton runner image (GE-Proton)
 	"dns_tld":               "home",        // Default top-level domain for package DNS records
 }
 

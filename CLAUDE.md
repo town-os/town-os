@@ -108,7 +108,8 @@ Packages are defined in YAML with the following structure:
 
 - `image` -- container image reference (mutually exclusive with `vm`).
 - `vm` -- virtual machine configuration (mutually exclusive with `image`). See **VM Configuration** below.
-- `command` -- container entrypoint override (container runtime only).
+- `proton` -- Proton/Wine runner configuration for Windows executables (mutually exclusive with `vm` and `command`). See **Proton Configuration** below.
+- `command` -- container entrypoint override (container runtime only; mutually exclusive with `proton`).
 - `environment` -- key-value environment variables (supports template substitution; container runtime only).
 - `network` -- external and internal port mappings (supports template substitution).
 - `volumes` -- named volumes with mountpoint, optional quota, optional archive source, optional git seed URL, and optional UID/GID.
@@ -121,7 +122,7 @@ Packages are defined in YAML with the following structure:
 
 ### Runtime Type
 
-Each package has a runtime type: `container` (default) or `vm`. The runtime is determined by which top-level field is present: `image` selects the container runtime (podman), `vm` selects the VM runtime (QEMU). A package must specify exactly one; specifying both or neither is a validation error.
+Each package has a runtime type: `container` (default) or `vm`. The runtime is determined by which top-level field is present: `image` (or `proton`) selects the container runtime (podman), `vm` selects the VM runtime (QEMU). A package must specify exactly one of `image`/`proton` or `vm`; specifying both or neither is a validation error. Proton packages are a specialized form of container package -- they use the container runtime but auto-generate the command and extract Windows application files from a separate container image.
 
 ### VM Configuration
 
@@ -130,6 +131,18 @@ The `vm` section configures a QEMU virtual machine:
 - `image` -- VM disk image URL or local filename (required). Can be an HTTP/HTTPS URL for remote images or a filename referencing a cached image in the `vm-images` subvolume. Supports `@variable@` template substitution.
 - `memory` -- VM memory as a human-readable byte string (e.g., `2gb`, `512mb`). Defaults to `1gb`. Supports `@variable@` template substitution.
 - `cpus` -- number of virtual CPUs. Defaults to `1`. Must be non-negative.
+
+### Proton Configuration
+
+The `proton` section configures a Windows application to run via the Proton/Wine compatibility layer:
+
+- `app_image` -- container image reference containing the Windows application files (required). Normalized during compilation. Supports `@variable@` template substitution.
+- `app_directory` -- absolute path inside the container where the application is installed (required, e.g., `/app`). Supports `@variable@` template substitution.
+- `volume` -- name of a defined package volume where the application files will be extracted (required). Supports `@variable@` template substitution.
+- `exe` -- path to the Windows executable to run (required, e.g., `/app/myapp.exe`). Supports `@variable@` template substitution.
+- `args` -- optional command-line arguments passed to the executable. Each element supports `@variable@` template substitution.
+
+At install time, the system pulls `app_image`, extracts `app_directory` into the named volume, and auto-generates the container command as `proton run <exe> [args]`. The container image used to run the application is the system-wide `proton_image` setting (`quay.io/town/proton:latest` by default), which can be overridden per-package by setting `image`. During reconcile, app extraction is repeated only if the target volume is empty.
 
 ### Template Variables
 
@@ -205,6 +218,10 @@ The package info dialog displays notes as a labeled list. Notes are rendered bas
 
 Each repository can include a `featured.json` file containing a JSON array of package names. These are loaded by `LoadFeatured` and returned alongside the package list in `RepoPackageGroup`. The flat package list API sets a `featured` boolean on each entry. The grouped package list API preserves the `Featured` array on each group even when search filtering reduces the package list.
 
+- `GET /packages` (auth required) -- list packages with search, sorting, pagination, and optional `featured_only` and `installed_only` filters.
+- `GET /packages/featured` (auth required) -- list featured packages across all repositories.
+- `GET /packages/by-repo` (auth required) -- list packages grouped by repository. Accepts `search` and `featured_only` query parameters.
+
 #### Featured Packages Filter
 
 The flat package list API (`GET /packages`) and the grouped package list API (`GET /packages/by-repo`) accept a `featured_only` query parameter. When set to `"true"`, only packages marked as featured are returned. The filter intersects with `installed_only` -- both can be active simultaneously. In the UI, a "Featured only" checkbox toggles the filter. The default state for the featured filter is `true` (showing only featured packages on first visit). Filter preferences (`pkg_group_by_repo`, `pkg_installed_only`, `pkg_featured_only`) are persisted in `localStorage`.
@@ -250,9 +267,7 @@ Two endpoints retrieve package questions:
 
 ### Timezone Handling
 
-- `GET /packages/timezones` (auth required) -- list available IANA timezone names. The list is a static curated set of common identifiers (76 entries covering all major regions) embedded in the server, not derived from the host system's timezone database.
-
-The UI also maintains a static copy of the timezone list with a `getTimezoneOffsetMinutes()` utility that computes UTC offsets client-side using the browser's `Intl` API. The server exposes the local system's UTC offset in minutes via the status ping response.
+The UI maintains a static copy of common IANA timezone names with a `getTimezoneOffsetMinutes()` utility that computes UTC offsets client-side using the browser's `Intl` API. The server exposes the local system's UTC offset in minutes via the status ping response.
 
 ### Install Preview
 
@@ -301,6 +316,17 @@ The `Storage` interface provides:
 
 Quotas are enforced at the btrfs qgroup level. A quota of 0 means unlimited.
 
+### Storage API
+
+- `POST /storage/create` (auth required) -- create a new user filesystem with name and optional quota.
+- `POST /storage` (auth required) -- list filesystems with filtering by prefix and state, sorting, pagination, and search.
+- `POST /storage/modify` (auth required) -- modify a volume's name and/or quota. Renaming is only allowed for user filesystems; package volumes cannot be renamed.
+- `POST /storage/remove` (auth required) -- delete a user filesystem.
+- `POST /storage/package-volumes` (auth required) -- list package volumes grouped by package, with optional inclusion of uninstalled volumes.
+- `POST /storage/remove-package-volume` (admin required) -- delete a specific package volume by internal name.
+- `POST /storage/upload-archive` (admin required) -- upload and unpack an archive into a volume.
+- `POST /storage/download-archive` (admin required) -- download a volume as a compressed archive.
+
 ### Volume Namespacing
 
 - **User volumes** -- `user/<name>` on disk. The `user/` prefix is prepended transparently by the create, remove, modify, and list handlers, and stripped in API responses so the API consumer sees only the bare name. The `user` root subvolume is created on boot by reconcile.
@@ -347,10 +373,6 @@ Archives are streamed directly without temporary files. Path traversal is valida
 - `filename` (optional) -- custom base name for the downloaded file. The server sanitizes the value (strips path separators and control characters), removes any existing archive extension to prevent doubling, and appends the appropriate extension for the chosen format. Defaults to `download` when not provided or when sanitization produces an empty string.
 
 Returns a streamed archive in the requested format. Compression uses `pigz`, `lbzip2`, or `xz` respectively. Content-Type and Content-Disposition filename headers are set to match the chosen format and custom filename. When `paths` is provided, only matching paths are included.
-
-### Volume Modification
-
-`POST /storage/modify` (auth required) allows modifying volume quotas. Renaming is only allowed for user filesystems; package volumes (`installed/` or `uninstalled/` prefix) cannot be renamed. Attempting to rename a package volume returns an error.
 
 ### Auto-Archive from Container Images
 
@@ -404,12 +426,12 @@ Pages content is stored in btrfs subvolumes under a `pages/` prefix. Each page g
 
 All mutation endpoints require admin authentication; the list endpoint requires regular authentication.
 
-- `POST /pages/create` -- create a new page. Accepts name, source type, repo URL, branch, domain, container image, and image directory. Source type defaults to `archive`. Validation varies by source type: git requires repo URL; container image requires both image and image directory. Creates a btrfs subvolume and webroot symlink. Git and container image pages are provisioned asynchronously (clone or image extraction); status transitions from `pending` to `active` on success or `error` on failure. Archive pages remain in `pending` status until content is uploaded via `/pages/upload`. Domain defaults to the page name if not provided.
+- `POST /pages/create` (admin required) -- create a new page. Accepts name, source type, repo URL, branch, domain, container image, and image directory. Source type defaults to `archive`. Validation varies by source type: git requires repo URL; container image requires both image and image directory. Creates a btrfs subvolume and webroot symlink. Git and container image pages are provisioned asynchronously (clone or image extraction); status transitions from `pending` to `active` on success or `error` on failure. Archive pages remain in `pending` status until content is uploaded via `/pages/upload`. Domain defaults to the page name if not provided.
 - `POST /pages/upload` (admin required) -- upload content for an archive-type page. Accepts multipart form with `name` and `archive` file. Only valid for pages with source type `archive`; returns 400 for other source types. Uses the same magic-byte format detection, extension validation, and stream validation as storage archive uploads. Unpacks directly into the page's btrfs subvolume. Sets status to `active` on success or `error` on failure.
-- `POST /pages/update` -- partial update of a page's repo URL, branch, domain, source type, container image, or image directory. Only provided fields are changed.
-- `POST /pages/remove` -- delete a page from the database, remove the webroot symlink, and delete the btrfs subvolume.
-- `POST /pages/rebuild` -- behavior varies by source type: git pages pull latest changes (or fresh clone if `.git` is missing); container image pages re-extract from the image via podman; archive pages return 400 (re-upload via `/pages/upload` instead).
-- `GET /pages` -- list all pages with sorting, search, and pagination. Sortable by name, repo URL, branch, domain, source type, status, and timestamps.
+- `POST /pages/update` (admin required) -- partial update of a page's repo URL, branch, domain, source type, container image, or image directory. Only provided fields are changed.
+- `POST /pages/remove` (admin required) -- delete a page from the database, remove the webroot symlink, and delete the btrfs subvolume.
+- `POST /pages/rebuild` (admin required) -- behavior varies by source type: git pages pull latest changes (or fresh clone if `.git` is missing); container image pages re-extract from the image via podman; archive pages return 400 (re-upload via `/pages/upload` instead).
+- `GET /pages` (auth required) -- list all pages with sorting, search, and pagination. Sortable by name, repo URL, branch, domain, source type, status, and timestamps.
 
 ### Pages UI
 
@@ -518,6 +540,10 @@ Each account has: username (primary key), password hash (never exposed in JSON),
 - `POST /account/disable` -- disable an account, preventing authentication (admin required).
 - `POST /account/enable` -- re-enable a disabled account (admin required).
 
+### Account Management UI
+
+The users management screen (`/dashboard/users`) displays a paginated, sortable, searchable data table of accounts. Each row shows username, email, phone, real name, admin/user role badge, and enabled/disabled status. Actions per row include an Edit button (opens a dialog for updating password, email, phone, and real name) and an Enable/Disable toggle with confirmation. A link navigates to a dedicated create user page (`/dashboard/users/create`) with a registration form.
+
 ### Session Management
 
 Sessions use JWT tokens (HS256) with claims for session ID (UUID), username, and issued timestamp. The signing key is ephemeral: 32 random bytes generated via `crypto/rand` on every service start, never persisted to disk. When `InitSessionManager` runs at startup, all existing sessions are cleared (`DELETE FROM sessions`) since prior tokens are invalid with the new key. The `TOWN_OS_SIGNING_KEY` environment variable can override the generated key. Sessions expire after 7 days from last use. A background cleanup task periodically removes expired sessions.
@@ -543,7 +569,7 @@ Read-only endpoints are explicitly excluded from audit logging. Excluded paths i
 
 ### Settings Management
 
-Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), and `archive_unpack_timeout` (600 seconds).
+Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), `archive_unpack_timeout` (600 seconds), `locale` (en-US), `proton_image` (quay.io/town/proton:latest), and `dns_tld` (home).
 
 - `GET /settings` -- get all settings (admin required).
 - `POST /settings/get` -- get a specific setting by key (admin required).
@@ -556,6 +582,8 @@ The system settings screen provides admin-configurable controls for all system-w
 - **Default Volume Quota** -- configurable in GB, MB, or bytes. Displays "0 (no quota)" when set to zero.
 - **Max Archive Size** -- configurable in GB, MB, or bytes. Controls the maximum file size allowed for archive uploads.
 - **Archive Unpack Timeout** -- configurable in seconds, minutes, or hours. Controls the maximum time allowed for unpacking an uploaded archive.
+- **Language** -- a dropdown showing common languages with native-script names. An expandable section reveals extended locales. Unpopulated locales are shown with an asterisk and disabled.
+- **Proton Image** -- an editable text input for the Proton runner container image reference (e.g., `quay.io/town/proton:latest`).
 
 Current values are decomposed into the most appropriate unit for display (e.g., 1073741824 bytes displays as "1 GB", 120 seconds displays as "2 minutes"). Input validation rejects negative and non-numeric values.
 
@@ -586,11 +614,47 @@ The network controller manages per-package port forwarding and UPnP mappings. Ea
 - **Renewal** -- UPnP mappings are renewed every 10 minutes with a 1800-second TTL.
 - **Shutdown** -- removes all UPnP mappings and kills all socat processes on context cancellation.
 
+## DNS Management (Rolodex)
+
+Town OS includes an integrated local DNS resolver powered by a `rolodex-dns` container. The rolodex server manages zone files and records for installed packages, providing local name resolution via a gRPC Unix socket interface.
+
+### DNS Server Lifecycle
+
+The `rolodex.Manager` manages the DNS server container lifecycle:
+
+- **Start** -- writes configuration, installs a systemd unit, and optionally rewrites `/etc/resolv.conf` to point at the local resolver (`127.0.0.2`). In local mode, resolv.conf rewriting is skipped.
+- **Stop** -- restores the original `/etc/resolv.conf` and stops the systemd unit.
+- **SetPublicAddr** -- updates the public address (returns true if it changed, triggering a restart).
+
+The rolodex image tag is derived from the system controller's release tag (`quay.io/town/rolodex:<tag>`), overridable via the `ROLODEX_IMAGE` environment variable.
+
+### Internal IP Change Detection
+
+A background goroutine polls the system's internal IP every 30 seconds. When a change is detected (e.g., DHCP lease renewal), rolodex is restarted with the new public address.
+
+### DNS API
+
+- `GET /dns/status` (auth required) -- returns DNS status including enabled flag, running state, TLD, and record count.
+- `GET /dns/records` (auth required) -- list all DNS records.
+- `POST /dns/records/add` (admin required) -- add a DNS record. Accepts name, record type, value, and TTL.
+- `POST /dns/records/remove` (admin required) -- remove a DNS record by name and type.
+- `GET /dns/tld` (auth required) -- get the current top-level domain.
+- `POST /dns/tld` (admin required) -- set the TLD. Changes the existing TLD and re-registers all installed packages.
+- `POST /dns/setup` (admin required) -- initialize DNS and register all installed packages.
+
+DNS read-only endpoints (`/dns/status`, `/dns/records`, `GET /dns/tld`) are excluded from audit logging.
+
+### DNS Management UI
+
+The DNS management screen displays DNS status (enabled, running, TLD, record count), a DNS records table, and provides dialogs for adding records (types: A, AAAA, CNAME, MX, TXT, SRV, PTR), removing records, changing the TLD, and initial DNS setup.
+
 ## Status Endpoint
 
 `GET /status/ping` (public) returns system status including: filesystem counts (user, installed, uninstalled), repository and package counts, installed package count, account and admin counts, service unit counts (total, active, failed), system service unit counts (total, active, failed), recent audit errors (last 5 minutes), setup status (`needs_setup` is true only when no enabled admin account exists; the login page is shown when admins exist regardless of session state), external IP (fetched hourly from ipinfo.io), internal IP (first non-loopback IPv4 address), disk usage statistics, upgrade availability, the server's UTC timezone offset in minutes, the current locale, and the authenticated username if a valid token is provided.
 
 Service unit counts are split into two fields: `units` counts only package service units (those matching `town-os-package--*`), while `system_services` counts system service units (those matching `town-os-system--*`). Leftover systemd units from uninstalled packages are excluded from the package count. The installed package list is cross-referenced with discovered systemd units by constructing the expected unit name from each package identity.
+
+Unauthenticated requests receive a minimal response containing only `needs_setup` and basic status fields. Authenticated requests receive the full response with all fields listed above, plus `repository_errors` (a map of repository name to error string tracking per-repository refresh failures).
 
 ## Monitoring
 
@@ -600,7 +664,9 @@ An integrated Prometheus + Node Exporter + Grafana stack provides system monitor
 
 - **Node Exporter** (`quay.io/prometheus/node-exporter:latest`, host port 9100) -- collects host system metrics. Runs with host PID namespace, `SYS_TIME` capability, and a read-only bind mount of the host root filesystem at `/host`.
 - **Prometheus** (`quay.io/prometheus/prometheus:latest`, host port 9090) -- scrapes Node Exporter and itself at 15-second intervals. Data is stored with 30-day retention in a persistent data directory. Configuration and data volumes are bind-mounted from a monitoring data directory. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot.
-- **Grafana** (`docker.io/grafana/grafana:latest`, host port 3000) -- dashboarding UI. Uses a light theme (`GF_USERS_DEFAULT_THEME=light`). Anonymous viewing is enabled with the Viewer role, iframe embedding is allowed, and the root URL is configured for sub-path serving at `/monitoring/grafana/`. Pre-provisioned with a Prometheus datasource and a "System Overview" dashboard containing CPU Usage, Memory Usage, Disk Usage, and Network I/O panels. All dashboard panels have `transparent: true` set. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot.
+- **Grafana** (`docker.io/grafana/grafana:latest`, host port 3000) -- dashboarding UI. Uses a light theme (`GF_USERS_DEFAULT_THEME=light`). Anonymous viewing is enabled with the Viewer role, iframe embedding is allowed, and the root URL is configured for sub-path serving at `/monitoring/grafana/`. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot. Pre-provisioned with a Prometheus datasource and two dashboards (all panels have `transparent: true`):
+  - **System Overview** (`town-os-system-overview`) -- high-level percentages: CPU Usage, Memory Usage, Disk Usage (root mountpoint), and Network I/O (bytes/sec per device, excluding loopback). Uses smooth lines with fill, table legends showing mean and last values, 1-hour default range with 30-second auto-refresh.
+  - **Town OS Overview** (`town-os-overview`) -- platform-specific metrics: Disk I/O (read/write throughput per block device), Free Storage Space (absolute bytes for `/trunk` btrfs mount and root `/`), Network Stats (bits/sec per device, excluding loopback and virtual interfaces), and CPU % Usage (total non-idle/non-iowait). Uses linear lines without fill, list legends, 6-hour default range. This is the default dashboard loaded by the monitoring UI iframe.
 
 ### Lifecycle
 
@@ -614,6 +680,10 @@ The monitoring stack is auto-started when the system controller boots by writing
 ### Monitoring UI
 
 The monitoring tab in the sidebar navigation opens a dashboard page. When all three services are running, an embedded Grafana iframe displays the system overview dashboard in a borderless container sized to fill the viewport. The iframe uses the light theme and kiosk mode. When any service is stopped, a warning banner and placeholder message are shown instead.
+
+## UI Container
+
+The system controller manages a standalone UI container (`quay.io/town/ui`) as a system service via `ui.Manager`. The image tag is derived from the system controller's release tag (`quay.io/town/ui:<tag>`), overridable via the `UI_IMAGE` environment variable. Startup failures are non-fatal; the system continues without the UI container.
 
 ## Web UI Layout
 
@@ -635,10 +705,17 @@ System services are systemd-managed infrastructure containers (distinct from use
 
 - `GET /system-services` (auth required) -- list system services with live unit status. Each entry includes key, display name, image, port, and systemd unit status fields. Returns an empty list when monitoring is not configured. Excluded from audit logging.
 - `POST /system-services/status` (admin required) -- change a system service's status. Accepts key and action (`start`, `stop`, `restart`). The `enable` and `disable` actions are rejected.
+- `POST /system-services/refresh` (admin required) -- refresh system service status.
 
 ## Web UI Production Image
 
 An independent UI container image (`quay.io/town/ui`) is built from `Containerfile.ui`. It uses a two-stage build: `oven/bun:latest` builds the UI static files, then `docker.io/library/caddy:latest` serves them on port 80 with SPA routing (`try_files {path} /index.html`).
+
+## Proton Runner Image
+
+The Proton runner image (`quay.io/town/proton`) is built from `Containerfile.proton`. It uses a two-stage build: a downloader stage fetches the GE-Proton release tarball (pinned via `GE_PROTON_VERSION` build arg), and the runtime stage installs Wine/Proton dependencies (64-bit + 32-bit), Xvfb for headless operation, and a wrapper script at `/usr/local/bin/proton` that starts a virtual framebuffer and configures the Proton environment before executing the application.
+
+The make pipeline provides: `release-proton-image` (build), `push-proton-rc` (push release candidate with date tag + `rc.latest`), and `push-proton-release` (push release with date tag + `latest`). The proton image is also included in the full `push-rc` and `push-release` flows.
 
 ## Web UI API Client
 
@@ -682,6 +759,69 @@ The current locale is stored as a system setting (key: `locale`, default: `en-US
 ### Settings UI
 
 The system settings page includes a language picker. Common languages are shown in a dropdown with native-script names. An expandable section reveals the extended locales list. Unpopulated locales (those without a translation catalog) are displayed with an asterisk suffix and are disabled in the selector, preventing selection.
+
+## System Controller Configuration
+
+### Startup Sequence
+
+The system controller initializes services in this order:
+
+1. Database and account managers.
+2. Session manager (clears all prior sessions, generates new ephemeral signing key).
+3. Settings, audit, and pages managers.
+4. Repository root (with immediate force refresh).
+5. Systemd manager.
+6. Reconciliation (restores installed package state -- volumes, quotas, templates, network state files, systemd units).
+7. Monitoring stack (Prometheus + Node Exporter + Grafana).
+8. Rolodex DNS server.
+9. Internal IP watcher (30-second poll; restarts Rolodex on IP change).
+10. UI container.
+11. HTTP server.
+
+Startup failures for monitoring, Rolodex, and the UI container are non-fatal; the system continues without them.
+
+### Version Tag Detection
+
+The system controller reads an optional `/town-os.tag` file at startup to derive matching image tags for sibling services (UI, Rolodex). The fallback chain is: `/town-os.tag` file, then compile-time `Version` variable (set via ldflags), then `rc.latest`. This tag constructs image references like `quay.io/town/ui:<tag>` and `quay.io/town/rolodex:<tag>`.
+
+### Error Format
+
+All API errors are returned as RFC 9457 Problem Detail objects (structured JSON with type, title, status, and detail fields). A custom `ProblemDetailHTTPErrorHandler` is set as the Echo error handler.
+
+### Request Logging
+
+Echo's `RequestLogger()` middleware is enabled globally, logging all HTTP requests to stderr. The verbosity is controlled by the `LOG_LEVEL` environment variable.
+
+### CORS
+
+In `DEBUG` mode, all origins are allowed. Otherwise, cross-port requests from the same hostname are permitted (e.g., browser on port 80 talks to API on port 5309). Allowed methods: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS. Credentials are allowed with a 3600-second max age. The Private Network Access API is supported (`Access-Control-Allow-Private-Network` header).
+
+### Graceful Shutdown
+
+SIGINT triggers context cancellation. Rolodex is stopped explicitly (restoring `/etc/resolv.conf`), the HTTP server shuts down, and all background goroutines exit via context channels.
+
+### CLI Flags
+
+- `-db <path>` -- path to SQLite database (defaults to ephemeral temp file).
+- `-btrfs <path>` -- base path for btrfs subvolume operations.
+- `-repo-dir <path>` -- base directory for git repositories (defaults to ephemeral temp dir).
+- `-networkcontroller-bin <path>` -- path to the `town-os-networkcontroller` binary (defaults to `/town-os-networkcontroller`).
+- `-network-state <path>` -- directory for per-package network state files (defaults to `/var/run/town-os`).
+- `-network-mode <mode>` -- container network mode: empty string for port mappings or `"host"` for host networking.
+- `-listen <addr>` -- HTTP listen address (defaults to `:5309`).
+
+### Environment Variables
+
+- `TOWN_OS_NETWORK_MODE` -- overrides `-network-mode` flag.
+- `TOWN_OS_LISTEN` -- overrides `-listen` flag.
+- `TOWN_OS_SIGNING_KEY` -- override the ephemeral JWT signing key (see Session Management).
+- `TOWN_OS_TEST` -- if set, use test repositories instead of production defaults.
+- `DEBUG` -- if set, allow all CORS origins and prepend test repositories to defaults.
+- `LOG_LEVEL` -- logging level: `debug`, `info`, `warn`, `error` (defaults to `error`).
+- `TOWN_OS_REPO_USERNAME` / `TOWN_OS_REPO_PASSWORD` -- repository credentials applied to all repositories on first initialization.
+- `ROLODEX_IMAGE` -- override Rolodex container image (defaults to `quay.io/town/rolodex:<tag>`).
+- `ROLODEX_LOCAL` -- if set, run Rolodex in local mode (skip resolv.conf rewriting).
+- `UI_IMAGE` -- override UI container image (defaults to `quay.io/town/ui:<tag>`).
 
 ## Development Prerequisites
 
@@ -772,8 +912,11 @@ Integration tests run inside privileged podman containers with systemd, btrfs, a
 
 ### Settings
 
-| Key                      | Default        | Description                           |
-| ------------------------ | -------------- | ------------------------------------- |
-| `default_quota`          | `53687091200`  | Default volume quota in bytes (50 GB) |
-| `max_archive_size`       | `1073741824`   | Maximum upload size in bytes (1 GB)   |
-| `archive_unpack_timeout` | `600`          | Unpack timeout in seconds (10 min)    |
+| Key                      | Default                          | Description                                     |
+| ------------------------ | -------------------------------- | ----------------------------------------------- |
+| `default_quota`          | `53687091200`                    | Default volume quota in bytes (50 GB)           |
+| `max_archive_size`       | `1073741824`                     | Maximum upload size in bytes (1 GB)             |
+| `archive_unpack_timeout` | `600`                            | Unpack timeout in seconds (10 min)              |
+| `locale`                 | `en-US`                          | BCP 47 locale code (system-wide)                |
+| `proton_image`           | `quay.io/town/proton:latest`     | Proton runner container image (GE-Proton)       |
+| `dns_tld`                | `home`                           | Default top-level domain for package DNS records|

@@ -10,8 +10,8 @@ import (
 // that scrapes the local Node Exporter and Prometheus itself.
 func writePrometheusConfig(dataDir, prometheusPort, nodeExporterPort string) error {
 	config := fmt.Sprintf(`global:
-  scrape_interval: 5s
-  evaluation_interval: 5s
+  scrape_interval: 15s
+  evaluation_interval: 15s
 
 scrape_configs:
   - job_name: "prometheus"

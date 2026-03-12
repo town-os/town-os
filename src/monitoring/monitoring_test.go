@@ -284,7 +284,7 @@ func TestSystemServices(t *testing.T) {
 
 func TestPrometheusConfigIncludesNodeExporterTarget(t *testing.T) {
 	dataDir := t.TempDir()
-	if err := writePrometheusConfig(dataDir, "9091", "9101"); err != nil {
+	if err := writePrometheusConfig(dataDir, "9090", "9100"); err != nil {
 		t.Fatalf("writePrometheusConfig: %v", err)
 	}
 
@@ -293,14 +293,14 @@ func TestPrometheusConfigIncludesNodeExporterTarget(t *testing.T) {
 		t.Fatalf("read prometheus.yml: %v", err)
 	}
 
-	if !strings.Contains(string(data), "localhost:9101") {
-		t.Fatal("prometheus config should scrape node-exporter on port 9101")
+	if !strings.Contains(string(data), "localhost:9100") {
+		t.Fatal("prometheus config should scrape node-exporter on port 9100")
 	}
 }
 
 func TestGrafanaProvisioningIncludesPrometheus(t *testing.T) {
 	dataDir := t.TempDir()
-	if err := writeGrafanaProvisioning(dataDir, "9091"); err != nil {
+	if err := writeGrafanaProvisioning(dataDir, "9090"); err != nil {
 		t.Fatalf("writeGrafanaProvisioning: %v", err)
 	}
 
@@ -309,8 +309,8 @@ func TestGrafanaProvisioningIncludesPrometheus(t *testing.T) {
 		t.Fatalf("read datasource config: %v", err)
 	}
 
-	if !strings.Contains(string(data), "localhost:9091") {
-		t.Fatal("grafana datasource should point to prometheus on port 9091")
+	if !strings.Contains(string(data), "localhost:9090") {
+		t.Fatal("grafana datasource should point to prometheus on port 9090")
 	}
 }
 
@@ -340,14 +340,14 @@ func TestStartWritesConfigsToDataDir(t *testing.T) {
 
 func TestDefaultPortValues(t *testing.T) {
 	cfg := Config{}
-	if cfg.prometheusHostPort() != "9091" {
-		t.Fatalf("expected default prometheus port 9091, got %s", cfg.prometheusHostPort())
+	if cfg.prometheusHostPort() != "9090" {
+		t.Fatalf("expected default prometheus port 9090, got %s", cfg.prometheusHostPort())
 	}
-	if cfg.nodeExporterHostPort() != "9101" {
-		t.Fatalf("expected default node-exporter port 9101, got %s", cfg.nodeExporterHostPort())
+	if cfg.nodeExporterHostPort() != "9100" {
+		t.Fatalf("expected default node-exporter port 9100, got %s", cfg.nodeExporterHostPort())
 	}
-	if cfg.grafanaHostPort() != "3001" {
-		t.Fatalf("expected default grafana port 3001, got %s", cfg.grafanaHostPort())
+	if cfg.grafanaHostPort() != "3000" {
+		t.Fatalf("expected default grafana port 3000, got %s", cfg.grafanaHostPort())
 	}
 }
 

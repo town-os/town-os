@@ -1,5 +1,5 @@
 import { usePolling } from '@/lib/hooks.js'
-import getClient, { getBaseURLForPort } from '@/lib/client-instance.js'
+import getClient from '@/lib/client-instance.js'
 import {
   Card,
   CardContent,
@@ -21,7 +21,8 @@ export default function MonitoringDashboard() {
     15000,
   )
 
-  const grafanaURL = status ? getBaseURLForPort(status.grafana.port) + '/d/town-os-overview/town-os-overview?kiosk&theme=light' : null
+  const grafanaBase = import.meta.env.VITE_API_URL || window.location.origin
+  const grafanaURL = status ? grafanaBase + '/monitoring/grafana/d/town-os-overview/town-os-overview?kiosk&theme=light' : null
 
   const allRunning =
     status &&
