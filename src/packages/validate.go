@@ -22,6 +22,8 @@ var (
 	ErrInvalidTemplateSpec   = errors.New("invalid template spec")
 	ErrInvalidTemplatePath   = errors.New("invalid template path")
 	ErrInvalidProtonSpec     = errors.New("invalid proton spec")
+	ErrInvalidDependencyName = errors.New("invalid dependency name")
+	ErrInvalidDependencySpec = errors.New("invalid dependency spec")
 )
 
 var (
@@ -286,6 +288,33 @@ func ValidateTemplatePath(path string) error {
 	}
 	if slices.Contains(strings.Split(path, "/"), "..") {
 		return fmt.Errorf("%w: %q (must not contain directory traversal)", ErrInvalidTemplatePath, path)
+	}
+	return nil
+}
+
+// ValidateDependencyName checks that a dependency key follows the volume
+// naming convention (alphanumeric with dots, dashes, and underscores).
+func ValidateDependencyName(name string) error {
+	if !volumeNameRegexp.MatchString(name) {
+		return fmt.Errorf("%w: %q", ErrInvalidDependencyName, name)
+	}
+	return nil
+}
+
+// ValidateDependencySpec validates that a dependency declaration has a
+// non-empty package field.
+func ValidateDependencySpec(dep InputPackageDependency) error {
+	if dep.Package == "" {
+		return fmt.Errorf("%w: package must not be empty", ErrInvalidDependencySpec)
+	}
+	return nil
+}
+
+// ValidatePackageName checks that a package name does not contain the
+// dependency separator, which is reserved for dependency namespacing.
+func ValidatePackageName(name string) error {
+	if strings.Contains(name, DependencySeparator) {
+		return fmt.Errorf("%w: %q contains reserved separator %q", ErrInvalidDependencyName, name, DependencySeparator)
 	}
 	return nil
 }

@@ -153,6 +153,13 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		note.Value = applyTemplate(note.Value, iv, response)
 		i.Notes[name] = note
 	}
+
+	for key, dep := range i.Dependencies {
+		for rk, rv := range dep.Responses {
+			dep.Responses[rk] = applyTemplate(rv, iv, response)
+		}
+		i.Dependencies[key] = dep
+	}
 }
 
 func convert(p map[string]string) (PortMap, error) {
@@ -257,6 +264,15 @@ func (i *InputPackage) Validate() error {
 		}
 		if err := ValidateTemplateSpec(tmpl, i.Volumes); err != nil {
 			return fmt.Errorf("template %q: %w", name, err)
+		}
+	}
+
+	for key, dep := range i.Dependencies {
+		if err := ValidateDependencyName(key); err != nil {
+			return fmt.Errorf("dependency %q: %w", key, err)
+		}
+		if err := ValidateDependencySpec(dep); err != nil {
+			return fmt.Errorf("dependency %q: %w", key, err)
 		}
 	}
 
@@ -449,17 +465,38 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, err
 	}
 
+	// Apply template substitution to dependency response values.
+	var compiledDeps map[string]InputPackageDependency
+	if len(i.Dependencies) > 0 {
+		compiledDeps = make(map[string]InputPackageDependency, len(i.Dependencies))
+		for key, dep := range i.Dependencies {
+			resolved := InputPackageDependency{
+				Package: dep.Package,
+				Repo:    dep.Repo,
+				Version: dep.Version,
+			}
+			if len(dep.Responses) > 0 {
+				resolved.Responses = make(map[string]string, len(dep.Responses))
+				for rk, rv := range dep.Responses {
+					resolved.Responses[rk] = applyTemplates(rv, response)
+				}
+			}
+			compiledDeps[key] = resolved
+		}
+	}
+
 	p := &Package{
-		Image:       image,
-		ImageType:   imageType,
-		Command:     command,
-		Environment: i.Environment,
-		Network:     PackageNetwork{External: external, Internal: internal, Domains: i.Network.Domains},
-		Volumes:     volumes,
-		Templates:   templates,
-		Notes:       notes,
-		Runtime:     rt,
-		Proton:      proton,
+		Image:        image,
+		ImageType:    imageType,
+		Command:      command,
+		Environment:  i.Environment,
+		Network:      PackageNetwork{External: external, Internal: internal, Domains: i.Network.Domains},
+		Volumes:      volumes,
+		Templates:    templates,
+		Notes:        notes,
+		Runtime:      rt,
+		Proton:       proton,
+		Dependencies: compiledDeps,
 	}
 
 	// Compile VM configuration if present.

@@ -17,12 +17,15 @@ import (
 )
 
 // writePackageNetworkState writes the per-package JSON state file consumed by
-// the networkcontroller daemon.
+// the networkcontroller daemon. Dependencies (names containing --dep--)
+// always have UPnP disabled to keep their ports local-only.
 func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, version string, compiled *packages.Package) error {
 	statePath := s.Controller.GetNetworkStatePath()
 	if statePath == "" {
 		return nil
 	}
+
+	isDep := packages.IsDependency(pkgName)
 
 	state := networkcontroller.PackageNetworkState{
 		Repo:        repoName,
@@ -36,7 +39,7 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		state.Ports = append(state.Ports, networkcontroller.PortConfig{
 			ExternalPort: ext,
 			InternalPort: int_,
-			UPnP:         true,
+			UPnP:         !isDep,
 			Forward:      forward,
 		})
 	}

@@ -254,17 +254,18 @@ type PackageNetwork struct {
 }
 
 type Package struct {
-	Image       string
-	ImageType   string
-	Command     []string
-	Environment map[string]string
-	Network     PackageNetwork
-	Volumes     map[string]PackageVolume
-	Templates   map[string]PackageTemplate
-	Notes       map[string]string
-	Runtime     RuntimeType
-	VM          *PackageVM
-	Proton      *PackageProton
+	Image        string
+	ImageType    string
+	Command      []string
+	Environment  map[string]string
+	Network      PackageNetwork
+	Volumes      map[string]PackageVolume
+	Templates    map[string]PackageTemplate
+	Notes        map[string]string
+	Runtime      RuntimeType
+	VM           *PackageVM
+	Proton       *PackageProton
+	Dependencies map[string]InputPackageDependency
 }
 
 type InputPackageNetwork struct {
@@ -280,20 +281,21 @@ type Question struct {
 }
 
 type InputPackage struct {
-	Image       InputPackageImage                `yaml:"image"`
-	Command     []string                         `yaml:"command"`
-	Environment map[string]string                `yaml:"environment"`
-	Network     InputPackageNetwork              `yaml:"network"`
-	Volumes     map[string]InputPackageVolume    `yaml:"volumes"`
-	Questions   map[string]Question              `yaml:"questions"`
-	Notes       map[string]Note                  `yaml:"notes" json:"notes,omitempty"`
-	Description string                           `yaml:"description" json:"description,omitempty"`
-	Supplies    []string                         `yaml:"supplies" json:"supplies,omitempty"`
-	Archives    []InputPackageArchive            `yaml:"archives,omitempty"`
-	GitSources  []InputPackageGitSource          `yaml:"git_sources,omitempty"`
-	Templates   map[string]InputPackageTemplate  `yaml:"templates,omitempty"`
-	VM          *InputPackageVM                  `yaml:"vm,omitempty" json:"vm,omitempty"`
-	Proton      *InputPackageProton              `yaml:"proton,omitempty"`
+	Image        InputPackageImage                         `yaml:"image"`
+	Command      []string                                  `yaml:"command"`
+	Environment  map[string]string                         `yaml:"environment"`
+	Network      InputPackageNetwork                       `yaml:"network"`
+	Volumes      map[string]InputPackageVolume             `yaml:"volumes"`
+	Questions    map[string]Question                       `yaml:"questions"`
+	Notes        map[string]Note                           `yaml:"notes" json:"notes,omitempty"`
+	Description  string                                    `yaml:"description" json:"description,omitempty"`
+	Supplies     []string                                  `yaml:"supplies" json:"supplies,omitempty"`
+	Archives     []InputPackageArchive                     `yaml:"archives,omitempty"`
+	GitSources   []InputPackageGitSource                   `yaml:"git_sources,omitempty"`
+	Templates    map[string]InputPackageTemplate           `yaml:"templates,omitempty"`
+	VM           *InputPackageVM                           `yaml:"vm,omitempty" json:"vm,omitempty"`
+	Proton       *InputPackageProton                       `yaml:"proton,omitempty"`
+	Dependencies map[string]InputPackageDependency         `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
 }
 
 // RuntimeType returns the runtime type for this package based on which

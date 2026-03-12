@@ -304,8 +304,11 @@ func reconcileProtonImage(mgr account.SettingsManager) string {
 }
 
 // reconcileWriteNetworkState writes the per-package network state file during
-// reconciliation.
+// reconciliation. Dependencies (names containing --dep--) always have UPnP
+// disabled to keep their ports local-only.
 func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version string, compiled *packages.Package) error {
+	isDep := packages.IsDependency(pkgName)
+
 	state := networkcontroller.PackageNetworkState{
 		Repo:        repoName,
 		Package:     pkgName,
@@ -318,7 +321,7 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 		state.Ports = append(state.Ports, networkcontroller.PortConfig{
 			ExternalPort: ext,
 			InternalPort: int_,
-			UPnP:         true,
+			UPnP:         !isDep,
 			Forward:      forward,
 		})
 	}

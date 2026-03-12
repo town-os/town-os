@@ -33,6 +33,8 @@ type Installer interface {
 	SaveChildren(repoName, parentName string, children []string) error
 	LoadChildren(repoName, parentName string) ([]string, error)
 	IsPackageChanged(repoName, pkgName, version string) (bool, error)
+	SaveDependencies(repoName, pkgName string, deps map[string]DependencyRecord) error
+	LoadDependencies(repoName, pkgName string) (map[string]DependencyRecord, error)
 }
 
 type InstallManager struct {
@@ -434,6 +436,50 @@ func (m *InstallManager) IsPackageChanged(repoName, pkgName, version string) (bo
 	}
 
 	return installedSys.Ino != repoSys.Ino, nil
+}
+
+// SaveDependencies persists the dependency records for a parent package.
+// The file is written to installed/<repoName>/<pkgName>/dependencies.json.
+func (m *InstallManager) SaveDependencies(repoName, pkgName string, deps map[string]DependencyRecord) (err error) {
+	lock, err := lockDir(m.BaseDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, lock.Unlock())
+	}()
+
+	dir := filepath.Join(m.dir(), repoName, pkgName)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	return atomicWriteJSON(filepath.Join(dir, DependenciesFile), deps)
+}
+
+// LoadDependencies reads the persisted dependency records for a parent package.
+// Returns nil (not an error) when no dependencies file exists.
+func (m *InstallManager) LoadDependencies(repoName, pkgName string) (_ map[string]DependencyRecord, err error) {
+	fn, err := SafePath(m.dir(), repoName, pkgName, DependenciesFile)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil //nolint:nilnil // nil deps is the correct zero value when no file exists
+		}
+		return nil, err
+	}
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
+
+	var deps map[string]DependencyRecord
+	if err := json.NewDecoder(f).Decode(&deps); err != nil {
+		return nil, err
+	}
+	return deps, nil
 }
 
 // SaveResponses persists responses to disk using an atomic write under an

@@ -17,6 +17,7 @@ type MockInstallManager struct {
 	StoredResponses     map[string]Responses
 	LastResponses       map[string]Responses
 	Children            map[string][]string
+	Dependencies        map[string]map[string]DependencyRecord
 	Disabled            map[string]bool
 	ChangedPackages     map[string]bool
 	Calls               []MockInstallCall
@@ -34,6 +35,7 @@ func InitMockInstallManager() *MockInstallManager {
 		StoredResponses: map[string]Responses{},
 		LastResponses:   map[string]Responses{},
 		Children:        map[string][]string{},
+		Dependencies:    map[string]map[string]DependencyRecord{},
 		Disabled:        map[string]bool{},
 		ChangedPackages: map[string]bool{},
 	}
@@ -223,4 +225,27 @@ func (m *MockInstallManager) IsPackageChanged(repoName, pkgName, version string)
 
 	key := fmt.Sprintf("%s/%s@%s", repoName, pkgName, version)
 	return m.ChangedPackages[key], nil
+}
+
+func (m *MockInstallManager) SaveDependencies(repoName, pkgName string, deps map[string]DependencyRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "SaveDependencies", Args: []any{repoName, pkgName, deps}})
+
+	key := fmt.Sprintf("%s/%s", repoName, pkgName)
+	m.Dependencies[key] = deps
+	return nil
+}
+
+func (m *MockInstallManager) LoadDependencies(repoName, pkgName string) (map[string]DependencyRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "LoadDependencies", Args: []any{repoName, pkgName}})
+
+	key := fmt.Sprintf("%s/%s", repoName, pkgName)
+	deps, ok := m.Dependencies[key]
+	if !ok {
+		return nil, nil //nolint:nilnil // nil deps is the correct zero value when no dependencies are stored
+	}
+	return deps, nil
 }

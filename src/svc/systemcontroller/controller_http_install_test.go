@@ -239,10 +239,10 @@ func TestHTTPUninstallPackage(t *testing.T) {
 
 	calls := inst.GetCalls()
 	// Install phase: ListInstalled + ListInstalled + Install + ClearLastResponses = 4
-	// Uninstall phase: GetResponses + SaveLastResponses + SetDisabled + Uninstall + ListInstalled = 5
-	// Total = 9
-	if len(calls) != 9 {
-		t.Fatalf("expected 9 calls, got %d: %v", len(calls), calls)
+	// Uninstall phase: GetResponses + SaveLastResponses + SetDisabled + Uninstall + LoadDependencies + ListInstalled = 6
+	// Total = 10
+	if len(calls) != 10 {
+		t.Fatalf("expected 10 calls, got %d: %v", len(calls), calls)
 	}
 	if calls[2].Method != "Install" {
 		t.Fatalf("expected Install call, got %q", calls[2].Method)
@@ -253,8 +253,11 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	if calls[7].Method != "Uninstall" {
 		t.Fatalf("expected Uninstall call, got %q", calls[7].Method)
 	}
-	if calls[8].Method != "ListInstalled" {
-		t.Fatalf("expected ListInstalled call, got %q", calls[8].Method)
+	if calls[8].Method != "LoadDependencies" {
+		t.Fatalf("expected LoadDependencies call, got %q", calls[8].Method)
+	}
+	if calls[9].Method != "ListInstalled" {
+		t.Fatalf("expected ListInstalled call, got %q", calls[9].Method)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 
@@ -303,6 +304,29 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		s.applyPackageTemplates(compiled, req.Responses, repoName, effectiveName, req.Version, ip.Description)
 	}
 
+	// Install dependencies before the parent package.
+	if len(compiled.Dependencies) > 0 {
+		depRecords, depEnvVars, err := s.installDependencies(ctx, repoName, effectiveName, compiled.Dependencies)
+		if err != nil {
+			return fmt.Errorf("install dependencies: %w", err)
+		}
+
+		// Inject dependency connection environment variables into the parent.
+		if len(depEnvVars) > 0 {
+			if compiled.Environment == nil {
+				compiled.Environment = map[string]string{}
+			}
+			maps.Copy(compiled.Environment, depEnvVars)
+		}
+
+		// Save dependency records for uninstall.
+		if len(depRecords) > 0 {
+			if err := inst.SaveDependencies(repoName, effectiveName, depRecords); err != nil {
+				return fmt.Errorf("save dependencies: %w", err)
+			}
+		}
+	}
+
 	if err := inst.Install(repoName, effectiveName, req.Version, req.Responses); err != nil {
 		return err
 	}
@@ -340,7 +364,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, ip.Description, compiled)
 		units := systemd.GeneratePackageUnits(cfg)
-		if err := s.writePackageNetworkState(repoName, req.Name, req.Version, compiled); err != nil {
+		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, compiled); err != nil {
 			return err
 		}
 		if err := s.installPackageUnits(ctx, sd, units); err != nil {
@@ -414,6 +438,9 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 			slog.Debug(fmt.Sprintf("save children %s/%s: %v", req.Repo, parentName, err))
 		}
 	}
+
+	// Cascade-uninstall dependencies after the parent.
+	s.uninstallDependencies(ctx, req.Repo, effectiveName, req.PurgeVolumes)
 
 	// Volume handling after uninstall.
 	if req.PurgeVolumes {
