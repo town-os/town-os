@@ -1619,6 +1619,54 @@ func TestReconcileDNSNoPackages(t *testing.T) {
 	}
 }
 
+func TestReconcileCompileWithContext(t *testing.T) {
+	pkgYAML := `image: nginx:1.0
+environment:
+  DNS_NAME: "@PACKAGE_DNS@"
+  INTERNAL_HOST: "@LOCAL_INTERNAL_HOST@"
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"webapp/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "webapp", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	settings := &mockSettingsManager{
+		values: map[string]string{"dns_tld": "lan"},
+	}
+
+	err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Systemd:        sd,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.50",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
+	}
+
+	unitContent, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("expected string arg for unit content")
+	}
+
+	// Verify template substitutions in the unit content.
+	if !strings.Contains(unitContent, "webapp.repo-a.lan") {
+		t.Fatalf("expected PACKAGE_DNS substitution 'webapp.repo-a.lan' in unit content, got:\n%s", unitContent)
+	}
+	if !strings.Contains(unitContent, "192.168.1.50") {
+		t.Fatalf("expected LOCAL_INTERNAL_HOST substitution '192.168.1.50' in unit content, got:\n%s", unitContent)
+	}
+}
 // mockSettingsManager is a minimal in-memory settings manager for tests.
 type mockSettingsManager struct {
 	values map[string]string

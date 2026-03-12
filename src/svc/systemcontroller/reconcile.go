@@ -142,7 +142,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
 		ExternalHost: cfg.ExternalIP,
 		InternalHost: cfg.InternalIP,
-		PackageDNS:   pi.Name + "." + pi.Repo + "." + tld,
+		PackageDNS:   pi.Name + "." + repoName + "." + tld,
 	})
 	if err != nil {
 		return fmt.Errorf("compile: %w", err)
