@@ -2,6 +2,7 @@ package systemcontroller
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 
 	"gitea.com/town-os/town-os/src/i18n"
@@ -21,6 +22,12 @@ type GetSettingRequest struct {
 // byteValueSettings are setting keys whose values represent byte counts
 // and should be normalized through ParseBytes so that human-readable
 // strings like "500GB" are stored as numeric byte values.
+// settingsValidators maps setting keys to validation functions that are
+// called before the value is persisted via the generic settings API.
+var settingsValidators = map[string]func(string) error{
+	"dns_tld": ValidateTLD,
+}
+
 var byteValueSettings = map[string]bool{
 	"default_quota":    true,
 	"max_archive_size": true,
@@ -76,6 +83,12 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 	}
 
 	value := req.Value
+
+	if validator, ok := settingsValidators[req.Key]; ok {
+		if err := validator(value); err != nil {
+			return echo.NewHTTPError(400, fmt.Sprintf("invalid value for %q: %v", req.Key, err))
+		}
+	}
 
 	if byteValueSettings[req.Key] {
 		b, err := packages.ParseBytes(value)

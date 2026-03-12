@@ -15,6 +15,7 @@ case "$1" in
       -e "TOWN_OS_REPO_USERNAME=${TOWN_OS_REPO_USERNAME}" \
       -e "TOWN_OS_REPO_PASSWORD=${TOWN_OS_REPO_PASSWORD}" \
       -e TOWN_OS_NETWORK_MODE=host \
+      -e ROLODEX_LOCAL=1 \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os-dev.mount"):/town-os:z" \

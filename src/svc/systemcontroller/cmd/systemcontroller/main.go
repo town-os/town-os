@@ -206,6 +206,7 @@ func run() (err error) {
 		NetworkControllerBinPath: *networkControllerBin,
 		NetworkStatePath:         *networkStatePath,
 		NetworkMode:              *networkMode,
+		InternalIP:               getInternalIP(),
 	})
 	if err != nil {
 		return fmt.Errorf("reconcile: %w", err)
@@ -276,6 +277,39 @@ func run() (err error) {
 	// rolodex when the public address changes.
 	if rolMgr != nil && !rolLocal {
 		go watchInternalIP(ctx, rolMgr)
+	}
+
+	// Reconcile DNS state: set up TLD zone and register records for all
+	// installed packages. This runs after rolodex is started so the gRPC
+	// socket is available.
+	if rolMgr != nil {
+		socketPath := rolMgr.SocketPath()
+		deadline := time.Now().Add(30 * time.Second)
+		var rolClient rolodex.Client
+		for time.Now().Before(deadline) {
+			rolClient, err = rolodex.Dial(ctx, socketPath)
+			if err == nil {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if rolClient != nil {
+			dnsErr := systemcontroller.ReconcileDNS(ctx, systemcontroller.ReconcileDNSConfig{
+				Client:         rolClient,
+				Installer:      inst,
+				RepositoryRoot: rr,
+				SettingsMgr:    settingsMgr,
+				InternalIP:     getInternalIP(),
+			})
+			if dnsErr != nil {
+				fmt.Fprintf(os.Stderr, "reconcile DNS: %v\n", dnsErr)
+			}
+			if closeErr := rolClient.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "close rolodex client: %v\n", closeErr)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "reconcile DNS: could not connect to rolodex socket\n")
+		}
 	}
 
 	// Start the UI container (Caddy web server).

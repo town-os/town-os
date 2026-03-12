@@ -16,6 +16,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -1509,6 +1510,161 @@ volumes:
 	calls := sd.GetCalls()
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
+	}
+}
+
+func TestReconcileDNS(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\nnetwork:\n  domains:\n    - www\n",
+		"redis/7.0": "image: redis:7.0\n",
+	})
+
+	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+	if err := inst.Install("repo-a", "redis", "7.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install redis: %v", err)
+	}
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{
+		values: map[string]string{"dns_tld": "lan"},
+	}
+
+	err := ReconcileDNS(context.Background(), ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+	})
+	if err != nil {
+		t.Fatalf("ReconcileDNS: %v", err)
+	}
+
+	calls := mock.GetCalls()
+
+	// Expect: AddAuthoritativeZone, AddRecord(SOA), AddRecord(NS), AddRecord(A for ns1)
+	// Then for each package: AddRecord(A for pkg.repo.tld.)
+	// nginx has an extra domain "www", so: AddRecord(A for nginx.repo-a.lan.) + AddRecord(A for www.nginx.repo-a.lan.)
+	// redis: AddRecord(A for redis.repo-a.lan.)
+
+	var addAuthZoneCalls int
+	var addRecordCalls int
+	for _, c := range calls {
+		switch c.Method {
+		case "AddAuthoritativeZone":
+			addAuthZoneCalls++
+			zone, ok := c.Args[0].(string)
+			if !ok {
+				t.Fatal("expected string arg for AddAuthoritativeZone")
+			}
+			if zone != "lan." {
+				t.Fatalf("expected zone lan., got %s", zone)
+			}
+		case "AddRecord":
+			addRecordCalls++
+		}
+	}
+
+	if addAuthZoneCalls != 1 {
+		t.Fatalf("expected 1 AddAuthoritativeZone call, got %d", addAuthZoneCalls)
+	}
+
+	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) + A(www.nginx.repo-a.lan.) + A(redis.repo-a.lan.) = 6
+	if addRecordCalls != 6 {
+		t.Fatalf("expected 6 AddRecord calls, got %d", addRecordCalls)
+	}
+}
+
+func TestReconcileDNSNoPackages(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, nil)
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{
+		values: map[string]string{},
+	}
+
+	err := ReconcileDNS(context.Background(), ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "10.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("ReconcileDNS: %v", err)
+	}
+
+	calls := mock.GetCalls()
+
+	// Only TLD setup: AddAuthoritativeZone + SOA + NS + A(ns1) = 4 calls
+	var addAuthZoneCalls int
+	for _, c := range calls {
+		if c.Method == "AddAuthoritativeZone" {
+			addAuthZoneCalls++
+			zone, ok := c.Args[0].(string)
+			if !ok {
+				t.Fatal("expected string arg")
+			}
+			// Default TLD when not set
+			if zone != "home." {
+				t.Fatalf("expected default zone home., got %s", zone)
+			}
+		}
+	}
+
+	if addAuthZoneCalls != 1 {
+		t.Fatalf("expected 1 AddAuthoritativeZone call, got %d", addAuthZoneCalls)
+	}
+}
+
+func TestReconcileCompileWithContext(t *testing.T) {
+	pkgYAML := `image: nginx:1.0
+environment:
+  DNS_NAME: "@PACKAGE_DNS@"
+  INTERNAL_HOST: "@LOCAL_INTERNAL_HOST@"
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"webapp/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "webapp", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	settings := &mockSettingsManager{
+		values: map[string]string{"dns_tld": "lan"},
+	}
+
+	err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Systemd:        sd,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.50",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 systemd calls, got %d: %v", len(calls), calls)
+	}
+
+	unitContent, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("expected string arg for unit content")
+	}
+
+	// Verify template substitutions in the unit content.
+	if !strings.Contains(unitContent, "webapp.repo-a.lan") {
+		t.Fatalf("expected PACKAGE_DNS substitution 'webapp.repo-a.lan' in unit content, got:\n%s", unitContent)
+	}
+	if !strings.Contains(unitContent, "192.168.1.50") {
+		t.Fatalf("expected LOCAL_INTERNAL_HOST substitution '192.168.1.50' in unit content, got:\n%s", unitContent)
 	}
 }
 

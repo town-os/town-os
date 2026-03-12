@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
-	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"github.com/labstack/echo/v5"
 )
@@ -145,8 +144,8 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
 	}
 
-	if req.TLD == "" {
-		return echo.NewHTTPError(400, "tld must not be empty")
+	if err := ValidateTLD(req.TLD); err != nil {
+		return echo.NewHTTPError(400, fmt.Sprintf("invalid TLD: %v", err))
 	}
 
 	rc := s.Controller.GetRolodexClient()
@@ -264,39 +263,5 @@ func (s *SystemControllerHandlers) unregisterPackageDNS(ctx context.Context, rep
 
 // collectInstalledPackageDNSInfo returns DNS info for all installed packages.
 func (s *SystemControllerHandlers) collectInstalledPackageDNSInfo() []rolodex.PackageDNSInfo {
-	inst := s.Controller.GetInstaller()
-	if inst == nil {
-		return nil
-	}
-
-	installed, err := inst.ListInstalled()
-	if err != nil {
-		return nil
-	}
-
-	rr := s.Controller.GetRepositoryRoot()
-
-	var pkgs []rolodex.PackageDNSInfo
-	for _, pkg := range installed {
-		pi, err := packages.ParsePackageIdentity(pkg)
-		if err != nil {
-			continue
-		}
-
-		var domains []string
-		if rr != nil {
-			ip, err := rr.LoadPackage(pi.Repo, pi.Name, pi.Version)
-			if err == nil {
-				domains = ip.Network.Domains
-			}
-		}
-
-		pkgs = append(pkgs, rolodex.PackageDNSInfo{
-			Repo:    pi.Repo,
-			Name:    pi.Name,
-			Domains: domains,
-		})
-	}
-
-	return pkgs
+	return collectInstalledDNSInfo(s.Controller.GetInstaller(), s.Controller.GetRepositoryRoot())
 }

@@ -12,6 +12,7 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -31,6 +32,8 @@ type ReconcileConfig struct {
 	NetworkMode              string
 	CaddyImage               string
 	CaddyPort                string
+	InternalIP               string
+	ExternalIP               string
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -135,7 +138,12 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		return fmt.Errorf("get responses: %w", err)
 	}
 
-	compiled, err := ip.Compile(responses)
+	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
+		ExternalHost: cfg.ExternalIP,
+		InternalHost: cfg.InternalIP,
+		PackageDNS:   pi.Name + "." + repoName + "." + tld,
+	})
 	if err != nil {
 		return fmt.Errorf("compile: %w", err)
 	}
@@ -301,6 +309,87 @@ func reconcileProtonImage(mgr account.SettingsManager) string {
 	}
 
 	return val
+}
+
+// reconcileDNSTLD returns the current TLD from settings, defaulting to "home".
+func reconcileDNSTLD(mgr account.SettingsManager) string {
+	if mgr == nil {
+		return "home"
+	}
+
+	val, err := mgr.Get("dns_tld")
+	if err != nil || val == "" {
+		return "home"
+	}
+
+	return val
+}
+
+// collectInstalledDNSInfo returns DNS info for all installed packages using
+// the given installer and repository root.
+func collectInstalledDNSInfo(inst packages.Installer, rr *packages.RepositoryRoot) []rolodex.PackageDNSInfo {
+	if inst == nil {
+		return nil
+	}
+
+	installed, err := inst.ListInstalled()
+	if err != nil {
+		return nil
+	}
+
+	var pkgs []rolodex.PackageDNSInfo
+	for _, pkg := range installed {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+
+		var domains []string
+		if rr != nil {
+			ip, err := rr.LoadPackage(pi.Repo, pi.Name, pi.Version)
+			if err == nil {
+				domains = ip.Network.Domains
+			}
+		}
+
+		pkgs = append(pkgs, rolodex.PackageDNSInfo{
+			Repo:    pi.Repo,
+			Name:    pi.Name,
+			Domains: domains,
+		})
+	}
+
+	return pkgs
+}
+
+// ReconcileDNSConfig holds the dependencies needed to reconcile DNS state
+// on startup.
+type ReconcileDNSConfig struct {
+	Client         rolodex.Client
+	Installer      packages.Installer
+	RepositoryRoot *packages.RepositoryRoot
+	SettingsMgr    account.SettingsManager
+	InternalIP     string
+}
+
+// ReconcileDNS sets up the TLD zone and registers DNS records for all
+// installed packages. Errors for individual packages are logged and skipped.
+func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
+	tld := reconcileDNSTLD(cfg.SettingsMgr)
+
+	if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, ""); err != nil {
+		return fmt.Errorf("setup TLD %s: %w", tld, err)
+	}
+
+	pkgs := collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot)
+	for _, pkg := range pkgs {
+		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, "", pkg.Domains); err != nil {
+			slog.Debug(fmt.Sprintf("reconcile DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
+			continue
+		}
+	}
+
+	return nil
 }
 
 // reconcileWriteNetworkState writes the per-package network state file during
