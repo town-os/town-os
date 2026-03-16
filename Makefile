@@ -23,6 +23,9 @@ export INSTANCE_ID
 STATE_DIR := /tmp/town-os-$(INSTANCE_ID)
 export STATE_DIR
 
+LOG_DIR := /tmp/town-os/log
+export LOG_DIR
+
 # Image names (unique per working directory).
 # Integration and dev use separate production base images so builds
 # cannot interfere with each other.
