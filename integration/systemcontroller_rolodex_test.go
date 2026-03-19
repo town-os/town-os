@@ -316,12 +316,13 @@ func testRolodexDNSQuery(t *testing.T, domain string) {
 	t.Helper()
 
 	_, dnsPort := initRolodexRealTest(t)
-	ctx := context.Background()
-	if dl, ok := t.Deadline(); ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, dl)
-		defer cancel()
-	}
+
+	// Use a short timeout — these tests query external domains via DNS
+	// forwarding (8.8.8.8), which requires outbound internet from the
+	// nested container. Fail fast rather than hanging for the full
+	// test timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	// Rolodex is running on a random high port (local mode) and handles its
 	// own forwarding. Use a custom resolver pointing at that port.
@@ -345,7 +346,7 @@ func testRolodexDNSQuery(t *testing.T, domain string) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if resolveErr != nil {
-		t.Fatalf("LookupHost(%s): %v", domain, resolveErr)
+		t.Fatalf("LookupHost(%s): %v (DNS forwarding to 8.8.8.8 may be unreachable from nested container)", domain, resolveErr)
 	}
 	if len(addrs) == 0 {
 		t.Fatalf("expected at least 1 address for %s", domain)
