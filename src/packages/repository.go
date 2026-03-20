@@ -18,7 +18,7 @@ import (
 
 // DefaultRepoURL is the default package repository URL. It can be overridden
 // at build time via ldflags (e.g. -ldflags "-X gitea.com/town-os/town-os/src/packages.DefaultRepoURL=...").
-var DefaultRepoURL = "https://github.com/town-os/default-packages"
+var DefaultRepoURL = "https://gitea.com/town-os/curated-packages"
 
 const RepositoriesFile = "repositories.json"
 const LastRefreshedFile = "last_refreshed"
@@ -32,7 +32,7 @@ func DefaultRepositories() []Repository {
 		panic("invalid default repository URL: " + err.Error())
 	}
 	return []Repository{
-		{Name: "default", URL: *u},
+		{Name: "curated", URL: *u},
 	}
 }
 
