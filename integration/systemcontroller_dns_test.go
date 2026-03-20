@@ -265,7 +265,10 @@ func TestDNSTLDChangeReprovisionsRecords(t *testing.T) {
 
 // --- Real container tests ---
 
-func TestDNSRealSetupAndQuery(t *testing.T) {
+// TestDNSRealQueries shares a single rolodex container across DNS query
+// subtests. Separate containers cause unreliable port bindings on 127.0.0.2
+// after teardown (see d789b23).
+func TestDNSRealQueries(t *testing.T) {
 	client, dnsPort := initRolodexRealTest(t)
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {
@@ -274,12 +277,11 @@ func TestDNSRealSetupAndQuery(t *testing.T) {
 		t.Cleanup(cancel)
 	}
 
-	// Setup TLD using the real client.
+	// Setup TLD using the real client (shared across subtests).
 	if err := rolodex.SetupTLD(ctx, client, "home", rolodex.DNSLoopback, ""); err != nil {
 		t.Fatalf("SetupTLD: %v", err)
 	}
 
-	// Verify ns1.home. resolves via DNS.
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -288,76 +290,58 @@ func TestDNSRealSetupAndQuery(t *testing.T) {
 		},
 	}
 
-	var addrs []string
-	var resolveErr error
-	for ctx.Err() == nil {
-		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		addrs, resolveErr = resolver.LookupHost(lookupCtx, "ns1.home.")
-		cancel()
-		if resolveErr == nil && len(addrs) > 0 {
-			break
+	t.Run("SetupAndQuery", func(t *testing.T) {
+		// Verify ns1.home. resolves via DNS.
+		var addrs []string
+		var resolveErr error
+		for ctx.Err() == nil {
+			lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			addrs, resolveErr = resolver.LookupHost(lookupCtx, "ns1.home.")
+			cancel()
+			if resolveErr == nil && len(addrs) > 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if resolveErr != nil {
-		t.Fatalf("LookupHost(ns1.home.): %v", resolveErr)
-	}
-	if len(addrs) == 0 {
-		t.Fatal("expected at least 1 address for ns1.home.")
-	}
-
-	if !slices.Contains(addrs, rolodex.DNSLoopback) {
-		t.Fatalf("expected ns1.home. to resolve to %s, got %v", rolodex.DNSLoopback, addrs)
-	}
-}
-
-func TestDNSRealPackageRecord(t *testing.T) {
-	client, dnsPort := initRolodexRealTest(t)
-	ctx := context.Background()
-	if dl, ok := t.Deadline(); ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, dl.Add(-15*time.Second))
-		t.Cleanup(cancel)
-	}
-
-	// Setup TLD.
-	if err := rolodex.SetupTLD(ctx, client, "home", rolodex.DNSLoopback, ""); err != nil {
-		t.Fatalf("SetupTLD: %v", err)
-	}
-
-	// Register a package.
-	if err := rolodex.RegisterPackageDNS(ctx, client, "core", "nginx", "home", rolodex.DNSLoopback, "", nil); err != nil {
-		t.Fatalf("RegisterPackageDNS: %v", err)
-	}
-
-	// Verify nginx.core.home. resolves via DNS.
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 5 * time.Second}
-			return d.DialContext(ctx, "udp", rolodex.DNSLoopback+":"+dnsPort)
-		},
-	}
-
-	var addrs []string
-	var resolveErr error
-	for ctx.Err() == nil {
-		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		addrs, resolveErr = resolver.LookupHost(lookupCtx, "nginx.core.home.")
-		cancel()
-		if resolveErr == nil && len(addrs) > 0 {
-			break
+		if resolveErr != nil {
+			t.Fatalf("LookupHost(ns1.home.): %v", resolveErr)
 		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if resolveErr != nil {
-		t.Fatalf("LookupHost(nginx.core.home.): %v", resolveErr)
-	}
-	if len(addrs) == 0 {
-		t.Fatal("expected at least 1 address for nginx.core.home.")
-	}
+		if len(addrs) == 0 {
+			t.Fatal("expected at least 1 address for ns1.home.")
+		}
 
-	if !slices.Contains(addrs, rolodex.DNSLoopback) {
-		t.Fatalf("expected nginx.core.home. to resolve to %s, got %v", rolodex.DNSLoopback, addrs)
-	}
+		if !slices.Contains(addrs, rolodex.DNSLoopback) {
+			t.Fatalf("expected ns1.home. to resolve to %s, got %v", rolodex.DNSLoopback, addrs)
+		}
+	})
+
+	t.Run("PackageRecord", func(t *testing.T) {
+		// Register a package.
+		if err := rolodex.RegisterPackageDNS(ctx, client, "core", "nginx", "home", rolodex.DNSLoopback, "", nil); err != nil {
+			t.Fatalf("RegisterPackageDNS: %v", err)
+		}
+
+		// Verify nginx.core.home. resolves via DNS.
+		var addrs []string
+		var resolveErr error
+		for ctx.Err() == nil {
+			lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			addrs, resolveErr = resolver.LookupHost(lookupCtx, "nginx.core.home.")
+			cancel()
+			if resolveErr == nil && len(addrs) > 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if resolveErr != nil {
+			t.Fatalf("LookupHost(nginx.core.home.): %v", resolveErr)
+		}
+		if len(addrs) == 0 {
+			t.Fatal("expected at least 1 address for nginx.core.home.")
+		}
+
+		if !slices.Contains(addrs, rolodex.DNSLoopback) {
+			t.Fatalf("expected nginx.core.home. to resolve to %s, got %v", rolodex.DNSLoopback, addrs)
+		}
+	})
 }
