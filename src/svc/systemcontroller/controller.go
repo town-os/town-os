@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
@@ -51,6 +52,29 @@ type SystemController interface {
 
 type SystemControllerHandlers struct {
 	Controller systemControllerBackend
+
+	// packageMu serializes mutating operations (install, uninstall, purge,
+	// enable/disable, rebuild-git) on the same package so that concurrent
+	// requests cannot interleave and leave the service in an inconsistent
+	// state (e.g. old container still stopping while a new one tries to
+	// bind the same ports).
+	packageMu sync.Map // "repo/name" → *sync.Mutex
+}
+
+// lockPackage acquires a per-package mutex and returns an unlock function.
+// All mutating package operations must hold this lock for the duration of
+// the handler to prevent races between e.g. uninstall+purge and install.
+func (s *SystemControllerHandlers) lockPackage(repo, name string) func() {
+	key := repo + "/" + name
+	actual, _ := s.packageMu.LoadOrStore(key, &sync.Mutex{})
+	mu, ok := actual.(*sync.Mutex)
+	if !ok {
+		// Should never happen: we only store *sync.Mutex values.
+		mu = &sync.Mutex{}
+		s.packageMu.Store(key, mu)
+	}
+	mu.Lock()
+	return mu.Unlock
 }
 
 func getHandler(sc systemControllerBackend) *SystemControllerHandlers {

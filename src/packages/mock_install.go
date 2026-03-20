@@ -28,6 +28,12 @@ type MockInstallManager struct {
 	SetDisabledErr      error
 	IsDisabledErr       error
 	IsPackageChangedErr error
+
+	// OnInstall is called during Install while the mock lock is NOT held,
+	// allowing tests to inject delays or synchronization points.
+	OnInstall func()
+	// OnUninstall is called during Uninstall while the mock lock is NOT held.
+	OnUninstall func()
 }
 
 func InitMockInstallManager() *MockInstallManager {
@@ -51,15 +57,17 @@ func (m *MockInstallManager) GetCalls() []MockInstallCall {
 
 func (m *MockInstallManager) Install(repoName, pkgName, version string, responses Responses) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	hook := m.OnInstall
 	m.Calls = append(m.Calls, MockInstallCall{Method: "Install", Args: []any{repoName, pkgName, version, responses}})
 
 	if m.InstallErr != nil {
+		m.mu.Unlock()
 		return m.InstallErr
 	}
 
 	for _, p := range m.Installed {
 		if p.Repo == repoName && p.Name == pkgName && p.Version == version {
+			m.mu.Unlock()
 			return fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrAlreadyInstalled)
 		}
 	}
@@ -67,15 +75,22 @@ func (m *MockInstallManager) Install(repoName, pkgName, version string, response
 	m.Installed = append(m.Installed, PackageIdentity{Repo: repoName, Name: pkgName, Version: version})
 	key := fmt.Sprintf("%s/%s@%s", repoName, pkgName, version)
 	m.StoredResponses[key] = responses
+	m.mu.Unlock()
+
+	if hook != nil {
+		hook()
+	}
+
 	return nil
 }
 
 func (m *MockInstallManager) Uninstall(repoName, pkgName, version string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	hook := m.OnUninstall
 	m.Calls = append(m.Calls, MockInstallCall{Method: "Uninstall", Args: []any{repoName, pkgName, version}})
 
 	if m.UninstallErr != nil {
+		m.mu.Unlock()
 		return m.UninstallErr
 	}
 
@@ -84,10 +99,15 @@ func (m *MockInstallManager) Uninstall(repoName, pkgName, version string) error 
 			m.Installed = append(m.Installed[:i], m.Installed[i+1:]...)
 			key := fmt.Sprintf("%s/%s@%s", repoName, pkgName, version)
 			delete(m.StoredResponses, key)
+			m.mu.Unlock()
+			if hook != nil {
+				hook()
+			}
 			return nil
 		}
 	}
 
+	m.mu.Unlock()
 	return fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrNotInstalled)
 }
 

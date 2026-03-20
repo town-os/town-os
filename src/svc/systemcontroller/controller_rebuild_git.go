@@ -31,6 +31,9 @@ func (s *SystemControllerHandlers) rebuildGit(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgRebuildFieldsRequired))
 	}
 
+	unlock := s.lockPackage(req.Repo, req.Name)
+	defer unlock()
+
 	inst := s.Controller.GetInstaller()
 	rr := s.Controller.GetRepositoryRoot()
 	if rr == nil {

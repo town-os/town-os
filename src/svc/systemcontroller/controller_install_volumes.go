@@ -337,6 +337,9 @@ func (s *SystemControllerHandlers) purgeVolumes(c *echo.Context) error {
 		return err
 	}
 
+	unlock := s.lockPackage(req.Repo, req.Name)
+	defer unlock()
+
 	if err := s.purgePackageVolumes(req.Repo, req.Name); err != nil {
 		return err
 	}

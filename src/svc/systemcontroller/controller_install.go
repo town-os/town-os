@@ -250,6 +250,9 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		return err
 	}
 
+	unlock := s.lockPackage(repoName, effectiveName)
+	defer unlock()
+
 	inst := s.Controller.GetInstaller()
 	ctx := c.Request().Context()
 
@@ -392,6 +395,9 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 	if req.Instance != "" {
 		effectiveName = fmt.Sprintf("%s-%s", parentName, req.Instance)
 	}
+
+	unlock := s.lockPackage(req.Repo, effectiveName)
+	defer unlock()
 
 	ctx := c.Request().Context()
 	inst := s.Controller.GetInstaller()

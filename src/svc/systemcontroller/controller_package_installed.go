@@ -221,6 +221,9 @@ func (s *SystemControllerHandlers) purgeUninstalledVolumes(c *echo.Context) erro
 		return err
 	}
 
+	unlock := s.lockPackage(req.Repo, req.Name)
+	defer unlock()
+
 	st := s.Controller.GetStorage()
 	if st == nil {
 		c.Response().WriteHeader(200)
@@ -248,6 +251,9 @@ func (s *SystemControllerHandlers) disablePackage(c *echo.Context) error {
 	if err := de.Decode(&req); err != nil {
 		return err
 	}
+
+	unlock := s.lockPackage(req.Repo, req.Name)
+	defer unlock()
 
 	inst := s.Controller.GetInstaller()
 	if err := inst.SetDisabled(req.Repo, req.Name, true); err != nil {
@@ -285,6 +291,9 @@ func (s *SystemControllerHandlers) enablePackage(c *echo.Context) error {
 	if err := de.Decode(&req); err != nil {
 		return err
 	}
+
+	unlock := s.lockPackage(req.Repo, req.Name)
+	defer unlock()
 
 	inst := s.Controller.GetInstaller()
 	if err := inst.SetDisabled(req.Repo, req.Name, false); err != nil {

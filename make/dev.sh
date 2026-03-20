@@ -5,6 +5,66 @@
 set -e
 . make/lib.sh
 
+DNS_BACKUP="${STATE_DIR}/resolv.conf.bak"
+
+# restore_host_dns — restore /etc/resolv.conf from backup if it exists.
+restore_host_dns() {
+  if [ -f "${DNS_BACKUP}" ]; then
+    local first_line
+    first_line="$(head -1 "${DNS_BACKUP}")"
+    if [ "${first_line}" = "__SYMLINK__" ]; then
+      local target
+      target="$(sed -n '2p' "${DNS_BACKUP}")"
+      ${SUDO} rm -f /etc/resolv.conf
+      ${SUDO} ln -s "${target}" /etc/resolv.conf
+    else
+      ${SUDO} cp "${DNS_BACKUP}" /etc/resolv.conf
+    fi
+    rm -f "${DNS_BACKUP}"
+    step "Restored /etc/resolv.conf"
+  fi
+}
+
+# redirect_host_dns — back up /etc/resolv.conf and point it at rolodex (127.0.0.2).
+redirect_host_dns() {
+  # Wait for rolodex to be listening on 127.0.0.2:53
+  substep "Waiting for rolodex DNS on 127.0.0.2:53"
+  local waited=0
+  while [ "${waited}" -lt 30 ]; do
+    if dig +short +timeout=1 +tries=1 @127.0.0.2 localhost >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if [ "${waited}" -ge 30 ]; then
+    warn "Rolodex did not start within 30s — skipping DNS redirect"
+    return 0
+  fi
+  substep "Rolodex is listening"
+
+  # Back up current /etc/resolv.conf (handle symlinks)
+  if [ -L /etc/resolv.conf ]; then
+    local target
+    target="$(readlink -f /etc/resolv.conf)"
+    printf '__SYMLINK__\n%s\n' "${target}" > "${DNS_BACKUP}"
+  else
+    cp /etc/resolv.conf "${DNS_BACKUP}"
+  fi
+
+  # Rewrite resolv.conf
+  printf 'nameserver 127.0.0.2\n' | ${SUDO} tee /etc/resolv.conf >/dev/null
+
+  printf "${_yellow}%s${_reset}\n" \
+    "╔══════════════════════════════════════════════════════════════╗" \
+    "║  WARNING: /etc/resolv.conf has been rewritten to use        ║" \
+    "║  Town OS DNS (127.0.0.2). Your system DNS is now routed     ║" \
+    "║  through the dev rolodex container.                         ║" \
+    "║                                                             ║" \
+    "║  Run 'make clean-dev' to restore your original DNS config.  ║" \
+    "╚══════════════════════════════════════════════════════════════╝"
+}
+
 case "$1" in
   start)
     step "Starting dev environment"
@@ -34,6 +94,10 @@ case "$1" in
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${MONITORING_IMAGES}
     step "Loading rolodex image into dev container"
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${ROLODEX_IMAGE}
+    step "Redirecting host DNS to rolodex"
+    redirect_host_dns
+    # Ensure DNS is restored when the UI dev server exits (Ctrl-C, crash, etc.)
+    trap restore_host_dns EXIT
     step "Starting UI dev server"
     substep "API server: http://$(hostname):5309"
     cd ui && bun install && bun run dev -- --host
@@ -45,11 +109,13 @@ case "$1" in
     ;;
   stop)
     step "Stopping dev container"
+    restore_host_dns
     # Stop and remove the dev container for this working directory.
     remove_container "${PODMAN_DEV_CONTAINER}"
     ;;
   stop-all)
     step "Stopping all dev containers"
+    restore_host_dns
     # Stop and remove all town-os dev containers (from any working directory).
     ${SUDO} podman ps -a --format '{{.Names}}' 2>/dev/null \
       | grep -E '^town-os-dev$' \
