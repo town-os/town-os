@@ -1619,7 +1619,7 @@ func TestReconcileDNSNoPackages(t *testing.T) {
 	}
 }
 
-func TestReconcileCompileWithContext(t *testing.T) {
+func TestReconcileCompileWithContextInternalOnly(t *testing.T) {
 	pkgYAML := `image: nginx:1.0
 environment:
   DNS_NAME: "@PACKAGE_DNS@"
