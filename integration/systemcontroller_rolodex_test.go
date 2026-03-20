@@ -304,17 +304,7 @@ func TestRolodexClientAddRemoveRecords(t *testing.T) {
 	}
 }
 
-func TestRolodexDNSQueryExampleOrg(t *testing.T) {
-	testRolodexDNSQuery(t, "example.org.")
-}
-
-func TestRolodexDNSQueryExampleCom(t *testing.T) {
-	testRolodexDNSQuery(t, "example.com.")
-}
-
-func testRolodexDNSQuery(t *testing.T, domain string) {
-	t.Helper()
-
+func TestRolodexDNSQueryForwarding(t *testing.T) {
 	_, dnsPort := initRolodexRealTest(t)
 
 	// Use a short timeout — these tests query external domains via DNS
@@ -334,22 +324,24 @@ func testRolodexDNSQuery(t *testing.T, domain string) {
 		},
 	}
 
-	var addrs []string
-	var resolveErr error
-	for ctx.Err() == nil {
-		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		addrs, resolveErr = resolver.LookupHost(lookupCtx, domain)
-		cancel()
-		if resolveErr == nil && len(addrs) > 0 {
-			break
+	for _, domain := range []string{"example.org.", "example.com."} {
+		var addrs []string
+		var resolveErr error
+		for ctx.Err() == nil {
+			lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			addrs, resolveErr = resolver.LookupHost(lookupCtx, domain)
+			cancel()
+			if resolveErr == nil && len(addrs) > 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if resolveErr != nil {
-		t.Fatalf("LookupHost(%s): %v (DNS forwarding to 8.8.8.8 may be unreachable from nested container)", domain, resolveErr)
-	}
-	if len(addrs) == 0 {
-		t.Fatalf("expected at least 1 address for %s", domain)
+		if resolveErr != nil {
+			t.Fatalf("LookupHost(%s): %v (DNS forwarding to 8.8.8.8 may be unreachable from nested container)", domain, resolveErr)
+		}
+		if len(addrs) == 0 {
+			t.Fatalf("expected at least 1 address for %s", domain)
+		}
 	}
 }
 
