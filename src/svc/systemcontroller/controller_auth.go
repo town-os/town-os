@@ -204,6 +204,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/system-services":              true,
 			"/dns/status":                   true,
 			"/dns/records":                  true,
+			"/storage/package-volumes":      true,
 		}
 
 		if excluded[path] {

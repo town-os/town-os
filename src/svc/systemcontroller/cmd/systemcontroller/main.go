@@ -34,18 +34,9 @@ func run() (err error) {
 	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
 	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
 	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
-	networkControllerBin := flag.String("networkcontroller-bin", "/town-os-networkcontroller", "path to the town-os-networkcontroller binary")
 	networkStatePath := flag.String("network-state", "/var/run/town-os", "directory for per-package network state files")
-	networkMode := flag.String("network-mode", "", "container network mode: empty uses -p mappings; host uses --net host")
 	listenAddr := flag.String("listen", ":5309", "address to listen on")
 	flag.Parse()
-
-	// Allow env var fallback when flag is not set.
-	if *networkMode == "" {
-		if env := os.Getenv("TOWN_OS_NETWORK_MODE"); env != "" {
-			*networkMode = env
-		}
-	}
 
 	if *listenAddr == ":5309" {
 		if env := os.Getenv("TOWN_OS_LISTEN"); env != "" {
@@ -195,63 +186,22 @@ func run() (err error) {
 		}
 	}()
 
-	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
-		Installer:                inst,
-		RepositoryRoot:           rr,
-		Storage:                  st,
-		Systemd:                  sd,
-		SettingsMgr:              settingsMgr,
-		PagesManager:             pagesMgr,
-		BtrfsBasePath:            *btrfsPath,
-		NetworkControllerBinPath: *networkControllerBin,
-		NetworkStatePath:         *networkStatePath,
-		NetworkMode:              *networkMode,
-		InternalIP:               getInternalIP(),
-	})
-	if err != nil {
-		return fmt.Errorf("reconcile: %w", err)
-	}
-
-	// Derive rolodex image early so we can pull it alongside monitoring images.
+	// Derive rolodex image so we can start DNS before building the NC image.
 	rolImage := os.Getenv("ROLODEX_IMAGE")
 	if rolImage == "" {
 		rolImage = "quay.io/town/rolodex:" + tag
 	}
 
-	// Derive UI image.
-	uiImage := os.Getenv("UI_IMAGE")
-	if uiImage == "" {
-		uiImage = "quay.io/town/ui:" + tag
-	}
-
-	// Pull system service container images (non-fatal).
-	for _, img := range []string{
-		monitoring.PrometheusImage,
-		monitoring.NodeExporterImage,
-		monitoring.GrafanaImage,
-		rolImage,
-		uiImage,
-	} {
-		if out, err := exec.CommandContext(ctx, "podman", "pull", img).CombinedOutput(); err != nil { //nolint:gosec // G204 -- image constants
-			fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", img, err, string(out))
+	// Pull the rolodex image only if it is not already loaded (e.g. pre-loaded
+	// in test/dev containers where DNS may not be available yet).
+	if err := exec.CommandContext(ctx, "podman", "image", "exists", rolImage).Run(); err != nil {
+		if out, pullErr := exec.CommandContext(ctx, "podman", "pull", rolImage).CombinedOutput(); pullErr != nil { //nolint:gosec // G204 -- image derived from tag file
+			fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", rolImage, pullErr, string(out))
 		}
 	}
 
-	// Start the monitoring stack (Prometheus + Node Exporter + Grafana).
-	monDataDir := filepath.Join(repoBase, "monitoring")
-	monMgr := monitoring.NewManager(monitoring.Config{
-		Systemd: sd,
-		DataDir: monDataDir,
-	})
-	if err := monMgr.Start(ctx); err != nil {
-		// Non-fatal: monitoring failure should not prevent the system
-		// controller from starting.
-		fmt.Fprintf(os.Stderr, "monitoring: %v\n", err)
-		monMgr = nil
-	}
-
-	// Start the rolodex DNS server. Data lives on the btrfs partition so
-	// it persists across rebuilds and is never recreated from scratch.
+	// Start the rolodex DNS server before building the NC image so that
+	// DNS is available for `apk add` inside the podman build.
 	rolDataDir := filepath.Join(*btrfsPath, "rolodex")
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
@@ -271,6 +221,66 @@ func run() (err error) {
 		// controller from starting.
 		fmt.Fprintf(os.Stderr, "rolodex: %v\n", err)
 		rolMgr = nil
+	}
+
+	// Build the network controller container image locally. This must
+	// happen before reconciliation so the image is available when package
+	// units are installed. Rolodex is started above so DNS works for
+	// `apk add` inside the build.
+	ncImage, err := buildNetworkControllerImage(ctx)
+	if err != nil {
+		return fmt.Errorf("build network controller image: %w", err)
+	}
+
+	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Storage:                st,
+		Systemd:                sd,
+		SettingsMgr:            settingsMgr,
+		PagesManager:           pagesMgr,
+		BtrfsBasePath:          *btrfsPath,
+		NetworkControllerImage: ncImage,
+		NetworkStatePath:       *networkStatePath,
+		InternalIP:             getInternalIP(),
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile: %w", err)
+	}
+
+	// Derive UI image.
+	uiImage := os.Getenv("UI_IMAGE")
+	if uiImage == "" {
+		uiImage = "quay.io/town/ui:" + tag
+	}
+
+	// Pull remaining system service container images (non-fatal).
+	// Skip images that are already loaded (e.g. pre-loaded in test/dev
+	// containers where DNS may not be available).
+	for _, img := range []string{
+		monitoring.PrometheusImage,
+		monitoring.NodeExporterImage,
+		monitoring.GrafanaImage,
+		uiImage,
+	} {
+		if err := exec.CommandContext(ctx, "podman", "image", "exists", img).Run(); err != nil {
+			if out, pullErr := exec.CommandContext(ctx, "podman", "pull", img).CombinedOutput(); pullErr != nil { //nolint:gosec // G204 -- image constants
+				fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", img, pullErr, string(out))
+			}
+		}
+	}
+
+	// Start the monitoring stack (Prometheus + Node Exporter + Grafana).
+	monDataDir := filepath.Join(repoBase, "monitoring")
+	monMgr := monitoring.NewManager(monitoring.Config{
+		Systemd: sd,
+		DataDir: monDataDir,
+	})
+	if err := monMgr.Start(ctx); err != nil {
+		// Non-fatal: monitoring failure should not prevent the system
+		// controller from starting.
+		fmt.Fprintf(os.Stderr, "monitoring: %v\n", err)
+		monMgr = nil
 	}
 
 	// Poll for internal IP changes (DHCP lease renewals) and restart
@@ -333,10 +343,9 @@ func run() (err error) {
 		PagesMgr:                 pagesMgr,
 		DefaultRepoUser:          os.Getenv(packages.EnvRepoUsername),
 		DefaultRepoPass:          os.Getenv(packages.EnvRepoPassword),
-		BtrfsBasePath:            *btrfsPath,
-		NetworkControllerBinPath: *networkControllerBin,
-		NetworkStatePath:         *networkStatePath,
-		NetworkMode:              *networkMode,
+		BtrfsBasePath:          *btrfsPath,
+		NetworkControllerImage: ncImage,
+		NetworkStatePath:       *networkStatePath,
 		Monitoring:               monMgr,
 		Rolodex:                  rolMgr,
 		UI:                       uiMgr,
@@ -426,6 +435,84 @@ func watchInternalIP(ctx context.Context, mgr *rolodex.Manager) {
 			}
 		}
 	}
+}
+
+// buildNetworkControllerImage builds the network controller container image
+// locally using podman build. The NC binary (/town-os-networkcontroller) and
+// socat are bundled into an alpine-based image. Returns the image name.
+func buildNetworkControllerImage(ctx context.Context) (string, error) {
+	const imageName = "town-os-networkcontroller:local"
+
+	// Skip the build if the image already exists (e.g. pre-loaded in test/dev).
+	if err := exec.CommandContext(ctx, "podman", "image", "exists", imageName).Run(); err == nil {
+		slog.Info("network controller image already exists: " + imageName)
+		return imageName, nil
+	}
+
+	buildDir, err := os.MkdirTemp("", "nc-image-build-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() {
+		if rerr := os.RemoveAll(buildDir); rerr != nil {
+			slog.Error(fmt.Sprintf("cleanup NC build dir: %v", rerr))
+		}
+	}()
+
+	containerfile := `FROM docker.io/library/alpine:latest
+RUN apk add --no-cache socat
+COPY town-os-networkcontroller /town-os-networkcontroller
+ENTRYPOINT ["/town-os-networkcontroller"]
+`
+	if err := os.WriteFile(filepath.Join(buildDir, "Containerfile"), []byte(containerfile), 0600); err != nil {
+		return "", fmt.Errorf("write Containerfile: %w", err)
+	}
+
+	const ncBinaryPath = "/town-os-networkcontroller"
+	destPath := filepath.Join(buildDir, "town-os-networkcontroller")
+
+	src, err := os.Open(ncBinaryPath)
+	if err != nil {
+		return "", fmt.Errorf("open NC binary %s: %w", ncBinaryPath, err)
+	}
+
+	dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755) //nolint:gosec // G304 -- destPath is constructed from a controlled temp dir
+	if err != nil {
+		if closeErr := src.Close(); closeErr != nil {
+			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
+		}
+		return "", fmt.Errorf("create NC binary copy: %w", err)
+	}
+
+	if _, err := dst.ReadFrom(src); err != nil {
+		if closeErr := dst.Close(); closeErr != nil {
+			slog.Error(fmt.Sprintf("close NC dest: %v", closeErr))
+		}
+		if closeErr := src.Close(); closeErr != nil {
+			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
+		}
+		return "", fmt.Errorf("copy NC binary: %w", err)
+	}
+
+	if err := dst.Close(); err != nil {
+		if closeErr := src.Close(); closeErr != nil {
+			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
+		}
+		return "", fmt.Errorf("close NC binary copy: %w", err)
+	}
+
+	if err := src.Close(); err != nil {
+		return "", fmt.Errorf("close NC source: %w", err)
+	}
+
+	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
+	if err != nil {
+		return "", fmt.Errorf("podman build: %w: %s", err, string(out))
+	}
+
+	slog.Info("built network controller image: " + imageName)
+
+	return imageName, nil
 }
 
 func main() {

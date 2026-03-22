@@ -31,7 +31,7 @@ redirect_host_dns() {
   substep "Waiting for rolodex DNS on 127.0.0.2:53"
   local waited=0
   while [ "${waited}" -lt 30 ]; do
-    if dig +short +timeout=1 +tries=1 @127.0.0.2 localhost >/dev/null 2>&1; then
+    if (echo >/dev/tcp/127.0.0.2/53) 2>/dev/null; then
       break
     fi
     sleep 1
@@ -74,7 +74,6 @@ case "$1" in
     ${SUDO} podman run -d --replace --net host -e LOG_LEVEL=debug -e DEBUG=1 \
       -e "TOWN_OS_REPO_USERNAME=${TOWN_OS_REPO_USERNAME}" \
       -e "TOWN_OS_REPO_PASSWORD=${TOWN_OS_REPO_PASSWORD}" \
-      -e TOWN_OS_NETWORK_MODE=host \
       -e ROLODEX_LOCAL=1 \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
@@ -94,6 +93,15 @@ case "$1" in
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${MONITORING_IMAGES}
     step "Loading rolodex image into dev container"
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${ROLODEX_IMAGE}
+    step "Loading alpine image into dev container"
+    load_images_into_container "${PODMAN_DEV_CONTAINER}" docker.io/library/alpine:latest
+    step "Building network controller image inside dev container"
+    ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" /bin/sh -c \
+      'cd /tmp && mkdir -p nc-build && cd nc-build && \
+       cp /town-os-networkcontroller . && \
+       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nENTRYPOINT [\"/town-os-networkcontroller\"]\n" > Containerfile && \
+       podman build --dns 1.1.1.1 --pull=never -t town-os-networkcontroller:local -f Containerfile . && \
+       cd /tmp && rm -rf nc-build'
     step "Redirecting host DNS to rolodex"
     redirect_host_dns
     # Ensure DNS is restored when the UI dev server exits (Ctrl-C, crash, etc.)

@@ -41,6 +41,20 @@ case "$1" in
     load_images_into_container "${PODMAN_CONTAINER}" ${ROLODEX_IMAGE}
     step "Loading UI image into test container"
     load_images_into_container "${PODMAN_CONTAINER}" ${UI_IMAGE}
+    step "Loading alpine image into test container"
+    load_images_into_container "${PODMAN_CONTAINER}" docker.io/library/alpine:latest
+    step "Building network controller image inside test container"
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c \
+      'cd /tmp && mkdir -p nc-build && cd nc-build && \
+       cp /town-os-networkcontroller . && \
+       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nENTRYPOINT [\"/town-os-networkcontroller\"]\n" > Containerfile && \
+       podman build --dns 1.1.1.1 --pull=never -t town-os-networkcontroller:local -f Containerfile . && \
+       cd /tmp && rm -rf nc-build'
+    step "Restarting systemcontroller after image loading"
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
+    step "Waiting for systemcontroller API to be ready"
+    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
     ;;
   # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
   integration)
@@ -107,8 +121,20 @@ case "$1" in
     load_images_into_container "${PODMAN_UI_BACKEND}" ${ROLODEX_IMAGE}
     step "Loading UI image into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" ${UI_IMAGE}
-    substep "Waiting for systemcontroller API to be ready"
-    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 60
+    step "Loading alpine image into UI integration container"
+    load_images_into_container "${PODMAN_UI_BACKEND}" docker.io/library/alpine:latest
+    step "Building network controller image inside UI integration container"
+    ${SUDO} podman exec "${PODMAN_UI_BACKEND}" /bin/sh -c \
+      'cd /tmp && mkdir -p nc-build && cd nc-build && \
+       cp /town-os-networkcontroller . && \
+       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nENTRYPOINT [\"/town-os-networkcontroller\"]\n" > Containerfile && \
+       podman build --dns 1.1.1.1 --pull=never -t town-os-networkcontroller:local -f Containerfile . && \
+       cd /tmp && rm -rf nc-build'
+    step "Restarting systemcontroller after image loading"
+    ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl reset-failed town-os-systemcontroller.service || true
+    ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl restart town-os-systemcontroller.service
+    step "Waiting for systemcontroller API to be ready"
+    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
     step "Running UI integration tests"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run \

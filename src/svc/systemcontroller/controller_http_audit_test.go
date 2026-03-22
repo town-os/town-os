@@ -252,6 +252,7 @@ func TestHTTPAuditLogExcludesReadOnlyPackageRoutes(t *testing.T) {
 		"/packages/installed/info",
 		"/packages/last-responses",
 		"/packages/install-preview",
+		"/storage/package-volumes",
 	}
 
 	for _, path := range postPaths {
