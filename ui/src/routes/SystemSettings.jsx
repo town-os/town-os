@@ -101,6 +101,7 @@ export default function SystemSettings() {
   const [quotaInput, setQuotaInput] = useState('')
   const [quotaUnit, setQuotaUnit] = useState('GB')
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (settings[DEFAULT_QUOTA_KEY] !== undefined) {
       const bytes = Number(settings[DEFAULT_QUOTA_KEY])
@@ -117,6 +118,7 @@ export default function SystemSettings() {
       setQuotaUnit('GB')
     }
   }, [settings])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function quotaToBytes() {
     return unitToBytes(quotaInput, quotaUnit)
@@ -146,6 +148,7 @@ export default function SystemSettings() {
   const [archiveSizeInput, setArchiveSizeInput] = useState('')
   const [archiveSizeUnit, setArchiveSizeUnit] = useState('MB')
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (settings[MAX_ARCHIVE_SIZE_KEY] !== undefined) {
       const bytes = Number(settings[MAX_ARCHIVE_SIZE_KEY])
@@ -157,6 +160,7 @@ export default function SystemSettings() {
       setArchiveSizeUnit('MB')
     }
   }, [settings])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   async function handleSaveArchiveSize(e) {
     e.preventDefault()
@@ -182,6 +186,7 @@ export default function SystemSettings() {
   const [timeoutInput, setTimeoutInput] = useState('')
   const [timeoutUnit, setTimeoutUnit] = useState('seconds')
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (settings[ARCHIVE_UNPACK_TIMEOUT_KEY] !== undefined) {
       const secs = Number(settings[ARCHIVE_UNPACK_TIMEOUT_KEY])
@@ -200,6 +205,7 @@ export default function SystemSettings() {
       setTimeoutUnit('seconds')
     }
   }, [settings])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function timeoutToSeconds() {
     const num = Number(timeoutInput)
@@ -230,9 +236,11 @@ export default function SystemSettings() {
 
   const [protonImageInput, setProtonImageInput] = useState('')
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setProtonImageInput(settings[PROTON_IMAGE_KEY] || '')
   }, [settings])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   async function handleSaveProtonImage(e) {
     e.preventDefault()

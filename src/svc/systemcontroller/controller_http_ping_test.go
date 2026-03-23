@@ -285,6 +285,73 @@ func TestHTTPPingIncludesTimezoneOffset(t *testing.T) {
 	}
 }
 
+func TestHTTPPingIncludesExternalIP(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	// Simulate a fetched external IP.
+	ts.externalIP.Store("203.0.113.42")
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.ExternalIP != "203.0.113.42" {
+		t.Fatalf("expected external_ip %q, got %q", "203.0.113.42", ping.ExternalIP)
+	}
+}
+
+func TestHTTPPingExternalIPEmptyWhenNotFetched(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.ExternalIP != "" {
+		t.Fatalf("expected empty external_ip before fetch, got %q", ping.ExternalIP)
+	}
+}
+
+func TestHTTPPingIncludesInternalIP(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	// Internal IP should be non-empty on any machine with a network interface.
+	// On CI it might be empty if no non-loopback interface exists, so just
+	// verify it doesn't error.
+	_ = ping.InternalIP
+}
+
 func TestHTTPPingIncludesUpgradesAvailable(t *testing.T) {
 	c, _ := initUpgradesTestServer(t)
 

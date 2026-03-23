@@ -234,12 +234,14 @@ func configureRouter(sc systemControllerBackend) http.Handler {
 
 // NewHandler creates an http.Handler for the given ServerConfig.
 // The system hostname is automatically added to AllowedHosts.
-func NewHandler(cfg ServerConfig) http.Handler {
+// The external IP poller is started in the background using the provided context.
+func NewHandler(ctx context.Context, cfg ServerConfig) http.Handler {
 	cfg.AllowedHosts = append(cfg.AllowedHosts, "localhost")
 	if hostname, err := os.Hostname(); err == nil {
 		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname)
 	}
 	sb := &serverBase{ServerConfig: cfg}
+	sb.startExternalIPPoller(ctx)
 	return configureRouter(sb)
 }
 
@@ -264,6 +266,13 @@ func InitTestServer(cfg ServerConfig) *TestServer {
 func (ts *TestServer) Close() {
 	ts.cancel()
 	ts.Server.Close()
+}
+
+// SetExternalIP stores an external IP for testing. This allows integration
+// tests to verify the ping response includes the external IP without
+// depending on a live ipinfo.io fetch.
+func (ts *TestServer) SetExternalIP(ip string) {
+	ts.externalIP.Store(ip)
 }
 
 func (ts *TestServer) Run() error {

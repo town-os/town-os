@@ -1,3 +1,4 @@
+/* global process */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { SystemControllerClient, ApiError } from './client.js'
 
@@ -855,7 +856,7 @@ describe('SystemControllerClient integration', () => {
       for (const page of result.entries) {
         try {
           await client.removePage(page.name)
-        } catch (e) {
+        } catch {
           // ignore cleanup errors
         }
       }

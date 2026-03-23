@@ -129,11 +129,11 @@ describe('usePolling', () => {
     const fetcherA = vi.fn(() => Promise.resolve('A'))
     const fetcherB = vi.fn(() => Promise.resolve('B'))
 
-    const { result: resultA, rerender: rerenderA } = renderHook(
+    const { rerender: rerenderA } = renderHook(
       ({ dep }) => usePolling(fetcherA, null, [dep], 60000),
       { initialProps: { dep: 0 } },
     )
-    const { result: resultB } = renderHook(
+    renderHook(
       () => usePolling(fetcherB, null, [], 60000),
     )
 

@@ -5,7 +5,12 @@ package integration_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
+
+	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 )
 
 // --- Bootstrap account creation integration tests ---
@@ -172,5 +177,69 @@ func TestBootstrapPingNeedsSetup(t *testing.T) {
 	}
 	if ping.NeedsSetup {
 		t.Fatal("expected needs_setup=false with admin account present")
+	}
+}
+
+func TestBootstrapPingIncludesExternalIP(t *testing.T) {
+	dir := t.TempDir()
+	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	signingKey := []byte("test-signing-key-for-sessions-32")
+	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+
+	mock := storage.InitBtrFSMock()
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:    mock,
+		AccountMgr: mgr,
+		SessionMgr: sessMgr,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	// Inject a fake external IP.
+	ts.SetExternalIP("198.51.100.7")
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	// Bootstrap admin and authenticate to get full ping response.
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.ExternalIP != "198.51.100.7" {
+		t.Fatalf("expected external_ip %q, got %q", "198.51.100.7", ping.ExternalIP)
+	}
+
+	// InternalIP should be present (non-empty on any machine with a network interface).
+	if ping.InternalIP == "" {
+		t.Log("internal_ip is empty (expected on machines without non-loopback interfaces)")
 	}
 }

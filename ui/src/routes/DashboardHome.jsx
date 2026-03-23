@@ -26,13 +26,14 @@ import {
   X,
 } from 'lucide-react'
 
-function StatCard({ to, icon: Icon, label, value, description }) {
+function StatCard({ to, icon, label, value, description }) {
+  const IconComponent = icon
   return (
     <Link to={to}>
       <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-medium">{label}</CardTitle>
-          <Icon className="h-4 w-4 text-muted-foreground" />
+          <IconComponent className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{value ?? '...'}</div>

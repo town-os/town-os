@@ -51,7 +51,7 @@ export default function Dashboard({ children }) {
     if (ping?.locale && ping.locale !== locale) {
       setLocale(ping.locale)
     }
-  }, [ping?.locale])
+  }, [ping?.locale, locale, setLocale])
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -65,19 +65,20 @@ export default function Dashboard({ children }) {
         <nav className="flex flex-col gap-1 px-3 py-2">
           {NAV_KEYS.filter(
             (item) => !item.adminOnly || account?.admin,
-          ).map(({ to, key, icon: Icon }) => {
-            const active = location.pathname === to
+          ).map((navItem) => {
+            const NavIcon = navItem.icon
+            const active = location.pathname === navItem.to
             return (
               <Button
-                key={to}
+                key={navItem.to}
                 variant={active ? 'secondary' : 'ghost'}
                 size="sm"
                 className="w-full justify-start"
                 asChild
               >
-                <Link to={to}>
-                  <Icon className="h-4 w-4 mr-2" />
-                  {t(key)}
+                <Link to={navItem.to}>
+                  <NavIcon className="h-4 w-4 mr-2" />
+                  {t(navItem.key)}
                 </Link>
               </Button>
             )

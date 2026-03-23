@@ -659,6 +659,10 @@ Service unit counts are split into two fields: `units` counts only package servi
 
 Unauthenticated requests receive a minimal response containing only `needs_setup` and basic status fields. Authenticated requests receive the full response with all fields listed above, plus `repository_errors` (a map of repository name to error string tracking per-repository refresh failures).
 
+### External IP Polling
+
+The system controller fetches the server's public (external) IP address from `https://ipinfo.io/json`. The poller is started automatically when the HTTP handler is created (`NewHandler`) and when the Unix socket server starts. It fetches the IP immediately on startup, then polls every 1 hour. Each fetch has a 10-second HTTP timeout. The result is cached in an atomic value and included in authenticated ping responses as `external_ip`. Fetch failures are logged at debug level and do not affect the rest of the system; the field is omitted from the response when no IP has been fetched.
+
 ## Monitoring
 
 An integrated Prometheus + Node Exporter + Grafana stack provides system monitoring. The stack runs as systemd-supervised podman containers (system services) with `Restart=always`, managed by a `monitoring.Manager`. All containers use host networking and follow the `town-os-system--` naming prefix.

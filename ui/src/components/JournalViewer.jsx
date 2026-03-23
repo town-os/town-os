@@ -81,7 +81,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
   const [pendingUntilDate, setPendingUntilDate] = useState('')
   const [pendingUntilHour, setPendingUntilHour] = useState('')
   const hasTimeFilter = sinceDate !== '' || sinceHour !== '' || untilDate !== '' || untilHour !== ''
-  const [followMode, setFollowMode, toggleFollow] = useFollowMode(searchQuery !== '' || hasTimeFilter)
+  const [followMode, , toggleFollow] = useFollowMode(searchQuery !== '' || hasTimeFilter)
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const sinceTime = useMemo(() => {
     const d = sinceDate || (sinceHour !== '' ? today : '')

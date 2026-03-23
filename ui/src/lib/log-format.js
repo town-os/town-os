@@ -13,7 +13,7 @@ export const ANSI_GREYS = {
  */
 export function parseAnsi(text) {
   const segments = []
-  const re = /\x1b\[([0-9;]*)m/g
+  const re = /\x1b\[([0-9;]*)m/g // eslint-disable-line no-control-regex
   let last = 0
   let color = null
   let bold = false
@@ -78,7 +78,7 @@ export function parseFields(text) {
  * @returns {string}
  */
 export function stripAnsi(text) {
-  return text.replace(/\x1b\[[0-9;]*m/g, '')
+  return text.replace(/\x1b\[[0-9;]*m/g, '') // eslint-disable-line no-control-regex
 }
 
 /**

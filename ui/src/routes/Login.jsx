@@ -70,7 +70,7 @@ export default function Login() {
       setToken(resp.token)
       setAccount(resp.account)
       navigate('/dashboard')
-    } catch (err) {
+    } catch {
       setError(t('login.error_invalid_credentials'))
     } finally {
       setLoading(false)

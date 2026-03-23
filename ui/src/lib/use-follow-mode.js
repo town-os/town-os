@@ -10,12 +10,18 @@ import { useState, useEffect, useCallback, useRef } from 'react'
  */
 export function useFollowMode(isSearchActive) {
   const [followMode, setFollowMode] = useState(true)
+  const followModeRef = useRef(followMode)
   const savedRef = useRef(null)
 
   useEffect(() => {
+    followModeRef.current = followMode
+  }, [followMode])
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
     if (isSearchActive) {
       if (savedRef.current === null) {
-        savedRef.current = followMode
+        savedRef.current = followModeRef.current
       }
       setFollowMode(false)
     } else if (savedRef.current !== null) {
@@ -23,6 +29,7 @@ export function useFollowMode(isSearchActive) {
       savedRef.current = null
     }
   }, [isSearchActive])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const toggleFollow = useCallback(() => {
     setFollowMode((v) => !v)

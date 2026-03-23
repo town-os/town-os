@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
@@ -56,7 +56,7 @@ export default function PackageManagement() {
   // Package state
   const [uninstallConfirm, setUninstallConfirm] = useState(null)
   const [purgeVolumes, setPurgeVolumes] = useState(false)
-  const [clearedCachedFields, setClearedCachedFields] = useState({})
+  const [, setClearedCachedFields] = useState({})
   const [questionsDialog, setQuestionsDialog] = useState({ open: false })
   const [infoDialog, setInfoDialog] = useState({ open: false })
   const [versionSelectDialog, setVersionSelectDialog] = useState({ open: false })
@@ -97,7 +97,7 @@ export default function PackageManagement() {
     { entries: [], has_more: false, total_pages: 1 },
     [refreshKey, pkgSortKey, pkgSortDirection, pkgPage, pkgSearch, showInstalledOnly, showFeaturedOnly],
   )
-  const packages = pkgData.entries || []
+  const packages = useMemo(() => pkgData.entries || [], [pkgData.entries])
 
   // Auto-uncheck "installed only" when no installed packages exist
   const hasAutoUncheckedInstalled = useRef(false)
@@ -192,7 +192,7 @@ export default function PackageManagement() {
         return
       }
       await handleInstall(repo, name, version, false, importFromVersion)
-    } catch (err) {
+    } catch {
       await handleInstall(repo, name, version, false, importFromVersion)
     }
   }
@@ -668,7 +668,6 @@ export default function PackageManagement() {
                           const instVer = installedVersion(pkg)
                           const isInst = instVer !== null
                           const hasUpgrade = isInst && instVer !== '' && instVer !== pkg.version
-                          const isFeatured = group.featured && group.featured.includes(pkg.name)
                           return (
                             <TableRow key={`${pkg.repo}/${pkg.name}`}>
                               <TableCell>

@@ -73,7 +73,7 @@ describe('UserManagement', () => {
   })
 
   it('role badges are display-only', async () => {
-    const { container } = renderUserManagement()
+    renderUserManagement()
     await waitFor(() => {
       expect(screen.getByText('Admin')).toBeTruthy()
     })

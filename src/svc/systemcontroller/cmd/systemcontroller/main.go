@@ -331,7 +331,7 @@ func run() (err error) {
 		uiMgr = nil
 	}
 
-	handler := systemcontroller.NewHandler(systemcontroller.ServerConfig{
+	handler := systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{
 		Storage:                  st,
 		RepositoryRoot:           rr,
 		Installer:                inst,

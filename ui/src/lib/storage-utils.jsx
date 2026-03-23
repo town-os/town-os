@@ -39,4 +39,5 @@ function deriveServiceName(internalName) {
   return `town-os-package--${parts[1]}-${parts[2]}-${parts[3]}.service`
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { UNITS, formatQuotaText, formatQuota, decomposeQuota, deriveServiceName }

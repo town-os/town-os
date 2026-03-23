@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 const mockDnsStatus = vi.fn(() =>
@@ -236,9 +236,6 @@ describe('DNSManagement component', () => {
       expect(screen.getByText('app.town')).toBeTruthy()
     })
     // Click the first remove button (trash icon)
-    const removeButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.querySelector('svg.lucide-trash-2') || btn.querySelector('[class*="lucide"]'),
-    )
     // Find the trash buttons in the table
     const trashBtns = screen.getByText('app.town').closest('tr')?.querySelectorAll('button')
     if (trashBtns && trashBtns.length > 0) {

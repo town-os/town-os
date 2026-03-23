@@ -38,7 +38,7 @@ export default function UserManagement() {
   const [sortDirection, setSortDirection] = useState('asc')
   const [search, setSearch] = useState('')
 
-  const [accountData, refresh, loading] = usePolling(
+  const [accountData, , loading] = usePolling(
     () => getClient().listAccounts(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, search || undefined),
     { entries: [], has_more: false, total_pages: 1, total_count: 0 },
     [refreshKey, sortKey, sortDirection, page, search],

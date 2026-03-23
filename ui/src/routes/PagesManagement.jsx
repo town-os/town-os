@@ -38,7 +38,7 @@ export default function PagesManagement() {
     return () => { cancelPollingRef.current = true }
   }, [])
 
-  const [pageData, refresh, loading] = usePolling(
+  const [pageData, , loading] = usePolling(
     () => getClient().listPages(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, search || undefined),
     { entries: [], has_more: false, total_pages: 1, total_count: 0 },
     [refreshKey, sortKey, sortDirection, page, search],

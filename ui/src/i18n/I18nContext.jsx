@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useState } from 'react'
 import enUS from './en-US.js'
 
 /** @type {Record<string, Record<string, string>>} */
@@ -10,7 +10,7 @@ const defaultLocale = 'en-US'
 
 const I18nContext = createContext({
   locale: defaultLocale,
-  setLocale: /** @param {string} _l */ (_l) => {},
+  setLocale: /** @param {string} l */ () => {},
   t: /** @param {string} _k @param {Record<string, any>} [_p] @returns {string} */ (k, p) => translate(defaultLocale, k, p),
 })
 
@@ -64,8 +64,10 @@ export function I18nProvider({ children, initialLocale }) {
  *
  * @returns {{ locale: string, setLocale: (locale: string) => void, t: (key: string, params?: Record<string, any>) => string }}
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useI18n() {
   return useContext(I18nContext)
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { defaultLocale, catalogs }

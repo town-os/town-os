@@ -50,7 +50,9 @@ export default function DataTable({
   const [filter, setFilter] = useState('')
   const debounceRef = useRef(null)
   const onSearchChangeRef = useRef(onSearchChange)
-  onSearchChangeRef.current = onSearchChange
+  useEffect(() => {
+    onSearchChangeRef.current = onSearchChange
+  }, [onSearchChange])
 
   const searchableKeys = useMemo(
     () => columns.filter((c) => c.sortable !== false).map((c) => c.key),

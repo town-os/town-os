@@ -20,10 +20,17 @@ export function usePolling(fetcher, defaultValue, deps = [], interval = 60000) {
   const [loading, setLoading] = useState(true)
   const generationRef = useRef(0)
 
+  const fetcherRef = useRef(fetcher)
+  useEffect(() => {
+    fetcherRef.current = fetcher
+  })
+
+  const depsKey = JSON.stringify(deps)
+
   const refresh = useCallback(() => {
     const gen = ++generationRef.current
     setLoading(true)
-    fetcher()
+    fetcherRef.current()
       .then((result) => {
         if (gen !== generationRef.current) return
         setData(result)
@@ -34,7 +41,8 @@ export function usePolling(fetcher, defaultValue, deps = [], interval = 60000) {
         console.debug('usePolling fetch error:', err)
         setLoading(false)
       })
-  }, deps)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depsKey])
 
   useEffect(() => {
     refresh()

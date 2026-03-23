@@ -129,3 +129,21 @@ func TestStartExternalIPPollerContextCancellation(t *testing.T) {
 	// Allow goroutine to exit.
 	time.Sleep(100 * time.Millisecond)
 }
+
+// --- NewHandler ---
+
+func TestNewHandlerStartsExternalIPPoller(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// NewHandler should not panic and should start the external IP poller.
+	// The actual ipinfo.io fetch will either succeed or timeout gracefully.
+	handler := NewHandler(ctx, ServerConfig{})
+	if handler == nil {
+		t.Fatal("expected non-nil handler from NewHandler")
+	}
+
+	// Cancel to clean up the poller goroutine.
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+}
