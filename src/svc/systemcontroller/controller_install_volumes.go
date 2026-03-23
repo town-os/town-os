@@ -28,31 +28,29 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 	isDep := packages.IsDependency(pkgName)
 
 	state := networkcontroller.PackageNetworkState{
-		Repo:        repoName,
-		Package:     pkgName,
-		Version:     version,
-		NetworkMode: s.Controller.GetNetworkMode(),
+		Repo:    repoName,
+		Package: pkgName,
+		Version: version,
 	}
 
+	// All ports get Forward=true — the NC handles all host port exposure
+	// via socat from the host to the package container's private network IP.
 	for ext, int_ := range compiled.Network.External {
-		forward := s.Controller.GetNetworkMode() == "host" && ext != int_
 		state.Ports = append(state.Ports, networkcontroller.PortConfig{
 			ExternalPort: ext,
 			InternalPort: int_,
 			UPnP:         !isDep,
-			Forward:      forward,
+			Forward:      true,
 		})
 	}
 
 	for intHost, intContainer := range compiled.Network.Internal {
-		if s.Controller.GetNetworkMode() == "host" && intHost != intContainer {
-			state.Ports = append(state.Ports, networkcontroller.PortConfig{
-				ExternalPort: intHost,
-				InternalPort: intContainer,
-				UPnP:         false,
-				Forward:      true,
-			})
-		}
+		state.Ports = append(state.Ports, networkcontroller.PortConfig{
+			ExternalPort: intHost,
+			InternalPort: intContainer,
+			UPnP:         false,
+			Forward:      true,
+		})
 	}
 
 	if len(state.Ports) == 0 {

@@ -39,6 +39,9 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 - Package variables should always be translated as a part of the compile step. Fixed package variables should always be tested.
 
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
+
+- **Network controller image is built locally** — the NC container image (`town-os-networkcontroller:local`) is built by the system controller at startup via `podman build`, not pulled from a registry. Test and dev containers must have `alpine:latest` loaded and `/town-os-networkcontroller` available for the build.
+
 # Town OS Functional Specification
 
 Town OS is a self-hosted cloud platform for home users. It runs entirely from a USB drive in RAM, using all system storage for user data. Packaging, storage, and networking are fully integrated. A web UI provides management for non-technical users.

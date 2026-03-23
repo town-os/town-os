@@ -107,6 +107,7 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
+
     ;;
   push-release)
     step "Pushing release"
@@ -157,6 +158,7 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
+
     ;;
   push-ui-rc)
     step "Pushing UI release candidate"

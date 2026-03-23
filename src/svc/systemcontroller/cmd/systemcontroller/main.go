@@ -194,7 +194,7 @@ func run() (err error) {
 
 	// Pull the rolodex image only if it is not already loaded (e.g. pre-loaded
 	// in test/dev containers where DNS may not be available yet).
-	if err := exec.CommandContext(ctx, "podman", "image", "exists", rolImage).Run(); err != nil {
+	if err := exec.CommandContext(ctx, "podman", "image", "exists", rolImage).Run(); err != nil { //nolint:gosec // G204 -- image derived from tag file
 		if out, pullErr := exec.CommandContext(ctx, "podman", "pull", rolImage).CombinedOutput(); pullErr != nil { //nolint:gosec // G204 -- image derived from tag file
 			fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", rolImage, pullErr, string(out))
 		}
@@ -263,7 +263,7 @@ func run() (err error) {
 		monitoring.GrafanaImage,
 		uiImage,
 	} {
-		if err := exec.CommandContext(ctx, "podman", "image", "exists", img).Run(); err != nil {
+		if err := exec.CommandContext(ctx, "podman", "image", "exists", img).Run(); err != nil { //nolint:gosec // G204 -- image constants
 			if out, pullErr := exec.CommandContext(ctx, "podman", "pull", img).CombinedOutput(); pullErr != nil { //nolint:gosec // G204 -- image constants
 				fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", img, pullErr, string(out))
 			}

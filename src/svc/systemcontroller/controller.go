@@ -30,9 +30,8 @@ type systemControllerBackend interface {
 	GetAllowedHosts() []string
 	GetDefaultRepoCredentials() (string, string)
 	GetBtrfsBasePath() string
-	GetNetworkControllerBinPath() string
+	GetNetworkControllerImage() string
 	GetNetworkStatePath() string
-	GetNetworkMode() string
 	GetExternalIP() string
 	GetInternalIP() string
 	GetGitCloner() packages.GitCloner
@@ -198,10 +197,9 @@ type ServerConfig struct {
 	AllowedHosts             []string
 	DefaultRepoUser          string
 	DefaultRepoPass          string
-	BtrfsBasePath            string
-	NetworkControllerBinPath string
-	NetworkStatePath         string
-	NetworkMode              string
+	BtrfsBasePath          string
+	NetworkControllerImage string
+	NetworkStatePath       string
 	PagesMgr                 account.PagesManager
 	GitCloner                packages.GitCloner
 	Monitoring               *monitoring.Manager

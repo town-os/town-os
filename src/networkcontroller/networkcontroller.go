@@ -27,11 +27,10 @@ type PortConfig struct {
 // PackageNetworkState is the per-package JSON state file written by the
 // systemcontroller and watched by the networkcontroller daemon.
 type PackageNetworkState struct {
-	Repo        string       `json:"repo"`
-	Package     string       `json:"package"`
-	Version     string       `json:"version"`
-	NetworkMode string       `json:"network_mode"`
-	Ports       []PortConfig `json:"ports"`
+	Repo    string       `json:"repo"`
+	Package string       `json:"package"`
+	Version string       `json:"version"`
+	Ports   []PortConfig `json:"ports"`
 }
 
 // ExecRunner abstracts process execution for testing.
@@ -85,6 +84,7 @@ type Controller struct {
 	mu         sync.Mutex
 	upnp       upnp.Manager
 	runner     ExecRunner
+	targetHost string // IP address of the package container on the private network
 	forwarders map[uint16]*activeForwarder // keyed by external port
 	mappings   map[uint16]*activeMapping   // keyed by external port
 	state      *PackageNetworkState
@@ -96,6 +96,21 @@ func NewController(upnpMgr upnp.Manager) *Controller {
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     &osRunner{},
+		targetHost: "127.0.0.1",
+		forwarders: make(map[uint16]*activeForwarder),
+		mappings:   make(map[uint16]*activeMapping),
+	}
+}
+
+// NewControllerWithTarget creates a Controller with a custom target host.
+func NewControllerWithTarget(upnpMgr upnp.Manager, targetHost string) *Controller {
+	if targetHost == "" {
+		targetHost = "127.0.0.1"
+	}
+	return &Controller{
+		upnp:       upnpMgr,
+		runner:     &osRunner{},
+		targetHost: targetHost,
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
@@ -106,6 +121,22 @@ func NewControllerWithRunner(upnpMgr upnp.Manager, runner ExecRunner) *Controlle
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     runner,
+		targetHost: "127.0.0.1",
+		forwarders: make(map[uint16]*activeForwarder),
+		mappings:   make(map[uint16]*activeMapping),
+	}
+}
+
+// NewControllerWithRunnerAndTarget creates a Controller with a custom exec
+// runner and target host (for testing).
+func NewControllerWithRunnerAndTarget(upnpMgr upnp.Manager, runner ExecRunner, targetHost string) *Controller {
+	if targetHost == "" {
+		targetHost = "127.0.0.1"
+	}
+	return &Controller{
+		upnp:       upnpMgr,
+		runner:     runner,
+		targetHost: targetHost,
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
@@ -234,7 +265,7 @@ func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
 	proc, err := c.runner.Start(
 		"/usr/bin/socat",
 		fmt.Sprintf("TCP-LISTEN:%d,fork,reuseaddr", extPort),
-		fmt.Sprintf("TCP:127.0.0.1:%d", intPort),
+		fmt.Sprintf("TCP:%s:%d", c.targetHost, intPort),
 	)
 	if err != nil {
 		slog.Error(fmt.Sprintf("start socat %d->%d: %v", extPort, intPort, err))

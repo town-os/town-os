@@ -62,7 +62,7 @@ ROLODEX_IMAGE_TAG ?= rc.latest
 ROLODEX_IMAGE := quay.io/town/rolodex:$(ROLODEX_IMAGE_TAG)
 UI_IMAGE_TAG ?= rc.latest
 UI_IMAGE := quay.io/town/ui:$(UI_IMAGE_TAG)
-ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine $(MONITORING_IMAGES) $(ROLODEX_IMAGE) $(UI_IMAGE)
+ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE) $(UI_IMAGE)
 export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE_TAG UI_IMAGE
 export TEST_RUN TEST_TIMEOUT
 

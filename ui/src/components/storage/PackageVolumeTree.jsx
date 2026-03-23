@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import { formatQuotaText, formatQuota } from '@/lib/storage-utils.jsx'
 import { Button } from '@/components/ui/button'
@@ -44,9 +44,8 @@ export default function PackageVolumeTree({ packageGroups, onModifyVolume, onDow
               const totalQ = group.volumes.reduce((sum, v) => sum + Number(v.quota || 0), 0)
               const states = [...new Set(group.volumes.map((v) => v.state))]
               return (
-                <>{/* Fragment for package group */}
+                <Fragment key={group.package}>
                   <TableRow
-                    key={group.package}
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => togglePkg(group.package)}
                   >
@@ -143,7 +142,7 @@ export default function PackageVolumeTree({ packageGroups, onModifyVolume, onDow
                       </TableCell>
                     </TableRow>
                   ))}
-                </>
+                </Fragment>
               )
             })}
           </TableBody>

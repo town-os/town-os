@@ -188,6 +188,17 @@ func ContainerName(repo, pkgName, version string) string {
 	return fmt.Sprintf("%s%s-%s-%s", PackageUnitPrefix, repo, pkgName, version)
 }
 
+// NetworkName returns the podman network name for a package's private network.
+func NetworkName(repo, pkgName, version string) string {
+	return fmt.Sprintf("town-os-net--%s-%s-%s", repo, pkgName, version)
+}
+
+// NetworkControllerContainerName returns the podman container name for a
+// package's network controller.
+func NetworkControllerContainerName(repo, pkgName, version string) string {
+	return fmt.Sprintf("%s%s-%s-%s-network", PackageUnitPrefix, repo, pkgName, version)
+}
+
 // IsPackageServiceUnit returns true if the unit name is a main package
 // service unit (not a socket, timer, uPnP, or forwarder unit).
 func IsPackageServiceUnit(name string) bool {

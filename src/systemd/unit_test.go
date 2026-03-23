@@ -21,7 +21,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{"data": {Mountpoint: "/var/data"}},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -36,8 +36,17 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if !strings.Contains(svc, "Description=Town OS Package Service: test-repo/nginx@1.0") {
 		t.Fatal("service missing description")
 	}
-	if !strings.Contains(svc, "-p 8080:80") {
-		t.Fatal("service missing -p 8080:80")
+	if !strings.Contains(svc, "--net town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service missing --net private network, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "-p 8080:80") {
+		t.Fatal("service should not have -p mappings (private network mode)")
+	}
+	if !strings.Contains(svc, "podman network create town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service missing network create in ExecStartPre, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "podman network rm town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service missing network rm in ExecStopPost, got:\n%s", svc)
 	}
 	if !strings.Contains(svc, "-e NGINX_HOST=example.com") {
 		t.Fatal("service missing environment variable")
@@ -111,7 +120,7 @@ func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 		Internal:                 packages.PortMap{9090: 9090},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -123,14 +132,12 @@ func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 	}
 
 	svc := units.Service.Content
-	if !strings.Contains(svc, "-p 8080:80") {
-		t.Fatal("service missing -p 8080:80")
+	// Private network mode: no -p mappings.
+	if strings.Contains(svc, "-p 8080:80") {
+		t.Fatal("service should not have -p mappings (private network mode)")
 	}
-	if !strings.Contains(svc, "-p 8443:443") {
-		t.Fatal("service missing -p 8443:443")
-	}
-	if !strings.Contains(svc, "-p 9090:9090") {
-		t.Fatal("service missing -p 9090:9090")
+	if !strings.Contains(svc, "--net town-os-net--test-repo-myapp-2.0") {
+		t.Fatalf("service missing --net private network, got:\n%s", svc)
 	}
 	if !strings.Contains(svc, "--add-port=8080/tcp") {
 		t.Fatal("service missing firewall add-port 8080")
@@ -159,7 +166,7 @@ func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 		Internal:                 packages.PortMap{6379: 6379},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -170,21 +177,25 @@ func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 		t.Fatalf("expected 1 socket unit, got %d", len(units.Sockets))
 	}
 	svc := units.Service.Content
-	if !strings.Contains(svc, "-p 6379:6379") {
-		t.Fatal("service missing -p 6379:6379")
+	// Private network mode: no -p mappings.
+	if strings.Contains(svc, "-p 6379:6379") {
+		t.Fatal("service should not have -p mappings (private network mode)")
+	}
+	if !strings.Contains(svc, "--net town-os-net--test-repo-redis-7.0") {
+		t.Fatalf("service missing --net private network, got:\n%s", svc)
 	}
 	if !strings.Contains(svc, "--add-port=6379/tcp") {
 		t.Fatal("service missing firewall for internal port")
 	}
 
-	// No network controller unit.
-	if units.NetworkController != nil {
-		t.Fatal("expected no network controller unit for internal-only ports")
+	// Network controller should be generated for any ports (NC handles all forwarding).
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit for internal-only ports")
 	}
 
-	// No Wants line for network controller.
-	if strings.Contains(svc, "Wants=") {
-		t.Fatal("service should not have Wants with no external ports")
+	// Wants line for network controller.
+	if !strings.Contains(svc, "Wants=") {
+		t.Fatal("service should have Wants for network controller when ports exist")
 	}
 }
 
@@ -199,7 +210,7 @@ func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -251,7 +262,7 @@ func TestGeneratePackageUnitsEnvironmentSorted(t *testing.T) {
 		Internal:                 packages.PortMap{},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -275,7 +286,7 @@ func TestPackageUnitNames(t *testing.T) {
 	external := packages.PortMap{8080: 80, 8443: 443}
 	internal := packages.PortMap{9090: 9090}
 
-	names := PackageUnitNames("test-repo", "nginx", "1.0", "", external, internal)
+	names := PackageUnitNames("test-repo", "nginx", "1.0", external, internal)
 
 	expected := []string{
 		"town-os-package--test-repo-nginx-1.0.service",
@@ -300,11 +311,13 @@ func TestPackageUnitNamesNoExternalPorts(t *testing.T) {
 	external := packages.PortMap{}
 	internal := packages.PortMap{6379: 6379}
 
-	names := PackageUnitNames("test-repo", "redis", "7.0", "", external, internal)
+	names := PackageUnitNames("test-repo", "redis", "7.0", external, internal)
 
+	// NC is always present when there are any ports.
 	expected := []string{
 		"town-os-package--test-repo-redis-7.0.service",
 		"town-os-package--test-repo-redis-7.0-6379-tcp.socket",
+		"town-os-package--test-repo-redis-7.0-network.service",
 	}
 
 	if len(names) != len(expected) {
@@ -319,7 +332,7 @@ func TestPackageUnitNamesNoExternalPorts(t *testing.T) {
 }
 
 func TestPackageUnitNamesNoPorts(t *testing.T) {
-	names := PackageUnitNames("test-repo", "worker", "1.0", "", packages.PortMap{}, packages.PortMap{})
+	names := PackageUnitNames("test-repo", "worker", "1.0", packages.PortMap{}, packages.PortMap{})
 
 	if len(names) != 1 {
 		t.Fatalf("expected 1 name, got %d: %v", len(names), names)
@@ -329,12 +342,13 @@ func TestPackageUnitNamesNoPorts(t *testing.T) {
 	}
 }
 
-func TestPackageUnitNamesInternalPortForwardingHostMode(t *testing.T) {
+func TestPackageUnitNamesInternalPortForwarding(t *testing.T) {
 	external := packages.PortMap{}
 	internal := packages.PortMap{9999: 3000}
 
-	names := PackageUnitNames("test-repo", "gitea", "1.0", "host", external, internal)
+	names := PackageUnitNames("test-repo", "gitea", "1.0", external, internal)
 
+	// NC is always present when there are any ports.
 	expected := []string{
 		"town-os-package--test-repo-gitea-1.0.service",
 		"town-os-package--test-repo-gitea-1.0-9999-tcp.socket",
@@ -352,16 +366,17 @@ func TestPackageUnitNamesInternalPortForwardingHostMode(t *testing.T) {
 	}
 }
 
-func TestPackageUnitNamesInternalSamePortHostMode(t *testing.T) {
+func TestPackageUnitNamesInternalSamePort(t *testing.T) {
 	external := packages.PortMap{}
 	internal := packages.PortMap{6379: 6379}
 
-	names := PackageUnitNames("test-repo", "redis", "7.0", "host", external, internal)
+	names := PackageUnitNames("test-repo", "redis", "7.0", external, internal)
 
-	// Same port: no network controller needed.
+	// NC is always present when there are any ports (even same-port).
 	expected := []string{
 		"town-os-package--test-repo-redis-7.0.service",
 		"town-os-package--test-repo-redis-7.0-6379-tcp.socket",
+		"town-os-package--test-repo-redis-7.0-network.service",
 	}
 
 	if len(names) != len(expected) {
@@ -389,30 +404,32 @@ func TestNetworkControllerUnitName(t *testing.T) {
 	}
 }
 
-func TestGeneratePackageUnitsNetworkModeHost(t *testing.T) {
+func TestGeneratePackageUnitsPrivateNetwork(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:                 "test-repo",
-		PkgName:                  "redis",
-		Version:                  "7.0",
-		Image:                    "redis:7.0",
-		Environment:              map[string]string{},
-		External:                 packages.PortMap{},
-		Internal:                 packages.PortMap{6379: 6379},
-		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
-		NetworkMode:              "host",
+		RepoName:               "test-repo",
+		PkgName:                "redis",
+		Version:                "7.0",
+		Image:                  "redis:7.0",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{},
+		Internal:               packages.PortMap{6379: 6379},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
 	svc := units.Service.Content
 
-	if !strings.Contains(svc, "--net host") {
-		t.Fatal("service missing --net host")
+	if !strings.Contains(svc, "--net town-os-net--test-repo-redis-7.0") {
+		t.Fatalf("service missing --net private network, got:\n%s", svc)
 	}
 	if strings.Contains(svc, "-p 6379:6379") {
-		t.Fatal("service should not have -p mappings in host network mode")
+		t.Fatal("service should not have -p mappings (private network mode)")
+	}
+	if strings.Contains(svc, "--net host") {
+		t.Fatal("service should not have --net host")
 	}
 }
 
@@ -428,7 +445,7 @@ func TestGeneratePackageUnitsCommand(t *testing.T) {
 		Internal:                 packages.PortMap{6379: 6379},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -456,31 +473,30 @@ func TestGeneratePackageUnitsCommand(t *testing.T) {
 	}
 }
 
-func TestGeneratePackageUnitsCommandWithHostNetwork(t *testing.T) {
+func TestGeneratePackageUnitsCommandWithPrivateNetwork(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:                 "test-repo",
-		PkgName:                  "redis",
-		Version:                  "7.0",
-		Image:                    "redis:7.0-alpine",
-		Command:                  []string{"redis-server", "--bind", "0.0.0.0"},
-		Environment:              map[string]string{},
-		External:                 packages.PortMap{},
-		Internal:                 packages.PortMap{6379: 6379},
-		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
-		NetworkMode:              "host",
+		RepoName:               "test-repo",
+		PkgName:                "redis",
+		Version:                "7.0",
+		Image:                  "redis:7.0-alpine",
+		Command:                []string{"redis-server", "--bind", "0.0.0.0"},
+		Environment:            map[string]string{},
+		External:               packages.PortMap{},
+		Internal:               packages.PortMap{6379: 6379},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
 	svc := units.Service.Content
 
-	if !strings.Contains(svc, "--net host") {
-		t.Fatal("service missing --net host")
+	if !strings.Contains(svc, "--net town-os-net--test-repo-redis-7.0") {
+		t.Fatalf("service missing --net private network, got:\n%s", svc)
 	}
 	if strings.Contains(svc, "-p 6379:6379") {
-		t.Fatal("service should not have -p in host mode")
+		t.Fatal("service should not have -p in private network mode")
 	}
 	if !strings.Contains(svc, "redis-server") {
 		t.Fatal("service missing command arg: redis-server")
@@ -504,7 +520,7 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 			"config": {Mountpoint: "/etc/myapp"},
 		},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -529,17 +545,17 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 
 func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:                 "test-repo",
-		PkgName:                  "nginx",
-		Version:                  "1.0",
-		Image:                    "nginx:1.26-alpine",
-		Environment:              map[string]string{},
-		External:                 packages.PortMap{8080: 80},
-		Internal:                 packages.PortMap{},
-		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
+		RepoName:               "test-repo",
+		PkgName:                "nginx",
+		Version:                "1.0",
+		Image:                  "nginx:1.26-alpine",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -554,72 +570,84 @@ func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 	if !strings.Contains(nc, "After=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatalf("network controller missing After, got:\n%s", nc)
 	}
-	if !strings.Contains(nc, "ExecStart=/town-os-networkcontroller --state /var/run/town-os/test-repo-nginx-1.0.json") {
+	if !strings.Contains(nc, "quay.io/town/networkcontroller:test --state /var/run/town-os/test-repo-nginx-1.0.json") {
 		t.Fatalf("network controller missing ExecStart with correct state path, got:\n%s", nc)
 	}
 	if !strings.Contains(nc, "Description=Town OS Network Controller: test-repo/nginx@1.0") {
 		t.Fatalf("network controller missing description, got:\n%s", nc)
 	}
+	// NC runs as a podman container with --net host.
+	if !strings.Contains(nc, "podman run") {
+		t.Fatalf("network controller should run as podman container, got:\n%s", nc)
+	}
+	if !strings.Contains(nc, "--net host") {
+		t.Fatalf("network controller should use --net host, got:\n%s", nc)
+	}
+	// NC must NOT join the private network (host and named networks are mutually exclusive).
+	if strings.Contains(nc, "--net town-os-net") {
+		t.Fatalf("network controller should not join private network (host mode only), got:\n%s", nc)
+	}
+	// NC discovers container IP via podman inspect.
+	if !strings.Contains(nc, "podman inspect") {
+		t.Fatalf("network controller missing podman inspect for IP discovery, got:\n%s", nc)
+	}
 }
 
-func TestGeneratePackageUnitsNetworkControllerHostMode(t *testing.T) {
+func TestGeneratePackageUnitsNCAlwaysPresentWithExternalPorts(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:                 "test-repo",
-		PkgName:                  "nginx",
-		Version:                  "1.0",
-		Image:                    "nginx:1.26-alpine",
-		Environment:              map[string]string{},
-		External:                 packages.PortMap{8080: 80},
-		Internal:                 packages.PortMap{},
-		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
-		NetworkMode:              "host",
+		RepoName:               "test-repo",
+		PkgName:                "nginx",
+		Version:                "1.0",
+		Image:                  "nginx:1.26-alpine",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
 
-	// Network controller should still be generated in host mode.
 	if units.NetworkController == nil {
-		t.Fatal("expected network controller unit in host mode")
+		t.Fatal("expected network controller unit")
 	}
 	nc := units.NetworkController.Content
 	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatalf("network controller missing BindsTo in host mode, got:\n%s", nc)
+		t.Fatalf("network controller missing BindsTo, got:\n%s", nc)
 	}
 
-	// Service should have --net host.
+	// Service should use private network.
 	svc := units.Service.Content
-	if !strings.Contains(svc, "--net host") {
-		t.Fatal("service missing --net host")
+	if !strings.Contains(svc, "--net town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service missing --net private network, got:\n%s", svc)
 	}
 	if strings.Contains(svc, "-p 8080:80") {
-		t.Fatal("service should not have -p mappings in host mode")
+		t.Fatal("service should not have -p mappings")
 	}
 }
 
-func TestGeneratePackageUnitsInternalPortForwardingHostMode(t *testing.T) {
+func TestGeneratePackageUnitsInternalPortForwarding(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:                 "test-repo",
-		PkgName:                  "gitea",
-		Version:                  "1.0",
-		Image:                    "gitea:1.0",
-		Environment:              map[string]string{},
-		External:                 packages.PortMap{},
-		Internal:                 packages.PortMap{9999: 3000},
-		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
-		NetworkMode:              "host",
+		RepoName:               "test-repo",
+		PkgName:                "gitea",
+		Version:                "1.0",
+		Image:                  "gitea:1.0",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{},
+		Internal:               packages.PortMap{9999: 3000},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
 
-	// Network controller should be generated for internal port forwarding in host mode.
+	// Network controller should be generated for any ports.
 	if units.NetworkController == nil {
-		t.Fatal("expected network controller unit for internal port forwarding in host mode")
+		t.Fatal("expected network controller unit for internal port forwarding")
 	}
 	nc := units.NetworkController.Content
 	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-gitea-1.0.service") {
@@ -632,68 +660,41 @@ func TestGeneratePackageUnitsInternalPortForwardingHostMode(t *testing.T) {
 		t.Fatalf("service missing Wants for network controller, got:\n%s", svc)
 	}
 
-	// Should have --net host.
-	if !strings.Contains(svc, "--net host") {
-		t.Fatal("service missing --net host")
+	// Should use private network.
+	if !strings.Contains(svc, "--net town-os-net--test-repo-gitea-1.0") {
+		t.Fatalf("service missing --net private network, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "-p 9999:3000") {
+		t.Fatal("service should not have -p mappings")
 	}
 }
 
-func TestGeneratePackageUnitsInternalSamePortHostMode(t *testing.T) {
+func TestGeneratePackageUnitsInternalSamePort(t *testing.T) {
 	cfg := PackageUnitConfig{
-		RepoName:                 "test-repo",
-		PkgName:                  "redis",
-		Version:                  "7.0",
-		Image:                    "redis:7.0",
-		Environment:              map[string]string{},
-		External:                 packages.PortMap{},
-		Internal:                 packages.PortMap{6379: 6379},
-		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
-		NetworkMode:              "host",
+		RepoName:               "test-repo",
+		PkgName:                "redis",
+		Version:                "7.0",
+		Image:                  "redis:7.0",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{},
+		Internal:               packages.PortMap{6379: 6379},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
 
-	// No network controller needed when host == container.
-	if units.NetworkController != nil {
-		t.Fatal("expected no network controller unit for same-port internal mapping in host mode")
+	// Network controller is always present when ports exist.
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit for same-port internal mapping")
 	}
 
-	// No Wants line.
+	// Wants line should be present.
 	svc := units.Service.Content
-	if strings.Contains(svc, "Wants=") {
-		t.Fatal("service should not have Wants with same-port internal mapping")
-	}
-}
-
-func TestGeneratePackageUnitsInternalPortForwardingBridgeMode(t *testing.T) {
-	cfg := PackageUnitConfig{
-		RepoName:                 "test-repo",
-		PkgName:                  "gitea",
-		Version:                  "1.0",
-		Image:                    "gitea:1.0",
-		Environment:              map[string]string{},
-		External:                 packages.PortMap{},
-		Internal:                 packages.PortMap{9999: 3000},
-		Volumes:                  map[string]packages.PackageVolume{},
-		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
-	}
-
-	units := GeneratePackageUnits(cfg)
-
-	// No network controller in bridge mode (podman uses -p).
-	if units.NetworkController != nil {
-		t.Fatal("expected no network controller unit for internal port forwarding in bridge mode")
-	}
-
-	// Should have -p mapping instead.
-	svc := units.Service.Content
-	if !strings.Contains(svc, "-p 9999:3000") {
-		t.Fatalf("service missing -p 9999:3000 in bridge mode, got:\n%s", svc)
+	if !strings.Contains(svc, "Wants=") {
+		t.Fatal("service should have Wants for network controller")
 	}
 }
 
@@ -714,7 +715,7 @@ func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
 				"data": {Mountpoint: "/data", UID: &uid, GID: &gid},
 			},
 			BtrfsBase:                "/town-os",
-			NetworkControllerBinPath: "/town-os-networkcontroller",
+			NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		}
 
 		units := GeneratePackageUnits(cfg)
@@ -738,7 +739,7 @@ func TestGeneratePackageUnitsVolumeChown(t *testing.T) {
 				"data": {Mountpoint: "/data"},
 			},
 			BtrfsBase:                "/town-os",
-			NetworkControllerBinPath: "/town-os-networkcontroller",
+			NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		}
 
 		units := GeneratePackageUnits(cfg)
@@ -845,7 +846,7 @@ func TestGenerateServiceUnitWithDescription(t *testing.T) {
 		Internal:    packages.PortMap{},
 		Volumes:     map[string]packages.PackageVolume{},
 		BtrfsBase:   "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -870,7 +871,7 @@ func TestGenerateServiceUnitWithoutDescription(t *testing.T) {
 		Internal:    packages.PortMap{},
 		Volumes:     map[string]packages.PackageVolume{},
 		BtrfsBase:   "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -896,7 +897,7 @@ func TestGeneratePackageUnitsProtonCommand(t *testing.T) {
 			"compatdata": {Mountpoint: "/proton-data"},
 		},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -958,7 +959,7 @@ func TestGeneratePackageUnitsProtonWithArgs(t *testing.T) {
 			"compatdata": {Mountpoint: "/proton-data"},
 		},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 

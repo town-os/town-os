@@ -26,9 +26,8 @@ type PackageUnitConfig struct {
 	Internal                 packages.PortMap
 	Volumes                  map[string]packages.PackageVolume
 	BtrfsBase                string
-	NetworkControllerBinPath string
+	NetworkControllerImage   string // container image for the network controller
 	NetworkStatePath         string
-	NetworkMode              string // "" or "bridge" → -p mappings; "host" → --net host
 	Runtime                  packages.RuntimeType
 	VM                       *packages.PackageVM
 	VMImagePath              string // resolved path to the raw VM disk image
@@ -102,18 +101,12 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	var units PackageUnits
 
 	ports := allPorts(cfg.External, cfg.Internal)
-	hasExternalPorts := len(cfg.External) > 0
 	hasPorts := len(ports) > 0
 
-	needsNetworkController := hasExternalPorts
-	if !needsNetworkController && cfg.NetworkMode == "host" {
-		for host, container := range cfg.Internal {
-			if host != container {
-				needsNetworkController = true
-				break
-			}
-		}
-	}
+	// Network controller is needed whenever there are any ports — it handles
+	// all host port exposure via socat from the host network to the package
+	// container's private podman network.
+	needsNetworkController := hasPorts
 
 	// --- Main service unit ---
 	units.Service = generateServiceUnit(cfg, ports, needsNetworkController)
@@ -126,7 +119,7 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 		}
 	}
 
-	// --- Network controller unit (if external ports or internal port forwarding needed) ---
+	// --- Network controller unit (any ports = NC needed, always) ---
 	if needsNetworkController {
 		nc := generateNetworkControllerUnit(cfg)
 		units.NetworkController = &nc
@@ -193,16 +186,13 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		}
 	}
 
-	// ExecStart: podman run with network configuration.
-	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)
+	// Create the per-package private podman network (idempotent).
+	networkName := NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
 
-	if cfg.NetworkMode == "host" {
-		b.WriteString(" --net host")
-	} else {
-		for _, mapping := range allPortMappings(cfg.External, cfg.Internal) {
-			b.WriteString(" \\\n  -p " + mapping)
-		}
-	}
+	// ExecStart: podman run on the private network (no -p, no --net host).
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)
+	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
 
 	// Environment variables, sorted by key.
 	envKeys := make([]string, 0, len(cfg.Environment))
@@ -252,6 +242,9 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, "ExecStopPost=-/bin/systemctl start %s\n", strings.Join(socketNames, " "))
 	}
 
+	// Clean up the private podman network after the container stops.
+	fmt.Fprintf(&b, "ExecStopPost=-/usr/bin/podman network rm %s\n", NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version))
+
 	b.WriteString("Restart=on-failure\n")
 
 	// [Install]
@@ -286,24 +279,48 @@ WantedBy=sockets.target
 
 func generateNetworkControllerUnit(cfg PackageUnitConfig) UnitFile {
 	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	containerName := ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	ncContainerName := NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
 	statePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, cfg.RepoName, cfg.PkgName, cfg.Version)
-	content := fmt.Sprintf(`[Unit]
-Description=Town OS Network Controller: %s/%s@%s
-BindsTo=%s
-After=%s
 
-[Service]
-Type=simple
-ExecStart=%s --state %s
-Restart=on-failure
+	var b strings.Builder
 
-[Install]
-WantedBy=multi-user.target
-`, cfg.RepoName, cfg.PkgName, cfg.Version, svcName, svcName, cfg.NetworkControllerBinPath, statePath)
+	// [Unit]
+	b.WriteString("[Unit]\n")
+	fmt.Fprintf(&b, "Description=Town OS Network Controller: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version)
+	fmt.Fprintf(&b, "BindsTo=%s\n", svcName)
+	fmt.Fprintf(&b, "After=%s\n", svcName)
+
+	// [Service]
+	b.WriteString("\n[Service]\n")
+	b.WriteString("Type=simple\n")
+
+	// Clean up any stale NC container.
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman container cleanup %s\n", ncContainerName)
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", ncContainerName)
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", ncContainerName)
+
+	// Discover the package container's IP on the private network and write it
+	// to a target file the NC reads via --target-host.
+	targetFile := fmt.Sprintf("%s/%s-%s-%s.target", cfg.NetworkStatePath, cfg.RepoName, cfg.PkgName, cfg.Version)
+	fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c '/usr/bin/podman inspect --format \"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}\" %s > %s'\n",
+		containerName, targetFile)
+
+	// Run the NC as a podman container with --net host so socat can bind host ports.
+	fmt.Fprintf(&b, "ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --name %s --net host", ncContainerName)
+	fmt.Fprintf(&b, " \\\n  -v %s:%s:ro", cfg.NetworkStatePath, cfg.NetworkStatePath)
+	fmt.Fprintf(&b, " \\\n  %s --state %s --target-host \"$$(cat %s)\"'\n", cfg.NetworkControllerImage, statePath, targetFile)
+
+	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", ncContainerName)
+	b.WriteString("Restart=on-failure\n")
+
+	// [Install]
+	b.WriteString("\n[Install]\n")
+	b.WriteString("WantedBy=multi-user.target\n")
 
 	return UnitFile{
 		Name:    NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
-		Content: content,
+		Content: b.String(),
 	}
 }
 
@@ -366,7 +383,7 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 // PackageUnitNames returns the list of all systemd unit names that would be
 // generated for a package with the given port maps. This is used during
 // uninstall to know which units to tear down.
-func PackageUnitNames(repo, pkgName, version, networkMode string, external, internal packages.PortMap) []string {
+func PackageUnitNames(repo, pkgName, version string, external, internal packages.PortMap) []string {
 	names := []string{UnitName(repo, pkgName, version)}
 
 	ports := allPorts(external, internal)
@@ -374,16 +391,8 @@ func PackageUnitNames(repo, pkgName, version, networkMode string, external, inte
 		names = append(names, SocketUnitName(repo, pkgName, version, p))
 	}
 
-	needsNC := len(external) > 0
-	if !needsNC && networkMode == "host" {
-		for host, container := range internal {
-			if host != container {
-				needsNC = true
-				break
-			}
-		}
-	}
-	if needsNC {
+	// Network controller is present whenever there are any ports.
+	if len(ports) > 0 {
 		names = append(names, NetworkControllerUnitName(repo, pkgName, version))
 	}
 

@@ -23,7 +23,7 @@ func TestGenerateVMPackageUnitsBasic(t *testing.T) {
 		Environment:              map[string]string{},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -108,7 +108,7 @@ func TestGenerateVMPackageUnitsNoPorts(t *testing.T) {
 		Environment:              map[string]string{},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -157,7 +157,7 @@ func TestGenerateVMPackageUnitsMultiplePorts(t *testing.T) {
 		Environment:              map[string]string{},
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 		NetworkStatePath:         "/var/run/town-os",
 	}
 
@@ -210,7 +210,7 @@ func TestGenerateVMPackageUnitsWithDescription(t *testing.T) {
 		Environment: map[string]string{},
 		Volumes:     map[string]packages.PackageVolume{},
 		BtrfsBase:   "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -233,7 +233,7 @@ func TestContainerDispatchDoesNotGenerateVM(t *testing.T) {
 		Internal:    packages.PortMap{},
 		Volumes:     map[string]packages.PackageVolume{},
 		BtrfsBase:   "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
 	}
 
 	units := GeneratePackageUnits(cfg)

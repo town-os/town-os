@@ -20,20 +20,19 @@ import (
 // ReconcileConfig holds the dependencies needed to reconcile installed packages
 // on startup. Each field mirrors what the system controller uses at runtime.
 type ReconcileConfig struct {
-	Installer                packages.Installer
-	RepositoryRoot           *packages.RepositoryRoot
-	Storage                  storage.Storage
-	Systemd                  systemd.Manager
-	SettingsMgr              account.SettingsManager
-	PagesManager             account.PagesManager
-	BtrfsBasePath            string
-	NetworkControllerBinPath string
-	NetworkStatePath         string
-	NetworkMode              string
-	CaddyImage               string
-	CaddyPort                string
-	ExternalIP               string
-	InternalIP               string
+	Installer              packages.Installer
+	RepositoryRoot         *packages.RepositoryRoot
+	Storage                storage.Storage
+	Systemd                systemd.Manager
+	SettingsMgr            account.SettingsManager
+	PagesManager           account.PagesManager
+	BtrfsBasePath          string
+	NetworkControllerImage string
+	NetworkStatePath       string
+	CaddyImage             string
+	CaddyPort              string
+	ExternalIP             string
+	InternalIP             string
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -212,16 +211,9 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		}
 	}
 
-	// Write per-package network state file.
-	needsNetworkState := len(compiled.Network.External) > 0
-	if !needsNetworkState && cfg.NetworkMode == "host" {
-		for intHost, intContainer := range compiled.Network.Internal {
-			if intHost != intContainer {
-				needsNetworkState = true
-				break
-			}
-		}
-	}
+	// Write per-package network state file. Network state is needed whenever
+	// there are any ports (all forwarding goes through the NC).
+	needsNetworkState := len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0
 	if cfg.NetworkStatePath != "" && needsNetworkState {
 		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled); err != nil {
 			return fmt.Errorf("write network state: %w", err)
@@ -234,21 +226,20 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			image = reconcileProtonImage(cfg.SettingsMgr)
 		}
 		unitCfg := systemd.PackageUnitConfig{
-			RepoName:                 repoName,
-			PkgName:                  pi.Name,
-			Version:                  pi.Version,
-			Image:                    image,
-			Command:                  compiled.Command,
-			Environment:              compiled.Environment,
-			External:                 compiled.Network.External,
-			Internal:                 compiled.Network.Internal,
-			Volumes:                  compiled.Volumes,
-			BtrfsBase:                cfg.BtrfsBasePath,
-			NetworkControllerBinPath: cfg.NetworkControllerBinPath,
-			NetworkStatePath:         cfg.NetworkStatePath,
-			NetworkMode:              cfg.NetworkMode,
-			Runtime:                  compiled.Runtime,
-			VM:                       compiled.VM,
+			RepoName:               repoName,
+			PkgName:                pi.Name,
+			Version:                pi.Version,
+			Image:                  image,
+			Command:                compiled.Command,
+			Environment:            compiled.Environment,
+			External:               compiled.Network.External,
+			Internal:               compiled.Network.Internal,
+			Volumes:                compiled.Volumes,
+			BtrfsBase:              cfg.BtrfsBasePath,
+			NetworkControllerImage: cfg.NetworkControllerImage,
+			NetworkStatePath:       cfg.NetworkStatePath,
+			Runtime:                compiled.Runtime,
+			VM:                     compiled.VM,
 		}
 		if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
 			unitCfg.VMImagePath = resolveVMImagePath(cfg.BtrfsBasePath, compiled.VM.Image)
@@ -399,31 +390,29 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 	isDep := packages.IsDependency(pkgName)
 
 	state := networkcontroller.PackageNetworkState{
-		Repo:        repoName,
-		Package:     pkgName,
-		Version:     version,
-		NetworkMode: cfg.NetworkMode,
+		Repo:    repoName,
+		Package: pkgName,
+		Version: version,
 	}
 
+	// All ports get Forward=true — the NC handles all host port exposure
+	// via socat from the host to the package container's private network IP.
 	for ext, int_ := range compiled.Network.External {
-		forward := cfg.NetworkMode == "host" && ext != int_
 		state.Ports = append(state.Ports, networkcontroller.PortConfig{
 			ExternalPort: ext,
 			InternalPort: int_,
 			UPnP:         !isDep,
-			Forward:      forward,
+			Forward:      true,
 		})
 	}
 
 	for intHost, intContainer := range compiled.Network.Internal {
-		if cfg.NetworkMode == "host" && intHost != intContainer {
-			state.Ports = append(state.Ports, networkcontroller.PortConfig{
-				ExternalPort: intHost,
-				InternalPort: intContainer,
-				UPnP:         false,
-				Forward:      true,
-			})
-		}
+		state.Ports = append(state.Ports, networkcontroller.PortConfig{
+			ExternalPort: intHost,
+			InternalPort: intContainer,
+			UPnP:         false,
+			Forward:      true,
+		})
 	}
 
 	sort.Slice(state.Ports, func(i, j int) bool {

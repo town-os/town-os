@@ -16,6 +16,7 @@ import (
 
 func run() error {
 	statePath := flag.String("state", "", "path to per-package network state JSON file (required)")
+	targetHost := flag.String("target-host", "127.0.0.1", "target host IP for socat forwarding (package container IP on private network)")
 	flag.Parse()
 
 	if *statePath == "" {
@@ -31,7 +32,7 @@ func run() error {
 		upnpMgr = client
 	}
 
-	ctrl := networkcontroller.NewController(upnpMgr)
+	ctrl := networkcontroller.NewControllerWithTarget(upnpMgr, *targetHost)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

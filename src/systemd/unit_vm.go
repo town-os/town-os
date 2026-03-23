@@ -13,18 +13,10 @@ func generateVMPackageUnits(cfg PackageUnitConfig) PackageUnits {
 	var units PackageUnits
 
 	ports := allPorts(cfg.External, cfg.Internal)
-	hasExternalPorts := len(cfg.External) > 0
 	hasPorts := len(ports) > 0
 
-	needsNetworkController := hasExternalPorts
-	if !needsNetworkController {
-		for host, container := range cfg.Internal {
-			if host != container {
-				needsNetworkController = true
-				break
-			}
-		}
-	}
+	// VM packages: network controller is needed whenever there are any ports.
+	needsNetworkController := hasPorts
 
 	units.Service = generateVMServiceUnit(cfg, ports, needsNetworkController)
 

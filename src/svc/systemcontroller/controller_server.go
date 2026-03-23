@@ -46,10 +46,9 @@ func (s *serverBase) GetAllowedHosts() []string                   { return s.All
 func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 	return s.DefaultRepoUser, s.DefaultRepoPass
 }
-func (s *serverBase) GetBtrfsBasePath() string            { return s.BtrfsBasePath }
-func (s *serverBase) GetNetworkControllerBinPath() string { return s.NetworkControllerBinPath }
-func (s *serverBase) GetNetworkStatePath() string         { return s.NetworkStatePath }
-func (s *serverBase) GetNetworkMode() string              { return s.NetworkMode }
+func (s *serverBase) GetBtrfsBasePath() string          { return s.BtrfsBasePath }
+func (s *serverBase) GetNetworkControllerImage() string { return s.NetworkControllerImage }
+func (s *serverBase) GetNetworkStatePath() string       { return s.NetworkStatePath }
 func (s *serverBase) GetGitCloner() packages.GitCloner {
 	if s.GitCloner != nil {
 		return s.GitCloner

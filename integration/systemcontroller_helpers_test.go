@@ -292,17 +292,6 @@ func initReconcileTest(t *testing.T) (
 	storage.Storage,
 ) {
 	t.Helper()
-	return initReconcileTestWithNetworkMode(t, "")
-}
-
-func initReconcileTestWithNetworkMode(t *testing.T, networkMode string) (
-	*systemcontroller.SystemdClient,
-	*packages.RepositoryRoot,
-	packages.Installer,
-	*systemd.MockManager,
-	storage.Storage,
-) {
-	t.Helper()
 
 	dir := t.TempDir()
 	data, err := json.Marshal([]packages.Repository{})
@@ -326,7 +315,6 @@ func initReconcileTestWithNetworkMode(t *testing.T, networkMode string) (
 		RepositoryRoot: rr,
 		Installer:      inst,
 		Systemd:        sd,
-		NetworkMode:    networkMode,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -338,44 +326,7 @@ func initReconcileTestWithNetworkMode(t *testing.T, networkMode string) (
 	return c, rr, inst, sd, mock
 }
 
-func initSystemControllerInstallSystemdTestWithNetworkMode(t *testing.T, networkMode string) (*systemcontroller.SystemdClient, *systemd.MockManager) {
-	t.Helper()
-
-	dir := t.TempDir()
-	data, err := json.Marshal([]packages.Repository{})
-	if err != nil {
-		t.Fatalf("json.Marshal empty repository list: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
-		t.Fatalf("WriteFile repositories file: %v", err)
-	}
-
-	rr, err := packages.RepositoryRootFromBase(dir)
-	if err != nil {
-		t.Fatalf("failed to load repository root: %v", err)
-	}
-
-	inst := packages.NewInstallManager(dir)
-	mock := storage.InitBtrFSMock()
-	sd := systemd.InitMockManager()
-	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
-		Storage:        mock,
-		RepositoryRoot: rr,
-		Installer:      inst,
-		Systemd:        sd,
-		NetworkMode:    networkMode,
-	})
-	t.Cleanup(func() { ts.Server.Close() })
-
-	c, err := ts.Client()
-	if err != nil {
-		t.Fatalf("could not create client: %v", err)
-	}
-
-	return c, sd
-}
-
-func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T, networkMode string) (*systemcontroller.SystemdClient, *systemd.MockManager, string) {
+func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T) (*systemcontroller.SystemdClient, string) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -397,13 +348,12 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T, networ
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
-		Storage:                  mock,
-		RepositoryRoot:           rr,
-		Installer:                inst,
-		Systemd:                  sd,
-		NetworkMode:              networkMode,
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         netStateDir,
+		Storage:                mock,
+		RepositoryRoot:         rr,
+		Installer:              inst,
+		Systemd:                sd,
+		NetworkControllerImage: "town-os-networkcontroller:local",
+		NetworkStatePath:       netStateDir,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -412,7 +362,7 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T, networ
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return c, sd, netStateDir
+	return c, netStateDir
 }
 
 func initSystemControllerMonitoringTest(t *testing.T) (*systemcontroller.SystemdClient, *monitoring.Manager, *systemd.MockManager) {

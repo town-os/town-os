@@ -150,9 +150,8 @@ func (b *archiveTestBackend) GetGitClient() git.Client                          
 func (b *archiveTestBackend) GetAllowedHosts() []string                           { return nil }
 func (b *archiveTestBackend) GetDefaultRepoCredentials() (string, string)         { return "", "" }
 func (b *archiveTestBackend) GetBtrfsBasePath() string                            { return b.btrfsBase }
-func (b *archiveTestBackend) GetNetworkControllerBinPath() string                 { return "" }
-func (b *archiveTestBackend) GetNetworkStatePath() string                         { return "" }
-func (b *archiveTestBackend) GetNetworkMode() string                              { return "" }
+func (b *archiveTestBackend) GetNetworkControllerImage() string { return "" }
+func (b *archiveTestBackend) GetNetworkStatePath() string      { return "" }
 func (b *archiveTestBackend) GetGitCloner() packages.GitCloner                    { return nil }
 func (b *archiveTestBackend) GetPagesManager() account.PagesManager               { return nil }
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }

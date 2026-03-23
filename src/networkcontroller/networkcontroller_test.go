@@ -104,10 +104,9 @@ func TestStateFileParsing(t *testing.T) {
 	path := filepath.Join(dir, "test.json")
 
 	state := PackageNetworkState{
-		Repo:        "core",
-		Package:     "nginx",
-		Version:     "1.0",
-		NetworkMode: "host",
+		Repo:    "core",
+		Package: "nginx",
+		Version: "1.0",
 		Ports: []PortConfig{
 			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: true},
 		},
@@ -135,9 +134,6 @@ func TestStateFileParsing(t *testing.T) {
 	}
 	if parsed.Version != "1.0" {
 		t.Fatalf("expected version 1.0, got %s", parsed.Version)
-	}
-	if parsed.NetworkMode != "host" {
-		t.Fatalf("expected network_mode host, got %s", parsed.NetworkMode)
 	}
 	if len(parsed.Ports) != 1 {
 		t.Fatalf("expected 1 port, got %d", len(parsed.Ports))
@@ -692,6 +688,54 @@ func TestRunEmitsStartupLog(t *testing.T) {
 	logged := buf.String()
 	if !strings.Contains(logged, "networkcontroller starting: core/nginx@1.0") {
 		t.Fatalf("expected startup log message, got: %s", logged)
+	}
+}
+
+func TestCustomTargetHost(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "10.88.0.2")
+
+	state := &PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: true},
+		},
+	}
+
+	ctrl.reconcile(state)
+
+	calls := runner.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(calls))
+	}
+	if calls[0].Args[1] != "TCP:10.88.0.2:80" {
+		t.Fatalf("expected TCP:10.88.0.2:80, got %s", calls[0].Args[1])
+	}
+}
+
+func TestDefaultTargetHost(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunner(mock, runner)
+
+	state := &PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: false, Forward: true},
+		},
+	}
+
+	ctrl.reconcile(state)
+
+	calls := runner.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(calls))
+	}
+	if calls[0].Args[1] != "TCP:127.0.0.1:80" {
+		t.Fatalf("expected TCP:127.0.0.1:80, got %s", calls[0].Args[1])
 	}
 }
 

@@ -64,7 +64,7 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 	t.Cleanup(func() {
 		cleanup := systemd.NewManager()
 		ctx := context.Background()
-		allUnits := systemd.PackageUnitNames("core", "nginx", "1.0", "", packages.PortMap{8080: 80}, packages.PortMap{})
+		allUnits := systemd.PackageUnitNames("core", "nginx", "1.0", packages.PortMap{8080: 80}, packages.PortMap{})
 		for _, name := range allUnits {
 			if err := cleanup.SetStatus(ctx, name, systemd.Stop); err != nil {
 				t.Logf("cleanup: SetStatus stop %s: %v", name, err)
@@ -177,8 +177,8 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 		Installer:                inst,
 		Systemd:                  sd,
 		BtrfsBasePath:            "/town-os",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkControllerImage: "town-os-networkcontroller:local",
+		NetworkStatePath:       "/var/run/town-os",
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -196,7 +196,7 @@ func cleanupContainerUnits(t *testing.T, repo, pkgName, version string, external
 	t.Helper()
 	cleanup := systemd.NewManager()
 	ctx := context.Background()
-	allUnits := systemd.PackageUnitNames(repo, pkgName, version, "", external, internal)
+	allUnits := systemd.PackageUnitNames(repo, pkgName, version, external, internal)
 	for _, name := range allUnits {
 		if err := cleanup.SetStatus(ctx, name, systemd.Stop); err != nil {
 			t.Logf("cleanup: SetStatus stop %s: %v", name, err)

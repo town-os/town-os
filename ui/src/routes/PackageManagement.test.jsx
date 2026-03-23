@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import PackageManagement from './PackageManagement.jsx'
@@ -612,9 +612,11 @@ describe('PackageManagement', () => {
       expect(screen.getByText('Featured only')).toBeTruthy()
     })
     const checkbox = screen.getByText('Featured only').closest('label').querySelector('input')
-    fireEvent.click(checkbox)
+
+    await act(async () => { fireEvent.click(checkbox) })
     expect(localStorage.getItem('pkg_featured_only')).toBe('false')
-    fireEvent.click(checkbox)
+
+    await act(async () => { fireEvent.click(checkbox) })
     expect(localStorage.getItem('pkg_featured_only')).toBe('true')
   })
 
@@ -624,9 +626,11 @@ describe('PackageManagement', () => {
       expect(screen.getByText('Installed only')).toBeTruthy()
     })
     const checkbox = screen.getByText('Installed only').closest('label').querySelector('input')
-    fireEvent.click(checkbox)
+
+    await act(async () => { fireEvent.click(checkbox) })
     expect(localStorage.getItem('pkg_installed_only')).toBe('true')
-    fireEvent.click(checkbox)
+
+    await act(async () => { fireEvent.click(checkbox) })
     expect(localStorage.getItem('pkg_installed_only')).toBe('false')
   })
 
@@ -636,9 +640,11 @@ describe('PackageManagement', () => {
       expect(screen.getByText('Group by repository')).toBeTruthy()
     })
     const checkbox = screen.getByText('Group by repository').closest('label').querySelector('input')
-    fireEvent.click(checkbox)
+
+    await act(async () => { fireEvent.click(checkbox) })
     expect(localStorage.getItem('pkg_group_by_repo')).toBe('true')
-    fireEvent.click(checkbox)
+
+    await act(async () => { fireEvent.click(checkbox) })
     expect(localStorage.getItem('pkg_group_by_repo')).toBe('false')
   })
 

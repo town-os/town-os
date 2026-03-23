@@ -17,10 +17,10 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-// --- Command and NetworkMode integration tests ---
+// --- Private network integration tests ---
 
 func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
-	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
+	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
@@ -69,139 +69,20 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 		t.Fatalf("service unit missing command arg '0.0.0.0', got:\n%s", serviceContent)
 	}
 
-	// Verify -p port mapping is present (default bridge mode).
-	if !strings.Contains(serviceContent, "-p 6379:6379") {
-		t.Fatalf("service unit missing '-p 6379:6379' in bridge mode, got:\n%s", serviceContent)
+	// Verify private network (no -p, no --net host).
+	if !strings.Contains(serviceContent, "--net town-os-net--") {
+		t.Fatalf("service unit missing --net private network, got:\n%s", serviceContent)
 	}
-
-	// Verify --net host is NOT present.
-	if strings.Contains(serviceContent, "--net host") {
-		t.Fatal("service unit should not have --net host in bridge mode")
-	}
-}
-
-func TestSystemControllerInstallWithHostNetworkMode(t *testing.T) {
-	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
-
-	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
-		t.Fatalf("AddRepository core: %v", err)
-	}
-
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
-		"port":      "6379",
-		"password":  "testpass",
-		"maxmemory": "100mb",
-	}, false, "", false); err != nil {
-		t.Fatalf("InstallPackage redis@7.0: %v", err)
-	}
-
-	calls := sd.GetCalls()
-
-	// Find the service unit content.
-	var serviceContent string
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name, ok := call.Args[0].(string)
-			if !ok {
-				t.Fatal("type assertion failed")
-			}
-			if name == "town-os-package--core-redis-7.0.service" {
-				sc, ok := call.Args[1].(string)
-				if !ok {
-					t.Fatal("type assertion failed")
-				}
-				serviceContent = sc
-				break
-			}
-		}
-	}
-
-	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-package--core-redis-7.0.service")
-	}
-
-	// Verify --net host is present.
-	if !strings.Contains(serviceContent, "--net host") {
-		t.Fatalf("service unit missing '--net host' in host mode, got:\n%s", serviceContent)
-	}
-
-	// Verify -p is NOT present.
 	if strings.Contains(serviceContent, "-p 6379:6379") {
-		t.Fatal("service unit should not have -p mappings in host mode")
-	}
-
-	// Verify command args still appear.
-	if !strings.Contains(serviceContent, "redis-server") {
-		t.Fatalf("service unit missing command arg 'redis-server' in host mode, got:\n%s", serviceContent)
-	}
-	if !strings.Contains(serviceContent, "--bind") {
-		t.Fatalf("service unit missing command arg '--bind' in host mode, got:\n%s", serviceContent)
-	}
-
-	// Redis 6379→6379 (same port, internal only): no network controller should be installed.
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name, ok := call.Args[0].(string)
-			if !ok {
-				t.Fatal("type assertion failed")
-			}
-			if strings.Contains(name, "network") {
-				t.Fatalf("unexpected network controller unit installed for internal-only port: %s", name)
-			}
-		}
-	}
-}
-
-func TestSystemControllerInstallNginxBridgeMode(t *testing.T) {
-	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "")
-
-	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
-		t.Fatalf("AddRepository core: %v", err)
-	}
-
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
-		"hostname": "example",
-		"port":     "8080",
-	}, false, "", false); err != nil {
-		t.Fatalf("InstallPackage nginx@1.0: %v", err)
-	}
-
-	// Find the service unit content.
-	calls := sd.GetCalls()
-	var serviceContent string
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name, ok := call.Args[0].(string)
-			if !ok {
-				t.Fatal("type assertion failed")
-			}
-			if name == "town-os-package--core-nginx-1.0.service" {
-				sc, ok := call.Args[1].(string)
-				if !ok {
-					t.Fatal("type assertion failed")
-				}
-				serviceContent = sc
-				break
-			}
-		}
-	}
-
-	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service")
-	}
-
-	// Nginx has no command field, so command args should not appear after the image.
-	// The image line should end the ExecStart (no extra args).
-	if !strings.Contains(serviceContent, "-p 8080:80") {
-		t.Fatalf("service unit missing '-p 8080:80', got:\n%s", serviceContent)
+		t.Fatal("service unit should not have -p mappings (private network)")
 	}
 	if strings.Contains(serviceContent, "--net host") {
-		t.Fatal("service unit should not have --net host in bridge mode")
+		t.Fatal("service unit should not have --net host")
 	}
 }
 
-func TestSystemControllerInstallNginxHostMode(t *testing.T) {
-	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
+func TestSystemControllerInstallNginxPrivateNetwork(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
@@ -215,8 +96,6 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	}
 
 	calls := sd.GetCalls()
-
-	// Find the service unit content.
 	var serviceContent string
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
@@ -239,13 +118,33 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service")
 	}
 
-	// Verify --net host is present and -p is not.
-	if !strings.Contains(serviceContent, "--net host") {
-		t.Fatalf("service unit missing '--net host' in host mode, got:\n%s", serviceContent)
+	// Private network mode: no -p, no --net host.
+	if !strings.Contains(serviceContent, "--net town-os-net--") {
+		t.Fatalf("service unit missing --net private network, got:\n%s", serviceContent)
 	}
 	if strings.Contains(serviceContent, "-p 8080:80") {
-		t.Fatal("service unit should not have -p mappings in host mode")
+		t.Fatal("service unit should not have -p mappings")
 	}
+	if strings.Contains(serviceContent, "--net host") {
+		t.Fatal("service unit should not have --net host")
+	}
+}
+
+func TestSystemControllerInstallNginxNetworkController(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
 
 	// Verify networkcontroller unit was installed.
 	var ncContent string
@@ -274,53 +173,8 @@ func TestSystemControllerInstallNginxHostMode(t *testing.T) {
 	if !strings.Contains(ncContent, "After=town-os-package--core-nginx-1.0.service") {
 		t.Fatalf("network controller missing After, got:\n%s", ncContent)
 	}
-}
-
-func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
-	c, sd := initSystemControllerInstallSystemdTestWithNetworkMode(t, "host")
-
-	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
-		t.Fatalf("AddRepository core: %v", err)
-	}
-
-	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
-		"hostname": "example",
-		"port":     "8080",
-	}, false, "", false); err != nil {
-		t.Fatalf("InstallPackage nginx@1.0: %v", err)
-	}
-
-	calls := sd.GetCalls()
-
-	// Verify network controller unit was installed.
-	var ncContent string
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name, ok := call.Args[0].(string)
-			if !ok {
-				t.Fatal("type assertion failed")
-			}
-			if name == "town-os-package--core-nginx-1.0-network.service" {
-				nc, ok := call.Args[1].(string)
-				if !ok {
-					t.Fatal("type assertion failed")
-				}
-				ncContent = nc
-				break
-			}
-		}
-	}
-	if ncContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0-network.service")
-	}
 	if !strings.Contains(ncContent, "Description=Town OS Network Controller: core/nginx@1.0") {
 		t.Fatalf("network controller missing description, got:\n%s", ncContent)
-	}
-	if !strings.Contains(ncContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
-		t.Fatalf("network controller missing BindsTo, got:\n%s", ncContent)
-	}
-	if !strings.Contains(ncContent, "After=town-os-package--core-nginx-1.0.service") {
-		t.Fatalf("network controller missing After, got:\n%s", ncContent)
 	}
 
 	// Verify the network controller was enabled.
@@ -371,8 +225,8 @@ func TestSystemControllerInstallNginxHostModeNetworkController(t *testing.T) {
 	}
 }
 
-func TestReconcileWithNetworkMode(t *testing.T) {
-	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
+func TestSystemControllerInstallRedisNCForInternalPorts(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
@@ -386,56 +240,9 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
-	// Clear mock systemd calls (simulate restart).
-	sd.Calls = nil
-
-	err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
-		Installer:      inst,
-		RepositoryRoot: rr,
-		Storage:        mock,
-		Systemd:        sd,
-		NetworkMode:    "host",
-	})
-	if err != nil {
-		t.Fatalf("Reconcile: %v", err)
-	}
-
-	// Find the reconciled service unit content.
+	// Redis has internal-only ports: NC should still be installed (all ports go through NC).
 	calls := sd.GetCalls()
-	var serviceContent string
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name, ok := call.Args[0].(string)
-			if !ok {
-				t.Fatal("type assertion failed")
-			}
-			if name == "town-os-package--core-redis-7.0.service" {
-				sc, ok := call.Args[1].(string)
-				if !ok {
-					t.Fatal("type assertion failed")
-				}
-				serviceContent = sc
-				break
-			}
-		}
-	}
-
-	if serviceContent == "" {
-		t.Fatal("expected InstallUnit call for town-os-package--core-redis-7.0.service after reconcile")
-	}
-
-	// Verify --net host and command args after reconcile.
-	if !strings.Contains(serviceContent, "--net host") {
-		t.Fatalf("reconciled unit missing '--net host', got:\n%s", serviceContent)
-	}
-	if strings.Contains(serviceContent, "-p 6379:6379") {
-		t.Fatal("reconciled unit should not have -p in host mode")
-	}
-	if !strings.Contains(serviceContent, "redis-server") {
-		t.Fatalf("reconciled unit missing command arg 'redis-server', got:\n%s", serviceContent)
-	}
-
-	// Redis 6379→6379 (same port, internal only): no network controller should be installed after reconcile.
+	ncInstalled := false
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name, ok := call.Args[0].(string)
@@ -443,14 +250,18 @@ func TestReconcileWithNetworkMode(t *testing.T) {
 				t.Fatal("type assertion failed")
 			}
 			if strings.Contains(name, "network") {
-				t.Fatalf("unexpected network controller unit installed after reconcile for internal-only port: %s", name)
+				ncInstalled = true
+				break
 			}
 		}
 	}
+	if !ncInstalled {
+		t.Fatal("expected network controller unit installed for internal-only ports")
+	}
 }
 
-func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
-	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
+func TestReconcileNetworkController(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
@@ -471,16 +282,45 @@ func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 		RepositoryRoot: rr,
 		Storage:        mock,
 		Systemd:        sd,
-		NetworkMode:    "host",
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
+	// Find the reconciled service unit content.
 	calls := sd.GetCalls()
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			if name == "town-os-package--core-nginx-1.0.service" {
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
+				break
+			}
+		}
+	}
 
-	// Verify network controller unit was installed during reconcile.
-	var ncContent string
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service after reconcile")
+	}
+
+	// Verify private network after reconcile.
+	if !strings.Contains(serviceContent, "--net town-os-net--") {
+		t.Fatalf("reconciled unit missing '--net private network', got:\n%s", serviceContent)
+	}
+	if strings.Contains(serviceContent, "-p 8080:80") {
+		t.Fatal("reconciled unit should not have -p mappings")
+	}
+
+	// Verify NC unit was installed during reconcile.
+	var ncInstalled bool
 	for _, call := range calls {
 		if call.Method == "InstallUnit" {
 			name, ok := call.Args[0].(string)
@@ -488,23 +328,16 @@ func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 				t.Fatal("type assertion failed")
 			}
 			if name == "town-os-package--core-nginx-1.0-network.service" {
-				nc, ok := call.Args[1].(string)
-				if !ok {
-					t.Fatal("type assertion failed")
-				}
-				ncContent = nc
+				ncInstalled = true
 				break
 			}
 		}
 	}
-	if ncContent == "" {
-		t.Fatal("expected InstallUnit call for network controller unit after reconcile")
-	}
-	if !strings.Contains(ncContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
-		t.Fatalf("network controller missing BindsTo after reconcile, got:\n%s", ncContent)
+	if !ncInstalled {
+		t.Fatal("expected network controller unit to be installed during reconcile")
 	}
 
-	// Verify network controller was enabled.
+	// Verify NC was enabled.
 	ncEnabled := false
 	for _, call := range calls {
 		if call.Method == "SetStatus" {
@@ -527,10 +360,10 @@ func TestReconcileWithNetworkModeNginxNetworkController(t *testing.T) {
 	}
 }
 
-// --- Internal port forwarding integration tests ---
+// --- Network state file integration tests ---
 
-func TestSystemControllerInstallNginxHostModeNetworkState(t *testing.T) {
-	c, _, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t, "host")
+func TestSystemControllerInstallNginxNetworkState(t *testing.T) {
+	c, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
@@ -555,10 +388,6 @@ func TestSystemControllerInstallNginxHostModeNetworkState(t *testing.T) {
 		t.Fatalf("unmarshal network state: %v", err)
 	}
 
-	if state.NetworkMode != "host" {
-		t.Fatalf("expected network_mode host, got %s", state.NetworkMode)
-	}
-
 	// Nginx has external 8080→80: should have Forward=true, UPnP=true.
 	if len(state.Ports) != 1 {
 		t.Fatalf("expected 1 port in state, got %d", len(state.Ports))
@@ -573,12 +402,12 @@ func TestSystemControllerInstallNginxHostModeNetworkState(t *testing.T) {
 		t.Fatal("expected UPnP=true for external port")
 	}
 	if !state.Ports[0].Forward {
-		t.Fatal("expected Forward=true for external port with host!=container in host mode")
+		t.Fatal("expected Forward=true for all ports")
 	}
 }
 
-func TestSystemControllerInstallRedisHostModeNoNCForSamePort(t *testing.T) {
-	c, sd, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t, "host")
+func TestSystemControllerInstallRedisNetworkState(t *testing.T) {
+	c, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
 		t.Fatalf("AddRepository core: %v", err)
@@ -592,59 +421,29 @@ func TestSystemControllerInstallRedisHostModeNoNCForSamePort(t *testing.T) {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
-	// Redis 6379→6379 (same port, internal only): no network controller should be installed.
-	calls := sd.GetCalls()
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name, ok := call.Args[0].(string)
-			if !ok {
-				t.Fatal("type assertion failed")
-			}
-			if strings.Contains(name, "network") {
-				t.Fatalf("unexpected network controller unit installed for same-port internal mapping: %s", name)
-			}
-		}
-	}
-
-	// No network state file should be written (no external ports, internal same-port).
+	// Redis has internal-only ports: network state file should be written
+	// with Forward=true (all ports go through NC now).
 	statePath := filepath.Join(netStateDir, "core-redis-7.0.json")
-	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
-		t.Fatalf("expected no network state file for same-port internal mapping, but file exists")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read network state file: %v (expected state file for internal ports)", err)
+	}
+
+	var state networkcontroller.PackageNetworkState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("unmarshal network state: %v", err)
+	}
+
+	if len(state.Ports) != 1 {
+		t.Fatalf("expected 1 port in state, got %d", len(state.Ports))
+	}
+	if !state.Ports[0].Forward {
+		t.Fatal("expected Forward=true for all ports")
 	}
 }
 
-func TestSystemControllerInstallNginxBridgeModeNoInternalPortForwarding(t *testing.T) {
-	c, sd, _ := initSystemControllerInstallSystemdTestWithNetworkState(t, "")
-
-	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
-		t.Fatalf("AddRepository core: %v", err)
-	}
-
-	if err := c.InstallPackage(context.TODO(), "redis", "7.0", packages.Responses{
-		"port":      "6379",
-		"password":  "testpass",
-		"maxmemory": "100mb",
-	}, false, "", false); err != nil {
-		t.Fatalf("InstallPackage redis@7.0: %v", err)
-	}
-
-	// Bridge mode: no network controller for internal-only ports.
-	calls := sd.GetCalls()
-	for _, call := range calls {
-		if call.Method == "InstallUnit" {
-			name, ok := call.Args[0].(string)
-			if !ok {
-				t.Fatal("type assertion failed")
-			}
-			if strings.Contains(name, "network") {
-				t.Fatalf("unexpected network controller unit installed in bridge mode: %s", name)
-			}
-		}
-	}
-}
-
-func TestReconcileNginxHostModeNetworkState(t *testing.T) {
-	c, rr, inst, sd, mock := initReconcileTestWithNetworkMode(t, "host")
+func TestReconcileNginxNetworkState(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	netStateDir := t.TempDir()
 
@@ -663,13 +462,12 @@ func TestReconcileNginxHostModeNetworkState(t *testing.T) {
 	sd.Calls = nil
 
 	err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
-		Installer:                inst,
-		RepositoryRoot:           rr,
-		Storage:                  mock,
-		Systemd:                  sd,
-		NetworkMode:              "host",
-		NetworkControllerBinPath: "/town-os-networkcontroller",
-		NetworkStatePath:         netStateDir,
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Storage:                mock,
+		Systemd:                sd,
+		NetworkControllerImage: "town-os-networkcontroller:local",
+		NetworkStatePath:       netStateDir,
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -687,14 +485,14 @@ func TestReconcileNginxHostModeNetworkState(t *testing.T) {
 		t.Fatalf("unmarshal network state: %v", err)
 	}
 
-	if state.NetworkMode != "host" {
-		t.Fatalf("expected network_mode host, got %s", state.NetworkMode)
-	}
 	if len(state.Ports) != 1 {
 		t.Fatalf("expected 1 port after reconcile, got %d", len(state.Ports))
 	}
 	if state.Ports[0].ExternalPort != 8080 || state.Ports[0].InternalPort != 80 {
 		t.Fatalf("expected 8080->80, got %d->%d", state.Ports[0].ExternalPort, state.Ports[0].InternalPort)
+	}
+	if !state.Ports[0].Forward {
+		t.Fatal("expected Forward=true for all ports after reconcile")
 	}
 
 	// Verify NC unit was installed during reconcile.

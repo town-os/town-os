@@ -117,10 +117,10 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 
 	calls := sd.GetCalls()
 	// nginx (1 ext port): 3 InstallUnit + 2 Enable + 1 Start = 6
-	// redis (1 int port): 2 InstallUnit + 1 Enable + 1 Start = 4
-	// Total = 10
-	if len(calls) != 10 {
-		t.Fatalf("expected 10 systemd calls, got %d", len(calls))
+	// redis (1 int port): 3 InstallUnit + 2 Enable + 1 Start = 6
+	// Total = 12
+	if len(calls) != 12 {
+		t.Fatalf("expected 12 systemd calls, got %d", len(calls))
 	}
 }
 
