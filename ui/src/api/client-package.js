@@ -82,6 +82,18 @@ SystemControllerClient.prototype.getInstalledInfo = async function (repo, name, 
 }
 
 /**
+ * Fetch the raw YAML manifest for a package.
+ * @param {string} repo
+ * @param {string} name
+ * @param {string} version
+ * @returns {Promise<string>}
+ */
+SystemControllerClient.prototype.getPackageManifest = async function (repo, name, version) {
+  const resp = await this.post('/packages/manifest', { repo, name, version })
+  return resp.text()
+}
+
+/**
  * @param {string} repo
  * @param {string} name
  * @returns {Promise<Responses>}

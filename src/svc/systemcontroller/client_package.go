@@ -304,6 +304,31 @@ func (c *SystemdClient) GetInstalledInfo(ctx context.Context, repo, name, versio
 	return &info, json.NewDecoder(resp.Body).Decode(&info)
 }
 
+// GetPackageManifest returns the raw YAML manifest for a package.
+func (c *SystemdClient) GetPackageManifest(ctx context.Context, repo, name, version string) (_ string, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, PackageIdentityRequest{Repo: repo, Name: name, Version: version})
+
+	resp, err := c.postJSON(ctx, "packages/manifest", pr)
+	if err != nil {
+		return "", fmt.Errorf("%w: GetPackageManifest: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", readProblemDetail(resp, "POST", "packages/manifest")
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("GetPackageManifest: read body: %w", err)
+	}
+
+	return string(data), nil
+}
+
 // ListChildren returns the child package names for a given repo and package.
 func (c *SystemdClient) ListChildren(ctx context.Context, repo, name string) (_ []string, err error) {
 	pr, pw := io.Pipe()

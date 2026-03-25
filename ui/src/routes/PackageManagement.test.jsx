@@ -64,6 +64,7 @@ const mockClient = {
   listUninstalledVolumes: vi.fn(() => Promise.resolve({ has_uninstalled_volumes: false })),
   purgeUninstalledVolumes: vi.fn(() => Promise.resolve()),
   listFeaturedPackages: vi.fn(() => Promise.resolve([])),
+  getPackageManifest: vi.fn(() => Promise.resolve('image: nginx:1.0\n')),
 }
 
 vi.mock('@/lib/client-instance.js', () => ({
@@ -78,6 +79,15 @@ function renderPackageManagement() {
       </TooltipProvider>
     </MemoryRouter>,
   )
+}
+
+/**
+ * Open a Radix DropdownMenu by dispatching pointerDown on its trigger.
+ * jsdom doesn't fully handle Radix click-to-open so we use pointerDown.
+ */
+function openPackageDropdown(index = 0) {
+  const triggers = document.querySelectorAll('[data-slot="dropdown-menu-trigger"]')
+  fireEvent.pointerDown(triggers[index], { button: 0, pointerType: 'mouse' })
 }
 
 // Reset all mocks to their default implementations before each test.
@@ -138,10 +148,10 @@ describe('PackageManagement', () => {
     })
   })
 
-  it('renders the Details column header in flat view', async () => {
+  it('renders the Actions column header in flat view', async () => {
     renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByText('Details')).toBeTruthy()
+      expect(screen.getByText('Actions')).toBeTruthy()
     })
   })
 
@@ -166,8 +176,7 @@ describe('PackageManagement', () => {
     })
     // Grouped view should show column headings
     expect(screen.getByText('Name')).toBeTruthy()
-    expect(screen.getByText('Version')).toBeTruthy()
-    expect(screen.getByText('Details')).toBeTruthy()
+    expect(screen.getByText('Actions')).toBeTruthy()
     expect(screen.getByText('Status')).toBeTruthy()
   })
 
@@ -185,14 +194,14 @@ describe('PackageManagement', () => {
     })
   })
 
-  it('wraps status badges and info icon in tooltip triggers', async () => {
+  it('wraps status badges in tooltip triggers', async () => {
     const { container } = renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
     const triggers = container.querySelectorAll('[data-slot="tooltip-trigger"]')
-    // One tooltip per package status badge + info icon for installed
-    expect(triggers.length).toBe(3)
+    // One tooltip per package status badge (no info icon tooltip — it's in dropdown now)
+    expect(triggers.length).toBe(2)
   })
 
   it('right-aligns the last column', async () => {
@@ -217,19 +226,14 @@ describe('PackageManagement', () => {
     }
   })
 
-  it('shows info icon only for installed packages', async () => {
-    const { container } = renderPackageManagement()
+  it('shows actions dropdown for packages', async () => {
+    renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
-    // Info icon uses lucide Info which renders as an svg
-    const rows = container.querySelectorAll('tbody tr')
-    // First row (nginx) is installed — should have info button
-    const nginxInfoBtn = rows[0].querySelector('button svg.lucide-info')
-    expect(nginxInfoBtn).toBeTruthy()
-    // Second row (redis) is not installed — should not have info button
-    const redisInfoBtn = rows[1].querySelector('button svg.lucide-info')
-    expect(redisInfoBtn).toBeNull()
+    // Each package row should have a dropdown trigger with aria-label
+    const actionBtns = screen.getAllByRole('button', { name: 'Package actions' })
+    expect(actionBtns.length).toBe(2)
   })
 
   // --- Page heading and layout ---
@@ -268,17 +272,16 @@ describe('PackageManagement', () => {
     })
   })
 
-  it('displays repository column for packages', async () => {
+  it('shows repo and version in actions dropdown', async () => {
     renderPackageManagement()
     await waitFor(() => {
-      expect(screen.getByText('Repository')).toBeTruthy()
+      expect(screen.getByText('Installed')).toBeTruthy()
     })
-  })
-
-  it('displays version column', async () => {
-    renderPackageManagement()
+    openPackageDropdown(0)
     await waitFor(() => {
-      expect(screen.getByText('Version')).toBeTruthy()
+      // The dropdown should show version and repo in a disabled menu item
+      expect(screen.getByText('1.0')).toBeTruthy()
+      expect(screen.getByText('(core)')).toBeTruthy()
     })
   })
 
@@ -688,12 +691,15 @@ describe('PackageManagement', () => {
       notes: { URL: 'http://testhost:8081' },
       note_types: { URL: 'url' },
     })
-    const { container } = renderPackageManagement()
+    renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
-    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
-    fireEvent.click(infoBtn)
+    // Open dropdown, then click Info
+    openPackageDropdown(0)
+    await waitFor(() => {
+      fireEvent.click(screen.getByText('Info'))
+    })
     await waitFor(() => {
       const link = screen.getByText('http://testhost:8081')
       expect(link.tagName).toBe('A')
@@ -710,12 +716,14 @@ describe('PackageManagement', () => {
       notes: { Contact: 'admin@example.com' },
       note_types: { Contact: 'email' },
     })
-    const { container } = renderPackageManagement()
+    renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
-    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
-    fireEvent.click(infoBtn)
+    openPackageDropdown(0)
+    await waitFor(() => {
+      fireEvent.click(screen.getByText('Info'))
+    })
     await waitFor(() => {
       const link = screen.getByText('admin@example.com')
       expect(link.tagName).toBe('A')
@@ -730,12 +738,14 @@ describe('PackageManagement', () => {
       notes: { Support: '+1-555-0100' },
       note_types: { Support: 'phone' },
     })
-    const { container } = renderPackageManagement()
+    renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
-    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
-    fireEvent.click(infoBtn)
+    openPackageDropdown(0)
+    await waitFor(() => {
+      fireEvent.click(screen.getByText('Info'))
+    })
     await waitFor(() => {
       const link = screen.getByText('+1-555-0100')
       expect(link.tagName).toBe('A')
@@ -750,12 +760,14 @@ describe('PackageManagement', () => {
       notes: { Info: 'some plain text' },
       note_types: {},
     })
-    const { container } = renderPackageManagement()
+    renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
-    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
-    fireEvent.click(infoBtn)
+    openPackageDropdown(0)
+    await waitFor(() => {
+      fireEvent.click(screen.getByText('Info'))
+    })
     await waitFor(() => {
       const el = screen.getByText('some plain text')
       expect(el.tagName).toBe('CODE')
@@ -768,12 +780,14 @@ describe('PackageManagement', () => {
       responses: {},
       notes: { Info: 'plain note' },
     })
-    const { container } = renderPackageManagement()
+    renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
-    const infoBtn = container.querySelector('tbody tr button svg.lucide-info').closest('button')
-    fireEvent.click(infoBtn)
+    openPackageDropdown(0)
+    await waitFor(() => {
+      fireEvent.click(screen.getByText('Info'))
+    })
     await waitFor(() => {
       const el = screen.getByText('plain note')
       expect(el.tagName).toBe('CODE')

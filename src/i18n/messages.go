@@ -80,6 +80,11 @@ const (
 	// MsgInstallSummaryVMImage is the install summary line for a VM disk image.
 	MsgInstallSummaryVMImage = "install.summary.vm_image"
 
+	// MsgManifestFieldsRequired indicates required fields are missing for a manifest request.
+	MsgManifestFieldsRequired = "manifest.fields_required"
+	// MsgManifestNotFound indicates the requested package manifest was not found.
+	MsgManifestNotFound = "manifest.not_found"
+
 	// MsgRebuildFieldsRequired indicates required fields are missing for a rebuild.
 	MsgRebuildFieldsRequired = "rebuild.fields_required"
 	// MsgRebuildRepoNotConfigured indicates the repository root is not configured for rebuilds.

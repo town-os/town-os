@@ -53,6 +53,10 @@ var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgInstallSummaryConfig:   "Configuration required",
 	MsgInstallSummaryVMImage:  "VM Image: %s",
 
+	// Package manifest.
+	MsgManifestFieldsRequired: "repo, name, and version are required",
+	MsgManifestNotFound:       "package manifest not found: %s/%s@%s",
+
 	// Rebuild git.
 	MsgRebuildFieldsRequired:   "repo, name, and version are required",
 	MsgRebuildRepoNotConfigured: "repository root not configured",

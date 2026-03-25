@@ -185,6 +185,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/packages/install-preview":     true,
 			"/packages/last-responses":      true,
 			"/packages/responses":           true,
+			"/packages/manifest":            true,
 			"/packages/versions":            true,
 			"/packages/questions":           true,
 			"/packages/questions/identity":  true,

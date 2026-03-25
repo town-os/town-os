@@ -3,14 +3,19 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 let mockPingResponse = null
+let mockUnitsResponse = { entries: [] }
 
 const mockPing = vi.fn(() => Promise.resolve(mockPingResponse))
 const mockDismissUpgrades = vi.fn(() => Promise.resolve())
+const mockListUnits = vi.fn(() => Promise.resolve(mockUnitsResponse))
+const mockGetInstalledInfo = vi.fn(() => Promise.resolve({ notes: {}, note_types: {} }))
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     ping: mockPing,
     dismissUpgrades: mockDismissUpgrades,
+    listUnits: mockListUnits,
+    getInstalledInfo: mockGetInstalledInfo,
   }),
 }))
 
@@ -28,6 +33,11 @@ describe('DashboardHome', () => {
   beforeEach(() => {
     mockPing.mockReset()
     mockDismissUpgrades.mockReset()
+    mockListUnits.mockReset()
+    mockGetInstalledInfo.mockReset()
+    mockUnitsResponse = { entries: [] }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({ notes: {}, note_types: {} }))
     mockPingResponse = {
       status: 'ok',
       filesystems: 3,
@@ -203,6 +213,74 @@ describe('DashboardHome', () => {
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('3 installed, 1 uninstalled volumes')).toBeTruthy()
+    })
+  })
+
+  it('displays installed services panel with service names', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: 'Web server' },
+        { Name: 'town-os-package--default-redis-2.0.service', package_identifier: 'default/redis@2.0', ActiveState: 'failed', package_description: 'Cache server' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('nginx')).toBeTruthy()
+      expect(screen.getByText('redis')).toBeTruthy()
+    })
+  })
+
+  it('shows active state text for each service', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('active')).toBeTruthy()
+    })
+  })
+
+  it('shows service description when available', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-app-1.0.service', package_identifier: 'default/app@1.0', ActiveState: 'active', package_description: 'My application' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('My application')).toBeTruthy()
+    })
+  })
+
+  it('does not show services panel when no units', async () => {
+    mockUnitsResponse = { entries: [] }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Dashboard')).toBeTruthy()
+    })
+    expect(screen.queryByText('Installed Services')).toBeNull()
+  })
+
+  it('displays notes from installed info', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
+      notes: { 'Web UI': 'http://localhost:8080' },
+      note_types: { 'Web UI': 'url' },
+    }))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('http://localhost:8080')).toBeTruthy()
     })
   })
 })

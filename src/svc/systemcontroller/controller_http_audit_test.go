@@ -203,7 +203,7 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 		}
 	}
 
-	excludedPOSTs := []string{"/packages/installed/info", "/packages/last-responses", "/packages/install-preview"}
+	excludedPOSTs := []string{"/packages/installed/info", "/packages/last-responses", "/packages/install-preview", "/packages/manifest"}
 	for _, path := range excludedPOSTs {
 		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route(path), bytes.NewBufferString("{}"))
 		if err != nil {
@@ -227,7 +227,8 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 		switch e.Path {
 		case "/account/sessions", "/account/me", "/status/ping",
 			"/packages/featured", "/packages/installed/info",
-			"/packages/last-responses", "/packages/install-preview", "/pages":
+			"/packages/last-responses", "/packages/install-preview",
+			"/packages/manifest", "/pages":
 			t.Fatalf("expected path %q to be excluded from audit log", e.Path)
 		}
 	}
@@ -252,6 +253,7 @@ func TestHTTPAuditLogExcludesReadOnlyPackageRoutes(t *testing.T) {
 		"/packages/installed/info",
 		"/packages/last-responses",
 		"/packages/install-preview",
+		"/packages/manifest",
 		"/storage/package-volumes",
 	}
 

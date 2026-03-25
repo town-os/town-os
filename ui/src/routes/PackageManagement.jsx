@@ -39,7 +39,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Trash2, FolderGit2, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star, Download } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Trash2, FolderGit2, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star, Download, MoreHorizontal, FileCode, Copy, Check } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import InstallPreviewDialog from '@/components/packages/InstallPreviewDialog.jsx'
 import InstallQuestionsDialog from '@/components/packages/InstallQuestionsDialog.jsx'
@@ -47,6 +53,26 @@ import PackageInfoDialog from '@/components/packages/PackageInfoDialog.jsx'
 import VolumeReuseDialog from '@/components/packages/VolumeReuseDialog.jsx'
 import RepositoryTab from '@/components/packages/RepositoryTab.jsx'
 import RepositoryDialogs from '@/components/packages/RepositoryDialogs.jsx'
+
+function ManifestCopyButton({ content, t }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      variant="outline"
+      onClick={() => {
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(content).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+          })
+        }
+      }}
+    >
+      {copied ? <Check className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
+      {copied ? t('packages.manifest_copied') : t('packages.manifest_copy')}
+    </Button>
+  )
+}
 
 export default function PackageManagement() {
   const { t } = useI18n()
@@ -59,6 +85,7 @@ export default function PackageManagement() {
   const [, setClearedCachedFields] = useState({})
   const [questionsDialog, setQuestionsDialog] = useState({ open: false })
   const [infoDialog, setInfoDialog] = useState({ open: false })
+  const [manifestDialog, setManifestDialog] = useState({ open: false })
   const [versionSelectDialog, setVersionSelectDialog] = useState({ open: false })
   const [volumeReuseDialog, setVolumeReuseDialog] = useState({ open: false })
   const [previewDialog, setPreviewDialog] = useState({ open: false })
@@ -258,6 +285,17 @@ export default function PackageManagement() {
     }
   }
 
+  async function handleShowManifest(repo, name, version) {
+    setManifestDialog({ open: true, repo, name, version, content: null })
+    try {
+      const content = await getClient().getPackageManifest(repo, name, version)
+      setManifestDialog((prev) => ({ ...prev, content }))
+    } catch (err) {
+      toast.error(err.message)
+      setManifestDialog({ open: false })
+    }
+  }
+
   async function handleInstallWithResponses(e) {
     e.preventDefault()
     const form = e.target.elements
@@ -366,7 +404,6 @@ export default function PackageManagement() {
   }
 
   const packageColumns = [
-    { key: 'repo', label: t('packages.col_repository') },
     {
       key: 'name',
       label: t('packages.col_name'),
@@ -381,32 +418,48 @@ export default function PackageManagement() {
       transform: (v) => v ? <span className="text-sm text-muted-foreground">{v}</span> : null,
     },
     {
-      key: 'version',
-      label: t('packages.col_version'),
-      transform: (v) => <span className="font-mono text-sm">{v}</span>,
-    },
-    {
-      key: '_info',
-      label: t('packages.col_details'),
+      key: '_actions',
+      label: t('packages.col_actions'),
       sortable: false,
       transform: (_, row) => {
         const instVer = installedVersion(row)
-        if (instVer === null) return null
+        const isInst = instVer !== null
         return (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => handleShowInfo(row.repo, row.name, instVer || row.version)}
-                aria-label={t('packages.details_label')}
-              >
-                <Info className="h-3.5 w-3.5" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label={t('packages.actions_label')}>
+                <MoreHorizontal className="h-4 w-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t('packages.tooltip_view_config')}</TooltipContent>
-          </Tooltip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {isInst && (
+                <DropdownMenuItem onClick={() => handleShowInfo(row.repo, row.name, instVer || row.version)}>
+                  <Info className="h-3 w-3 mr-2" />
+                  {t('packages.action_info')}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => handleShowManifest(row.repo, row.name, row.version)}>
+                <FileCode className="h-3 w-3 mr-2" />
+                {t('packages.action_manifest')}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                <span className="font-mono">{row.version}</span>
+                <span className="ml-1">({row.repo})</span>
+              </DropdownMenuItem>
+              {isInst && (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => {
+                    setPurgeVolumes(false)
+                    setUninstallConfirm({ repo: row.repo, name: row.name, version: instVer || row.version })
+                  }}
+                >
+                  <Trash2 className="h-3 w-3 mr-2" />
+                  {t('packages.action_uninstall')}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )
       },
     },
@@ -643,7 +696,7 @@ export default function PackageManagement() {
                             [group.repo]: !isExpanded,
                           }))}
                         >
-                          <TableHead colSpan={4}>
+                          <TableHead colSpan={3}>
                             <div className="flex items-center gap-1">
                               {isExpanded
                                 ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -658,8 +711,7 @@ export default function PackageManagement() {
                         </TableRow>
                         {isExpanded && <TableRow>
                           <TableHead>{t('packages.col_name')}</TableHead>
-                          <TableHead>{t('packages.col_version')}</TableHead>
-                          <TableHead>{t('packages.col_details')}</TableHead>
+                          <TableHead>{t('packages.col_actions')}</TableHead>
                           <TableHead className="text-right"><div className="pr-2">{t('packages.col_status')}</div></TableHead>
                         </TableRow>}
                       </TableHeader>
@@ -674,20 +726,41 @@ export default function PackageManagement() {
                                 <span className="font-mono text-sm pl-6 inline-flex items-center gap-1">{pkg.name}{pkg.featured && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}</span>
                               </TableCell>
                               <TableCell>
-                                <span className="font-mono text-sm">{pkg.version}</span>
-                              </TableCell>
-                              <TableCell>
-                                {isInst && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0"
-                                    onClick={() => handleShowInfo(pkg.repo, pkg.name, instVer || pkg.version)}
-                                    aria-label={t('packages.details_label')}
-                                  >
-                                    <Info className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label={t('packages.actions_label')}>
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent>
+                                    {isInst && (
+                                      <DropdownMenuItem onClick={() => handleShowInfo(pkg.repo, pkg.name, instVer || pkg.version)}>
+                                        <Info className="h-3 w-3 mr-2" />
+                                        {t('packages.action_info')}
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuItem onClick={() => handleShowManifest(pkg.repo, pkg.name, pkg.version)}>
+                                      <FileCode className="h-3 w-3 mr-2" />
+                                      {t('packages.action_manifest')}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                                      <span className="font-mono">{pkg.version}</span>
+                                      <span className="ml-1">({pkg.repo})</span>
+                                    </DropdownMenuItem>
+                                    {isInst && (
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onClick={() => {
+                                          setPurgeVolumes(false)
+                                          setUninstallConfirm({ repo: pkg.repo, name: pkg.name, version: instVer || pkg.version })
+                                        }}
+                                      >
+                                        <Trash2 className="h-3 w-3 mr-2" />
+                                        {t('packages.action_uninstall')}
+                                      </DropdownMenuItem>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
@@ -812,6 +885,36 @@ export default function PackageManagement() {
         dialog={infoDialog}
         onClose={() => setInfoDialog({ open: false })}
       />
+
+      {/* Manifest Dialog */}
+      <Dialog
+        open={manifestDialog.open}
+        onOpenChange={(v) => !v && setManifestDialog({ open: false })}
+      >
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>{t('packages.manifest_title')}</DialogTitle>
+            <DialogDescription>
+              {manifestDialog.name}@{manifestDialog.version} ({manifestDialog.repo})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-auto max-h-[60vh] rounded border bg-muted p-4">
+            {manifestDialog.content === null ? (
+              <p className="text-sm text-muted-foreground animate-pulse">{t('packages.manifest_loading')}</p>
+            ) : (
+              <pre className="text-xs font-mono whitespace-pre-wrap break-words">{manifestDialog.content}</pre>
+            )}
+          </div>
+          <DialogFooter>
+            {manifestDialog.content && (
+              <ManifestCopyButton content={manifestDialog.content} t={t} />
+            )}
+            <Button variant="outline" onClick={() => setManifestDialog({ open: false })}>
+              {t('packages.manifest_close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <RepositoryDialogs
         repoDialog={repoDialog}

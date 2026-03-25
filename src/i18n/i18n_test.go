@@ -115,6 +115,9 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 		MsgInstallSummaryNoVols,
 		MsgInstallSummaryPorts,
 		MsgInstallSummaryConfig,
+		MsgInstallSummaryVMImage,
+		MsgManifestFieldsRequired,
+		MsgManifestNotFound,
 		MsgRebuildFieldsRequired,
 		MsgRebuildRepoNotConfigured,
 		MsgRebuildGitNotConfigured,
@@ -158,6 +161,12 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 		MsgAuditUploadPageArchive,
 		MsgAuditEnableAccount,
 		MsgAuditRebuildGit,
+		MsgAuditUploadVMImage,
+		MsgAuditDeleteVMImage,
+		MsgAuditAddDNSRecord,
+		MsgAuditRemoveDNSRecord,
+		MsgAuditSetDNSTLD,
+		MsgAuditSetupDNS,
 	}
 
 	for _, key := range keys {

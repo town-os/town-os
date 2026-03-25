@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import { usePolling } from '@/lib/hooks.js'
 import { formatBytes } from '@/lib/utils.js'
@@ -7,7 +7,6 @@ import { Link } from 'react-router-dom'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
@@ -24,6 +23,9 @@ import {
   Check,
   ArrowUpCircle,
   X,
+  CircleCheck,
+  CircleX,
+  Circle,
 } from 'lucide-react'
 
 function StatCard({ to, icon, label, value, description }) {
@@ -63,6 +65,97 @@ function CopyButton({ text, t }) {
   )
 }
 
+function parsePackageIdentifier(id) {
+  if (!id) return null
+  const atIdx = id.indexOf('@')
+  if (atIdx === -1) return null
+  const repoName = id.slice(0, atIdx)
+  const version = id.slice(atIdx + 1)
+  const slashIdx = repoName.indexOf('/')
+  if (slashIdx === -1) return null
+  return { repo: repoName.slice(0, slashIdx), name: repoName.slice(slashIdx + 1), version }
+}
+
+function StatusIcon({ state }) {
+  if (state === 'active') return <CircleCheck className="h-4 w-4 text-green-600 shrink-0" />
+  if (state === 'failed') return <CircleX className="h-4 w-4 text-red-600 shrink-0" />
+  return <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
+}
+
+function NoteValue({ value, noteType }) {
+  if (noteType === 'url') {
+    return (
+      <a href={value} target="_blank" rel="noopener noreferrer" className="font-mono text-xs underline text-primary truncate">
+        {value}
+      </a>
+    )
+  }
+  if (noteType === 'email') {
+    return (
+      <a href={`mailto:${value}`} className="font-mono text-xs underline text-primary truncate">
+        {value}
+      </a>
+    )
+  }
+  if (noteType === 'phone') {
+    return (
+      <a href={`tel:${value}`} className="font-mono text-xs underline text-primary truncate">
+        {value}
+      </a>
+    )
+  }
+  return <span className="font-mono text-xs text-muted-foreground truncate">{value}</span>
+}
+
+function ServicesPanel({ units, notesMap, t }) {
+  if (!units || units.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-medium">{t('dashboard.services_title')}</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-2">
+          {units.map((unit) => {
+            const parsed = parsePackageIdentifier(unit.package_identifier)
+            const displayName = parsed ? parsed.name : unit.package_identifier
+            const notes = notesMap[unit.package_identifier]
+            return (
+              <Link
+                key={unit.Name}
+                to="/dashboard/system"
+                className="flex items-start gap-3 rounded-md px-3 py-2 hover:bg-accent/50 transition-colors"
+              >
+                <StatusIcon state={unit.ActiveState} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-medium">{displayName}</span>
+                    <span className="text-xs text-muted-foreground">{unit.ActiveState}</span>
+                  </div>
+                  {unit.package_description && (
+                    <p className="text-xs text-muted-foreground truncate">{unit.package_description}</p>
+                  )}
+                  {notes && Object.keys(notes.notes).length > 0 && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                      {Object.entries(notes.notes).map(([label, value]) => (
+                        <span key={label} className="inline-flex items-center gap-1 text-xs">
+                          <span className="text-muted-foreground">{label}:</span>
+                          <NoteValue value={value} noteType={notes.note_types?.[label]} />
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function UpgradeBanner({ count, onDismiss, dismissing, t }) {
   return (
     <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-4">
@@ -94,6 +187,33 @@ export default function DashboardHome() {
   const { t } = useI18n()
   useEffect(() => { document.title = t('dashboard.page_title') }, [t])
   const [ping, , loading] = usePolling(() => getClient().ping(), null, [], 60000)
+  const [unitData] = usePolling(
+    () => getClient().listUnits('package_identifier', 'asc', 100, 0),
+    { entries: [] },
+    [],
+    60000,
+  )
+  const units = useMemo(() => unitData.entries || [], [unitData.entries])
+  const [notesMap, setNotesMap] = useState({})
+  const notesFetchedRef = useRef(new Set())
+
+  useEffect(() => {
+    for (const unit of units) {
+      const id = unit.package_identifier
+      if (!id || notesFetchedRef.current.has(id)) continue
+      notesFetchedRef.current.add(id)
+      const parsed = parsePackageIdentifier(id)
+      if (!parsed) continue
+      getClient().getInstalledInfo(parsed.repo, parsed.name, parsed.version)
+        .then((info) => {
+          if (info.notes && Object.keys(info.notes).length > 0) {
+            setNotesMap((prev) => ({ ...prev, [id]: info }))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [units])
+
   const [dismissing, setDismissing] = useState(false)
   const lastDismissedRef = useRef(null)
 
@@ -155,6 +275,8 @@ export default function DashboardHome() {
           </Badge>
         </div>
       )}
+
+      <ServicesPanel units={units} notesMap={notesMap} t={t} />
 
       {loading && !ping && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">{t('dashboard.loading')}</div>

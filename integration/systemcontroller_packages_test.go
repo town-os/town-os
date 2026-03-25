@@ -6,6 +6,7 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -258,5 +259,38 @@ func TestSystemControllerListPackagesInstalledOnlyFilter(t *testing.T) {
 	}
 	if installed.TotalCount != 1 {
 		t.Fatalf("expected total_count=1, got %d", installed.TotalCount)
+	}
+}
+
+// --- Package Manifest integration tests ---
+
+func TestSystemControllerPackageManifest(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	manifest, err := c.GetPackageManifest(context.TODO(), "core", "nginx", "2.0")
+	if err != nil {
+		t.Fatalf("GetPackageManifest: %v", err)
+	}
+
+	if manifest == "" {
+		t.Fatal("expected non-empty manifest")
+	}
+
+	// The nginx package YAML should contain the image field.
+	if !strings.Contains(manifest, "image") {
+		t.Fatalf("expected manifest to contain 'image', got: %s", manifest)
+	}
+}
+
+func TestSystemControllerPackageManifestNotFound(t *testing.T) {
+	c := initSystemControllerRepoTest(t)
+
+	_, err := c.GetPackageManifest(context.TODO(), "nonexistent", "fake", "0.0")
+	if err == nil {
+		t.Fatal("expected error for non-existent package manifest")
 	}
 }
