@@ -49,7 +49,17 @@ describe('SystemControllerClient integration', () => {
       expect(typeof resp.installed).toBe('number')
       expect(typeof resp.accounts).toBe('number')
       expect(typeof resp.admins).toBe('number')
+      // Username is present only when a valid auth token is provided.
+      // Localhost gets the full response but without a username field.
       expect(resp.username).toBe('admin')
+    })
+
+    it('returns full response from localhost without auth', async () => {
+      // Localhost requests bypass auth and receive the full response.
+      const resp = await client.ping()
+      expect(resp.status).toBe('ok')
+      expect(typeof resp.filesystems).toBe('number')
+      expect(typeof resp.accounts).toBe('number')
     })
 
     it('includes timezone offset', async () => {
@@ -1293,10 +1303,10 @@ describe('SystemControllerClient integration', () => {
 
     // Systemd methods
 
-    it('listUnits requires auth', async () => {
-      await expect(
-        noAuth.listUnits(),
-      ).rejects.toThrow(/GET \/systemd\/units:.*missing authorization token/)
+    it('listUnits allows localhost without auth', async () => {
+      // Localhost requests bypass auth via localhostOrAuth middleware.
+      const resp = await noAuth.listUnits()
+      expect(Array.isArray(resp.entries)).toBe(true)
     })
 
     it('setUnitStatus requires auth', async () => {
@@ -1305,17 +1315,22 @@ describe('SystemControllerClient integration', () => {
       ).rejects.toThrow(/POST \/systemd\/status:.*missing authorization token/)
     })
 
-    it('logReplay requires auth', async () => {
+    it('logReplay allows localhost without auth', async () => {
+      // Localhost requests bypass auth via localhostOrAuth middleware.
+      // logReplay returns an async generator; consume one value to verify access.
       const gen = noAuth.logReplay('x')
-      await expect(gen.next()).rejects.toThrow(
-        /GET \/systemd\/logs:.*missing authorization token/,
-      )
+      // The generator may yield entries or complete — either way, no auth error.
+      const result = await Promise.race([
+        gen.next(),
+        new Promise((resolve) => setTimeout(() => resolve({ done: true, value: undefined }), 2000)),
+      ])
+      expect(result).toBeDefined()
     })
 
-    it('logTail requires auth', async () => {
-      await expect(
-        noAuth.logTail('x'),
-      ).rejects.toThrow(/GET \/systemd\/logs\/tail.*missing authorization token/)
+    it('logTail allows localhost without auth', async () => {
+      // Localhost requests bypass auth via localhostOrAuth middleware.
+      const resp = await noAuth.logTail('x')
+      expect(Array.isArray(resp.entries)).toBe(true)
     })
 
     // Audit

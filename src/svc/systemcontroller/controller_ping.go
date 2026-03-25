@@ -68,18 +68,20 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 
 	// Check for optional auth — if a session manager is configured and no
 	// valid token is provided, return minimal response (status + needs_setup).
+	// Localhost requests always receive the full response regardless of auth.
 	sm := s.Controller.GetSessionManager()
 	if sm != nil {
-		minimal := PingMinimalResponse{Status: resp.Status, NeedsSetup: resp.NeedsSetup}
 		token := extractBearerToken(c.Request())
-		if token == "" {
-			return c.JSON(200, minimal)
+		if token != "" {
+			sess, _, err := sm.Validate(token)
+			if err == nil {
+				resp.Username = sess.Username
+			}
 		}
-		sess, _, err := sm.Validate(token)
-		if err != nil {
-			return c.JSON(200, minimal)
+		// Non-localhost requests without a valid token get the minimal response.
+		if resp.Username == "" && !isLocalhost(c.Request()) {
+			return c.JSON(200, PingMinimalResponse{Status: resp.Status, NeedsSetup: resp.NeedsSetup})
 		}
-		resp.Username = sess.Username
 	}
 
 	if st := s.Controller.GetStorage(); st != nil {

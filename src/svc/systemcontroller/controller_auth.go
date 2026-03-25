@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -136,6 +137,27 @@ func (s *SystemControllerHandlers) requireAdmin(next echo.HandlerFunc) echo.Hand
 		}
 
 		return next(c)
+	}
+}
+
+// isLocalhost returns true when the request originates from a loopback address.
+func isLocalhost(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// localhostOrAuth allows unauthenticated access from localhost while
+// requiring a valid session token for all other origins.
+func (s *SystemControllerHandlers) localhostOrAuth(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		if isLocalhost(c.Request()) {
+			return next(c)
+		}
+		return s.requireAuth(next)(c)
 	}
 }
 

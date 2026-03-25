@@ -117,9 +117,9 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/manifest", s.packageManifest, s.requireAuth)
 	e.Add("POST", "/packages/clear-last-responses", s.clearLastResponses, s.requireAdmin)
 
-	e.Add("GET", "/systemd/units", s.listUnits, s.requireAuth)
-	e.Add("GET", "/systemd/logs", s.logReplay, s.requireAuth)
-	e.Add("GET", "/systemd/logs/tail", s.logTail, s.requireAuth)
+	e.Add("GET", "/systemd/units", s.listUnits, s.localhostOrAuth)
+	e.Add("GET", "/systemd/logs", s.logReplay, s.localhostOrAuth)
+	e.Add("GET", "/systemd/logs/tail", s.logTail, s.localhostOrAuth)
 
 	e.Add("POST", "/account/create", s.createAccount)
 	e.Add("POST", "/account", s.getAccount, s.requireAuth)
@@ -168,7 +168,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/monitoring/grafana/*", s.grafanaProxy)
 
 	// System Services
-	e.Add("GET", "/system-services", s.listSystemServices, s.requireAuth)
+	e.Add("GET", "/system-services", s.listSystemServices, s.localhostOrAuth)
 	e.Add("POST", "/system-services/status", s.setSystemServiceStatus, s.requireAdmin)
 	e.Add("POST", "/system-services/refresh", s.refreshSystemServices, s.requireAdmin)
 

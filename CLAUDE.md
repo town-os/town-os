@@ -487,7 +487,7 @@ VM units also manage firewall ports via `firewall-cmd` in pre-start and post-sto
 
 ### Service Unit API
 
-- `GET /systemd/units` (auth required) -- list all package service units. Returns unit status enriched with package identifier, package description, and network controller failure flag.
+- `GET /systemd/units` (localhost or auth) -- list all package service units. Returns unit status enriched with package identifier, package description, and network controller failure flag.
 - `POST /systemd/status` (admin required) -- change a service unit's status. Accepts unit name and action (start, stop, restart, enable, disable).
 
 ### Service Management UI
@@ -531,8 +531,8 @@ The journal viewer dialog provides:
 
 Two endpoints serve log data:
 
-- `GET /systemd/logs` -- streams historical journal entries via Server-Sent Events. The `unit` query parameter selects the service; empty or `__system__` returns system-wide logs.
-- `GET /systemd/logs/tail` -- returns a JSON page of journal entries. Supports parameters: `unit`, `lines` (default 100), `before`/`after` (cursor pagination), `grep` (case-insensitive search), `since`/`until` (Unix timestamps), and `priority` (syslog severity filter, 0 = no filter).
+- `GET /systemd/logs` (localhost or auth) -- streams historical journal entries via Server-Sent Events. The `unit` query parameter selects the service; empty or `__system__` returns system-wide logs.
+- `GET /systemd/logs/tail` (localhost or auth) -- returns a JSON page of journal entries. Supports parameters: `unit`, `lines` (default 100), `before`/`after` (cursor pagination), `grep` (case-insensitive search), `since`/`until` (Unix timestamps), and `priority` (syslog severity filter, 0 = no filter).
 
 ## Account Management
 
@@ -670,7 +670,7 @@ The DNS management screen displays DNS status (enabled, running, TLD, record cou
 
 Service unit counts are split into two fields: `units` counts only package service units (those matching `town-os-package--*`), while `system_services` counts system service units (those matching `town-os-system--*`). Leftover systemd units from uninstalled packages are excluded from the package count. The installed package list is cross-referenced with discovered systemd units by constructing the expected unit name from each package identity.
 
-Unauthenticated requests receive a minimal response containing only `needs_setup` and basic status fields. Authenticated requests receive the full response with all fields listed above, plus `repository_errors` (a map of repository name to error string tracking per-repository refresh failures).
+Unauthenticated requests from non-localhost origins receive a minimal response containing only `needs_setup` and basic status fields. Authenticated requests and all localhost requests receive the full response with all fields listed above, plus `repository_errors` (a map of repository name to error string tracking per-repository refresh failures).
 
 ### External IP Polling
 
@@ -737,7 +737,7 @@ System services are systemd-managed infrastructure containers (distinct from use
 
 ### System Service API
 
-- `GET /system-services` (auth required) -- list system services with live unit status. Each entry includes key, display name, image, port, and systemd unit status fields. Returns an empty list when monitoring is not configured. Excluded from audit logging.
+- `GET /system-services` (localhost or auth) -- list system services with live unit status. Each entry includes key, display name, image, port, and systemd unit status fields. Returns an empty list when monitoring is not configured. Excluded from audit logging.
 - `POST /system-services/status` (admin required) -- change a system service's status. Accepts key and action (`start`, `stop`, `restart`). The `enable` and `disable` actions are rejected.
 - `POST /system-services/refresh` (admin required) -- refresh system service status.
 
