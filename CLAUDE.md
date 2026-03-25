@@ -217,6 +217,19 @@ When a user installs a package, the questions dialog loads existing responses (f
 
 The package info dialog displays notes as a labeled list. Notes are rendered based on their type: URL notes are clickable hyperlinks that open in a new tab (`target="_blank"`), email notes are `mailto:` links that open the user's email client, and phone notes are `tel:` links. Untyped notes are rendered as plain code blocks without links.
 
+### Package Manifest API
+
+`POST /packages/manifest` (auth required) returns the raw YAML definition of a package. Accepts repo, name, and version. Returns the file content with `Content-Type: text/x-yaml; charset=utf-8`. Returns 404 if the package file does not exist.
+
+### Package Actions Dropdown
+
+In the packages list UI, each package row has a `...` dropdown menu (both flat and grouped-by-repo views). The dropdown contains:
+
+- **Info** (installed packages only) -- opens the package info dialog showing questions, responses, and compiled notes.
+- **Manifest** -- opens a dialog displaying the raw YAML package definition with a copy button.
+- **Version/Repository** -- displayed as a disabled item showing the version and repo name.
+- **Uninstall** (installed packages only) -- triggers the uninstall confirmation dialog.
+
 ### Featured Packages
 
 Each repository can include a `featured.json` file containing a JSON array of package names. These are loaded by `LoadFeatured` and returned alongside the package list in `RepoPackageGroup`. The flat package list API sets a `featured` boolean on each entry. The grouped package list API preserves the `Featured` array on each group even when search filtering reduces the package list.
@@ -693,6 +706,20 @@ The monitoring tab in the sidebar navigation opens a dashboard page. When all th
 The system controller manages a standalone UI container (`quay.io/town/ui`) as a system service via `ui.Manager`. The image tag is derived from the system controller's release tag (`quay.io/town/ui:<tag>`), overridable via the `UI_IMAGE` environment variable. Startup failures are non-fatal; the system continues without the UI container.
 
 ## Web UI Layout
+
+### Dashboard Services Panel
+
+The dashboard home page displays a full-width installed services panel above the stat card grid. The panel lists all package service units fetched from `GET /systemd/units`. Each service row shows:
+
+- A status icon: green check circle for active, red X circle for failed, gray circle for inactive.
+- The package name (parsed from the `package_identifier` field).
+- The active state as text.
+- The package description (if available).
+- Compiled notes from `POST /packages/installed/info`, rendered inline with type-aware links (URL, email, phone).
+
+Clicking any service row navigates to `/dashboard/system`. The panel is hidden when no services are installed. Notes are fetched once per service and cached.
+
+### Layout
 
 The dashboard uses a two-panel layout: a sticky left sidebar and a right content area with a sticky top header bar.
 
