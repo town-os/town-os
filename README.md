@@ -17,12 +17,17 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 - [Development](#development)
 - [Makefile Targets](#makefile-targets)
     - [Testing](#testing)
+    - [Linting](#linting)
     - [Local Registry](#local-registry)
     - [Local Gitea Server](#local-gitea-server)
     - [Building](#building)
+    - [Release and Push](#release-and-push)
+    - [Registry Authentication](#registry-authentication)
     - [Btrfs Management](#btrfs-management)
     - [Cleanup](#cleanup)
-    - [Linting](#linting)
+    - [Preflight Checks](#preflight-checks)
+    - [SSH](#ssh)
+    - [Dependency Checks](#dependency-checks)
 - [License](#license)
 - [From](#from)
 
@@ -153,17 +158,31 @@ Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the ho
 
 ## Makefile Targets
 
+All targets use a unique `INSTANCE_ID` derived from the working directory path, so multiple checkouts can run concurrently without conflicting. Ephemeral state (port files, btrfs volumes, dev data) lives in `/tmp/town-os-$(INSTANCE_ID)/`.
+
 ### Testing
 
-| Target                     | Description                                                                                                             |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `make test`                | Run lint, Go unit tests, and JS unit tests.                                                                             |
-| `make test-integration`    | Run Go integration tests inside a privileged podman container with systemd and btrfs. Cleans up btrfs loopback on exit. |
-| `make test-ui-integration` | Run JS (bun) UI integration tests against a backend container. Cleans up btrfs loopback on exit.                        |
-| `make test-full`           | Run `test`, `test-integration`, and `test-ui-integration` in sequence. Uses a signal trap for guaranteed cleanup.       |
-| `make test-systemd`        | Run only the systemd-related integration tests (`TestPodman`).                                                          |
-| `make auto-test`           | Watch for `.go`/`.js` file changes and re-run `make test` automatically. Reflex is automatically installed when needed. |
-| `make auto-test-full`      | Watch for file changes and re-run `make test-full` automatically. Reflex is automatically installed when needed.        |
+| Target                          | Description                                                                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make test`                     | Run lint, Go unit tests, and JS unit tests.                                                                                                          |
+| `make test-integration`         | Build the test image and run Go integration tests inside a privileged podman container with systemd and btrfs. Cleans up btrfs loopback on exit.     |
+| `make test-integration-build`   | Build the test image and start the integration test container with all images loaded, but do not run any tests. Useful for preparing a `test-integration-rerun`. |
+| `make test-integration-rerun`   | Re-run integration tests in an already-running container (from a prior `test-integration-build`). Skips image building.                              |
+| `make test-ui-unit`             | Run only the JS (bun) UI unit tests.                                                                                                                 |
+| `make test-ui-integration`      | Run JS (bun) UI integration tests against a backend container. Cleans up btrfs loopback on exit.                                                     |
+| `make test-ui-integration-local`| Run UI integration tests against a locally running backend (no container).                                                                           |
+| `make test-full`                | Run `test`, `test-integration`, and `test-ui-integration` in sequence. Uses a signal trap for guaranteed cleanup.                                    |
+| `make test-full-log`            | Run `test-full` and tee all output to a timestamped log file in `/tmp/town-os/log/`.                                                                |
+| `make auto-test`                | Watch for `.go`/`.js` file changes and re-run `make test` automatically. Installs [reflex](https://github.com/cespare/reflex) when needed.          |
+| `make auto-test-full`           | Watch for file changes and re-run `make test-full` automatically. Installs reflex when needed.                                                       |
+
+Use `TEST_RUN=<regex>` to filter which integration tests run (e.g., `make test-integration TEST_RUN=TestInstall`). Use `TEST_TIMEOUT=<duration>` to override the default 60-minute timeout.
+
+### Linting
+
+| Target      | Description                       |
+| ----------- | --------------------------------- |
+| `make lint` | Run `go vet` and `golangci-lint`. |
 
 ### Local Registry
 
@@ -209,16 +228,43 @@ Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concu
 
 ### Building
 
-| Target                      | Description                                                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `make production-image`     | Build the production base image (for integration tests).                                                               |
-| `make dev-production-image` | Build the production base image (for dev).                                                                             |
-| `make test-image`           | Build the test container image (includes integration test binary).                                                     |
-| `make dev-image`            | Build the dev container image.                                                                                         |
-| `make ui-integration-image` | Build the UI integration test container image.                                                                         |
-| `make pull-images`          | Pull all container images from Docker Hub and save to global cache. Runs automatically if any cached image is missing. |
+| Target                        | Description                                                                                                            |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `make production-image`       | Build the production base image (for integration tests).                                                               |
+| `make dev-production-image`   | Build the production base image (for dev).                                                                             |
+| `make test-image`             | Build the test container image (includes integration test binary).                                                     |
+| `make dev-image`              | Build the dev container image.                                                                                         |
+| `make ui-integration-image`   | Build the UI integration test container image.                                                                         |
+| `make build-networkcontroller`| Build the network controller binary locally (`town-os-networkcontroller`).                                             |
+| `make pull-images`            | Pull all container images from Docker Hub and save to global cache. Runs automatically if any cached image is missing. |
 
 Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
+
+### Release and Push
+
+All release images are pushed to `quay.io/town/`. Push targets tag images with both a date stamp (`YYYYMMDD`) and a convenience alias (`rc.latest`, `latest`). The `TOWN_OS_TAG` is baked into the system controller binary at build time so sibling services (UI, Rolodex) use matching image tags.
+
+| Target                      | Description                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `make release-image`        | Build the release system controller image (`quay.io/town/town`).                                                   |
+| `make release-ui-image`     | Build the release UI image (`quay.io/town/ui`).                                                                    |
+| `make release-proton-image` | Build the release Proton runner image (`quay.io/town/proton`).                                                     |
+| `make release-build`        | Pull images, run `test-full`, then build all three release images.                                                 |
+| `make push`                 | Alias for `push-rc`.                                                                                               |
+| `make push-rc`              | Push all images (system controller, UI, Rolodex, Proton) as release candidates (`rc.<date>` + `rc.latest`).        |
+| `make push-release`         | Run `release-build`, then push all images as a release (`release.<date>` + `latest`).                              |
+| `make push-ui-rc`           | Push only the UI image as a release candidate (`rc.<date>` + `rc.latest`).                                         |
+| `make push-ui-release`      | Push only the UI image as a release (`release.<date>` + `latest`).                                                 |
+| `make push-proton-rc`       | Push only the Proton runner image as a release candidate (`rc.<date>` + `rc.latest`).                              |
+| `make push-proton-release`  | Push only the Proton runner image as a release (`release.<date>` + `latest`).                                      |
+| `make push-tag PUSH_TAG=x`  | Build and push all images (system controller, UI, Rolodex, Proton) with a custom tag `x`.                         |
+
+### Registry Authentication
+
+| Target             | Description                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| `make docker-login`| Log in to Docker Hub using `DOCKER_USERNAME` / `DOCKER_PASSWORD` from `.env`. Skipped if not set. |
+| `make quay-login`  | Log in to Quay.io using `QUAY_USERNAME` / `QUAY_PASSWORD` from `.env`. Skipped if not set.        |
 
 ### Btrfs Management
 
@@ -236,21 +282,43 @@ The dev and integration test environments use separate btrfs volumes, container 
 
 `make test-full` automatically cleans up all integration containers, registry, Gitea, and btrfs loopback volumes after tests complete. A shell EXIT trap ensures cleanup runs even when interrupted by signals. Each integration test target (`test-integration`, `test-ui-integration`) also uses its own EXIT trap to guarantee btrfs loopback cleanup regardless of how the recipe terminates (success, failure, or signal interruption). The `clean-btrfs` target includes a safety net that scans for orphaned loop devices backed by btrfs images in the current directory, handling cases where tracking files are missing.
 
-| Target                   | Description                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------- |
-| `make clean`             | Clean dev resources (containers, btrfs, dev-data, dev-repos) and caches.        |
-| `make clean-dev`         | Stop all dev containers, tear down dev btrfs, remove dev-data/dev-repos.        |
-| `make clean-cache`       | Same as `clean-dev` (used as a dependency by `clean`).                          |
-| `make clean-integration` | Remove only the integration test containers and port file.                      |
-| `make clean-btrfs`       | Unmount and remove the integration test btrfs volume and orphaned loop devices. |
-| `make clean-containers`  | Remove all town-os containers from any working directory / instance.            |
-| `make clean-all`         | Clean everything: all containers, dev, integration, and btrfs.                  |
+| Target                   | Description                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `make clean`             | Remove the `.cache/` build cache directory.                                             |
+| `make clean-dev`         | Stop all dev containers, tear down dev btrfs, remove dev-data/dev-repos.                |
+| `make clean-cache`       | Remove dev data, dev repos, and dev Rolodex data from the ephemeral state directory.    |
+| `make clean-integration` | Remove integration test containers (test, UI backend, UI runner) and clean btrfs.       |
+| `make clean-btrfs`       | Unmount and remove the integration test btrfs volume and orphaned loop devices.         |
+| `make clean-image-cache` | Delete the global image cache (`/var/cache/town-os/images/`).                           |
+| `make clean-containers`  | Remove all town-os and preflight containers from any working directory / instance.      |
+| `make clean-all`         | Clean everything: all containers, build cache, dev, integration, and btrfs.             |
 
-### Linting
+### Preflight Checks
 
-| Target      | Description                       |
-| ----------- | --------------------------------- |
-| `make lint` | Run `go vet` and `golangci-lint`. |
+| Target            | Description                                                                                                    |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `make preflight-dev` | Validate the development environment: checks podman, btrfs-progs, repository credentials, and bridge networking. |
+
+### SSH
+
+| Target     | Description                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| `make ssh` | SSH into a running Town OS device at `town-os.local` (clears stale host keys automatically). |
+
+### Dependency Checks
+
+These are not typically called directly; they run as prerequisites of other targets.
+
+| Target                     | Description                                  |
+| -------------------------- | -------------------------------------------- |
+| `make check-go`            | Verify `go` is available.                    |
+| `make check-bun`           | Verify `bun` is available.                   |
+| `make check-podman`        | Verify `podman` is available.                |
+| `make check-runc`          | Verify `runc` is available.                  |
+| `make check-btrfs`         | Verify `mkfs.btrfs` is available.            |
+| `make check-golangci-lint` | Verify `golangci-lint` is available.         |
+| `make check-python3`       | Verify `python3` is available.               |
+| `make check-libsystemd`    | Verify libsystemd development headers exist. |
 
 ## License
 
