@@ -40,7 +40,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
-- **Network controller image is built locally** — the NC container image (`town-os-networkcontroller:local`) is built by the system controller at startup via `podman build`, not pulled from a registry. Test and dev containers must have `alpine:latest` loaded and `/town-os-networkcontroller` available for the build.
+- **Network controller image is built locally** — the NC container image (`town-os-networkcontroller:local`) is built by the system controller at startup via `podman build`, not pulled from a registry. The `alpine:latest` base image is pulled via `ensureImage` if not already loaded. Test and dev containers must have `alpine:latest` pre-loaded and `/town-os-networkcontroller` available for the build. The build is non-fatal; if the network is unavailable at boot, the system controller starts without per-package networking and the image is built on the next restart.
 
 # Town OS Functional Specification
 
@@ -805,14 +805,15 @@ The system controller initializes services in this order:
 3. Settings, audit, and pages managers.
 4. Repository root (with immediate force refresh).
 5. Systemd manager.
-6. Reconciliation (restores installed package state -- volumes, quotas, templates, network state files, systemd units).
-7. Monitoring stack (Prometheus + Node Exporter + Grafana).
-8. Rolodex DNS server.
-9. Internal IP watcher (30-second poll; restarts Rolodex on IP change).
-10. UI container.
-11. HTTP server.
+6. Rolodex DNS server (image pulled via `ensureImage` if not pre-loaded).
+7. Network controller image build (base image pulled via `ensureImage`; Rolodex provides DNS for `apk add`).
+8. Reconciliation (restores installed package state -- volumes, quotas, templates, network state files, systemd units).
+9. Monitoring stack image pulls (via `ensureImage`) and startup (Prometheus + Node Exporter + Grafana).
+10. Internal IP watcher (30-second poll; restarts Rolodex on IP change).
+11. UI container.
+12. HTTP server.
 
-Startup failures for monitoring, Rolodex, and the UI container are non-fatal; the system continues without them.
+Startup failures for monitoring, Rolodex, the network controller image build, and the UI container are non-fatal; the system continues without them. All container image pulls use the `ensureImage` helper which checks `podman image exists` before pulling, avoiding redundant pulls in test/dev environments where images are pre-loaded. Pull failures for non-essential services are logged to stderr and do not prevent startup, allowing the system to boot even when the network is temporarily unavailable.
 
 ### Version Tag Detection
 

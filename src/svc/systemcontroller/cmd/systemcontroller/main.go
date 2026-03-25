@@ -194,10 +194,8 @@ func run() (err error) {
 
 	// Pull the rolodex image only if it is not already loaded (e.g. pre-loaded
 	// in test/dev containers where DNS may not be available yet).
-	if err := exec.CommandContext(ctx, "podman", "image", "exists", rolImage).Run(); err != nil { //nolint:gosec // G204 -- image derived from tag file
-		if out, pullErr := exec.CommandContext(ctx, "podman", "pull", rolImage).CombinedOutput(); pullErr != nil { //nolint:gosec // G204 -- image derived from tag file
-			fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", rolImage, pullErr, string(out))
-		}
+	if err := ensureImage(ctx, rolImage); err != nil {
+		fmt.Fprintf(os.Stderr, "pull %s: %v\n", rolImage, err)
 	}
 
 	// Start the rolodex DNS server before building the NC image so that
@@ -227,9 +225,12 @@ func run() (err error) {
 	// happen before reconciliation so the image is available when package
 	// units are installed. Rolodex is started above so DNS works for
 	// `apk add` inside the build.
+	// Non-fatal: if the network is unavailable at boot the pull/build
+	// will fail, but the system controller still starts. The image will
+	// be built on the next restart once the network is up.
 	ncImage, err := buildNetworkControllerImage(ctx)
 	if err != nil {
-		return fmt.Errorf("build network controller image: %w", err)
+		fmt.Fprintf(os.Stderr, "network controller image: %v\n", err)
 	}
 
 	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
@@ -263,10 +264,8 @@ func run() (err error) {
 		monitoring.GrafanaImage,
 		uiImage,
 	} {
-		if err := exec.CommandContext(ctx, "podman", "image", "exists", img).Run(); err != nil { //nolint:gosec // G204 -- image constants
-			if out, pullErr := exec.CommandContext(ctx, "podman", "pull", img).CombinedOutput(); pullErr != nil { //nolint:gosec // G204 -- image constants
-				fmt.Fprintf(os.Stderr, "pull %s: %v: %s\n", img, pullErr, string(out))
-			}
+		if err := ensureImage(ctx, img); err != nil {
+			fmt.Fprintf(os.Stderr, "pull %s: %v\n", img, err)
 		}
 	}
 
@@ -437,6 +436,20 @@ func watchInternalIP(ctx context.Context, mgr *rolodex.Manager) {
 	}
 }
 
+// ensureImage checks whether a container image is loaded locally and pulls it
+// from the registry when it is not. This is a variable so tests can replace
+// the implementation without requiring podman.
+var ensureImage = func(ctx context.Context, image string) error {
+	if err := exec.CommandContext(ctx, "podman", "image", "exists", image).Run(); err == nil { //nolint:gosec // G204 -- image from caller
+		return nil // already loaded
+	}
+	out, pullErr := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from caller
+	if pullErr != nil {
+		return fmt.Errorf("pull %s: %w: %s", image, pullErr, string(out))
+	}
+	return nil
+}
+
 // buildNetworkControllerImage builds the network controller container image
 // locally using podman build. The NC binary (/town-os-networkcontroller) and
 // socat are bundled into an alpine-based image. Returns the image name.
@@ -503,6 +516,14 @@ ENTRYPOINT ["/town-os-networkcontroller"]
 
 	if err := src.Close(); err != nil {
 		return "", fmt.Errorf("close NC source: %w", err)
+	}
+
+	// Pull the base image only if it is not already loaded (e.g. pre-loaded
+	// in test/dev containers). --pull=never in the build step below avoids a
+	// second pull attempt.
+	const baseImage = "docker.io/library/alpine:latest"
+	if err := ensureImage(ctx, baseImage); err != nil {
+		return "", err
 	}
 
 	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
