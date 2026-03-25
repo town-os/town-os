@@ -93,6 +93,20 @@ registry_login() {
   fi
 }
 
+# require_registry_login REGISTRY — fail if root's podman is not logged in.
+#   Call before any push operation to catch the common mistake of logging in
+#   as the current user while builds and pushes run under sudo.
+require_registry_login() {
+  local registry="$1"
+  if ! ${SUDO} podman login --get-login "${registry}" >/dev/null 2>&1; then
+    echo "ERROR: Not logged in to ${registry} as root (sudo)." >&2
+    echo "  Images are built with sudo, so pushes must use the same login." >&2
+    echo "  Fix: set QUAY_USERNAME and QUAY_PASSWORD in .env, or run:" >&2
+    echo "    sudo podman login ${registry}" >&2
+    exit 1
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Image cache helpers
 # ---------------------------------------------------------------------------

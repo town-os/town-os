@@ -63,6 +63,7 @@ case "$1" in
       -t "${RELEASE_PROTON_IMAGE}" -f Containerfile.proton .
     ;;
   push-rc)
+    require_registry_login quay.io
     step "Pushing release candidate"
     DATE_TAG="$(date +%Y%m%d)"
 
@@ -110,6 +111,7 @@ case "$1" in
 
     ;;
   push-release)
+    require_registry_login quay.io
     step "Pushing release"
     DATE_TAG="$(date +%Y%m%d)"
 
@@ -161,6 +163,7 @@ case "$1" in
 
     ;;
   push-ui-rc)
+    require_registry_login quay.io
     step "Pushing UI release candidate"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
@@ -173,6 +176,7 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
     ;;
   push-ui-release)
+    require_registry_login quay.io
     step "Pushing UI release"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
@@ -185,6 +189,7 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
     ;;
   push-proton-rc)
+    require_registry_login quay.io
     step "Pushing Proton runner release candidate"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
@@ -197,6 +202,7 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
     ;;
   push-proton-release)
+    require_registry_login quay.io
     step "Pushing Proton runner release"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
@@ -214,6 +220,7 @@ case "$1" in
       echo "Usage: $0 push-tag <tag>"
       exit 1
     fi
+    require_registry_login quay.io
     step "Pushing all images with tag ${TAG}"
 
     # Systemcontroller — rebuild with tag baked in.
