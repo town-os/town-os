@@ -178,6 +178,9 @@ push-proton-rc: release-proton-image quay-login
 push-proton-release: release-proton-image quay-login
 	@make/build.sh push-proton-release
 
+push-tag: release-image release-ui-image release-proton-image quay-login
+	@make/build.sh push-tag $(PUSH_TAG)
+
 ssh:
 	@ssh-keygen -R town-os.local 2>/dev/null; true
 	sshpass -p enjoytownos ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@town-os.local

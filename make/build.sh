@@ -208,12 +208,49 @@ case "$1" in
     substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
     ;;
+  push-tag)
+    TAG="$2"
+    if [ -z "${TAG}" ]; then
+      echo "Usage: $0 push-tag <tag>"
+      exit 1
+    fi
+    step "Pushing all images with tag ${TAG}"
+
+    # Systemcontroller — rebuild with tag baked in.
+    substep "Building ${RELEASE_IMAGE}:${TAG}"
+    mkdir -p .cache/go-mod .cache/go-build
+    ${SUDO} podman build --pull=never \
+      --build-arg "TOWN_OS_TAG=${TAG}" \
+      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
+      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      -t "${RELEASE_IMAGE}:${TAG}" -f Containerfile .
+    substep "Pushing ${RELEASE_IMAGE}:${TAG}"
+    ${SUDO} podman push "${RELEASE_IMAGE}:${TAG}"
+
+    # UI image.
+    substep "Tagging ${RELEASE_UI_IMAGE}:${TAG}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:${TAG}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:${TAG}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:${TAG}"
+
+    # Rolodex image.
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:${TAG}"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:${TAG}"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:${TAG}"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:${TAG}"
+
+    # Proton runner image.
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:${TAG}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:${TAG}"
+    ;;
   networkcontroller)
     step "Building network controller binary"
     CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
     ;;
   *)
-    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|push-rc|push-release|push-ui-rc|push-ui-release}"
+    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|push-rc|push-release|push-ui-rc|push-ui-release|push-tag <tag>}"
     exit 1
     ;;
 esac

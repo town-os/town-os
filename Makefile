@@ -64,7 +64,7 @@ UI_IMAGE_TAG ?= rc.latest
 UI_IMAGE := quay.io/town/ui:$(UI_IMAGE_TAG)
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE) $(UI_IMAGE)
 export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE_TAG UI_IMAGE
-export TEST_RUN TEST_TIMEOUT
+export TEST_RUN TEST_TIMEOUT PUSH_TAG
 
 include make/include.mk
 -include .hack/include.mk
@@ -82,7 +82,7 @@ include make/include.mk
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
-.PHONY: release-build release-image release-ui-image release-proton-image push push-rc push-release push-ui-rc push-ui-release push-proton-rc push-proton-release quay-login
+.PHONY: release-build release-image release-ui-image release-proton-image push push-rc push-release push-ui-rc push-ui-release push-proton-rc push-proton-release push-tag quay-login
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
