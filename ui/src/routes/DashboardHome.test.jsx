@@ -273,6 +273,9 @@ describe('DashboardHome', () => {
     Object.defineProperty(window, 'isSecureContext', { value: false, writable: true })
     Object.defineProperty(navigator, 'clipboard', { value: undefined, writable: true, configurable: true })
 
+    if (!document.execCommand) {
+      document.execCommand = vi.fn()
+    }
     const execSpy = vi.spyOn(document, 'execCommand').mockReturnValue(true)
 
     renderDashboard()
