@@ -537,7 +537,7 @@ func TestInstalledInstallFromRepo(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("failed to install nginx 1.0: %v", err)
 	}
@@ -565,15 +565,15 @@ func TestInstalledListFromRepo(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "2.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	err = mgr.Install("core", "redis", "7.0", packages.Responses{})
+	err = mgr.Install("core", "redis", "redis", "7.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
@@ -608,11 +608,11 @@ func TestInstalledUninstallFromRepo(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "2.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
-	err = mgr.Install("core", "redis", "7.0", packages.Responses{})
+	err = mgr.Install("core", "redis", "redis", "7.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install redis@7.0: %v", err)
 	}
@@ -661,11 +661,11 @@ func TestInstalledMultipleRepos(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Install from different repos.
-	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "2.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@2.0 from core: %v", err)
 	}
-	err = mgr.Install("extras", "postgres", "16.0", packages.Responses{})
+	err = mgr.Install("extras", "postgres", "postgres", "16.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install postgres@16.0 from extras: %v", err)
 	}
@@ -727,7 +727,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Install.
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
@@ -741,7 +741,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Duplicate should fail.
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected error for duplicate install")
 	}
@@ -764,7 +764,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 	}
 
 	// Can re-install after uninstall.
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("re-install failed: %v", err)
 	}
@@ -931,7 +931,7 @@ func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
@@ -968,11 +968,11 @@ func TestInstalledEmptyDirCleanupAfterUninstall(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Install two versions of the same package.
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}
-	err = mgr.Install("core", "nginx", "2.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "2.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@2.0: %v", err)
 	}
@@ -1019,19 +1019,19 @@ func TestInstalledInstallNonexistentPackage(t *testing.T) {
 	mgr := packages.NewInstallManager(root.BaseDir)
 
 	// Nonexistent package name.
-	err = mgr.Install("core", "nonexistent", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nonexistent", "nonexistent", "1.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected error installing nonexistent package")
 	}
 
 	// Existing package, nonexistent version.
-	err = mgr.Install("core", "nginx", "99.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "99.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected error installing nonexistent version")
 	}
 
 	// Nonexistent repo name.
-	err = mgr.Install("no-such-repo", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("no-such-repo", "nginx", "nginx", "1.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected error installing from nonexistent repo")
 	}
@@ -1082,7 +1082,7 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 		}
 		for name, versions := range repoPkgs {
 			for version := range versions {
-				err = mgr.Install(repoName, name, version, packages.Responses{})
+				err = mgr.Install(repoName, name, name, version, packages.Responses{})
 				if err != nil {
 					t.Fatalf("Install %s@%s from %s: %v", name, version, repoName, err)
 				}
@@ -1174,7 +1174,7 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 	mgr2 := packages.NewInstallManager(root.BaseDir)
 
 	// Install from mgr1.
-	err = mgr1.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr1.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("mgr1 Install nginx@1.0: %v", err)
 	}
@@ -1192,7 +1192,7 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 	}
 
 	// Duplicate from mgr2 should fail.
-	err = mgr2.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr2.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err == nil {
 		t.Fatal("expected duplicate install error from mgr2")
 	}
@@ -1315,7 +1315,7 @@ func TestInstalledCompileThroughSymlink(t *testing.T) {
 
 	mgr := packages.NewInstallManager(root.BaseDir)
 
-	err = mgr.Install("core", "nginx", "1.0", packages.Responses{})
+	err = mgr.Install("core", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("Install nginx@1.0: %v", err)
 	}

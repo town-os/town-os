@@ -53,12 +53,12 @@ func TestHTTPInstallPackage(t *testing.T) {
 	if nameArg != "nginx" {
 		t.Fatalf("expected pkgName %q, got %v", "nginx", calls[2].Args[1])
 	}
-	verArg, ok := calls[2].Args[2].(string)
+	verArg, ok := calls[2].Args[3].(string)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
 	if verArg != "1.0" {
-		t.Fatalf("expected version %q, got %v", "1.0", calls[2].Args[2])
+		t.Fatalf("expected version %q, got %v", "1.0", calls[2].Args[3])
 	}
 	if calls[3].Method != "ClearLastResponses" {
 		t.Fatalf("expected ClearLastResponses call, got %q", calls[3].Method)
@@ -116,7 +116,7 @@ questions:
 		t.Fatal("expected an Install call")
 	}
 
-	resp, ok := installCall.Args[3].(packages.Responses)
+	resp, ok := installCall.Args[4].(packages.Responses)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
@@ -181,7 +181,7 @@ questions:
 		t.Fatal("expected an Install call")
 	}
 
-	resp, ok := installCall.Args[3].(packages.Responses)
+	resp, ok := installCall.Args[4].(packages.Responses)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
@@ -1281,7 +1281,7 @@ func TestHTTPInstallValidationErrors(t *testing.T) {
 		t.Fatal("expected an Install call")
 	}
 
-	resp, ok := installCall.Args[3].(packages.Responses)
+	resp, ok := installCall.Args[4].(packages.Responses)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
@@ -1318,7 +1318,7 @@ func TestHTTPInstallValidationErrorsEmptyResponse(t *testing.T) {
 		t.Fatal("expected an Install call")
 	}
 
-	resp, ok := installCall.Args[3].(packages.Responses)
+	resp, ok := installCall.Args[4].(packages.Responses)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
@@ -1409,7 +1409,7 @@ func TestHTTPReinstallPackage(t *testing.T) {
 	}
 
 	// Verify new responses were used.
-	newResp, ok := calls[8].Args[3].(packages.Responses)
+	newResp, ok := calls[8].Args[4].(packages.Responses)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
@@ -1831,12 +1831,12 @@ func TestHTTPInstallOlderVersion(t *testing.T) {
 	found := false
 	for _, call := range calls {
 		if call.Method == "Install" {
-			installVer, ok := call.Args[2].(string)
+			installVer, ok := call.Args[3].(string)
 			if !ok {
 				t.Fatal("type assertion failed")
 			}
 			if installVer != "1.0" {
-				t.Fatalf("expected install version %q, got %v", "1.0", call.Args[2])
+				t.Fatalf("expected install version %q, got %v", "1.0", call.Args[3])
 			}
 			found = true
 		}
@@ -1945,14 +1945,14 @@ questions: {}
 	calls := inst.GetCalls()
 	for _, call := range calls {
 		if call.Method == "Install" {
-			questionsVer, ok := call.Args[2].(string)
+			questionsVer, ok := call.Args[3].(string)
 			if !ok {
 				t.Fatal("type assertion failed")
 			}
 			if questionsVer != "1.0" {
-				t.Fatalf("expected version 1.0, got %v", call.Args[2])
+				t.Fatalf("expected version 1.0, got %v", call.Args[3])
 			}
-			r, ok := call.Args[3].(packages.Responses)
+			r, ok := call.Args[4].(packages.Responses)
 			if !ok {
 				t.Fatal("type assertion failed")
 			}

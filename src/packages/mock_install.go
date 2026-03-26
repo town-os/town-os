@@ -55,10 +55,10 @@ func (m *MockInstallManager) GetCalls() []MockInstallCall {
 	return out
 }
 
-func (m *MockInstallManager) Install(repoName, pkgName, version string, responses Responses) error {
+func (m *MockInstallManager) Install(repoName, pkgName, sourcePkgName, version string, responses Responses) error {
 	m.mu.Lock()
 	hook := m.OnInstall
-	m.Calls = append(m.Calls, MockInstallCall{Method: "Install", Args: []any{repoName, pkgName, version, responses}})
+	m.Calls = append(m.Calls, MockInstallCall{Method: "Install", Args: []any{repoName, pkgName, sourcePkgName, version, responses}})
 
 	if m.InstallErr != nil {
 		m.mu.Unlock()

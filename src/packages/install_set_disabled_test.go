@@ -95,7 +95,7 @@ func TestUninstallClearsDisabledMarker(t *testing.T) {
 
 	mgr := NewInstallManager(dir)
 
-	err = mgr.Install("test-repo", "nginx", "1.0", Responses{})
+	err = mgr.Install("test-repo", "nginx", "nginx", "1.0", Responses{})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}

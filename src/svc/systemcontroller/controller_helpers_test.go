@@ -751,7 +751,7 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallMana
 	inst := packages.NewInstallManager(dir)
 
 	// Install version 1.0.
-	if err := inst.Install(repoName, pkgName, "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install(repoName, pkgName, pkgName, "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 

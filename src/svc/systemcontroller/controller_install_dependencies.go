@@ -116,7 +116,7 @@ func (s *SystemControllerHandlers) installDependencies(
 		}
 
 		// Create install record.
-		if err := inst.Install(depRepo, effectiveName, depVersion, depResponses); err != nil {
+		if err := inst.Install(depRepo, effectiveName, dep.Package, depVersion, depResponses); err != nil {
 			return nil, nil, fmt.Errorf("dependency %q: install record: %w", depKey, err)
 		}
 

@@ -95,10 +95,10 @@ func TestHTTPMultiRepoUninstallIsolation(t *testing.T) {
 	c, inst := initMultiRepoTestClient(t)
 
 	// Pre-seed both repos installed.
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install repo-a: %v", err)
 	}
-	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-b", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install repo-b: %v", err)
 	}
 
@@ -125,10 +125,10 @@ func TestHTTPMultiRepoGetResponsesIsolation(t *testing.T) {
 	c, inst := initMultiRepoTestClient(t)
 
 	// Pre-seed with different responses per repo.
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{"port": "80"}); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{"port": "80"}); err != nil {
 		t.Fatalf("pre-install repo-a: %v", err)
 	}
-	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{"port": "9090"}); err != nil {
+	if err := inst.Install("repo-b", "nginx", "nginx", "1.0", packages.Responses{"port": "9090"}); err != nil {
 		t.Fatalf("pre-install repo-b: %v", err)
 	}
 
@@ -153,10 +153,10 @@ func TestHTTPMultiRepoDisableIsolation(t *testing.T) {
 	c, inst := initMultiRepoTestClient(t)
 
 	// Pre-seed both repos installed.
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install repo-a: %v", err)
 	}
-	if err := inst.Install("repo-b", "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-b", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install repo-b: %v", err)
 	}
 

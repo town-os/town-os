@@ -329,7 +329,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 	}
 
-	if err := inst.Install(repoName, effectiveName, req.Version, req.Responses); err != nil {
+	if err := inst.Install(repoName, effectiveName, parentName, req.Version, req.Responses); err != nil {
 		return err
 	}
 

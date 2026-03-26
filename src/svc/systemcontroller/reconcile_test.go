@@ -91,7 +91,7 @@ func TestReconcileInstalledPackage(t *testing.T) {
 	sd := systemd.InitMockManager()
 
 	// Pre-install the package so it appears in ListInstalled.
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -135,11 +135,11 @@ func TestReconcileMultiplePackages(t *testing.T) {
 	})
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install nginx: %v", err)
 	}
-	err = inst.Install("repo-a", "redis", "7.0", packages.Responses{})
+	err = inst.Install("repo-a", "redis", "redis", "7.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install redis: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 		t.Fatal("expected *storage.MockBtrFSController")
 	}
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestReconcileWithResponses(t *testing.T) {
 	sd := systemd.InitMockManager()
 
 	responses := packages.Responses{"version": "1.0"}
-	err := inst.Install("repo-a", "nginx", "1.0", responses)
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", responses)
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestReconcilePackageSurvivesRepoRemoval(t *testing.T) {
 	})
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestReconcilePartialFailureContinues(t *testing.T) {
 	}
 
 	// Install redis properly.
-	err = inst.Install("repo-a", "redis", "7.0", packages.Responses{})
+	err = inst.Install("repo-a", "redis", "redis", "7.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install redis: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestReconcileNilManagers(t *testing.T) {
 		"nginx/1.0": "image: nginx:1.0\n",
 	})
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestReconcileDisabledPackageNotStarted(t *testing.T) {
 	})
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -397,11 +397,11 @@ func TestReconcileDisabledAndEnabledMixed(t *testing.T) {
 	})
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install nginx: %v", err)
 	}
-	err = inst.Install("repo-a", "redis", "7.0", packages.Responses{})
+	err = inst.Install("repo-a", "redis", "redis", "7.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install redis: %v", err)
 	}
@@ -437,11 +437,11 @@ func TestReconcileMultiVersionPicksLatest(t *testing.T) {
 	})
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install nginx 1.0: %v", err)
 	}
-	err = inst.Install("repo-a", "nginx", "2.0", packages.Responses{})
+	err = inst.Install("repo-a", "nginx", "nginx", "2.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install nginx 2.0: %v", err)
 	}
@@ -533,11 +533,11 @@ func TestReconcileMultiRepoSamePackageName(t *testing.T) {
 	)
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install repo-a/nginx: %v", err)
 	}
-	err = inst.Install("repo-b", "nginx", "1.0", packages.Responses{})
+	err = inst.Install("repo-b", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install repo-b/nginx: %v", err)
 	}
@@ -591,11 +591,11 @@ func TestReconcileMultiRepoVolumePaths(t *testing.T) {
 		t.Fatal("expected *storage.MockBtrFSController")
 	}
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install repo-a/nginx: %v", err)
 	}
-	err = inst.Install("repo-b", "nginx", "1.0", packages.Responses{})
+	err = inst.Install("repo-b", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install repo-b/nginx: %v", err)
 	}
@@ -637,11 +637,11 @@ func TestReconcileMultiRepoDisabledIsolation(t *testing.T) {
 	)
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install repo-a/nginx: %v", err)
 	}
-	err = inst.Install("repo-b", "nginx", "1.0", packages.Responses{})
+	err = inst.Install("repo-b", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install repo-b/nginx: %v", err)
 	}
@@ -750,7 +750,7 @@ func TestReconcileWithGitSeedVolume(t *testing.T) {
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
 
-	err := inst.Install("repo-a", "myapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "myapp", "myapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -794,7 +794,7 @@ volumes:
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
 
-	err := inst.Install("repo-a", "webapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "webapp", "webapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -826,7 +826,7 @@ func TestReconcileGitSeedSkipsNonEmptyDir(t *testing.T) {
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
 
-	err := inst.Install("repo-a", "myapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "myapp", "myapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -890,7 +890,7 @@ templates:
 	btrfsBase := t.TempDir()
 
 	responses := packages.Responses{"hostname": "example.com"}
-	if err := inst.Install("repo-a", "nginx", "1.0", responses); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", responses); err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
@@ -943,7 +943,7 @@ templates:
 	mock := storage.InitBtrFSMock()
 	btrfsBase := t.TempDir()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
@@ -986,7 +986,7 @@ func TestReconcileWithoutTemplatesNoFiles(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	btrfsBase := t.TempDir()
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
@@ -1016,7 +1016,7 @@ func TestReconcileGitSeedVolumeWithoutGitSkipped(t *testing.T) {
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
 
-	err := inst.Install("repo-a", "myapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "myapp", "myapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -1174,7 +1174,7 @@ network:
 	mock := storage.InitBtrFSMock()
 	btrfsBase := t.TempDir()
 
-	err := inst.Install("repo-a", "debian-vm", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "debian-vm", "debian-vm", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -1250,7 +1250,7 @@ func TestReconcileVMPackageNoPorts(t *testing.T) {
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
 
-	err := inst.Install("repo-a", "headless", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "headless", "headless", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -1315,7 +1315,7 @@ environment:
 		},
 	}
 
-	err := inst.Install("repo-a", "winapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "winapp", "winapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -1369,7 +1369,7 @@ volumes:
 	})
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "winapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "winapp", "winapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -1415,7 +1415,7 @@ volumes:
 		},
 	}
 
-	err := inst.Install("repo-a", "winapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "winapp", "winapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -1476,7 +1476,7 @@ volumes:
 		},
 	}
 
-	err := inst.Install("repo-a", "winapp", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "winapp", "winapp", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
@@ -1519,10 +1519,10 @@ func TestReconcileDNS(t *testing.T) {
 		"redis/7.0": "image: redis:7.0\n",
 	})
 
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install nginx: %v", err)
 	}
-	if err := inst.Install("repo-a", "redis", "7.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-a", "redis", "redis", "7.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install redis: %v", err)
 	}
 
@@ -1630,7 +1630,7 @@ environment:
 	})
 	sd := systemd.InitMockManager()
 
-	if err := inst.Install("repo-a", "webapp", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install("repo-a", "webapp", "webapp", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 
@@ -1723,7 +1723,7 @@ notes:
 	})
 	sd := systemd.InitMockManager()
 
-	err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{})
+	err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{})
 	if err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}

@@ -21,7 +21,7 @@ var (
 const ResponsesDir = "responses"
 
 type Installer interface {
-	Install(repoName, pkgName, version string, responses Responses) error
+	Install(repoName, pkgName, sourcePkgName, version string, responses Responses) error
 	Uninstall(repoName, pkgName, version string) error
 	ListInstalled() ([]string, error)
 	GetResponses(repoName, pkgName, version string) (Responses, error)
@@ -54,30 +54,30 @@ func (m *InstallManager) responsesDir() string {
 }
 
 // Install creates a hard link at installed/<repoName>/<pkgName>/<version>.yaml from
-// the repository package file at <repoName>/packages/<pkgName>/<version>.yaml.
+// the repository package file at <repoName>/packages/<sourcePkgName>/<version>.yaml.
+// sourcePkgName is the original package name in the repository; pkgName is the
+// effective name used for the installed record (these differ for dependencies).
 // It also persists the responses to responses/<repoName>/<pkgName>/<version>.json.
-func (m *InstallManager) Install(repoName, pkgName, version string, responses Responses) error {
+func (m *InstallManager) Install(repoName, pkgName, sourcePkgName, version string, responses Responses) error {
 	pkgDir := filepath.Join(m.dir(), repoName, pkgName)
-	err := os.MkdirAll(pkgDir, 0750)
-	if err != nil {
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
 		return err
 	}
 
 	link := filepath.Join(pkgDir, version+".yaml")
 
-	_, err = os.Lstat(link)
+	_, err := os.Lstat(link)
 	if err == nil {
 		return fmt.Errorf("%s/%s@%s: %w", repoName, pkgName, version, ErrAlreadyInstalled)
 	}
 
-	source := filepath.Join(m.BaseDir, repoName, PackagesDir, pkgName, version+".yaml")
+	source := filepath.Join(m.BaseDir, repoName, PackagesDir, sourcePkgName, version+".yaml")
 	_, err = os.Stat(source)
 	if err != nil {
 		return fmt.Errorf("source package not found: %w", err)
 	}
 
-	err = os.Link(source, link)
-	if err != nil {
+	if err := os.Link(source, link); err != nil {
 		return err
 	}
 
@@ -93,8 +93,7 @@ func (m *InstallManager) SetDisabled(repoName, pkgName string, disabled bool) er
 	}
 	if disabled {
 		pkgDir := filepath.Join(m.dir(), repoName, pkgName)
-		err := os.MkdirAll(pkgDir, 0750)
-		if err != nil {
+		if err := os.MkdirAll(pkgDir, 0750); err != nil {
 			return err
 		}
 		f, err := os.Create(marker) //nolint:gosec // G304 -- marker path validated by SafePath
@@ -140,15 +139,13 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 		return fmt.Errorf("%s/%s@%s is not a regular file", repoName, pkgName, version)
 	}
 
-	err = os.Remove(link)
-	if err != nil {
+	if err := os.Remove(link); err != nil {
 		return err
 	}
 
 	// Remove disabled marker so the directory can be cleaned up.
 	marker := filepath.Join(m.dir(), repoName, pkgName, "disabled")
-	err = os.Remove(marker)
-	if err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
@@ -156,8 +153,7 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	pkgDir := filepath.Join(m.dir(), repoName, pkgName)
 	entries, err := os.ReadDir(pkgDir)
 	if err == nil && len(entries) == 0 {
-		err = os.Remove(pkgDir)
-		if err != nil {
+		if err := os.Remove(pkgDir); err != nil {
 			return err
 		}
 	}
@@ -166,16 +162,14 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	repoDir := filepath.Join(m.dir(), repoName)
 	repoEntries, err := os.ReadDir(repoDir)
 	if err == nil && len(repoEntries) == 0 {
-		err = os.Remove(repoDir)
-		if err != nil {
+		if err := os.Remove(repoDir); err != nil {
 			return err
 		}
 	}
 
 	// Remove response file.
 	respFile := filepath.Join(m.responsesDir(), repoName, pkgName, version+".json")
-	err = os.Remove(respFile)
-	if err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(respFile); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
@@ -183,8 +177,7 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	respPkgDir := filepath.Join(m.responsesDir(), repoName, pkgName)
 	respPkgEntries, err := os.ReadDir(respPkgDir)
 	if err == nil && len(respPkgEntries) == 0 {
-		err = os.Remove(respPkgDir)
-		if err != nil {
+		if err := os.Remove(respPkgDir); err != nil {
 			return err
 		}
 	}
@@ -192,8 +185,7 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	respRepoDir := filepath.Join(m.responsesDir(), repoName)
 	respRepoEntries, err := os.ReadDir(respRepoDir)
 	if err == nil && len(respRepoEntries) == 0 {
-		err = os.Remove(respRepoDir)
-		if err != nil {
+		if err := os.Remove(respRepoDir); err != nil {
 			return err
 		}
 	}

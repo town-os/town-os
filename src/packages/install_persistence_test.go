@@ -410,7 +410,7 @@ func TestListInstalledSorted(t *testing.T) {
 		if err := os.WriteFile(yamlFile, []byte("image: test\n"), 0600); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
-		if err := m.Install(r.repo, r.name, r.version, Responses{}); err != nil {
+		if err := m.Install(r.repo, r.name, r.name, r.version, Responses{}); err != nil {
 			t.Fatalf("Install: %v", err)
 		}
 	}
@@ -536,12 +536,12 @@ func TestInstallAlreadyInstalled(t *testing.T) {
 	}
 
 	// First install should succeed.
-	if err := m.Install("repo", "pkg", "1.0", Responses{}); err != nil {
+	if err := m.Install("repo", "pkg", "pkg", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install first: %v", err)
 	}
 
 	// Second install of the same package should return ErrAlreadyInstalled.
-	err := m.Install("repo", "pkg", "1.0", Responses{})
+	err := m.Install("repo", "pkg", "pkg", "1.0", Responses{})
 	if err == nil {
 		t.Fatal("expected error for already installed package")
 	}
@@ -567,7 +567,7 @@ func TestUninstallCleansUpDirectories(t *testing.T) {
 	}
 
 	// Install the package.
-	if err := m.Install("repo", "pkg", "1.0", Responses{"k": "v"}); err != nil {
+	if err := m.Install("repo", "pkg", "pkg", "1.0", Responses{"k": "v"}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 

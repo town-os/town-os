@@ -26,7 +26,7 @@ func TestIsPackageChangedSameInode(t *testing.T) {
 	}
 
 	// Install (creates hard link).
-	if err := m.Install("test-repo", "nginx", "1.0", Responses{}); err != nil {
+	if err := m.Install("test-repo", "nginx", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -54,7 +54,7 @@ func TestIsPackageChangedDifferentInode(t *testing.T) {
 	}
 
 	// Install (creates hard link).
-	if err := m.Install("test-repo", "nginx", "1.0", Responses{}); err != nil {
+	if err := m.Install("test-repo", "nginx", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -90,7 +90,7 @@ func TestIsPackageChangedRepoFileMissing(t *testing.T) {
 	}
 
 	// Install.
-	if err := m.Install("test-repo", "nginx", "1.0", Responses{}); err != nil {
+	if err := m.Install("test-repo", "nginx", "nginx", "1.0", Responses{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 

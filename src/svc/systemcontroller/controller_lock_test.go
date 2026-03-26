@@ -119,7 +119,7 @@ questions:
 	inst := packages.InitMockInstallManager()
 
 	// Pre-install the package so uninstall has something to work with.
-	if err := inst.Install("repo-a", "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}); err != nil {
 		t.Fatalf("pre-install: %v", err)
 	}
 

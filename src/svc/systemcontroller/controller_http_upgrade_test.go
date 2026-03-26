@@ -604,7 +604,7 @@ func TestHTTPListUpgradesEmpty(t *testing.T) {
 	}
 
 	inst := packages.NewInstallManager(dir)
-	if err := inst.Install(repoName, "nginx", "1.0", packages.Responses{}); err != nil {
+	if err := inst.Install(repoName, "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 

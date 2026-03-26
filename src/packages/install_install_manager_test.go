@@ -29,7 +29,7 @@ func TestInstallManagerResponsesPersistence(t *testing.T) {
 	mgr := NewInstallManager(dir)
 	resp := Responses{"port": "8080", "hostname": "myhost"}
 
-	err = mgr.Install("test-repo", "nginx", "1.0", resp)
+	err = mgr.Install("test-repo", "nginx", "nginx", "1.0", resp)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -41,6 +41,37 @@ func TestInstallManagerResponsesPersistence(t *testing.T) {
 
 	if got["port"] != "8080" || got["hostname"] != "myhost" {
 		t.Fatalf("expected port=8080 hostname=myhost, got %v", got)
+	}
+}
+
+func TestInstallManagerDependencyUsesSourcePkgName(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a repo package under the real name "postgres".
+	pkgDir := filepath.Join(dir, "default", PackagesDir, "postgres")
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "15.0.yaml"), []byte("image: postgres:15\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mgr := NewInstallManager(dir)
+
+	// Install with effective name "myapp--dep--db" but source name "postgres".
+	if err := mgr.Install("default", "myapp--dep--db", "postgres", "15.0", Responses{}); err != nil {
+		t.Fatalf("Install dependency: %v", err)
+	}
+
+	// The installed record should exist under the effective name.
+	link := filepath.Join(dir, InstalledDir, "default", "myapp--dep--db", "15.0.yaml")
+	if _, err := os.Stat(link); err != nil {
+		t.Fatalf("installed record missing: %v", err)
+	}
+
+	// Using the effective name as source should fail (no such directory).
+	if err := mgr.Install("default", "myapp--dep--cache", "myapp--dep--cache", "15.0", Responses{}); err == nil {
+		t.Fatal("expected error when sourcePkgName does not exist in repo")
 	}
 }
 
@@ -73,7 +104,7 @@ func TestInstallManagerUninstallRemovesResponses(t *testing.T) {
 
 	mgr := NewInstallManager(dir)
 
-	err = mgr.Install("test-repo", "nginx", "1.0", Responses{"port": "80"})
+	err = mgr.Install("test-repo", "nginx", "nginx", "1.0", Responses{"port": "80"})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
