@@ -362,21 +362,30 @@ func (m *Manager) configureResolvedMDNS(ctx context.Context) error {
 		return fmt.Errorf("write resolved drop-in: %w", err)
 	}
 
-	// Reload systemd-resolved to pick up the new configuration.
-	reloadCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if out, err := exec.CommandContext(reloadCtx, "systemctl", "reload", "systemd-resolved").CombinedOutput(); err != nil {
-		slog.Warn(fmt.Sprintf("reload systemd-resolved: %v: %s", err, out))
-	}
+	// Reload systemd-resolved and enable per-interface mDNS only when
+	// running as root. These are global system commands — systemctl and
+	// resolvectl talk to the real host systemd, not the temp directory
+	// the drop-in was written to. Without this guard, unit tests would
+	// trigger polkit authentication prompts by hitting the host's
+	// systemd-resolved. The systemcontroller always runs as root in
+	// production. The drop-in file is still written regardless so
+	// resolved picks up the config on its next reload/restart.
+	if os.Getuid() == 0 {
+		reloadCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if out, err := exec.CommandContext(reloadCtx, "systemctl", "reload", "systemd-resolved").CombinedOutput(); err != nil {
+			slog.Warn(fmt.Sprintf("reload systemd-resolved: %v: %s", err, out))
+		}
 
-	// Enable mDNS on the physical interface so the hostname is
-	// advertised on the LAN (networkd may default to mDNS=no).
-	if iface := interfaceForIP(m.cfg.PublicAddr); iface != "" {
-		mdnsCtx, mdnsCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer mdnsCancel()
-		out, err := exec.CommandContext(mdnsCtx, "resolvectl", "mdns", iface, "yes").CombinedOutput() //nolint:gosec // iface is from net.Interfaces(), not user input
-		if err != nil {
-			slog.Warn(fmt.Sprintf("resolvectl mdns %s yes: %v: %s", iface, err, out))
+		// Enable mDNS on the physical interface so the hostname is
+		// advertised on the LAN (networkd may default to mDNS=no).
+		if iface := interfaceForIP(m.cfg.PublicAddr); iface != "" {
+			mdnsCtx, mdnsCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer mdnsCancel()
+			out, err := exec.CommandContext(mdnsCtx, "resolvectl", "mdns", iface, "yes").CombinedOutput() //nolint:gosec // iface is from net.Interfaces(), not user input
+			if err != nil {
+				slog.Warn(fmt.Sprintf("resolvectl mdns %s yes: %v: %s", iface, err, out))
+			}
 		}
 	}
 
