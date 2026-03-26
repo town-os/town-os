@@ -267,6 +267,50 @@ describe('DashboardHome', () => {
     expect(screen.queryByText('Installed Services')).toBeNull()
   })
 
+  it('copies external IP to clipboard via fallback when not in secure context', async () => {
+    const origClipboard = navigator.clipboard
+    const origSecure = window.isSecureContext
+    Object.defineProperty(window, 'isSecureContext', { value: false, writable: true })
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, writable: true, configurable: true })
+
+    const execSpy = vi.spyOn(document, 'execCommand').mockReturnValue(true)
+
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('1.2.3.4')).toBeTruthy()
+    })
+
+    const copyBtns = screen.getAllByRole('button', { name: 'Copy to clipboard' })
+    fireEvent.click(copyBtns[0])
+
+    expect(execSpy).toHaveBeenCalledWith('copy')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy()
+    })
+
+    execSpy.mockRestore()
+    Object.defineProperty(navigator, 'clipboard', { value: origClipboard, writable: true, configurable: true })
+    Object.defineProperty(window, 'isSecureContext', { value: origSecure, writable: true })
+  })
+
+  it('copies IP to clipboard via navigator.clipboard in secure context', async () => {
+    const writeTextMock = vi.fn(() => Promise.resolve())
+    Object.defineProperty(window, 'isSecureContext', { value: true, writable: true })
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: writeTextMock }, writable: true, configurable: true })
+
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('1.2.3.4')).toBeTruthy()
+    })
+
+    const copyBtns = screen.getAllByRole('button', { name: 'Copy to clipboard' })
+    fireEvent.click(copyBtns[0])
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith('1.2.3.4')
+    })
+  })
+
   it('displays notes from installed info', async () => {
     mockUnitsResponse = {
       entries: [

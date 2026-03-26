@@ -51,11 +51,30 @@ function StatCard({ to, icon, label, value, description }) {
 function CopyButton({ text, t }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = useCallback(() => {
+    function onSuccess() {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      })
+      navigator.clipboard.writeText(text).then(onSuccess)
+      return
+    }
+
+    // Fallback for non-secure contexts (HTTP with non-localhost hostname).
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    try {
+      document.execCommand('copy')
+      onSuccess()
+    } finally {
+      document.body.removeChild(ta)
     }
   }, [text])
   return (

@@ -60,11 +60,27 @@ function ManifestCopyButton({ content, t }) {
     <Button
       variant="outline"
       onClick={() => {
+        function onSuccess() {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 2000)
+        }
         if (navigator.clipboard && window.isSecureContext) {
-          navigator.clipboard.writeText(content).then(() => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
-          })
+          navigator.clipboard.writeText(content).then(onSuccess)
+          return
+        }
+        const ta = document.createElement('textarea')
+        ta.value = content
+        ta.style.position = 'fixed'
+        ta.style.left = '-9999px'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        try {
+          document.execCommand('copy')
+          onSuccess()
+        } finally {
+          document.body.removeChild(ta)
         }
       }}
     >
