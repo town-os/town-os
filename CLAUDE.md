@@ -672,9 +672,19 @@ The `rolodex.Manager` manages the DNS server container lifecycle:
 
 The rolodex image tag is derived from the system controller's release tag (`quay.io/town/rolodex:<tag>`), overridable via the `ROLODEX_IMAGE` environment variable.
 
+### Multicast DNS (.local)
+
+Town OS advertises its hostname (e.g., `town-os.local`) via systemd-resolved's built-in mDNS support. The rolodex manager configures this at startup via the `ResolvedConfDir` config field:
+
+1. Writes a systemd-resolved drop-in (`townos.conf`) to `/etc/systemd/resolved.conf.d` with `MulticastDNS=yes`.
+2. Reloads systemd-resolved to apply the configuration.
+3. Enables mDNS on the physical network interface (the one bound to `PublicAddr`) via `resolvectl mdns <iface> yes`, since networkd may default to `mDNS=no` per-link.
+
+This runs on every `Start` call, including after internal IP changes. No separate mDNS daemon (e.g., avahi) is used.
+
 ### Internal IP Change Detection
 
-A background goroutine polls the system's internal IP every 30 seconds. When a change is detected (e.g., DHCP lease renewal), rolodex is restarted with the new public address.
+A background goroutine polls the system's internal IP every 30 seconds. When a change is detected (e.g., DHCP lease renewal), rolodex is restarted with the new public address, which also re-enables mDNS on the new interface.
 
 ### DNS API
 

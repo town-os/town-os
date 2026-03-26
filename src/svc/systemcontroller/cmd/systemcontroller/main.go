@@ -206,13 +206,14 @@ func run() (err error) {
 	}
 	rolLocal := os.Getenv("ROLODEX_LOCAL") != ""
 	rolMgr := rolodex.NewManager(rolodex.Config{
-		Systemd:        sd,
-		DataDir:        rolDataDir,
-		Image:          rolImage,
-		Local:          rolLocal,
-		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
-		ResolvConfPath: "/etc/resolv.conf",
-		PublicAddr:     getInternalIP(),
+		Systemd:         sd,
+		DataDir:         rolDataDir,
+		Image:           rolImage,
+		Local:           rolLocal,
+		UnixSocketPath:  filepath.Join(rolDataDir, "rolodex.sock"),
+		ResolvConfPath:  "/etc/resolv.conf",
+		ResolvedConfDir: "/etc/systemd/resolved.conf.d",
+		PublicAddr:      getInternalIP(),
 	})
 	if err := rolMgr.Start(ctx); err != nil {
 		// Non-fatal: rolodex failure should not prevent the system

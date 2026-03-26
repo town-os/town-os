@@ -7,9 +7,13 @@ package rolodex
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -62,6 +66,12 @@ type Config struct {
 	// DefaultDNSPort ("53") is used. The container always binds 0.0.0.0:53
 	// internally; this only controls the -p host mapping.
 	DNSPort string
+	// ResolvedConfDir, when set, is the path to the systemd-resolved
+	// drop-in directory (e.g. /etc/systemd/resolved.conf.d). Start
+	// writes a drop-in that enables MulticastDNS in systemd-resolved
+	// for .local hostname advertisement and enables mDNS on the
+	// interface bound to PublicAddr.
+	ResolvedConfDir string
 	// PublicAddr, when set, adds an additional -p binding on this address
 	// so that DNS is reachable from the LAN (e.g. "192.168.5.9").
 	// DNSLoopback is always bound regardless.
@@ -127,10 +137,18 @@ func (m *Manager) SetPublicAddr(addr string) bool {
 // Start writes the rolodex config, installs/enables/starts the systemd unit.
 // In production mode (!Local), it rewrites resolv.conf to point at the
 // rolodex loopback address. Both modes bind DNS to 127.0.0.2:53 which
-// coexists with systemd-resolved.
+// coexists with systemd-resolved. When ResolvedConfDir is set, mDNS is
+// enabled in systemd-resolved for .local hostname advertisement.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Configure systemd-resolved for mDNS hostname advertisement.
+	// This enables .local resolution (e.g. town-os.local) via
+	// systemd-resolved on the physical network interface.
+	if err := m.configureResolvedMDNS(ctx); err != nil {
+		return fmt.Errorf("configure resolved mDNS: %w", err)
+	}
 
 	if err := m.writeConfig(); err != nil {
 		return fmt.Errorf("write rolodex config: %w", err)
@@ -324,6 +342,73 @@ func (m *Manager) setResolv() error {
 	}
 
 	return nil
+}
+
+// configureResolvedMDNS writes a systemd-resolved drop-in that enables
+// MulticastDNS for .local hostname advertisement, reloads the resolved
+// configuration, and enables mDNS on the interface bound to PublicAddr.
+func (m *Manager) configureResolvedMDNS(ctx context.Context) error {
+	if m.cfg.ResolvedConfDir == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(m.cfg.ResolvedConfDir, 0755); err != nil { //nolint:gosec // system config dir
+		return fmt.Errorf("create resolved conf dir: %w", err)
+	}
+
+	dropIn := "[Resolve]\nDNSStubListener=yes\nDNSStubListenerExtra=\nMulticastDNS=yes\n"
+	dropInPath := filepath.Join(m.cfg.ResolvedConfDir, "townos.conf")
+	if err := os.WriteFile(dropInPath, []byte(dropIn), 0644); err != nil { //nolint:gosec // system config must be world-readable
+		return fmt.Errorf("write resolved drop-in: %w", err)
+	}
+
+	// Reload systemd-resolved to pick up the new configuration.
+	reloadCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(reloadCtx, "systemctl", "reload", "systemd-resolved").CombinedOutput(); err != nil {
+		slog.Warn(fmt.Sprintf("reload systemd-resolved: %v: %s", err, out))
+	}
+
+	// Enable mDNS on the physical interface so the hostname is
+	// advertised on the LAN (networkd may default to mDNS=no).
+	if iface := interfaceForIP(m.cfg.PublicAddr); iface != "" {
+		mdnsCtx, mdnsCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer mdnsCancel()
+		out, err := exec.CommandContext(mdnsCtx, "resolvectl", "mdns", iface, "yes").CombinedOutput() //nolint:gosec // iface is from net.Interfaces(), not user input
+		if err != nil {
+			slog.Warn(fmt.Sprintf("resolvectl mdns %s yes: %v: %s", iface, err, out))
+		}
+	}
+
+	return nil
+}
+
+// interfaceForIP returns the name of the network interface that holds the
+// given IPv4 address, or "" if not found.
+func interfaceForIP(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	target := net.ParseIP(addr)
+	if target == nil {
+		return ""
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.Equal(target) {
+				return iface.Name
+			}
+		}
+	}
+	return ""
 }
 
 // restoreResolv restores the original resolv.conf saved by setResolv.

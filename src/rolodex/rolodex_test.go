@@ -581,6 +581,81 @@ func TestStopProductionRestoresResolv(t *testing.T) {
 	}
 }
 
+func TestConfigureResolvedMDNS(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-mdns-*")
+	mock := systemd.InitMockManager()
+
+	resolvedDir := filepath.Join(dir, "resolved.conf.d")
+	mgr := NewManager(Config{
+		Systemd:         mock,
+		DataDir:         filepath.Join(dir, "data"),
+		Image:           "quay.io/town/rolodex:latest",
+		Local:           true,
+		UnixSocketPath:  filepath.Join(dir, DefaultGRPCSocket),
+		ResolvedConfDir: resolvedDir,
+	})
+
+	if err := mgr.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Verify the drop-in was written.
+	dropIn, err := os.ReadFile(filepath.Join(resolvedDir, "townos.conf"))
+	if err != nil {
+		t.Fatalf("read drop-in: %v", err)
+	}
+	content := string(dropIn)
+	if !strings.Contains(content, "MulticastDNS=yes") {
+		t.Errorf("drop-in missing MulticastDNS=yes:\n%s", content)
+	}
+	if !strings.Contains(content, "DNSStubListener=yes") {
+		t.Errorf("drop-in missing DNSStubListener=yes:\n%s", content)
+	}
+}
+
+func TestConfigureResolvedMDNSSkippedWhenEmpty(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-mdns-skip-*")
+	mock := systemd.InitMockManager()
+
+	mgr := NewManager(Config{
+		Systemd:        mock,
+		DataDir:        filepath.Join(dir, "data"),
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          true,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+	})
+
+	if err := mgr.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// No ResolvedConfDir set — no drop-in directory should be created.
+	resolvedDir := filepath.Join(dir, "resolved.conf.d")
+	if _, err := os.Stat(resolvedDir); err == nil {
+		t.Fatal("resolved.conf.d should not exist when ResolvedConfDir is empty")
+	}
+}
+
+func TestInterfaceForIP(t *testing.T) {
+	// Empty and invalid inputs should return "".
+	if got := interfaceForIP(""); got != "" {
+		t.Errorf("interfaceForIP(\"\") = %q, want \"\"", got)
+	}
+	if got := interfaceForIP("not-an-ip"); got != "" {
+		t.Errorf("interfaceForIP(\"not-an-ip\") = %q, want \"\"", got)
+	}
+
+	// Loopback (127.0.0.1) should always resolve to an interface.
+	if got := interfaceForIP("127.0.0.1"); got == "" {
+		t.Error("interfaceForIP(\"127.0.0.1\") returned \"\", want loopback interface")
+	}
+
+	// Non-existent IP should return "".
+	if got := interfaceForIP("198.51.100.99"); got != "" {
+		t.Errorf("interfaceForIP(\"198.51.100.99\") = %q, want \"\"", got)
+	}
+}
+
 func TestStartLocalSkipsResolved(t *testing.T) {
 	dir := rolodexTestDir(t, "rolodex-local-skip-*")
 	mock := systemd.InitMockManager()
