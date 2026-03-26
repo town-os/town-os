@@ -15,13 +15,15 @@ import (
 // installDependencies resolves and installs all declared dependencies for a
 // parent package. Dependencies are installed depth-first (leaves before
 // parent). Each dependency gets a namespaced effective name, local-only
-// networking (UPnP disabled), and namespaced storage.
+// networking (UPnP disabled), and namespaced storage. All dependencies
+// share the parent's podman network and have systemd PartOf/Before
+// ordering relative to the parent.
 //
 // The function returns dependency records for persistence and a map of
 // environment variables to inject into the parent package.
 func (s *SystemControllerHandlers) installDependencies(
 	ctx context.Context,
-	parentRepoName, parentEffectiveName string,
+	parentRepoName, parentEffectiveName, parentVersion string,
 	deps map[string]packages.InputPackageDependency,
 ) (map[string]packages.DependencyRecord, map[string]string, error) {
 	if len(deps) == 0 {
@@ -90,7 +92,7 @@ func (s *SystemControllerHandlers) installDependencies(
 
 		// Recursively install sub-dependencies first (depth-first).
 		if len(depCompiled.Dependencies) > 0 {
-			subRecords, _, err := s.installDependencies(ctx, depRepo, effectiveName, depCompiled.Dependencies)
+			subRecords, _, err := s.installDependencies(ctx, depRepo, effectiveName, depVersion, depCompiled.Dependencies)
 			if err != nil {
 				return nil, nil, fmt.Errorf("dependency %q: sub-dependencies: %w", depKey, err)
 			}
@@ -126,9 +128,12 @@ func (s *SystemControllerHandlers) installDependencies(
 			return nil, nil, fmt.Errorf("dependency %q: write network state: %w", depKey, err)
 		}
 
-		// Install and start systemd units.
+		// Install and start systemd units. Dependencies share the parent's
+		// podman network and have systemd ordering (PartOf/Before parent).
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
 			cfg := s.packageUnitConfig(depRepo, effectiveName, depVersion, depIP.Description, depCompiled)
+			cfg.ParentNetwork = systemd.NetworkName(parentRepoName, parentEffectiveName, parentVersion)
+			cfg.ParentUnitName = systemd.UnitName(parentRepoName, parentEffectiveName, parentVersion)
 			units := systemd.GeneratePackageUnits(cfg)
 			if err := s.installPackageUnits(ctx, sd, units); err != nil {
 				return nil, nil, fmt.Errorf("dependency %q: install units: %w", depKey, err)
@@ -146,11 +151,16 @@ func (s *SystemControllerHandlers) installDependencies(
 			Version:       depVersion,
 		}
 
-		// Inject environment variables for the parent.
+		// Inject environment variables for the parent. Dependencies share
+		// the parent's podman network, so the host is the container name
+		// (resolvable via podman DNS) and ports use container-side values.
 		upperKey := strings.ToUpper(depKey)
-		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = "127.0.0.1"
-		for containerPort, hostPort := range depCompiled.Network.External {
-			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(hostPort), 10)
+		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = systemd.ContainerName(depRepo, effectiveName, depVersion)
+		for containerPort := range depCompiled.Network.External {
+			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
+		}
+		for containerPort := range depCompiled.Network.Internal {
+			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
 		}
 	}
 

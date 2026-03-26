@@ -103,7 +103,28 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 
 		for _, pi := range byRepoName {
 			identity := pi.String()
-			if err := reconcilePackage(ctx, cfg, pi, defQuota); err != nil {
+
+			var netInfo reconcilePackageNetworkInfo
+			if packages.IsDependency(pi.Name) {
+				// Dependency: find the parent's network to join.
+				parentName := packages.ParentName(pi.Name)
+				parentKey := repoNameKey{pi.Repo, parentName}
+				if parentPI, ok := byRepoName[parentKey]; ok {
+					netInfo.ParentNetwork = systemd.NetworkName(pi.Repo, parentName, parentPI.Version)
+					netInfo.ParentUnitName = systemd.UnitName(pi.Repo, parentName, parentPI.Version)
+				}
+			} else {
+				// Parent: collect dependency unit names for ordering.
+				deps, loadErr := cfg.Installer.LoadDependencies(pi.Repo, pi.Name)
+				if loadErr == nil && len(deps) > 0 {
+					for _, rec := range deps {
+						netInfo.DependencyUnitNames = append(netInfo.DependencyUnitNames, systemd.UnitName(rec.Repo, rec.EffectiveName, rec.Version))
+					}
+					sort.Strings(netInfo.DependencyUnitNames)
+				}
+			}
+
+			if err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo); err != nil {
 				slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
 				continue
 			}
@@ -122,12 +143,29 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	return nil
 }
 
+// reconcilePackageNetworkInfo carries shared-network and systemd ordering
+// information computed by the Reconcile loop and passed to reconcilePackage.
+type reconcilePackageNetworkInfo struct {
+	// ParentNetwork is the podman network for deps to join (empty for parents).
+	ParentNetwork string
+	// ParentUnitName is the parent systemd unit name (empty for parents).
+	ParentUnitName string
+	// DependencyUnitNames lists dep service unit names (empty for deps).
+	DependencyUnitNames []string
+}
+
 // reconcilePackage restores a single installed package: compiles it with its
 // persisted responses, ensures volumes, and installs+starts the systemd units.
-func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64) error {
+func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64, netInfo reconcilePackageNetworkInfo) error {
 	repoName := pi.Repo
 
 	ip, err := cfg.RepositoryRoot.LoadPackage(repoName, pi.Name, pi.Version)
+	if err != nil && packages.IsDependency(pi.Name) {
+		// Dependencies are installed under an effective name that differs
+		// from the source package name. Fall back to the installed directory
+		// where the YAML is stored as a hard link.
+		ip, err = cfg.RepositoryRoot.LoadInstalledPackage(repoName, pi.Name, pi.Version)
+	}
 	if err != nil {
 		return fmt.Errorf("load package: %w", err)
 	}
@@ -244,6 +282,12 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
 			unitCfg.VMImagePath = resolveVMImagePath(cfg.BtrfsBasePath, compiled.VM.Image)
 		}
+
+		// Apply shared-network and systemd ordering info.
+		unitCfg.ParentNetwork = netInfo.ParentNetwork
+		unitCfg.ParentUnitName = netInfo.ParentUnitName
+		unitCfg.DependencyUnitNames = netInfo.DependencyUnitNames
+
 		units := systemd.GeneratePackageUnits(unitCfg)
 
 		// Install all unit files.

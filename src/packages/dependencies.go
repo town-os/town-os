@@ -41,3 +41,15 @@ func DependencyName(parentName, depKey string) string {
 func IsDependency(name string) bool {
 	return strings.Contains(name, DependencySeparator)
 }
+
+// ParentName returns the immediate parent package name for a dependency.
+// For "myapp--dep--db" it returns "myapp".
+// For nested deps like "myapp--dep--db--dep--backup" it returns "myapp--dep--db".
+// For non-dependency names it returns the name unchanged.
+func ParentName(name string) string {
+	idx := strings.LastIndex(name, DependencySeparator)
+	if idx < 0 {
+		return name
+	}
+	return name[:idx]
+}

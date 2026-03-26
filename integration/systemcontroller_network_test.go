@@ -360,6 +360,71 @@ func TestReconcileNetworkController(t *testing.T) {
 	}
 }
 
+func TestSystemControllerInstallNginxNetworkLifecycle(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	var serviceContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			if name == "town-os-package--core-nginx-1.0.service" {
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				serviceContent = sc
+				break
+			}
+		}
+	}
+
+	if serviceContent == "" {
+		t.Fatal("expected InstallUnit call for town-os-package--core-nginx-1.0.service")
+	}
+
+	networkName := systemd.NetworkName("core", "nginx", "1.0")
+
+	// ExecStartPre must force-remove any stale network before creating a fresh one.
+	if !strings.Contains(serviceContent, "podman network rm -f "+networkName) {
+		t.Fatalf("service unit missing 'podman network rm -f' in ExecStartPre, got:\n%s", serviceContent)
+	}
+	if !strings.Contains(serviceContent, "podman network create "+networkName) {
+		t.Fatalf("service unit missing 'podman network create' in ExecStartPre, got:\n%s", serviceContent)
+	}
+
+	// The rm -f must appear before the create.
+	rmIdx := strings.Index(serviceContent, "podman network rm -f "+networkName)
+	createIdx := strings.Index(serviceContent, "podman network create "+networkName)
+	if rmIdx >= createIdx {
+		t.Fatalf("network rm -f must appear before network create in ExecStartPre, got:\n%s", serviceContent)
+	}
+
+	// ExecStopPost must force-remove the network.
+	stopPostIdx := strings.Index(serviceContent, "ExecStopPost=")
+	if stopPostIdx < 0 {
+		t.Fatalf("service unit missing ExecStopPost, got:\n%s", serviceContent)
+	}
+	stopPostSection := serviceContent[stopPostIdx:]
+	if !strings.Contains(stopPostSection, "podman network rm -f "+networkName) {
+		t.Fatalf("service unit missing 'podman network rm -f' in ExecStopPost, got:\n%s", serviceContent)
+	}
+}
+
 // --- Network state file integration tests ---
 
 func TestSystemControllerInstallNginxNetworkState(t *testing.T) {
@@ -512,5 +577,134 @@ func TestReconcileNginxNetworkState(t *testing.T) {
 	}
 	if !ncInstalled {
 		t.Fatal("expected network controller unit to be installed during reconcile")
+	}
+}
+
+// TestReconcileSharedNetworkForDependency verifies that during reconcile,
+// a dependency package joins its parent's podman network and gets
+// PartOf/Before systemd ordering.
+func TestReconcileSharedNetworkForDependency(t *testing.T) {
+	c, rr, inst, sd, mock := initReconcileTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install nginx as the parent and redis as a fake dependency.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// Install redis under the dependency effective name.
+	depEffName := packages.DependencyName("nginx", "cache")
+	if err := inst.Install("core", depEffName, "redis", "7.0", packages.Responses{
+		"port":      "6379",
+		"password":  "testpass",
+		"maxmemory": "100mb",
+	}); err != nil {
+		t.Fatalf("Install dep: %v", err)
+	}
+
+	// Save dependency records for nginx.
+	if err := inst.SaveDependencies("core", "nginx", map[string]packages.DependencyRecord{
+		"cache": {
+			EffectiveName: depEffName,
+			Package:       "redis",
+			Repo:          "core",
+			Version:       "7.0",
+		},
+	}); err != nil {
+		t.Fatalf("SaveDependencies: %v", err)
+	}
+
+	// Clear mock systemd calls (simulate restart).
+	sd.Calls = nil
+
+	if err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+
+	// Find the dependency's service unit content.
+	depUnitName := systemd.UnitName("core", depEffName, "7.0")
+	var depContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			if name == depUnitName {
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				depContent = sc
+				break
+			}
+		}
+	}
+	if depContent == "" {
+		t.Fatalf("expected InstallUnit call for %s", depUnitName)
+	}
+
+	parentNetwork := systemd.NetworkName("core", "nginx", "1.0")
+	parentUnit := systemd.UnitName("core", "nginx", "1.0")
+
+	// Dep must join parent's network.
+	if !strings.Contains(depContent, "--net "+parentNetwork) {
+		t.Fatalf("dependency unit missing parent network, got:\n%s", depContent)
+	}
+
+	// Dep must have PartOf and Before parent.
+	if !strings.Contains(depContent, "PartOf="+parentUnit) {
+		t.Fatalf("dependency unit missing PartOf, got:\n%s", depContent)
+	}
+	if !strings.Contains(depContent, "Before="+parentUnit) {
+		t.Fatalf("dependency unit missing Before, got:\n%s", depContent)
+	}
+
+	// Dep must NOT rm the network (parent owns it).
+	if strings.Contains(depContent, "podman network rm") {
+		t.Fatalf("dependency must not remove the shared network, got:\n%s", depContent)
+	}
+
+	// Find the parent's service unit content.
+	var parentContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			if name == parentUnit {
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				parentContent = sc
+				break
+			}
+		}
+	}
+	if parentContent == "" {
+		t.Fatalf("expected InstallUnit call for %s", parentUnit)
+	}
+
+	// Parent must have Wants and After for the dependency.
+	if !strings.Contains(parentContent, "Wants="+depUnitName) {
+		t.Fatalf("parent missing Wants for dep, got:\n%s", parentContent)
+	}
+	if !strings.Contains(parentContent, "After="+depUnitName) {
+		t.Fatalf("parent missing After for dep, got:\n%s", parentContent)
 	}
 }

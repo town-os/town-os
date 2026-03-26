@@ -632,6 +632,32 @@ The network controller manages per-package port forwarding and UPnP mappings. Ea
 - **Renewal** -- UPnP mappings are renewed every 10 minutes with a 1800-second TTL.
 - **Shutdown** -- removes all UPnP mappings and kills all socat processes on context cancellation.
 
+### Dependency Shared Networking
+
+Package dependencies share the parent package's podman network. This allows containers in the same dependency tree to communicate directly by container name (via podman's built-in DNS on the shared network) rather than through host port forwarding.
+
+- **Network ownership** -- the parent package owns the podman network (`town-os-net--{repo}-{name}-{version}`). It creates the network in `ExecStartPre` and removes it (`podman network rm -f`) in `ExecStopPost`.
+- **Dependencies join the parent network** -- dependency service units use `--net {parent-network}` instead of creating their own. They create the network idempotently in `ExecStartPre` (in case they start before the parent) but never remove it.
+- **Standalone packages** (no dependencies) follow the original pattern: `podman network rm -f` then `podman network create` in `ExecStartPre`, and `podman network rm -f` in `ExecStopPost`.
+- **Parents with dependencies** do NOT `rm -f` before `create` in `ExecStartPre` because dependencies may already be running on the network (they start first via `Before=` ordering).
+
+### Dependency Systemd Ordering
+
+Systemd units for dependencies have ordering directives that ensure correct start/stop sequencing relative to the parent:
+
+- **Dependency units**: `PartOf={parent-service}` (stopping the parent cascades to deps) and `Before={parent-service}` (dep starts before parent, stops after parent).
+- **Parent units**: `Wants={dep1} {dep2} ...` and `After={dep1} {dep2} ...` (parent wants deps and waits for them before starting).
+- **Network controller**: the existing `Wants=` for the NC is merged with dependency `Wants=` targets.
+
+This is configured via `PackageUnitConfig` fields: `ParentNetwork`, `ParentUnitName` (for dependencies), and `DependencyUnitNames` (for parents). Reconcile computes these from dependency records and `ParentName()`.
+
+### Dependency Environment Variables
+
+Parent packages receive environment variables for reaching their dependencies on the shared network:
+
+- `TOWNOS_DEP_{KEY}_HOST` -- the dependency's podman container name (resolvable via podman DNS on the shared network).
+- `TOWNOS_DEP_{KEY}_PORT_{containerPort}` -- the container-side port number (since parent and dep are on the same network, no host port mapping is needed).
+
 ## DNS Management (Rolodex)
 
 Town OS includes an integrated local DNS resolver powered by a `rolodex-dns` container. The rolodex server manages zone files and records for installed packages, providing local name resolution via a gRPC Unix socket interface.

@@ -42,11 +42,11 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if strings.Contains(svc, "-p 8080:80") {
 		t.Fatal("service should not have -p mappings (private network mode)")
 	}
+	if !strings.Contains(svc, "podman network rm -f town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service missing network rm -f in ExecStartPre, got:\n%s", svc)
+	}
 	if !strings.Contains(svc, "podman network create town-os-net--test-repo-nginx-1.0") {
 		t.Fatalf("service missing network create in ExecStartPre, got:\n%s", svc)
-	}
-	if !strings.Contains(svc, "podman network rm town-os-net--test-repo-nginx-1.0") {
-		t.Fatalf("service missing network rm in ExecStopPost, got:\n%s", svc)
 	}
 	if !strings.Contains(svc, "-e NGINX_HOST=example.com") {
 		t.Fatal("service missing environment variable")
@@ -977,5 +977,158 @@ func TestGeneratePackageUnitsProtonWithArgs(t *testing.T) {
 	}
 	if !strings.Contains(svc, "/app/settings.ini") {
 		t.Fatalf("service missing settings.ini arg, got:\n%s", svc)
+	}
+}
+
+func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
+	parentNetwork := NetworkName("core", "mattermost", "1.0")
+	parentUnit := UnitName("core", "mattermost", "1.0")
+
+	cfg := PackageUnitConfig{
+		RepoName:               "core",
+		PkgName:                "mattermost--dep--db",
+		Version:                "1.0",
+		Image:                  "docker.io/library/postgres:16",
+		External:               packages.PortMap{},
+		Internal:               packages.PortMap{5432: 5432},
+		Volumes:                map[string]packages.PackageVolume{"data": {Mountpoint: "/var/lib/postgresql/data"}},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
+		ParentNetwork:          parentNetwork,
+		ParentUnitName:         parentUnit,
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	// Must join the parent's network, not create its own.
+	if !strings.Contains(svc, "--net "+parentNetwork) {
+		t.Fatalf("dependency must use parent network, got:\n%s", svc)
+	}
+	ownNetwork := NetworkName("core", "mattermost--dep--db", "1.0")
+	if strings.Contains(svc, "--net "+ownNetwork) {
+		t.Fatalf("dependency must not use its own network, got:\n%s", svc)
+	}
+
+	// Must have PartOf and Before for systemd ordering.
+	if !strings.Contains(svc, "PartOf="+parentUnit) {
+		t.Fatalf("dependency missing PartOf, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "Before="+parentUnit) {
+		t.Fatalf("dependency missing Before, got:\n%s", svc)
+	}
+
+	// Must create the network idempotently (it starts before the parent).
+	if !strings.Contains(svc, "podman network create "+parentNetwork) {
+		t.Fatalf("dependency missing idempotent network create, got:\n%s", svc)
+	}
+
+	// Must NOT rm -f the network before create (parent might have deps on it).
+	if strings.Contains(svc, "podman network rm") {
+		t.Fatalf("dependency must not remove the shared network, got:\n%s", svc)
+	}
+}
+
+func TestGeneratePackageUnitsParentWithDeps(t *testing.T) {
+	depUnit := UnitName("core", "mattermost--dep--db", "1.0")
+
+	cfg := PackageUnitConfig{
+		RepoName:               "core",
+		PkgName:                "mattermost",
+		Version:                "1.0",
+		Image:                  "docker.io/mattermost/mattermost-team-edition:latest",
+		External:               packages.PortMap{8065: 8065},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
+		DependencyUnitNames:    []string{depUnit},
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	// Parent must have Wants and After for the dependency.
+	if !strings.Contains(svc, "Wants="+depUnit) {
+		t.Fatalf("parent missing Wants for dependency, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "After="+depUnit) {
+		t.Fatalf("parent missing After for dependency, got:\n%s", svc)
+	}
+
+	// Parent must NOT have PartOf or Before (those are for deps).
+	if strings.Contains(svc, "PartOf=") {
+		t.Fatalf("parent must not have PartOf, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "Before=") {
+		t.Fatalf("parent must not have Before, got:\n%s", svc)
+	}
+
+	// Parent with deps must NOT rm -f before create (deps may be running).
+	ownNetwork := NetworkName("core", "mattermost", "1.0")
+	rmIdx := strings.Index(svc, "podman network rm -f "+ownNetwork)
+	createIdx := strings.Index(svc, "podman network create "+ownNetwork)
+	if rmIdx >= 0 && rmIdx < createIdx {
+		t.Fatalf("parent with deps must not rm -f before create, got:\n%s", svc)
+	}
+
+	// Parent must create the network.
+	if !strings.Contains(svc, "podman network create "+ownNetwork) {
+		t.Fatalf("parent missing network create, got:\n%s", svc)
+	}
+
+	// Parent must rm -f network in ExecStopPost (it owns the network).
+	stopIdx := strings.Index(svc, "ExecStopPost=")
+	if stopIdx < 0 {
+		t.Fatalf("parent missing ExecStopPost, got:\n%s", svc)
+	}
+	if !strings.Contains(svc[stopIdx:], "podman network rm -f "+ownNetwork) {
+		t.Fatalf("parent missing network rm -f in ExecStopPost, got:\n%s", svc)
+	}
+}
+
+func TestGeneratePackageUnitsStandaloneNetworkCleanup(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:               "core",
+		PkgName:                "nginx",
+		Version:                "1.0",
+		Image:                  "docker.io/library/nginx:1.0",
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	networkName := NetworkName("core", "nginx", "1.0")
+
+	// Standalone package: rm -f before create is allowed (no deps to disconnect).
+	if !strings.Contains(svc, "podman network rm -f "+networkName) {
+		t.Fatalf("standalone package missing rm -f, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "podman network create "+networkName) {
+		t.Fatalf("standalone package missing network create, got:\n%s", svc)
+	}
+
+	// rm -f must appear before create in ExecStartPre.
+	rmIdx := strings.Index(svc, "podman network rm -f "+networkName)
+	createIdx := strings.Index(svc, "podman network create "+networkName)
+	if rmIdx >= createIdx {
+		t.Fatalf("rm -f must appear before create for standalone, got:\n%s", svc)
+	}
+
+	// Must also rm -f in ExecStopPost.
+	stopIdx := strings.Index(svc, "ExecStopPost=")
+	if stopIdx < 0 {
+		t.Fatalf("standalone missing ExecStopPost, got:\n%s", svc)
+	}
+	if !strings.Contains(svc[stopIdx:], "podman network rm -f "+networkName) {
+		t.Fatalf("standalone missing network rm -f in ExecStopPost, got:\n%s", svc)
 	}
 }

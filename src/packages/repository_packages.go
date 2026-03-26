@@ -123,6 +123,31 @@ func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ Inpu
 	return ip, nil
 }
 
+// LoadInstalledPackage loads a single InputPackage from the installed directory
+// by name and version. This is needed for dependency packages whose effective
+// name differs from the source package name in the repository. The installed
+// YAML is a hard link to the repo source file.
+func (rr *RepositoryRoot) LoadInstalledPackage(repoName, pkgName, version string) (_ InputPackage, err error) {
+	fn, err := SafePath(rr.BaseDir, InstalledDir, repoName, pkgName, version+".yaml")
+	if err != nil {
+		return InputPackage{}, err
+	}
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
+	if err != nil {
+		return InputPackage{}, fmt.Errorf("installed package %s@%s not found: %w", pkgName, version, err)
+	}
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
+
+	var ip InputPackage
+	if err := yaml.NewDecoder(f).Decode(&ip); err != nil {
+		return InputPackage{}, fmt.Errorf("decoding installed %s@%s: %w", pkgName, version, err)
+	}
+
+	return ip, nil
+}
+
 // CompareVersions compares two dot-separated version strings.
 // Each segment is compared numerically when both are valid integers,
 // otherwise lexicographically. Returns -1, 0, or 1.

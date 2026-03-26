@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"sort"
 	"strconv"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -308,7 +309,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	// Install dependencies before the parent package.
 	if len(compiled.Dependencies) > 0 {
-		depRecords, depEnvVars, err := s.installDependencies(ctx, repoName, effectiveName, compiled.Dependencies)
+		depRecords, depEnvVars, err := s.installDependencies(ctx, repoName, effectiveName, req.Version, compiled.Dependencies)
 		if err != nil {
 			return fmt.Errorf("install dependencies: %w", err)
 		}
@@ -365,6 +366,16 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, ip.Description, compiled)
+
+		// Set dependency unit names on the parent so systemd orders them.
+		depRecordsForUnits, err := inst.LoadDependencies(repoName, effectiveName)
+		if err == nil && len(depRecordsForUnits) > 0 {
+			for _, rec := range depRecordsForUnits {
+				cfg.DependencyUnitNames = append(cfg.DependencyUnitNames, systemd.UnitName(rec.Repo, rec.EffectiveName, rec.Version))
+			}
+			sort.Strings(cfg.DependencyUnitNames)
+		}
+
 		units := systemd.GeneratePackageUnits(cfg)
 		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, compiled); err != nil {
 			return err

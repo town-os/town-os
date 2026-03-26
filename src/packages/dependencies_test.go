@@ -21,6 +21,26 @@ func TestDependencyName(t *testing.T) {
 	}
 }
 
+func TestParentName(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"myapp", "myapp"},
+		{"myapp-db", "myapp-db"},
+		{"myapp--dep--db", "myapp"},
+		{"myapp--dep--db--dep--backup", "myapp--dep--db"},
+		{"a--dep--b--dep--c--dep--d", "a--dep--b--dep--c"},
+	}
+
+	for _, tt := range tests {
+		got := ParentName(tt.name)
+		if got != tt.want {
+			t.Errorf("ParentName(%q) = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestIsDependency(t *testing.T) {
 	tests := []struct {
 		name string

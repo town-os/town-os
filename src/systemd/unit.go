@@ -31,6 +31,21 @@ type PackageUnitConfig struct {
 	Runtime                  packages.RuntimeType
 	VM                       *packages.PackageVM
 	VMImagePath              string // resolved path to the raw VM disk image
+
+	// ParentNetwork is the podman network name to join (for dependencies).
+	// When set, the dependency joins this network instead of creating its own.
+	// The dependency creates the network idempotently (in case it starts
+	// before the parent) but does not remove it on stop.
+	ParentNetwork string
+
+	// ParentUnitName is the systemd unit name of the parent package service.
+	// When set, adds PartOf= and Before= directives for dependency ordering.
+	ParentUnitName string
+
+	// DependencyUnitNames lists systemd unit names of direct dependency
+	// services. When set, adds Wants= and After= directives on the parent
+	// unit so dependencies start before the parent and stop after it.
+	DependencyUnitNames []string
 }
 
 // UnitFile represents a single systemd unit file with its name and content.
@@ -140,10 +155,28 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	} else {
 		fmt.Fprintf(&b, "Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version)
 	}
-	if needsNetworkController {
-		fmt.Fprintf(&b, "Wants=%s\n", NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version))
+
+	// Dependency ordering: deps get PartOf+Before parent; parent gets Wants+After deps.
+	if cfg.ParentUnitName != "" {
+		fmt.Fprintf(&b, "PartOf=%s\n", cfg.ParentUnitName)
+		fmt.Fprintf(&b, "Before=%s\n", cfg.ParentUnitName)
 	}
-	b.WriteString("After=network-online.target\n")
+
+	// Collect all Wants and After targets.
+	var wants, after []string
+	for _, dep := range cfg.DependencyUnitNames {
+		wants = append(wants, dep)
+		after = append(after, dep)
+	}
+	if needsNetworkController {
+		wants = append(wants, NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version))
+	}
+	if len(wants) > 0 {
+		fmt.Fprintf(&b, "Wants=%s\n", strings.Join(wants, " "))
+	}
+
+	after = append(after, "network-online.target")
+	fmt.Fprintf(&b, "After=%s\n", strings.Join(after, " "))
 
 	// [Service]
 	b.WriteString("\n[Service]\n")
@@ -186,11 +219,24 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		}
 	}
 
-	// Create the per-package private podman network (idempotent).
+	// Determine network name: dependencies join the parent's network,
+	// standalone packages use their own.
 	networkName := NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	isDep := cfg.ParentNetwork != ""
+	if isDep {
+		networkName = cfg.ParentNetwork
+	}
+	hasDeps := len(cfg.DependencyUnitNames) > 0
+
+	if !isDep && !hasDeps {
+		// Standalone package: remove stale network then create fresh.
+		fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network rm -f %s\n", networkName)
+	}
+	// Idempotent create — deps and parents both create the network so the
+	// first unit to start (deps, via Before=) brings it into existence.
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
 
-	// ExecStart: podman run on the private network (no -p, no --net host).
+	// ExecStart: podman run on the shared/private network.
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)
 	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
 
@@ -242,8 +288,11 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, "ExecStopPost=-/bin/systemctl start %s\n", strings.Join(socketNames, " "))
 	}
 
-	// Clean up the private podman network after the container stops.
-	fmt.Fprintf(&b, "ExecStopPost=-/usr/bin/podman network rm %s\n", NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version))
+	// Clean up the podman network after the container stops.
+	// Dependencies do not remove the shared network — the parent owns it.
+	if !isDep {
+		fmt.Fprintf(&b, "ExecStopPost=-/usr/bin/podman network rm -f %s\n", networkName)
+	}
 
 	b.WriteString("Restart=on-failure\n")
 
