@@ -193,7 +193,7 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 	// Schedule systemcontroller restart in a goroutine with 1s delay.
 	go func() {
 		time.Sleep(1 * time.Second)
-		_ = sd.SetStatus(context.Background(), "town-os-systemcontroller.service", systemd.Restart)
+		_ = sd.SetStatus(s.ctx, "town-os-systemcontroller.service", systemd.Restart)
 	}()
 
 	if len(pullErrors) > 0 {
