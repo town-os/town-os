@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"gitea.com/town-os/town-os/src/systemd"
@@ -143,13 +144,27 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 		images = append(images, svc.Image)
 	}
 
-	// Pull all images, collecting errors but continuing.
-	var pullErrors []string
+	// Pull all images in parallel (max 3 concurrent), collecting errors.
+	var (
+		pullMu     sync.Mutex
+		pullErrors []string
+		wg         sync.WaitGroup
+		sem        = make(chan struct{}, 3)
+	)
 	for _, img := range images {
-		if err := pullImage(ctx, img); err != nil {
-			pullErrors = append(pullErrors, err.Error())
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := pullImage(ctx, img); err != nil {
+				pullMu.Lock()
+				pullErrors = append(pullErrors, err.Error())
+				pullMu.Unlock()
+			}
+		}()
 	}
+	wg.Wait()
 
 	sd := s.Controller.GetSystemdManager()
 	if sd == nil {

@@ -319,3 +319,22 @@ func TestConvert(t *testing.T) {
 		}
 	})
 }
+
+func BenchmarkApplyTemplate(b *testing.B) {
+	input := "prefix @var1@ middle @var2@ suffix @var1@ end"
+	for b.Loop() {
+		applyTemplate(input, "var1", "replacement_value")
+	}
+}
+
+func BenchmarkApplyTemplates(b *testing.B) {
+	input := "ssh://git@@domain@:@sshport@/repo @extra@ path"
+	responses := Responses{
+		"domain":  "example.com",
+		"sshport": "2222",
+		"extra":   "value",
+	}
+	for b.Loop() {
+		applyTemplates(input, responses)
+	}
+}

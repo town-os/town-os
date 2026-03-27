@@ -9,6 +9,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - **Concurrent safety** — `make test-full` must always be able to run simultaneously in the same repository without conflicting. Nothing else matters more than this.
 
+- context.TODO and context.Background should not be used in golang programs. where possible, please use timeout and cancel contexts to ensure nothing is waiting on a context forever.
+
 - Add tests for everything you do.
 
 - **`--replace` on all `podman run --name`** — no exceptions, anywhere in the repo.
@@ -49,6 +51,26 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
 - **Network controller image is built locally** — the NC container image (`town-os-networkcontroller:local`) is built by the system controller at startup via `podman build`, not pulled from a registry. The `alpine:latest` base image is pulled via `ensureImage` if not already loaded. Test and dev containers must have `alpine:latest` pre-loaded and `/town-os-networkcontroller` available for the build. The build is non-fatal; if the network is unavailable at boot, the system controller starts without per-package networking and the image is built on the next restart.
+
+## Performance Conventions
+
+- **Use `strings.Builder` for string construction** — never build strings character-by-character with `string(append([]byte(s), c))`. Use `strings.Builder` with `WriteByte`/`WriteString` for O(n) instead of O(n²) allocations. See `src/packages/packages_compile.go` (`applyTemplate`, `applyTemplates`).
+
+- **Pre-allocate slices when size is known** — use `make([]T, 0, capacity)` when the result size or an upper bound is known (e.g., `limit` from pagination). Avoid `var items []T` followed by unbounded `append` in hot paths.
+
+- **Single-query pagination with `COUNT(*) OVER()`** — paginated list endpoints must use the SQLite window function `COUNT(*) OVER()` in the SELECT column list instead of running a separate `COUNT(*)` query. Scan the total alongside each row.
+
+- **Index columns used in WHERE clauses** — every SQLite column used in a `WHERE` filter (especially `created_at`, `success`, `account`) must have an appropriate index. Composite indexes should match common filter combinations (e.g., `(success, created_at)` for `CountRecentErrors`).
+
+- **Cache expensive repeated lookups** — `RepositoryRoot.LoadPackages()` results are cached in a `sync.Map` per repo name, invalidated on `ForceRefresh()`. Callers must use `cachedLoadPackages()` instead of `LoadPackages()` directly. Similarly, `GetInternalIP()` caches the result in an `atomic.Value` instead of calling `net.InterfaceAddrs()` per request.
+
+- **Direct lookups over full scans** — use `GetInstalledVersion(repo, name)` (reads `installed/<repo>/<name>/` directly) instead of `ListInstalled()` + linear search when checking a single package.
+
+- **Parallel I/O for independent operations** — container image pulls in `refreshSystemServices` use goroutines with a semaphore (max 3 concurrent) instead of a sequential loop. Use `sync.WaitGroup` + channel semaphore; do not add `errgroup` dependency.
+
+- **Server-scoped context for background goroutines** — background goroutines (pages git clone, image extraction) must use the server-scoped context (`s.ctx`) instead of `context.Background()` so they respect graceful shutdown. They must NOT use the HTTP request context (the operation must outlive the request).
+
+- **Batch dependency loading in reconcile** — dependency records for all packages are pre-loaded into a map before the reconcile loop, not loaded per-package inside the loop.
 
 # Town OS Functional Specification
 

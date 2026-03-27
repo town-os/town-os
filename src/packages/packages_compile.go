@@ -9,8 +9,7 @@ import (
 
 func applyTemplate(input string, v string, repl string) string {
 	var inside bool
-	tv := ""
-	out := ""
+	var tv, out strings.Builder
 
 	for x := range len(input) {
 		switch {
@@ -18,28 +17,31 @@ func applyTemplate(input string, v string, repl string) string {
 			if inside {
 				inside = false
 
-				if tv == v {
-					out += repl
+				if tv.String() == v {
+					out.WriteString(repl)
 				} else {
-					out += fmt.Sprintf("%c%s%c", TemplateChar, tv, TemplateChar)
+					out.WriteByte(TemplateChar)
+					out.WriteString(tv.String())
+					out.WriteByte(TemplateChar)
 				}
 
-				tv = ""
+				tv.Reset()
 			} else {
 				inside = true
 			}
 		case inside:
-			tv = string(append([]byte(tv), input[x]))
+			tv.WriteByte(input[x])
 		default:
-			out = string(append([]byte(out), input[x]))
+			out.WriteByte(input[x])
 		}
 	}
 
 	if inside {
-		out += fmt.Sprintf("%c%s", TemplateChar, tv)
+		out.WriteByte(TemplateChar)
+		out.WriteString(tv.String())
 	}
 
-	return out
+	return out.String()
 }
 
 // applyTemplates resolves all template variables in a single pass, avoiding
@@ -48,44 +50,47 @@ func applyTemplate(input string, v string, repl string) string {
 // variable (e.g. "git@@domain@" → "git@" + template "domain").
 func applyTemplates(input string, responses Responses) string {
 	var inside bool
-	tv := ""
-	out := ""
+	var tv, out strings.Builder
 
 	for x := range len(input) {
 		switch {
 		case input[x] == TemplateChar:
 			if inside {
-				if tv == "" {
+				if tv.Len() == 0 {
 					// Consecutive @@ — emit a literal @ and stay
 					// inside so the next characters form the real
 					// variable name (e.g. "git@@domain@" → "git@" + @domain@).
-					out += string(TemplateChar)
+					out.WriteByte(TemplateChar)
 				} else {
 					inside = false
 
-					if repl, ok := responses[tv]; ok {
-						out += repl
+					tvStr := tv.String()
+					if repl, ok := responses[tvStr]; ok {
+						out.WriteString(repl)
 					} else {
-						out += fmt.Sprintf("%c%s%c", TemplateChar, tv, TemplateChar)
+						out.WriteByte(TemplateChar)
+						out.WriteString(tvStr)
+						out.WriteByte(TemplateChar)
 					}
 
-					tv = ""
+					tv.Reset()
 				}
 			} else {
 				inside = true
 			}
 		case inside:
-			tv = string(append([]byte(tv), input[x]))
+			tv.WriteByte(input[x])
 		default:
-			out = string(append([]byte(out), input[x]))
+			out.WriteByte(input[x])
 		}
 	}
 
 	if inside {
-		out += fmt.Sprintf("%c%s", TemplateChar, tv)
+		out.WriteByte(TemplateChar)
+		out.WriteString(tv.String())
 	}
 
-	return out
+	return out.String()
 }
 
 func (i *InputPackage) iterateFields(iv, response string) {

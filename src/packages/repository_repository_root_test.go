@@ -493,3 +493,87 @@ func TestForceRefreshContinuesOnSaveTimestampError(t *testing.T) {
 		t.Fatal("expected LastRefreshed to be set even when save fails")
 	}
 }
+
+func TestCachedLoadPackagesReturnsCachedResult(t *testing.T) {
+	dir := t.TempDir()
+	repoDir := filepath.Join(dir, "myrepo", PackagesDir, "nginx")
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	rr := &RepositoryRoot{
+		BaseDir: dir,
+		Items:   []Repository{{Name: "myrepo"}},
+	}
+
+	// First call should load from disk.
+	pkgs1, err := rr.cachedLoadPackages(&rr.Items[0])
+	if err != nil {
+		t.Fatalf("first cachedLoadPackages: %v", err)
+	}
+	if _, ok := pkgs1["nginx"]; !ok {
+		t.Fatal("expected nginx package in first load")
+	}
+
+	// Remove the YAML file — second call should still return cached result.
+	if err := os.Remove(filepath.Join(repoDir, "1.0.yaml")); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	pkgs2, err := rr.cachedLoadPackages(&rr.Items[0])
+	if err != nil {
+		t.Fatalf("second cachedLoadPackages: %v", err)
+	}
+	if _, ok := pkgs2["nginx"]; !ok {
+		t.Fatal("expected nginx package from cache after file removal")
+	}
+}
+
+func TestInvalidatePackageCacheForcesReload(t *testing.T) {
+	dir := t.TempDir()
+	repoDir := filepath.Join(dir, "myrepo", PackagesDir, "nginx")
+	if err := os.MkdirAll(repoDir, 0750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "1.0.yaml"), []byte("image: nginx:1.0\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	rr := &RepositoryRoot{
+		BaseDir: dir,
+		Items:   []Repository{{Name: "myrepo"}},
+	}
+
+	// Populate cache.
+	if _, err := rr.cachedLoadPackages(&rr.Items[0]); err != nil {
+		t.Fatalf("cachedLoadPackages: %v", err)
+	}
+
+	// Add a new package version.
+	if err := os.WriteFile(filepath.Join(repoDir, "2.0.yaml"), []byte("image: nginx:2.0\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Without invalidation, cache should not see new version.
+	pkgs, err := rr.cachedLoadPackages(&rr.Items[0])
+	if err != nil {
+		t.Fatalf("cachedLoadPackages: %v", err)
+	}
+	if _, ok := pkgs["nginx"]["2.0"]; ok {
+		t.Fatal("cache should not contain 2.0 before invalidation")
+	}
+
+	// After invalidation, new version should appear.
+	rr.InvalidatePackageCache()
+
+	pkgs, err = rr.cachedLoadPackages(&rr.Items[0])
+	if err != nil {
+		t.Fatalf("cachedLoadPackages after invalidate: %v", err)
+	}
+	if _, ok := pkgs["nginx"]["2.0"]; !ok {
+		t.Fatal("expected nginx 2.0 after cache invalidation")
+	}
+}

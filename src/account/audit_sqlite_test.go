@@ -4,6 +4,7 @@
 package account
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,57 @@ func TestSQLiteAuditManagerImplementsAuditManager(t *testing.T) {
 }
 
 // --- Helpers ---
+
+func TestAuditIndexesExist(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	if _, err := InitAuditManager(db); err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
+	rows, err := db.QueryContext(context.Background(), `PRAGMA index_list('audit_log')`)
+	if err != nil {
+		t.Fatalf("PRAGMA index_list: %v", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Errorf("rows.Close: %v", err)
+		}
+	}()
+
+	indexes := map[string]bool{}
+	for rows.Next() {
+		var seq int
+		var name, origin string
+		var unique, partial int
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		indexes[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
+	}
+
+	for _, idx := range []string{
+		"idx_audit_created",
+		"idx_audit_account",
+		"idx_audit_created_at",
+		"idx_audit_success_created",
+	} {
+		if !indexes[idx] {
+			t.Errorf("expected index %q to exist, found indexes: %v", idx, indexes)
+		}
+	}
+}
 
 func initTestAuditDB(t *testing.T) *SQLiteAuditManager {
 	t.Helper()

@@ -62,6 +62,16 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 		return nil, fmt.Errorf("create idx_audit_account: %w", err)
 	}
 
+	_, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at)`)
+	if err != nil {
+		return nil, fmt.Errorf("create idx_audit_created_at: %w", err)
+	}
+
+	_, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_success_created ON audit_log(success, created_at)`)
+	if err != nil {
+		return nil, fmt.Errorf("create idx_audit_success_created: %w", err)
+	}
+
 	return &SQLiteAuditManager{db: db}, nil
 }
 
@@ -88,7 +98,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 
 	var args []any
 	var qb strings.Builder
-	qb.WriteString("SELECT id, account, action, path, detail, success, error, created_at FROM audit_log")
+	qb.WriteString("SELECT id, account, action, path, detail, success, error, created_at, COUNT(*) OVER() FROM audit_log")
 
 	var where []string
 	if opts.BeforeID > 0 {
@@ -135,13 +145,13 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		err = errors.Join(err, rows.Close())
 	}()
 
-	var entries []AuditEntry
+	entries := make([]AuditEntry, 0, limit)
+	var total int
 	for rows.Next() {
 		var e AuditEntry
 		var createdStr string
 
-		err := rows.Scan(&e.ID, &e.Account, &e.Action, &e.Path, &e.Detail, &e.Success, &e.Error, &createdStr)
-		if err != nil {
+		if err := rows.Scan(&e.ID, &e.Account, &e.Action, &e.Path, &e.Detail, &e.Success, &e.Error, &createdStr, &total); err != nil {
 			return nil, fmt.Errorf("scan audit entry: %w", err)
 		}
 
@@ -153,36 +163,13 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 		entries = append(entries, e)
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows iteration: %w", err)
 	}
 
 	hasMore := len(entries) > limit
 	if hasMore {
 		entries = entries[:limit]
-	}
-
-	countQuery := "SELECT COUNT(*) FROM audit_log"
-	var countWhere []string
-	var countArgs []any
-	if opts.Account != "" {
-		countWhere = append(countWhere, "account = ?")
-		countArgs = append(countArgs, opts.Account)
-	}
-	if opts.Search != "" {
-		pattern := fmt.Sprintf("%%%s%%", opts.Search)
-		countWhere = append(countWhere, "(account LIKE ? OR action LIKE ? OR path LIKE ? OR detail LIKE ?)")
-		countArgs = append(countArgs, pattern, pattern, pattern, pattern)
-	}
-	if len(countWhere) > 0 {
-		countQuery += " WHERE " + strings.Join(countWhere, " AND ")
-	}
-
-	var total int
-	err = m.db.QueryRowContext(context.Background(), countQuery, countArgs...).Scan(&total)
-	if err != nil {
-		return nil, fmt.Errorf("count audit entries: %w", err)
 	}
 
 	totalPages := (total + limit - 1) / limit

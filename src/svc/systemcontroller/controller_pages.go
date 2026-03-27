@@ -95,7 +95,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
 		if gitClient != nil && btrfsBase != "" {
 			go func() {
-				cloneErr := gitClient.Clone(context.Background(), pagesDir, req.RepoURL, req.Name)
+				cloneErr := gitClient.Clone(s.ctx, pagesDir, req.RepoURL, req.Name)
 
 				status := "active"
 				if cloneErr != nil {
@@ -113,7 +113,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		if subvolPath != "" {
 			extractFn := s.Controller.GetImageExtractFunc()
 			go func() {
-				extractErr := extractFn(context.Background(), req.Image, req.ImageDirectory, subvolPath)
+				extractErr := extractFn(s.ctx, req.Image, req.ImageDirectory, subvolPath)
 
 				status := "active"
 				if extractErr != nil {

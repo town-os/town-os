@@ -127,6 +127,19 @@ func (m *MockInstallManager) ListInstalled() ([]string, error) {
 	return out, nil
 }
 
+func (m *MockInstallManager) GetInstalledVersion(repoName, pkgName string) (string, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "GetInstalledVersion", Args: []any{repoName, pkgName}})
+
+	for _, p := range m.Installed {
+		if p.Repo == repoName && p.Name == pkgName {
+			return p.Version, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func (m *MockInstallManager) GetResponses(repoName, pkgName, version string) (Responses, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

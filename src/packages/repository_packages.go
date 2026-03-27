@@ -79,11 +79,25 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 	return pkgs, nil
 }
 
+// cachedLoadPackages returns the package table for a repository, using a
+// cached copy if available. The cache is invalidated on repository refresh.
+func (rr *RepositoryRoot) cachedLoadPackages(repo *Repository) (PackageTable, error) {
+	if cached, ok := rr.pkgCache.Load(repo.Name); ok {
+		return cached.(PackageTable), nil
+	}
+	pkgs, err := repo.LoadPackages(rr.BaseDir)
+	if err != nil {
+		return nil, err
+	}
+	rr.pkgCache.Store(repo.Name, pkgs)
+	return pkgs, nil
+}
+
 func (rr *RepositoryRoot) LoadAllPackages() (PackageTable, error) {
 	all := PackageTable{}
 
 	for _, repo := range rr.Items {
-		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		pkgs, err := rr.cachedLoadPackages(&repo)
 		if err != nil {
 			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
@@ -195,7 +209,7 @@ func (rr *RepositoryRoot) ListPackageVersions(name string) ([]string, error) {
 	seen := map[string]bool{}
 
 	for _, repo := range rr.Items {
-		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		pkgs, err := rr.cachedLoadPackages(&repo)
 		if err != nil {
 			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
@@ -233,7 +247,7 @@ func (rr *RepositoryRoot) LatestPackage(name string) (InputPackage, string, erro
 	found := false
 
 	for _, repo := range rr.Items {
-		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		pkgs, err := rr.cachedLoadPackages(&repo)
 		if err != nil {
 			return InputPackage{}, "", fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
@@ -272,7 +286,7 @@ func (rr *RepositoryRoot) GetPackageQuestions(name string) (map[string]Question,
 // one listed first wins.
 func (rr *RepositoryRoot) FindRepoForPackage(name, version string) (string, error) {
 	for _, repo := range rr.Items {
-		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		pkgs, err := rr.cachedLoadPackages(&repo)
 		if err != nil {
 			return "", fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
@@ -302,7 +316,7 @@ func (rr *RepositoryRoot) ListPackages() ([]string, error) {
 	best := map[string]bestEntry{}
 
 	for _, repo := range rr.Items {
-		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		pkgs, err := rr.cachedLoadPackages(&repo)
 		if err != nil {
 			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}
@@ -371,7 +385,7 @@ func (rr *RepositoryRoot) ListPackagesByRepo() ([]RepoPackageGroup, error) {
 	// Iterate in reverse so highest-precedence repo comes first.
 	for i := len(rr.Items) - 1; i >= 0; i-- {
 		repo := rr.Items[i]
-		pkgs, err := repo.LoadPackages(rr.BaseDir)
+		pkgs, err := rr.cachedLoadPackages(&repo)
 		if err != nil {
 			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
 		}

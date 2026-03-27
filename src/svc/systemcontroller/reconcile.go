@@ -101,6 +101,19 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 
 		defQuota := reconcileDefaultQuota(cfg.SettingsMgr)
 
+		// Batch-load all dependency records upfront so the per-package
+		// loop does not issue N separate I/O calls.
+		allDeps := map[repoNameKey]map[string]packages.DependencyRecord{}
+		for _, pi := range byRepoName {
+			if packages.IsDependency(pi.Name) {
+				continue
+			}
+			deps, loadErr := cfg.Installer.LoadDependencies(pi.Repo, pi.Name)
+			if loadErr == nil && len(deps) > 0 {
+				allDeps[repoNameKey{pi.Repo, pi.Name}] = deps
+			}
+		}
+
 		for _, pi := range byRepoName {
 			identity := pi.String()
 
@@ -114,15 +127,12 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 					netInfo.ParentUnitName = systemd.UnitName(pi.Repo, parentName, parentPI.Version)
 					netInfo.ParentNCUnitName = systemd.NetworkControllerUnitName(pi.Repo, parentName, parentPI.Version)
 				}
-			} else {
+			} else if deps := allDeps[repoNameKey{pi.Repo, pi.Name}]; len(deps) > 0 {
 				// Parent: collect dependency unit names for ordering.
-				deps, loadErr := cfg.Installer.LoadDependencies(pi.Repo, pi.Name)
-				if loadErr == nil && len(deps) > 0 {
-					for _, rec := range deps {
-						netInfo.DependencyUnitNames = append(netInfo.DependencyUnitNames, systemd.UnitName(rec.Repo, rec.EffectiveName, rec.Version))
-					}
-					sort.Strings(netInfo.DependencyUnitNames)
+				for _, rec := range deps {
+					netInfo.DependencyUnitNames = append(netInfo.DependencyUnitNames, systemd.UnitName(rec.Repo, rec.EffectiveName, rec.Version))
 				}
+				sort.Strings(netInfo.DependencyUnitNames)
 			}
 
 			if err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo); err != nil {

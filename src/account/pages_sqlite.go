@@ -234,7 +234,7 @@ func (m *SQLitePagesManager) List() (_ []PageSite, err error) {
 		err = errors.Join(err, rows.Close())
 	}()
 
-	var out []PageSite
+	out := make([]PageSite, 0, 64)
 	for rows.Next() {
 		var page PageSite
 		var createdStr, updatedStr string

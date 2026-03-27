@@ -30,6 +30,7 @@ type serverBase struct {
 	ServerConfig
 
 	externalIP atomic.Value // stores string
+	internalIP atomic.Value // stores string
 }
 
 func (s *serverBase) GetStorage() storage.Storage                 { return s.Storage }
@@ -94,16 +95,31 @@ func (s *serverBase) GetExternalIP() string {
 }
 
 func (s *serverBase) GetInternalIP() string {
+	v := s.internalIP.Load()
+	if v == nil {
+		s.RefreshInternalIP()
+		v = s.internalIP.Load()
+		if v == nil {
+			return ""
+		}
+	}
+	ip, _ := v.(string)
+	return ip
+}
+
+// RefreshInternalIP updates the cached internal IP address by querying
+// the system's network interfaces.
+func (s *serverBase) RefreshInternalIP() {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return ""
+		return
 	}
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			return ipnet.IP.String()
+			s.internalIP.Store(ipnet.IP.String())
+			return
 		}
 	}
-	return ""
 }
 
 func (s *serverBase) fetchExternalIP(ctx context.Context) {
@@ -175,8 +191,8 @@ func parseLogLevel() slog.Level {
 	}
 }
 
-func configureRouter(sc systemControllerBackend) http.Handler {
-	handlers := getHandler(sc)
+func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handler {
+	handlers := getHandler(ctx, sc)
 	e := echo.New()
 	e.HTTPErrorHandler = ProblemDetailHTTPErrorHandler()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel()}))
@@ -242,7 +258,7 @@ func NewHandler(ctx context.Context, cfg ServerConfig) http.Handler {
 	}
 	sb := &serverBase{ServerConfig: cfg}
 	sb.startExternalIPPoller(ctx)
-	return configureRouter(sb)
+	return configureRouter(ctx, sb)
 }
 
 // --- TestServer ---
@@ -259,7 +275,7 @@ func InitTestServer(cfg ServerConfig) *TestServer {
 	ts.ServerConfig = cfg
 	ctx, cancel := context.WithCancel(context.Background())
 	ts.cancel = cancel
-	ts.Server = httptest.NewServer(withContext(ctx, configureRouter(ts)))
+	ts.Server = httptest.NewServer(withContext(ctx, configureRouter(ctx, ts)))
 	return ts
 }
 
@@ -310,7 +326,7 @@ func (us *UnixServer) Close() error {
 func (us *UnixServer) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	us.cancel = cancel
-	us.server = &http.Server{Handler: withContext(ctx, configureRouter(us)), ReadHeaderTimeout: 10 * time.Second}
+	us.server = &http.Server{Handler: withContext(ctx, configureRouter(ctx, us)), ReadHeaderTimeout: 10 * time.Second}
 	us.startExternalIPPoller(ctx)
 	lc := net.ListenConfig{}
 	lis, err := lc.Listen(ctx, "unix", us.Socket)

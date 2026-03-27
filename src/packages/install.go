@@ -24,6 +24,7 @@ type Installer interface {
 	Install(repoName, pkgName, sourcePkgName, version string, responses Responses) error
 	Uninstall(repoName, pkgName, version string) error
 	ListInstalled() ([]string, error)
+	GetInstalledVersion(repoName, pkgName string) (string, bool, error)
 	GetResponses(repoName, pkgName, version string) (Responses, error)
 	SetDisabled(repoName, pkgName string, disabled bool) error
 	IsDisabled(repoName, pkgName string) (bool, error)
@@ -191,6 +192,29 @@ func (m *InstallManager) Uninstall(repoName, pkgName, version string) error {
 	}
 
 	return nil
+}
+
+// GetInstalledVersion returns the installed version for a package by repo and
+// name. It reads the installed/<repo>/<name>/ directory directly rather than
+// scanning all installed packages. Returns ("", false, nil) when not installed.
+func (m *InstallManager) GetInstalledVersion(repoName, pkgName string) (string, bool, error) {
+	nameDir := filepath.Join(m.dir(), repoName, pkgName)
+	entries, err := os.ReadDir(nameDir)
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+
+	for _, entry := range entries {
+		fn := entry.Name()
+		if !strings.HasSuffix(fn, ".yaml") {
+			continue
+		}
+		return strings.TrimSuffix(fn, ".yaml"), true, nil
+	}
+	return "", false, nil
 }
 
 // ListInstalled returns all installed packages independently of the

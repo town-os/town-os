@@ -207,20 +207,14 @@ func (s *SystemControllerHandlers) protonImage() string {
 // findActiveVersion returns the currently installed version for a package,
 // or "" if not installed.
 func findActiveVersion(inst packages.Installer, repoName, effectiveName string) (string, error) {
-	installed, err := inst.ListInstalled()
+	version, found, err := inst.GetInstalledVersion(repoName, effectiveName)
 	if err != nil {
 		return "", err
 	}
-	for _, pkg := range installed {
-		pi, err := packages.ParsePackageIdentity(pkg)
-		if err != nil {
-			continue
-		}
-		if pi.Repo == repoName && pi.Name == effectiveName {
-			return pi.Version, nil
-		}
+	if !found {
+		return "", nil
 	}
-	return "", nil
+	return version, nil
 }
 
 func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
@@ -504,22 +498,10 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 			return nil
 		}
 	} else if st := s.Controller.GetStorage(); st != nil {
-		installed, err := inst.ListInstalled()
+		_, otherVersionInstalled, err := inst.GetInstalledVersion(req.Repo, effectiveName)
 		if err != nil {
 			pw.Err(err)
 			return nil
-		}
-
-		otherVersionInstalled := false
-		for _, pkg := range installed {
-			pi, err := packages.ParsePackageIdentity(pkg)
-			if err != nil {
-				continue
-			}
-			if pi.Repo == req.Repo && pi.Name == effectiveName {
-				otherVersionInstalled = true
-				break
-			}
 		}
 
 		if !otherVersionInstalled {

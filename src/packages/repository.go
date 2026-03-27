@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"gitea.com/town-os/town-os/src/git"
@@ -94,6 +95,7 @@ type RepositoryRoot struct {
 	LastRefreshed   time.Time
 	RefreshInterval time.Duration
 	Git             git.Client
+	pkgCache        sync.Map // repo name → PackageTable
 }
 
 func RepositoryRootFromBase(baseDir string) (_ *RepositoryRoot, err error) {
@@ -219,7 +221,17 @@ func (rr *RepositoryRoot) ForceRefresh() {
 	rr.forceRefresh()
 }
 
+// InvalidatePackageCache clears the cached package tables so the next
+// LoadPackages call re-reads from disk.
+func (rr *RepositoryRoot) InvalidatePackageCache() {
+	rr.pkgCache.Range(func(key, _ any) bool {
+		rr.pkgCache.Delete(key)
+		return true
+	})
+}
+
 func (rr *RepositoryRoot) forceRefresh() {
+	rr.InvalidatePackageCache()
 	rr.Errors = map[string]string{}
 	for i := range rr.Items {
 		err := rr.Items[i].init(rr.BaseDir, rr.Git)

@@ -52,6 +52,10 @@ type SystemController interface {
 type SystemControllerHandlers struct {
 	Controller systemControllerBackend
 
+	// ctx is the server-scoped context used by background goroutines that
+	// must outlive HTTP requests but respect graceful shutdown.
+	ctx context.Context
+
 	// packageMu serializes mutating operations (install, uninstall, purge,
 	// enable/disable, rebuild-git) on the same package so that concurrent
 	// requests cannot interleave and leave the service in an inconsistent
@@ -76,8 +80,8 @@ func (s *SystemControllerHandlers) lockPackage(repo, name string) func() {
 	return mu.Unlock
 }
 
-func getHandler(sc systemControllerBackend) *SystemControllerHandlers {
-	return &SystemControllerHandlers{Controller: sc}
+func getHandler(ctx context.Context, sc systemControllerBackend) *SystemControllerHandlers {
+	return &SystemControllerHandlers{Controller: sc, ctx: ctx}
 }
 
 // --- Routes ---
