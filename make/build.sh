@@ -188,6 +188,45 @@ case "$1" in
     substep "Pushing ${RELEASE_UI_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
     ;;
+  push-rolodex-rc)
+    require_registry_login quay.io
+    step "Pushing Rolodex release candidate"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:rc.latest"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:rc.latest"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:rc.latest"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:rc.latest"
+    ;;
+  push-rolodex-release)
+    require_registry_login quay.io
+    step "Pushing Rolodex release"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:latest"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:latest"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:latest"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:latest"
+    ;;
+  push-rolodex-tag)
+    TAG="$2"
+    if [ -z "${TAG}" ]; then
+      echo "Usage: $0 push-rolodex-tag <tag>"
+      exit 1
+    fi
+    require_registry_login quay.io
+    step "Pushing Rolodex with tag ${TAG}"
+    substep "Tagging ${ROLODEX_IMAGE%%:*}:${TAG}"
+    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:${TAG}"
+    substep "Pushing ${ROLODEX_IMAGE%%:*}:${TAG}"
+    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:${TAG}"
+    ;;
   push-proton-rc)
     require_registry_login quay.io
     step "Pushing Proton runner release candidate"
@@ -257,7 +296,7 @@ case "$1" in
     CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
     ;;
   *)
-    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|push-rc|push-release|push-ui-rc|push-ui-release|push-tag <tag>}"
+    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|push-rc|push-release|push-ui-rc|push-ui-release|push-rolodex-rc|push-rolodex-release|push-rolodex-tag <tag>|push-tag <tag>}"
     exit 1
     ;;
 esac
