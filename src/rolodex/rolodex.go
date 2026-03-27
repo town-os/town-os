@@ -293,16 +293,31 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 	}
 	args = append(portArgs, args...)
 
-	return []systemd.SystemServiceUnitConfig{
-		{
-			Key:         m.key(),
-			Description: "Rolodex DNS",
-			Image:       m.cfg.Image,
-			Args:        args,
-			Command:     []string{"/usr/local/bin/rolodex-dns", "--config", "/data/rolodex.yml"},
-			VolumeDirs:  []string{m.cfg.DataDir},
-		},
+	cfg := systemd.SystemServiceUnitConfig{
+		Key:         m.key(),
+		Description: "Rolodex DNS",
+		Image:       m.cfg.Image,
+		Args:        args,
+		Command:     []string{"/usr/local/bin/rolodex-dns", "--config", "/data/rolodex.yml"},
+		VolumeDirs:  []string{m.cfg.DataDir},
 	}
+
+	// When managing resolv.conf, add unit directives so systemd handles
+	// DNS switchover automatically. ExecStartPre points resolv.conf at
+	// the rolodex loopback address; ExecStopPost restores the
+	// systemd-resolved stub so DNS keeps working if rolodex stops or
+	// crashes.
+	if m.cfg.ResolvConfPath != "" && !m.cfg.Local {
+		cfg.ExecStartPre = []string{
+			fmt.Sprintf(`/bin/sh -c 'printf "nameserver %s\n" > %s'`, DNSLoopback, m.cfg.ResolvConfPath),
+		}
+		cfg.ExecStopPost = []string{
+			fmt.Sprintf("-/bin/ln -sf /run/systemd/resolve/stub-resolv.conf %s", m.cfg.ResolvConfPath),
+			"-/bin/systemctl reload-or-restart systemd-resolved",
+		}
+	}
+
+	return []systemd.SystemServiceUnitConfig{cfg}
 }
 
 // setResolv saves the current resolv.conf state and rewrites it to point at

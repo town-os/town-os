@@ -689,3 +689,81 @@ func TestStartLocalSkipsResolved(t *testing.T) {
 		t.Fatalf("resolv.conf changed in local mode: got %q, want %q", got, origContent)
 	}
 }
+
+func TestUnitConfigsResolvConfDirectives(t *testing.T) {
+	dataDir := t.TempDir()
+
+	t.Run("production mode includes ExecStartPre and ExecStopPost", func(t *testing.T) {
+		mgr := NewManager(Config{
+			Systemd:        systemd.InitMockManager(),
+			DataDir:        dataDir,
+			Image:          "quay.io/town/rolodex:testing",
+			ResolvConfPath: "/etc/resolv.conf",
+			PublicAddr:     "192.168.1.1",
+		})
+
+		cfgs := mgr.unitConfigs()
+		if len(cfgs) != 1 {
+			t.Fatalf("expected 1 unit config, got %d", len(cfgs))
+		}
+		cfg := cfgs[0]
+
+		if len(cfg.ExecStartPre) != 1 {
+			t.Fatalf("expected 1 ExecStartPre, got %d", len(cfg.ExecStartPre))
+		}
+		if !strings.Contains(cfg.ExecStartPre[0], DNSLoopback) {
+			t.Fatalf("ExecStartPre should reference %s, got %q", DNSLoopback, cfg.ExecStartPre[0])
+		}
+		if !strings.Contains(cfg.ExecStartPre[0], "/etc/resolv.conf") {
+			t.Fatalf("ExecStartPre should reference resolv.conf, got %q", cfg.ExecStartPre[0])
+		}
+
+		if len(cfg.ExecStopPost) != 2 {
+			t.Fatalf("expected 2 ExecStopPost commands, got %d", len(cfg.ExecStopPost))
+		}
+		if !strings.Contains(cfg.ExecStopPost[0], "stub-resolv.conf") {
+			t.Fatalf("ExecStopPost[0] should restore resolved stub, got %q", cfg.ExecStopPost[0])
+		}
+		if !strings.Contains(cfg.ExecStopPost[1], "systemd-resolved") {
+			t.Fatalf("ExecStopPost[1] should restart resolved, got %q", cfg.ExecStopPost[1])
+		}
+	})
+
+	t.Run("local mode omits resolv directives", func(t *testing.T) {
+		mgr := NewManager(Config{
+			Systemd:        systemd.InitMockManager(),
+			DataDir:        dataDir,
+			Image:          "quay.io/town/rolodex:testing",
+			Local:          true,
+			ResolvConfPath: "/etc/resolv.conf",
+		})
+
+		cfgs := mgr.unitConfigs()
+		cfg := cfgs[0]
+
+		if len(cfg.ExecStartPre) != 0 {
+			t.Fatalf("local mode should not have ExecStartPre, got %v", cfg.ExecStartPre)
+		}
+		if len(cfg.ExecStopPost) != 0 {
+			t.Fatalf("local mode should not have ExecStopPost, got %v", cfg.ExecStopPost)
+		}
+	})
+
+	t.Run("no resolv path omits directives", func(t *testing.T) {
+		mgr := NewManager(Config{
+			Systemd: systemd.InitMockManager(),
+			DataDir: dataDir,
+			Image:   "quay.io/town/rolodex:testing",
+		})
+
+		cfgs := mgr.unitConfigs()
+		cfg := cfgs[0]
+
+		if len(cfg.ExecStartPre) != 0 {
+			t.Fatalf("should not have ExecStartPre without ResolvConfPath, got %v", cfg.ExecStartPre)
+		}
+		if len(cfg.ExecStopPost) != 0 {
+			t.Fatalf("should not have ExecStopPost without ResolvConfPath, got %v", cfg.ExecStopPost)
+		}
+	})
+}

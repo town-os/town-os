@@ -403,12 +403,14 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 // SystemServiceUnitConfig holds the information needed to generate a systemd
 // unit for a system service (e.g. a monitoring container).
 type SystemServiceUnitConfig struct {
-	Key         string   // unique service key (e.g. "prometheus")
-	Description string   // human-readable description
-	Image       string   // container image reference
-	Args        []string // additional podman run arguments (before the image)
-	Command     []string // command and arguments (after the image)
-	VolumeDirs  []string // host directories to mkdir -p before starting
+	Key            string   // unique service key (e.g. "prometheus")
+	Description    string   // human-readable description
+	Image          string   // container image reference
+	Args           []string // additional podman run arguments (before the image)
+	Command        []string // command and arguments (after the image)
+	VolumeDirs     []string // host directories to mkdir -p before starting
+	ExecStartPre   []string // additional ExecStartPre commands (after container cleanup and mkdir)
+	ExecStopPost   []string // ExecStopPost commands (run after the service stops or fails)
 }
 
 // GenerateSystemServiceUnit produces a systemd unit file for a system service.
@@ -431,6 +433,9 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	for _, dir := range cfg.VolumeDirs {
 		fmt.Fprintf(&b, "ExecStartPre=/bin/mkdir -p %s\n", dir)
 	}
+	for _, cmd := range cfg.ExecStartPre {
+		fmt.Fprintf(&b, "ExecStartPre=%s\n", cmd)
+	}
 
 	// ExecStart
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s", containerName)
@@ -444,6 +449,9 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	b.WriteString("\n")
 
 	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName)
+	for _, cmd := range cfg.ExecStopPost {
+		fmt.Fprintf(&b, "ExecStopPost=%s\n", cmd)
+	}
 	b.WriteString("Restart=always\n")
 
 	// [Install]

@@ -815,6 +815,60 @@ func TestGenerateSystemServiceUnitVolumeDirs(t *testing.T) {
 	})
 }
 
+func TestGenerateSystemServiceUnitExecStartPreAndStopPost(t *testing.T) {
+	cfg := SystemServiceUnitConfig{
+		Key:         "rolodex",
+		Description: "Rolodex DNS",
+		Image:       "quay.io/town/rolodex:latest",
+		Args:        []string{"-p", "127.0.0.2:53:53/udp"},
+		ExecStartPre: []string{
+			`/bin/sh -c 'printf "nameserver 127.0.0.2\n" > /etc/resolv.conf'`,
+		},
+		ExecStopPost: []string{
+			"-/bin/ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf",
+			"-/bin/systemctl reload-or-restart systemd-resolved",
+		},
+	}
+
+	uf := GenerateSystemServiceUnit(cfg)
+	content := uf.Content
+
+	if !strings.Contains(content, `ExecStartPre=/bin/sh -c 'printf "nameserver 127.0.0.2\n" > /etc/resolv.conf'`) {
+		t.Fatalf("missing resolv.conf ExecStartPre, got:\n%s", content)
+	}
+	if !strings.Contains(content, "ExecStopPost=-/bin/ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf") {
+		t.Fatalf("missing resolv.conf restore ExecStopPost, got:\n%s", content)
+	}
+	if !strings.Contains(content, "ExecStopPost=-/bin/systemctl reload-or-restart systemd-resolved") {
+		t.Fatalf("missing resolved restart ExecStopPost, got:\n%s", content)
+	}
+
+	// ExecStartPre should appear before ExecStart, ExecStopPost after ExecStop.
+	startPreIdx := strings.Index(content, "ExecStartPre=/bin/sh")
+	execStartIdx := strings.Index(content, "ExecStart=/usr/bin/podman run")
+	stopPostIdx := strings.Index(content, "ExecStopPost=")
+	execStopIdx := strings.Index(content, "ExecStop=/usr/bin/podman stop")
+	if startPreIdx > execStartIdx {
+		t.Fatal("ExecStartPre should appear before ExecStart")
+	}
+	if stopPostIdx < execStopIdx {
+		t.Fatal("ExecStopPost should appear after ExecStop")
+	}
+}
+
+func TestGenerateSystemServiceUnitNoExecStopPostWhenEmpty(t *testing.T) {
+	cfg := SystemServiceUnitConfig{
+		Key:         "prometheus",
+		Description: "Prometheus",
+		Image:       "quay.io/prometheus/prometheus:latest",
+	}
+
+	uf := GenerateSystemServiceUnit(cfg)
+	if strings.Contains(uf.Content, "ExecStopPost") {
+		t.Fatalf("should not contain ExecStopPost when empty, got:\n%s", uf.Content)
+	}
+}
+
 func TestIsPackageServiceUnit(t *testing.T) {
 	tests := []struct {
 		name   string
