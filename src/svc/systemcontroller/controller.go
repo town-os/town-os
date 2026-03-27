@@ -54,7 +54,7 @@ type SystemControllerHandlers struct {
 
 	// ctx is the server-scoped context used by background goroutines that
 	// must outlive HTTP requests but respect graceful shutdown.
-	ctx context.Context
+	ctx context.Context //nolint:containedctx // intentional: background goroutines need server lifetime
 
 	// packageMu serializes mutating operations (install, uninstall, purge,
 	// enable/disable, rebuild-git) on the same package so that concurrent

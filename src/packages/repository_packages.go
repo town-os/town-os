@@ -83,7 +83,8 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 // cached copy if available. The cache is invalidated on repository refresh.
 func (rr *RepositoryRoot) cachedLoadPackages(repo *Repository) (PackageTable, error) {
 	if cached, ok := rr.pkgCache.Load(repo.Name); ok {
-		return cached.(PackageTable), nil
+		pt, _ := cached.(PackageTable)
+		return pt, nil
 	}
 	pkgs, err := repo.LoadPackages(rr.BaseDir)
 	if err != nil {

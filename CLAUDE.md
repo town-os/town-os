@@ -13,6 +13,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - Add tests for everything you do.
 
+- check all type assertions before using the result
+
 - **`--replace` on all `podman run --name`** — no exceptions, anywhere in the repo.
 
 - **Fail fast** — if any make subtask or script launched by a make subtask fails, stop immediately. Do not continue to the next phase.

@@ -312,7 +312,7 @@ func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 			fmt.Sprintf(`/bin/sh -c 'printf "nameserver %s\n" > %s'`, DNSLoopback, m.cfg.ResolvConfPath),
 		}
 		cfg.ExecStopPost = []string{
-			fmt.Sprintf("-/bin/ln -sf /run/systemd/resolve/stub-resolv.conf %s", m.cfg.ResolvConfPath),
+			"-/bin/ln -sf /run/systemd/resolve/stub-resolv.conf " + m.cfg.ResolvConfPath,
 			"-/bin/systemctl reload-or-restart systemd-resolved",
 		}
 	}

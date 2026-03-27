@@ -152,9 +152,7 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 		sem        = make(chan struct{}, 3)
 	)
 	for _, img := range images {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			if err := pullImage(ctx, img); err != nil {
@@ -162,7 +160,7 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 				pullErrors = append(pullErrors, err.Error())
 				pullMu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
