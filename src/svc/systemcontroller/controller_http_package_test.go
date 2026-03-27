@@ -840,3 +840,117 @@ func TestHTTPListPackagesByRepoSearchNoMatch(t *testing.T) {
 		t.Fatalf("expected 0 repo groups for non-matching search, got %d", len(groups))
 	}
 }
+
+func TestHTTPListPackagesInstalledIndicator(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{{Name: "repo-a", URL: *u}}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
+	writeTestPackage(t, rr.BaseDir, "repo-a", "redis", "7.0", "image: redis:7.0\n")
+
+	inst := packages.InitMockInstallManager()
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	pkgs, err := c.ListPackages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPackages: %v", err)
+	}
+
+	if len(pkgs.Entries) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs.Entries))
+	}
+
+	var nginxEntry, redisEntry *PackageListEntry
+	for i := range pkgs.Entries {
+		switch pkgs.Entries[i].Name {
+		case "nginx":
+			nginxEntry = &pkgs.Entries[i]
+		case "redis":
+			redisEntry = &pkgs.Entries[i]
+		}
+	}
+
+	if nginxEntry == nil || redisEntry == nil {
+		t.Fatal("expected both nginx and redis in results")
+	}
+
+	// nginx 1.0 is installed; latest is 2.0 (upgrade available).
+	if !nginxEntry.Installed {
+		t.Fatal("expected nginx Installed=true")
+	}
+	if nginxEntry.InstalledVersion != "1.0" {
+		t.Fatalf("expected nginx InstalledVersion=1.0, got %q", nginxEntry.InstalledVersion)
+	}
+	if nginxEntry.Version != "2.0" {
+		t.Fatalf("expected nginx latest Version=2.0, got %q", nginxEntry.Version)
+	}
+
+	// redis is not installed.
+	if redisEntry.Installed {
+		t.Fatal("expected redis Installed=false")
+	}
+	if redisEntry.InstalledVersion != "" {
+		t.Fatalf("expected redis InstalledVersion empty, got %q", redisEntry.InstalledVersion)
+	}
+}
+
+func TestHTTPListPackagesUninstalledNotFlaggedInstalled(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	u, err := url.Parse("https://example.com/repo-a.git")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	rr.Items = []packages.Repository{{Name: "repo-a", URL: *u}}
+
+	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", "image: nginx:1.0\n")
+
+	// Install then uninstall — package should NOT show as installed.
+	inst := packages.InitMockInstallManager()
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if err := inst.Uninstall("repo-a", "nginx", "1.0"); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr, Installer: inst})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	pkgs, err := c.ListPackages(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListPackages: %v", err)
+	}
+
+	if len(pkgs.Entries) != 1 {
+		t.Fatalf("expected 1 package, got %d", len(pkgs.Entries))
+	}
+
+	if pkgs.Entries[0].Installed {
+		t.Fatal("expected uninstalled package to have Installed=false")
+	}
+	if pkgs.Entries[0].InstalledVersion != "" {
+		t.Fatalf("expected empty InstalledVersion after uninstall, got %q", pkgs.Entries[0].InstalledVersion)
+	}
+}

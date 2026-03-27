@@ -256,6 +256,29 @@ func TestRemovePackageVolume_RejectsUserVolume(t *testing.T) {
 	}
 }
 
+func TestListPackageVolumes_UninstalledNeverFlaggedInstalled(t *testing.T) {
+	c, ctrl := initTestClient(t)
+
+	// Only uninstalled volumes exist — no installed prefix at all.
+	injectSubvol(t, ctrl, "uninstalled/repo-a/nginx/1.0/data", 0)
+	injectSubvol(t, ctrl, "uninstalled/repo-a/nginx/1.0/config", 0)
+
+	groups, err := c.ListPackageVolumes(context.TODO(), true)
+	if err != nil {
+		t.Fatalf("ListPackageVolumes: %v", err)
+	}
+
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(groups))
+	}
+
+	for _, vol := range groups[0].Volumes {
+		if vol.State != "uninstalled" {
+			t.Fatalf("expected all volumes to have state 'uninstalled', got %q for %q", vol.State, vol.Name)
+		}
+	}
+}
+
 func TestRemovePackageVolume_RejectsArbitraryPath(t *testing.T) {
 	c, _ := initTestClient(t)
 
