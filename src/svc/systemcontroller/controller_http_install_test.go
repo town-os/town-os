@@ -30,11 +30,11 @@ func TestHTTPInstallPackage(t *testing.T) {
 	if len(calls) != 4 {
 		t.Fatalf("expected 4 calls, got %d", len(calls))
 	}
-	if calls[0].Method != "ListInstalled" {
-		t.Fatalf("expected ListInstalled call, got %q", calls[0].Method)
+	if calls[0].Method != "GetInstalledVersion" {
+		t.Fatalf("expected GetInstalledVersion call, got %q", calls[0].Method)
 	}
-	if calls[1].Method != "ListInstalled" {
-		t.Fatalf("expected ListInstalled call (port exclusion), got %q", calls[1].Method)
+	if calls[1].Method != "GetInstalledVersion" {
+		t.Fatalf("expected GetInstalledVersion call (port exclusion), got %q", calls[1].Method)
 	}
 	if calls[2].Method != "Install" {
 		t.Fatalf("expected Install call, got %q", calls[2].Method)
@@ -256,8 +256,8 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	if calls[8].Method != "LoadDependencies" {
 		t.Fatalf("expected LoadDependencies call, got %q", calls[8].Method)
 	}
-	if calls[9].Method != "ListInstalled" {
-		t.Fatalf("expected ListInstalled call, got %q", calls[9].Method)
+	if calls[9].Method != "GetInstalledVersion" {
+		t.Fatalf("expected GetInstalledVersion call, got %q", calls[9].Method)
 	}
 }
 
@@ -1389,11 +1389,11 @@ func TestHTTPReinstallPackage(t *testing.T) {
 	}
 
 	// Reinstall phase starts at index 4.
-	if calls[4].Method != "ListInstalled" {
-		t.Fatalf("call 4: expected ListInstalled, got %q", calls[4].Method)
+	if calls[4].Method != "GetInstalledVersion" {
+		t.Fatalf("call 4: expected GetInstalledVersion, got %q", calls[4].Method)
 	}
-	if calls[5].Method != "ListInstalled" {
-		t.Fatalf("call 5: expected ListInstalled (port exclusion), got %q", calls[5].Method)
+	if calls[5].Method != "GetInstalledVersion" {
+		t.Fatalf("call 5: expected GetInstalledVersion (port exclusion), got %q", calls[5].Method)
 	}
 	if calls[6].Method != "GetResponses" {
 		t.Fatalf("call 6: expected GetResponses, got %q", calls[6].Method)

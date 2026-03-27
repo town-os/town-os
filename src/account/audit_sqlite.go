@@ -62,13 +62,11 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 		return nil, fmt.Errorf("create idx_audit_account: %w", err)
 	}
 
-	_, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at)`)
-	if err != nil {
+	if _, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at)`); err != nil {
 		return nil, fmt.Errorf("create idx_audit_created_at: %w", err)
 	}
 
-	_, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_success_created ON audit_log(success, created_at)`)
-	if err != nil {
+	if _, err = db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_success_created ON audit_log(success, created_at)`); err != nil {
 		return nil, fmt.Errorf("create idx_audit_success_created: %w", err)
 	}
 

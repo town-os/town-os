@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -191,7 +192,9 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 	// Schedule systemcontroller restart in a goroutine with 1s delay.
 	go func() {
 		time.Sleep(1 * time.Second)
-		_ = sd.SetStatus(s.ctx, "town-os-systemcontroller.service", systemd.Restart)
+		if err := sd.SetStatus(s.ctx, "town-os-systemcontroller.service", systemd.Restart); err != nil {
+			slog.Debug(fmt.Sprintf("restart systemcontroller: %v", err))
+		}
 	}()
 
 	if len(pullErrors) > 0 {

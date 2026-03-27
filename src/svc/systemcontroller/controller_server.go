@@ -103,8 +103,10 @@ func (s *serverBase) GetInternalIP() string {
 			return ""
 		}
 	}
-	ip, _ := v.(string)
-	return ip
+	if ip, ok := v.(string); ok {
+		return ip
+	}
+	return ""
 }
 
 // RefreshInternalIP updates the cached internal IP address by querying
