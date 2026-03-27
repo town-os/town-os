@@ -45,7 +45,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Trash2, FolderGit2, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star, Download, MoreHorizontal, FileCode, Copy, Check, Loader2 } from 'lucide-react'
+import { Trash2, FolderGit2, AlertCircle, CheckCircle2, Info, ArrowUpCircle, ArrowUp, ArrowDown, ChevronRight, ChevronDown, X, Star, Download, MoreHorizontal, FileCode, Copy, Check } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import InstallPreviewDialog from '@/components/packages/InstallPreviewDialog.jsx'
 import InstallQuestionsDialog from '@/components/packages/InstallQuestionsDialog.jsx'
@@ -106,7 +106,20 @@ export default function PackageManagement() {
   const [versionSelectDialog, setVersionSelectDialog] = useState({ open: false })
   const [volumeReuseDialog, setVolumeReuseDialog] = useState({ open: false })
   const [previewDialog, setPreviewDialog] = useState({ open: false })
-  const [progressDialog, setProgressDialog] = useState({ open: false, action: '', step: '' })
+  const progressToastId = useRef('pkg-progress')
+
+  function showProgress(action) {
+    const title = action === 'install' ? t('progress.title_installing')
+      : action === 'uninstall' ? t('progress.title_uninstalling')
+      : t('progress.title_refreshing')
+    toast.loading(t('progress.starting'), { id: progressToastId.current, description: title })
+  }
+  function updateProgress(step) {
+    toast.loading(t(`progress.${step}`), { id: progressToastId.current })
+  }
+  function dismissProgress() {
+    toast.dismiss(progressToastId.current)
+  }
 
   // Repository state
   const [repoDialog, setRepoDialog] = useState(false)
@@ -286,16 +299,15 @@ export default function PackageManagement() {
       }
 
       // No questions — install directly with progress.
-      setProgressDialog({ open: true, action: 'install', step: '' })
+      showProgress('install')
       try {
         const resp = await getClient().installPackageStream(repo, name, version, {}, reuseVolumes, importFromVersion)
-        await readProgressStream(resp, (step) => {
-          setProgressDialog((prev) => ({ ...prev, step }))
-        })
+        await readProgressStream(resp, updateProgress)
+        dismissProgress()
         toast.success(t('packages.toast_installed'))
         doRefresh()
       } finally {
-        setProgressDialog({ open: false, action: '', step: '' })
+        dismissProgress()
       }
     } catch (err) {
       toast.error(err.message)
@@ -333,7 +345,7 @@ export default function PackageManagement() {
     // Save dialog state before closing so we can restore it on validation errors.
     const savedDialog = { ...questionsDialog }
     setQuestionsDialog({ open: false })
-    setProgressDialog({ open: true, action: 'install', step: '' })
+    showProgress('install')
 
     try {
       const resp = await getClient().installPackageStream(
@@ -344,12 +356,12 @@ export default function PackageManagement() {
         savedDialog.reuseVolumes || false,
         savedDialog.importFromVersion,
       )
-      await readProgressStream(resp, (step) => {
-        setProgressDialog((prev) => ({ ...prev, step }))
-      })
+      await readProgressStream(resp, updateProgress)
+      dismissProgress()
       toast.success(t('packages.toast_installed'))
       doRefresh()
     } catch (err) {
+      dismissProgress()
       // Check for per-field validation errors from the server.
       const verrs = err.problem?.validation_errors
       if (verrs && verrs.length > 0) {
@@ -363,7 +375,7 @@ export default function PackageManagement() {
         toast.error(err.message)
       }
     } finally {
-      setProgressDialog({ open: false, action: '', step: '' })
+      dismissProgress()
     }
   }
 
@@ -371,19 +383,18 @@ export default function PackageManagement() {
     const { repo, name, version } = uninstallConfirm
     const shouldPurge = purgeVolumes
     setUninstallConfirm(null)
-    setProgressDialog({ open: true, action: 'uninstall', step: '' })
+    showProgress('uninstall')
 
     try {
       const resp = await getClient().uninstallPackageStream(repo, name, version, shouldPurge)
-      await readProgressStream(resp, (step) => {
-        setProgressDialog((prev) => ({ ...prev, step }))
-      })
+      await readProgressStream(resp, updateProgress)
+      dismissProgress()
       toast.success(shouldPurge ? t('packages.toast_uninstalled_purged') : t('packages.toast_uninstalled'))
       doRefresh()
     } catch (err) {
       toast.error(err.message)
     } finally {
-      setProgressDialog({ open: false, action: '', step: '' })
+      dismissProgress()
     }
   }
 
@@ -417,19 +428,18 @@ export default function PackageManagement() {
 
   async function handleRefreshRepos() {
     setRefreshing(true)
-    setProgressDialog({ open: true, action: 'refresh', step: 'refreshing' })
+    showProgress('refresh')
     try {
       const resp = await getClient().refreshRepositoriesStream()
-      await readProgressStream(resp, (step) => {
-        setProgressDialog((prev) => ({ ...prev, step }))
-      })
+      await readProgressStream(resp, updateProgress)
+      dismissProgress()
       toast.success(t('packages.toast_repos_refreshed'))
       doRefresh()
     } catch (err) {
       toast.error(err.message)
     } finally {
       setRefreshing(false)
-      setProgressDialog({ open: false, action: '', step: '' })
+      dismissProgress()
     }
   }
 
@@ -1079,25 +1089,6 @@ export default function PackageManagement() {
         </DialogContent>
       </Dialog>
 
-      {/* Progress Dialog */}
-      <Dialog open={progressDialog.open}>
-        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>
-              {progressDialog.action === 'install' && t('progress.title_installing')}
-              {progressDialog.action === 'uninstall' && t('progress.title_uninstalling')}
-              {progressDialog.action === 'refresh' && t('progress.title_refreshing')}
-            </DialogTitle>
-            <DialogDescription>{t('progress.description')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-3 py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <span className="text-sm">
-              {progressDialog.step ? t(`progress.${progressDialog.step}`) : t('progress.starting')}
-            </span>
-          </div>
-        </DialogContent>
-      </Dialog>
 
     </div>
   )
