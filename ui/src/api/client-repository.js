@@ -31,16 +31,19 @@ SystemControllerClient.prototype.moveRepository = async function (name, position
   await this.post('/repository/move', { name, position })
 }
 
-/** @returns {Promise<Record<string, string>|null>} */
+/** @returns {Promise<void>} */
 SystemControllerClient.prototype.refreshRepositories = async function () {
   const resp = await this.post('/repository/refresh', {})
-  const text = await resp.text()
-  if (!text) return null
-  try {
-    return JSON.parse(text)
-  } catch {
-    return null
-  }
+  // Drain the SSE stream so the request completes.
+  await resp.text().catch(() => {})
+}
+
+/**
+ * Refresh repositories and return the raw SSE response for progress streaming.
+ * @returns {Promise<Response>}
+ */
+SystemControllerClient.prototype.refreshRepositoriesStream = async function () {
+  return this.post('/repository/refresh', {})
 }
 
 /**

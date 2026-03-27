@@ -125,9 +125,11 @@ func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd s
 		}
 	}
 
-	// Start the main service.
+	// Start the main service. A start failure is logged but does not fail the
+	// install — the package is fully installed (volumes, unit files, network
+	// state) and the user can see the failed service in the UI and retry.
 	if err := sd.SetStatus(ctx, units.Service.Name, systemd.Start); err != nil {
-		return fmt.Errorf("start service: %w", err)
+		slog.Warn("service failed to start after install", "unit", units.Service.Name, "error", err)
 	}
 
 	return nil
@@ -290,28 +292,45 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		return err
 	}
 
+	// Begin streaming progress events. After this point, errors are sent
+	// as SSE error events (the HTTP status is already 200).
+	pw := NewProgressWriter(c)
+
 	if activeVersion != "" {
+		pw.Step("preparing_upgrade")
 		if err := s.prepareActiveVersion(ctx, rr, inst, repoName, parentName, effectiveName, activeVersion, req.Version, req.ImportFromVersion, compiled); err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 	}
 
+	pw.Step("provisioning_volumes")
 	if err := s.provisionVolumes(repoName, effectiveName, req.Version, req.ImportFromVersion, req.ReuseVolumes, compiled); err != nil {
-		return err
+		pw.Err(err)
+		return nil
 	}
 
+	pw.Step("seeding_data")
 	s.seedVolumeData(ctx, &ip, compiled, repoName, parentName, effectiveName, req.Version)
 
 	// Apply file templates after volume seeding but before service boot.
 	if len(compiled.Templates) > 0 {
+		pw.Step("applying_templates")
 		s.applyPackageTemplates(compiled, req.Responses, repoName, effectiveName, req.Version, ip.Description)
 	}
 
 	// Install dependencies before the parent package.
 	if len(compiled.Dependencies) > 0 {
-		depRecords, depEnvVars, err := s.installDependencies(ctx, repoName, effectiveName, req.Version, compiled.Dependencies)
+		pw.Step("installing_dependencies")
+		// Compute parent NC unit name so deps can wait for the network.
+		var parentNCUnitName string
+		if len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0 {
+			parentNCUnitName = systemd.NetworkControllerUnitName(repoName, effectiveName, req.Version)
+		}
+		depRecords, depEnvVars, err := s.installDependencies(ctx, repoName, effectiveName, req.Version, parentNCUnitName, compiled.Dependencies)
 		if err != nil {
-			return fmt.Errorf("install dependencies: %w", err)
+			pw.Err(fmt.Errorf("install dependencies: %w", err))
+			return nil
 		}
 
 		// Inject dependency connection environment variables into the parent.
@@ -325,13 +344,16 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		// Save dependency records for uninstall.
 		if len(depRecords) > 0 {
 			if err := inst.SaveDependencies(repoName, effectiveName, depRecords); err != nil {
-				return fmt.Errorf("save dependencies: %w", err)
+				pw.Err(fmt.Errorf("save dependencies: %w", err))
+				return nil
 			}
 		}
 	}
 
+	pw.Step("saving_install")
 	if err := inst.Install(repoName, effectiveName, parentName, req.Version, req.Responses); err != nil {
-		return err
+		pw.Err(err)
+		return nil
 	}
 
 	if err := inst.ClearLastResponses(repoName, effectiveName); err != nil {
@@ -347,7 +369,8 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	if req.Instance != "" {
 		children, err := inst.LoadChildren(repoName, parentName)
 		if err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 		if !slices.Contains(children, req.Instance) {
 			children = append(children, req.Instance)
@@ -359,12 +382,15 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	// For VM packages, download and cache the VM image if it is a URL.
 	if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
+		pw.Step("downloading_vm_image")
 		if err := s.ensureVMImage(ctx, compiled.VM.Image); err != nil {
-			return fmt.Errorf("ensure vm image: %w", err)
+			pw.Err(fmt.Errorf("ensure vm image: %w", err))
+			return nil
 		}
 	}
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		pw.Step("installing_services")
 		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, ip.Description, compiled)
 
 		// Set dependency unit names on the parent so systemd orders them.
@@ -378,16 +404,19 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 		units := systemd.GeneratePackageUnits(cfg)
 		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, compiled); err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 		if err := s.installPackageUnits(ctx, sd, units); err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 	}
 
+	pw.Step("registering_dns")
 	s.registerPackageDNS(ctx, repoName, effectiveName, compiled.Network.Domains)
 
-	c.Response().WriteHeader(200)
+	pw.Done()
 	return nil
 }
 
@@ -412,18 +441,23 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 	ctx := c.Request().Context()
 	inst := s.Controller.GetInstaller()
 
-	// Unregister DNS before removing units.
+	pw := NewProgressWriter(c)
+
+	pw.Step("unregistering_dns")
 	s.unregisterPackageDNS(ctx, req.Repo, parentName, effectiveName, req.Version)
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
+		pw.Step("stopping_services")
 		if err := s.uninstallPackageUnits(ctx, sd, req.Repo, effectiveName, req.Version); err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 	}
 
+	pw.Step("removing_network")
 	s.removePackageNetworkState(req.Repo, effectiveName, req.Version)
 
-	// Save last responses before uninstall for potential reuse.
+	pw.Step("saving_responses")
 	lastResp, err := inst.GetResponses(req.Repo, effectiveName, req.Version)
 	if err == nil && len(lastResp) > 0 {
 		if err := inst.SaveLastResponses(req.Repo, effectiveName, lastResp); err != nil {
@@ -431,18 +465,22 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		}
 	}
 
+	pw.Step("removing_install")
 	if err := inst.SetDisabled(req.Repo, effectiveName, false); err != nil {
-		return err
+		pw.Err(err)
+		return nil
 	}
 	if err := inst.Uninstall(req.Repo, effectiveName, req.Version); err != nil {
-		return err
+		pw.Err(err)
+		return nil
 	}
 
 	// Remove child from parent's children list when uninstalling an instance.
 	if req.Instance != "" {
 		children, err := inst.LoadChildren(req.Repo, parentName)
 		if err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 		for i, ch := range children {
 			if ch == req.Instance {
@@ -455,19 +493,21 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		}
 	}
 
-	// Cascade-uninstall dependencies after the parent.
+	pw.Step("uninstalling_dependencies")
 	s.uninstallDependencies(ctx, req.Repo, effectiveName, req.PurgeVolumes)
 
 	// Volume handling after uninstall.
+	pw.Step("cleaning_volumes")
 	if req.PurgeVolumes {
 		if err := s.purgePackageVolumes(req.Repo, effectiveName); err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 	} else if st := s.Controller.GetStorage(); st != nil {
-		// Check if any other versions remain installed for this repo/name.
 		installed, err := inst.ListInstalled()
 		if err != nil {
-			return err
+			pw.Err(err)
+			return nil
 		}
 
 		otherVersionInstalled := false
@@ -483,7 +523,6 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		}
 
 		if !otherVersionInstalled {
-			// Move installed/<repo>/<name> → uninstalled/<repo>/<name>.
 			src := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, req.Repo, effectiveName)
 			dst := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, effectiveName)
 			if err := st.RenameFilesystem(src, dst); err != nil {
@@ -492,6 +531,6 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		}
 	}
 
-	c.Response().WriteHeader(200)
+	pw.Done()
 	return nil
 }

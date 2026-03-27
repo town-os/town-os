@@ -167,11 +167,11 @@ func TestSystemControllerInstallNginxNetworkController(t *testing.T) {
 	if ncContent == "" {
 		t.Fatal("expected InstallUnit call for network controller unit town-os-package--core-nginx-1.0-network.service")
 	}
-	if !strings.Contains(ncContent, "BindsTo=town-os-package--core-nginx-1.0.service") {
-		t.Fatalf("network controller missing BindsTo, got:\n%s", ncContent)
+	if !strings.Contains(ncContent, "PartOf=town-os-package--core-nginx-1.0.service") {
+		t.Fatalf("network controller missing PartOf, got:\n%s", ncContent)
 	}
-	if !strings.Contains(ncContent, "After=town-os-package--core-nginx-1.0.service") {
-		t.Fatalf("network controller missing After, got:\n%s", ncContent)
+	if !strings.Contains(ncContent, "Before=town-os-package--core-nginx-1.0.service") {
+		t.Fatalf("network controller missing Before, got:\n%s", ncContent)
 	}
 	if !strings.Contains(ncContent, "Description=Town OS Network Controller: core/nginx@1.0") {
 		t.Fatalf("network controller missing description, got:\n%s", ncContent)
@@ -399,29 +399,52 @@ func TestSystemControllerInstallNginxNetworkLifecycle(t *testing.T) {
 
 	networkName := systemd.NetworkName("core", "nginx", "1.0")
 
-	// ExecStartPre must force-remove any stale network before creating a fresh one.
-	if !strings.Contains(serviceContent, "podman network rm -f "+networkName) {
-		t.Fatalf("service unit missing 'podman network rm -f' in ExecStartPre, got:\n%s", serviceContent)
+	// Service unit must NOT create or remove the network (NC owns it).
+	if strings.Contains(serviceContent, "podman network create") {
+		t.Fatalf("service unit must not create network (NC owns it), got:\n%s", serviceContent)
 	}
-	if !strings.Contains(serviceContent, "podman network create "+networkName) {
-		t.Fatalf("service unit missing 'podman network create' in ExecStartPre, got:\n%s", serviceContent)
-	}
-
-	// The rm -f must appear before the create.
-	rmIdx := strings.Index(serviceContent, "podman network rm -f "+networkName)
-	createIdx := strings.Index(serviceContent, "podman network create "+networkName)
-	if rmIdx >= createIdx {
-		t.Fatalf("network rm -f must appear before network create in ExecStartPre, got:\n%s", serviceContent)
+	if strings.Contains(serviceContent, "podman network rm") {
+		t.Fatalf("service unit must not remove network (NC owns it), got:\n%s", serviceContent)
 	}
 
-	// ExecStopPost must force-remove the network.
-	stopPostIdx := strings.Index(serviceContent, "ExecStopPost=")
-	if stopPostIdx < 0 {
-		t.Fatalf("service unit missing ExecStopPost, got:\n%s", serviceContent)
+	// Service must have After= for the NC unit.
+	ncUnitName := systemd.NetworkControllerUnitName("core", "nginx", "1.0")
+	if !strings.Contains(serviceContent, "After="+ncUnitName) {
+		t.Fatalf("service unit missing After for NC, got:\n%s", serviceContent)
 	}
-	stopPostSection := serviceContent[stopPostIdx:]
-	if !strings.Contains(stopPostSection, "podman network rm -f "+networkName) {
-		t.Fatalf("service unit missing 'podman network rm -f' in ExecStopPost, got:\n%s", serviceContent)
+
+	// Find the NC unit and verify it owns network lifecycle.
+	var ncContent string
+	for _, call := range calls {
+		if call.Method == "InstallUnit" {
+			name, ok := call.Args[0].(string)
+			if !ok {
+				t.Fatal("type assertion failed")
+			}
+			if name == ncUnitName {
+				sc, ok := call.Args[1].(string)
+				if !ok {
+					t.Fatal("type assertion failed")
+				}
+				ncContent = sc
+				break
+			}
+		}
+	}
+	if ncContent == "" {
+		t.Fatalf("expected InstallUnit call for %s", ncUnitName)
+	}
+	if !strings.Contains(ncContent, "podman network create "+networkName) {
+		t.Fatalf("NC unit missing network create, got:\n%s", ncContent)
+	}
+	if !strings.Contains(ncContent, "podman network rm -f "+networkName) {
+		t.Fatalf("NC unit missing network rm -f, got:\n%s", ncContent)
+	}
+	if !strings.Contains(ncContent, "--target-container town-os-package--core-nginx-1.0") {
+		t.Fatalf("NC unit missing --target-container, got:\n%s", ncContent)
+	}
+	if !strings.Contains(ncContent, "-p 8080:8080") {
+		t.Fatalf("NC unit missing -p port mapping, got:\n%s", ncContent)
 	}
 }
 
@@ -673,9 +696,18 @@ func TestReconcileSharedNetworkForDependency(t *testing.T) {
 		t.Fatalf("dependency unit missing Before, got:\n%s", depContent)
 	}
 
-	// Dep must NOT rm the network (parent owns it).
+	// Dep must NOT create or rm the network (NC owns it).
 	if strings.Contains(depContent, "podman network rm") {
 		t.Fatalf("dependency must not remove the shared network, got:\n%s", depContent)
+	}
+	if strings.Contains(depContent, "podman network create") {
+		t.Fatalf("dependency must not create the network (NC owns it), got:\n%s", depContent)
+	}
+
+	// Dep must wait for the parent's NC (which creates the network).
+	parentNCUnit := systemd.NetworkControllerUnitName("core", "nginx", "1.0")
+	if !strings.Contains(depContent, parentNCUnit) {
+		t.Fatalf("dependency missing parent NC %s in After, got:\n%s", parentNCUnit, depContent)
 	}
 
 	// Find the parent's service unit content.

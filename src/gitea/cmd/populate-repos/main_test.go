@@ -190,7 +190,7 @@ func TestCacheRepoFetchesExisting(t *testing.T) {
 	}
 
 	// Fetch into cache (simulating what fetchCache does).
-	err = fetchCache(context.Background(), barePath, nil)
+	err = fetchCache(context.Background(), barePath, srcPath, nil)
 	if err != nil {
 		t.Fatalf("fetchCache: %v", err)
 	}
@@ -702,7 +702,7 @@ func TestFetchCacheAlreadyUpToDate(t *testing.T) {
 	}
 
 	// Fetch with no new changes — should succeed.
-	err = fetchCache(context.Background(), barePath, nil)
+	err = fetchCache(context.Background(), barePath, srcPath, nil)
 	if err != nil {
 		t.Fatalf("fetchCache already up-to-date should not error: %v", err)
 	}

@@ -109,12 +109,19 @@ func (s *SystemControllerHandlers) moveRepository(c *echo.Context) error {
 
 func (s *SystemControllerHandlers) refreshRepositories(c *echo.Context) error {
 	rr := s.Controller.GetRepositoryRoot()
+
+	pw := NewProgressWriter(c)
+	pw.Step("refreshing")
+
 	rr.ForceRefresh()
+
 	errs := rr.RefreshErrors()
 	if len(errs) > 0 {
-		return c.JSON(200, errs)
+		pw.Err(fmt.Errorf("refresh errors: %v", errs))
+		return nil
 	}
-	c.Response().WriteHeader(200)
+
+	pw.Done()
 	return nil
 }
 

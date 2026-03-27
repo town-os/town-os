@@ -605,6 +605,31 @@ const enUS = {
   'common.delete': 'Delete',
   'common.error': 'Error',
   'common.success': 'Success',
+
+  // Progress dialog
+  'progress.title_installing': 'Installing...',
+  'progress.title_uninstalling': 'Uninstalling...',
+  'progress.title_refreshing': 'Refreshing...',
+  'progress.description': 'Please wait while the operation completes.',
+  'progress.starting': 'Starting...',
+  'progress.compiling': 'Compiling package...',
+  'progress.preparing_upgrade': 'Preparing upgrade...',
+  'progress.provisioning_volumes': 'Provisioning volumes...',
+  'progress.seeding_data': 'Seeding volume data...',
+  'progress.applying_templates': 'Applying templates...',
+  'progress.installing_dependencies': 'Installing dependencies...',
+  'progress.saving_install': 'Saving install record...',
+  'progress.downloading_vm_image': 'Downloading VM image...',
+  'progress.installing_services': 'Starting services...',
+  'progress.registering_dns': 'Registering DNS...',
+  'progress.unregistering_dns': 'Unregistering DNS...',
+  'progress.stopping_services': 'Stopping services...',
+  'progress.removing_network': 'Removing network...',
+  'progress.saving_responses': 'Saving responses...',
+  'progress.removing_install': 'Removing install record...',
+  'progress.uninstalling_dependencies': 'Uninstalling dependencies...',
+  'progress.cleaning_volumes': 'Cleaning up volumes...',
+  'progress.refreshing': 'Refreshing repositories...',
 }
 
 export default enUS

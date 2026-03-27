@@ -112,6 +112,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 				if parentPI, ok := byRepoName[parentKey]; ok {
 					netInfo.ParentNetwork = systemd.NetworkName(pi.Repo, parentName, parentPI.Version)
 					netInfo.ParentUnitName = systemd.UnitName(pi.Repo, parentName, parentPI.Version)
+					netInfo.ParentNCUnitName = systemd.NetworkControllerUnitName(pi.Repo, parentName, parentPI.Version)
 				}
 			} else {
 				// Parent: collect dependency unit names for ordering.
@@ -150,6 +151,9 @@ type reconcilePackageNetworkInfo struct {
 	ParentNetwork string
 	// ParentUnitName is the parent systemd unit name (empty for parents).
 	ParentUnitName string
+	// ParentNCUnitName is the parent's NC unit name (empty for parents).
+	// Dependencies add After= for this so the network exists before they start.
+	ParentNCUnitName string
 	// DependencyUnitNames lists dep service unit names (empty for deps).
 	DependencyUnitNames []string
 }
@@ -286,6 +290,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		// Apply shared-network and systemd ordering info.
 		unitCfg.ParentNetwork = netInfo.ParentNetwork
 		unitCfg.ParentUnitName = netInfo.ParentUnitName
+		unitCfg.ParentNCUnitName = netInfo.ParentNCUnitName
 		unitCfg.DependencyUnitNames = netInfo.DependencyUnitNames
 
 		units := systemd.GeneratePackageUnits(unitCfg)

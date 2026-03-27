@@ -46,6 +46,11 @@ type PackageUnitConfig struct {
 	// services. When set, adds Wants= and After= directives on the parent
 	// unit so dependencies start before the parent and stop after it.
 	DependencyUnitNames []string
+
+	// ParentNCUnitName is the network controller unit name of the parent
+	// package. When set on a dependency, the dep adds After= for the NC so
+	// the shared network exists before the dep starts.
+	ParentNCUnitName string
 }
 
 // UnitFile represents a single systemd unit file with its name and content.
@@ -136,7 +141,7 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 
 	// --- Network controller unit (any ports = NC needed, always) ---
 	if needsNetworkController {
-		nc := generateNetworkControllerUnit(cfg)
+		nc := generateNetworkControllerUnit(cfg, ports)
 		units.NetworkController = &nc
 	}
 
@@ -169,7 +174,13 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		after = append(after, dep)
 	}
 	if needsNetworkController {
-		wants = append(wants, NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version))
+		ncUnit := NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
+		wants = append(wants, ncUnit)
+		after = append(after, ncUnit)
+	}
+	// Dependencies wait for the parent's NC (which creates the shared network).
+	if cfg.ParentNCUnitName != "" {
+		after = append(after, cfg.ParentNCUnitName)
 	}
 	if len(wants) > 0 {
 		fmt.Fprintf(&b, "Wants=%s\n", strings.Join(wants, " "))
@@ -226,15 +237,18 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	if isDep {
 		networkName = cfg.ParentNetwork
 	}
-	hasDeps := len(cfg.DependencyUnitNames) > 0
 
-	if !isDep && !hasDeps {
-		// Standalone package: remove stale network then create fresh.
-		fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network rm -f %s\n", networkName)
+	// Network lifecycle is owned by the NC when one exists. The NC creates
+	// the network in its own ExecStartPre and removes it in ExecStopPost.
+	// When no NC exists (package has no ports), the service unit manages
+	// the network directly.
+	if !needsNetworkController && cfg.ParentNCUnitName == "" {
+		if !isDep && len(cfg.DependencyUnitNames) == 0 {
+			// Standalone package without NC: remove stale network then create fresh.
+			fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network rm -f %s\n", networkName)
+		}
+		fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
 	}
-	// Idempotent create — deps and parents both create the network so the
-	// first unit to start (deps, via Before=) brings it into existence.
-	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
 
 	// ExecStart: podman run on the shared/private network.
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)
@@ -289,8 +303,9 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	}
 
 	// Clean up the podman network after the container stops.
-	// Dependencies do not remove the shared network — the parent owns it.
-	if !isDep {
+	// When an NC exists, it owns network cleanup. Dependencies never remove
+	// the shared network. Only standalone packages without NC clean up here.
+	if !isDep && !needsNetworkController {
 		fmt.Fprintf(&b, "ExecStopPost=-/usr/bin/podman network rm -f %s\n", networkName)
 	}
 
@@ -326,41 +341,53 @@ WantedBy=sockets.target
 	}
 }
 
-func generateNetworkControllerUnit(cfg PackageUnitConfig) UnitFile {
+func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFile {
 	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
 	containerName := ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
 	ncContainerName := NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	networkName := NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version)
 	statePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, cfg.RepoName, cfg.PkgName, cfg.Version)
 
 	var b strings.Builder
 
-	// [Unit]
+	// [Unit] — NC starts first (Before service and deps), stops last.
 	b.WriteString("[Unit]\n")
 	fmt.Fprintf(&b, "Description=Town OS Network Controller: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version)
-	fmt.Fprintf(&b, "BindsTo=%s\n", svcName)
-	fmt.Fprintf(&b, "After=%s\n", svcName)
+	fmt.Fprintf(&b, "PartOf=%s\n", svcName)
+
+	// NC starts before the service and all dependencies.
+	beforeTargets := []string{svcName}
+	beforeTargets = append(beforeTargets, cfg.DependencyUnitNames...)
+	fmt.Fprintf(&b, "Before=%s\n", strings.Join(beforeTargets, " "))
 
 	// [Service]
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=simple\n")
+
+	// Create the podman network — NC owns the network lifecycle.
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
 
 	// Clean up any stale NC container.
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman container cleanup %s\n", ncContainerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", ncContainerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", ncContainerName)
 
-	// Discover the package container's IP on the private network and write it
-	// to a target file the NC reads via --target-host.
-	targetFile := fmt.Sprintf("%s/%s-%s-%s.target", cfg.NetworkStatePath, cfg.RepoName, cfg.PkgName, cfg.Version)
-	fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c '/usr/bin/podman inspect --format \"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}\" %s > %s'\n",
-		containerName, targetFile)
-
-	// Run the NC as a podman container with --net host so socat can bind host ports.
-	fmt.Fprintf(&b, "ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --name %s --net host", ncContainerName)
+	// Run the NC on the shared podman network with -p flags for host port
+	// exposure. socat inside the NC resolves the service container by DNS
+	// name on the shared network — no IP discovery needed.
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s", ncContainerName)
+	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
+	for _, p := range ports {
+		fmt.Fprintf(&b, " \\\n  -p %d:%d", p, p)
+	}
 	fmt.Fprintf(&b, " \\\n  -v %s:%s:ro", cfg.NetworkStatePath, cfg.NetworkStatePath)
-	fmt.Fprintf(&b, " \\\n  %s --state %s --target-host \"$$(cat %s)\"'\n", cfg.NetworkControllerImage, statePath, targetFile)
+	fmt.Fprintf(&b, " \\\n  %s --state %s --target-container %s\n", cfg.NetworkControllerImage, statePath, containerName)
 
 	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", ncContainerName)
+
+	// NC owns network cleanup — remove the network after everything stops.
+	fmt.Fprintf(&b, "ExecStopPost=-/usr/bin/podman network rm -f %s\n", networkName)
+
 	b.WriteString("Restart=on-failure\n")
 
 	// [Install]

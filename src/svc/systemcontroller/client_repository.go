@@ -37,25 +37,11 @@ func (c *SystemdClient) MoveRepository(ctx context.Context, name string, positio
 
 // RefreshRepositories triggers a refresh of all repository metadata.
 // Returns a map of repository names to error messages for any that failed.
-func (c *SystemdClient) RefreshRepositories(ctx context.Context) (_ map[string]string, err error) {
-	resp, err := c.postJSON(ctx, "repository/refresh", nil)
-	if err != nil {
-		return nil, fmt.Errorf("%w: RefreshRepositories: %w", ErrHTTPRequest, err)
+func (c *SystemdClient) RefreshRepositories(ctx context.Context) (map[string]string, error) {
+	if err := c.postSSE(ctx, "repository/refresh", nil); err != nil {
+		return map[string]string{"refresh": err.Error()}, err
 	}
-	defer func() {
-		err = errors.Join(err, resp.Body.Close())
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, readProblemDetail(resp, "POST", "repository/refresh")
-	}
-
-	var errs map[string]string
-	err = json.NewDecoder(resp.Body).Decode(&errs)
-	if err != nil {
-		return map[string]string{}, nil
-	}
-	return errs, nil
+	return map[string]string{}, nil
 }
 
 // ListRepositories returns a paginated list of configured repositories.

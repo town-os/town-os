@@ -45,6 +45,10 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 		}
 		t.Fatalf("expected 200 for repo-a, got %d: %s", resp1.StatusCode, body)
 	}
+	// Drain the SSE stream so the handler finishes before we inspect state.
+	if _, err := io.ReadAll(resp1.Body); err != nil {
+		t.Fatalf("drain resp1: %v", err)
+	}
 
 	// Install nginx from repo-b (explicit repo).
 	pr, pw := io.Pipe()
@@ -74,6 +78,10 @@ func TestHTTPMultiRepoInstallSameName(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Fatalf("expected 200 for repo-b, got %d: %s", resp.StatusCode, body)
+	}
+	// Drain the SSE stream so the handler finishes before we inspect state.
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("drain resp: %v", err)
 	}
 
 	// MockInstallManager should have 2 installs with distinct repos.

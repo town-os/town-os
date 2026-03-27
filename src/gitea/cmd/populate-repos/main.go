@@ -80,23 +80,25 @@ func run() error {
 	return nil
 }
 
-// cacheRepo ensures a bare clone of the repo exists in cacheDir. If it
-// already exists, it fetches to refresh. Otherwise it creates a new bare clone.
+// cacheRepo ensures a bare clone of the repo exists in cacheDir. It prefers
+// a local sibling directory (../<name>) over GitHub when available.
 func cacheRepo(ctx context.Context, cacheDir string, r repo, ghUser, ghPass string) error {
 	repoPath := filepath.Join(cacheDir, r.Name+".git")
-	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", r.Owner, r.Name)
+
+	// Prefer local sibling repo over GitHub.
+	cloneURL, isLocal := resolveRepoSource(r)
 
 	var auth *githttp.BasicAuth
-	if ghUser != "" && ghPass != "" {
+	if !isLocal && ghUser != "" && ghPass != "" {
 		auth = &githttp.BasicAuth{Username: ghUser, Password: ghPass}
 	}
 
 	// Check if bare cache already exists.
 	if _, err := os.Stat(repoPath); err == nil { //nolint:gosec // G703 -- repoPath from trusted cacheDir
-		return fetchCache(ctx, repoPath, auth)
+		return fetchCache(ctx, repoPath, cloneURL, auth)
 	}
 
-	// Bare clone from GitHub.
+	// Bare clone.
 	opts := &gogit.CloneOptions{
 		URL:  cloneURL,
 		Tags: gogit.AllTags,
@@ -113,11 +115,31 @@ func cacheRepo(ctx context.Context, cacheDir string, r repo, ghUser, ghPass stri
 	return nil
 }
 
-// fetchCache opens an existing bare repo and fetches all refs.
-func fetchCache(ctx context.Context, repoPath string, auth *githttp.BasicAuth) error {
+// resolveRepoSource returns the clone URL for a repo, preferring a local
+// sibling directory (../<name>) when it exists.
+func resolveRepoSource(r repo) (url string, isLocal bool) {
+	localPath := filepath.Join("..", r.Name)
+	if info, err := os.Stat(localPath); err == nil && info.IsDir() {
+		if abs, err := filepath.Abs(localPath); err == nil {
+			fmt.Fprintf(os.Stderr, "Using local repo %s for %s\n", abs, r.Name)
+			return abs, true
+		}
+	}
+	return fmt.Sprintf("https://github.com/%s/%s.git", r.Owner, r.Name), false
+}
+
+// fetchCache opens an existing bare repo and fetches all refs. If the origin
+// URL has changed (e.g., switched from GitHub to a local path), the remote is
+// updated before fetching.
+func fetchCache(ctx context.Context, repoPath, sourceURL string, auth *githttp.BasicAuth) error {
 	repo, err := gogit.PlainOpen(repoPath)
 	if err != nil {
 		return fmt.Errorf("open cache: %w", err)
+	}
+
+	// Update origin URL if it changed (e.g., local repo now available).
+	if err := updateOriginURL(repo, sourceURL); err != nil {
+		return fmt.Errorf("update origin URL: %w", err)
 	}
 
 	opts := &gogit.FetchOptions{
@@ -138,6 +160,31 @@ func fetchCache(ctx context.Context, repoPath string, auth *githttp.BasicAuth) e
 	// fetch only updates refs/remotes/origin/* — the local branch (which is
 	// what gets pushed to Gitea) can fall behind.
 	return fastForwardHead(repo)
+}
+
+// updateOriginURL updates the origin remote URL if it differs from the desired URL.
+func updateOriginURL(repo *gogit.Repository, desiredURL string) error {
+	remote, err := repo.Remote("origin")
+	if err != nil {
+		return fmt.Errorf("get origin remote: %w", err)
+	}
+	cfg := remote.Config()
+	if len(cfg.URLs) > 0 && cfg.URLs[0] == desiredURL {
+		return nil
+	}
+	// Delete and re-create with the new URL.
+	if err := repo.DeleteRemote("origin"); err != nil {
+		return fmt.Errorf("delete origin: %w", err)
+	}
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{desiredURL},
+	})
+	if err != nil {
+		return fmt.Errorf("create origin: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "Updated origin URL to %s\n", desiredURL)
+	return nil
 }
 
 // fastForwardHead updates the local HEAD branch to match its remote tracking

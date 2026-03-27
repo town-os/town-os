@@ -42,11 +42,12 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if strings.Contains(svc, "-p 8080:80") {
 		t.Fatal("service should not have -p mappings (private network mode)")
 	}
-	if !strings.Contains(svc, "podman network rm -f town-os-net--test-repo-nginx-1.0") {
-		t.Fatalf("service missing network rm -f in ExecStartPre, got:\n%s", svc)
+	// When NC exists, the service should NOT have network rm/create (NC handles it).
+	if strings.Contains(svc, "podman network rm -f town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service should not have network rm -f when NC exists, got:\n%s", svc)
 	}
-	if !strings.Contains(svc, "podman network create town-os-net--test-repo-nginx-1.0") {
-		t.Fatalf("service missing network create in ExecStartPre, got:\n%s", svc)
+	if strings.Contains(svc, "podman network create town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service should not have network create when NC exists, got:\n%s", svc)
 	}
 	if !strings.Contains(svc, "-e NGINX_HOST=example.com") {
 		t.Fatal("service missing environment variable")
@@ -96,11 +97,11 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 		t.Fatalf("expected network controller name town-os-package--test-repo-nginx-1.0-network.service, got %s", units.NetworkController.Name)
 	}
 	nc := units.NetworkController.Content
-	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("network controller missing BindsTo")
+	if !strings.Contains(nc, "PartOf=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatal("network controller missing PartOf")
 	}
-	if !strings.Contains(nc, "After=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatal("network controller missing After")
+	if !strings.Contains(nc, "Before=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatal("network controller missing Before")
 	}
 
 	// Verify socket units still use PartOf (not BindsTo).
@@ -564,32 +565,45 @@ func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 		t.Fatal("expected network controller unit")
 	}
 	nc := units.NetworkController.Content
-	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatalf("network controller missing BindsTo, got:\n%s", nc)
+	if !strings.Contains(nc, "PartOf=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatalf("network controller missing PartOf, got:\n%s", nc)
 	}
-	if !strings.Contains(nc, "After=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatalf("network controller missing After, got:\n%s", nc)
+	if !strings.Contains(nc, "Before=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatalf("network controller missing Before, got:\n%s", nc)
 	}
 	if !strings.Contains(nc, "quay.io/town/networkcontroller:test --state /var/run/town-os/test-repo-nginx-1.0.json") {
 		t.Fatalf("network controller missing ExecStart with correct state path, got:\n%s", nc)
 	}
+	if !strings.Contains(nc, "--target-container town-os-package--test-repo-nginx-1.0") {
+		t.Fatalf("network controller missing --target-container, got:\n%s", nc)
+	}
 	if !strings.Contains(nc, "Description=Town OS Network Controller: test-repo/nginx@1.0") {
 		t.Fatalf("network controller missing description, got:\n%s", nc)
 	}
-	// NC runs as a podman container with --net host.
+	// NC runs as a podman container on the shared network (not --net host).
 	if !strings.Contains(nc, "podman run") {
 		t.Fatalf("network controller should run as podman container, got:\n%s", nc)
 	}
-	if !strings.Contains(nc, "--net host") {
-		t.Fatalf("network controller should use --net host, got:\n%s", nc)
+	if !strings.Contains(nc, "--net town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("network controller should use --net <networkName>, got:\n%s", nc)
 	}
-	// NC must NOT join the private network (host and named networks are mutually exclusive).
-	if strings.Contains(nc, "--net town-os-net") {
-		t.Fatalf("network controller should not join private network (host mode only), got:\n%s", nc)
+	if strings.Contains(nc, "--net host") {
+		t.Fatalf("network controller should not use --net host, got:\n%s", nc)
 	}
-	// NC discovers container IP via podman inspect.
-	if !strings.Contains(nc, "podman inspect") {
-		t.Fatalf("network controller missing podman inspect for IP discovery, got:\n%s", nc)
+	// NC has -p flags for port mappings.
+	if !strings.Contains(nc, "-p 8080:8080") {
+		t.Fatalf("network controller missing -p port mapping, got:\n%s", nc)
+	}
+	// NC creates and removes the network.
+	if !strings.Contains(nc, "podman network create town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("network controller missing network create in ExecStartPre, got:\n%s", nc)
+	}
+	if !strings.Contains(nc, "podman network rm -f town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("network controller missing network rm -f in ExecStopPost, got:\n%s", nc)
+	}
+	// NC must NOT have podman inspect (uses DNS-based container name resolution).
+	if strings.Contains(nc, "podman inspect") {
+		t.Fatalf("network controller should not have podman inspect, got:\n%s", nc)
 	}
 }
 
@@ -614,8 +628,8 @@ func TestGeneratePackageUnitsNCAlwaysPresentWithExternalPorts(t *testing.T) {
 		t.Fatal("expected network controller unit")
 	}
 	nc := units.NetworkController.Content
-	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-nginx-1.0.service") {
-		t.Fatalf("network controller missing BindsTo, got:\n%s", nc)
+	if !strings.Contains(nc, "PartOf=town-os-package--test-repo-nginx-1.0.service") {
+		t.Fatalf("network controller missing PartOf, got:\n%s", nc)
 	}
 
 	// Service should use private network.
@@ -650,8 +664,8 @@ func TestGeneratePackageUnitsInternalPortForwarding(t *testing.T) {
 		t.Fatal("expected network controller unit for internal port forwarding")
 	}
 	nc := units.NetworkController.Content
-	if !strings.Contains(nc, "BindsTo=town-os-package--test-repo-gitea-1.0.service") {
-		t.Fatalf("network controller missing BindsTo, got:\n%s", nc)
+	if !strings.Contains(nc, "PartOf=town-os-package--test-repo-gitea-1.0.service") {
+		t.Fatalf("network controller missing PartOf, got:\n%s", nc)
 	}
 
 	// Service should have Wants= for network controller.
@@ -1019,12 +1033,10 @@ func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 		t.Fatalf("dependency missing Before, got:\n%s", svc)
 	}
 
-	// Must create the network idempotently (it starts before the parent).
-	if !strings.Contains(svc, "podman network create "+parentNetwork) {
-		t.Fatalf("dependency missing idempotent network create, got:\n%s", svc)
+	// When dependency has its own NC, network create/rm is handled by the NC, not the service.
+	if strings.Contains(svc, "podman network create") {
+		t.Fatalf("dependency service should not have network create when NC exists, got:\n%s", svc)
 	}
-
-	// Must NOT rm -f the network before create (parent might have deps on it).
 	if strings.Contains(svc, "podman network rm") {
 		t.Fatalf("dependency must not remove the shared network, got:\n%s", svc)
 	}
@@ -1066,26 +1078,13 @@ func TestGeneratePackageUnitsParentWithDeps(t *testing.T) {
 		t.Fatalf("parent must not have Before, got:\n%s", svc)
 	}
 
-	// Parent with deps must NOT rm -f before create (deps may be running).
+	// Parent with NC: network create/rm is handled by the NC, not the service.
 	ownNetwork := NetworkName("core", "mattermost", "1.0")
-	rmIdx := strings.Index(svc, "podman network rm -f "+ownNetwork)
-	createIdx := strings.Index(svc, "podman network create "+ownNetwork)
-	if rmIdx >= 0 && rmIdx < createIdx {
-		t.Fatalf("parent with deps must not rm -f before create, got:\n%s", svc)
+	if strings.Contains(svc, "podman network create "+ownNetwork) {
+		t.Fatalf("parent service should not have network create when NC exists, got:\n%s", svc)
 	}
-
-	// Parent must create the network.
-	if !strings.Contains(svc, "podman network create "+ownNetwork) {
-		t.Fatalf("parent missing network create, got:\n%s", svc)
-	}
-
-	// Parent must rm -f network in ExecStopPost (it owns the network).
-	stopIdx := strings.Index(svc, "ExecStopPost=")
-	if stopIdx < 0 {
-		t.Fatalf("parent missing ExecStopPost, got:\n%s", svc)
-	}
-	if !strings.Contains(svc[stopIdx:], "podman network rm -f "+ownNetwork) {
-		t.Fatalf("parent missing network rm -f in ExecStopPost, got:\n%s", svc)
+	if strings.Contains(svc, "podman network rm -f "+ownNetwork) {
+		t.Fatalf("parent service should not have network rm -f when NC exists, got:\n%s", svc)
 	}
 }
 
@@ -1108,27 +1107,23 @@ func TestGeneratePackageUnitsStandaloneNetworkCleanup(t *testing.T) {
 
 	networkName := NetworkName("core", "nginx", "1.0")
 
-	// Standalone package: rm -f before create is allowed (no deps to disconnect).
-	if !strings.Contains(svc, "podman network rm -f "+networkName) {
-		t.Fatalf("standalone package missing rm -f, got:\n%s", svc)
+	// Standalone with NC: network create/rm is handled by the NC, not the service.
+	if strings.Contains(svc, "podman network rm -f "+networkName) {
+		t.Fatalf("standalone service should not have network rm -f when NC exists, got:\n%s", svc)
 	}
-	if !strings.Contains(svc, "podman network create "+networkName) {
-		t.Fatalf("standalone package missing network create, got:\n%s", svc)
-	}
-
-	// rm -f must appear before create in ExecStartPre.
-	rmIdx := strings.Index(svc, "podman network rm -f "+networkName)
-	createIdx := strings.Index(svc, "podman network create "+networkName)
-	if rmIdx >= createIdx {
-		t.Fatalf("rm -f must appear before create for standalone, got:\n%s", svc)
+	if strings.Contains(svc, "podman network create "+networkName) {
+		t.Fatalf("standalone service should not have network create when NC exists, got:\n%s", svc)
 	}
 
-	// Must also rm -f in ExecStopPost.
-	stopIdx := strings.Index(svc, "ExecStopPost=")
-	if stopIdx < 0 {
-		t.Fatalf("standalone missing ExecStopPost, got:\n%s", svc)
+	// NC should handle network lifecycle.
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit for standalone package with ports")
 	}
-	if !strings.Contains(svc[stopIdx:], "podman network rm -f "+networkName) {
-		t.Fatalf("standalone missing network rm -f in ExecStopPost, got:\n%s", svc)
+	ncContent := units.NetworkController.Content
+	if !strings.Contains(ncContent, "podman network create "+networkName) {
+		t.Fatalf("NC missing network create, got:\n%s", ncContent)
+	}
+	if !strings.Contains(ncContent, "podman network rm -f "+networkName) {
+		t.Fatalf("NC missing network rm -f, got:\n%s", ncContent)
 	}
 }

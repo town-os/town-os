@@ -23,6 +23,20 @@ beforeAll(() => {
   }
 })
 
+// Creates a mock Response with an SSE body that immediately sends a "done" event.
+function mockSSEResponse() {
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"done":true}\n\n'))
+      controller.close()
+    },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  })
+}
+
 // Shared mock client — all calls to getClient() return this same object.
 const mockClient = {
   listPackages: vi.fn(() =>
@@ -45,7 +59,9 @@ const mockClient = {
   listPackagesByRepo: vi.fn(() => Promise.resolve([])),
   listPackageVersions: vi.fn(() => Promise.resolve(['1.0'])),
   installPackage: vi.fn(() => Promise.resolve()),
+  installPackageStream: vi.fn(() => Promise.resolve(mockSSEResponse())),
   uninstallPackage: vi.fn(() => Promise.resolve()),
+  uninstallPackageStream: vi.fn(() => Promise.resolve(mockSSEResponse())),
   getPackageQuestions: vi.fn(() => Promise.resolve({})),
   getPackageQuestionsByIdentity: vi.fn(() =>
     Promise.resolve({
@@ -55,7 +71,8 @@ const mockClient = {
   ),
   getResponses: vi.fn(() => Promise.resolve({ hostname: 'cached-host', port: '9090' })),
   getLastResponses: vi.fn(() => Promise.resolve({})),
-  refreshRepositories: vi.fn(() => Promise.resolve({})),
+  refreshRepositories: vi.fn(() => Promise.resolve()),
+  refreshRepositoriesStream: vi.fn(() => Promise.resolve(mockSSEResponse())),
   addRepository: vi.fn(() => Promise.resolve()),
   removeRepository: vi.fn(() => Promise.resolve()),
   moveRepository: vi.fn(() => Promise.resolve()),
@@ -115,7 +132,9 @@ beforeEach(() => {
   mockClient.listPackagesByRepo.mockImplementation(() => Promise.resolve([]))
   mockClient.listPackageVersions.mockImplementation(() => Promise.resolve(['1.0']))
   mockClient.installPackage.mockImplementation(() => Promise.resolve())
+  mockClient.installPackageStream.mockImplementation(() => Promise.resolve(mockSSEResponse()))
   mockClient.uninstallPackage.mockImplementation(() => Promise.resolve())
+  mockClient.uninstallPackageStream.mockImplementation(() => Promise.resolve(mockSSEResponse()))
   mockClient.getPackageQuestions.mockImplementation(() => Promise.resolve({}))
   mockClient.getPackageQuestionsByIdentity.mockImplementation(() =>
     Promise.resolve({
@@ -127,7 +146,8 @@ beforeEach(() => {
     Promise.resolve({ hostname: 'cached-host', port: '9090' }),
   )
   mockClient.getLastResponses.mockImplementation(() => Promise.resolve({}))
-  mockClient.refreshRepositories.mockImplementation(() => Promise.resolve({}))
+  mockClient.refreshRepositories.mockImplementation(() => Promise.resolve())
+  mockClient.refreshRepositoriesStream.mockImplementation(() => Promise.resolve(mockSSEResponse()))
   mockClient.addRepository.mockImplementation(() => Promise.resolve())
   mockClient.removeRepository.mockImplementation(() => Promise.resolve())
   mockClient.moveRepository.mockImplementation(() => Promise.resolve())
@@ -336,7 +356,7 @@ describe('PackageManagement', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }))
     await waitFor(() => {
-      expect(mockClient.uninstallPackage).toHaveBeenCalledWith('core', 'nginx', '1.0', false)
+      expect(mockClient.uninstallPackageStream).toHaveBeenCalledWith('core', 'nginx', '1.0', false)
     })
   })
 
@@ -505,7 +525,7 @@ describe('PackageManagement', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /Refresh/ }))
     await waitFor(() => {
-      expect(mockClient.refreshRepositories).toHaveBeenCalled()
+      expect(mockClient.refreshRepositoriesStream).toHaveBeenCalled()
     })
   })
 
@@ -1053,8 +1073,8 @@ describe('PackageManagement', () => {
     // Return no cached responses so inputs are editable.
     mockClient.getResponses.mockImplementation(() => Promise.resolve({}))
     mockClient.getLastResponses.mockImplementation(() => Promise.resolve({}))
-    // Mock install to return validation errors.
-    mockClient.installPackage.mockImplementation(() => {
+    // Mock install stream to throw validation errors.
+    mockClient.installPackageStream.mockImplementation(() => {
       const err = new Error('validation failed')
       err.problem = {
         type: 'validation',
@@ -1199,7 +1219,7 @@ describe('PackageManagement', () => {
   it('applies border-destructive class to input with field error', async () => {
     mockClient.getResponses.mockImplementation(() => Promise.resolve({}))
     mockClient.getLastResponses.mockImplementation(() => Promise.resolve({}))
-    mockClient.installPackage.mockImplementation(() => {
+    mockClient.installPackageStream.mockImplementation(() => {
       const err = new Error('validation failed')
       err.problem = {
         type: 'validation',
@@ -1368,9 +1388,9 @@ describe('PackageManagement', () => {
 
     fireEvent.click(screen.getByText('Not Installed'))
 
-    // Should call installPackage directly without showing a questions dialog.
+    // Should call installPackageStream directly without showing a questions dialog.
     await waitFor(() => {
-      expect(mockClient.installPackage).toHaveBeenCalled()
+      expect(mockClient.installPackageStream).toHaveBeenCalled()
     })
 
     // No questions dialog should have been opened.
@@ -1575,7 +1595,7 @@ describe('PackageManagement', () => {
     fireEvent.submit(form)
 
     await waitFor(() => {
-      expect(mockClient.installPackage).toHaveBeenCalledWith(
+      expect(mockClient.installPackageStream).toHaveBeenCalledWith(
         'core',
         'redis',
         '7.0',

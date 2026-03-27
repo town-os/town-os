@@ -1,3 +1,6 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package networkcontroller
 
 import (
@@ -27,10 +30,11 @@ type PortConfig struct {
 // PackageNetworkState is the per-package JSON state file written by the
 // systemcontroller and watched by the networkcontroller daemon.
 type PackageNetworkState struct {
-	Repo    string       `json:"repo"`
-	Package string       `json:"package"`
-	Version string       `json:"version"`
-	Ports   []PortConfig `json:"ports"`
+	Repo          string       `json:"repo"`
+	Package       string       `json:"package"`
+	Version       string       `json:"version"`
+	ContainerName string       `json:"container_name"`
+	Ports         []PortConfig `json:"ports"`
 }
 
 // ExecRunner abstracts process execution for testing.
@@ -61,8 +65,7 @@ func (r *osRunner) Start(name string, args ...string) (Process, error) {
 	cmd := exec.CommandContext(context.Background(), name, args...) //nolint:gosec // G204 -- args from trusted internal calls
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
-	err := cmd.Start()
-	if err != nil {
+	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	return &osProcess{cmd: cmd}, nil
@@ -70,8 +73,8 @@ func (r *osRunner) Start(name string, args ...string) (Process, error) {
 
 // activeForwarder tracks a running socat process.
 type activeForwarder struct {
-	proc     Process
-	intPort  uint16
+	proc    Process
+	intPort uint16
 }
 
 // activeMapping tracks a UPnP port mapping.
@@ -80,14 +83,16 @@ type activeMapping struct {
 }
 
 // Controller manages socat forwarders and UPnP mappings for a single package.
+// The NC container joins the same podman network as the service containers
+// and resolves targets by container DNS name (no IP addresses needed).
 type Controller struct {
-	mu         sync.Mutex
-	upnp       upnp.Manager
-	runner     ExecRunner
-	targetHost string // IP address of the package container on the private network
-	forwarders map[uint16]*activeForwarder // keyed by external port
-	mappings   map[uint16]*activeMapping   // keyed by external port
-	state      *PackageNetworkState
+	mu              sync.Mutex
+	upnp            upnp.Manager
+	runner          ExecRunner
+	targetContainer string // container DNS name on the podman network (socat target)
+	forwarders      map[uint16]*activeForwarder // keyed by external port
+	mappings        map[uint16]*activeMapping   // keyed by external port
+	state           *PackageNetworkState
 }
 
 // NewController creates a new Controller with the given UPnP manager.
@@ -96,23 +101,20 @@ func NewController(upnpMgr upnp.Manager) *Controller {
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     &osRunner{},
-		targetHost: "127.0.0.1",
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
 }
 
-// NewControllerWithTarget creates a Controller with a custom target host.
-func NewControllerWithTarget(upnpMgr upnp.Manager, targetHost string) *Controller {
-	if targetHost == "" {
-		targetHost = "127.0.0.1"
-	}
+// NewControllerWithTarget creates a Controller that forwards to the named
+// container on the shared podman network.
+func NewControllerWithTarget(upnpMgr upnp.Manager, targetContainer string) *Controller {
 	return &Controller{
-		upnp:       upnpMgr,
-		runner:     &osRunner{},
-		targetHost: targetHost,
-		forwarders: make(map[uint16]*activeForwarder),
-		mappings:   make(map[uint16]*activeMapping),
+		upnp:            upnpMgr,
+		runner:          &osRunner{},
+		targetContainer: targetContainer,
+		forwarders:      make(map[uint16]*activeForwarder),
+		mappings:        make(map[uint16]*activeMapping),
 	}
 }
 
@@ -121,24 +123,20 @@ func NewControllerWithRunner(upnpMgr upnp.Manager, runner ExecRunner) *Controlle
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     runner,
-		targetHost: "127.0.0.1",
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
 }
 
 // NewControllerWithRunnerAndTarget creates a Controller with a custom exec
-// runner and target host (for testing).
-func NewControllerWithRunnerAndTarget(upnpMgr upnp.Manager, runner ExecRunner, targetHost string) *Controller {
-	if targetHost == "" {
-		targetHost = "127.0.0.1"
-	}
+// runner and target container name (for testing).
+func NewControllerWithRunnerAndTarget(upnpMgr upnp.Manager, runner ExecRunner, targetContainer string) *Controller {
 	return &Controller{
-		upnp:       upnpMgr,
-		runner:     runner,
-		targetHost: targetHost,
-		forwarders: make(map[uint16]*activeForwarder),
-		mappings:   make(map[uint16]*activeMapping),
+		upnp:            upnpMgr,
+		runner:          runner,
+		targetContainer: targetContainer,
+		forwarders:      make(map[uint16]*activeForwarder),
+		mappings:        make(map[uint16]*activeMapping),
 	}
 }
 
@@ -151,6 +149,12 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 		return fmt.Errorf("read initial state: %w", err)
 	}
 	slog.Info(fmt.Sprintf("networkcontroller starting: %s/%s@%s", state.Repo, state.Package, state.Version))
+
+	// If target container was not set via flag, read it from the state file.
+	if c.targetContainer == "" && state.ContainerName != "" {
+		c.targetContainer = state.ContainerName
+	}
+
 	c.reconcile(state)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -164,8 +168,7 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 		}
 	}()
 
-	err = watcher.Add(statePath)
-	if err != nil {
+	if err := watcher.Add(statePath); err != nil {
 		return fmt.Errorf("watch state file: %w", err)
 	}
 
@@ -187,6 +190,12 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 				if err != nil {
 					slog.Error(fmt.Sprintf("re-read state: %v", err))
 					continue
+				}
+				// Update target container from state if it changed.
+				if newState.ContainerName != "" {
+					c.mu.Lock()
+					c.targetContainer = newState.ContainerName
+					c.mu.Unlock()
 				}
 				c.reconcile(newState)
 			}
@@ -262,10 +271,15 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 }
 
 func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
+	target := c.targetContainer
+	if target == "" {
+		slog.Warn(fmt.Sprintf("no target container for forwarder %d->%d, skipping", extPort, intPort))
+		return
+	}
 	proc, err := c.runner.Start(
 		"/usr/bin/socat",
 		fmt.Sprintf("TCP-LISTEN:%d,fork,reuseaddr", extPort),
-		fmt.Sprintf("TCP:%s:%d", c.targetHost, intPort),
+		fmt.Sprintf("TCP:%s:%d", target, intPort),
 	)
 	if err != nil {
 		slog.Error(fmt.Sprintf("start socat %d->%d: %v", extPort, intPort, err))
@@ -273,12 +287,11 @@ func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
 	}
 
 	c.forwarders[extPort] = &activeForwarder{proc: proc, intPort: intPort}
-	slog.Info(fmt.Sprintf("started forwarder %d->%d (pid %d)", extPort, intPort, proc.Pid()))
+	slog.Info(fmt.Sprintf("started forwarder %d->%s:%d (pid %d)", extPort, target, intPort, proc.Pid()))
 
 	// Reap the child process in the background.
 	go func() {
-		err := proc.Wait()
-		if err != nil {
+		if err := proc.Wait(); err != nil {
 			slog.Debug(fmt.Sprintf("socat %d->%d exited: %v", extPort, intPort, err))
 		}
 	}()
@@ -289,8 +302,7 @@ func (c *Controller) stopForwarderLocked(extPort uint16) {
 	if !ok {
 		return
 	}
-	err := fwd.proc.Kill()
-	if err != nil {
+	if err := fwd.proc.Kill(); err != nil {
 		slog.Debug(fmt.Sprintf("kill socat %d: %v", extPort, err))
 	}
 	delete(c.forwarders, extPort)
@@ -321,8 +333,7 @@ func (c *Controller) addUPnPMappingLocked(cfg PortConfig) {
 	}
 
 	desc := c.upnpDescription(cfg)
-	err := c.upnp.AddPortMapping("TCP", cfg.ExternalPort, internalPort, desc, 1800)
-	if err != nil {
+	if err := c.upnp.AddPortMapping("TCP", cfg.ExternalPort, internalPort, desc, 1800); err != nil {
 		slog.Warn(fmt.Sprintf("UPnP add %d: %v", cfg.ExternalPort, err))
 	} else {
 		slog.Info(fmt.Sprintf("UPnP mapped %d->%d", cfg.ExternalPort, internalPort))
@@ -337,8 +348,7 @@ func (c *Controller) removeUPnPMappingLocked(extPort uint16) {
 		return
 	}
 
-	err := c.upnp.RemovePortMapping("TCP", extPort)
-	if err != nil {
+	if err := c.upnp.RemovePortMapping("TCP", extPort); err != nil {
 		slog.Warn(fmt.Sprintf("UPnP remove %d: %v", extPort, err))
 	} else {
 		slog.Info(fmt.Sprintf("UPnP removed %d", extPort))
@@ -361,8 +371,7 @@ func (c *Controller) renewUPnP() {
 			internalPort = m.cfg.ExternalPort
 		}
 		desc := c.upnpDescription(m.cfg)
-		err := c.upnp.AddPortMapping("TCP", m.cfg.ExternalPort, internalPort, desc, 1800)
-		if err != nil {
+		if err := c.upnp.AddPortMapping("TCP", m.cfg.ExternalPort, internalPort, desc, 1800); err != nil {
 			slog.Warn(fmt.Sprintf("UPnP renew %d: %v", m.cfg.ExternalPort, err))
 		}
 	}
@@ -417,8 +426,7 @@ func readState(path string) (_ *PackageNetworkState, err error) {
 	}()
 
 	var state PackageNetworkState
-	err = json.NewDecoder(f).Decode(&state)
-	if err != nil {
+	if err := json.NewDecoder(f).Decode(&state); err != nil {
 		return nil, fmt.Errorf("decode state: %w", err)
 	}
 	return &state, nil

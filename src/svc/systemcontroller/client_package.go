@@ -148,7 +148,7 @@ func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string
 		SkipResponseReuse: skipResponseReuse,
 	})
 
-	return c.postClient(ctx, "packages/install", pr)
+	return c.postSSE(ctx, "packages/install", pr)
 }
 
 // UninstallPackage removes an installed package. Set purgeVolumes to also
@@ -157,7 +157,7 @@ func (c *SystemdClient) UninstallPackage(ctx context.Context, repo, name, versio
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, UninstallRequest{Repo: repo, Name: name, Version: version, PurgeVolumes: purgeVolumes})
 
-	return c.postClient(ctx, "packages/uninstall", pr)
+	return c.postSSE(ctx, "packages/uninstall", pr)
 }
 
 // PurgeVolumes deletes all data volumes for the named package.

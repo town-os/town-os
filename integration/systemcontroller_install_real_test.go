@@ -114,10 +114,10 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 			// timing (no real container image exists to keep it running).
 			// Any of these states confirms the unit was installed and started.
 			switch u.ActiveState {
-			case "active", "deactivating", "failed":
-				// OK
+			case "active", "activating", "deactivating", "failed":
+				// OK — activating is a transient state while the container starts.
 			default:
-				t.Fatalf("expected unit %q ActiveState active/deactivating/failed, got %q", unitName, u.ActiveState)
+				t.Fatalf("expected unit %q ActiveState active/activating/deactivating/failed, got %q", unitName, u.ActiveState)
 			}
 			break
 		}

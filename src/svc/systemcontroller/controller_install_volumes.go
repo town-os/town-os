@@ -13,6 +13,7 @@ import (
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
+	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 )
 
@@ -28,9 +29,10 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 	isDep := packages.IsDependency(pkgName)
 
 	state := networkcontroller.PackageNetworkState{
-		Repo:    repoName,
-		Package: pkgName,
-		Version: version,
+		Repo:          repoName,
+		Package:       pkgName,
+		Version:       version,
+		ContainerName: systemd.ContainerName(repoName, pkgName, version),
 	}
 
 	// All ports get Forward=true — the NC handles all host port exposure

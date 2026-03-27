@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"bufio"
 	"io"
 	"net"
 	"net/http"
@@ -377,6 +378,58 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 
 	if resp.StatusCode != http.StatusOK {
 		return readProblemDetail(resp, "POST", path)
+	}
+
+	return nil
+}
+
+// postSSE sends a POST request and reads the SSE progress stream until a
+// "done" or "error" event is received. Returns nil on success or the error
+// message from the stream. Validation errors (non-200 status) are returned
+// as ProblemDetail errors before reading the stream.
+func (c *SystemdClient) postSSE(ctx context.Context, path string, body io.Reader) (err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.route(path), body)
+	if err != nil {
+		return fmt.Errorf("%w: POST %s: %w", ErrNewRequest, path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	if err != nil {
+		return fmt.Errorf("%w: POST %s: %w", ErrHTTPRequest, path, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	// Non-200 means validation failed before SSE started.
+	if resp.StatusCode != http.StatusOK {
+		return readProblemDetail(resp, "POST", path)
+	}
+
+	// Read SSE stream for done/error events.
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var evt progressEvent
+		if err := json.Unmarshal([]byte(line[6:]), &evt); err != nil {
+			continue
+		}
+		if evt.Error != "" {
+			return fmt.Errorf("POST %s: %s", path, evt.Error)
+		}
+		if evt.Done {
+			return nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("POST %s: read SSE: %w", path, err)
 	}
 
 	return nil

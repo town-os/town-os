@@ -146,7 +146,7 @@ func TestStateFileParsing(t *testing.T) {
 func TestReconcileAddNewPorts(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	state := &PackageNetworkState{
 		Package: "nginx",
@@ -169,8 +169,8 @@ func TestReconcileAddNewPorts(t *testing.T) {
 	if calls[0].Args[0] != "TCP-LISTEN:8080,fork,reuseaddr" {
 		t.Fatalf("expected TCP-LISTEN:8080,fork,reuseaddr, got %s", calls[0].Args[0])
 	}
-	if calls[0].Args[1] != "TCP:127.0.0.1:80" {
-		t.Fatalf("expected TCP:127.0.0.1:80, got %s", calls[0].Args[1])
+	if calls[0].Args[1] != "TCP:town-os-package--test-nginx-1.0:80" {
+		t.Fatalf("expected TCP:town-os-package--test-nginx-1.0:80, got %s", calls[0].Args[1])
 	}
 
 	// Verify UPnP mapping was added.
@@ -191,7 +191,7 @@ func TestReconcileAddNewPorts(t *testing.T) {
 func TestReconcileRemoveOldPorts(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	// Add initial state.
 	ctrl.reconcile(&PackageNetworkState{
@@ -240,7 +240,7 @@ func TestReconcileRemoveOldPorts(t *testing.T) {
 func TestReconcileUnchangedPortsLeftAlone(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	state := &PackageNetworkState{
 		Package: "nginx",
@@ -270,7 +270,7 @@ func TestReconcileUnchangedPortsLeftAlone(t *testing.T) {
 func TestUPnPDescriptionFormat(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -298,7 +298,7 @@ func TestUPnPDescriptionFormat(t *testing.T) {
 func TestUPnPPortLogicForwardTrue(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -330,7 +330,7 @@ func TestUPnPPortLogicForwardTrue(t *testing.T) {
 func TestUPnPPortLogicForwardFalse(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -362,7 +362,7 @@ func TestUPnPPortLogicForwardFalse(t *testing.T) {
 func TestPeriodicRenewal(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -391,7 +391,7 @@ func TestPeriodicRenewal(t *testing.T) {
 func TestShutdownRemovesAll(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -464,7 +464,7 @@ func TestFileChangeTrigersReconcile(t *testing.T) {
 
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -499,7 +499,7 @@ func TestFileChangeTrigersReconcile(t *testing.T) {
 func TestUPnPUnavailableDoesNotCrash(t *testing.T) {
 	runner := newMockRunner()
 	// nil UPnP manager = UPnP unavailable.
-	ctrl := NewControllerWithRunner(nil, runner)
+	ctrl := NewControllerWithRunnerAndTarget(nil, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -524,7 +524,7 @@ func TestUPnPUnavailableDoesNotCrash(t *testing.T) {
 func TestNoForwarderWhenForwardFalse(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -548,7 +548,7 @@ func TestNoForwarderWhenForwardFalse(t *testing.T) {
 func TestUPnPErrorDoesNotCrash(t *testing.T) {
 	mock := &upnp.MockManager{AddErr: errors.New("simulated UPnP error")}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	// Should not panic despite UPnP error.
 	ctrl.reconcile(&PackageNetworkState{
@@ -569,7 +569,7 @@ func TestUPnPErrorDoesNotCrash(t *testing.T) {
 func TestReconcileInternalPortForward(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	// Internal port forward: Forward=true, UPnP=false.
 	state := &PackageNetworkState{
@@ -590,8 +590,8 @@ func TestReconcileInternalPortForward(t *testing.T) {
 	if calls[0].Args[0] != "TCP-LISTEN:9999,fork,reuseaddr" {
 		t.Fatalf("expected TCP-LISTEN:9999,fork,reuseaddr, got %s", calls[0].Args[0])
 	}
-	if calls[0].Args[1] != "TCP:127.0.0.1:3000" {
-		t.Fatalf("expected TCP:127.0.0.1:3000, got %s", calls[0].Args[1])
+	if calls[0].Args[1] != "TCP:town-os-package--test-nginx-1.0:3000" {
+		t.Fatalf("expected TCP:town-os-package--test-nginx-1.0:3000, got %s", calls[0].Args[1])
 	}
 
 	// Verify UPnP mapping was NOT added.
@@ -612,7 +612,7 @@ func TestReconcileInternalPortForward(t *testing.T) {
 func TestUPnPTTLAndRefreshInterval(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctrl.reconcile(&PackageNetworkState{
 		Package: "nginx",
@@ -671,7 +671,7 @@ func TestRunEmitsStartupLog(t *testing.T) {
 
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -691,10 +691,35 @@ func TestRunEmitsStartupLog(t *testing.T) {
 	}
 }
 
-func TestCustomTargetHost(t *testing.T) {
+func TestCustomTargetContainer(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()
-	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "10.88.0.2")
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--core-redis-7.0")
+
+	state := &PackageNetworkState{
+		Package: "redis",
+		Version: "7.0",
+		Ports: []PortConfig{
+			{ExternalPort: 6379, InternalPort: 6379, UPnP: true, Forward: true},
+		},
+	}
+
+	ctrl.reconcile(state)
+
+	calls := runner.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(calls))
+	}
+	if calls[0].Args[1] != "TCP:town-os-package--core-redis-7.0:6379" {
+		t.Fatalf("expected TCP:town-os-package--core-redis-7.0:6379, got %s", calls[0].Args[1])
+	}
+}
+
+func TestNoTargetContainerSkipsSocat(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	// No target container set — socat should be skipped.
+	ctrl := NewControllerWithRunner(mock, runner)
 
 	state := &PackageNetworkState{
 		Package: "nginx",
@@ -706,37 +731,52 @@ func TestCustomTargetHost(t *testing.T) {
 
 	ctrl.reconcile(state)
 
-	calls := runner.GetCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 exec call, got %d", len(calls))
+	// No socat should be started (no target container).
+	if len(runner.GetCalls()) != 0 {
+		t.Fatalf("expected 0 exec calls without target container, got %d", len(runner.GetCalls()))
 	}
-	if calls[0].Args[1] != "TCP:10.88.0.2:80" {
-		t.Fatalf("expected TCP:10.88.0.2:80, got %s", calls[0].Args[1])
+
+	// UPnP should still be added even without a target container.
+	upnpCalls := mock.GetCalls()
+	if len(upnpCalls) != 1 {
+		t.Fatalf("expected 1 UPnP call, got %d", len(upnpCalls))
 	}
 }
 
-func TestDefaultTargetHost(t *testing.T) {
-	mock := &upnp.MockManager{}
-	runner := newMockRunner()
-	ctrl := NewControllerWithRunner(mock, runner)
+func TestTargetContainerFromStateFile(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
 
-	state := &PackageNetworkState{
-		Package: "nginx",
-		Version: "1.0",
+	writeState(t, statePath, PackageNetworkState{
+		Package:       "nginx",
+		Version:       "1.0",
+		ContainerName: "town-os-package--core-nginx-1.0",
 		Ports: []PortConfig{
 			{ExternalPort: 8080, InternalPort: 80, UPnP: false, Forward: true},
 		},
-	}
+	})
 
-	ctrl.reconcile(state)
+	runner := newMockRunner()
+	// No target set via constructor — should pick it up from the state file.
+	ctrl := NewControllerWithRunner(nil, runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ctrl.Run(ctx, statePath)
+	}()
+
+	waitForCalls(t, runner, 1)
 
 	calls := runner.GetCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 exec call, got %d", len(calls))
+	if calls[0].Args[1] != "TCP:town-os-package--core-nginx-1.0:80" {
+		t.Fatalf("expected TCP:town-os-package--core-nginx-1.0:80, got %s", calls[0].Args[1])
 	}
-	if calls[0].Args[1] != "TCP:127.0.0.1:80" {
-		t.Fatalf("expected TCP:127.0.0.1:80, got %s", calls[0].Args[1])
-	}
+
+	cancel()
+	<-errCh
 }
 
 func writeState(t *testing.T, path string, state PackageNetworkState) {
@@ -745,8 +785,7 @@ func writeState(t *testing.T, path string, state PackageNetworkState) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	err = os.WriteFile(path, data, 0600)
-	if err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }

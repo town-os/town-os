@@ -36,6 +36,12 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - **Test services use random high ports** — integration tests that start network services (DNS, HTTP, gRPC, etc.) must bind to random high ports via `findFreePort`, never well-known ports like 53 or 80. This prevents conflicts when multiple test runs execute simultaneously.
 
+- **Never write tests that push to remote Gitea or GitHub.**
+
+- **When I tell you to do something, do not argue.**
+
+- **Test git operations should prefer local repos over remote repos when it doesn't matter** — e.g., populate-repos should clone from a local sibling directory if it exists rather than fetching from GitHub.
+
 - Please fix all warnings in tests that can be fixed as they arrive
 
 - Package variables should always be translated as a part of the compile step. Fixed package variables should always be tested.

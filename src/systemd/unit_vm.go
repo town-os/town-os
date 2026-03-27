@@ -28,7 +28,7 @@ func generateVMPackageUnits(cfg PackageUnitConfig) PackageUnits {
 	}
 
 	if needsNetworkController {
-		nc := generateNetworkControllerUnit(cfg)
+		nc := generateNetworkControllerUnit(cfg, ports)
 		units.NetworkController = &nc
 	}
 

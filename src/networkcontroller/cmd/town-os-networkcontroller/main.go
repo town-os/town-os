@@ -16,7 +16,7 @@ import (
 
 func run() error {
 	statePath := flag.String("state", "", "path to per-package network state JSON file (required)")
-	targetHost := flag.String("target-host", "127.0.0.1", "target host IP for socat forwarding (package container IP on private network)")
+	targetContainer := flag.String("target-container", "", "target container name for socat forwarding (resolved via podman DNS on the shared network)")
 	flag.Parse()
 
 	if *statePath == "" {
@@ -32,7 +32,12 @@ func run() error {
 		upnpMgr = client
 	}
 
-	ctrl := networkcontroller.NewControllerWithTarget(upnpMgr, *targetHost)
+	var ctrl *networkcontroller.Controller
+	if *targetContainer != "" {
+		ctrl = networkcontroller.NewControllerWithTarget(upnpMgr, *targetContainer)
+	} else {
+		ctrl = networkcontroller.NewController(upnpMgr)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -48,8 +53,7 @@ func run() error {
 }
 
 func main() {
-	err := run()
-	if err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "town-os-networkcontroller: %v\n", err)
 		os.Exit(1)
 	}

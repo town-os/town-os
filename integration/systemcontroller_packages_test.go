@@ -40,19 +40,22 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs.Entries) != 3 {
-		t.Fatalf("expected 3 packages, got %d", len(pkgs.Entries))
+	if len(pkgs.Entries) != 4 {
+		t.Fatalf("expected 4 packages, got %d", len(pkgs.Entries))
 	}
 
 	// Results are sorted, latest version only.
-	if pkgs.Entries[0].Repo != "core" || pkgs.Entries[0].Name != "demo-nginx" || pkgs.Entries[0].Version != "1.0" {
-		t.Fatalf("expected core/demo-nginx@1.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
+	if pkgs.Entries[0].Repo != "core" || pkgs.Entries[0].Name != "app-with-cache" || pkgs.Entries[0].Version != "1.0" {
+		t.Fatalf("expected core/app-with-cache@1.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
-	if pkgs.Entries[1].Repo != "core" || pkgs.Entries[1].Name != "nginx" || pkgs.Entries[1].Version != "2.0" {
-		t.Fatalf("expected core/nginx@2.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
+	if pkgs.Entries[1].Repo != "core" || pkgs.Entries[1].Name != "demo-nginx" || pkgs.Entries[1].Version != "1.0" {
+		t.Fatalf("expected core/demo-nginx@1.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
 	}
-	if pkgs.Entries[2].Repo != "core" || pkgs.Entries[2].Name != "redis" || pkgs.Entries[2].Version != "7.0" {
-		t.Fatalf("expected core/redis@7.0, got %s/%s@%s", pkgs.Entries[2].Repo, pkgs.Entries[2].Name, pkgs.Entries[2].Version)
+	if pkgs.Entries[2].Repo != "core" || pkgs.Entries[2].Name != "nginx" || pkgs.Entries[2].Version != "2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s/%s@%s", pkgs.Entries[2].Repo, pkgs.Entries[2].Name, pkgs.Entries[2].Version)
+	}
+	if pkgs.Entries[3].Repo != "core" || pkgs.Entries[3].Name != "redis" || pkgs.Entries[3].Version != "7.0" {
+		t.Fatalf("expected core/redis@7.0, got %s/%s@%s", pkgs.Entries[3].Repo, pkgs.Entries[3].Name, pkgs.Entries[3].Version)
 	}
 
 	// Verify fields are consistent with PackageIdentity.
@@ -83,8 +86,8 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs.Entries) != 5 {
-		t.Fatalf("expected 5 packages, got %d", len(pkgs.Entries))
+	if len(pkgs.Entries) != 6 {
+		t.Fatalf("expected 6 packages, got %d", len(pkgs.Entries))
 	}
 
 	// Verify all expected packages present.
@@ -93,7 +96,7 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		pkgSet[fmt.Sprintf("%s/%s@%s", p.Repo, p.Name, p.Version)] = true
 	}
 
-	for _, want := range []string{"core/demo-nginx@1.0", "core/nginx@2.0", "core/redis@7.0", "extras/mosquitto@2.0", "extras/postgres@16.0"} {
+	for _, want := range []string{"core/app-with-cache@1.0", "core/demo-nginx@1.0", "core/nginx@2.0", "core/redis@7.0", "extras/mosquitto@2.0", "extras/postgres@16.0"} {
 		if !pkgSet[want] {
 			t.Fatalf("expected %s in package list", want)
 		}
@@ -132,18 +135,21 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 	}
 
 	// Only core packages should remain.
-	if len(pkgs.Entries) != 3 {
-		t.Fatalf("expected 3 packages after removing extras, got %d", len(pkgs.Entries))
+	if len(pkgs.Entries) != 4 {
+		t.Fatalf("expected 4 packages after removing extras, got %d", len(pkgs.Entries))
 	}
 
-	if pkgs.Entries[0].Repo != "core" || pkgs.Entries[0].Name != "demo-nginx" || pkgs.Entries[0].Version != "1.0" {
-		t.Fatalf("expected core/demo-nginx@1.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
+	if pkgs.Entries[0].Repo != "core" || pkgs.Entries[0].Name != "app-with-cache" || pkgs.Entries[0].Version != "1.0" {
+		t.Fatalf("expected core/app-with-cache@1.0, got %s/%s@%s", pkgs.Entries[0].Repo, pkgs.Entries[0].Name, pkgs.Entries[0].Version)
 	}
-	if pkgs.Entries[1].Repo != "core" || pkgs.Entries[1].Name != "nginx" || pkgs.Entries[1].Version != "2.0" {
-		t.Fatalf("expected core/nginx@2.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
+	if pkgs.Entries[1].Repo != "core" || pkgs.Entries[1].Name != "demo-nginx" || pkgs.Entries[1].Version != "1.0" {
+		t.Fatalf("expected core/demo-nginx@1.0, got %s/%s@%s", pkgs.Entries[1].Repo, pkgs.Entries[1].Name, pkgs.Entries[1].Version)
 	}
-	if pkgs.Entries[2].Repo != "core" || pkgs.Entries[2].Name != "redis" || pkgs.Entries[2].Version != "7.0" {
-		t.Fatalf("expected core/redis@7.0, got %s/%s@%s", pkgs.Entries[2].Repo, pkgs.Entries[2].Name, pkgs.Entries[2].Version)
+	if pkgs.Entries[2].Repo != "core" || pkgs.Entries[2].Name != "nginx" || pkgs.Entries[2].Version != "2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s/%s@%s", pkgs.Entries[2].Repo, pkgs.Entries[2].Name, pkgs.Entries[2].Version)
+	}
+	if pkgs.Entries[3].Repo != "core" || pkgs.Entries[3].Name != "redis" || pkgs.Entries[3].Version != "7.0" {
+		t.Fatalf("expected core/redis@7.0, got %s/%s@%s", pkgs.Entries[3].Repo, pkgs.Entries[3].Name, pkgs.Entries[3].Version)
 	}
 }
 

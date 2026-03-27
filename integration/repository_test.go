@@ -93,8 +93,8 @@ func TestRepositoryCloneAndLoadPackages(t *testing.T) {
 		t.Fatalf("failed to load packages: %v", err)
 	}
 
-	if len(pkgs) != 3 {
-		t.Fatalf("expected 3 package names, got %d", len(pkgs))
+	if len(pkgs) != 4 {
+		t.Fatalf("expected 4 package names, got %d", len(pkgs))
 	}
 
 	demoNginxVersions, ok := pkgs["demo-nginx"]
@@ -154,11 +154,11 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("failed to load all packages: %v", err)
 	}
 
-	if len(pkgs) != 5 {
-		t.Fatalf("expected 5 package names (demo-nginx, nginx, redis, postgres, mosquitto), got %d", len(pkgs))
+	if len(pkgs) != 6 {
+		t.Fatalf("expected 6 package names (app-with-cache, demo-nginx, nginx, redis, postgres, mosquitto), got %d", len(pkgs))
 	}
 
-	for _, name := range []string{"demo-nginx", "nginx", "redis", "postgres", "mosquitto"} {
+	for _, name := range []string{"app-with-cache", "demo-nginx", "nginx", "redis", "postgres", "mosquitto"} {
 		if _, ok := pkgs[name]; !ok {
 			t.Fatalf("expected package %s", name)
 		}
@@ -399,19 +399,22 @@ func TestListPackagesSingleRepo(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	if len(pkgs) != 3 {
-		t.Fatalf("expected 3 packages (demo-nginx, nginx, redis), got %d", len(pkgs))
+	if len(pkgs) != 4 {
+		t.Fatalf("expected 4 packages (app-with-cache, demo-nginx, nginx, redis), got %d", len(pkgs))
 	}
 
 	// results are sorted by name
-	if pkgs[0] != "core/demo-nginx@1.0" {
-		t.Fatalf("expected core/demo-nginx@1.0, got %s", pkgs[0])
+	if pkgs[0] != "core/app-with-cache@1.0" {
+		t.Fatalf("expected core/app-with-cache@1.0, got %s", pkgs[0])
 	}
-	if pkgs[1] != "core/nginx@2.0" {
-		t.Fatalf("expected core/nginx@2.0, got %s", pkgs[1])
+	if pkgs[1] != "core/demo-nginx@1.0" {
+		t.Fatalf("expected core/demo-nginx@1.0, got %s", pkgs[1])
 	}
-	if pkgs[2] != "core/redis@7.0" {
-		t.Fatalf("expected core/redis@7.0, got %s", pkgs[2])
+	if pkgs[2] != "core/nginx@2.0" {
+		t.Fatalf("expected core/nginx@2.0, got %s", pkgs[2])
+	}
+	if pkgs[3] != "core/redis@7.0" {
+		t.Fatalf("expected core/redis@7.0, got %s", pkgs[3])
 	}
 }
 
@@ -435,8 +438,8 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	if len(pkgs) != 5 {
-		t.Fatalf("expected 5 packages (demo-nginx, mosquitto, nginx, postgres, redis), got %d", len(pkgs))
+	if len(pkgs) != 6 {
+		t.Fatalf("expected 6 packages (app-with-cache, demo-nginx, mosquitto, nginx, postgres, redis), got %d", len(pkgs))
 	}
 
 	// verify sorted and all expected names present
@@ -489,9 +492,9 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	// same 5 packages regardless of order
-	if len(pkgs) != 5 {
-		t.Fatalf("expected 5 packages, got %d", len(pkgs))
+	// same 6 packages regardless of order
+	if len(pkgs) != 6 {
+		t.Fatalf("expected 6 packages, got %d", len(pkgs))
 	}
 
 	// verify all expected names and versions present

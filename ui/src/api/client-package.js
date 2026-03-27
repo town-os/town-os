@@ -179,7 +179,20 @@ SystemControllerClient.prototype.installPackage = async function (repo, name, ve
   const body = { repo, name, version, responses }
   if (reuseVolumes) body.reuse_volumes = true
   if (importFromVersion) body.import_from_version = importFromVersion
-  await this.post('/packages/install', body)
+  const resp = await this.post('/packages/install', body)
+  // Drain the SSE stream so the request completes.
+  await resp.text().catch(() => {})
+}
+
+/**
+ * Install a package and return the raw SSE response for progress streaming.
+ * @returns {Promise<Response>}
+ */
+SystemControllerClient.prototype.installPackageStream = async function (repo, name, version, responses, reuseVolumes = false, importFromVersion) {
+  const body = { repo, name, version, responses }
+  if (reuseVolumes) body.reuse_volumes = true
+  if (importFromVersion) body.import_from_version = importFromVersion
+  return this.post('/packages/install', body)
 }
 
 /**
@@ -191,7 +204,16 @@ SystemControllerClient.prototype.installPackage = async function (repo, name, ve
  * @returns {Promise<void>}
  */
 SystemControllerClient.prototype.uninstallPackage = async function (repo, name, version, purgeVolumes = false) {
-  await this.post('/packages/uninstall', { repo, name, version, purge_volumes: purgeVolumes })
+  const resp = await this.post('/packages/uninstall', { repo, name, version, purge_volumes: purgeVolumes })
+  await resp.text().catch(() => {})
+}
+
+/**
+ * Uninstall a package and return the raw SSE response for progress streaming.
+ * @returns {Promise<Response>}
+ */
+SystemControllerClient.prototype.uninstallPackageStream = async function (repo, name, version, purgeVolumes = false) {
+  return this.post('/packages/uninstall', { repo, name, version, purge_volumes: purgeVolumes })
 }
 
 /**

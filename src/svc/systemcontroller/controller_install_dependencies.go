@@ -24,6 +24,7 @@ import (
 func (s *SystemControllerHandlers) installDependencies(
 	ctx context.Context,
 	parentRepoName, parentEffectiveName, parentVersion string,
+	parentNCUnitName string,
 	deps map[string]packages.InputPackageDependency,
 ) (map[string]packages.DependencyRecord, map[string]string, error) {
 	if len(deps) == 0 {
@@ -92,7 +93,7 @@ func (s *SystemControllerHandlers) installDependencies(
 
 		// Recursively install sub-dependencies first (depth-first).
 		if len(depCompiled.Dependencies) > 0 {
-			subRecords, _, err := s.installDependencies(ctx, depRepo, effectiveName, depVersion, depCompiled.Dependencies)
+			subRecords, _, err := s.installDependencies(ctx, depRepo, effectiveName, depVersion, parentNCUnitName, depCompiled.Dependencies)
 			if err != nil {
 				return nil, nil, fmt.Errorf("dependency %q: sub-dependencies: %w", depKey, err)
 			}
@@ -134,6 +135,7 @@ func (s *SystemControllerHandlers) installDependencies(
 			cfg := s.packageUnitConfig(depRepo, effectiveName, depVersion, depIP.Description, depCompiled)
 			cfg.ParentNetwork = systemd.NetworkName(parentRepoName, parentEffectiveName, parentVersion)
 			cfg.ParentUnitName = systemd.UnitName(parentRepoName, parentEffectiveName, parentVersion)
+			cfg.ParentNCUnitName = parentNCUnitName
 			units := systemd.GeneratePackageUnits(cfg)
 			if err := s.installPackageUnits(ctx, sd, units); err != nil {
 				return nil, nil, fmt.Errorf("dependency %q: install units: %w", depKey, err)
