@@ -172,15 +172,6 @@ push-ui-rc:
 push-ui-release:
 	@make/build.sh push-ui-release
 
-push-rolodex-rc: quay-login
-	@make/build.sh push-rolodex-rc
-
-push-rolodex-release: quay-login
-	@make/build.sh push-rolodex-release
-
-push-rolodex-tag: quay-login
-	@make/build.sh push-rolodex-tag $(PUSH_TAG)
-
 push-proton-rc: release-proton-image quay-login
 	@make/build.sh push-proton-rc
 
