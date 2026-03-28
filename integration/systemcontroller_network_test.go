@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -738,5 +739,62 @@ func TestReconcileSharedNetworkForDependency(t *testing.T) {
 	}
 	if !strings.Contains(parentContent, "After="+depUnitName) {
 		t.Fatalf("parent missing After for dep, got:\n%s", parentContent)
+	}
+}
+
+// TestNCImageBuildProducesValidImage verifies that the NC container image can
+// be built from the binary baked into the systemcontroller image. The test
+// container has /town-os-networkcontroller and alpine:latest pre-loaded.
+func TestNCImageBuildProducesValidImage(t *testing.T) {
+	const imageName = "town-os-networkcontroller:test-build"
+	const ncBinaryPath = "/town-os-networkcontroller"
+
+	// Verify the NC binary exists in the test container.
+	if _, err := os.Stat(ncBinaryPath); err != nil {
+		t.Skipf("NC binary not available at %s (not running in integration container): %v", ncBinaryPath, err)
+	}
+
+	ctx := context.Background()
+
+	// Build in a temp directory — same steps as buildNetworkControllerImage.
+	buildDir := t.TempDir()
+
+	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nENTRYPOINT [\"/town-os-networkcontroller\"]\n"
+	if err := os.WriteFile(filepath.Join(buildDir, "Containerfile"), []byte(containerfile), 0600); err != nil {
+		t.Fatalf("write Containerfile: %v", err)
+	}
+
+	// Copy the NC binary into the build context.
+	src, err := os.ReadFile(ncBinaryPath)
+	if err != nil {
+		t.Fatalf("read NC binary: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(buildDir, "town-os-networkcontroller"), src, 0755); err != nil { //nolint:gosec // G306 -- binary must be executable
+		t.Fatalf("write NC binary: %v", err)
+	}
+
+	// Build the image.
+	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
+	if err != nil {
+		t.Fatalf("podman build failed: %v\n%s", err, string(out))
+	}
+	t.Cleanup(func() {
+		if rmErr := exec.CommandContext(ctx, "podman", "rmi", "-f", imageName).Run(); rmErr != nil { //nolint:gosec // G204 -- imageName is a constant
+			t.Logf("cleanup image: %v", rmErr)
+		}
+	})
+
+	// Verify the image exists.
+	if err := exec.CommandContext(ctx, "podman", "image", "exists", imageName).Run(); err != nil {
+		t.Fatalf("image %s should exist after build: %v", imageName, err)
+	}
+
+	// Verify the binary is inside the image.
+	out, err = exec.CommandContext(ctx, "podman", "run", "--rm", imageName, "ls", "/town-os-networkcontroller").CombinedOutput()
+	if err != nil {
+		t.Fatalf("NC binary not found in image: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "/town-os-networkcontroller") {
+		t.Fatalf("expected /town-os-networkcontroller in output, got: %s", string(out))
 	}
 }
