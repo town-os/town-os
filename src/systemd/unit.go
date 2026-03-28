@@ -205,6 +205,20 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, "ExecStartPre=-/bin/systemctl stop %s\n", strings.Join(socketNames, " "))
 	}
 
+	// Wait for the NC container to be running before starting the service.
+	// The NC is started via Wants+After but Type=simple means systemd
+	// considers it active as soon as podman run starts — the socat
+	// forwarders may not be ready yet. This loop polls until the container
+	// is actually running.
+	if needsNetworkController {
+		ncContainerName := NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
+		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/podman container exists %s && exit 0; sleep 0.5; done; echo \"NC container %s not ready after 15s\"; exit 1'\n", ncContainerName, ncContainerName)
+	} else if cfg.ParentNCUnitName != "" {
+		// Dependency: wait for the parent's NC container to be running.
+		parentNCContainer := NetworkControllerContainerNameFromUnit(cfg.ParentNCUnitName)
+		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/podman container exists %s && exit 0; sleep 0.5; done; echo \"parent NC container %s not ready after 15s\"; exit 1'\n", parentNCContainer, parentNCContainer)
+	}
+
 	// Firewall: open ports.
 	if len(ports) > 0 {
 		portArgs := make([]string, len(ports))

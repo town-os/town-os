@@ -199,6 +199,12 @@ func NetworkControllerContainerName(repo, pkgName, version string) string {
 	return fmt.Sprintf("%s%s-%s-%s-network", PackageUnitPrefix, repo, pkgName, version)
 }
 
+// NetworkControllerContainerNameFromUnit derives the podman container name
+// from a network controller unit name by stripping the .service suffix.
+func NetworkControllerContainerNameFromUnit(unitName string) string {
+	return strings.TrimSuffix(unitName, ".service")
+}
+
 // IsPackageServiceUnit returns true if the unit name is a main package
 // service unit (not a socket, timer, uPnP, or forwarder unit).
 func IsPackageServiceUnit(name string) bool {

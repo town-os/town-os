@@ -1181,3 +1181,83 @@ func TestGeneratePackageUnitsStandaloneNetworkCleanup(t *testing.T) {
 		t.Fatalf("NC missing network rm -f, got:\n%s", ncContent)
 	}
 }
+
+func TestServiceUnitWaitsForNCContainer(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:               "core",
+		PkgName:                "nginx",
+		Version:                "1.0",
+		Image:                  "nginx:1.0",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	ncContainer := NetworkControllerContainerName("core", "nginx", "1.0")
+	if !strings.Contains(svc, "podman container exists "+ncContainer) {
+		t.Fatalf("service should wait for NC container %s, got:\n%s", ncContainer, svc)
+	}
+}
+
+func TestDependencyUnitWaitsForParentNCContainer(t *testing.T) {
+	parentNCUnit := NetworkControllerUnitName("core", "app", "1.0")
+	cfg := PackageUnitConfig{
+		RepoName:         "core",
+		PkgName:          "app--dep--db",
+		Version:          "1.0",
+		Image:            "postgres:15",
+		Environment:      map[string]string{},
+		External:         packages.PortMap{},
+		Internal:         packages.PortMap{},
+		Volumes:          map[string]packages.PackageVolume{},
+		BtrfsBase:        "/town-os",
+		ParentNetwork:    "town-os-net--core-app-1.0",
+		ParentUnitName:   UnitName("core", "app", "1.0"),
+		ParentNCUnitName: parentNCUnit,
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	parentNCContainer := NetworkControllerContainerNameFromUnit(parentNCUnit)
+	if !strings.Contains(svc, "podman container exists "+parentNCContainer) {
+		t.Fatalf("dependency should wait for parent NC container %s, got:\n%s", parentNCContainer, svc)
+	}
+}
+
+func TestNetworkControllerContainerNameFromUnit(t *testing.T) {
+	unit := "town-os-package--core-nginx-1.0-network.service"
+	got := NetworkControllerContainerNameFromUnit(unit)
+	want := "town-os-package--core-nginx-1.0-network"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestServiceWithoutNCDoesNotWait(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:    "core",
+		PkgName:     "static-site",
+		Version:     "1.0",
+		Image:       "caddy:latest",
+		Environment: map[string]string{},
+		External:    packages.PortMap{},
+		Internal:    packages.PortMap{},
+		Volumes:     map[string]packages.PackageVolume{},
+		BtrfsBase:   "/town-os",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if strings.Contains(svc, "podman container exists") {
+		t.Fatalf("service without NC should not wait for any container, got:\n%s", svc)
+	}
+}
