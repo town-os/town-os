@@ -21,6 +21,7 @@ case "$1" in
     remove_container "${PODMAN_CONTAINER}"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run -e "LOG_LEVEL=${LOG_LEVEL}" -e TOWN_OS_TEST=1 \
+      -e TOWN_OS_PAGES=1 \
       -e TOWN_OS_REPO_USERNAME=town-os \
       -e TOWN_OS_REPO_PASSWORD=town-os-test \
       -e "TOWN_OS_LISTEN=:$(cat "${STATE_DIR}/.integration-port")" \
@@ -101,6 +102,7 @@ case "$1" in
     remove_container "${PODMAN_UI_BACKEND}"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run -e LOG_LEVEL=debug -e DEBUG=1 -e TOWN_OS_TEST=1 \
+      -e TOWN_OS_PAGES=1 \
       -e TOWN_OS_REPO_USERNAME=town-os \
       -e TOWN_OS_REPO_PASSWORD=town-os-test \
       -e "TOWN_OS_LISTEN=:$(cat "${STATE_DIR}/.integration-port")" \
