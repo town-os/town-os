@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 // --- Pure function tests (mirrored from SystemSettings.jsx) ---
@@ -625,9 +625,13 @@ describe('SystemSettings Proton Runner Image', () => {
       expect(buttons).toHaveLength(5)
     })
     const input = screen.getByLabelText('Image')
-    fireEvent.change(input, { target: { value: 'ghcr.io/town-os/proton-runner:latest' } })
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'ghcr.io/town-os/proton-runner:latest' } })
+    })
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[4])
+    await act(async () => {
+      fireEvent.click(saveButtons[4])
+    })
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('proton_image', 'ghcr.io/town-os/proton-runner:latest')
     })
