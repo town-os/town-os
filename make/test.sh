@@ -157,7 +157,6 @@ case "$1" in
     # Inline cleanup — avoid nested make invocations so Ctrl+C exits fast.
     cleanup() {
       remove_container "${PODMAN_CONTAINER}"
-      remove_container "${PODMAN_UI_BACKEND}"
       remove_container "${PODMAN_UI_CONTAINER}"
       remove_container "${REGISTRY_CONTAINER}"
       remove_container "${GITEA_CONTAINER}"
@@ -166,11 +165,31 @@ case "$1" in
     }
     trap cleanup EXIT
     ${MAKE} test-integration
-    # Stop the integration container and clean btrfs before UI tests so the
-    # integration port is released and the btrfs volume can be recreated.
-    remove_container "${PODMAN_CONTAINER}"
-    ${MAKE} clean-btrfs
-    ${MAKE} test-ui-integration
+    # Reuse the integration container for UI tests — skip re-importing all
+    # container images. Just wipe btrfs subvolumes, reset the DB, and
+    # restart the systemcontroller.
+    step "Resetting state for UI integration tests"
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl stop town-os-systemcontroller.service || true
+    # Delete all btrfs subvolumes under /town-os to get a clean slate.
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c \
+      'btrfs subvolume list -o /town-os 2>/dev/null | awk "{print \$NF}" | sort -r | while read sv; do btrfs subvolume delete "/town-os/${sv}" 2>/dev/null; done; true'
+    # Remove the DB so the systemcontroller re-initializes accounts/sessions.
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c 'rm -f /data/db/*.db'
+    # Set DEBUG+LOG_LEVEL for UI tests.
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl set-environment DEBUG=1 LOG_LEVEL=debug
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
+    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
+    step "Running UI integration tests"
+    ${SUDO} podman run \
+      --net host \
+      -e "INTEGRATION_URL=http://localhost:$(cat "${STATE_DIR}/.integration-port")" \
+      -e "VITE_API_URL=http://localhost:$(cat "${STATE_DIR}/.integration-port")" \
+      -e TOWN_OS_REPO_USERNAME=town-os \
+      -e TOWN_OS_REPO_PASSWORD=town-os-test \
+      -e "TOWN_OS_TEST_REPO_CORE_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-core.git" \
+      --replace --name "${PODMAN_UI_CONTAINER}" "${PODMAN_UI_IMAGE}" \
+      bun run test:integration -- --reporter=verbose
     ;;
   auto)
     step "Starting auto-test watcher"
