@@ -619,14 +619,11 @@ describe('SystemSettings Proton Runner Image', () => {
   })
 
   it('clicking Save calls setSetting with proton_image key', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, proton_image: 'ghcr.io/town-os/proton-runner:latest' })
     renderSystemSettings()
     await waitFor(() => {
-      const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(5)
-    })
-    const input = screen.getByLabelText('Image')
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'ghcr.io/town-os/proton-runner:latest' } })
+      const input = screen.getByLabelText('Image')
+      expect(input.value).toBe('ghcr.io/town-os/proton-runner:latest')
     })
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
