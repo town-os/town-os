@@ -790,7 +790,7 @@ func TestNCImageBuildProducesValidImage(t *testing.T) {
 	}
 
 	// Verify the binary is inside the image.
-	out, err = exec.CommandContext(ctx, "podman", "run", "--rm", imageName, "ls", "/town-os-networkcontroller").CombinedOutput()
+	out, err = exec.CommandContext(ctx, "podman", "run", "--rm", "--entrypoint", "ls", imageName, "/town-os-networkcontroller").CombinedOutput()
 	if err != nil {
 		t.Fatalf("NC binary not found in image: %v\n%s", err, string(out))
 	}
