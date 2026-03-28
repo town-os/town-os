@@ -125,7 +125,13 @@ func TestBuildNCImageSkipsWhenExists(t *testing.T) {
 }
 
 func TestDetectVersionChangeFirstRun(t *testing.T) {
-	// Missing version file → version changed (first run).
+	// Outside a container, getContainerImageID returns "" and detection
+	// is skipped (returns false). Only test the "first run" semantics
+	// when we can actually detect the container image ID.
+	imageID := getContainerImageID(context.Background())
+	if imageID == "" {
+		t.Skip("not running inside a podman container")
+	}
 	versionFile := filepath.Join(t.TempDir(), "version")
 	if !detectVersionChange(context.Background(), versionFile) {
 		t.Fatal("expected version change on first run (no file)")

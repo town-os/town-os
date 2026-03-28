@@ -1784,14 +1784,19 @@ func TestReconcileVersionChangedRestartsChangedUnits(t *testing.T) {
 		t.Fatalf("pre-install: %v", err)
 	}
 
+	// Use the same paths for both reconciles so generated unit content
+	// is identical between runs.
+	btrfsBase := t.TempDir()
+	netStatePath := t.TempDir()
+
 	// First reconcile: installs units (no version change).
 	if err := Reconcile(context.Background(), ReconcileConfig{
 		Installer:              inst,
 		RepositoryRoot:         rr,
 		Systemd:                sd,
-		BtrfsBasePath:          t.TempDir(),
+		BtrfsBasePath:          btrfsBase,
 		NetworkControllerImage: "nc:test",
-		NetworkStatePath:       t.TempDir(),
+		NetworkStatePath:       netStatePath,
 		VersionChanged:         false,
 	}); err != nil {
 		t.Fatalf("first reconcile: %v", err)
@@ -1807,9 +1812,9 @@ func TestReconcileVersionChangedRestartsChangedUnits(t *testing.T) {
 		Installer:              inst,
 		RepositoryRoot:         rr,
 		Systemd:                sd,
-		BtrfsBasePath:          t.TempDir(),
+		BtrfsBasePath:          btrfsBase,
 		NetworkControllerImage: "nc:test",
-		NetworkStatePath:       t.TempDir(),
+		NetworkStatePath:       netStatePath,
 		VersionChanged:         true,
 	}); err != nil {
 		t.Fatalf("second reconcile: %v", err)
