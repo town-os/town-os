@@ -372,6 +372,9 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 	b.WriteString("[Unit]\n")
 	fmt.Fprintf(&b, "Description=Town OS Network Controller: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version)
 	fmt.Fprintf(&b, "PartOf=%s\n", svcName)
+	// The system controller builds the NC image at startup, so NC units
+	// must wait for it to finish before attempting to start.
+	b.WriteString("After=town-os-systemcontroller.service\n")
 
 	// NC starts before the service and all dependencies.
 	beforeTargets := []string{svcName}
