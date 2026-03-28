@@ -236,6 +236,9 @@ func run() (err error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "network controller image: %v\n", err)
 	}
+	if ncImage == "" {
+		ncImage = "town-os-networkcontroller:local"
+	}
 
 	// Detect whether the systemcontroller image changed since the last
 	// run. When it has, reconcile will restart all units whose generated
