@@ -13,6 +13,7 @@ import (
 // --- Settings integration tests (admin and user) ---
 
 func TestSettingsDefaultsOnInit(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Defaults should be present without any explicit Set calls.
@@ -40,6 +41,7 @@ func TestSettingsDefaultsOnInit(t *testing.T) {
 }
 
 func TestSettingsAdminCanSetAndGet(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	if err := c.SetSetting(context.TODO(), "default_quota", "1073741824"); err != nil {
@@ -56,6 +58,7 @@ func TestSettingsAdminCanSetAndGet(t *testing.T) {
 }
 
 func TestSettingsAdminCanSetHumanReadable(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	if err := c.SetSetting(context.TODO(), "default_quota", "500GB"); err != nil {
@@ -72,6 +75,7 @@ func TestSettingsAdminCanSetHumanReadable(t *testing.T) {
 }
 
 func TestSettingsNonAdminRejected(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Create a non-admin user and switch to their token.
@@ -97,6 +101,7 @@ func TestSettingsNonAdminRejected(t *testing.T) {
 }
 
 func TestSettingsAdminOverrideAndList(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Set a custom key.
@@ -123,6 +128,7 @@ func TestSettingsAdminOverrideAndList(t *testing.T) {
 }
 
 func TestSettingsMaxArchiveSizeSetAndGet(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Set max archive size using human-readable value.
@@ -140,6 +146,7 @@ func TestSettingsMaxArchiveSizeSetAndGet(t *testing.T) {
 }
 
 func TestSettingsMaxArchiveSizeNumericValue(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Set max archive size using raw numeric bytes.
@@ -157,6 +164,7 @@ func TestSettingsMaxArchiveSizeNumericValue(t *testing.T) {
 }
 
 func TestSettingsArchiveUnpackTimeoutSetAndGet(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Set archive unpack timeout (stored as-is, not byte-parsed).
@@ -174,6 +182,7 @@ func TestSettingsArchiveUnpackTimeoutSetAndGet(t *testing.T) {
 }
 
 func TestSettingsArchiveUnpackTimeoutInList(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	if err := c.SetSetting(context.TODO(), "archive_unpack_timeout", "600"); err != nil {

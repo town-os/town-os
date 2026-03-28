@@ -14,6 +14,7 @@ import (
 // --- Subvolume and quota integration tests ---
 
 func TestSystemControllerCreateWithQuota(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-quota", Quota: 1048576}); err != nil {
@@ -38,6 +39,7 @@ func TestSystemControllerCreateWithQuota(t *testing.T) {
 }
 
 func TestSystemControllerModifyQuota(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-modq"}); err != nil {
@@ -80,6 +82,7 @@ func TestSystemControllerModifyQuota(t *testing.T) {
 }
 
 func TestSystemControllerNestedSubvolumes(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	names := []string{"sc-nest/parent", "sc-nest/parent/child", "sc-nest/parent/child/deep"}
@@ -121,6 +124,7 @@ func TestSystemControllerNestedSubvolumes(t *testing.T) {
 }
 
 func TestSystemControllerNestedSubvolumeQuotaOnLeaf(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-leafq/parent"}); err != nil {
@@ -166,6 +170,7 @@ func TestSystemControllerNestedSubvolumeQuotaOnLeaf(t *testing.T) {
 }
 
 func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-qname", Quota: 1024}); err != nil {
@@ -198,6 +203,7 @@ func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
 }
 
 func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	type fs struct {
@@ -256,6 +262,7 @@ func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
 // --- Purge volume integration tests ---
 
 func TestSystemControllerPurgeVolumes(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	// Simulate package "test-repo/sc-purge" with two child volumes via direct storage.
@@ -312,6 +319,7 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	// Create two packages with similar prefixes via direct storage.
@@ -361,6 +369,7 @@ func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	names := []string{
@@ -399,6 +408,7 @@ func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	// Create a filesystem to verify it's not affected.
@@ -427,6 +437,7 @@ func TestSystemControllerPurgeVolumesNonexistent(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	children := []storage.Filesystem{
@@ -477,6 +488,7 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 }
 
 func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	names := []string{

@@ -21,6 +21,7 @@ import (
 // --- Private network integration tests ---
 
 func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -83,6 +84,7 @@ func TestSystemControllerInstallRedisCommandInUnit(t *testing.T) {
 }
 
 func TestSystemControllerInstallNginxPrivateNetwork(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -132,6 +134,7 @@ func TestSystemControllerInstallNginxPrivateNetwork(t *testing.T) {
 }
 
 func TestSystemControllerInstallNginxNetworkController(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -227,6 +230,7 @@ func TestSystemControllerInstallNginxNetworkController(t *testing.T) {
 }
 
 func TestSystemControllerInstallRedisNCForInternalPorts(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -262,6 +266,7 @@ func TestSystemControllerInstallRedisNCForInternalPorts(t *testing.T) {
 }
 
 func TestReconcileNetworkController(t *testing.T) {
+	t.Parallel()
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -362,6 +367,7 @@ func TestReconcileNetworkController(t *testing.T) {
 }
 
 func TestSystemControllerInstallNginxNetworkLifecycle(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -452,6 +458,7 @@ func TestSystemControllerInstallNginxNetworkLifecycle(t *testing.T) {
 // --- Network state file integration tests ---
 
 func TestSystemControllerInstallNginxNetworkState(t *testing.T) {
+	t.Parallel()
 	c, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -496,6 +503,7 @@ func TestSystemControllerInstallNginxNetworkState(t *testing.T) {
 }
 
 func TestSystemControllerInstallRedisNetworkState(t *testing.T) {
+	t.Parallel()
 	c, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -532,6 +540,7 @@ func TestSystemControllerInstallRedisNetworkState(t *testing.T) {
 }
 
 func TestReconcileNginxNetworkState(t *testing.T) {
+	t.Parallel()
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	netStateDir := t.TempDir()
@@ -608,6 +617,7 @@ func TestReconcileNginxNetworkState(t *testing.T) {
 // a dependency package joins its parent's podman network and gets
 // PartOf/Before systemd ordering.
 func TestReconcileSharedNetworkForDependency(t *testing.T) {
+	t.Parallel()
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -746,6 +756,7 @@ func TestReconcileSharedNetworkForDependency(t *testing.T) {
 // be built from the binary baked into the systemcontroller image. The test
 // container has /town-os-networkcontroller and alpine:latest pre-loaded.
 func TestNCImageBuildProducesValidImage(t *testing.T) {
+	// Serial: uses real podman to build and run a container image.
 	const imageName = "town-os-networkcontroller:test-build"
 	const ncBinaryPath = "/town-os-networkcontroller"
 

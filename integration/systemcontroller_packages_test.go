@@ -16,6 +16,7 @@ import (
 // --- ListPackages integration tests ---
 
 func TestSystemControllerListPackagesEmpty(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	pkgs, err := c.ListPackages(context.TODO(), systemcontroller.ListParams{})
@@ -29,6 +30,7 @@ func TestSystemControllerListPackagesEmpty(t *testing.T) {
 }
 
 func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -72,6 +74,7 @@ func TestSystemControllerListPackagesSingleRepo(t *testing.T) {
 }
 
 func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -115,6 +118,7 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 }
 
 func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -156,6 +160,7 @@ func TestSystemControllerListPackagesAfterRemoveRepo(t *testing.T) {
 // --- GetPackageQuestions integration tests ---
 
 func TestSystemControllerGetPackageQuestions(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -193,6 +198,7 @@ func TestSystemControllerGetPackageQuestions(t *testing.T) {
 }
 
 func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -216,6 +222,7 @@ func TestSystemControllerGetPackageQuestionsMultipleRepos(t *testing.T) {
 }
 
 func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -229,6 +236,7 @@ func TestSystemControllerGetPackageQuestionsNotFound(t *testing.T) {
 }
 
 func TestSystemControllerListPackagesInstalledOnlyFilter(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -271,6 +279,7 @@ func TestSystemControllerListPackagesInstalledOnlyFilter(t *testing.T) {
 // --- Package Manifest integration tests ---
 
 func TestSystemControllerPackageManifest(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -293,6 +302,7 @@ func TestSystemControllerPackageManifest(t *testing.T) {
 }
 
 func TestSystemControllerPackageManifestNotFound(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	_, err := c.GetPackageManifest(context.TODO(), "nonexistent", "fake", "0.0")

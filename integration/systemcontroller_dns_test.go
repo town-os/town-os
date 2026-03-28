@@ -57,6 +57,7 @@ func initDNSMockTest(t *testing.T) (*systemcontroller.SystemdClient, *rolodex.Mo
 // --- Mock tests ---
 
 func TestDNSStatusDisabled(t *testing.T) {
+	t.Parallel()
 	mock := storage.InitBtrFSMock()
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage: mock,
@@ -79,6 +80,7 @@ func TestDNSStatusDisabled(t *testing.T) {
 }
 
 func TestDNSStatusEnabled(t *testing.T) {
+	t.Parallel()
 	c, _ := initDNSMockTest(t)
 
 	status, err := c.DNSStatus(context.TODO())
@@ -95,6 +97,7 @@ func TestDNSStatusEnabled(t *testing.T) {
 }
 
 func TestDNSTLDDefault(t *testing.T) {
+	t.Parallel()
 	c, _ := initDNSMockTest(t)
 
 	tld, err := c.GetDNSTLD(context.TODO())
@@ -108,6 +111,7 @@ func TestDNSTLDDefault(t *testing.T) {
 }
 
 func TestDNSTLDGetSet(t *testing.T) {
+	t.Parallel()
 	c, _ := initDNSMockTest(t)
 
 	if err := c.SetDNSTLD(context.TODO(), "local"); err != nil {
@@ -125,6 +129,7 @@ func TestDNSTLDGetSet(t *testing.T) {
 }
 
 func TestDNSSetupCreatesZone(t *testing.T) {
+	t.Parallel()
 	c, rc := initDNSMockTest(t)
 
 	if err := c.SetupDNS(context.TODO()); err != nil {
@@ -166,6 +171,7 @@ func TestDNSSetupCreatesZone(t *testing.T) {
 }
 
 func TestDNSRecordAddRemove(t *testing.T) {
+	t.Parallel()
 	c, _ := initDNSMockTest(t)
 
 	ctx := context.TODO()
@@ -213,6 +219,7 @@ func TestDNSRecordAddRemove(t *testing.T) {
 }
 
 func TestDNSTLDChangeReprovisionsRecords(t *testing.T) {
+	t.Parallel()
 	c, rc := initDNSMockTest(t)
 	ctx := context.TODO()
 

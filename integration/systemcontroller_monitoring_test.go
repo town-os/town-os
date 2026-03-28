@@ -16,6 +16,7 @@ import (
 )
 
 func TestMonitoringStatusDisabledByDefault(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	status, err := c.MonitoringStatus(context.TODO())
@@ -44,6 +45,7 @@ func TestMonitoringStatusDisabledByDefault(t *testing.T) {
 }
 
 func TestMonitoringStatusBeforeStart(t *testing.T) {
+	t.Parallel()
 	c, _, _ := initSystemControllerMonitoringTest(t)
 
 	status, err := c.MonitoringStatus(context.TODO())
@@ -83,6 +85,7 @@ func TestMonitoringStatusBeforeStart(t *testing.T) {
 }
 
 func TestMonitoringStatusAfterStart(t *testing.T) {
+	t.Parallel()
 	c, monMgr, sd := initSystemControllerMonitoringTest(t)
 
 	if err := monMgr.Start(context.Background()); err != nil {
@@ -114,6 +117,7 @@ func TestMonitoringStatusAfterStart(t *testing.T) {
 }
 
 func TestMonitoringStatusDecodesFullStruct(t *testing.T) {
+	t.Parallel()
 	c, monMgr, sd := initSystemControllerMonitoringTest(t)
 
 	if err := monMgr.Start(context.Background()); err != nil {

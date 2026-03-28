@@ -23,6 +23,7 @@ func testGitCloneURL() string {
 }
 
 func TestGitClientClonePublicRepo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -39,6 +40,7 @@ func TestGitClientClonePublicRepo(t *testing.T) {
 }
 
 func TestGitClientCloneWithCredentials(t *testing.T) {
+	t.Parallel()
 	user := os.Getenv("TOWN_OS_REPO_USERNAME")
 	pass := os.Getenv("TOWN_OS_REPO_PASSWORD")
 
@@ -69,6 +71,7 @@ func TestGitClientCloneWithCredentials(t *testing.T) {
 }
 
 func TestGitClientPullAfterClone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -86,6 +89,7 @@ func TestGitClientPullAfterClone(t *testing.T) {
 }
 
 func TestGitClientDiffCloneIsClean(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -106,6 +110,7 @@ func TestGitClientDiffCloneIsClean(t *testing.T) {
 }
 
 func TestGitClientDiffAfterModification(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -142,6 +147,7 @@ func TestGitClientDiffAfterModification(t *testing.T) {
 }
 
 func TestGitClientStashAndApply(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -206,6 +212,7 @@ func TestGitClientStashAndApply(t *testing.T) {
 }
 
 func TestGitClientRevParseOnClone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -226,6 +233,7 @@ func TestGitClientRevParseOnClone(t *testing.T) {
 }
 
 func TestGitClientFetchOnClone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -242,6 +250,7 @@ func TestGitClientFetchOnClone(t *testing.T) {
 }
 
 func TestGitClientCloneFailsBadURL(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()
@@ -253,6 +262,7 @@ func TestGitClientCloneFailsBadURL(t *testing.T) {
 }
 
 func TestGitClientRunLogOnClone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := &git.GoGitClient{Home: dir}
 	ctx := context.Background()

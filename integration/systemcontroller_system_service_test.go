@@ -45,6 +45,7 @@ func initSystemServiceIntegrationTest(t *testing.T) (*systemcontroller.SystemdCl
 }
 
 func TestSystemControllerListSystemServicesEmpty(t *testing.T) {
+	t.Parallel()
 	// Without monitoring configured.
 	c := initSystemControllerTest(t)
 
@@ -59,6 +60,7 @@ func TestSystemControllerListSystemServicesEmpty(t *testing.T) {
 }
 
 func TestSystemControllerListSystemServicesPopulated(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemServiceIntegrationTest(t)
 
 	entries, err := c.ListSystemServices(context.TODO())
@@ -82,6 +84,7 @@ func TestSystemControllerListSystemServicesPopulated(t *testing.T) {
 }
 
 func TestSystemControllerSetSystemServiceStatusAllActions(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemServiceIntegrationTest(t)
 
 	for _, action := range []systemd.StatusAction{systemd.Start, systemd.Stop, systemd.Restart} {
@@ -104,6 +107,7 @@ func TestSystemControllerSetSystemServiceStatusAllActions(t *testing.T) {
 }
 
 func TestSystemControllerSetSystemServiceStatusRejectsEnableDisable(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemServiceIntegrationTest(t)
 
 	err := c.SetSystemServiceStatus(context.TODO(), "prometheus", systemd.Enable)
@@ -118,6 +122,7 @@ func TestSystemControllerSetSystemServiceStatusRejectsEnableDisable(t *testing.T
 }
 
 func TestSystemControllerSetSystemServiceStatusInvalidKey(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemServiceIntegrationTest(t)
 
 	err := c.SetSystemServiceStatus(context.TODO(), "nonexistent-service", systemd.Start)
@@ -127,6 +132,7 @@ func TestSystemControllerSetSystemServiceStatusInvalidKey(t *testing.T) {
 }
 
 func TestSystemControllerSystemServicesIsolatedFromPackageUnits(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemServiceIntegrationTest(t)
 
 	// Add both package and system service units.

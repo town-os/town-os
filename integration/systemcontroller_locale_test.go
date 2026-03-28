@@ -14,6 +14,7 @@ import (
 // --- Locale integration tests ---
 
 func TestLocalesDefaultResponse(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	resp, err := c.ListLocales(context.TODO())
@@ -27,6 +28,7 @@ func TestLocalesDefaultResponse(t *testing.T) {
 }
 
 func TestLocalesPopulatedContainsEnUS(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	resp, err := c.ListLocales(context.TODO())
@@ -40,6 +42,7 @@ func TestLocalesPopulatedContainsEnUS(t *testing.T) {
 }
 
 func TestLocalesCommonLanguagesNotEmpty(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	resp, err := c.ListLocales(context.TODO())
@@ -53,6 +56,7 @@ func TestLocalesCommonLanguagesNotEmpty(t *testing.T) {
 }
 
 func TestLocalesExtendedLocalesNotEmpty(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	resp, err := c.ListLocales(context.TODO())
@@ -66,6 +70,7 @@ func TestLocalesExtendedLocalesNotEmpty(t *testing.T) {
 }
 
 func TestLocalesReflectsLocaleSetting(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Change the locale setting.
@@ -84,6 +89,7 @@ func TestLocalesReflectsLocaleSetting(t *testing.T) {
 }
 
 func TestLocalesCommonLanguagesHaveEnglish(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	resp, err := c.ListLocales(context.TODO())
@@ -104,6 +110,7 @@ func TestLocalesCommonLanguagesHaveEnglish(t *testing.T) {
 }
 
 func TestLocalesCommonLanguagesHaveRequiredFields(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	resp, err := c.ListLocales(context.TODO())
@@ -125,6 +132,7 @@ func TestLocalesCommonLanguagesHaveRequiredFields(t *testing.T) {
 }
 
 func TestLocalesRequiresAuth(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerSettingsTest(t)
 
 	// Clear the token to simulate unauthenticated request.

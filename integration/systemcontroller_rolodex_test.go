@@ -141,6 +141,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 }
 
 func TestRolodexSystemServiceListed(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerRolodexTest(t)
 
 	entries, err := c.ListSystemServices(context.TODO())
@@ -158,6 +159,7 @@ func TestRolodexSystemServiceListed(t *testing.T) {
 }
 
 func TestRolodexStartStopRestart(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerRolodexTest(t)
 
 	for _, action := range []systemd.StatusAction{systemd.Start, systemd.Stop, systemd.Restart} {
@@ -180,6 +182,7 @@ func TestRolodexStartStopRestart(t *testing.T) {
 }
 
 func TestRolodexRealContainerStart(t *testing.T) {
+	t.Parallel()
 	dataDir := rolodexTempDir(t, "rolodex-start-*")
 	sd := systemd.NewManager()
 	key := rolodexTestKey()
@@ -308,6 +311,7 @@ func TestRolodexClientOperations(t *testing.T) {
 }
 
 func TestRolodexDNSQueryForwarding(t *testing.T) {
+	t.Parallel()
 	_, dnsPort := initRolodexRealTest(t)
 
 	// Use a short timeout — these tests query external domains via DNS

@@ -93,6 +93,7 @@ func mapKeys(m map[string]string) []string {
 }
 
 func TestArchiveUploadAndDownload(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-upload"
@@ -151,6 +152,7 @@ func TestArchiveUploadAndDownload(t *testing.T) {
 }
 
 func TestArchiveDownloadWithPaths(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-paths"
@@ -194,6 +196,7 @@ func TestArchiveDownloadWithPaths(t *testing.T) {
 }
 
 func TestArchiveUploadUnsupportedFormat(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-unsupported"
@@ -217,6 +220,7 @@ func TestArchiveUploadUnsupportedFormat(t *testing.T) {
 }
 
 func TestArchiveUploadWithSubpath(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-subpath"
@@ -245,6 +249,7 @@ func TestArchiveUploadWithSubpath(t *testing.T) {
 }
 
 func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorageAndBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "installed/testrepo/testpkg/1.0/data"
@@ -304,6 +309,7 @@ func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
 }
 
 func TestModifyInstalledVolumeQuota(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorageAndBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "installed/testrepo/quotapkg/1.0/data"
@@ -354,6 +360,7 @@ func TestModifyInstalledVolumeQuota(t *testing.T) {
 }
 
 func TestArchiveDownloadInstalledSubvolume(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 
@@ -371,6 +378,7 @@ func TestArchiveDownloadInstalledSubvolume(t *testing.T) {
 }
 
 func TestArchiveDownloadWithBzip2Format(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-bz2-dl"
@@ -415,6 +423,7 @@ func TestArchiveDownloadWithBzip2Format(t *testing.T) {
 }
 
 func TestArchiveDownloadWithXZFormat(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-xz-dl"
@@ -459,6 +468,7 @@ func TestArchiveDownloadWithXZFormat(t *testing.T) {
 }
 
 func TestArchiveDownloadWithFilename(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 	subvol := "archive-test-filename"
@@ -496,6 +506,7 @@ func TestArchiveDownloadWithFilename(t *testing.T) {
 }
 
 func TestArchiveDownloadInvalidFormat(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTestWithBtrfsBase(t)
 	ctx := context.TODO()
 

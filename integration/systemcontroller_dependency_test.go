@@ -40,6 +40,7 @@ func findInstalledUnitContent(t *testing.T, sd *systemd.MockManager, unitName st
 // --- Dependency install lifecycle tests ---
 
 func TestInstallWithDependencyLifecycle(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -120,6 +121,7 @@ func TestInstallWithDependencyLifecycle(t *testing.T) {
 // --- NC setup tests ---
 
 func TestNCOwnsNetworkLifecycleForStandalonePackage(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -212,6 +214,7 @@ func TestNCOwnsNetworkLifecycleForStandalonePackage(t *testing.T) {
 }
 
 func TestNCBeforeDependenciesInChain(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -262,6 +265,7 @@ func TestNCBeforeDependenciesInChain(t *testing.T) {
 }
 
 func TestNCMultiplePortMappings(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -289,6 +293,7 @@ func TestNCMultiplePortMappings(t *testing.T) {
 }
 
 func TestNCNetworkStateContainsContainerName(t *testing.T) {
+	t.Parallel()
 	c, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -316,6 +321,7 @@ func TestNCNetworkStateContainsContainerName(t *testing.T) {
 }
 
 func TestDependencyWithPortsGetsNoNC(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {

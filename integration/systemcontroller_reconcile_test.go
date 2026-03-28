@@ -15,6 +15,7 @@ import (
 // --- Reconciliation tests ---
 
 func TestReconcileAfterInstall(t *testing.T) {
+	t.Parallel()
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	// Add a repository and install a package via the API.
@@ -88,6 +89,7 @@ func TestReconcileAfterInstall(t *testing.T) {
 }
 
 func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
+	t.Parallel()
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -125,6 +127,7 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 }
 
 func TestReconcilePreservesResponses(t *testing.T) {
+	t.Parallel()
 	c, rr, inst, sd, mock := initReconcileTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {

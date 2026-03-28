@@ -12,6 +12,7 @@ import (
 )
 
 func TestSystemControllerCreateAndList(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
@@ -49,6 +50,7 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 }
 
 func TestSystemControllerRemove(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
@@ -76,6 +78,7 @@ func TestSystemControllerRemove(t *testing.T) {
 }
 
 func TestSystemControllerMultipleFilesystems(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
@@ -125,6 +128,7 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 }
 
 func TestSystemControllerListPrefix(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-pfx-a"}); err != nil {
@@ -156,6 +160,7 @@ func TestSystemControllerListPrefix(t *testing.T) {
 }
 
 func TestSystemControllerModifyFilesystem(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-modify"}); err != nil {
@@ -173,6 +178,7 @@ func TestSystemControllerModifyFilesystem(t *testing.T) {
 }
 
 func TestSystemControllerModifyPackageVolumeRenameRejected(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	volPath := "installed/repo/pkg/1.0/data"
@@ -194,6 +200,7 @@ func TestSystemControllerModifyPackageVolumeRenameRejected(t *testing.T) {
 }
 
 func TestSystemControllerModifyPackageVolumeQuotaAllowed(t *testing.T) {
+	t.Parallel()
 	c, btr := initSystemControllerTestWithStorage(t)
 
 	volPath := "installed/repo/pkg/1.0/data"
@@ -215,6 +222,7 @@ func TestSystemControllerModifyPackageVolumeQuotaAllowed(t *testing.T) {
 }
 
 func TestSystemControllerFullLifecycle(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerTest(t)
 
 	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})

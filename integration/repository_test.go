@@ -75,6 +75,7 @@ func setupRoot(t *testing.T, repos []packages.Repository) *packages.RepositoryRo
 }
 
 func TestRepositoryCloneAndLoadPackages(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{})
 
 	repo := packages.Repository{Name: "core", URL: testCoreURL()}
@@ -135,6 +136,7 @@ func TestRepositoryCloneAndLoadPackages(t *testing.T) {
 }
 
 func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 		{Name: "extras", URL: testExtrasURL()},
@@ -183,6 +185,7 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 }
 
 func TestRepositoryCompileLoadedPackage(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -224,6 +227,7 @@ func TestRepositoryCompileLoadedPackage(t *testing.T) {
 }
 
 func TestRepositoryCompileRedisCommand(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -267,6 +271,7 @@ func TestRepositoryCompileRedisCommand(t *testing.T) {
 }
 
 func TestRepositoryCompileNginxNoCommand(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -300,6 +305,7 @@ func TestRepositoryCompileNginxNoCommand(t *testing.T) {
 }
 
 func TestGetPackageQuestionsFromRepo(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -343,6 +349,7 @@ func TestGetPackageQuestionsFromRepo(t *testing.T) {
 }
 
 func TestGetPackageQuestionsFromMultipleRepos(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 		{Name: "extras", URL: testExtrasURL()},
@@ -385,6 +392,7 @@ func TestGetPackageQuestionsFromMultipleRepos(t *testing.T) {
 }
 
 func TestListPackagesSingleRepo(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -419,6 +427,7 @@ func TestListPackagesSingleRepo(t *testing.T) {
 }
 
 func TestListPackagesMultipleRepos(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 		{Name: "extras", URL: testExtrasURL()},
@@ -472,6 +481,7 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 }
 
 func TestListPackagesPreferenceOrder(t *testing.T) {
+	t.Parallel()
 	// extras first, then core — extras takes precedence on ties
 	root := setupRoot(t, []packages.Repository{
 		{Name: "extras", URL: testExtrasURL()},
@@ -529,6 +539,7 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 // --- Installed package integration tests ---
 
 func TestInstalledInstallFromRepo(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -557,6 +568,7 @@ func TestInstalledInstallFromRepo(t *testing.T) {
 }
 
 func TestInstalledListFromRepo(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -600,6 +612,7 @@ func TestInstalledListFromRepo(t *testing.T) {
 }
 
 func TestInstalledUninstallFromRepo(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -647,6 +660,7 @@ func TestInstalledUninstallFromRepo(t *testing.T) {
 }
 
 func TestInstalledMultipleRepos(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 		{Name: "extras", URL: testExtrasURL()},
@@ -709,6 +723,7 @@ func TestInstalledMultipleRepos(t *testing.T) {
 }
 
 func TestInstalledLifecycleWithRepo(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -782,6 +797,7 @@ func TestInstalledLifecycleWithRepo(t *testing.T) {
 }
 
 func TestRepositoryList(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{})
 
 	// Empty initially.
@@ -851,6 +867,7 @@ func TestRepositoryList(t *testing.T) {
 }
 
 func TestRepositoryListPersistence(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 		{Name: "extras", URL: testExtrasURL()},
@@ -883,6 +900,7 @@ func TestRepositoryListPersistence(t *testing.T) {
 }
 
 func TestRepositoryAddAndRemovePersistence(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{})
 
 	err := root.Add(packages.Repository{Name: "core", URL: testCoreURL()})
@@ -923,6 +941,7 @@ func TestRepositoryAddAndRemovePersistence(t *testing.T) {
 }
 
 func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -959,6 +978,7 @@ func TestInstalledSymlinkContentMatchesSource(t *testing.T) {
 }
 
 func TestInstalledEmptyDirCleanupAfterUninstall(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -1010,6 +1030,7 @@ func TestInstalledEmptyDirCleanupAfterUninstall(t *testing.T) {
 }
 
 func TestInstalledInstallNonexistentPackage(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -1050,6 +1071,7 @@ func TestInstalledInstallNonexistentPackage(t *testing.T) {
 }
 
 func TestInstalledInstallAllAvailablePackages(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 		{Name: "extras", URL: testExtrasURL()},
@@ -1147,6 +1169,7 @@ func TestInstalledInstallAllAvailablePackages(t *testing.T) {
 }
 
 func TestInstalledListBeforeAnyInstalls(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -1164,6 +1187,7 @@ func TestInstalledListBeforeAnyInstalls(t *testing.T) {
 }
 
 func TestInstalledSeparateManagersShareState(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -1222,6 +1246,7 @@ func TestInstalledSeparateManagersShareState(t *testing.T) {
 // --- FindRepoForPackage integration tests ---
 
 func TestFindRepoForPackageSingleRepo(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -1241,6 +1266,7 @@ func TestFindRepoForPackageSingleRepo(t *testing.T) {
 }
 
 func TestFindRepoForPackageMultipleRepos(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 		{Name: "extras", URL: testExtrasURL()},
@@ -1275,6 +1301,7 @@ func TestFindRepoForPackageMultipleRepos(t *testing.T) {
 }
 
 func TestFindRepoForPackageNotFound(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -1291,6 +1318,7 @@ func TestFindRepoForPackageNotFound(t *testing.T) {
 }
 
 func TestFindRepoForPackageVersionNotFound(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})
@@ -1307,6 +1335,7 @@ func TestFindRepoForPackageVersionNotFound(t *testing.T) {
 }
 
 func TestInstalledCompileThroughSymlink(t *testing.T) {
+	t.Parallel()
 	root := setupRoot(t, []packages.Repository{
 		{Name: "core", URL: testCoreURL()},
 	})

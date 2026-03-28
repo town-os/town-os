@@ -21,6 +21,7 @@ func uiTestImage() string {
 }
 
 func TestUIContainerRealStartAndAccessible(t *testing.T) {
+	t.Parallel()
 	sd := systemd.NewManager()
 	mgr := ui.NewManager(ui.Config{
 		Systemd: sd,

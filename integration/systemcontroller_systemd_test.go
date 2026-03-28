@@ -20,6 +20,7 @@ import (
 // --- Systemd integration tests ---
 
 func TestSystemControllerSystemdListUnitsEmpty(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd)
 
@@ -34,6 +35,7 @@ func TestSystemControllerSystemdListUnitsEmpty(t *testing.T) {
 }
 
 func TestSystemControllerSystemdListUnitsPopulated(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-nginx-1.0.service", Description: "The NGINX HTTP Server", LoadState: "loaded", ActiveState: "active", SubState: "running"},
@@ -81,6 +83,7 @@ func TestSystemControllerSystemdListUnitsPopulated(t *testing.T) {
 }
 
 func TestSystemControllerSystemdListUnitsPreservesAllFields(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-test-1.0.service", Description: "Test Unit", LoadState: "loaded", ActiveState: "activating", SubState: "start-pre"},
@@ -117,8 +120,10 @@ func TestSystemControllerSystemdListUnitsPreservesAllFields(t *testing.T) {
 }
 
 func TestSystemControllerSystemdSetUnitStatusAllActions(t *testing.T) {
+	t.Parallel()
 	for _, action := range []systemd.StatusAction{systemd.Start, systemd.Stop, systemd.Restart} {
 		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
 			sd := systemd.InitMockManager()
 			c := initSystemControllerSystemdTest(t, sd)
 
@@ -167,6 +172,7 @@ func TestSystemControllerSystemdSetUnitStatusAllActions(t *testing.T) {
 }
 
 func TestSystemControllerSystemdSetUnitStatusInvalidAction(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd)
 
@@ -177,6 +183,7 @@ func TestSystemControllerSystemdSetUnitStatusInvalidAction(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogReplay(t *testing.T) {
+	t.Parallel()
 	ts := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	sd := systemd.InitMockManager()
 	sd.Entries = []systemd.JournalEntry{
@@ -212,6 +219,7 @@ func TestSystemControllerSystemdLogReplay(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogReplayPreservesFields(t *testing.T) {
+	t.Parallel()
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	sd := systemd.InitMockManager()
 	sd.Entries = []systemd.JournalEntry{
@@ -273,6 +281,7 @@ func TestSystemControllerSystemdLogReplayPreservesFields(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogReplayEmpty(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd)
 
@@ -292,6 +301,7 @@ func TestSystemControllerSystemdLogReplayEmpty(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogReplayManyEntries(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Entries = make([]systemd.JournalEntry, 100)
 	for i := range sd.Entries {
@@ -319,6 +329,7 @@ func TestSystemControllerSystemdLogReplayManyEntries(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogReplayCallLog(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Entries = []systemd.JournalEntry{
 		{Message: "hello"},
@@ -352,6 +363,7 @@ func TestSystemControllerSystemdLogReplayCallLog(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogTailPriority(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -380,6 +392,7 @@ func TestSystemControllerSystemdLogTailPriority(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogTailPriorityNoFilter(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -399,6 +412,7 @@ func TestSystemControllerSystemdLogTailPriorityNoFilter(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogTailPriorityWithGrep(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -423,6 +437,7 @@ func TestSystemControllerSystemdLogTailPriorityWithGrep(t *testing.T) {
 }
 
 func TestSystemControllerSystemdLogTailPriorityEmptyPriority(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	now := time.Now()
 	sd.Entries = []systemd.JournalEntry{
@@ -443,6 +458,7 @@ func TestSystemControllerSystemdLogTailPriorityEmptyPriority(t *testing.T) {
 }
 
 func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd,
 		packages.PackageIdentity{Repo: "repo", Name: "nginx", Version: "1.0"},
@@ -521,6 +537,7 @@ func TestSystemControllerSystemdFullLifecycle(t *testing.T) {
 }
 
 func TestSystemControllerSystemdListUnitsCallLog(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-nginx-1.0.service"},
@@ -546,6 +563,7 @@ func TestSystemControllerSystemdListUnitsCallLog(t *testing.T) {
 }
 
 func TestSystemControllerSystemdSetUnitStatusCallLog(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd)
 
@@ -580,6 +598,7 @@ func TestSystemControllerSystemdSetUnitStatusCallLog(t *testing.T) {
 }
 
 func TestSystemControllerSystemdSetUnitStatusMultipleUnits(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	c := initSystemControllerSystemdTest(t, sd)
 
@@ -626,6 +645,7 @@ func TestSystemControllerSystemdSetUnitStatusMultipleUnits(t *testing.T) {
 }
 
 func TestSystemControllerPingUnitCountsFiltersTownOS(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--core-nginx-1.0.service", ActiveState: "active"},
@@ -663,6 +683,7 @@ func TestSystemControllerPingUnitCountsFiltersTownOS(t *testing.T) {
 }
 
 func TestSystemControllerPingUnitCountsExcludesUninstalled(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--core-nginx-1.0.service", ActiveState: "active"},
@@ -697,6 +718,7 @@ func TestSystemControllerPingUnitCountsExcludesUninstalled(t *testing.T) {
 }
 
 func TestSystemControllerListUnitsFiltersNonPackageUnits(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
@@ -724,6 +746,7 @@ func TestSystemControllerListUnitsFiltersNonPackageUnits(t *testing.T) {
 }
 
 func TestSystemControllerListUnitsDescriptionEnrichment(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},
@@ -797,6 +820,7 @@ func TestSystemControllerListUnitsDescriptionEnrichment(t *testing.T) {
 }
 
 func TestSystemControllerListUnitsNoDescriptionWithoutRepoRoot(t *testing.T) {
+	t.Parallel()
 	sd := systemd.InitMockManager()
 	sd.Units = []systemd.UnitStatus{
 		{Name: "town-os-package--repo-nginx-1.0.service", ActiveState: "active"},

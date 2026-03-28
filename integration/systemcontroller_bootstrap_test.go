@@ -16,6 +16,7 @@ import (
 // --- Bootstrap account creation integration tests ---
 
 func TestBootstrapCreateAccountNoUsers(t *testing.T) {
+	t.Parallel()
 	c, _ := initBootstrapTest(t)
 
 	// No accounts exist — should succeed without any token.
@@ -32,6 +33,7 @@ func TestBootstrapCreateAccountNoUsers(t *testing.T) {
 }
 
 func TestBootstrapCreateAccountWithStaleToken(t *testing.T) {
+	t.Parallel()
 	c, _ := initBootstrapTest(t)
 
 	// Set a stale/invalid token — bootstrap mode should ignore it.
@@ -47,6 +49,7 @@ func TestBootstrapCreateAccountWithStaleToken(t *testing.T) {
 }
 
 func TestBootstrapCreateAccountAllAdminsDisabled(t *testing.T) {
+	t.Parallel()
 	c, mgr := initBootstrapTest(t)
 
 	// Create an admin and authenticate.
@@ -76,6 +79,7 @@ func TestBootstrapCreateAccountAllAdminsDisabled(t *testing.T) {
 }
 
 func TestBootstrapCreateAccountAllAdminsDisabledWithStaleToken(t *testing.T) {
+	t.Parallel()
 	c, mgr := initBootstrapTest(t)
 
 	// Create an admin and authenticate.
@@ -104,6 +108,7 @@ func TestBootstrapCreateAccountAllAdminsDisabledWithStaleToken(t *testing.T) {
 }
 
 func TestBootstrapCreateAccountOnlyNonAdminUsers(t *testing.T) {
+	t.Parallel()
 	c, _ := initBootstrapTest(t)
 
 	// Bootstrap first admin.
@@ -138,6 +143,7 @@ func TestBootstrapCreateAccountOnlyNonAdminUsers(t *testing.T) {
 }
 
 func TestBootstrapRejectsAfterAdminExists(t *testing.T) {
+	t.Parallel()
 	c, _ := initBootstrapTest(t)
 
 	// Bootstrap first admin.
@@ -154,6 +160,7 @@ func TestBootstrapRejectsAfterAdminExists(t *testing.T) {
 }
 
 func TestBootstrapPingNeedsSetup(t *testing.T) {
+	t.Parallel()
 	c, _ := initBootstrapTest(t)
 
 	// No accounts — needs_setup should be true.
@@ -181,6 +188,7 @@ func TestBootstrapPingNeedsSetup(t *testing.T) {
 }
 
 func TestBootstrapPingIncludesExternalIP(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
 	if err != nil {

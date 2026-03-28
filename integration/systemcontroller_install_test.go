@@ -24,6 +24,7 @@ import (
 // --- Install integration tests ---
 
 func TestSystemControllerInstallAndListInstalled(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -48,6 +49,7 @@ func TestSystemControllerInstallAndListInstalled(t *testing.T) {
 }
 
 func TestSystemControllerInstallAndGetResponses(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -73,6 +75,7 @@ func TestSystemControllerInstallAndGetResponses(t *testing.T) {
 }
 
 func TestSystemControllerInstallFullLifecycle(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -137,6 +140,7 @@ func TestSystemControllerInstallFullLifecycle(t *testing.T) {
 }
 
 func TestSystemControllerInstallMultiplePackages(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -182,6 +186,7 @@ func TestSystemControllerInstallMultiplePackages(t *testing.T) {
 // --- Install + Systemd integration tests ---
 
 func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -226,6 +231,7 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 }
 
 func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -278,6 +284,7 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 }
 
 func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -330,6 +337,7 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 }
 
 func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
+	t.Parallel()
 	c, sd := initSystemControllerInstallSystemdTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -381,6 +389,7 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 // one version to another removes the old install record, leaving only the
 // new version installed.
 func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -428,6 +437,7 @@ func TestSystemControllerUpgradeRemovesOldRecord(t *testing.T) {
 }
 
 func TestInstallPackageWithGitSeed(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	data, err := json.Marshal([]packages.Repository{})
 	if err != nil {
@@ -567,6 +577,7 @@ func TestInstallPackageWithGitSeed(t *testing.T) {
 }
 
 func TestGitSourceInstallAndRebuild(t *testing.T) {
+	t.Parallel()
 	// Create a local bare git repo to serve as the git source.
 	bareDir := filepath.Join(t.TempDir(), "bare.git")
 	if out, err := exec.CommandContext(context.TODO(), "git", "init", "--bare", "--initial-branch=main", bareDir).CombinedOutput(); err != nil {
@@ -715,6 +726,7 @@ git_sources:
 }
 
 func TestInstallProtonPackage(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	data, err := json.Marshal([]packages.Repository{})
 	if err != nil {
@@ -848,6 +860,7 @@ environment:
 }
 
 func TestInstallProtonPackageAndReconcile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	data, err := json.Marshal([]packages.Repository{})
 	if err != nil {

@@ -60,7 +60,7 @@ case "$1" in
   # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
   integration)
     step "Running integration tests"
-    run_args=(-test.v -test.parallel 1 -test.timeout "${TEST_TIMEOUT:-60m}")
+    run_args=(-test.v -test.parallel 4 -test.timeout "${TEST_TIMEOUT:-60m}")
     if [[ -n "${TEST_RUN:-}" ]]; then
       run_args+=(-test.run "${TEST_RUN}")
     fi
@@ -79,7 +79,7 @@ case "$1" in
       wait_for_systemd "${PODMAN_CONTAINER}"
     fi
     step "Running integration tests"
-    run_args=(-test.v -test.parallel 1 -test.timeout "${TEST_TIMEOUT:-60m}")
+    run_args=(-test.v -test.parallel 4 -test.timeout "${TEST_TIMEOUT:-60m}")
     if [[ -n "${TEST_RUN:-}" ]]; then
       run_args+=(-test.run "${TEST_RUN}")
     fi

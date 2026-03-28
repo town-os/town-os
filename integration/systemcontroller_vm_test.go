@@ -127,6 +127,7 @@ network:
 }
 
 func TestVMInstallCreatesQEMUUnit(t *testing.T) {
+	t.Parallel()
 	c, sd := initVMInstallTest(t)
 
 	if err := c.InstallPackage(context.TODO(), "debian-vm", "1.0", packages.Responses{}, false, "", false); err != nil {
@@ -189,6 +190,7 @@ func TestVMInstallCreatesQEMUUnit(t *testing.T) {
 }
 
 func TestVMInstallNoPortsMinimalUnits(t *testing.T) {
+	t.Parallel()
 	c, sd := initVMInstallTest(t)
 
 	if err := c.InstallPackage(context.TODO(), "headless-vm", "1.0", packages.Responses{}, false, "", false); err != nil {
@@ -217,6 +219,7 @@ func TestVMInstallNoPortsMinimalUnits(t *testing.T) {
 }
 
 func TestVMInstallPreview(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	data, err := json.Marshal([]packages.Repository{})
 	if err != nil {
@@ -295,6 +298,7 @@ network:
 }
 
 func TestVMInstallAndUninstall(t *testing.T) {
+	t.Parallel()
 	c, sd := initVMInstallTest(t)
 
 	// Install.
@@ -336,6 +340,7 @@ func TestVMInstallAndUninstall(t *testing.T) {
 }
 
 func TestVMListImages(t *testing.T) {
+	t.Parallel()
 	btrfsBase := t.TempDir()
 	mock := storage.InitBtrFSMock()
 
@@ -385,6 +390,7 @@ func TestVMListImages(t *testing.T) {
 }
 
 func TestVMDeleteImage(t *testing.T) {
+	t.Parallel()
 	btrfsBase := t.TempDir()
 	mock := storage.InitBtrFSMock()
 

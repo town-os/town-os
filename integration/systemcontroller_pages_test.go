@@ -107,6 +107,7 @@ func initSystemControllerPagesEnv(t *testing.T) pagesIntegrationEnv {
 }
 
 func TestPagesCreateAndList(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	// Empty list.
@@ -150,6 +151,7 @@ func TestPagesCreateAndList(t *testing.T) {
 }
 
 func TestPagesCreateDefaultDomain(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	page, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "", account.PageSourceGit, "", "")
@@ -162,6 +164,7 @@ func TestPagesCreateDefaultDomain(t *testing.T) {
 }
 
 func TestPagesCreateDuplicate(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -175,6 +178,7 @@ func TestPagesCreateDuplicate(t *testing.T) {
 }
 
 func TestPagesCreateArchiveSourceType(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	page, err := c.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", "")
@@ -187,6 +191,7 @@ func TestPagesCreateArchiveSourceType(t *testing.T) {
 }
 
 func TestPagesCreateContainerImageSourceType(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	page, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html")
@@ -205,6 +210,7 @@ func TestPagesCreateContainerImageSourceType(t *testing.T) {
 }
 
 func TestPagesCreateDefaultSourceType(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	page, err := c.CreatePage(context.TODO(), "default-site", "", "", "default.example.com", "", "", "")
@@ -217,6 +223,7 @@ func TestPagesCreateDefaultSourceType(t *testing.T) {
 }
 
 func TestPagesUpdate(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -234,6 +241,7 @@ func TestPagesUpdate(t *testing.T) {
 }
 
 func TestPagesUpdateSourceType(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -251,6 +259,7 @@ func TestPagesUpdateSourceType(t *testing.T) {
 }
 
 func TestPagesUpdateNotFound(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	newDomain := "new.example.com"
@@ -261,6 +270,7 @@ func TestPagesUpdateNotFound(t *testing.T) {
 }
 
 func TestPagesRemove(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -281,6 +291,7 @@ func TestPagesRemove(t *testing.T) {
 }
 
 func TestPagesRemoveNotFound(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	err := c.RemovePage(context.TODO(), "nonexistent")
@@ -290,6 +301,7 @@ func TestPagesRemoveNotFound(t *testing.T) {
 }
 
 func TestPagesListSearch(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "alpha-site", "https://github.com/user/alpha.git", "main", "alpha.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -312,6 +324,7 @@ func TestPagesListSearch(t *testing.T) {
 }
 
 func TestPagesRequireAuth(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 	c.Token = "" // Clear auth token.
 
@@ -322,6 +335,7 @@ func TestPagesRequireAuth(t *testing.T) {
 }
 
 func TestPagesRebuild(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "my-site", "https://github.com/user/site.git", "main", "site.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -339,6 +353,7 @@ func TestPagesRebuild(t *testing.T) {
 }
 
 func TestPagesRebuildNotFound(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	_, err := c.RebuildPage(context.TODO(), "nonexistent")
@@ -348,6 +363,7 @@ func TestPagesRebuildNotFound(t *testing.T) {
 }
 
 func TestPagesRebuildArchiveReturnsError(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", ""); err != nil {
@@ -361,6 +377,7 @@ func TestPagesRebuildArchiveReturnsError(t *testing.T) {
 }
 
 func TestPagesListIncludesSourceType(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "archive-page", "", "", "archive.example.com", account.PageSourceArchive, "", ""); err != nil {
@@ -389,6 +406,7 @@ func TestPagesListIncludesSourceType(t *testing.T) {
 }
 
 func TestPagesAuditRebuildLogged(t *testing.T) {
+	t.Parallel()
 	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -420,6 +438,7 @@ func TestPagesAuditRebuildLogged(t *testing.T) {
 }
 
 func TestPagesAuditCreateLogged(t *testing.T) {
+	t.Parallel()
 	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -450,6 +469,7 @@ func TestPagesAuditCreateLogged(t *testing.T) {
 }
 
 func TestPagesAuditUpdateLogged(t *testing.T) {
+	t.Parallel()
 	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -482,6 +502,7 @@ func TestPagesAuditUpdateLogged(t *testing.T) {
 }
 
 func TestPagesAuditRemoveLogged(t *testing.T) {
+	t.Parallel()
 	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "audit-site", "https://github.com/user/site.git", "main", "audit.example.com", account.PageSourceGit, "", ""); err != nil {
@@ -513,6 +534,7 @@ func TestPagesAuditRemoveLogged(t *testing.T) {
 }
 
 func TestPagesAuditListExcluded(t *testing.T) {
+	t.Parallel()
 	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
 
 	// Call list pages multiple times - should NOT be audit logged.
@@ -536,6 +558,7 @@ func TestPagesAuditListExcluded(t *testing.T) {
 }
 
 func TestPagesCreateCreatesSymlink(t *testing.T) {
+	t.Parallel()
 	env := initSystemControllerPagesEnv(t)
 
 	// Ensure the webroot directory exists.
@@ -562,6 +585,7 @@ func TestPagesCreateCreatesSymlink(t *testing.T) {
 }
 
 func TestPagesRemoveRemovesSymlink(t *testing.T) {
+	t.Parallel()
 	env := initSystemControllerPagesEnv(t)
 
 	// Ensure the webroot directory exists.
@@ -593,6 +617,7 @@ func TestPagesRemoveRemovesSymlink(t *testing.T) {
 }
 
 func TestPagesUploadArchiveWrongSourceType(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	// Create a git page, then try to upload an archive to it.
@@ -607,6 +632,7 @@ func TestPagesUploadArchiveWrongSourceType(t *testing.T) {
 }
 
 func TestPagesUploadArchivePageNotFound(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	_, err := c.UploadPageArchive(context.TODO(), "nonexistent", strings.NewReader("dummy"), "dummy.tar.gz")
@@ -616,6 +642,7 @@ func TestPagesUploadArchivePageNotFound(t *testing.T) {
 }
 
 func TestPagesUploadArchiveContainerImageSourceType(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	// Create a container_image page, then try to upload an archive to it.
@@ -630,6 +657,7 @@ func TestPagesUploadArchiveContainerImageSourceType(t *testing.T) {
 }
 
 func TestPagesRebuildContainerImageSetsErrorStatus(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html"); err != nil {
@@ -657,6 +685,7 @@ func TestPagesRebuildContainerImageSetsErrorStatus(t *testing.T) {
 }
 
 func TestPagesUpdateImageFields(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "image-site", "", "", "image.example.com", account.PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html"); err != nil {
@@ -681,6 +710,7 @@ func TestPagesUpdateImageFields(t *testing.T) {
 }
 
 func TestPagesListSorting(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	if _, err := c.CreatePage(context.TODO(), "zeta-site", "", "", "zeta.example.com", account.PageSourceArchive, "", ""); err != nil {
@@ -713,6 +743,7 @@ func TestPagesListSorting(t *testing.T) {
 }
 
 func TestPagesListPagination(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerPagesTest(t)
 
 	for i := range 3 {
@@ -751,6 +782,7 @@ func TestPagesListPagination(t *testing.T) {
 }
 
 func TestPagesAuditUploadLogged(t *testing.T) {
+	t.Parallel()
 	c, auditMgr := initSystemControllerPagesTestWithAudit(t)
 
 	if _, err := c.CreatePage(context.TODO(), "archive-site", "", "", "archive.example.com", account.PageSourceArchive, "", ""); err != nil {

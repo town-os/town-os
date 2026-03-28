@@ -11,6 +11,7 @@ import (
 )
 
 func TestSystemControllerAddAndListRepository(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -36,6 +37,7 @@ func TestSystemControllerAddAndListRepository(t *testing.T) {
 }
 
 func TestSystemControllerRemoveRepository(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -57,6 +59,7 @@ func TestSystemControllerRemoveRepository(t *testing.T) {
 }
 
 func TestSystemControllerAddMultipleRepositories(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -90,6 +93,7 @@ func TestSystemControllerAddMultipleRepositories(t *testing.T) {
 }
 
 func TestSystemControllerListRepositoriesEmpty(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	repos, err := c.ListRepositories(context.TODO(), systemcontroller.ListParams{})
@@ -103,6 +107,7 @@ func TestSystemControllerListRepositoriesEmpty(t *testing.T) {
 }
 
 func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -135,6 +140,7 @@ func TestSystemControllerListRepositoriesAfterRemove(t *testing.T) {
 }
 
 func TestSystemControllerRemoveNonexistentRepository(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	err := c.RemoveRepository(context.TODO(), "nonexistent")
@@ -144,6 +150,7 @@ func TestSystemControllerRemoveNonexistentRepository(t *testing.T) {
 }
 
 func TestSystemControllerAddRepositoryBadClone(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	err := c.AddRepository(context.TODO(), "", "https://github.com/town-os/does-not-exist.git", "", "")
@@ -162,7 +169,9 @@ func TestSystemControllerAddRepositoryBadClone(t *testing.T) {
 }
 
 func TestSystemControllerAddRepositoryPartialCredentials(t *testing.T) {
+	t.Parallel()
 	t.Run("username without password", func(t *testing.T) {
+		t.Parallel()
 		c := initSystemControllerRepoTest(t)
 
 		err := c.AddRepository(context.TODO(), "", testCoreURLString(), "user", "")
@@ -172,6 +181,7 @@ func TestSystemControllerAddRepositoryPartialCredentials(t *testing.T) {
 	})
 
 	t.Run("password without username", func(t *testing.T) {
+		t.Parallel()
 		c := initSystemControllerRepoTest(t)
 
 		err := c.AddRepository(context.TODO(), "", testCoreURLString(), "", "pass")
@@ -182,6 +192,7 @@ func TestSystemControllerAddRepositoryPartialCredentials(t *testing.T) {
 }
 
 func TestSystemControllerAddRepositoryWithCredentials(t *testing.T) {
+	t.Parallel()
 	user, pass := scRepoCredentials()
 
 	c := initSystemControllerRepoTest(t)
@@ -205,6 +216,7 @@ func TestSystemControllerAddRepositoryWithCredentials(t *testing.T) {
 }
 
 func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := c.AddRepository(context.TODO(), "", testCoreURLString(), "", ""); err != nil {
@@ -222,6 +234,7 @@ func TestSystemControllerAddRepositoryWithoutCredentials(t *testing.T) {
 }
 
 func TestSystemControllerMoveRepository(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -262,6 +275,7 @@ func TestSystemControllerMoveRepository(t *testing.T) {
 }
 
 func TestSystemControllerMoveRepositoryNotFound(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	err := c.MoveRepository(context.TODO(), "nonexistent", 0)
@@ -271,6 +285,7 @@ func TestSystemControllerMoveRepositoryNotFound(t *testing.T) {
 }
 
 func TestSystemControllerRepositoryFullLifecycle(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerRepoTest(t)
 
 	// Start empty

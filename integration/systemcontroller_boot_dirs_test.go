@@ -12,6 +12,7 @@ import (
 // required directories on startup. The Containerfiles no longer pre-create
 // these paths — the systemcontroller itself must ensure they exist.
 func TestBootDirectoriesCreated(t *testing.T) {
+	t.Parallel()
 	dirs := []string{
 		"/town-os",         // -btrfs flag
 		"/data/db",         // parent of -db /data/db/dev.db

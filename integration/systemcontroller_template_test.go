@@ -110,6 +110,7 @@ templates:
 }
 
 func TestIntegrationInstallWithTemplatesWritesFiles(t *testing.T) {
+	t.Parallel()
 	c, _, btrfsBase, _ := initTemplateInstallTest(t)
 
 	responses := packages.Responses{"hostname": "example"}
@@ -150,6 +151,7 @@ func TestIntegrationInstallWithTemplatesWritesFiles(t *testing.T) {
 }
 
 func TestIntegrationInstallTemplatesDoNotOverwrite(t *testing.T) {
+	t.Parallel()
 	c, _, btrfsBase, _ := initTemplateInstallTest(t)
 
 	// Pre-create the target file with existing content.
@@ -188,6 +190,7 @@ func TestIntegrationInstallTemplatesDoNotOverwrite(t *testing.T) {
 }
 
 func TestIntegrationReconcileWithTemplatesWritesFiles(t *testing.T) {
+	t.Parallel()
 	c, inst, btrfsBase, rr := initTemplateInstallTest(t)
 
 	responses := packages.Responses{"hostname": "reconcile-host"}
@@ -241,6 +244,7 @@ func TestIntegrationReconcileWithTemplatesWritesFiles(t *testing.T) {
 }
 
 func TestIntegrationReconcileTemplatesPreserveExistingFiles(t *testing.T) {
+	t.Parallel()
 	c, inst, btrfsBase, rr := initTemplateInstallTest(t)
 
 	responses := packages.Responses{"hostname": "myhost"}
@@ -280,6 +284,7 @@ func TestIntegrationReconcileTemplatesPreserveExistingFiles(t *testing.T) {
 }
 
 func TestIntegrationInstallWithoutTemplatesNoFiles(t *testing.T) {
+	t.Parallel()
 	// Package without templates should install normally.
 	dir := t.TempDir()
 	data, err := json.Marshal([]packages.Repository{})

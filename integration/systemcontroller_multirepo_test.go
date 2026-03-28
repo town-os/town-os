@@ -14,6 +14,7 @@ import (
 // --- Multi-repo integration tests ---
 
 func TestSystemControllerMultiRepoListInstalled(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -52,6 +53,7 @@ func TestSystemControllerMultiRepoListInstalled(t *testing.T) {
 }
 
 func TestSystemControllerListPackagesByRepoIntegration(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
@@ -89,6 +91,7 @@ func TestSystemControllerListPackagesByRepoIntegration(t *testing.T) {
 }
 
 func TestSystemControllerMultiRepoUninstallIsolation(t *testing.T) {
+	t.Parallel()
 	c, _ := initSystemControllerInstallTest(t)
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
