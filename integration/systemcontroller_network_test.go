@@ -759,7 +759,7 @@ func TestNCImageBuildProducesValidImage(t *testing.T) {
 	// Build in a temp directory — same steps as buildNetworkControllerImage.
 	buildDir := t.TempDir()
 
-	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nENTRYPOINT [\"/town-os-networkcontroller\"]\n"
+	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD [\"/town-os-networkcontroller\"]\n"
 	if err := os.WriteFile(filepath.Join(buildDir, "Containerfile"), []byte(containerfile), 0600); err != nil {
 		t.Fatalf("write Containerfile: %v", err)
 	}
@@ -790,7 +790,7 @@ func TestNCImageBuildProducesValidImage(t *testing.T) {
 	}
 
 	// Verify the binary is inside the image.
-	out, err = exec.CommandContext(ctx, "podman", "run", "--rm", "--entrypoint", "ls", imageName, "/town-os-networkcontroller").CombinedOutput()
+	out, err = exec.CommandContext(ctx, "podman", "run", "--rm", imageName, "ls", "/town-os-networkcontroller").CombinedOutput()
 	if err != nil {
 		t.Fatalf("NC binary not found in image: %v\n%s", err, string(out))
 	}

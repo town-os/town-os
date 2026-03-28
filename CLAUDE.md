@@ -15,6 +15,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - check all type assertions before using the result
 
+- **Use CMD instead of ENTRYPOINT in container images** — all Containerfiles and inline Containerfile strings must use `CMD` instead of `ENTRYPOINT`. This allows `podman run <image> <command>` to override the default command without `--entrypoint`. Applies to the systemcontroller image, NC image, and any dynamically generated Containerfiles.
+
 - **`--replace` on all `podman run --name`** — no exceptions, anywhere in the repo.
 
 - **Fail fast** — if any make subtask or script launched by a make subtask fails, stop immediately. Do not continue to the next phase.

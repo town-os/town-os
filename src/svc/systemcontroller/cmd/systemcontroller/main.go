@@ -538,7 +538,7 @@ func buildNetworkControllerImage(ctx context.Context) (string, error) {
 	containerfile := `FROM docker.io/library/alpine:latest
 RUN apk add --no-cache socat
 COPY town-os-networkcontroller /town-os-networkcontroller
-ENTRYPOINT ["/town-os-networkcontroller"]
+CMD ["/town-os-networkcontroller"]
 `
 	if err := os.WriteFile(filepath.Join(buildDir, "Containerfile"), []byte(containerfile), 0600); err != nil {
 		return "", fmt.Errorf("write Containerfile: %w", err)

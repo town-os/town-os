@@ -48,7 +48,7 @@ case "$1" in
     ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c \
       'cd /tmp && mkdir -p nc-build && cd nc-build && \
        cp /town-os-networkcontroller . && \
-       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nENTRYPOINT [\"/town-os-networkcontroller\"]\n" > Containerfile && \
+       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD [\"/town-os-networkcontroller\"]\n" > Containerfile && \
        podman build --dns 1.1.1.1 --pull=never -t town-os-networkcontroller:local -f Containerfile . && \
        cd /tmp && rm -rf nc-build'
     step "Restarting systemcontroller after image loading"
@@ -129,7 +129,7 @@ case "$1" in
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" /bin/sh -c \
       'cd /tmp && mkdir -p nc-build && cd nc-build && \
        cp /town-os-networkcontroller . && \
-       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nENTRYPOINT [\"/town-os-networkcontroller\"]\n" > Containerfile && \
+       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD [\"/town-os-networkcontroller\"]\n" > Containerfile && \
        podman build --dns 1.1.1.1 --pull=never -t town-os-networkcontroller:local -f Containerfile . && \
        cd /tmp && rm -rf nc-build'
     step "Restarting systemcontroller after image loading"
