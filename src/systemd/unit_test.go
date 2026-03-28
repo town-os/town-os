@@ -869,6 +869,51 @@ func TestGenerateSystemServiceUnitNoExecStopPostWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestNCUnitRequiresImageName(t *testing.T) {
+	// Verify that when NetworkControllerImage is set, the NC unit's
+	// ExecStart line contains the image name before the --state flag.
+	cfg := PackageUnitConfig{
+		RepoName:               "core",
+		PkgName:                "nginx",
+		Version:                "1.0",
+		Image:                  "nginx:1.0",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "town-os-networkcontroller:local",
+		NetworkStatePath:       "/var/run/town-os",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	if units.NetworkController == nil {
+		t.Fatal("expected NC unit")
+	}
+	nc := units.NetworkController.Content
+
+	// The image name must appear before --state in the ExecStart line.
+	if !strings.Contains(nc, "town-os-networkcontroller:local --state") {
+		t.Fatalf("NC ExecStart must have image name before --state, got:\n%s", nc)
+	}
+
+	// With an empty image name, --state would be interpreted as a podman flag.
+	cfgEmpty := cfg
+	cfgEmpty.NetworkControllerImage = ""
+	unitsEmpty := GeneratePackageUnits(cfgEmpty)
+	if unitsEmpty.NetworkController == nil {
+		t.Fatal("expected NC unit even with empty image")
+	}
+	ncEmpty := unitsEmpty.NetworkController.Content
+	if strings.Contains(ncEmpty, "town-os-networkcontroller") {
+		t.Fatal("empty image should not contain image name")
+	}
+	// This documents the bug: empty image causes --state to be a podman flag.
+	if !strings.Contains(ncEmpty, " --state") {
+		t.Fatalf("expected --state in NC unit, got:\n%s", ncEmpty)
+	}
+}
+
 func TestIsPackageServiceUnit(t *testing.T) {
 	tests := []struct {
 		name   string

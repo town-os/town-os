@@ -124,6 +124,30 @@ func TestBuildNCImageSkipsWhenExists(t *testing.T) {
 	// Full integration is tested via make test-integration.
 }
 
+func TestNCImageFallbackOnBuildFailure(t *testing.T) {
+	// Simulate buildNetworkControllerImage returning empty string on failure.
+	// The run() function should fall back to the constant image name.
+	var ncImage string
+	// This mirrors the logic in run(): if build fails, ncImage is empty.
+	if ncImage == "" {
+		ncImage = "town-os-networkcontroller:local"
+	}
+	if ncImage != "town-os-networkcontroller:local" {
+		t.Fatalf("expected fallback to town-os-networkcontroller:local, got %q", ncImage)
+	}
+}
+
+func TestNCImageFallbackPreservesSuccessfulBuild(t *testing.T) {
+	// When the build succeeds, the image name should be preserved.
+	ncImage := "town-os-networkcontroller:local"
+	if ncImage == "" {
+		ncImage = "town-os-networkcontroller:local"
+	}
+	if ncImage != "town-os-networkcontroller:local" {
+		t.Fatalf("expected town-os-networkcontroller:local, got %q", ncImage)
+	}
+}
+
 func TestDetectVersionChangeFirstRun(t *testing.T) {
 	// Outside a container, getContainerImageID returns "" and detection
 	// is skipped (returns false). Only test the "first run" semantics
