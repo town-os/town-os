@@ -455,16 +455,11 @@ var ensureImage = func(ctx context.Context, image string) error {
 }
 
 // buildNetworkControllerImage builds the network controller container image
-// locally using podman build. The NC binary (/town-os-networkcontroller) and
-// socat are bundled into an alpine-based image. Returns the image name.
+// locally using podman build. The NC binary (/town-os-networkcontroller) is
+// baked into the systemcontroller image at build time, so rebuilding on every
+// startup guarantees the NC image always matches the running systemcontroller.
 func buildNetworkControllerImage(ctx context.Context) (string, error) {
 	const imageName = "town-os-networkcontroller:local"
-
-	// Skip the build if the image already exists (e.g. pre-loaded in test/dev).
-	if err := exec.CommandContext(ctx, "podman", "image", "exists", imageName).Run(); err == nil {
-		slog.Info("network controller image already exists: " + imageName)
-		return imageName, nil
-	}
 
 	buildDir, err := os.MkdirTemp("", "nc-image-build-*")
 	if err != nil {
