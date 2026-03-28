@@ -1051,6 +1051,7 @@ func TestGeneratePackageUnitsProtonWithArgs(t *testing.T) {
 func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 	parentNetwork := NetworkName("core", "mattermost", "1.0")
 	parentUnit := UnitName("core", "mattermost", "1.0")
+	parentNCUnit := NetworkControllerUnitName("core", "mattermost", "1.0")
 
 	cfg := PackageUnitConfig{
 		RepoName:               "core",
@@ -1065,10 +1066,19 @@ func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 		NetworkStatePath:       "/var/run/town-os",
 		ParentNetwork:          parentNetwork,
 		ParentUnitName:         parentUnit,
+		ParentNCUnitName:       parentNCUnit,
 	}
 
 	units := GeneratePackageUnits(cfg)
 	svc := units.Service.Content
+
+	// Dependency must NOT have its own NC or socket units.
+	if units.NetworkController != nil {
+		t.Fatal("dependency must not have its own network controller")
+	}
+	if len(units.Sockets) != 0 {
+		t.Fatalf("dependency must not have socket units, got %d", len(units.Sockets))
+	}
 
 	// Must join the parent's network, not create its own.
 	if !strings.Contains(svc, "--net "+parentNetwork) {
@@ -1087,12 +1097,29 @@ func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 		t.Fatalf("dependency missing Before, got:\n%s", svc)
 	}
 
-	// When dependency has its own NC, network create/rm is handled by the NC, not the service.
+	// Dependency must NOT have firewall rules or socket stop/start.
+	if strings.Contains(svc, "firewall-cmd") {
+		t.Fatalf("dependency must not have firewall rules, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "systemctl stop") && strings.Contains(svc, ".socket") {
+		t.Fatalf("dependency must not stop socket units, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "systemctl start") && strings.Contains(svc, ".socket") {
+		t.Fatalf("dependency must not start socket units, got:\n%s", svc)
+	}
+
+	// Dependency must NOT manage the network (NC owns it).
 	if strings.Contains(svc, "podman network create") {
-		t.Fatalf("dependency service should not have network create when NC exists, got:\n%s", svc)
+		t.Fatalf("dependency must not create network, got:\n%s", svc)
 	}
 	if strings.Contains(svc, "podman network rm") {
-		t.Fatalf("dependency must not remove the shared network, got:\n%s", svc)
+		t.Fatalf("dependency must not remove network, got:\n%s", svc)
+	}
+
+	// Dependency must wait for parent's NC container.
+	parentNCContainer := NetworkControllerContainerNameFromUnit(parentNCUnit)
+	if !strings.Contains(svc, "podman container exists "+parentNCContainer) {
+		t.Fatalf("dependency must wait for parent NC container, got:\n%s", svc)
 	}
 }
 
@@ -1139,6 +1166,40 @@ func TestGeneratePackageUnitsParentWithDeps(t *testing.T) {
 	}
 	if strings.Contains(svc, "podman network rm -f "+ownNetwork) {
 		t.Fatalf("parent service should not have network rm -f when NC exists, got:\n%s", svc)
+	}
+}
+
+func TestParentWithDepsStillGetsNC(t *testing.T) {
+	depUnit := UnitName("core", "app--dep--db", "1.0")
+
+	cfg := PackageUnitConfig{
+		RepoName:               "core",
+		PkgName:                "app",
+		Version:                "1.0",
+		Image:                  "app:1.0",
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/var/run/town-os",
+		DependencyUnitNames:    []string{depUnit},
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	if units.NetworkController == nil {
+		t.Fatal("parent with ports must have its own NC")
+	}
+	if len(units.Sockets) != 1 {
+		t.Fatalf("parent must have 1 socket unit, got %d", len(units.Sockets))
+	}
+
+	// NC unit must have Before= for both service and dependency.
+	ncContent := units.NetworkController.Content
+	svcUnit := UnitName("core", "app", "1.0")
+	if !strings.Contains(ncContent, "Before="+svcUnit+" "+depUnit) {
+		t.Fatalf("NC must start before service and deps, got:\n%s", ncContent)
 	}
 }
 

@@ -263,9 +263,10 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		}
 	}
 
-	// Write per-package network state file. Network state is needed whenever
-	// there are any ports (all forwarding goes through the NC).
-	needsNetworkState := len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0
+	// Write per-package network state file. Only parent/standalone packages
+	// need a state file — dependencies share the parent's NC.
+	isDep := netInfo.ParentNCUnitName != ""
+	needsNetworkState := !isDep && (len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0)
 	if cfg.NetworkStatePath != "" && needsNetworkState {
 		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled); err != nil {
 			return fmt.Errorf("write network state: %w", err)

@@ -123,23 +123,23 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	ports := allPorts(cfg.External, cfg.Internal)
 	hasPorts := len(ports) > 0
 
-	// Network controller is needed whenever there are any ports — it handles
-	// all host port exposure via socat from the host network to the package
-	// container's private podman network.
-	needsNetworkController := hasPorts
+	// Dependencies share the parent's NC — only standalone packages and
+	// parents generate their own NC and host-facing socket/firewall rules.
+	isDep := cfg.ParentNCUnitName != ""
+	needsNetworkController := hasPorts && !isDep
 
 	// --- Main service unit ---
 	units.Service = generateServiceUnit(cfg, ports, needsNetworkController)
 
-	// --- Socket units (one per port) ---
-	if hasPorts {
+	// --- Socket units (one per port, host-facing only) ---
+	if hasPorts && !isDep {
 		units.Sockets = make([]UnitFile, len(ports))
 		for i, port := range ports {
 			units.Sockets[i] = generateSocketUnit(cfg, port)
 		}
 	}
 
-	// --- Network controller unit (any ports = NC needed, always) ---
+	// --- Network controller unit (parent packages only) ---
 	if needsNetworkController {
 		nc := generateNetworkControllerUnit(cfg, ports)
 		units.NetworkController = &nc
@@ -196,20 +196,24 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
 
+	// Host-facing port operations (sockets, firewall) only apply to
+	// standalone packages and parents. Dependencies' ports are internal-only
+	// on the shared podman network.
+	hostPorts := ports
+	if cfg.ParentNCUnitName != "" {
+		hostPorts = nil
+	}
+
 	// Stop socket units to free ports before podman binds via -p.
-	if len(ports) > 0 {
-		socketNames := make([]string, len(ports))
-		for i, p := range ports {
+	if len(hostPorts) > 0 {
+		socketNames := make([]string, len(hostPorts))
+		for i, p := range hostPorts {
 			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
 		}
 		fmt.Fprintf(&b, "ExecStartPre=-/bin/systemctl stop %s\n", strings.Join(socketNames, " "))
 	}
 
 	// Wait for the NC container to be running before starting the service.
-	// The NC is started via Wants+After but Type=simple means systemd
-	// considers it active as soon as podman run starts — the socat
-	// forwarders may not be ready yet. This loop polls until the container
-	// is actually running.
 	if needsNetworkController {
 		ncContainerName := NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
 		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/podman container exists %s && exit 0; sleep 0.5; done; echo \"NC container %s not ready after 15s\"; exit 1'\n", ncContainerName, ncContainerName)
@@ -219,10 +223,10 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/podman container exists %s && exit 0; sleep 0.5; done; echo \"parent NC container %s not ready after 15s\"; exit 1'\n", parentNCContainer, parentNCContainer)
 	}
 
-	// Firewall: open ports.
-	if len(ports) > 0 {
-		portArgs := make([]string, len(ports))
-		for i, p := range ports {
+	// Firewall: open ports (host-facing only).
+	if len(hostPorts) > 0 {
+		portArgs := make([]string, len(hostPorts))
+		for i, p := range hostPorts {
 			portArgs[i] = fmt.Sprintf("--add-port=%d/tcp", p)
 		}
 		fmt.Fprintf(&b, "ExecStartPre=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " "))
@@ -298,19 +302,19 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	// ExecStop
 	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName)
 
-	// Firewall: close ports.
-	if len(ports) > 0 {
-		portArgs := make([]string, len(ports))
-		for i, p := range ports {
+	// Firewall: close ports (host-facing only).
+	if len(hostPorts) > 0 {
+		portArgs := make([]string, len(hostPorts))
+		for i, p := range hostPorts {
 			portArgs[i] = fmt.Sprintf("--remove-port=%d/tcp", p)
 		}
 		fmt.Fprintf(&b, "ExecStopPost=-/bin/sh -c 'command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd %s || true'\n", strings.Join(portArgs, " "))
 	}
 
-	// Restart socket units after stop.
-	if len(ports) > 0 {
-		socketNames := make([]string, len(ports))
-		for i, p := range ports {
+	// Restart socket units after stop (host-facing only).
+	if len(hostPorts) > 0 {
+		socketNames := make([]string, len(hostPorts))
+		for i, p := range hostPorts {
 			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
 		}
 		fmt.Fprintf(&b, "ExecStopPost=-/bin/systemctl start %s\n", strings.Join(socketNames, " "))

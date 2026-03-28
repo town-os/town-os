@@ -123,11 +123,8 @@ func (s *SystemControllerHandlers) installDependencies(
 			return nil, nil, fmt.Errorf("dependency %q: install record: %w", depKey, err)
 		}
 
-		// Write network state (UPnP disabled via IsDependency check in
-		// writePackageNetworkState).
-		if err := s.writePackageNetworkState(depRepo, effectiveName, depVersion, depCompiled); err != nil {
-			return nil, nil, fmt.Errorf("dependency %q: write network state: %w", depKey, err)
-		}
+		// Dependencies share the parent's NC — no network state file needed.
+		// Only the parent writes a state file for its NC to read.
 
 		// Install and start systemd units. Dependencies share the parent's
 		// podman network and have systemd ordering (PartOf/Before parent).
