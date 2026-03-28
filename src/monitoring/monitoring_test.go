@@ -70,7 +70,7 @@ func TestStartInstallsUnits(t *testing.T) {
 	// Verify units were installed with correct names.
 	for _, key := range []string{"node-exporter", "prometheus", "grafana"} {
 		unitName := systemd.SystemServiceUnitName(key)
-		if !sd.InstalledUnits[unitName] {
+		if _, ok := sd.InstalledUnits[unitName]; !ok {
 			t.Fatalf("expected unit %s to be installed", unitName)
 		}
 	}

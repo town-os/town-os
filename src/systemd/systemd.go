@@ -144,6 +144,9 @@ type Manager interface {
 	// ListPackageUnitFiles returns the systemd unit file names associated with
 	// the package identified by repo, pkgName, and version.
 	ListPackageUnitFiles(ctx context.Context, repo, pkgName, version string) ([]string, error)
+	// ReadUnit reads the content of a systemd unit file by name. Returns
+	// ErrUnitNotFound if the file does not exist.
+	ReadUnit(name string) (string, error)
 }
 
 // PackageUnitPrefix is the prefix for all package-related systemd units.

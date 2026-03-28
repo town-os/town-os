@@ -439,7 +439,7 @@ func TestStartProductionRewritesResolv(t *testing.T) {
 
 	// Verify rolodex unit was installed and started.
 	unitName := systemd.SystemServiceUnitName("rolodex")
-	if !mock.InstalledUnits[unitName] {
+	if _, ok := mock.InstalledUnits[unitName]; !ok {
 		t.Errorf("expected unit %s to be installed", unitName)
 	}
 	hasStart := false

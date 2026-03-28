@@ -237,6 +237,12 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "network controller image: %v\n", err)
 	}
 
+	// Detect whether the systemcontroller image changed since the last
+	// run. When it has, reconcile will restart all units whose generated
+	// content differs from what is on disk.
+	versionFile := filepath.Join(*btrfsPath, "town-os-version")
+	versionChanged := detectVersionChange(ctx, versionFile)
+
 	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
 		Installer:              inst,
 		RepositoryRoot:         rr,
@@ -248,10 +254,14 @@ func run() (err error) {
 		NetworkControllerImage: ncImage,
 		NetworkStatePath:       *networkStatePath,
 		InternalIP:             getInternalIP(),
+		VersionChanged:         versionChanged,
 	})
 	if err != nil {
 		return fmt.Errorf("reconcile: %w", err)
 	}
+
+	// Persist current image SHA so the next startup can detect changes.
+	persistVersion(ctx, versionFile)
 
 	// Derive UI image.
 	uiImage := os.Getenv("UI_IMAGE")
@@ -437,6 +447,60 @@ func watchInternalIP(ctx context.Context, mgr *rolodex.Manager) {
 				}
 			}
 		}
+	}
+}
+
+// getContainerImageID returns the image digest of the container this process
+// is running inside, or an empty string if detection fails (e.g. not in a
+// container). It reads the container ID from /run/.containerenv and inspects
+// the image via podman.
+func getContainerImageID(ctx context.Context) string {
+	// Read container ID from /proc/1/cgroup (works in podman rootful).
+	data, err := os.ReadFile("/proc/1/cgroup")
+	if err != nil {
+		return ""
+	}
+	var containerID string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		// cgroup v2: "0::/machine.slice/libpod-<id>.scope"
+		if _, after, ok := strings.Cut(line, "libpod-"); ok {
+			if dotIdx := strings.Index(after, "."); dotIdx > 0 {
+				containerID = after[:dotIdx]
+			}
+		}
+	}
+	if containerID == "" {
+		return ""
+	}
+	out, err := exec.CommandContext(ctx, "podman", "inspect", "--format", "{{.Image}}", containerID).Output() //nolint:gosec // G204 -- containerID from /proc
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// detectVersionChange reads the persisted version file and returns true if
+// the current image SHA differs (or if the file is missing/unreadable).
+func detectVersionChange(ctx context.Context, versionFile string) bool {
+	imageID := getContainerImageID(ctx)
+	if imageID == "" {
+		return false // not in a container or detection failed — skip
+	}
+	data, err := os.ReadFile(versionFile) //nolint:gosec // G304 -- versionFile from controlled btrfsPath flag
+	if err != nil {
+		return true // first run or unreadable → treat as changed
+	}
+	return strings.TrimSpace(string(data)) != imageID
+}
+
+// persistVersion writes the current container image SHA to the version file.
+func persistVersion(ctx context.Context, versionFile string) {
+	imageID := getContainerImageID(ctx)
+	if imageID == "" {
+		return
+	}
+	if err := os.WriteFile(versionFile, []byte(imageID+"\n"), 0600); err != nil {
+		slog.Error(fmt.Sprintf("write version file: %v", err))
 	}
 }
 

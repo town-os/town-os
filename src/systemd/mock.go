@@ -19,7 +19,7 @@ type MockManager struct {
 	Units            []UnitStatus
 	Entries          []JournalEntry
 	Calls            []MockCall
-	InstalledUnits   map[string]bool
+	InstalledUnits   map[string]string // name → content
 	ListErr          error
 	StatusErr        error
 	LogErr           error
@@ -30,7 +30,7 @@ type MockManager struct {
 
 func InitMockManager() *MockManager {
 	return &MockManager{
-		InstalledUnits: make(map[string]bool),
+		InstalledUnits: make(map[string]string),
 	}
 }
 
@@ -40,6 +40,12 @@ func (m *MockManager) GetCalls() []MockCall {
 	out := make([]MockCall, len(m.Calls))
 	copy(out, m.Calls)
 	return out
+}
+
+func (m *MockManager) ClearCalls() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = nil
 }
 
 func (m *MockManager) ListUnits(ctx context.Context) ([]UnitStatus, error) {
@@ -223,9 +229,20 @@ func (m *MockManager) InstallUnit(ctx context.Context, name string, content stri
 		return m.InstallUnitErr
 	}
 
-	m.InstalledUnits[name] = true
+	m.InstalledUnits[name] = content
 
 	return nil
+}
+
+func (m *MockManager) ReadUnit(name string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	content, ok := m.InstalledUnits[name]
+	if !ok {
+		return "", ErrUnitNotFound
+	}
+	return content, nil
 }
 
 func (m *MockManager) UninstallUnit(ctx context.Context, name string) error {

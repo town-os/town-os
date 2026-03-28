@@ -33,6 +33,7 @@ type ReconcileConfig struct {
 	CaddyPort              string
 	ExternalIP             string
 	InternalIP             string
+	VersionChanged         bool // true when the systemcontroller version differs from last run
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -114,6 +115,8 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 			}
 		}
 
+		var changedUnits reconcileChangedUnits
+
 		for _, pi := range byRepoName {
 			identity := pi.String()
 
@@ -135,12 +138,36 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 				sort.Strings(netInfo.DependencyUnitNames)
 			}
 
-			if err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo); err != nil {
+			if err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo, &changedUnits); err != nil {
 				slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
 				continue
 			}
 
 			slog.Info("reconcile: restored " + identity)
+		}
+
+		// When the systemcontroller version changed, restart all units whose
+		// content differs from what was on disk. Order: NC first (owns
+		// networks), then dependencies, then parent/standalone services.
+		if cfg.VersionChanged {
+			for _, name := range changedUnits.nc {
+				slog.Info("reconcile: restarting NC " + name)
+				if err := cfg.Systemd.SetStatus(ctx, name, systemd.Restart); err != nil {
+					slog.Error(fmt.Sprintf("reconcile: restart NC %s: %v", name, err))
+				}
+			}
+			for _, name := range changedUnits.deps {
+				slog.Info("reconcile: restarting dependency " + name)
+				if err := cfg.Systemd.SetStatus(ctx, name, systemd.Restart); err != nil {
+					slog.Error(fmt.Sprintf("reconcile: restart dep %s: %v", name, err))
+				}
+			}
+			for _, name := range changedUnits.services {
+				slog.Info("reconcile: restarting service " + name)
+				if err := cfg.Systemd.SetStatus(ctx, name, systemd.Restart); err != nil {
+					slog.Error(fmt.Sprintf("reconcile: restart service %s: %v", name, err))
+				}
+			}
 		}
 	}
 
@@ -170,7 +197,7 @@ type reconcilePackageNetworkInfo struct {
 
 // reconcilePackage restores a single installed package: compiles it with its
 // persisted responses, ensures volumes, and installs+starts the systemd units.
-func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64, netInfo reconcilePackageNetworkInfo) error {
+func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64, netInfo reconcilePackageNetworkInfo, changedUnits *reconcileChangedUnits) error {
 	repoName := pi.Repo
 
 	ip, err := cfg.RepositoryRoot.LoadPackage(repoName, pi.Name, pi.Version)
@@ -306,18 +333,21 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 
 		units := systemd.GeneratePackageUnits(unitCfg)
 
-		// Install all unit files.
-		if err := cfg.Systemd.InstallUnit(ctx, units.Service.Name, units.Service.Content); err != nil {
-			return fmt.Errorf("install service unit: %w", err)
-		}
+		// Install all unit files, tracking which ones changed.
+		changed := installUnitIfChanged(ctx, cfg.Systemd, units.Service.Name, units.Service.Content)
 		for _, sock := range units.Sockets {
-			if err := cfg.Systemd.InstallUnit(ctx, sock.Name, sock.Content); err != nil {
-				return fmt.Errorf("install socket unit %s: %w", sock.Name, err)
-			}
+			installUnitIfChanged(ctx, cfg.Systemd, sock.Name, sock.Content)
 		}
 		if units.NetworkController != nil {
-			if err := cfg.Systemd.InstallUnit(ctx, units.NetworkController.Name, units.NetworkController.Content); err != nil {
-				return fmt.Errorf("install network controller unit: %w", err)
+			if installUnitIfChanged(ctx, cfg.Systemd, units.NetworkController.Name, units.NetworkController.Content) {
+				changedUnits.nc = append(changedUnits.nc, units.NetworkController.Name)
+			}
+		}
+		if changed {
+			if packages.IsDependency(pi.Name) {
+				changedUnits.deps = append(changedUnits.deps, units.Service.Name)
+			} else {
+				changedUnits.services = append(changedUnits.services, units.Service.Name)
 			}
 		}
 
@@ -345,6 +375,24 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	}
 
 	return nil
+}
+
+// reconcileChangedUnits tracks units whose content changed during reconcile.
+type reconcileChangedUnits struct {
+	nc       []string // network controller units (restart first)
+	deps     []string // dependency service units (restart second)
+	services []string // parent/standalone service units (restart last)
+}
+
+// installUnitIfChanged installs a unit file and returns true if the content
+// differs from what was previously on disk.
+func installUnitIfChanged(ctx context.Context, sd systemd.Manager, name, content string) bool {
+	existing, err := sd.ReadUnit(name)
+	changed := err != nil || existing != content
+	if err := sd.InstallUnit(ctx, name, content); err != nil {
+		slog.Error(fmt.Sprintf("reconcile: install unit %s: %v", name, err))
+	}
+	return changed
 }
 
 // reconcileProtonImage returns the system-wide proton runner image from the

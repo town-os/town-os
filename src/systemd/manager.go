@@ -173,6 +173,20 @@ func (m *SystemdManager) InstallUnit(ctx context.Context, name string, content s
 	return conn.ReloadContext(ctx)
 }
 
+func (m *SystemdManager) ReadUnit(name string) (string, error) {
+	if strings.ContainsAny(name, "/\\") {
+		return "", fmt.Errorf("unit name %q contains path separator", name)
+	}
+	data, err := os.ReadFile(filepath.Join("/etc/systemd/system", name)) //nolint:gosec // G304 -- name validated above
+	if os.IsNotExist(err) {
+		return "", ErrUnitNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func (m *SystemdManager) ListPackageUnitFiles(_ context.Context, repo, pkgName, version string) ([]string, error) {
 	pattern := fmt.Sprintf("/etc/systemd/system/%s%s-%s-%s*", PackageUnitPrefix, repo, pkgName, version)
 	matches, err := filepath.Glob(pattern)

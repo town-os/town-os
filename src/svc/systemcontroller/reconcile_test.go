@@ -1773,3 +1773,113 @@ notes:
 		t.Fatalf("expected notes url=%q, got %q", "http://nginx.repo-a.lan/admin", compiled.Notes["url"])
 	}
 }
+
+func TestReconcileVersionChangedRestartsChangedUnits(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\nnetwork:\n  external:\n    \"8080\": \"80\"\n",
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// First reconcile: installs units (no version change).
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         false,
+	}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	// Clear calls so we can observe what the second reconcile does.
+	sd.ClearCalls()
+
+	// Second reconcile with VersionChanged=true. The units are already
+	// installed with the same content, so no restarts should happen
+	// (content hasn't changed).
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         true,
+	}); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+
+	// No Restart calls expected since content is identical.
+	for _, call := range sd.GetCalls() {
+		if call.Method == "SetStatus" {
+			action, ok := call.Args[1].(systemd.StatusAction)
+			if ok && action == systemd.Restart {
+				t.Fatalf("unexpected Restart call for %v — content unchanged", call.Args[0])
+			}
+		}
+	}
+}
+
+func TestReconcileVersionChangedRestartsWhenContentDiffers(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\nnetwork:\n  external:\n    \"8080\": \"80\"\n",
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// First reconcile installs units.
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         false,
+	}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	// Tamper with the installed unit content to simulate a version change.
+	svcUnit := systemd.UnitName("repo-a", "nginx", "1.0")
+	sd.InstalledUnits[svcUnit] = "old content that differs"
+
+	sd.ClearCalls()
+
+	// Second reconcile with VersionChanged=true. Content differs, so
+	// the service should be restarted.
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         true,
+	}); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+
+	restarted := false
+	for _, call := range sd.GetCalls() {
+		if call.Method == "SetStatus" {
+			name, _ := call.Args[0].(string)
+			action, _ := call.Args[1].(systemd.StatusAction)
+			if name == svcUnit && action == systemd.Restart {
+				restarted = true
+			}
+		}
+	}
+	if !restarted {
+		t.Fatal("expected service unit to be restarted when content differs")
+	}
+}

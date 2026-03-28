@@ -314,3 +314,38 @@ func TestNCNetworkStateContainsContainerName(t *testing.T) {
 		t.Fatalf("state file missing container_name %q, got:\n%s", expectedContainerName, string(data))
 	}
 }
+
+func TestDependencyWithPortsGetsNoNC(t *testing.T) {
+	c, sd := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// app-with-cache has a redis dependency with ports.
+	if err := c.InstallPackage(context.TODO(), "app-with-cache", "1.0", packages.Responses{
+		"port":      "9090",
+		"cachepass": "secret123",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	// Parent should have an NC unit.
+	parentNCUnit := systemd.NetworkControllerUnitName("core", "app-with-cache", "1.0")
+	if _, ok := sd.InstalledUnits[parentNCUnit]; !ok {
+		t.Fatalf("parent should have NC unit %s", parentNCUnit)
+	}
+
+	// Dependency should NOT have its own NC unit.
+	depEffName := packages.DependencyName("app-with-cache", "cache")
+	depNCUnit := systemd.NetworkControllerUnitName("core", depEffName, "7.0")
+	if _, ok := sd.InstalledUnits[depNCUnit]; ok {
+		t.Fatalf("dependency must NOT have its own NC unit %s", depNCUnit)
+	}
+
+	// Dependency service should be installed though.
+	depSvcUnit := systemd.UnitName("core", depEffName, "7.0")
+	if _, ok := sd.InstalledUnits[depSvcUnit]; !ok {
+		t.Fatalf("dependency service unit %s should be installed", depSvcUnit)
+	}
+}
