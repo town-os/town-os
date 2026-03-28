@@ -52,6 +52,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
+- **Pages feature requires `TOWN_OS_PAGES` env var** — the pages subsystem (static site hosting via Caddy) is disabled at runtime unless `TOWN_OS_PAGES` is set to a non-empty value. When unset, the pages manager is nil and all pages API endpoints return "pages not configured". The code and tests are not removed; tests configure pages directly via `ServerConfig.PagesMgr` and are unaffected by this gate. The env var is intended to be baked into the container image at build time via `ENV TOWN_OS_PAGES=1` in the Containerfile.
+
 - **Network controller image is built locally** — the NC container image (`town-os-networkcontroller:local`) is built by the system controller at startup via `podman build`, not pulled from a registry. The `alpine:latest` base image is pulled via `ensureImage` if not already loaded. Test and dev containers must have `alpine:latest` pre-loaded and `/town-os-networkcontroller` available for the build. The build is non-fatal; if the network is unavailable at boot, the system controller starts without per-package networking and the image is built on the next restart.
 
 ## Performance Conventions
