@@ -11,7 +11,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - context.TODO and context.Background should not be used in golang programs. where possible, please use timeout and cancel contexts to ensure nothing is waiting on a context forever.
 
-- Add tests for everything you do.
+- Add tests for everything you do. **Every behavioral change must have both unit tests and integration tests.** Unit tests verify logic in isolation; integration tests verify the feature works end-to-end inside the test container with real systemd, btrfs, and podman. If an integration test cannot be written (e.g., pure UI change), document why in the commit message.
 
 - check all type assertions before using the result
 

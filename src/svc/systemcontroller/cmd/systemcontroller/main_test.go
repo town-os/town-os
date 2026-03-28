@@ -6,6 +6,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -120,4 +122,34 @@ func TestBuildNCImageSkipsWhenExists(t *testing.T) {
 	// in unit tests, we verify the function signature is stable and
 	// the ensureImage var is used for base image pulls.
 	// Full integration is tested via make test-integration.
+}
+
+func TestDetectVersionChangeFirstRun(t *testing.T) {
+	// Missing version file → version changed (first run).
+	versionFile := filepath.Join(t.TempDir(), "version")
+	if !detectVersionChange(context.Background(), versionFile) {
+		t.Fatal("expected version change on first run (no file)")
+	}
+}
+
+func TestDetectVersionChangeSameVersion(t *testing.T) {
+	// When not running in a container, getContainerImageID returns ""
+	// and detectVersionChange returns false (skip detection).
+	versionFile := filepath.Join(t.TempDir(), "version")
+	if err := os.WriteFile(versionFile, []byte("same\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	// Outside a container, detection is skipped → returns false.
+	if detectVersionChange(context.Background(), versionFile) {
+		t.Fatal("expected no version change outside container")
+	}
+}
+
+func TestPersistVersionOutsideContainer(t *testing.T) {
+	// Outside a container, persistVersion is a no-op (image ID is empty).
+	versionFile := filepath.Join(t.TempDir(), "version")
+	persistVersion(context.Background(), versionFile)
+	if _, err := os.Stat(versionFile); !os.IsNotExist(err) {
+		t.Fatal("expected version file to not be written outside container")
+	}
 }

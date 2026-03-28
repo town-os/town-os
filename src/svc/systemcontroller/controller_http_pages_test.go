@@ -1073,3 +1073,26 @@ func TestGetImageExtractFuncCustom(t *testing.T) {
 		t.Fatal("expected custom func to be called")
 	}
 }
+
+func TestHTTPPagesDisabledWithoutManager(t *testing.T) {
+	// When PagesMgr is nil (TOWN_OS_PAGES not set), all pages endpoints
+	// should return "pages not configured".
+	ts := InitTestServer(ServerConfig{
+		Storage:        storage.InitBtrFSMock(),
+		RepositoryRoot: emptyRepoRoot(t),
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	_, err = c.ListPages(context.TODO(), ListParams{})
+	if err == nil {
+		t.Fatal("expected error when pages manager is nil")
+	}
+	if !strings.Contains(err.Error(), "pages not configured") {
+		t.Fatalf("expected 'pages not configured' error, got: %v", err)
+	}
+}
