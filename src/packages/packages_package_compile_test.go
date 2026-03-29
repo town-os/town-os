@@ -1482,3 +1482,107 @@ func TestCompileProtonCommandGeneration(t *testing.T) {
 		}
 	})
 }
+
+func TestCompilePostUpdate(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image:      InputPackageImage{URL: "postgres:16"},
+		PostUpdate: []string{"pg_upgrade --check", "pg_upgrade"},
+	}
+	compiled, err := ip.Compile(Responses{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if len(compiled.PostUpdate) != 2 {
+		t.Fatalf("expected 2 post_update commands, got %d", len(compiled.PostUpdate))
+	}
+	if compiled.PostUpdate[0] != "pg_upgrade --check" {
+		t.Fatalf("expected 'pg_upgrade --check', got %q", compiled.PostUpdate[0])
+	}
+	if compiled.PostUpdate[1] != "pg_upgrade" {
+		t.Fatalf("expected 'pg_upgrade', got %q", compiled.PostUpdate[1])
+	}
+}
+
+func TestCompilePostUpdateTemplateSubstitution(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "postgres:16"},
+		Questions: map[string]Question{
+			"dbname": {Query: "Database name?"},
+		},
+		PostUpdate: []string{"pg_upgrade --dbname=@dbname@"},
+	}
+	compiled, err := ip.Compile(Responses{"dbname": "mydb"})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if len(compiled.PostUpdate) != 1 {
+		t.Fatalf("expected 1 post_update command, got %d", len(compiled.PostUpdate))
+	}
+	if compiled.PostUpdate[0] != "pg_upgrade --dbname=mydb" {
+		t.Fatalf("expected 'pg_upgrade --dbname=mydb', got %q", compiled.PostUpdate[0])
+	}
+}
+
+func TestCompilePostUpdateEmptyList(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "nginx:latest"},
+	}
+	compiled, err := ip.Compile(Responses{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if len(compiled.PostUpdate) != 0 {
+		t.Fatalf("expected empty post_update, got %d", len(compiled.PostUpdate))
+	}
+}
+
+func TestCompilePostUpdateRejectedForVM(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		VM:         &InputPackageVM{Image: "https://example.com/disk.qcow2"},
+		PostUpdate: []string{"some-command"},
+	}
+	_, err := ip.Compile(Responses{})
+	if err == nil {
+		t.Fatal("expected error for post_update on VM package")
+	}
+	if !errors.Is(err, ErrPostUpdateVMNotSupported) {
+		t.Fatalf("expected ErrPostUpdateVMNotSupported, got %v", err)
+	}
+}
+
+func TestCompilePostUpdateEmptyCommandRejected(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image:      InputPackageImage{URL: "postgres:16"},
+		PostUpdate: []string{"pg_upgrade", "  "},
+	}
+	_, err := ip.Compile(Responses{})
+	if err == nil {
+		t.Fatal("expected error for empty post_update command")
+	}
+	if !errors.Is(err, ErrEmptyPostUpdateCommand) {
+		t.Fatalf("expected ErrEmptyPostUpdateCommand, got %v", err)
+	}
+}
+
+func TestCompilePostUpdateTrimsWhitespace(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image:      InputPackageImage{URL: "postgres:16"},
+		PostUpdate: []string{"  pg_upgrade --check  ", "\tpg_upgrade\n"},
+	}
+	compiled, err := ip.Compile(Responses{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if compiled.PostUpdate[0] != "pg_upgrade --check" {
+		t.Fatalf("expected trimmed command, got %q", compiled.PostUpdate[0])
+	}
+	if compiled.PostUpdate[1] != "pg_upgrade" {
+		t.Fatalf("expected trimmed command, got %q", compiled.PostUpdate[1])
+	}
+}

@@ -6,6 +6,7 @@ package systemcontroller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -1886,5 +1887,264 @@ func TestReconcileVersionChangedRestartsWhenContentDiffers(t *testing.T) {
 	}
 	if !restarted {
 		t.Fatal("expected service unit to be restarted when content differs")
+	}
+}
+
+func TestReconcileVersionChangedRunsPostUpdate(t *testing.T) {
+	t.Parallel()
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"postgres/16.0": "image: postgres:16\nnetwork:\n  external:\n    \"5432\": \"5432\"\npost_update:\n  - \"pg_upgrade --check\"\n  - \"pg_upgrade\"\n",
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "postgres", "postgres", "16.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// First reconcile installs units.
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         false,
+	}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	// Tamper to simulate content change.
+	svcUnit := systemd.UnitName("repo-a", "postgres", "16.0")
+	sd.InstalledUnits[svcUnit] = "old content"
+	sd.ClearCalls()
+
+	// Track post-update calls.
+	var postUpdateCalls []struct {
+		container string
+		command   string
+	}
+
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         true,
+		PostUpdateExec: func(_ context.Context, containerName string, command string) error {
+			postUpdateCalls = append(postUpdateCalls, struct {
+				container string
+				command   string
+			}{containerName, command})
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+
+	if len(postUpdateCalls) != 2 {
+		t.Fatalf("expected 2 post-update calls, got %d", len(postUpdateCalls))
+	}
+	expectedContainer := systemd.ContainerName("repo-a", "postgres", "16.0")
+	if postUpdateCalls[0].container != expectedContainer {
+		t.Fatalf("expected container %q, got %q", expectedContainer, postUpdateCalls[0].container)
+	}
+	if postUpdateCalls[0].command != "pg_upgrade --check" {
+		t.Fatalf("expected command 'pg_upgrade --check', got %q", postUpdateCalls[0].command)
+	}
+	if postUpdateCalls[1].command != "pg_upgrade" {
+		t.Fatalf("expected command 'pg_upgrade', got %q", postUpdateCalls[1].command)
+	}
+}
+
+func TestReconcilePostUpdateNotRunWhenNoVersionChange(t *testing.T) {
+	t.Parallel()
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"postgres/16.0": "image: postgres:16\nnetwork:\n  external:\n    \"5432\": \"5432\"\npost_update:\n  - \"pg_upgrade\"\n",
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "postgres", "postgres", "16.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	called := false
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         false,
+		PostUpdateExec: func(_ context.Context, _ string, _ string) error {
+			called = true
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	if called {
+		t.Fatal("post-update should not run when VersionChanged is false")
+	}
+}
+
+func TestReconcilePostUpdateNotRunWhenContentUnchanged(t *testing.T) {
+	t.Parallel()
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"postgres/16.0": "image: postgres:16\nnetwork:\n  external:\n    \"5432\": \"5432\"\npost_update:\n  - \"pg_upgrade\"\n",
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "postgres", "postgres", "16.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	btrfsBase := t.TempDir()
+	netStatePath := t.TempDir()
+
+	// First reconcile installs units.
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          btrfsBase,
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       netStatePath,
+		VersionChanged:         false,
+	}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	sd.ClearCalls()
+
+	called := false
+	// Second reconcile with version changed but same content (no tamper).
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          btrfsBase,
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       netStatePath,
+		VersionChanged:         true,
+		PostUpdateExec: func(_ context.Context, _ string, _ string) error {
+			called = true
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+
+	if called {
+		t.Fatal("post-update should not run when unit content hasn't changed")
+	}
+}
+
+func TestReconcilePostUpdateFailureIsNonFatal(t *testing.T) {
+	t.Parallel()
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"postgres/16.0": "image: postgres:16\nnetwork:\n  external:\n    \"5432\": \"5432\"\npost_update:\n  - \"failing-cmd\"\n  - \"second-cmd\"\n",
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "postgres", "postgres", "16.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// First reconcile installs units.
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         false,
+	}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	// Tamper to simulate content change.
+	svcUnit := systemd.UnitName("repo-a", "postgres", "16.0")
+	sd.InstalledUnits[svcUnit] = "old content"
+	sd.ClearCalls()
+
+	var calledCommands []string
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         true,
+		PostUpdateExec: func(_ context.Context, _ string, command string) error {
+			calledCommands = append(calledCommands, command)
+			if command == "failing-cmd" {
+				return errors.New("command failed")
+			}
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("reconcile should succeed even when post-update fails: %v", err)
+	}
+
+	// Both commands should have been called despite the first one failing.
+	if len(calledCommands) != 2 {
+		t.Fatalf("expected 2 commands called, got %d", len(calledCommands))
+	}
+	if calledCommands[0] != "failing-cmd" {
+		t.Fatalf("expected 'failing-cmd', got %q", calledCommands[0])
+	}
+	if calledCommands[1] != "second-cmd" {
+		t.Fatalf("expected 'second-cmd', got %q", calledCommands[1])
+	}
+}
+
+func TestReconcilePostUpdateNilExecIsSkipped(t *testing.T) {
+	t.Parallel()
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"postgres/16.0": "image: postgres:16\nnetwork:\n  external:\n    \"5432\": \"5432\"\npost_update:\n  - \"pg_upgrade\"\n",
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "postgres", "postgres", "16.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	// First reconcile installs units.
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         false,
+	}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	// Tamper to simulate content change.
+	svcUnit := systemd.UnitName("repo-a", "postgres", "16.0")
+	sd.InstalledUnits[svcUnit] = "old content"
+	sd.ClearCalls()
+
+	// Nil PostUpdateExec should not panic.
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         true,
+		PostUpdateExec:         nil,
+	}); err != nil {
+		t.Fatalf("reconcile with nil PostUpdateExec: %v", err)
 	}
 }

@@ -258,6 +258,16 @@ func run() (err error) {
 		NetworkStatePath:       *networkStatePath,
 		InternalIP:             getInternalIP(),
 		VersionChanged:         versionChanged,
+		PostUpdateExec: func(ctx context.Context, containerName string, command string) error {
+			execCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
+			out, execErr := exec.CommandContext(execCtx, "podman", "exec", containerName, "sh", "-c", command).CombinedOutput() //nolint:gosec // G204 -- containerName and command from trusted package YAML
+			if execErr != nil {
+				return fmt.Errorf("%w: %s", execErr, string(out))
+			}
+			slog.Info(fmt.Sprintf("post-update %s: %s", containerName, strings.TrimSpace(string(out))))
+			return nil
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("reconcile: %w", err)
@@ -272,30 +282,46 @@ func run() (err error) {
 		uiImage = "quay.io/town/ui:" + tag
 	}
 
+	// Determine monitoring backend (uplot or grafana).
+	monBackend := "uplot"
+	if v, settingsErr := settingsMgr.Get("monitoring_backend"); settingsErr == nil && v != "" {
+		monBackend = v
+	}
+
 	// Pull remaining system service container images (non-fatal).
 	// Skip images that are already loaded (e.g. pre-loaded in test/dev
 	// containers where DNS may not be available).
-	for _, img := range []string{
+	coreImages := []string{
 		monitoring.PrometheusImage,
 		monitoring.NodeExporterImage,
-		monitoring.GrafanaImage,
 		uiImage,
-	} {
+	}
+	if monBackend == "grafana" {
+		coreImages = append(coreImages, monitoring.GrafanaImage)
+	}
+	for _, img := range coreImages {
 		if err := ensureImage(ctx, img); err != nil {
 			fmt.Fprintf(os.Stderr, "pull %s: %v\n", img, err)
 		}
 	}
 
-	// Start the monitoring stack (Prometheus + Node Exporter + Grafana).
+	// Start the monitoring stack. When backend is "uplot", only Prometheus
+	// and Node Exporter are started (Grafana is skipped, saving ~771 MB).
 	monDataDir := filepath.Join(repoBase, "monitoring")
 	monMgr := monitoring.NewManager(monitoring.Config{
 		Systemd: sd,
 		DataDir: monDataDir,
 	})
-	if err := monMgr.Start(ctx); err != nil {
+	var monErr error
+	if monBackend == "grafana" {
+		monErr = monMgr.Start(ctx)
+	} else {
+		monErr = monMgr.StartCore(ctx)
+	}
+	if monErr != nil {
 		// Non-fatal: monitoring failure should not prevent the system
 		// controller from starting.
-		fmt.Fprintf(os.Stderr, "monitoring: %v\n", err)
+		fmt.Fprintf(os.Stderr, "monitoring: %v\n", monErr)
 		monMgr = nil
 	}
 

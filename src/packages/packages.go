@@ -25,7 +25,9 @@ var (
 	ErrInvalidGitSource    = errors.New("invalid git source")
 	ErrMixedRuntime        = errors.New("package must specify either image (container) or vm, not both")
 	ErrNoRuntime           = errors.New("package must specify either image (container) or vm")
-	ErrInvalidVMConfig     = errors.New("invalid vm configuration")
+	ErrInvalidVMConfig          = errors.New("invalid vm configuration")
+	ErrPostUpdateVMNotSupported = errors.New("post_update is not supported for VM packages")
+	ErrEmptyPostUpdateCommand   = errors.New("post_update command must not be empty")
 )
 
 // RuntimeType indicates whether a package runs as a container or a QEMU VM.
@@ -266,6 +268,7 @@ type Package struct {
 	VM           *PackageVM
 	Proton       *PackageProton
 	Dependencies map[string]InputPackageDependency
+	PostUpdate   []string
 }
 
 type InputPackageNetwork struct {
@@ -296,6 +299,7 @@ type InputPackage struct {
 	VM           *InputPackageVM                           `yaml:"vm,omitempty" json:"vm,omitempty"`
 	Proton       *InputPackageProton                       `yaml:"proton,omitempty"`
 	Dependencies map[string]InputPackageDependency         `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	PostUpdate   []string                                  `yaml:"post_update,omitempty" json:"post_update,omitempty"`
 }
 
 // RuntimeType returns the runtime type for this package based on which
@@ -317,7 +321,7 @@ func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, err
 
 	compiled := make(map[string]string, len(i.Notes))
 	for k, note := range i.Notes {
-		v := applyTemplates(note.Value, responses)
+		v := ApplyTemplates(note.Value, responses)
 		if err := ValidateNote(v, note.Type); err != nil {
 			return nil, fmt.Errorf("note %q: %w", k, err)
 		}

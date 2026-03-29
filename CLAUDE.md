@@ -56,7 +56,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - **Pages feature requires `TOWN_OS_PAGES` env var** — the pages subsystem (static site hosting via Caddy) is disabled at runtime unless `TOWN_OS_PAGES` is set to a non-empty value. When unset, the pages manager is nil and all pages API endpoints return "pages not configured". The code and tests are not removed; tests configure pages directly via `ServerConfig.PagesMgr` and are unaffected by this gate. The env var is intended to be baked into the container image at build time via `ENV TOWN_OS_PAGES=1` in the Containerfile.
 
-- **Version change detection and unit restart** — the systemcontroller detects image upgrades by comparing the running container's image SHA (from `/proc/1/cgroup` → `podman inspect`) against a persisted version file at `<btrfsPath>/town-os-version`. On version change: (1) all container images are pulled, (2) the NC image is rebuilt, (3) reconcile regenerates all systemd units, (4) units whose content changed are restarted in order: NC units first (they own networks), then dependency services, then parent/standalone services. The version file is written after successful reconcile. Unit content is compared before/after via `ReadUnit()` to avoid unnecessary restarts when content hasn't changed.
+- **Version change detection and unit restart** — the systemcontroller detects image upgrades by comparing the running container's image SHA (from `/proc/1/cgroup` → `podman inspect`) against a persisted version file at `<btrfsPath>/town-os-version`. On version change: (1) all container images are pulled, (2) the NC image is rebuilt, (3) reconcile regenerates all systemd units, (4) units whose content changed are restarted in order: NC units first (they own networks), then dependency services, then parent/standalone services, (5) post-update commands (`post_update` field) are executed via `podman exec` for container packages whose units changed. The version file is written after successful reconcile. Unit content is compared before/after via `ReadUnit()` to avoid unnecessary restarts when content hasn't changed.
 
 - **Network controller image is rebuilt every startup** — the NC container image (`town-os-networkcontroller:local`) is rebuilt by the system controller on every startup via `podman build`. The NC binary (`/town-os-networkcontroller`) is baked into the systemcontroller image at build time from the same source tree (see `Containerfile` lines 11, 31), guaranteeing the NC always matches the running systemcontroller. The `alpine:latest` base image is pulled via `ensureImage` if not already loaded. The build is non-fatal; if the network is unavailable at boot, the system controller starts without per-package networking and the image is built on the next restart. Never cache or skip the NC image build.
 
@@ -160,6 +160,7 @@ Packages are defined in YAML with the following structure:
 - `supplies` -- list of capabilities this package provides.
 - `archives` -- list of container image archives to populate volumes at install time (container runtime only).
 - `templates` -- named file templates rendered into volumes via Go text/template. Each template specifies a target volume, file path, and template content.
+- `post_update` -- list of shell commands to execute inside the running container after an image SHA change is detected during reconcile (container runtime only; not supported for VM packages). See **Post-Update Commands** below.
 
 ### Runtime Type
 
@@ -207,7 +208,29 @@ Questions prompt the user during package installation. Each question has a `quer
 
 ### Compilation
 
-Compilation validates all responses, applies type-specific validation, substitutes all template variables, normalizes container image URLs, and produces a resolved `Package` struct. For VM packages, memory strings are parsed to byte counts and CPU defaults are applied. Validation errors are collected and returned together.
+Compilation validates all responses, applies type-specific validation, substitutes all template variables, normalizes container image URLs, and produces a resolved `Package` struct. For VM packages, memory strings are parsed to byte counts and CPU defaults are applied. Post-update commands are trimmed of leading/trailing whitespace. Validation errors are collected and returned together.
+
+### Post-Update Commands
+
+The `post_update` field is a list of shell command strings executed inside the running container after the system controller detects an image SHA change during reconcile. This enables automated migration tasks (e.g., `pg_upgrade` after a PostgreSQL container updates).
+
+- **Container-only** -- `post_update` is rejected during validation for VM packages (`ErrPostUpdateVMNotSupported`).
+- **Template substitution** -- each command supports `@variable@` substitution from question responses, identical to environment and network fields.
+- **Whitespace trimming** -- each command is trimmed of leading/trailing whitespace during compilation. Empty or whitespace-only commands are rejected during validation.
+- **Execution trigger** -- commands execute only when `ReconcileConfig.VersionChanged` is true AND the package's systemd unit content differs from the previously installed unit. If either condition is false, no commands run.
+- **Execution order** -- commands run sequentially after all version-change restarts complete (NC units first, then dependencies, then services, then post-update commands). Within a package, commands run in list order.
+- **Execution method** -- each command is run via `podman exec <container-name> sh -c '<command>'` with a 5-minute timeout. The `PostUpdateExec` function on `ReconcileConfig` provides the execution mechanism; nil disables post-update execution.
+- **Non-fatal** -- command failures are logged but do not stop reconcile or prevent subsequent commands from running.
+
+Example package YAML:
+
+```yaml
+image: postgres:16
+post_update:
+  - "pg_upgrade --check"
+  - "pg_upgrade"
+  - "vacuumdb --all --analyze-in-stages"
+```
 
 ### File Templates
 
@@ -694,6 +717,25 @@ Parent packages receive environment variables for reaching their dependencies on
 - `TOWNOS_DEP_{KEY}_HOST` -- the dependency's podman container name (resolvable via podman DNS on the shared network).
 - `TOWNOS_DEP_{KEY}_PORT_{containerPort}` -- the container-side port number (since parent and dep are on the same network, no host port mapping is needed).
 
+### Dependency Template Variables
+
+In addition to the runtime environment variables above, dependency host and port values are also available as `@variable@` template markers during package compilation. This allows parent packages to reference dependencies in their `environment` field values at compile time.
+
+- `@dep_KEY_host@` -- resolves to the dependency's podman container name (resolvable via podman DNS on the shared network).
+- `@dep_KEY_port_N@` -- resolves to port N for the dependency.
+
+Template keys are derived from the `TOWNOS_DEP_*` runtime environment variable names by stripping the `TOWNOS_` prefix and lowercasing the remainder. For example, `TOWNOS_DEP_DB_HOST` becomes template key `dep_db_host`, and `TOWNOS_DEP_DB_PORT_5432` becomes `dep_db_port_5432`.
+
+These variables are resolved after dependency installation, when the dependency's container name and ports are known. They are applied to parent environment values during unit generation. Reconcile also rebuilds dependency environment variables so that systemd units stay correct across restarts and version changes.
+
+Example: a package with a dependency key `db` (a Postgres container exposing port 5432) can use `@dep_db_host@` and `@dep_db_port_5432@` in its environment section instead of hardcoding `127.0.0.1`:
+
+```yaml
+environment:
+  DB_HOST: "@dep_db_host@"
+  DB_PORT: "@dep_db_port_5432@"
+```
+
 ## DNS Management (Rolodex)
 
 Town OS includes an integrated local DNS resolver powered by a `rolodex-dns` container. The rolodex server manages zone files and records for installed packages, providing local name resolution via a gRPC Unix socket interface.
@@ -752,28 +794,62 @@ The system controller fetches the server's public (external) IP address from `ht
 
 ## Monitoring
 
-An integrated Prometheus + Node Exporter + Grafana stack provides system monitoring. The stack runs as systemd-supervised podman containers (system services) with `Restart=always`, managed by a `monitoring.Manager`. All containers use host networking and follow the `town-os-system--` naming prefix.
+An integrated Prometheus + Node Exporter monitoring stack provides system metrics. The `monitoring.Manager` manages the stack as systemd-supervised podman containers (system services) with `Restart=always`, using the `town-os-system--` naming prefix. The dashboard frontend is configurable via the `monitoring_backend` setting.
+
+### Monitoring Port
+
+Port **5308** is the dedicated monitoring dashboard port. The active backend determines what listens on this port:
+
+- **uPlot mode** (default): a socat forwarder (`socat TCP-LISTEN:5308,fork,reuseaddr TCP:localhost:9090`) exposes the Prometheus HTTP API on port 5308. The React UI queries Prometheus's `/api/v1/query_range` directly and renders charts via uPlot.
+- **Grafana mode**: Grafana listens on port 5308 directly (via podman port mapping). The React UI embeds a Grafana iframe.
+
+There are **no reverse proxies** through the systemcontroller (port 5309). The browser talks to port 5308 directly for all monitoring data.
+
+### Monitoring Backend Setting
+
+The `monitoring_backend` system setting controls which dashboard frontend is used:
+
+- `"uplot"` (default) -- lightweight built-in charts rendered in the React UI using uPlot (~35 KB). Queries Prometheus on port 5308 via the socat forwarder. Grafana is not pulled or started, saving ~771 MB on first boot.
+- `"grafana"` -- full Grafana dashboards. The Grafana container image is pulled and started on port 5308. Pre-provisioned with a Prometheus datasource and two dashboards.
+
+Changing the setting takes effect immediately: switching to `"grafana"` pulls the Grafana image and starts the container (stopping the socat forwarder); switching to `"uplot"` stops Grafana and starts the socat forwarder.
 
 ### Monitoring Containers
 
 - **Node Exporter** (`quay.io/prometheus/node-exporter:latest`, host port 9100) -- collects host system metrics. Runs with host PID namespace, `SYS_TIME` capability, and a read-only bind mount of the host root filesystem at `/host`.
 - **Prometheus** (`quay.io/prometheus/prometheus:latest`, host port 9090) -- scrapes Node Exporter and itself at 15-second intervals. Data is stored with 30-day retention in a persistent data directory. Configuration and data volumes are bind-mounted from a monitoring data directory. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot.
-- **Grafana** (`docker.io/grafana/grafana:latest`, host port 3000) -- dashboarding UI. Uses a light theme (`GF_USERS_DEFAULT_THEME=light`). Anonymous viewing is enabled with the Viewer role, iframe embedding is allowed, and the root URL is configured for sub-path serving at `/monitoring/grafana/`. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot. Pre-provisioned with a Prometheus datasource and two dashboards (all panels have `transparent: true`):
+- **Grafana** (`docker.io/grafana/grafana:latest`, host port 5308) -- optional dashboarding UI, only started when `monitoring_backend` is `"grafana"`. Uses a light theme (`GF_USERS_DEFAULT_THEME=light`). Anonymous viewing is enabled with the Viewer role, iframe embedding is allowed. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot. Pre-provisioned with a Prometheus datasource and two dashboards (all panels have `transparent: true`):
   - **System Overview** (`town-os-system-overview`) -- high-level percentages: CPU Usage, Memory Usage, Disk Usage (root mountpoint), and Network I/O (bytes/sec per device, excluding loopback). Uses smooth lines with fill, table legends showing mean and last values, 1-hour default range with 30-second auto-refresh.
   - **Town OS Overview** (`town-os-overview`) -- platform-specific metrics: Disk I/O (read/write throughput per block device), Free Storage Space (absolute bytes for `/trunk` btrfs mount and root `/`), Network Stats (bits/sec per device, excluding loopback and virtual interfaces), and CPU % Usage (total non-idle/non-iowait). Uses linear lines without fill, list legends, 6-hour default range. This is the default dashboard loaded by the monitoring UI iframe.
+- **Socat forwarder** (`town-os-system--monitoring-proxy`) -- only started when `monitoring_backend` is `"uplot"`. Forwards port 5308 to Prometheus on port 9090.
+
+### uPlot Dashboard Panels
+
+The built-in uPlot dashboard replicates the Town OS Overview with four panels:
+
+1. **Disk I/O** -- read/write throughput in bytes/sec for physical block devices on the `/town-os` mount.
+2. **Network (External)** -- receive/transmit in bits/sec per physical network device (excludes loopback, veth, podman, cni, tailscale, bridge, docker interfaces).
+3. **CPU Usage** -- stacked by mode (user, system, iowait, irq, softirq, steal, nice) with a total overlay line. 0--100% scale.
+4. **Memory Usage** -- total, used, and available bytes.
+
+All panels use the same PromQL queries as the Grafana dashboard JSON, with `5m` substituted for `$__rate_interval`.
 
 ### Lifecycle
 
-The monitoring stack is auto-started when the system controller boots by writing configs, generating systemd unit files, and installing/enabling/starting each unit. Startup failures are non-fatal; the system continues without monitoring. Systemd handles restarts via its `Restart=always` policy -- no application-level health check loop is needed. The `Stop()` method is a no-op because system services persist across controller restarts.
+Prometheus and Node Exporter are always started on boot. The monitoring backend setting determines whether Grafana or the socat forwarder is also started. Startup failures are non-fatal; the system continues without monitoring. Systemd handles restarts via its `Restart=always` policy. The `Stop()` method is a no-op because system services persist across controller restarts.
 
 ### Monitoring API
 
-- `GET /monitoring/status` (auth required) -- returns container status (name, image, running state, port) for each service. Returns `{"status": "disabled"}` when monitoring is not configured.
-- `GET /monitoring/grafana/*` (public) -- reverse proxy to the local Grafana instance, stripping the `/monitoring/grafana` prefix from the URL path. Returns 503 if monitoring is not configured. This endpoint bypasses authentication.
+- `GET /monitoring/status` (auth required) -- returns container status (name, image, running state, port) for each service, plus a `backend` field (`"uplot"` or `"grafana"`). Returns `{"status": "disabled"}` when monitoring is not configured.
 
 ### Monitoring UI
 
-The monitoring tab in the sidebar navigation opens a dashboard page. When all three services are running, an embedded Grafana iframe displays the system overview dashboard in a borderless container sized to fill the viewport. The iframe uses the light theme and kiosk mode. When any service is stopped, a warning banner and placeholder message are shown instead.
+The monitoring tab in the sidebar navigation opens a dashboard page. Rendering depends on the `backend` field from the status response:
+
+- **uPlot mode**: four chart panels rendered directly in React using uPlot, querying Prometheus on port 5308. Time range selector and auto-refresh are built into the component.
+- **Grafana mode**: an embedded Grafana iframe targeting port 5308 in kiosk mode with light theme.
+
+When required services are not running, a warning banner and placeholder message are shown instead.
 
 ## UI Container
 
@@ -831,7 +907,7 @@ The browser determines the API base URL at runtime from `window.location`, using
 
 The `VITE_API_URL` environment variable overrides the browser-derived URL when set. This is useful during development when the API server runs on a different host or port.
 
-The monitoring dashboard derives its Grafana iframe URL from `VITE_API_URL` if set, otherwise from `window.location.origin`.
+The monitoring dashboard derives its monitoring port URL (port 5308) from the current hostname. When `VITE_API_URL` is set, the hostname is extracted from it; otherwise `window.location.hostname` is used.
 
 ## Web UI Accessibility
 
@@ -882,7 +958,7 @@ The system controller initializes services in this order:
 6. Rolodex DNS server (image pulled via `ensureImage` if not pre-loaded).
 7. Network controller image build (base image pulled via `ensureImage`; Rolodex provides DNS for `apk add`).
 8. Reconciliation (restores installed package state -- volumes, quotas, templates, network state files, systemd units).
-9. Monitoring stack image pulls (via `ensureImage`) and startup (Prometheus + Node Exporter + Grafana).
+9. Monitoring stack image pulls (via `ensureImage`) and startup (Prometheus + Node Exporter always; Grafana only when `monitoring_backend` is `"grafana"`; socat forwarder when `"uplot"`).
 10. Internal IP watcher (30-second poll; restarts Rolodex on IP change).
 11. UI container.
 12. HTTP server.
@@ -1029,3 +1105,4 @@ Integration tests run inside privileged podman containers with systemd, btrfs, a
 | `locale`                 | `en-US`                          | BCP 47 locale code (system-wide)                |
 | `proton_image`           | `quay.io/town/proton:latest`     | Proton runner container image (GE-Proton)       |
 | `dns_tld`                | `home`                           | Default top-level domain for package DNS records|
+| `monitoring_backend`     | `uplot`                          | Monitoring dashboard: `uplot` or `grafana`      |

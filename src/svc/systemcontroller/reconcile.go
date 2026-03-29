@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"sort"
 	"strconv"
@@ -34,6 +35,12 @@ type ReconcileConfig struct {
 	ExternalIP             string
 	InternalIP             string
 	VersionChanged         bool // true when the systemcontroller version differs from last run
+
+	// PostUpdateExec executes a shell command inside a running container.
+	// Called after version-change restarts for packages with post_update commands.
+	// The function receives the container name and the shell command string.
+	// nil means post-update execution is disabled.
+	PostUpdateExec func(ctx context.Context, containerName string, command string) error
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -138,7 +145,14 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 				sort.Strings(netInfo.DependencyUnitNames)
 			}
 
-			if err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo, &changedUnits); err != nil {
+			// Pass dependency records so parent packages can rebuild
+			// TOWNOS_DEP_* env vars and resolve @dep_KEY_host@ templates.
+			var depRecs map[string]packages.DependencyRecord
+			if !packages.IsDependency(pi.Name) {
+				depRecs = allDeps[repoNameKey{pi.Repo, pi.Name}]
+			}
+
+			if err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo, depRecs, &changedUnits); err != nil {
 				slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
 				continue
 			}
@@ -166,6 +180,18 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 				slog.Info("reconcile: restarting service " + name)
 				if err := cfg.Systemd.SetStatus(ctx, name, systemd.Restart); err != nil {
 					slog.Error(fmt.Sprintf("reconcile: restart service %s: %v", name, err))
+				}
+			}
+
+			// Execute post-update commands for packages that had changed units.
+			if cfg.PostUpdateExec != nil {
+				for _, pu := range changedUnits.postUpdates {
+					for _, cmd := range pu.commands {
+						slog.Info(fmt.Sprintf("reconcile: post-update exec %s: %s", pu.containerName, cmd))
+						if err := cfg.PostUpdateExec(ctx, pu.containerName, cmd); err != nil {
+							slog.Error(fmt.Sprintf("reconcile: post-update exec %s failed: %v", pu.containerName, err))
+						}
+					}
 				}
 			}
 		}
@@ -197,7 +223,8 @@ type reconcilePackageNetworkInfo struct {
 
 // reconcilePackage restores a single installed package: compiles it with its
 // persisted responses, ensures volumes, and installs+starts the systemd units.
-func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64, netInfo reconcilePackageNetworkInfo, changedUnits *reconcileChangedUnits) error {
+// depRecs holds dependency records for parent packages (nil for dependencies).
+func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64, netInfo reconcilePackageNetworkInfo, depRecs map[string]packages.DependencyRecord, changedUnits *reconcileChangedUnits) error {
 	repoName := pi.Repo
 
 	ip, err := cfg.RepositoryRoot.LoadPackage(repoName, pi.Name, pi.Version)
@@ -224,6 +251,20 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	})
 	if err != nil {
 		return fmt.Errorf("compile: %w", err)
+	}
+
+	// Rebuild dependency environment variables for parent packages so the
+	// generated unit includes TOWNOS_DEP_* vars and @dep_KEY_host@ templates
+	// are resolved. Without this, reconcile would drop dep env vars.
+	if len(depRecs) > 0 {
+		depEnvVars := buildDepEnvVarsFromRecords(depRecs, cfg.RepositoryRoot, cfg.Installer, cfg.SettingsMgr, cfg.ExternalIP, cfg.InternalIP)
+		if len(depEnvVars) > 0 {
+			if compiled.Environment == nil {
+				compiled.Environment = map[string]string{}
+			}
+			maps.Copy(compiled.Environment, depEnvVars)
+			applyDepTemplates(compiled.Environment, depEnvVars)
+		}
 	}
 
 	if cfg.Storage != nil {
@@ -349,6 +390,14 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			} else {
 				changedUnits.services = append(changedUnits.services, units.Service.Name)
 			}
+
+			// Track post-update commands for container packages with changed units.
+			if len(compiled.PostUpdate) > 0 && compiled.Runtime == packages.RuntimeContainer {
+				changedUnits.postUpdates = append(changedUnits.postUpdates, reconcilePostUpdate{
+					containerName: systemd.ContainerName(repoName, pi.Name, pi.Version),
+					commands:      compiled.PostUpdate,
+				})
+			}
 		}
 
 		// Enable socket and network controller units.
@@ -377,11 +426,18 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	return nil
 }
 
+// reconcilePostUpdate tracks a container and its post-update commands.
+type reconcilePostUpdate struct {
+	containerName string
+	commands      []string
+}
+
 // reconcileChangedUnits tracks units whose content changed during reconcile.
 type reconcileChangedUnits struct {
-	nc       []string // network controller units (restart first)
-	deps     []string // dependency service units (restart second)
-	services []string // parent/standalone service units (restart last)
+	nc          []string              // network controller units (restart first)
+	deps        []string              // dependency service units (restart second)
+	services    []string              // parent/standalone service units (restart last)
+	postUpdates []reconcilePostUpdate // post-update commands for changed container packages
 }
 
 // installUnitIfChanged installs a unit file and returns true if the content

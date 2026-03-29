@@ -5,9 +5,14 @@ package integration_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -161,5 +166,165 @@ func TestReconcilePreservesResponses(t *testing.T) {
 	}
 	if resp["port"] != "9090" {
 		t.Fatalf("expected port 9090, got %s", resp["port"])
+	}
+}
+
+// TestReconcilePostUpdateIntegration verifies that post_update commands are
+// executed during reconcile when the version changed and unit content differs.
+// Uses a local package repo with inline YAML that includes post_update.
+func TestReconcilePostUpdateIntegration(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoName := "localrepo"
+
+	repos := []packages.Repository{{Name: repoName, URL: url.URL{Scheme: "file", Path: dir}}}
+	data, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatalf("marshal repos: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
+		t.Fatalf("write repos: %v", err)
+	}
+
+	pkgYAML := `image: postgres:16
+network:
+  external:
+    "5432": "5432"
+post_update:
+  - "echo upgrade-check"
+  - "echo upgrade-done"
+`
+	pkgDir := filepath.Join(dir, repoName, packages.PackagesDir, "postgres")
+	if err := os.MkdirAll(pkgDir, 0750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "16.0.yaml"), []byte(pkgYAML), 0600); err != nil {
+		t.Fatalf("write yaml: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("init repo root: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install(repoName, "postgres", "postgres", "16.0", packages.Responses{}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	btrfsBase := t.TempDir()
+	netStatePath := t.TempDir()
+
+	// First reconcile (no version change).
+	if err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Storage:                mock,
+		Systemd:                sd,
+		BtrfsBasePath:          btrfsBase,
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       netStatePath,
+		VersionChanged:         false,
+	}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	// Tamper with unit content to simulate version change.
+	svcUnit := systemd.UnitName(repoName, "postgres", "16.0")
+	sd.InstalledUnits[svcUnit] = "old content"
+	sd.ClearCalls()
+
+	var postUpdateCalls []struct {
+		container string
+		command   string
+	}
+
+	if err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Storage:                mock,
+		Systemd:                sd,
+		BtrfsBasePath:          t.TempDir(),
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       t.TempDir(),
+		VersionChanged:         true,
+		PostUpdateExec: func(_ context.Context, containerName string, command string) error {
+			postUpdateCalls = append(postUpdateCalls, struct {
+				container string
+				command   string
+			}{containerName, command})
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+
+	if len(postUpdateCalls) != 2 {
+		t.Fatalf("expected 2 post-update calls, got %d", len(postUpdateCalls))
+	}
+
+	expectedContainer := systemd.ContainerName(repoName, "postgres", "16.0")
+	if postUpdateCalls[0].container != expectedContainer {
+		t.Fatalf("expected container %q, got %q", expectedContainer, postUpdateCalls[0].container)
+	}
+	if postUpdateCalls[0].command != "echo upgrade-check" {
+		t.Fatalf("expected 'echo upgrade-check', got %q", postUpdateCalls[0].command)
+	}
+	if postUpdateCalls[1].command != "echo upgrade-done" {
+		t.Fatalf("expected 'echo upgrade-done', got %q", postUpdateCalls[1].command)
+	}
+}
+
+// TestReconcilePostUpdateNotCalledForPackagesWithout verifies that packages
+// without post_update do not trigger PostUpdateExec even on version change.
+func TestReconcilePostUpdateNotCalledForPackagesWithout(t *testing.T) {
+	t.Parallel()
+	c, rr, inst, sd, mock := initReconcileTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+
+	// First reconcile.
+	sd.Calls = nil
+	if err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+	}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	// Tamper to trigger content change.
+	svcUnit := systemd.UnitName("core", "nginx", "1.0")
+	sd.InstalledUnits[svcUnit] = "old content"
+	sd.ClearCalls()
+
+	var postUpdateCalled bool
+	if err := systemcontroller.Reconcile(context.Background(), systemcontroller.ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Storage:        mock,
+		Systemd:        sd,
+		VersionChanged: true,
+		PostUpdateExec: func(_ context.Context, _ string, _ string) error {
+			postUpdateCalled = true
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+
+	if postUpdateCalled {
+		t.Fatal("post-update should not be called for packages without post_update commands")
 	}
 }

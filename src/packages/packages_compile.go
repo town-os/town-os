@@ -44,11 +44,11 @@ func applyTemplate(input string, v string, repl string) string {
 	return out.String()
 }
 
-// applyTemplates resolves all template variables in a single pass, avoiding
+// ApplyTemplates resolves all template variables in a single pass, avoiding
 // re-parsing of @ characters introduced by earlier substitutions. Consecutive
 // @@ are treated as a literal @ followed by the start of a new template
 // variable (e.g. "git@@domain@" → "git@" + template "domain").
-func applyTemplates(input string, responses Responses) string {
+func ApplyTemplates(input string, responses Responses) string {
 	var inside bool
 	var tv, out strings.Builder
 
@@ -165,6 +165,10 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		}
 		i.Dependencies[key] = dep
 	}
+
+	for idx := range i.PostUpdate {
+		i.PostUpdate[idx] = applyTemplate(i.PostUpdate[idx], iv, response)
+	}
 }
 
 func convert(p map[string]string) (PortMap, error) {
@@ -278,6 +282,15 @@ func (i *InputPackage) Validate() error {
 		}
 		if err := ValidateDependencySpec(dep); err != nil {
 			return fmt.Errorf("dependency %q: %w", key, err)
+		}
+	}
+
+	if hasVM && len(i.PostUpdate) > 0 {
+		return ErrPostUpdateVMNotSupported
+	}
+	for idx, cmd := range i.PostUpdate {
+		if strings.TrimSpace(cmd) == "" {
+			return fmt.Errorf("post_update[%d]: %w", idx, ErrEmptyPostUpdateCommand)
 		}
 	}
 
@@ -483,7 +496,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 			if len(dep.Responses) > 0 {
 				resolved.Responses = make(map[string]string, len(dep.Responses))
 				for rk, rv := range dep.Responses {
-					resolved.Responses[rk] = applyTemplates(rv, response)
+					resolved.Responses[rk] = ApplyTemplates(rv, response)
 				}
 			}
 			compiledDeps[key] = resolved
@@ -502,6 +515,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		Runtime:      rt,
 		Proton:       proton,
 		Dependencies: compiledDeps,
+		PostUpdate:   trimPostUpdate(i.PostUpdate),
 	}
 
 	// Compile VM configuration if present.
@@ -538,4 +552,17 @@ func compileVM(vm *InputPackageVM) (*PackageVM, error) {
 		Memory: memBytes,
 		CPUs:   cpus,
 	}, nil
+}
+
+// trimPostUpdate returns a copy of the commands with leading/trailing
+// whitespace stripped from each entry. nil input returns nil.
+func trimPostUpdate(cmds []string) []string {
+	if len(cmds) == 0 {
+		return cmds
+	}
+	out := make([]string, len(cmds))
+	for i, cmd := range cmds {
+		out[i] = strings.TrimSpace(cmd)
+	}
+	return out
 }
