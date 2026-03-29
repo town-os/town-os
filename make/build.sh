@@ -40,7 +40,7 @@ case "$1" in
     ;;
   ui-integration)
     step "Building UI integration image"
-    ${SUDO} podman build --pull=never \
+    ${SUDO} podman build --pull=never --no-cache \
       -t "${PODMAN_UI_IMAGE}" -f integration/testdata/Containerfile.ui-integration .
     ;;
   release)
