@@ -155,10 +155,10 @@ func (s *SystemControllerHandlers) installDependencies(
 		// (resolvable via podman DNS) and ports use container-side values.
 		upperKey := strings.ToUpper(depKey)
 		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = systemd.ContainerName(depRepo, effectiveName, depVersion)
-		for containerPort := range depCompiled.Network.External {
+		for _, containerPort := range depCompiled.Network.External {
 			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
 		}
-		for containerPort := range depCompiled.Network.Internal {
+		for _, containerPort := range depCompiled.Network.Internal {
 			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
 		}
 	}

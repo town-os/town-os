@@ -417,6 +417,13 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			return fmt.Errorf("check disabled: %w", err)
 		}
 		if !disabled {
+			// Start the NC before the service to avoid races where the
+			// service's ExecStartPre waits for the NC container.
+			if units.NetworkController != nil {
+				if err := cfg.Systemd.SetStatus(ctx, units.NetworkController.Name, systemd.Start); err != nil {
+					slog.Warn("network controller failed to start during reconcile", "unit", units.NetworkController.Name, "error", err)
+				}
+			}
 			if err := cfg.Systemd.SetStatus(ctx, units.Service.Name, systemd.Start); err != nil {
 				return fmt.Errorf("start unit: %w", err)
 			}

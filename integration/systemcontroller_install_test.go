@@ -258,28 +258,28 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("call 0: expected InstallUnit, got %q", calls[0].Method)
 	}
 
-	// Install phase: last install call (index 5) is Start.
-	call5Action, ok := calls[5].Args[1].(systemd.StatusAction)
+	// Install phase: last install call (index 6) is Start(service), index 5 is Start(NC).
+	call6Action, ok := calls[6].Args[1].(systemd.StatusAction)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
-	if call5Action != systemd.Start {
-		t.Fatalf("call 5: expected Start, got %v", calls[5].Args[1])
+	if call6Action != systemd.Start {
+		t.Fatalf("call 6: expected Start, got %v", calls[6].Args[1])
 	}
 
-	// Uninstall phase starts at index 6: ListPackageUnitFiles, then Stop, Disable, UninstallUnit per unit.
-	if calls[6].Method != "ListPackageUnitFiles" {
-		t.Fatalf("call 6: expected ListPackageUnitFiles, got %q", calls[6].Method)
+	// Uninstall phase starts at index 7: ListPackageUnitFiles, then Stop, Disable, UninstallUnit per unit.
+	if calls[7].Method != "ListPackageUnitFiles" {
+		t.Fatalf("call 7: expected ListPackageUnitFiles, got %q", calls[7].Method)
 	}
-	if calls[7].Method != "SetStatus" {
-		t.Fatalf("call 7: expected SetStatus, got %q", calls[7].Method)
+	if calls[8].Method != "SetStatus" {
+		t.Fatalf("call 8: expected SetStatus, got %q", calls[8].Method)
 	}
-	stopAction, ok := calls[7].Args[1].(systemd.StatusAction)
+	stopAction, ok := calls[8].Args[1].(systemd.StatusAction)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
 	if stopAction != systemd.Stop {
-		t.Fatalf("call 7: expected Stop, got %v", calls[7].Args[1])
+		t.Fatalf("call 8: expected Stop, got %v", calls[8].Args[1])
 	}
 }
 
@@ -372,16 +372,16 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("call 0: expected unit %q, got %q", "town-os-package--core-nginx-1.0.service", calls[0].Args[0])
 	}
 
-	// Redis service starts at index 6.
-	if calls[6].Method != "InstallUnit" {
-		t.Fatalf("call 6: expected InstallUnit, got %q", calls[6].Method)
+	// Redis service starts at index 7 (nginx install is 7 calls: 3 Install + 2 Enable + 1 Start(NC) + 1 Start(svc)).
+	if calls[7].Method != "InstallUnit" {
+		t.Fatalf("call 7: expected InstallUnit, got %q", calls[7].Method)
 	}
-	unitArg2, ok := calls[6].Args[0].(string)
+	unitArg2, ok := calls[7].Args[0].(string)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}
 	if unitArg2 != "town-os-package--core-redis-7.0.service" {
-		t.Fatalf("call 6: expected unit %q, got %q", "town-os-package--core-redis-7.0.service", calls[6].Args[0])
+		t.Fatalf("call 7: expected unit %q, got %q", "town-os-package--core-redis-7.0.service", calls[7].Args[0])
 	}
 }
 

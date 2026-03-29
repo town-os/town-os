@@ -1194,9 +1194,9 @@ network:
 	calls := sd.GetCalls()
 	// VM with 1 external port:
 	//   InstallUnit(service) + InstallUnit(socket) + InstallUnit(networkcontroller)
-	//   + Enable(socket) + Enable(networkcontroller) + Start(service) = 6
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls, got %d: %v", len(calls), calls)
+	//   + Enable(socket) + Enable(networkcontroller) + Start(NC) + Start(service) = 7
+	if len(calls) != 7 {
+		t.Fatalf("expected 7 systemd calls, got %d: %v", len(calls), calls)
 	}
 
 	// First call should install the service unit.

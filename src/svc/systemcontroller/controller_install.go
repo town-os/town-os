@@ -336,12 +336,14 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			return nil
 		}
 
-		// Inject dependency connection environment variables into the parent.
+		// Inject dependency connection environment variables into the parent
+		// and resolve @dep_KEY_host@ / @dep_KEY_port_N@ template variables.
 		if len(depEnvVars) > 0 {
 			if compiled.Environment == nil {
 				compiled.Environment = map[string]string{}
 			}
 			maps.Copy(compiled.Environment, depEnvVars)
+			applyDepTemplates(compiled.Environment, depEnvVars)
 		}
 
 		// Save dependency records for uninstall.
