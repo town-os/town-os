@@ -199,10 +199,10 @@ func TestSystemControllerInstallCreatesSystemdUnit(t *testing.T) {
 
 	// nginx has 1 external port (8080->80):
 	//   3 InstallUnit (service, socket, networkcontroller) +
-	//   2 Enable (socket, networkcontroller) + 1 Start (service) = 6
+	//   2 Enable (socket, networkcontroller) + 1 Start(NC) + 1 Start(service) = 7
 	calls := sd.GetCalls()
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls, got %d", len(calls))
+	if len(calls) != 7 {
+		t.Fatalf("expected 7 systemd calls, got %d", len(calls))
 	}
 
 	if calls[0].Method != "InstallUnit" {
@@ -246,11 +246,11 @@ func TestSystemControllerUninstallRemovesSystemdUnit(t *testing.T) {
 		t.Fatalf("UninstallPackage nginx@1.0: %v", err)
 	}
 
-	// Install (6) + Uninstall: ListPackageUnitFiles + 3 units * (Stop+Disable+Uninstall) = 10 → total 16
+	// Install (7) + Uninstall: ListPackageUnitFiles + 3 units * (Stop+Disable+Uninstall) = 10 → total 17
 	// (3 units: service, socket, networkcontroller)
 	calls := sd.GetCalls()
-	if len(calls) != 16 {
-		t.Fatalf("expected 16 systemd calls, got %d", len(calls))
+	if len(calls) != 17 {
+		t.Fatalf("expected 17 systemd calls, got %d", len(calls))
 	}
 
 	// Install phase: first call is InstallUnit for service.
@@ -308,10 +308,10 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected core/nginx@1.0, got %s", pkgs.Entries[0])
 	}
 
-	// Verify 6 systemd calls from install (nginx has 1 ext port).
+	// Verify 7 systemd calls from install (nginx has 1 ext port).
 	calls := sd.GetCalls()
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls after install, got %d", len(calls))
+	if len(calls) != 7 {
+		t.Fatalf("expected 7 systemd calls after install, got %d", len(calls))
 	}
 
 	// Uninstall
@@ -328,11 +328,11 @@ func TestSystemControllerInstallUninstallFullLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
-	// Install (6) + Uninstall: ListPackageUnitFiles + 3 units * 3 ops = 10 → total 16
+	// Install (7) + Uninstall: ListPackageUnitFiles + 3 units * 3 ops = 10 → total 17
 	// (3 units: service, socket, networkcontroller)
 	calls = sd.GetCalls()
-	if len(calls) != 16 {
-		t.Fatalf("expected 16 systemd calls total, got %d", len(calls))
+	if len(calls) != 17 {
+		t.Fatalf("expected 17 systemd calls total, got %d", len(calls))
 	}
 }
 
@@ -352,12 +352,12 @@ func TestSystemControllerInstallMultiplePackagesSystemdUnits(t *testing.T) {
 		t.Fatalf("InstallPackage redis@7.0: %v", err)
 	}
 
-	// nginx (1 ext port): 3 InstallUnit + 2 Enable + 1 Start = 6
-	// redis (1 int port): 3 InstallUnit + 2 Enable + 1 Start = 6
-	// Total = 12
+	// nginx (1 ext port): 3 InstallUnit + 2 Enable + 1 Start(NC) + 1 Start(svc) = 7
+	// redis (1 int port): 3 InstallUnit + 2 Enable + 1 Start(NC) + 1 Start(svc) = 7
+	// Total = 14
 	calls := sd.GetCalls()
-	if len(calls) != 12 {
-		t.Fatalf("expected 12 systemd calls, got %d", len(calls))
+	if len(calls) != 14 {
+		t.Fatalf("expected 14 systemd calls, got %d", len(calls))
 	}
 
 	// First call is InstallUnit for nginx service.

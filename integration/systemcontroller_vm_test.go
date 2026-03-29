@@ -137,9 +137,9 @@ func TestVMInstallCreatesQEMUUnit(t *testing.T) {
 	calls := sd.GetCalls()
 	// VM with 1 external port:
 	//   3 InstallUnit (service, socket, networkcontroller) +
-	//   2 Enable (socket, networkcontroller) + 1 Start (service) = 6
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls, got %d", len(calls))
+	//   2 Enable (socket, networkcontroller) + 1 Start(NC) + 1 Start(service) = 7
+	if len(calls) != 7 {
+		t.Fatalf("expected 7 systemd calls, got %d", len(calls))
 	}
 
 	// First InstallUnit should be the service.
@@ -330,12 +330,12 @@ func TestVMInstallAndUninstall(t *testing.T) {
 		t.Fatalf("expected 0 installed after uninstall, got %d", len(pkgs.Entries))
 	}
 
-	// Install: 6 calls (3 InstallUnit + 2 Enable + 1 Start)
+	// Install: 7 calls (3 InstallUnit + 2 Enable + 1 Start(NC) + 1 Start(svc))
 	// Uninstall: ListPackageUnitFiles + 3*(Stop+Disable+Uninstall) = 10
-	// Total: 16
+	// Total: 17
 	calls := sd.GetCalls()
-	if len(calls) != 16 {
-		t.Fatalf("expected 16 systemd calls total, got %d", len(calls))
+	if len(calls) != 17 {
+		t.Fatalf("expected 17 systemd calls total, got %d", len(calls))
 	}
 }
 

@@ -404,7 +404,7 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 		fmt.Fprintf(&b, " \\\n  -p %d:%d", p, p)
 	}
 	fmt.Fprintf(&b, " \\\n  -v %s:%s:ro", cfg.NetworkStatePath, cfg.NetworkStatePath)
-	fmt.Fprintf(&b, " \\\n  %s --state %s --target-container %s\n", cfg.NetworkControllerImage, statePath, containerName)
+	fmt.Fprintf(&b, " \\\n  %s /town-os-networkcontroller --state %s --target-container %s\n", cfg.NetworkControllerImage, statePath, containerName)
 
 	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", ncContainerName)
 

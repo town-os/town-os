@@ -35,10 +35,10 @@ func TestReconcileAfterInstall(t *testing.T) {
 	// Verify the install created systemd units.
 	// nginx 1.0 has 1 external port (8080->80) and 1 volume:
 	//   InstallUnit(service) + InstallUnit(socket) + InstallUnit(networkcontroller) +
-	//   Enable(socket) + Enable(networkcontroller) + Start(service) = 6
+	//   Enable(socket) + Enable(networkcontroller) + Start(NC) + Start(service) = 7
 	installCalls := sd.GetCalls()
-	if len(installCalls) != 6 {
-		t.Fatalf("expected 6 systemd calls from install, got %d", len(installCalls))
+	if len(installCalls) != 7 {
+		t.Fatalf("expected 7 systemd calls from install, got %d", len(installCalls))
 	}
 
 	// Simulate a container restart: clear the mock systemd state.
@@ -56,10 +56,10 @@ func TestReconcileAfterInstall(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	// Verify reconciliation re-created all units (same 6 calls).
+	// Verify reconciliation re-created all units (same 7 calls).
 	calls := sd.GetCalls()
-	if len(calls) != 6 {
-		t.Fatalf("expected 6 systemd calls from reconcile, got %d: %v", len(calls), calls)
+	if len(calls) != 7 {
+		t.Fatalf("expected 7 systemd calls from reconcile, got %d: %v", len(calls), calls)
 	}
 
 	if calls[0].Method != "InstallUnit" {
@@ -123,11 +123,11 @@ func TestReconcileMultiplePackagesAfterInstall(t *testing.T) {
 	}
 
 	calls := sd.GetCalls()
-	// nginx (1 ext port): 3 InstallUnit + 2 Enable + 1 Start = 6
-	// redis (1 int port): 3 InstallUnit + 2 Enable + 1 Start = 6
-	// Total = 12
-	if len(calls) != 12 {
-		t.Fatalf("expected 12 systemd calls, got %d", len(calls))
+	// nginx (1 ext port): 3 InstallUnit + 2 Enable + 1 Start(NC) + 1 Start(svc) = 7
+	// redis (1 int port): 3 InstallUnit + 2 Enable + 1 Start(NC) + 1 Start(svc) = 7
+	// Total = 14
+	if len(calls) != 14 {
+		t.Fatalf("expected 14 systemd calls, got %d", len(calls))
 	}
 }
 

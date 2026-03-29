@@ -571,7 +571,7 @@ func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 	if !strings.Contains(nc, "Before=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatalf("network controller missing Before, got:\n%s", nc)
 	}
-	if !strings.Contains(nc, "quay.io/town/networkcontroller:test --state /var/run/town-os/test-repo-nginx-1.0.json") {
+	if !strings.Contains(nc, "quay.io/town/networkcontroller:test /town-os-networkcontroller --state /var/run/town-os/test-repo-nginx-1.0.json") {
 		t.Fatalf("network controller missing ExecStart with correct state path, got:\n%s", nc)
 	}
 	if !strings.Contains(nc, "--target-container town-os-package--test-repo-nginx-1.0") {
@@ -898,11 +898,12 @@ func TestNCUnitRequiresImageName(t *testing.T) {
 	}
 
 	// The image name must appear before --state in the ExecStart line.
-	if !strings.Contains(nc, "localhost/town-os-networkcontroller:local --state") {
-		t.Fatalf("NC ExecStart must have image name before --state, got:\n%s", nc)
+	if !strings.Contains(nc, "localhost/town-os-networkcontroller:local /town-os-networkcontroller --state") {
+		t.Fatalf("NC ExecStart must have image name and binary before --state, got:\n%s", nc)
 	}
 
-	// With an empty image name, --state would be interpreted as a podman flag.
+	// With an empty image name, the binary path still appears so --state
+	// is passed as an argument to the binary, not as a podman flag.
 	cfgEmpty := cfg
 	cfgEmpty.NetworkControllerImage = ""
 	unitsEmpty := GeneratePackageUnits(cfgEmpty)
@@ -910,12 +911,8 @@ func TestNCUnitRequiresImageName(t *testing.T) {
 		t.Fatal("expected NC unit even with empty image")
 	}
 	ncEmpty := unitsEmpty.NetworkController.Content
-	if strings.Contains(ncEmpty, "town-os-networkcontroller") {
-		t.Fatal("empty image should not contain image name")
-	}
-	// This documents the bug: empty image causes --state to be a podman flag.
-	if !strings.Contains(ncEmpty, " --state") {
-		t.Fatalf("expected --state in NC unit, got:\n%s", ncEmpty)
+	if !strings.Contains(ncEmpty, "/town-os-networkcontroller --state") {
+		t.Fatalf("expected /town-os-networkcontroller --state in NC unit, got:\n%s", ncEmpty)
 	}
 }
 
