@@ -339,23 +339,18 @@ func TestModifyInstalledVolumeQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem quota on installed volume: %v", err)
 	}
 
-	result, err := c.ListFilesystems(ctx, "", "installed", systemcontroller.ListParams{})
+	// Use a prefix specific to this test's repo to avoid races with parallel
+	// tests that create/delete subvolumes under installed/.
+	result, err := c.ListFilesystems(ctx, "quotapkg/1.0/data", "installed", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
 
-	found := false
-	for _, f := range result.Entries {
-		if f.Name == "quotapkg/1.0/data" {
-			found = true
-			if f.Quota != 1073741824 {
-				t.Fatalf("expected quota 1073741824, got %d", f.Quota)
-			}
-			break
-		}
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry for quotapkg/1.0/data, got %d", len(result.Entries))
 	}
-	if !found {
-		t.Fatal("installed volume not found in listing after quota modification")
+	if result.Entries[0].Quota != 1073741824 {
+		t.Fatalf("expected quota 1073741824, got %d", result.Entries[0].Quota)
 	}
 }
 
