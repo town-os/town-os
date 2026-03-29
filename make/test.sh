@@ -162,6 +162,9 @@ case "$1" in
       remove_container "${GITEA_CONTAINER}"
       rm -f "${STATE_DIR}/.integration-port" "${STATE_DIR}/.registry-port" "${STATE_DIR}/.gitea-port"
       make/btrfs.sh clean 2>/dev/null || true
+      # Prune orphaned volumes to free podman locks. Without this, repeated
+      # test runs exhaust the lock table (default 2048).
+      ${SUDO} podman volume prune -f 2>/dev/null || true
     }
     trap cleanup EXIT
     ${MAKE} test-integration

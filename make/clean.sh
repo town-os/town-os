@@ -35,6 +35,8 @@ case "$1" in
     ${SUDO} podman ps -a --format '{{.Names}}' 2>/dev/null \
       | grep -E '^town-os-dev$' \
       | xargs -r -I{} ${SUDO} podman rm -f {} 2>/dev/null || true
+    # Prune orphaned volumes to free podman locks.
+    ${SUDO} podman volume prune -f 2>/dev/null || true
     ;;
   *)
     echo "Usage: $0 {integration|cache|main|image-cache|containers}"
