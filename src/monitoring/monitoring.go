@@ -11,6 +11,8 @@ const (
 	NodeExporterImage = "quay.io/prometheus/node-exporter:latest"
 	// GrafanaImage is the container image reference for Grafana.
 	GrafanaImage = "docker.io/grafana/grafana:latest"
+	// SocatImage is the container image for the uPlot socat forwarder.
+	SocatImage = "docker.io/library/alpine:latest"
 
 	// PrometheusPort is the default internal port used by Prometheus.
 	PrometheusPort = "9090"
@@ -18,6 +20,13 @@ const (
 	NodeExporterPort = "9100"
 	// GrafanaPort is the default internal port for Grafana.
 	GrafanaPort = "3000"
+	// MonitoringExternalPort is the external port exposed for the monitoring dashboard.
+	MonitoringExternalPort = "5308"
+
+	// BackendUPlot selects the lightweight uPlot frontend (default).
+	BackendUPlot = "uplot"
+	// BackendGrafana selects the Grafana dashboard frontend.
+	BackendGrafana = "grafana"
 )
 
 // SystemService describes a system service managed outside the package system.

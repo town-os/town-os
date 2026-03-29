@@ -274,18 +274,15 @@ func run() (err error) {
 		}
 	}
 
-	// Start Node Exporter as a system service (needs host networking).
+	// Start monitoring system services (all non-fatal).
 	if err := monitoring.StartNodeExporter(ctx, sd, ""); err != nil {
 		fmt.Fprintf(os.Stderr, "node-exporter: %v\n", err)
 	}
-
-	// Write the monitoring package manifest and register it as installed
-	// BEFORE reconcile so that reconcile picks it up and generates
-	// volumes, templates, NC state, and systemd units.
-	if err := monitoring.EnsureMonitoringPackage(repoBase, monBackend, ""); err != nil {
-		fmt.Fprintf(os.Stderr, "monitoring package: %v\n", err)
-	} else if _, err := monitoring.InstallMonitoringPackage(inst); err != nil {
-		fmt.Fprintf(os.Stderr, "monitoring install: %v\n", err)
+	if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
+	}
+	if err := monitoring.StartMonitoringUI(ctx, sd, monBackend, *btrfsPath); err != nil {
+		fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 	}
 
 	// Detect whether the systemcontroller image changed since the last

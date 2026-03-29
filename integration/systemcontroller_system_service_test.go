@@ -64,16 +64,16 @@ func TestSystemControllerListSystemServicesPopulated(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	// node-exporter (monitoring) + ui = 2 system services.
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 system services, got %d", len(entries))
+	// node-exporter + prometheus + monitoring-ui (monitoring) + ui = 4 system services.
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 system services, got %d", len(entries))
 	}
 
 	keys := map[string]bool{}
 	for _, e := range entries {
 		keys[e.Key] = true
 	}
-	for _, key := range []string{"node-exporter", "ui"} {
+	for _, key := range []string{"node-exporter", "prometheus", "monitoring-ui", "ui"} {
 		if !keys[key] {
 			t.Fatalf("missing expected key %q", key)
 		}
@@ -143,9 +143,10 @@ func TestSystemControllerSystemServicesIsolatedFromPackageUnits(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	// Should return 2 services (node-exporter + ui), with status for node-exporter.
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 system services, got %d", len(entries))
+	// Should return 4 services (node-exporter + prometheus + monitoring-ui + ui),
+	// with status for node-exporter.
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 system services, got %d", len(entries))
 	}
 
 	for _, e := range entries {

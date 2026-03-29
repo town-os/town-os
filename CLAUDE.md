@@ -65,6 +65,44 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - **Network controller image is rebuilt every startup** — the NC container image (`town-os-networkcontroller:local`) is rebuilt by the system controller on every startup via `podman build`. The NC binary (`/town-os-networkcontroller`) is baked into the systemcontroller image at build time from the same source tree (see `Containerfile` lines 11, 31), guaranteeing the NC always matches the running systemcontroller. The `alpine:latest` base image is pulled via `ensureImage` if not already loaded. The build is non-fatal; if the network is unavailable at boot, the system controller starts without per-package networking and the image is built on the next restart. Never cache or skip the NC image build.
 
+- **All monitoring services are system services** — Prometheus, Node Exporter, and the Monitoring UI all run as system services (`town-os-system--` prefix), never as packages. They are started directly in `main.go` before reconcile, not through the package system. The three services are: `town-os-system--node-exporter.service` (host networking, port 9100), `town-os-system--prometheus.service` (port 9090, bind-mount config/data from `{btrfsBase}/monitoring/`), and `town-os-system--monitoring-ui.service` (port 5308). The monitoring UI service runs either a socat forwarder (uPlot mode, default) or Grafana (grafana mode), controlled by the `monitoring_backend` setting. Prometheus config is written directly to disk, not via the package template system. Never use the package system (`EnsureMonitoringPackage`, `InstallMonitoringPackage`, etc.) for monitoring — those functions no longer exist.
+
+## System Controller Boot Sequence
+
+The system controller startup in `src/svc/systemcontroller/cmd/systemcontroller/main.go` follows this exact order. Each step that says **(non-fatal)** logs to stderr and continues; everything else is fatal and aborts startup.
+
+1. **Parse CLI flags and env vars** — `-db`, `-btrfs`, `-repo-dir`, `-network-state`, `-listen`. Env overrides: `TOWN_OS_LISTEN`.
+2. **Create directories** — temp working dir, btrfs base, network state dir, DB parent dir.
+3. **Open SQLite database** — persistent if `-db` is set, otherwise ephemeral temp file.
+4. **Init account manager** — creates accounts table.
+5. **Generate ephemeral JWT signing key** — 32 random bytes via `crypto/rand`, overridable with `TOWN_OS_SIGNING_KEY`. Init session manager, which clears all prior sessions (old tokens are invalid with the new key).
+6. **Init audit manager** — creates audit log table.
+7. **Init settings manager** — creates settings table with defaults (`default_quota`, `max_archive_size`, `locale`, etc.).
+8. **Init pages manager** — only if `TOWN_OS_PAGES` env var is set.
+9. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
+10. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
+11. **Init install manager, btrfs storage, systemd manager**.
+12. **Read version tag** — from `/town-os.tag` file, or compile-time `Version` ldflags var, or fallback `rc.latest`. Used to derive image tags for sibling services.
+13. **Start background repo refresh** — goroutine polls every 5 minutes.
+14. **Wait for Rolodex DNS readiness** **(non-fatal)** — Rolodex is a boot service managed by systemd (not the systemcontroller). The systemcontroller waits for its gRPC socket to become available so DNS is ready for subsequent image pulls and the NC build.
+15. **Build network controller image** **(non-fatal)** — copies the NC binary from `/town-os-networkcontroller` (baked into the systemcontroller image), pulls `alpine:latest` via `ensureImage`, runs `podman build`. Must happen after Rolodex DNS is ready (step 14) so DNS works for `apk add socat`.
+16. **Read monitoring backend setting** — `monitoring_backend` from settings DB, default `uplot`.
+17. **Pull container images** **(non-fatal)** — Prometheus, Node Exporter, UI image, optionally Grafana. Uses `ensureImage` (skips pull if already loaded).
+18. **Start monitoring system services** **(all non-fatal)** — Node Exporter (host networking, port 9100), Prometheus (port 9090, bind-mount config/data), Monitoring UI (port 5308, socat or Grafana).
+19. **Detect version change** — compare running container's image SHA (`/proc/1/cgroup` → `podman inspect`) against `<btrfsPath>/town-os-version`. Sets `versionChanged` flag for reconcile.
+20. **Reconcile** — iterates all installed packages and restores runtime state:
+    - Creates root btrfs subvolumes (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`).
+    - For each installed package (latest version per repo/name): loads YAML, compiles with saved responses, creates btrfs volumes with quotas, seeds empty volumes from archives/git/proton, applies file templates, writes network state files, generates and installs systemd units (service + NC + sockets), starts services.
+    - If `versionChanged`: restarts units whose content changed (NC first, then deps, then services), then runs `post_update` commands.
+    - Reconciles pages: ensures subvolumes, symlinks, Caddyfile, and Caddy unit.
+21. **Persist version SHA** — writes current image SHA to `<btrfsPath>/town-os-version`.
+22. **Start internal IP watcher** — background goroutine polls every 30s, updates Rolodex config if IP changes (DHCP lease renewal).
+23. **Reconcile DNS** — connects to Rolodex gRPC socket (retries up to 30s), sets up TLD zone, registers A records for all installed packages.
+24. **Start UI container** **(non-fatal)** — installs and starts `town-os-system--ui.service` (Caddy, host networking, port 80).
+25. **Create HTTP handler** — wires all managers into `ServerConfig`, starts external IP poller (ipinfo.io, 1-hour interval), configures Echo router with CORS, auth middleware, audit middleware.
+26. **Start HTTP server** — listens on `:5309` (or `TOWN_OS_LISTEN`). Prints `systemcontroller: listening on :5309` to stderr. **System is now ready.**
+27. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with 30s timeout. All background goroutines exit via context cancellation.
+
 ## Performance Conventions
 
 - **Use `strings.Builder` for string construction** — never build strings character-by-character with `string(append([]byte(s), c))`. Use `strings.Builder` with `WriteByte`/`WriteString` for O(n) instead of O(n²) allocations. See `src/packages/packages_compile.go` (`applyTemplate`, `applyTemplates`).

@@ -7,8 +7,9 @@ import (
 )
 
 // monitoringStatus returns the monitoring stack status by querying systemd
-// unit states for the monitoring package and node-exporter system service.
-// The browser talks to port 5308 directly (no proxy through the systemcontroller).
+// unit states for the monitoring system services (prometheus, monitoring-ui,
+// node-exporter). The browser talks to port 5308 directly (no proxy through
+// the systemcontroller).
 func (s *SystemControllerHandlers) monitoringStatus(c *echo.Context) error {
 	backend := s.Controller.GetMonitoringBackend()
 	if backend == "" {
@@ -28,30 +29,15 @@ func (s *SystemControllerHandlers) monitoringStatus(c *echo.Context) error {
 		}
 	}
 
-	// The monitoring package runs as a regular package. Its service unit
-	// name follows the standard pattern.
-	pkgUnitName := systemd.UnitName(
-		monitoring.MonitoringRepo,
-		monitoring.MonitoringPackageName,
-		monitoring.MonitoringVersion,
-	)
-
 	status := monitoring.MonitoringStatus{
 		Backend:      backend,
-		Prometheus:   unitStates[pkgUnitName],
+		Prometheus:   unitStates[systemd.SystemServiceUnitName("prometheus")],
 		NodeExporter: unitStates[systemd.SystemServiceUnitName("node-exporter")],
 	}
 
-	// In grafana mode, the primary container is grafana and the package
-	// unit represents grafana, not prometheus.
+	// In grafana mode, the monitoring-ui unit IS grafana.
 	if backend == monitoring.BackendGrafana {
-		status.Grafana = unitStates[pkgUnitName]
-		// Prometheus runs as a dependency.
-		status.Prometheus = unitStates[systemd.UnitName(
-			monitoring.MonitoringRepo,
-			monitoring.MonitoringPackageName+"--dep--prometheus",
-			monitoring.MonitoringVersion,
-		)]
+		status.Grafana = unitStates[systemd.SystemServiceUnitName("monitoring-ui")]
 	}
 
 	return c.JSON(200, status)

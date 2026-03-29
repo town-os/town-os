@@ -61,22 +61,29 @@ func TestHTTPListSystemServicesWithMonitoring(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	// Only node-exporter is a system service now; prometheus/grafana are packages.
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry (node-exporter), got %d", len(entries))
+	// All monitoring services are system services: node-exporter, prometheus, monitoring-ui.
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries (node-exporter, prometheus, monitoring-ui), got %d", len(entries))
 	}
 
-	if entries[0].Key != "node-exporter" {
-		t.Fatalf("expected key node-exporter, got %q", entries[0].Key)
+	keys := map[string]bool{}
+	for _, e := range entries {
+		keys[e.Key] = true
+		if e.Image == "" {
+			t.Fatalf("expected non-empty image for %s", e.Key)
+		}
+		if e.Port == "" {
+			t.Fatalf("expected non-empty port for %s", e.Key)
+		}
+		if e.DisplayName == "" {
+			t.Fatalf("expected non-empty display name for %s", e.Key)
+		}
 	}
-	if entries[0].Image == "" {
-		t.Fatal("expected non-empty image")
-	}
-	if entries[0].Port == "" {
-		t.Fatal("expected non-empty port")
-	}
-	if entries[0].DisplayName == "" {
-		t.Fatal("expected non-empty display name")
+
+	for _, expected := range []string{"node-exporter", "prometheus", "monitoring-ui"} {
+		if !keys[expected] {
+			t.Fatalf("expected key %q in system services", expected)
+		}
 	}
 }
 
@@ -85,6 +92,8 @@ func TestHTTPListSystemServicesReportsRunningState(t *testing.T) {
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active", SubState: "running"},
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active", SubState: "running"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "active", SubState: "running"},
 	}
 
 	entries, err := c.ListSystemServices(context.TODO())
@@ -92,11 +101,14 @@ func TestHTTPListSystemServicesReportsRunningState(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
-	if entries[0].ActiveState != "active" {
-		t.Fatalf("expected node-exporter active, got %q", entries[0].ActiveState)
+
+	for _, e := range entries {
+		if e.ActiveState != "active" {
+			t.Fatalf("expected %s active, got %q", e.Key, e.ActiveState)
+		}
 	}
 }
 
@@ -152,6 +164,8 @@ func TestHTTPPingIncludesSystemServiceCounts(t *testing.T) {
 
 	sd.Units = []systemd.UnitStatus{
 		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "active"},
 	}
 
 	ping, err := c.Ping(context.TODO())
@@ -163,12 +177,12 @@ func TestHTTPPingIncludesSystemServiceCounts(t *testing.T) {
 		t.Fatal("expected system_services in ping response")
 	}
 
-	if ping.SystemServices.Total != 1 {
-		t.Fatalf("expected 1 total system services, got %d", ping.SystemServices.Total)
+	if ping.SystemServices.Total != 3 {
+		t.Fatalf("expected 3 total system services, got %d", ping.SystemServices.Total)
 	}
 
-	if ping.SystemServices.Active != 1 {
-		t.Fatalf("expected 1 active system services, got %d", ping.SystemServices.Active)
+	if ping.SystemServices.Active != 3 {
+		t.Fatalf("expected 3 active system services, got %d", ping.SystemServices.Active)
 	}
 }
 

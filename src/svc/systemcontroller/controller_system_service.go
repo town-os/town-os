@@ -44,16 +44,21 @@ type systemServiceInfo struct {
 func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 	var all []systemServiceInfo
 
-	// Node Exporter runs as a system service (needs host networking).
-	if s.Controller.GetMonitoringBackend() != "" {
-		ne := monitoring.NodeExporterSystemService("")
-		all = append(all, systemServiceInfo{
-			Key:         ne.Key,
-			DisplayName: ne.DisplayName,
-			Image:       ne.Image,
-			Port:        ne.Port,
-			UnitName:    ne.UnitName,
-		})
+	// Monitoring services are all system services.
+	if backend := s.Controller.GetMonitoringBackend(); backend != "" {
+		for _, svc := range []monitoring.SystemService{
+			monitoring.NodeExporterSystemService(""),
+			monitoring.PrometheusSystemService(),
+			monitoring.MonitoringUISystemService(backend),
+		} {
+			all = append(all, systemServiceInfo{
+				Key:         svc.Key,
+				DisplayName: svc.DisplayName,
+				Image:       svc.Image,
+				Port:        svc.Port,
+				UnitName:    svc.UnitName,
+			})
+		}
 	}
 
 	if rol := s.Controller.GetRolodex(); rol != nil {

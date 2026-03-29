@@ -9,141 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"encoding/json"
-
-	"gopkg.in/yaml.v3"
-
-	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-func TestMonitoringPackageIdentity(t *testing.T) {
-	id := MonitoringPackageIdentity()
-	if id.Repo != MonitoringRepo {
-		t.Fatalf("expected repo %q, got %q", MonitoringRepo, id.Repo)
-	}
-	if id.Name != MonitoringPackageName {
-		t.Fatalf("expected name %q, got %q", MonitoringPackageName, id.Name)
-	}
-	if id.Version != MonitoringVersion {
-		t.Fatalf("expected version %q, got %q", MonitoringVersion, id.Version)
-	}
-}
-
-func TestGenerateManifestUPlot(t *testing.T) {
-	manifest := GenerateManifest(BackendUPlot, "")
-
-	if !strings.Contains(manifest, PrometheusImage) {
-		t.Fatal("uplot manifest should contain prometheus image")
-	}
-	if !strings.Contains(manifest, "5308") {
-		t.Fatal("uplot manifest should expose port 5308")
-	}
-	if !strings.Contains(manifest, "host.containers.internal:9100") {
-		t.Fatal("uplot manifest should scrape node-exporter via host gateway")
-	}
-	if strings.Contains(manifest, GrafanaImage) {
-		t.Fatal("uplot manifest should not contain grafana image")
-	}
-}
-
-func TestGenerateManifestUPlotCustomNodeExporterPort(t *testing.T) {
-	manifest := GenerateManifest(BackendUPlot, "19100")
-	if !strings.Contains(manifest, "host.containers.internal:19100") {
-		t.Fatal("manifest should use custom node exporter port")
-	}
-}
-
-func TestGenerateManifestGrafana(t *testing.T) {
-	manifest := GenerateManifest(BackendGrafana, "")
-
-	if !strings.Contains(manifest, GrafanaImage) {
-		t.Fatal("grafana manifest should contain grafana image")
-	}
-	if !strings.Contains(manifest, "5308") {
-		t.Fatal("grafana manifest should expose port 5308")
-	}
-	if !strings.Contains(manifest, "GF_AUTH_ANONYMOUS_ENABLED") {
-		t.Fatal("grafana manifest should include anonymous auth config")
-	}
-}
-
-func TestGenerateManifestDefaultBackend(t *testing.T) {
-	manifest := GenerateManifest("", "")
-	if !strings.Contains(manifest, PrometheusImage) {
-		t.Fatal("empty backend should default to uplot (prometheus)")
-	}
-}
-
-func TestEnsureMonitoringPackage(t *testing.T) {
-	repoBase := t.TempDir()
-
-	if err := EnsureMonitoringPackage(repoBase, BackendUPlot, ""); err != nil {
-		t.Fatalf("EnsureMonitoringPackage: %v", err)
-	}
-
-	pkgFile := filepath.Join(repoBase, MonitoringRepo, packages.PackagesDir, MonitoringPackageName, MonitoringVersion+".yaml")
-	data, err := os.ReadFile(pkgFile)
-	if err != nil {
-		t.Fatalf("read package file: %v", err)
-	}
-
-	if !strings.Contains(string(data), PrometheusImage) {
-		t.Fatal("written package should contain prometheus image")
-	}
-}
-
-func TestEnsureMonitoringPackageOverwrites(t *testing.T) {
-	repoBase := t.TempDir()
-
-	// Write uplot first.
-	if err := EnsureMonitoringPackage(repoBase, BackendUPlot, ""); err != nil {
-		t.Fatalf("EnsureMonitoringPackage (uplot): %v", err)
-	}
-
-	// Overwrite with grafana.
-	if err := EnsureMonitoringPackage(repoBase, BackendGrafana, ""); err != nil {
-		t.Fatalf("EnsureMonitoringPackage (grafana): %v", err)
-	}
-
-	pkgFile := filepath.Join(repoBase, MonitoringRepo, packages.PackagesDir, MonitoringPackageName, MonitoringVersion+".yaml")
-	data, err := os.ReadFile(pkgFile)
-	if err != nil {
-		t.Fatalf("read package file: %v", err)
-	}
-
-	if !strings.Contains(string(data), GrafanaImage) {
-		t.Fatal("overwritten package should contain grafana image")
-	}
-}
-
-func TestInstallMonitoringPackage(t *testing.T) {
-	repoBase := t.TempDir()
-
-	// Must write manifest first.
-	if err := EnsureMonitoringPackage(repoBase, BackendUPlot, ""); err != nil {
-		t.Fatalf("EnsureMonitoringPackage: %v", err)
-	}
-
-	inst := packages.NewInstallManager(repoBase)
-
-	installed, err := InstallMonitoringPackage(inst)
-	if err != nil {
-		t.Fatalf("InstallMonitoringPackage: %v", err)
-	}
-	if !installed {
-		t.Fatal("expected package to be newly installed")
-	}
-
-	// Second call should be a no-op.
-	installed, err = InstallMonitoringPackage(inst)
-	if err != nil {
-		t.Fatalf("InstallMonitoringPackage (2nd): %v", err)
-	}
-	if installed {
-		t.Fatal("expected package already installed")
-	}
-}
+// --- Node Exporter tests (unchanged) ---
 
 func TestNodeExporterUnitConfig(t *testing.T) {
 	cfg := NodeExporterUnitConfig("")
@@ -255,129 +124,416 @@ func TestNodeExporterSystemServiceCustomPort(t *testing.T) {
 	}
 }
 
-func TestMonitoringPackageCompileAndUnitGeneration(t *testing.T) {
-	repoBase := t.TempDir()
+// --- Prometheus tests ---
 
-	if err := EnsureMonitoringPackage(repoBase, BackendUPlot, ""); err != nil {
-		t.Fatalf("EnsureMonitoringPackage: %v", err)
+func TestPrometheusUnitConfig(t *testing.T) {
+	btrfsBase := t.TempDir()
+	cfg := PrometheusUnitConfig(btrfsBase)
+
+	if cfg.Key != "prometheus" {
+		t.Fatalf("expected key prometheus, got %q", cfg.Key)
+	}
+	if cfg.Image != PrometheusImage {
+		t.Fatalf("expected image %q, got %q", PrometheusImage, cfg.Image)
 	}
 
-	inst := packages.NewInstallManager(repoBase)
-	if _, err := InstallMonitoringPackage(inst); err != nil {
-		t.Fatalf("InstallMonitoringPackage: %v", err)
-	}
-
-	// Create a minimal repositories.json so RepositoryRootFromBase works.
-	reposFile := filepath.Join(repoBase, packages.RepositoriesFile)
-	repoData, err := json.Marshal([]packages.Repository{})
-	if err != nil {
-		t.Fatalf("marshal repos: %v", err)
-	}
-	if err := os.WriteFile(reposFile, repoData, 0600); err != nil {
-		t.Fatalf("write repos file: %v", err)
-	}
-
-	// Verify LoadPackage works (same path reconcile uses).
-	rr, err := packages.RepositoryRootFromBase(repoBase)
-	if err != nil {
-		t.Fatalf("RepositoryRootFromBase: %v", err)
-	}
-
-	ip, err := rr.LoadPackage(MonitoringRepo, MonitoringPackageName, MonitoringVersion)
-	if err != nil {
-		t.Fatalf("LoadPackage: %v", err)
-	}
-
-	compiled, err := ip.Compile(packages.Responses{})
-	if err != nil {
-		t.Fatalf("Compile: %v", err)
-	}
-
-	if compiled.Image == "" {
-		t.Fatal("expected non-empty image after compile")
-	}
-
-	// Verify the package has internal ports (needed for NC generation).
-	if len(compiled.Network.Internal) == 0 {
-		t.Fatal("expected internal port mapping for NC generation")
-	}
-
-	// Verify the port 5308 is mapped.
-	found := false
-	for ext := range compiled.Network.Internal {
-		if ext == 5308 {
-			found = true
+	// Check port mapping.
+	foundPort := false
+	for i, arg := range cfg.Args {
+		if arg == "-p" && i+1 < len(cfg.Args) && cfg.Args[i+1] == "9090:9090" {
+			foundPort = true
 		}
 	}
-	if !found {
-		t.Fatalf("expected port 5308 in internal network, got %v", compiled.Network.Internal)
+	if !foundPort {
+		t.Fatalf("expected -p 9090:9090 in args, got %v", cfg.Args)
 	}
 
-	// Verify unit generation produces an NC unit.
-	units := systemd.GeneratePackageUnits(systemd.PackageUnitConfig{
-		RepoName:               MonitoringRepo,
-		PkgName:                MonitoringPackageName,
-		Version:                MonitoringVersion,
-		Description:            ip.Description,
-		Image:                  compiled.Image,
-		Command:                compiled.Command,
-		Environment:            compiled.Environment,
-		External:               compiled.Network.External,
-		Internal:               compiled.Network.Internal,
-		Volumes:                compiled.Volumes,
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
-		NetworkStatePath:       "/var/run/town-os",
-	})
-
-	if units.NetworkController == nil {
-		t.Fatal("expected NC unit for monitoring package (has ports)")
+	// Check volume mounts reference the btrfs base.
+	foundConfig := false
+	foundData := false
+	for i, arg := range cfg.Args {
+		if arg == "-v" && i+1 < len(cfg.Args) {
+			if strings.Contains(cfg.Args[i+1], "prometheus-config:/etc/prometheus") {
+				foundConfig = true
+			}
+			if strings.Contains(cfg.Args[i+1], "prometheus-data:/prometheus") {
+				foundData = true
+			}
+		}
 	}
-	if !strings.Contains(units.NetworkController.Content, "5308") {
-		t.Fatal("NC unit should expose port 5308")
+	if !foundConfig {
+		t.Fatalf("expected config volume mount, got %v", cfg.Args)
 	}
-	if !strings.Contains(units.NetworkController.Content, "--target-container") {
-		t.Fatalf("NC unit should have --target-container flag, got:\n%s", units.NetworkController.Content)
-	}
-	if !strings.Contains(units.Service.Content, PrometheusImage) {
-		t.Fatalf("service unit should reference prometheus image, got:\n%s", units.Service.Content)
-	}
-	if !strings.Contains(units.Service.Content, "--config.file=/etc/prometheus/prometheus.yml") {
-		t.Fatalf("service unit should include prometheus command args, got:\n%s", units.Service.Content)
-	}
-	// Service unit must NOT have -p flags — the NC owns port exposure.
-	if strings.Contains(units.Service.Content, " -p ") {
-		t.Fatalf("service unit should not have -p port flags (NC owns ports), got:\n%s", units.Service.Content)
-	}
-	// Service unit must idempotently create the network (boot race safety).
-	if !strings.Contains(units.Service.Content, "podman network create") {
-		t.Fatalf("service unit should idempotently create network, got:\n%s", units.Service.Content)
-	}
-	// Service unit must NOT rm -f the network — the NC owns cleanup.
-	if strings.Contains(units.Service.Content, "podman network rm") {
-		t.Fatalf("service unit should not rm -f network when NC exists, got:\n%s", units.Service.Content)
-	}
-	// Service unit must run on the podman network.
-	expectedNet := systemd.NetworkName(MonitoringRepo, MonitoringPackageName, MonitoringVersion)
-	if !strings.Contains(units.Service.Content, expectedNet) {
-		t.Fatalf("service unit should use network %q, got:\n%s", expectedNet, units.Service.Content)
+	if !foundData {
+		t.Fatalf("expected data volume mount, got %v", cfg.Args)
 	}
 
-	t.Logf("NC unit:\n%s", units.NetworkController.Content)
-	t.Logf("Service unit:\n%s", units.Service.Content)
+	// Check VolumeDirs.
+	if len(cfg.VolumeDirs) != 2 {
+		t.Fatalf("expected 2 VolumeDirs, got %d", len(cfg.VolumeDirs))
+	}
 }
 
-func TestGenerateManifestIsValidYAML(t *testing.T) {
-	for _, backend := range []string{BackendUPlot, BackendGrafana} {
-		manifest := GenerateManifest(backend, "")
+func TestPrometheusUnitConfigAlwaysUsesPort9090(t *testing.T) {
+	btrfsBase := t.TempDir()
+	cfg := PrometheusUnitConfig(btrfsBase)
 
-		// Verify it parses as valid YAML.
-		var raw map[string]any
-		if err := yaml.Unmarshal([]byte(manifest), &raw); err != nil {
-			t.Fatalf("backend %s: invalid YAML: %v", backend, err)
+	// The unit always maps 9090:9090; the node exporter port only affects
+	// the prometheus.yml config.
+	foundPort := false
+	for i, arg := range cfg.Args {
+		if arg == "-p" && i+1 < len(cfg.Args) && cfg.Args[i+1] == "9090:9090" {
+			foundPort = true
 		}
+	}
+	if !foundPort {
+		t.Fatal("expected -p 9090:9090")
+	}
+}
 
-		if _, ok := raw["image"]; !ok {
-			t.Fatalf("backend %s: expected image field", backend)
+func TestWritePrometheusConfig(t *testing.T) {
+	btrfsBase := t.TempDir()
+
+	if err := WritePrometheusConfig(btrfsBase, ""); err != nil {
+		t.Fatalf("WritePrometheusConfig: %v", err)
+	}
+
+	configFile := filepath.Join(btrfsBase, "monitoring", "prometheus-config", "prometheus.yml")
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "host.containers.internal:9100") {
+		t.Fatal("config should scrape node-exporter on default port 9100")
+	}
+	if !strings.Contains(content, "localhost:9090") {
+		t.Fatal("config should scrape prometheus itself")
+	}
+}
+
+func TestWritePrometheusConfigCustomPort(t *testing.T) {
+	btrfsBase := t.TempDir()
+
+	if err := WritePrometheusConfig(btrfsBase, "19100"); err != nil {
+		t.Fatalf("WritePrometheusConfig: %v", err)
+	}
+
+	configFile := filepath.Join(btrfsBase, "monitoring", "prometheus-config", "prometheus.yml")
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	if !strings.Contains(string(data), "host.containers.internal:19100") {
+		t.Fatal("config should use custom node exporter port 19100")
+	}
+}
+
+func TestStartPrometheus(t *testing.T) {
+	sd := systemd.InitMockManager()
+	btrfsBase := t.TempDir()
+
+	if err := StartPrometheus(t.Context(), sd, btrfsBase, ""); err != nil {
+		t.Fatalf("StartPrometheus: %v", err)
+	}
+
+	unitName := systemd.SystemServiceUnitName("prometheus")
+	if _, ok := sd.InstalledUnits[unitName]; !ok {
+		t.Fatalf("expected unit %s to be installed", unitName)
+	}
+
+	// Verify config was written.
+	configFile := filepath.Join(btrfsBase, "monitoring", "prometheus-config", "prometheus.yml")
+	if _, err := os.Stat(configFile); err != nil {
+		t.Fatalf("prometheus.yml should exist: %v", err)
+	}
+
+	// Verify install/enable/restart sequence.
+	calls := sd.GetCalls()
+	var enableCount, restartCount int
+	for _, c := range calls {
+		if c.Method == "SetStatus" && len(c.Args) >= 2 {
+			if c.Args[1] == systemd.Enable {
+				enableCount++
+			}
+			if c.Args[1] == systemd.Restart {
+				restartCount++
+			}
 		}
+	}
+	if enableCount != 1 {
+		t.Fatalf("expected 1 Enable, got %d", enableCount)
+	}
+	if restartCount != 1 {
+		t.Fatalf("expected 1 Restart, got %d", restartCount)
+	}
+}
+
+func TestStartPrometheusInstallError(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.InstallUnitErr = os.ErrPermission
+	btrfsBase := t.TempDir()
+
+	err := StartPrometheus(t.Context(), sd, btrfsBase, "")
+	if err == nil {
+		t.Fatal("expected error when InstallUnit fails")
+	}
+}
+
+func TestPrometheusSystemService(t *testing.T) {
+	svc := PrometheusSystemService()
+
+	if svc.Key != "prometheus" {
+		t.Fatalf("expected key prometheus, got %q", svc.Key)
+	}
+	if svc.Image != PrometheusImage {
+		t.Fatalf("expected image %q, got %q", PrometheusImage, svc.Image)
+	}
+	if svc.Port != PrometheusPort {
+		t.Fatalf("expected port %q, got %q", PrometheusPort, svc.Port)
+	}
+	if svc.UnitName != systemd.SystemServiceUnitName("prometheus") {
+		t.Fatalf("expected unit name %q, got %q", systemd.SystemServiceUnitName("prometheus"), svc.UnitName)
+	}
+}
+
+func TestPrometheusUnitIsSystemService(t *testing.T) {
+	btrfsBase := t.TempDir()
+	cfg := PrometheusUnitConfig(btrfsBase)
+	uf := systemd.GenerateSystemServiceUnit(cfg)
+
+	if !systemd.IsSystemServiceUnit(uf.Name) {
+		t.Fatalf("prometheus unit %q should be a system service unit", uf.Name)
+	}
+	if !strings.Contains(uf.Content, PrometheusImage) {
+		t.Fatal("unit should reference prometheus image")
+	}
+	if !strings.Contains(uf.Content, "--config.file=/etc/prometheus/prometheus.yml") {
+		t.Fatal("unit should include prometheus command args")
+	}
+	if !strings.Contains(uf.Content, "Restart=always") {
+		t.Fatal("unit should restart always")
+	}
+}
+
+// --- Monitoring UI tests ---
+
+func TestMonitoringUIUnitConfigUPlot(t *testing.T) {
+	cfg := MonitoringUIUnitConfig(BackendUPlot, "")
+
+	if cfg.Key != "monitoring-ui" {
+		t.Fatalf("expected key monitoring-ui, got %q", cfg.Key)
+	}
+	if cfg.Image != SocatImage {
+		t.Fatalf("expected image %q, got %q", SocatImage, cfg.Image)
+	}
+
+	// Should use host networking.
+	foundHost := false
+	for i, arg := range cfg.Args {
+		if arg == "--net" && i+1 < len(cfg.Args) && cfg.Args[i+1] == "host" {
+			foundHost = true
+		}
+	}
+	if !foundHost {
+		t.Fatalf("uplot mode should use --net host, got %v", cfg.Args)
+	}
+
+	// Command should include socat forwarding 5308 to 9090.
+	cmdStr := strings.Join(cfg.Command, " ")
+	if !strings.Contains(cmdStr, "socat TCP-LISTEN:5308") {
+		t.Fatalf("expected socat on port 5308, got %v", cfg.Command)
+	}
+	if !strings.Contains(cmdStr, "TCP:127.0.0.1:9090") {
+		t.Fatalf("expected socat target 127.0.0.1:9090, got %v", cfg.Command)
+	}
+}
+
+func TestMonitoringUIUnitConfigGrafana(t *testing.T) {
+	btrfsBase := t.TempDir()
+	cfg := MonitoringUIUnitConfig(BackendGrafana, btrfsBase)
+
+	if cfg.Key != "monitoring-ui" {
+		t.Fatalf("expected key monitoring-ui, got %q", cfg.Key)
+	}
+	if cfg.Image != GrafanaImage {
+		t.Fatalf("expected image %q, got %q", GrafanaImage, cfg.Image)
+	}
+
+	// Should have port mapping 5308:3000.
+	foundPort := false
+	for i, arg := range cfg.Args {
+		if arg == "-p" && i+1 < len(cfg.Args) && cfg.Args[i+1] == "5308:3000" {
+			foundPort = true
+		}
+	}
+	if !foundPort {
+		t.Fatalf("grafana mode should map 5308:3000, got %v", cfg.Args)
+	}
+
+	// Should have grafana env vars.
+	foundAnon := false
+	for i, arg := range cfg.Args {
+		if arg == "-e" && i+1 < len(cfg.Args) && cfg.Args[i+1] == "GF_AUTH_ANONYMOUS_ENABLED=true" {
+			foundAnon = true
+		}
+	}
+	if !foundAnon {
+		t.Fatal("grafana mode should set GF_AUTH_ANONYMOUS_ENABLED")
+	}
+
+	// Should have volume dirs.
+	if len(cfg.VolumeDirs) != 2 {
+		t.Fatalf("expected 2 VolumeDirs for grafana, got %d", len(cfg.VolumeDirs))
+	}
+}
+
+func TestMonitoringUIUnitConfigDefaultBackend(t *testing.T) {
+	cfg := MonitoringUIUnitConfig("", "")
+
+	// Empty backend defaults to uplot.
+	if cfg.Image != SocatImage {
+		t.Fatalf("empty backend should default to uplot (socat), got image %q", cfg.Image)
+	}
+}
+
+func TestWriteGrafanaProvisioningFiles(t *testing.T) {
+	btrfsBase := t.TempDir()
+
+	if err := WriteGrafanaProvisioningFiles(btrfsBase); err != nil {
+		t.Fatalf("WriteGrafanaProvisioningFiles: %v", err)
+	}
+
+	// Verify datasource file.
+	dsFile := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning", "datasources", "prometheus.yml")
+	data, err := os.ReadFile(dsFile)
+	if err != nil {
+		t.Fatalf("read datasource: %v", err)
+	}
+	if !strings.Contains(string(data), "host.containers.internal:9090") {
+		t.Fatal("datasource should point to prometheus via host gateway")
+	}
+
+	// Verify dashboard provider file.
+	provFile := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning", "dashboards", "default.yml")
+	data, err = os.ReadFile(provFile)
+	if err != nil {
+		t.Fatalf("read dashboard provider: %v", err)
+	}
+	if !strings.Contains(string(data), "dashboard-json") {
+		t.Fatal("provider should reference dashboard-json directory")
+	}
+
+	// Verify dashboard JSON directory exists.
+	jsonDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning", "dashboard-json")
+	info, err := os.Stat(jsonDir)
+	if err != nil {
+		t.Fatalf("dashboard-json dir should exist: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatal("dashboard-json should be a directory")
+	}
+}
+
+func TestStartMonitoringUI(t *testing.T) {
+	sd := systemd.InitMockManager()
+
+	if err := StartMonitoringUI(t.Context(), sd, BackendUPlot, ""); err != nil {
+		t.Fatalf("StartMonitoringUI: %v", err)
+	}
+
+	unitName := systemd.SystemServiceUnitName("monitoring-ui")
+	if _, ok := sd.InstalledUnits[unitName]; !ok {
+		t.Fatalf("expected unit %s to be installed", unitName)
+	}
+
+	// Verify the unit content uses socat.
+	content := sd.InstalledUnits[unitName]
+	if !strings.Contains(content, "socat") {
+		t.Fatalf("uplot mode unit should use socat, got:\n%s", content)
+	}
+}
+
+func TestStartMonitoringUIGrafana(t *testing.T) {
+	sd := systemd.InitMockManager()
+	btrfsBase := t.TempDir()
+
+	if err := StartMonitoringUI(t.Context(), sd, BackendGrafana, btrfsBase); err != nil {
+		t.Fatalf("StartMonitoringUI: %v", err)
+	}
+
+	unitName := systemd.SystemServiceUnitName("monitoring-ui")
+	content, ok := sd.InstalledUnits[unitName]
+	if !ok {
+		t.Fatalf("expected unit %s to be installed", unitName)
+	}
+
+	if !strings.Contains(content, GrafanaImage) {
+		t.Fatalf("grafana mode unit should use grafana image, got:\n%s", content)
+	}
+
+	// Verify provisioning files were written.
+	dsFile := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning", "datasources", "prometheus.yml")
+	if _, err := os.Stat(dsFile); err != nil {
+		t.Fatalf("grafana provisioning should be written: %v", err)
+	}
+}
+
+func TestStartMonitoringUIInstallError(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.InstallUnitErr = os.ErrPermission
+
+	err := StartMonitoringUI(t.Context(), sd, BackendUPlot, "")
+	if err == nil {
+		t.Fatal("expected error when InstallUnit fails")
+	}
+}
+
+func TestMonitoringUISystemServiceUPlot(t *testing.T) {
+	svc := MonitoringUISystemService(BackendUPlot)
+
+	if svc.Key != "monitoring-ui" {
+		t.Fatalf("expected key monitoring-ui, got %q", svc.Key)
+	}
+	if svc.Image != SocatImage {
+		t.Fatalf("expected socat image for uplot, got %q", svc.Image)
+	}
+	if svc.Port != MonitoringExternalPort {
+		t.Fatalf("expected port %q, got %q", MonitoringExternalPort, svc.Port)
+	}
+}
+
+func TestMonitoringUISystemServiceGrafana(t *testing.T) {
+	svc := MonitoringUISystemService(BackendGrafana)
+
+	if svc.Image != GrafanaImage {
+		t.Fatalf("expected grafana image, got %q", svc.Image)
+	}
+	if svc.Port != MonitoringExternalPort {
+		t.Fatalf("expected port %q, got %q", MonitoringExternalPort, svc.Port)
+	}
+}
+
+func TestMonitoringUIUnitIsSystemService(t *testing.T) {
+	cfg := MonitoringUIUnitConfig(BackendUPlot, "")
+	uf := systemd.GenerateSystemServiceUnit(cfg)
+
+	if !systemd.IsSystemServiceUnit(uf.Name) {
+		t.Fatalf("monitoring-ui unit %q should be a system service unit", uf.Name)
+	}
+}
+
+func TestMonitoringUIGrafanaUnitIsSystemService(t *testing.T) {
+	btrfsBase := t.TempDir()
+	cfg := MonitoringUIUnitConfig(BackendGrafana, btrfsBase)
+	uf := systemd.GenerateSystemServiceUnit(cfg)
+
+	if !systemd.IsSystemServiceUnit(uf.Name) {
+		t.Fatalf("monitoring-ui unit %q should be a system service unit", uf.Name)
+	}
+	if !strings.Contains(uf.Content, "5308:3000") {
+		t.Fatal("grafana unit should map port 5308:3000")
 	}
 }

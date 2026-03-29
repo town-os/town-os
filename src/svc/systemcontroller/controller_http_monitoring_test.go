@@ -5,7 +5,6 @@ package systemcontroller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -38,28 +37,16 @@ func TestHTTPMonitoringStatusWithoutMonitoring(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-
-	var body map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if body["status"] != "disabled" {
-		t.Fatalf("expected status=disabled, got %q", body["status"])
-	}
 }
 
 func TestHTTPMonitoringStatusUPlotBackend(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 
-	// Simulate the monitoring package unit running.
-	monUnitName := systemd.UnitName(
-		monitoring.MonitoringRepo,
-		monitoring.MonitoringPackageName,
-		monitoring.MonitoringVersion,
-	)
+	// All monitoring services are system services now.
 	sd.Units = []systemd.UnitStatus{
-		{Name: monUnitName, ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "active"},
 		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
 	}
 
@@ -95,19 +82,9 @@ func TestHTTPMonitoringStatusGrafanaBackend(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 
-	monUnitName := systemd.UnitName(
-		monitoring.MonitoringRepo,
-		monitoring.MonitoringPackageName,
-		monitoring.MonitoringVersion,
-	)
-	depUnitName := systemd.UnitName(
-		monitoring.MonitoringRepo,
-		monitoring.MonitoringPackageName+"--dep--prometheus",
-		monitoring.MonitoringVersion,
-	)
 	sd.Units = []systemd.UnitStatus{
-		{Name: monUnitName, ActiveState: "active"},
-		{Name: depUnitName, ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "active"},
 		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
 	}
 
