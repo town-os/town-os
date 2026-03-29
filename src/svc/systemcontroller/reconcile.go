@@ -350,6 +350,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			RepoName:               repoName,
 			PkgName:                pi.Name,
 			Version:                pi.Version,
+			Description:            ip.Description,
 			Image:                  image,
 			Command:                compiled.Command,
 			Environment:            compiled.Environment,

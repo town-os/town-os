@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
+	monPkg "gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -2146,5 +2147,119 @@ func TestReconcilePostUpdateNilExecIsSkipped(t *testing.T) {
 		PostUpdateExec:         nil,
 	}); err != nil {
 		t.Fatalf("reconcile with nil PostUpdateExec: %v", err)
+	}
+}
+
+func TestReconcileMonitoringPackage(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	// Write repositories.json.
+	repos := []packages.Repository{}
+	data, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatalf("marshal repos: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, packages.RepositoriesFile), data, 0600); err != nil {
+		t.Fatalf("write repos file: %v", err)
+	}
+
+	// Write the monitoring package manifest.
+	if err := monPkg.EnsureMonitoringPackage(dir, monPkg.BackendUPlot, ""); err != nil {
+		t.Fatalf("EnsureMonitoringPackage: %v", err)
+	}
+
+	inst := packages.NewInstallManager(dir)
+	if _, err := monPkg.InstallMonitoringPackage(inst); err != nil {
+		t.Fatalf("InstallMonitoringPackage: %v", err)
+	}
+
+	rr, err := packages.RepositoryRootFromBase(dir)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+
+	sd := systemd.InitMockManager()
+	btrfsBase := t.TempDir()
+	netStatePath := t.TempDir()
+
+	if err := Reconcile(t.Context(), ReconcileConfig{
+		Installer:              inst,
+		RepositoryRoot:         rr,
+		Storage:                storage.InitBtrFSMock(),
+		Systemd:                sd,
+		BtrfsBasePath:          btrfsBase,
+		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkStatePath:       netStatePath,
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	// Verify the service unit was installed.
+	svcUnit := systemd.UnitName(monPkg.MonitoringRepo, monPkg.MonitoringPackageName, monPkg.MonitoringVersion)
+	if _, ok := sd.InstalledUnits[svcUnit]; !ok {
+		t.Fatalf("expected service unit %s to be installed, installed units: %v", svcUnit, maps.Keys(sd.InstalledUnits))
+	}
+
+	// Verify the NC unit was installed.
+	ncUnit := systemd.NetworkControllerUnitName(monPkg.MonitoringRepo, monPkg.MonitoringPackageName, monPkg.MonitoringVersion)
+	if _, ok := sd.InstalledUnits[ncUnit]; !ok {
+		t.Fatalf("expected NC unit %s to be installed, installed units: %v", ncUnit, maps.Keys(sd.InstalledUnits))
+	}
+
+	// Verify the NC unit has port 5308.
+	ncContent := sd.InstalledUnits[ncUnit]
+	if !strings.Contains(ncContent, "5308") {
+		t.Fatalf("NC unit should expose port 5308, got:\n%s", ncContent)
+	}
+
+	// Verify the NC unit has the correct target container.
+	expectedContainer := systemd.ContainerName(monPkg.MonitoringRepo, monPkg.MonitoringPackageName, monPkg.MonitoringVersion)
+	if !strings.Contains(ncContent, "--target-container "+expectedContainer) {
+		t.Fatalf("NC unit should target container %s, got:\n%s", expectedContainer, ncContent)
+	}
+
+	// Verify the service unit has prometheus image and command args.
+	svcContent := sd.InstalledUnits[svcUnit]
+	if !strings.Contains(svcContent, "quay.io/prometheus/prometheus:latest") {
+		t.Fatalf("service unit should reference prometheus image, got:\n%s", svcContent)
+	}
+	if !strings.Contains(svcContent, "--config.file=/etc/prometheus/prometheus.yml") {
+		t.Fatalf("service unit should include prometheus command args, got:\n%s", svcContent)
+	}
+
+	// Verify the network state file was written.
+	stateFile := filepath.Join(netStatePath, "_system-monitoring-1.0.json")
+	stateData, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatalf("read network state file: %v", err)
+	}
+	stateStr := string(stateData)
+	if !strings.Contains(stateStr, "5308") {
+		t.Fatalf("network state should contain port 5308, got: %s", stateStr)
+	}
+	if !strings.Contains(stateStr, expectedContainer) {
+		t.Fatalf("network state should contain container name %s, got: %s", expectedContainer, stateStr)
+	}
+
+	// Verify NC was started (reconcile starts NC before service).
+	startedNC := false
+	startedSvc := false
+	for _, call := range sd.GetCalls() {
+		if call.Method == "SetStatus" && len(call.Args) >= 2 {
+			if call.Args[0] == ncUnit && call.Args[1] == systemd.Start {
+				startedNC = true
+			}
+			if call.Args[0] == svcUnit && call.Args[1] == systemd.Start {
+				startedSvc = true
+			}
+		}
+	}
+	if !startedNC {
+		t.Fatal("expected NC unit to be started during reconcile")
+	}
+	if !startedSvc {
+		t.Fatal("expected service unit to be started during reconcile")
 	}
 }
