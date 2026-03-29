@@ -20,7 +20,10 @@ type SQLiteSessionManager struct {
 }
 
 func InitSessionManager(db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSessionManager, error) {
-	_, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS sessions (
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS sessions (
 		id         TEXT PRIMARY KEY,
 		username   TEXT NOT NULL REFERENCES accounts(username) ON DELETE CASCADE,
 		created_at TEXT NOT NULL,
@@ -32,7 +35,7 @@ func InitSessionManager(db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSess
 
 	// Clear all existing sessions on startup. The signing key is generated
 	// fresh each run, so any persisted sessions are invalid anyway.
-	if _, err := db.ExecContext(context.Background(), "DELETE FROM sessions"); err != nil {
+	if _, err := db.ExecContext(ctx, "DELETE FROM sessions"); err != nil {
 		return nil, fmt.Errorf("clear sessions on startup: %w", err)
 	}
 
@@ -44,7 +47,10 @@ func InitSessionManager(db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSess
 }
 
 func (s *SQLiteSessionManager) Create(username string) (token string, err error) {
-	err = s.Cleanup(context.Background())
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	err = s.Cleanup(ctx)
 	if err != nil {
 		return "", fmt.Errorf("cleanup expired sessions: %w", err)
 	}
@@ -53,7 +59,7 @@ func (s *SQLiteSessionManager) Create(username string) (token string, err error)
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	_, err = s.db.ExecContext(context.Background(),
+	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO sessions (id, username, created_at, last_used) VALUES (?, ?, ?, ?)`,
 		id, username, nowStr, nowStr,
 	)
@@ -100,7 +106,10 @@ func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error
 	var username string
 	var createdStr, lastUsedStr string
 
-	err = s.db.QueryRowContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	err = s.db.QueryRowContext(ctx,
 		`SELECT username, created_at, last_used FROM sessions WHERE id = ?`, sessionID,
 	).Scan(&username, &createdStr, &lastUsedStr)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -116,7 +125,7 @@ func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error
 	}
 
 	if time.Since(lastUsed) > SessionMaxAge {
-		_, err := s.db.ExecContext(context.Background(), "DELETE FROM sessions WHERE id = ?", sessionID)
+		_, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", sessionID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("delete expired session: %w", err)
 		}
@@ -130,7 +139,7 @@ func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error
 
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
-	_, err = s.db.ExecContext(context.Background(), "UPDATE sessions SET last_used = ? WHERE id = ?", nowStr, sessionID)
+	_, err = s.db.ExecContext(ctx, "UPDATE sessions SET last_used = ? WHERE id = ?", nowStr, sessionID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("update last_used: %w", err)
 	}
@@ -152,7 +161,10 @@ func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error
 }
 
 func (s *SQLiteSessionManager) Revoke(sessionID string) error {
-	res, err := s.db.ExecContext(context.Background(), "DELETE FROM sessions WHERE id = ?", sessionID)
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	res, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", sessionID)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
@@ -168,7 +180,10 @@ func (s *SQLiteSessionManager) Revoke(sessionID string) error {
 }
 
 func (s *SQLiteSessionManager) RevokeAllForUser(username string) error {
-	_, err := s.db.ExecContext(context.Background(), "DELETE FROM sessions WHERE username = ?", username)
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE username = ?", username)
 	if err != nil {
 		return fmt.Errorf("delete sessions for user: %w", err)
 	}
@@ -185,7 +200,10 @@ func (s *SQLiteSessionManager) Cleanup(ctx context.Context) error {
 }
 
 func (s *SQLiteSessionManager) List(username string) (_ []Session, err error) {
-	rows, err := s.db.QueryContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, username, created_at, last_used FROM sessions WHERE username = ? ORDER BY last_used DESC`,
 		username,
 	)
@@ -227,8 +245,11 @@ func (s *SQLiteSessionManager) List(username string) (_ []Session, err error) {
 }
 
 func (s *SQLiteSessionManager) GetUsername(sessionID string) (string, error) {
+	ctx, cancel := dbCtx()
+	defer cancel()
+
 	var username string
-	err := s.db.QueryRowContext(context.Background(), "SELECT username FROM sessions WHERE id = ?", sessionID).Scan(&username)
+	err := s.db.QueryRowContext(ctx, "SELECT username FROM sessions WHERE id = ?", sessionID).Scan(&username)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrSessionNotFound
 	}
@@ -239,7 +260,10 @@ func (s *SQLiteSessionManager) GetUsername(sessionID string) (string, error) {
 }
 
 func (s *SQLiteSessionManager) HasActiveAdminSessions(adminUsernames []string) (bool, error) {
-	err := s.Cleanup(context.Background())
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	err := s.Cleanup(ctx)
 	if err != nil {
 		return false, fmt.Errorf("cleanup: %w", err)
 	}
@@ -254,7 +278,7 @@ func (s *SQLiteSessionManager) HasActiveAdminSessions(adminUsernames []string) (
 	}
 	query := "SELECT COUNT(*) FROM sessions WHERE username IN (" + strings.Join(placeholders, ",") + ")"
 	var count int
-	err = s.db.QueryRowContext(context.Background(), query, args...).Scan(&count)
+	err = s.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("count admin sessions: %w", err)
 	}

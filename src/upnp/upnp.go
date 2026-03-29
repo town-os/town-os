@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/huin/goupnp/dcps/internetgateway2"
 )
@@ -43,7 +44,9 @@ func NewIGDClient() (_ *IGDClient, err error) {
 }
 
 func localAddress() (_ string, err error) {
-	conn, err := (&net.Dialer{Timeout: 0}).DialContext(context.Background(), "udp", "8.8.8.8:80")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "udp", "8.8.8.8:80")
 	if err != nil {
 		return "", err
 	}

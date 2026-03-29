@@ -12,7 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
+
+// btrfsTimeout is the default timeout for btrfs CLI operations.
+const btrfsTimeout = 30 * time.Second
 
 var ErrMountNotFound = errors.New("mount point not found")
 
@@ -79,9 +83,16 @@ func (c BtrFSController) run(ctx context.Context, args ...string) ([]byte, error
 	return exec.CommandContext(ctx, c.binPath(), args...).CombinedOutput() //nolint:gosec // G204 -- args from trusted internal calls
 }
 
+// runWithTimeout executes a btrfs command with the default timeout.
+func (c BtrFSController) runWithTimeout(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), btrfsTimeout)
+	defer cancel()
+	return c.run(ctx, args...)
+}
+
 func (c BtrFSController) IsSubvolume(name string) error {
 	name = filepath.Clean(name)
-	out, err := c.run(context.Background(), "subvolume", "show", name)
+	out, err := c.runWithTimeout("subvolume", "show", name)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume show: %w\n%s", err, string(out))
 	}
@@ -90,7 +101,7 @@ func (c BtrFSController) IsSubvolume(name string) error {
 
 func (c BtrFSController) SubvolCreate(name string) error {
 	name = filepath.Clean(name)
-	out, err := c.run(context.Background(), "subvolume", "create", name)
+	out, err := c.runWithTimeout("subvolume", "create", name)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume create: %w\n%s", err, string(out))
 	}
@@ -99,7 +110,7 @@ func (c BtrFSController) SubvolCreate(name string) error {
 
 func (c BtrFSController) SubvolDelete(name string) error {
 	name = filepath.Clean(name)
-	out, err := c.run(context.Background(), "subvolume", "delete", name)
+	out, err := c.runWithTimeout("subvolume", "delete", name)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume delete: %w\n%s", err, string(out))
 	}
@@ -123,7 +134,7 @@ func (c BtrFSController) SubvolSnapshot(dst, src string, readonly bool) error {
 	}
 	args = append(args, src, dst)
 
-	out, err := c.run(context.Background(), args...)
+	out, err := c.runWithTimeout(args...)
 	if err != nil {
 		return fmt.Errorf("btrfs subvolume snapshot: %w\n%s", err, string(out))
 	}
@@ -156,7 +167,7 @@ func parseSubvolShow(output string) (SubvolInfo, error) {
 
 func (c BtrFSController) SubvolInfo(name string) (SubvolInfo, error) {
 	name = filepath.Clean(name)
-	out, err := c.run(context.Background(), "subvolume", "show", name)
+	out, err := c.runWithTimeout("subvolume", "show", name)
 	if err != nil {
 		return SubvolInfo{}, fmt.Errorf("btrfs subvolume show: %w\n%s", err, string(out))
 	}
@@ -218,7 +229,7 @@ func (c BtrFSController) SubvolList(name string) ([]SubvolInfo, error) {
 		s = ""
 	}
 
-	out, err := c.run(context.Background(), "subvolume", "list", name)
+	out, err := c.runWithTimeout("subvolume", "list", name)
 	if err != nil {
 		return nil, fmt.Errorf("btrfs subvolume list: %w\n%s", err, string(out))
 	}
@@ -232,7 +243,7 @@ func (BtrFSController) SubvolRename(oldPath, newPath string) error {
 
 func (c BtrFSController) QuotaEnable(path string) error {
 	path = filepath.Clean(path)
-	out, err := c.run(context.Background(), "quota", "enable", path)
+	out, err := c.runWithTimeout("quota", "enable", path)
 	if err != nil {
 		return fmt.Errorf("btrfs quota enable: %w\n%s", err, string(out))
 	}
@@ -249,7 +260,7 @@ func (c BtrFSController) QGroupLimit(path string, bytes uint64) error {
 	}
 
 	path = filepath.Clean(path)
-	out, err := c.run(context.Background(), "qgroup", "limit", limitArg, path)
+	out, err := c.runWithTimeout("qgroup", "limit", limitArg, path)
 	if err != nil {
 		return fmt.Errorf("btrfs qgroup limit: %w\n%s", err, string(out))
 	}
@@ -302,7 +313,7 @@ func (c BtrFSController) QGroupShow(path string) (uint64, error) {
 	}
 
 	path = filepath.Clean(path)
-	out, err := c.run(context.Background(), "qgroup", "show", "--raw", "-r", path)
+	out, err := c.runWithTimeout("qgroup", "show", "--raw", "-r", path)
 	if err != nil {
 		// Quotas not enabled or other failure — not an error, just no quota
 		return 0, nil //nolint:nilerr // qgroup failure means no quota

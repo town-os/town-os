@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -61,7 +62,8 @@ func run() error {
 	ghPass := os.Getenv("TOWN_OS_REPO_PASSWORD")
 
 	client := &http.Client{Timeout: 2 * time.Minute}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
 
 	// Phase 1: Cache repos as bare clones from GitHub.
 	for _, r := range repos {
@@ -356,7 +358,11 @@ func pushRefs(ctx context.Context, repoPath, pushURL string) error {
 	if err != nil {
 		return fmt.Errorf("create remote: %w", err)
 	}
-	defer func() { _ = repo.DeleteRemote(remoteName) }()
+	defer func() {
+		if err := repo.DeleteRemote(remoteName); err != nil {
+			slog.Debug("delete temporary remote", "remote", remoteName, "error", err)
+		}
+	}()
 
 	auth := &githttp.BasicAuth{
 		Username: adminUser,

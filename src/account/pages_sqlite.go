@@ -1,7 +1,6 @@
 package account
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -14,7 +13,10 @@ type SQLitePagesManager struct {
 }
 
 func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
-	_, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS pages (
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS pages (
 		name            TEXT PRIMARY KEY,
 		repo_url        TEXT NOT NULL DEFAULT '',
 		branch          TEXT NOT NULL DEFAULT 'main',
@@ -39,7 +41,7 @@ func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
 		{"image", "TEXT NOT NULL DEFAULT ''"},
 		{"image_directory", "TEXT NOT NULL DEFAULT ''"},
 	} {
-		_, err := db.ExecContext(context.Background(),
+		_, err := db.ExecContext(ctx,
 			fmt.Sprintf("ALTER TABLE pages ADD COLUMN %s %s", col.name, col.def))
 		if err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrate pages column %s: %w", col.name, err)
@@ -85,7 +87,10 @@ func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, i
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	_, err := m.db.ExecContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := m.db.ExecContext(ctx,
 		`INSERT INTO pages (name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
 		name, repoURL, branch, domain, sourceType, image, imageDirectory, nowStr, nowStr,
@@ -115,7 +120,10 @@ func (m *SQLitePagesManager) Get(name string) (*PageSite, error) {
 	var page PageSite
 	var createdStr, updatedStr string
 
-	err := m.db.QueryRowContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	err := m.db.QueryRowContext(ctx,
 		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at FROM pages WHERE name = ?`,
 		name,
 	).Scan(&page.Name, &page.RepoURL, &page.Branch, &page.Domain, &page.SourceType, &page.Image, &page.ImageDirectory, &page.Status, &createdStr, &updatedStr)
@@ -187,7 +195,10 @@ func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSi
 	args = append(args, nowStr)
 	args = append(args, name)
 
-	res, err := m.db.ExecContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	res, err := m.db.ExecContext(ctx,
 		fmt.Sprintf("UPDATE pages SET %s WHERE name = ?", strings.Join(sets, ", ")),
 		args...,
 	)
@@ -207,7 +218,10 @@ func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSi
 }
 
 func (m *SQLitePagesManager) Remove(name string) error {
-	res, err := m.db.ExecContext(context.Background(), "DELETE FROM pages WHERE name = ?", name)
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	res, err := m.db.ExecContext(ctx, "DELETE FROM pages WHERE name = ?", name)
 	if err != nil {
 		return fmt.Errorf("delete page: %w", err)
 	}
@@ -224,7 +238,10 @@ func (m *SQLitePagesManager) Remove(name string) error {
 }
 
 func (m *SQLitePagesManager) List() (_ []PageSite, err error) {
-	rows, err := m.db.QueryContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	rows, err := m.db.QueryContext(ctx,
 		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at FROM pages ORDER BY name`,
 	)
 	if err != nil {

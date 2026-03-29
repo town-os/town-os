@@ -6,6 +6,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -58,8 +59,10 @@ func (m *Manager) Start(ctx context.Context) error {
 			return fmt.Errorf("enable unit %s: %w", uf.Name, err)
 		}
 		// Stop before Start to ensure the unit picks up the new
-		// configuration. Ignore stop errors — the unit may not be running.
-		_ = m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop)
+		// configuration. Stop errors are non-fatal — the unit may not be running.
+		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop); err != nil {
+			slog.Debug("stop unit before restart (may not be running)", "unit", uf.Name, "error", err)
+		}
 		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
 			return fmt.Errorf("start unit %s: %w", uf.Name, err)
 		}

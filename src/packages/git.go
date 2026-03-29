@@ -7,7 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
+
+// gitCmdTimeout is the default timeout for git CLI operations.
+const gitCmdTimeout = 5 * time.Minute
 
 // GitCloner clones and updates git repositories into target directories.
 type GitCloner interface {
@@ -45,7 +49,10 @@ func (d DefaultGitCloner) Clone(targetDir, repoURL, branch string) error {
 	}
 	args = append(args, repoURL, ".")
 
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitCmdTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = targetDir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
@@ -62,7 +69,10 @@ func (d DefaultGitCloner) Update(targetDir, branch string) error {
 		return fmt.Errorf("git update: not a git repository: %w", err)
 	}
 
-	fetchCmd := exec.CommandContext(context.Background(), "git", "fetch", "origin")
+	ctx, cancel := context.WithTimeout(context.Background(), gitCmdTimeout)
+	defer cancel()
+
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
 	fetchCmd.Dir = targetDir
 	fetchCmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := fetchCmd.CombinedOutput()
@@ -75,7 +85,7 @@ func (d DefaultGitCloner) Update(targetDir, branch string) error {
 		ref = "origin/" + branch
 	}
 
-	resetCmd := exec.CommandContext(context.Background(), "git", "reset", "--hard", ref)
+	resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", ref)
 	resetCmd.Dir = targetDir
 	resetCmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err = resetCmd.CombinedOutput()

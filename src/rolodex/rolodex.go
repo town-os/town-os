@@ -173,12 +173,16 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	for _, unit := range m.unitConfigs() {
 		uf := systemd.GenerateSystemServiceUnit(unit)
-		// Stop before Start to pick up new configuration. Ignore
-		// stop errors — the unit may not be running.
-		_ = m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop)
+		// Stop before Start to pick up new configuration. Stop errors
+		// are non-fatal — the unit may not be running.
+		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop); err != nil {
+			slog.Debug("stop unit before restart (may not be running)", "unit", uf.Name, "error", err)
+		}
 		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
 			if !m.cfg.Local {
-				_ = m.restoreResolv()
+				if restoreErr := m.restoreResolv(); restoreErr != nil {
+					slog.Error("failed to restore resolv.conf during error recovery", "error", restoreErr)
+				}
 			}
 			return fmt.Errorf("start unit %s: %w", uf.Name, err)
 		}

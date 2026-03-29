@@ -76,7 +76,9 @@ func (s *serverBase) GetRolodexClient() rolodex.Client {
 	if socketPath == "" {
 		return nil
 	}
-	c, err := rolodex.Dial(context.Background(), socketPath)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer dialCancel()
+	c, err := rolodex.Dial(dialCtx, socketPath)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("lazy rolodex dial: %v", err))
 		return nil
@@ -89,8 +91,10 @@ func (s *serverBase) GetExternalIP() string {
 	if v == nil {
 		return ""
 	}
-	ip, _ := v.(string)
-	return ip
+	if ip, ok := v.(string); ok {
+		return ip
+	}
+	return ""
 }
 
 func (s *serverBase) GetInternalIP() string {

@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// pagesDBTimeout is the default timeout for pages database operations.
+const pagesDBTimeout = 30 * time.Second
+
 var pagesAllowedSortColumns = map[string]bool{
 	"name":        true,
 	"repo_url":    true,
@@ -62,7 +65,8 @@ type PagesStore struct {
 }
 
 func InitPagesStore(db *sql.DB) (*PagesStore, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), pagesDBTimeout)
+	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS pages (
 		name            TEXT PRIMARY KEY,
@@ -114,7 +118,10 @@ func (s *PagesStore) Create(page Page) error {
 		page.SourceType = "archive"
 	}
 
-	_, err := s.db.ExecContext(context.Background(),
+	ctx, cancel := context.WithTimeout(context.Background(), pagesDBTimeout)
+	defer cancel()
+
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO pages (name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		page.Name, page.RepoURL, page.Branch, page.Domain, page.SourceType, page.Image, page.ImageDirectory, page.Status, now, now,
 	)
@@ -149,7 +156,11 @@ func (s *PagesStore) Update(name string, updates map[string]string) error {
 	args = append(args, name)
 
 	query := "UPDATE pages SET " + strings.Join(sets, ", ") + " WHERE name = ?" //nolint:gosec // G202 -- columns from allowlist, not user input
-	result, err := s.db.ExecContext(context.Background(), query, args...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), pagesDBTimeout)
+	defer cancel()
+
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("update page: %w", err)
 	}
@@ -166,7 +177,10 @@ func (s *PagesStore) Update(name string, updates map[string]string) error {
 }
 
 func (s *PagesStore) Remove(name string) error {
-	result, err := s.db.ExecContext(context.Background(), `DELETE FROM pages WHERE name = ?`, name)
+	ctx, cancel := context.WithTimeout(context.Background(), pagesDBTimeout)
+	defer cancel()
+
+	result, err := s.db.ExecContext(ctx, `DELETE FROM pages WHERE name = ?`, name)
 	if err != nil {
 		return fmt.Errorf("delete page: %w", err)
 	}
@@ -183,7 +197,10 @@ func (s *PagesStore) Remove(name string) error {
 }
 
 func (s *PagesStore) Get(name string) (*Page, error) {
-	row := s.db.QueryRowContext(context.Background(),
+	ctx, cancel := context.WithTimeout(context.Background(), pagesDBTimeout)
+	defer cancel()
+
+	row := s.db.QueryRowContext(ctx,
 		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at FROM pages WHERE name = ?`, name)
 
 	var p Page
@@ -242,7 +259,11 @@ func (s *PagesStore) List(opts PagesListOptions) (_ *PagesPage, err error) {
 	}
 
 	query := qb.String()
-	rows, err := s.db.QueryContext(context.Background(), query, args...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), pagesDBTimeout)
+	defer cancel()
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query pages: %w", err)
 	}
@@ -278,7 +299,10 @@ func (s *PagesStore) List(opts PagesListOptions) (_ *PagesPage, err error) {
 	}
 
 	var total int
-	if err := s.db.QueryRowContext(context.Background(), countQuery, countArgs...).Scan(&total); err != nil {
+	countCtx, countCancel := context.WithTimeout(context.Background(), pagesDBTimeout)
+	defer countCancel()
+
+	if err := s.db.QueryRowContext(countCtx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count pages: %w", err)
 	}
 

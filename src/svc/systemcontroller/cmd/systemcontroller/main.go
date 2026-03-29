@@ -397,12 +397,14 @@ func run() (err error) {
 	go func() {
 		<-sig
 		cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:govet // shadow is intentional for shutdown scope
+		defer shutdownCancel()
 		if rolMgr != nil {
-			if stopErr := rolMgr.Stop(context.Background()); stopErr != nil {
+			if stopErr := rolMgr.Stop(shutdownCtx); stopErr != nil {
 				fmt.Fprintf(os.Stderr, "rolodex stop: %v\n", stopErr)
 			}
 		}
-		shutdownErr := srv.Shutdown(context.Background())
+		shutdownErr := srv.Shutdown(shutdownCtx)
 		if shutdownErr != nil {
 			fmt.Fprintf(os.Stderr, "shutdown: %v\n", shutdownErr)
 		}

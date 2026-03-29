@@ -374,7 +374,8 @@ func NewRepository(baseDir, name string, u url.URL, username, password string, g
 
 func (r *Repository) init(baseDir string, g git.Client) error {
 	target := filepath.Join(baseDir, r.Name)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	s, err := os.Stat(target)
 	switch {

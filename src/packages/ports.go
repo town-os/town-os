@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/big"
 	"net"
+	"time"
 )
 
 // FindAvailablePort picks a random port in the range 10000-60000 that is not
@@ -32,7 +33,9 @@ func FindAvailablePort(excluded map[uint16]bool) (_ uint16, err error) {
 		}
 
 		lc := net.ListenConfig{}
-		ln, listenErr := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
+		listenCtx, listenCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ln, listenErr := lc.Listen(listenCtx, "tcp", fmt.Sprintf(":%d", port))
+		listenCancel()
 		if listenErr != nil {
 			continue
 		}

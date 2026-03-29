@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"gitea.com/town-os/town-os/src/i18n"
@@ -74,7 +75,9 @@ func (s *SystemControllerHandlers) computeUpgrades() []PackageUpgrade {
 func upgradesHash(upgrades []PackageUpgrade) string {
 	h := sha256.New()
 	for _, u := range upgrades {
-		_, _ = fmt.Fprintf(h, "%s/%s@%s->%s\n", u.Repo, u.Name, u.InstalledVersion, u.LatestVersion)
+		if _, err := fmt.Fprintf(h, "%s/%s@%s->%s\n", u.Repo, u.Name, u.InstalledVersion, u.LatestVersion); err != nil {
+			slog.Error(fmt.Sprintf("upgrade hash write: %v", err))
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

@@ -6,14 +6,22 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
-	"math"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/argon2"
 	_ "modernc.org/sqlite"
 )
+
+// dbTimeout is the default timeout for SQLite database operations.
+const dbTimeout = 30 * time.Second
+
+// dbCtx returns a context with the default database timeout.
+func dbCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), dbTimeout)
+}
 
 const (
 	argonTime    = 1
@@ -44,17 +52,20 @@ func OpenDB(path string) (db *sql.DB, err error) {
 	// SQLITE_BUSY errors from connection pool contention.
 	db.SetMaxOpenConns(1)
 
-	_, err = db.ExecContext(context.Background(), "PRAGMA journal_mode=WAL")
+	pragmaCtx, pragmaCancel := dbCtx()
+	defer pragmaCancel()
+
+	_, err = db.ExecContext(pragmaCtx, "PRAGMA journal_mode=WAL")
 	if err != nil {
 		return db, fmt.Errorf("pragma WAL: %w", err)
 	}
 
-	_, err = db.ExecContext(context.Background(), "PRAGMA busy_timeout=5000")
+	_, err = db.ExecContext(pragmaCtx, "PRAGMA busy_timeout=5000")
 	if err != nil {
 		return db, fmt.Errorf("pragma busy_timeout: %w", err)
 	}
 
-	_, err = db.ExecContext(context.Background(), "PRAGMA foreign_keys=ON")
+	_, err = db.ExecContext(pragmaCtx, "PRAGMA foreign_keys=ON")
 	if err != nil {
 		return db, fmt.Errorf("pragma foreign_keys: %w", err)
 	}
@@ -63,7 +74,10 @@ func OpenDB(path string) (db *sql.DB, err error) {
 }
 
 func InitManager(db *sql.DB) (*SQLiteManager, error) {
-	_, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS accounts (
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS accounts (
 		username      TEXT PRIMARY KEY,
 		password_hash TEXT NOT NULL,
 		email         TEXT NOT NULL,
@@ -158,7 +172,10 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	_, err = m.db.ExecContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err = m.db.ExecContext(ctx,
 		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
 		username, hash, email, phone, realName, admin, nowStr, nowStr,
@@ -182,7 +199,10 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 }
 
 func (m *SQLiteManager) Get(username string) (*Account, error) {
-	row := m.db.QueryRowContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	row := m.db.QueryRowContext(ctx,
 		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
 		 FROM accounts WHERE username = ?`, username,
 	)
@@ -257,7 +277,10 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 	args = append(args, nowStr)
 	args = append(args, username)
 
-	res, err := m.db.ExecContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	res, err := m.db.ExecContext(ctx,
 		fmt.Sprintf("UPDATE accounts SET %s WHERE username = ?", strings.Join(sets, ", ")),
 		args...,
 	)
@@ -277,8 +300,11 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 }
 
 func (m *SQLiteManager) Disable(username string) error {
+	ctx, cancel := dbCtx()
+	defer cancel()
+
 	nowStr := time.Now().UTC().Format(time.RFC3339)
-	res, err := m.db.ExecContext(context.Background(), "UPDATE accounts SET disabled = 1, updated_at = ? WHERE username = ?", nowStr, username)
+	res, err := m.db.ExecContext(ctx, "UPDATE accounts SET disabled = 1, updated_at = ? WHERE username = ?", nowStr, username)
 	if err != nil {
 		return fmt.Errorf("disable account: %w", err)
 	}
@@ -295,8 +321,11 @@ func (m *SQLiteManager) Disable(username string) error {
 }
 
 func (m *SQLiteManager) Enable(username string) error {
+	ctx, cancel := dbCtx()
+	defer cancel()
+
 	nowStr := time.Now().UTC().Format(time.RFC3339)
-	res, err := m.db.ExecContext(context.Background(), "UPDATE accounts SET disabled = 0, updated_at = ? WHERE username = ?", nowStr, username)
+	res, err := m.db.ExecContext(ctx, "UPDATE accounts SET disabled = 0, updated_at = ? WHERE username = ?", nowStr, username)
 	if err != nil {
 		return fmt.Errorf("enable account: %w", err)
 	}
@@ -313,7 +342,10 @@ func (m *SQLiteManager) Enable(username string) error {
 }
 
 func (m *SQLiteManager) List() ([]Account, error) {
-	rows, err := m.db.QueryContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	rows, err := m.db.QueryContext(ctx,
 		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
 		 FROM accounts ORDER BY username`,
 	)

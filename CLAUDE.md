@@ -7,6 +7,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
     - when you need to push, push to "origin" only.
     - BEFORE YOU PUSH, ALWAYS "git pull --rebase" and fix any merge issues.
 
+- when parameters are supplied, ensure they are used in the calling function
+
 - **Concurrent safety** — `make test-full` must always be able to run simultaneously in the same repository without conflicting. Nothing else matters more than this.
 
 - context.TODO and context.Background should not be used in golang programs. where possible, please use timeout and cancel contexts to ensure nothing is waiting on a context forever.

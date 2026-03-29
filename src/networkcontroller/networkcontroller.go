@@ -62,7 +62,7 @@ func (p *osProcess) Pid() int    { return p.cmd.Process.Pid }
 type osRunner struct{}
 
 func (r *osRunner) Start(name string, args ...string) (Process, error) {
-	cmd := exec.CommandContext(context.Background(), name, args...) //nolint:gosec // G204 -- args from trusted internal calls
+	cmd := exec.Command(name, args...) //nolint:gosec,noctx // G204 -- args from trusted internal calls; long-running socat process killed explicitly via Kill(), not context-cancelled
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

@@ -5,6 +5,7 @@ package systemcontroller
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +114,9 @@ func EnsurePageSymlink(btrfsBasePath, pageName string) error {
 	}
 
 	// Remove any stale entry (file, dir, or wrong symlink).
-	_ = os.Remove(linkPath)
+	if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+		slog.Debug("remove stale symlink", "path", linkPath, "error", err)
+	}
 
 	return os.Symlink(target, linkPath)
 }

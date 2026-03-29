@@ -1,7 +1,6 @@
 package account
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -30,7 +29,8 @@ type SQLiteAuditManager struct {
 }
 
 func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
-	ctx := context.Background()
+	ctx, cancel := dbCtx()
+	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS audit_log (
 		id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +74,10 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 }
 
 func (m *SQLiteAuditManager) LogEntry(entry AuditEntry) error {
-	_, err := m.db.ExecContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := m.db.ExecContext(ctx,
 		`INSERT INTO audit_log (account, action, path, detail, success, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		entry.Account, entry.Action, entry.Path, entry.Detail, entry.Success, entry.Error,
 		entry.CreatedAt.UTC().Format(time.RFC3339),
@@ -135,7 +138,10 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	}
 
 	query := qb.String()
-	rows, err := m.db.QueryContext(context.Background(), query, args...)
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	rows, err := m.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query audit log: %w", err)
 	}
@@ -179,8 +185,11 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 }
 
 func (m *SQLiteAuditManager) CountRecentErrors(since time.Time) (int, error) {
+	ctx, cancel := dbCtx()
+	defer cancel()
+
 	var count int
-	err := m.db.QueryRowContext(context.Background(),
+	err := m.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM audit_log WHERE success = 0 AND created_at >= ?`,
 		since.UTC().Format(time.RFC3339),
 	).Scan(&count)

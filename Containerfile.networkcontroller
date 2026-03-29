@@ -1,4 +1,4 @@
 FROM docker.io/library/alpine:latest
 RUN apk add --no-cache socat
 COPY town-os-networkcontroller /town-os-networkcontroller
-ENTRYPOINT ["/town-os-networkcontroller"]
+CMD ["/town-os-networkcontroller"]

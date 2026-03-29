@@ -1,7 +1,6 @@
 package account
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,7 +11,10 @@ type SQLiteSettingsManager struct {
 }
 
 func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
-	_, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS settings (
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS settings (
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL DEFAULT ''
 	)`)
@@ -22,7 +24,7 @@ func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
 
 	// Seed default values; INSERT OR IGNORE preserves existing rows.
 	for k, v := range DefaultSettings {
-		_, err := db.ExecContext(context.Background(), `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v)
+		_, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v)
 		if err != nil {
 			return nil, fmt.Errorf("seed default setting %q: %w", k, err)
 		}
@@ -32,8 +34,11 @@ func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
 }
 
 func (m *SQLiteSettingsManager) Get(key string) (string, error) {
+	ctx, cancel := dbCtx()
+	defer cancel()
+
 	var value string
-	err := m.db.QueryRowContext(context.Background(), `SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	err := m.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("setting %q not found", key)
 	}
@@ -44,7 +49,10 @@ func (m *SQLiteSettingsManager) Get(key string) (string, error) {
 }
 
 func (m *SQLiteSettingsManager) Set(key, value string) error {
-	_, err := m.db.ExecContext(context.Background(),
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	_, err := m.db.ExecContext(ctx,
 		`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		key, value,
 	)
@@ -55,7 +63,10 @@ func (m *SQLiteSettingsManager) Set(key, value string) error {
 }
 
 func (m *SQLiteSettingsManager) List() (_ map[string]string, err error) {
-	rows, err := m.db.QueryContext(context.Background(), `SELECT key, value FROM settings ORDER BY key`)
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM settings ORDER BY key`)
 	if err != nil {
 		return nil, fmt.Errorf("list settings: %w", err)
 	}
