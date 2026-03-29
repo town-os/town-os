@@ -103,7 +103,7 @@ func TestApplyTemplates(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := applyTemplates(tt.input, tt.responses)
+			got := ApplyTemplates(tt.input, tt.responses)
 			if got != tt.expected {
 				t.Fatalf("expected %q, got %q", tt.expected, got)
 			}
@@ -335,6 +335,6 @@ func BenchmarkApplyTemplates(b *testing.B) {
 		"extra":   "value",
 	}
 	for b.Loop() {
-		applyTemplates(input, responses)
+		ApplyTemplates(input, responses)
 	}
 }

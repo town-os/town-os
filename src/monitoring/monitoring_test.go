@@ -258,7 +258,7 @@ func TestGenerateManifestIsValidYAML(t *testing.T) {
 		manifest := GenerateManifest(backend, "")
 
 		// Verify it parses as valid YAML.
-		var raw map[string]interface{}
+		var raw map[string]any
 		if err := yaml.Unmarshal([]byte(manifest), &raw); err != nil {
 			t.Fatalf("backend %s: invalid YAML: %v", backend, err)
 		}

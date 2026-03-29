@@ -98,7 +98,7 @@ templates:
 // on port 5308, with Prometheus running on the same container network. The
 // Grafana provisioning files are generated separately by WriteGrafanaConfig
 // because the dashboard JSON contains Go template-conflicting syntax.
-func grafanaManifest(nodeExporterPort string) string {
+func grafanaManifest(_ string) string {
 	return fmt.Sprintf(`image: %s
 description: "System monitoring (Grafana + Prometheus + Node Exporter)"
 command: []
