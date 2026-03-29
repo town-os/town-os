@@ -698,9 +698,10 @@ The network controller manages per-package port forwarding and UPnP mappings. Ea
 
 Package dependencies share the parent package's podman network. This allows containers in the same dependency tree to communicate directly by container name (via podman's built-in DNS on the shared network) rather than through host port forwarding.
 
-- **Network ownership** -- the parent package owns the podman network (`town-os-net--{repo}-{name}-{version}`). It creates the network in `ExecStartPre` and removes it (`podman network rm -f`) in `ExecStopPost`.
+- **Idempotent network creation** -- every service unit includes `ExecStartPre=-/usr/bin/podman network create {network}` regardless of whether a network controller (NC) exists. This is a boot-ordering safety net: if the NC hasn't created the network yet (e.g. image not built, systemd race), the service can still start. The NC also creates the network — whoever gets there first wins, the other is a no-op.
+- **Network ownership** -- the parent package owns the podman network (`town-os-net--{repo}-{name}-{version}`). The NC creates the network in `ExecStartPre` and removes it (`podman network rm -f`) in `ExecStopPost`.
 - **Dependencies join the parent network** -- dependency service units use `--net {parent-network}` instead of creating their own. They create the network idempotently in `ExecStartPre` (in case they start before the parent) but never remove it.
-- **Standalone packages** (no dependencies) follow the original pattern: `podman network rm -f` then `podman network create` in `ExecStartPre`, and `podman network rm -f` in `ExecStopPost`.
+- **Standalone packages without ports** follow the original pattern: `podman network rm -f` then `podman network create` in `ExecStartPre`, and `podman network rm -f` in `ExecStopPost`. Only standalone packages without an NC or parent NC perform `rm -f` before `create`.
 - **Parents with dependencies** do NOT `rm -f` before `create` in `ExecStartPre` because dependencies may already be running on the network (they start first via `Before=` ordering).
 
 ### Dependency Systemd Ordering

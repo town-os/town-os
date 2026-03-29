@@ -42,12 +42,13 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 	if strings.Contains(svc, "-p 8080:80") {
 		t.Fatal("service should not have -p mappings (private network mode)")
 	}
-	// When NC exists, the service should NOT have network rm/create (NC handles it).
+	// When NC exists, the service should NOT rm -f (NC owns cleanup) but
+	// SHOULD still create the network idempotently (boot race safety net).
 	if strings.Contains(svc, "podman network rm -f town-os-net--test-repo-nginx-1.0") {
 		t.Fatalf("service should not have network rm -f when NC exists, got:\n%s", svc)
 	}
-	if strings.Contains(svc, "podman network create town-os-net--test-repo-nginx-1.0") {
-		t.Fatalf("service should not have network create when NC exists, got:\n%s", svc)
+	if !strings.Contains(svc, "podman network create town-os-net--test-repo-nginx-1.0") {
+		t.Fatalf("service should always have idempotent network create, got:\n%s", svc)
 	}
 	if !strings.Contains(svc, "-e NGINX_HOST=example.com") {
 		t.Fatal("service missing environment variable")
@@ -1155,9 +1156,10 @@ func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 		t.Fatalf("dependency must not start socket units, got:\n%s", svc)
 	}
 
-	// Dependency must NOT manage the network (NC owns it).
-	if strings.Contains(svc, "podman network create") {
-		t.Fatalf("dependency must not create network, got:\n%s", svc)
+	// Dependency creates the network idempotently (boot race safety) but
+	// must NOT rm -f (the parent NC owns cleanup).
+	if !strings.Contains(svc, "podman network create "+parentNetwork) {
+		t.Fatalf("dependency should idempotently create parent network, got:\n%s", svc)
 	}
 	if strings.Contains(svc, "podman network rm") {
 		t.Fatalf("dependency must not remove network, got:\n%s", svc)
@@ -1206,10 +1208,11 @@ func TestGeneratePackageUnitsParentWithDeps(t *testing.T) {
 		t.Fatalf("parent must not have Before, got:\n%s", svc)
 	}
 
-	// Parent with NC: network create/rm is handled by the NC, not the service.
+	// Parent with NC: service creates network idempotently (boot race safety)
+	// but must NOT rm -f (NC owns cleanup).
 	ownNetwork := NetworkName("core", "mattermost", "1.0")
-	if strings.Contains(svc, "podman network create "+ownNetwork) {
-		t.Fatalf("parent service should not have network create when NC exists, got:\n%s", svc)
+	if !strings.Contains(svc, "podman network create "+ownNetwork) {
+		t.Fatalf("parent service should idempotently create network, got:\n%s", svc)
 	}
 	if strings.Contains(svc, "podman network rm -f "+ownNetwork) {
 		t.Fatalf("parent service should not have network rm -f when NC exists, got:\n%s", svc)
@@ -1269,12 +1272,13 @@ func TestGeneratePackageUnitsStandaloneNetworkCleanup(t *testing.T) {
 
 	networkName := NetworkName("core", "nginx", "1.0")
 
-	// Standalone with NC: network create/rm is handled by the NC, not the service.
+	// Standalone with NC: service creates network idempotently (boot race
+	// safety) but must NOT rm -f (NC owns cleanup).
 	if strings.Contains(svc, "podman network rm -f "+networkName) {
 		t.Fatalf("standalone service should not have network rm -f when NC exists, got:\n%s", svc)
 	}
-	if strings.Contains(svc, "podman network create "+networkName) {
-		t.Fatalf("standalone service should not have network create when NC exists, got:\n%s", svc)
+	if !strings.Contains(svc, "podman network create "+networkName) {
+		t.Fatalf("standalone service should idempotently create network, got:\n%s", svc)
 	}
 
 	// NC should handle network lifecycle.

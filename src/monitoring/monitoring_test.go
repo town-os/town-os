@@ -348,6 +348,14 @@ func TestMonitoringPackageCompileAndUnitGeneration(t *testing.T) {
 	if strings.Contains(units.Service.Content, " -p ") {
 		t.Fatalf("service unit should not have -p port flags (NC owns ports), got:\n%s", units.Service.Content)
 	}
+	// Service unit must idempotently create the network (boot race safety).
+	if !strings.Contains(units.Service.Content, "podman network create") {
+		t.Fatalf("service unit should idempotently create network, got:\n%s", units.Service.Content)
+	}
+	// Service unit must NOT rm -f the network — the NC owns cleanup.
+	if strings.Contains(units.Service.Content, "podman network rm") {
+		t.Fatalf("service unit should not rm -f network when NC exists, got:\n%s", units.Service.Content)
+	}
 	// Service unit must run on the podman network.
 	expectedNet := systemd.NetworkName(MonitoringRepo, MonitoringPackageName, MonitoringVersion)
 	if !strings.Contains(units.Service.Content, expectedNet) {

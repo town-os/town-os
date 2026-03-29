@@ -258,17 +258,15 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		networkName = cfg.ParentNetwork
 	}
 
-	// Network lifecycle is owned by the NC when one exists. The NC creates
-	// the network in its own ExecStartPre and removes it in ExecStopPost.
-	// When no NC exists (package has no ports), the service unit manages
-	// the network directly.
-	if !needsNetworkController && cfg.ParentNCUnitName == "" {
-		if !isDep && len(cfg.DependencyUnitNames) == 0 {
-			// Standalone package without NC: remove stale network then create fresh.
-			fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network rm -f %s\n", networkName)
-		}
-		fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
+	// Standalone packages without an NC or parent: remove stale network
+	// before creating fresh. The NC owns cleanup via ExecStopPost when present.
+	if !needsNetworkController && cfg.ParentNCUnitName == "" && !isDep && len(cfg.DependencyUnitNames) == 0 {
+		fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network rm -f %s\n", networkName)
 	}
+	// Always create the network idempotently. Even when an NC exists, the
+	// service must be able to start if the NC hasn't created it yet (boot
+	// race). The NC also creates it — whoever gets there first wins.
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
 
 	// ExecStart: podman run on the shared/private network.
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)

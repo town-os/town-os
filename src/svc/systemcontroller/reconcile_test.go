@@ -2228,6 +2228,11 @@ func TestReconcileMonitoringPackage(t *testing.T) {
 	if !strings.Contains(svcContent, "--config.file=/etc/prometheus/prometheus.yml") {
 		t.Fatalf("service unit should include prometheus command args, got:\n%s", svcContent)
 	}
+	// Service unit must idempotently create the network (boot race safety).
+	expectedNet := systemd.NetworkName(monPkg.MonitoringRepo, monPkg.MonitoringPackageName, monPkg.MonitoringVersion)
+	if !strings.Contains(svcContent, "podman network create "+expectedNet) {
+		t.Fatalf("service unit should idempotently create network %s, got:\n%s", expectedNet, svcContent)
+	}
 
 	// Verify the network state file was written.
 	stateFile := filepath.Join(netStatePath, "_system-monitoring-1.0.json")
