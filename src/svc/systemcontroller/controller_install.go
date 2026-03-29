@@ -125,6 +125,15 @@ func (s *SystemControllerHandlers) installPackageUnits(ctx context.Context, sd s
 		}
 	}
 
+	// Explicitly start the NC before the service to avoid races where
+	// systemd's Wants= pull-in hasn't processed by the time the service's
+	// ExecStartPre waits for the NC container to be running.
+	if units.NetworkController != nil {
+		if err := sd.SetStatus(ctx, units.NetworkController.Name, systemd.Start); err != nil {
+			slog.Warn("network controller failed to start after install", "unit", units.NetworkController.Name, "error", err)
+		}
+	}
+
 	// Start the main service. A start failure is logged but does not fail the
 	// install — the package is fully installed (volumes, unit files, network
 	// state) and the user can see the failed service in the UI and retry.

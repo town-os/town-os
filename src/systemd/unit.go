@@ -214,13 +214,15 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	}
 
 	// Wait for the NC container to be running before starting the service.
+	// Uses podman inspect to check for "running" state rather than just
+	// container existence, ensuring socat port forwarders are actually up.
 	if needsNetworkController {
 		ncContainerName := NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
-		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/podman container exists %s && exit 0; sleep 0.5; done; echo \"NC container %s not ready after 15s\"; exit 1'\n", ncContainerName, ncContainerName)
+		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do s=$(/usr/bin/podman inspect --format \"{{.State.Status}}\" %s 2>/dev/null) && [ \"$s\" = \"running\" ] && exit 0; sleep 0.5; done; echo \"NC container %s not running after 30s\"; exit 1'\n", ncContainerName, ncContainerName)
 	} else if cfg.ParentNCUnitName != "" {
 		// Dependency: wait for the parent's NC container to be running.
 		parentNCContainer := NetworkControllerContainerNameFromUnit(cfg.ParentNCUnitName)
-		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/podman container exists %s && exit 0; sleep 0.5; done; echo \"parent NC container %s not ready after 15s\"; exit 1'\n", parentNCContainer, parentNCContainer)
+		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do s=$(/usr/bin/podman inspect --format \"{{.State.Status}}\" %s 2>/dev/null) && [ \"$s\" = \"running\" ] && exit 0; sleep 0.5; done; echo \"parent NC container %s not running after 30s\"; exit 1'\n", parentNCContainer, parentNCContainer)
 	}
 
 	// Firewall: open ports (host-facing only).

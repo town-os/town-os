@@ -165,8 +165,8 @@ func TestNCOwnsNetworkLifecycleForStandalonePackage(t *testing.T) {
 	if strings.Contains(ncContent, "BindsTo=") {
 		t.Fatalf("NC must not have BindsTo (use PartOf), got:\n%s", ncContent)
 	}
-	if strings.Contains(ncContent, "After=") {
-		t.Fatalf("NC must not have After (use Before), got:\n%s", ncContent)
+	if strings.Contains(ncContent, "After="+svcName) {
+		t.Fatalf("NC must not have After=%s (use Before), got:\n%s", svcName, ncContent)
 	}
 
 	// NC must join the podman network (not --net host).

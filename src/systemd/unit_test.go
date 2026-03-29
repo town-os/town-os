@@ -1168,7 +1168,7 @@ func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 
 	// Dependency must wait for parent's NC container.
 	parentNCContainer := NetworkControllerContainerNameFromUnit(parentNCUnit)
-	if !strings.Contains(svc, "podman container exists "+parentNCContainer) {
+	if !strings.Contains(svc, "podman inspect") || !strings.Contains(svc, parentNCContainer) {
 		t.Fatalf("dependency must wait for parent NC container, got:\n%s", svc)
 	}
 }
@@ -1312,7 +1312,7 @@ func TestServiceUnitWaitsForNCContainer(t *testing.T) {
 	svc := units.Service.Content
 
 	ncContainer := NetworkControllerContainerName("core", "nginx", "1.0")
-	if !strings.Contains(svc, "podman container exists "+ncContainer) {
+	if !strings.Contains(svc, "podman inspect") || !strings.Contains(svc, ncContainer) {
 		t.Fatalf("service should wait for NC container %s, got:\n%s", ncContainer, svc)
 	}
 }
@@ -1338,7 +1338,7 @@ func TestDependencyUnitWaitsForParentNCContainer(t *testing.T) {
 	svc := units.Service.Content
 
 	parentNCContainer := NetworkControllerContainerNameFromUnit(parentNCUnit)
-	if !strings.Contains(svc, "podman container exists "+parentNCContainer) {
+	if !strings.Contains(svc, "podman inspect") || !strings.Contains(svc, parentNCContainer) {
 		t.Fatalf("dependency should wait for parent NC container %s, got:\n%s", parentNCContainer, svc)
 	}
 }
@@ -1368,7 +1368,7 @@ func TestServiceWithoutNCDoesNotWait(t *testing.T) {
 	units := GeneratePackageUnits(cfg)
 	svc := units.Service.Content
 
-	if strings.Contains(svc, "podman container exists") {
+	if strings.Contains(svc, "podman inspect --format") {
 		t.Fatalf("service without NC should not wait for any container, got:\n%s", svc)
 	}
 }

@@ -236,7 +236,14 @@ func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.
 	if journalErr != nil {
 		t.Logf("journalctl for %s: %v", unitName, journalErr)
 	}
-	t.Fatalf("container %q did not reach running state within %v\njournal:\n%s", containerName, timeout, string(journal))
+	// Also log the NC unit journal if it exists.
+	ncUnitName := systemd.NetworkControllerUnitName(repo, pkgName, version)
+	ncJournal, ncErr := exec.CommandContext(context.TODO(), "journalctl", "-u", ncUnitName, "--no-pager", "-n", "50").Output()
+	if ncErr != nil {
+		t.Logf("journalctl for %s: %v", ncUnitName, ncErr)
+	}
+	t.Fatalf("container %q did not reach running state within %v\njournal (%s):\n%s\njournal (%s):\n%s",
+		containerName, timeout, unitName, string(journal), ncUnitName, string(ncJournal))
 }
 
 func TestSystemControllerRealContainerLifecycle(t *testing.T) {
