@@ -320,6 +320,7 @@ func TestMonitoringPackageCompileAndUnitGeneration(t *testing.T) {
 		Version:                MonitoringVersion,
 		Description:            ip.Description,
 		Image:                  compiled.Image,
+		Command:                compiled.Command,
 		Environment:            compiled.Environment,
 		External:               compiled.Network.External,
 		Internal:               compiled.Network.Internal,
@@ -334,9 +335,27 @@ func TestMonitoringPackageCompileAndUnitGeneration(t *testing.T) {
 	if !strings.Contains(units.NetworkController.Content, "5308") {
 		t.Fatal("NC unit should expose port 5308")
 	}
+	if !strings.Contains(units.NetworkController.Content, "--target-container") {
+		t.Fatalf("NC unit should have --target-container flag, got:\n%s", units.NetworkController.Content)
+	}
 	if !strings.Contains(units.Service.Content, PrometheusImage) {
 		t.Fatalf("service unit should reference prometheus image, got:\n%s", units.Service.Content)
 	}
+	if !strings.Contains(units.Service.Content, "--config.file=/etc/prometheus/prometheus.yml") {
+		t.Fatalf("service unit should include prometheus command args, got:\n%s", units.Service.Content)
+	}
+	// Service unit must NOT have -p flags — the NC owns port exposure.
+	if strings.Contains(units.Service.Content, " -p ") {
+		t.Fatalf("service unit should not have -p port flags (NC owns ports), got:\n%s", units.Service.Content)
+	}
+	// Service unit must run on the podman network.
+	expectedNet := systemd.NetworkName(MonitoringRepo, MonitoringPackageName, MonitoringVersion)
+	if !strings.Contains(units.Service.Content, expectedNet) {
+		t.Fatalf("service unit should use network %q, got:\n%s", expectedNet, units.Service.Content)
+	}
+
+	t.Logf("NC unit:\n%s", units.NetworkController.Content)
+	t.Logf("Service unit:\n%s", units.Service.Content)
 }
 
 func TestGenerateManifestIsValidYAML(t *testing.T) {

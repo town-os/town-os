@@ -561,9 +561,10 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 	isDep := packages.IsDependency(pkgName)
 
 	state := networkcontroller.PackageNetworkState{
-		Repo:    repoName,
-		Package: pkgName,
-		Version: version,
+		Repo:          repoName,
+		Package:       pkgName,
+		Version:       version,
+		ContainerName: systemd.ContainerName(repoName, pkgName, version),
 	}
 
 	// All ports get Forward=true — the NC handles all host port exposure
