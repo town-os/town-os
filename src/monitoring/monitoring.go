@@ -11,8 +11,9 @@ const (
 	NodeExporterImage = "quay.io/prometheus/node-exporter:latest"
 	// GrafanaImage is the container image reference for Grafana.
 	GrafanaImage = "docker.io/grafana/grafana:latest"
-	// SocatImage is the container image for the uPlot socat forwarder.
-	SocatImage = "docker.io/library/alpine:latest"
+	// DefaultSocatImage is the fallback container image for the uPlot socat
+	// forwarder when no NC image is available.
+	DefaultSocatImage = "localhost/town-os-networkcontroller:local"
 
 	// PrometheusPort is the default internal port used by Prometheus.
 	PrometheusPort = "9090"

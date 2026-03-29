@@ -12,27 +12,31 @@ import (
 // MonitoringUIUnitConfig returns the systemd system service configuration
 // for the monitoring dashboard on port 5308. In uPlot mode this is a socat
 // forwarder to Prometheus on port 9090; in Grafana mode it runs the full
-// Grafana container.
-func MonitoringUIUnitConfig(backend, btrfsBase string) systemd.SystemServiceUnitConfig {
+// Grafana container. The socatImage parameter specifies the container image
+// for the uPlot forwarder (typically the NC image which has socat pre-installed).
+func MonitoringUIUnitConfig(backend, btrfsBase, socatImage string) systemd.SystemServiceUnitConfig {
 	if backend == "" || backend == BackendUPlot {
-		return uplotUIUnitConfig()
+		return uplotUIUnitConfig(socatImage)
 	}
 	return grafanaUIUnitConfig(btrfsBase)
 }
 
 // uplotUIUnitConfig returns a socat forwarder that exposes port 5308 and
-// forwards to Prometheus on port 9090 via the host network.
-func uplotUIUnitConfig() systemd.SystemServiceUnitConfig {
+// forwards to Prometheus on port 9090 via the host network. The image should
+// have socat pre-installed (e.g. the NC image built at startup).
+func uplotUIUnitConfig(socatImage string) systemd.SystemServiceUnitConfig {
+	if socatImage == "" {
+		socatImage = DefaultSocatImage
+	}
 	return systemd.SystemServiceUnitConfig{
 		Key:         "monitoring-ui",
 		Description: "Monitoring UI (uPlot)",
-		Image:       SocatImage,
+		Image:       socatImage,
 		Args: []string{
 			"--net", "host",
 		},
 		Command: []string{
-			"sh", "-c",
-			"apk add --no-cache socat >/dev/null 2>&1 && exec socat TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr TCP:127.0.0.1:" + PrometheusPort,
+			"socat", "TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr", "TCP:127.0.0.1:" + PrometheusPort,
 		},
 	}
 }
@@ -95,15 +99,16 @@ func WriteGrafanaProvisioningFiles(btrfsBase string) error {
 }
 
 // StartMonitoringUI writes any required configuration, then installs, enables,
-// and starts the monitoring UI system service (socat or Grafana).
-func StartMonitoringUI(ctx context.Context, sd systemd.Manager, backend, btrfsBase string) error {
+// and starts the monitoring UI system service (socat or Grafana). The socatImage
+// parameter specifies the container image for the uPlot forwarder.
+func StartMonitoringUI(ctx context.Context, sd systemd.Manager, backend, btrfsBase, socatImage string) error {
 	if backend == BackendGrafana {
 		if err := WriteGrafanaProvisioningFiles(btrfsBase); err != nil {
 			return fmt.Errorf("write grafana provisioning: %w", err)
 		}
 	}
 
-	cfg := MonitoringUIUnitConfig(backend, btrfsBase)
+	cfg := MonitoringUIUnitConfig(backend, btrfsBase, socatImage)
 	uf := systemd.GenerateSystemServiceUnit(cfg)
 
 	if err := sd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
@@ -121,8 +126,11 @@ func StartMonitoringUI(ctx context.Context, sd systemd.Manager, backend, btrfsBa
 
 // MonitoringUISystemService returns metadata for the monitoring UI system
 // service, used by the system services API. The image varies by backend.
-func MonitoringUISystemService(backend string) SystemService {
-	image := SocatImage
+func MonitoringUISystemService(backend, socatImage string) SystemService {
+	image := socatImage
+	if image == "" {
+		image = DefaultSocatImage
+	}
 	if backend == BackendGrafana {
 		image = GrafanaImage
 	}

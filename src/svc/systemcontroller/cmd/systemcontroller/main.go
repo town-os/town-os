@@ -189,10 +189,9 @@ func run() (err error) {
 		}
 	}()
 
-	// Derive rolodex image for unit config updates (e.g. image upgrades).
-	// The Rolodex systemd unit is installed on the USB image and started
-	// at boot before the systemcontroller. We only manage configuration
-	// and conditional restarts here.
+	// Rolodex is a boot service managed entirely by systemd. The
+	// systemcontroller only writes the config file and waits for DNS
+	// readiness before proceeding with image pulls and the NC build.
 	rolImage := os.Getenv("ROLODEX_IMAGE")
 	if rolImage == "" {
 		rolImage = "quay.io/town/rolodex:" + tag
@@ -202,34 +201,29 @@ func run() (err error) {
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
 	}
-	rolLocal := os.Getenv("ROLODEX_LOCAL") != ""
 	rolMgr := rolodex.NewManager(rolodex.Config{
-		Systemd:         sd,
-		DataDir:         rolDataDir,
-		Image:           rolImage,
-		Local:           rolLocal,
-		UnixSocketPath:  filepath.Join(rolDataDir, "rolodex.sock"),
-		ResolvConfPath:  "/etc/resolv.conf",
-		ResolvedConfDir: "/etc/systemd/resolved.conf.d",
-		PublicAddr:      getInternalIP(),
+		Systemd:        sd,
+		DataDir:        rolDataDir,
+		Image:          rolImage,
+		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
 	})
-	restarted, startErr := rolMgr.Start(ctx)
-	if startErr != nil {
-		// Non-fatal: rolodex failure should not prevent the system
-		// controller from starting.
-		fmt.Fprintf(os.Stderr, "rolodex: %v\n", startErr)
-		rolMgr = nil
+	configWritten, configErr := rolMgr.WriteConfig()
+	if configErr != nil {
+		fmt.Fprintf(os.Stderr, "rolodex config: %v\n", configErr)
 	}
 
-	// Wait for DNS readiness. Fast if Rolodex was already running
-	// (no restart needed); polls until ready if a restart occurred.
-	if rolMgr != nil {
-		if restarted {
-			slog.Info("rolodex unit changed, waiting for DNS readiness")
+	// Restart rolodex only if the config file was actually written
+	// (created or updated). Skip restart when the file was unchanged.
+	if configWritten {
+		rolUnitName := systemd.SystemServiceUnitName(rolMgr.Key())
+		if err := sd.SetStatus(ctx, rolUnitName, systemd.Restart); err != nil {
+			fmt.Fprintf(os.Stderr, "rolodex restart: %v\n", err)
 		}
-		if err := rolMgr.WaitForDNSReady(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
-		}
+	}
+
+	// Wait for DNS readiness.
+	if err := rolMgr.WaitForDNSReady(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
 	}
 
 	// Build the network controller container image locally. This must
@@ -281,7 +275,7 @@ func run() (err error) {
 	if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, ""); err != nil {
 		fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
 	}
-	if err := monitoring.StartMonitoringUI(ctx, sd, monBackend, *btrfsPath); err != nil {
+	if err := monitoring.StartMonitoringUI(ctx, sd, monBackend, *btrfsPath, ncImage); err != nil {
 		fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 	}
 
@@ -321,16 +315,10 @@ func run() (err error) {
 	// Persist current image SHA so the next startup can detect changes.
 	persistVersion(ctx, versionFile)
 
-	// Poll for internal IP changes (DHCP lease renewals) and restart
-	// rolodex when the public address changes.
-	if rolMgr != nil && !rolLocal {
-		go watchInternalIP(ctx, rolMgr)
-	}
-
 	// Reconcile DNS state: set up TLD zone and register records for all
 	// installed packages. This runs after rolodex is started so the gRPC
 	// socket is available.
-	if rolMgr != nil {
+	{
 		socketPath := rolMgr.SocketPath()
 		deadline := time.Now().Add(30 * time.Second)
 		var rolClient rolodex.Client
@@ -403,11 +391,6 @@ func run() (err error) {
 		cancel()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:govet // shadow is intentional for shutdown scope
 		defer shutdownCancel()
-		if rolMgr != nil {
-			if stopErr := rolMgr.Stop(shutdownCtx); stopErr != nil {
-				fmt.Fprintf(os.Stderr, "rolodex stop: %v\n", stopErr)
-			}
-		}
 		shutdownErr := srv.Shutdown(shutdownCtx)
 		if shutdownErr != nil {
 			fmt.Fprintf(os.Stderr, "shutdown: %v\n", shutdownErr)
@@ -439,42 +422,49 @@ func generateSigningKey() ([]byte, error) {
 	return key, nil
 }
 
-// getInternalIP returns the first non-loopback IPv4 address, or "" if none found.
+// getInternalIP returns the first non-loopback IPv4 address on a physical
+// network interface, or "" if none found. Virtual interfaces (podman, veth,
+// cni, docker, br-, virbr, tailscale) are skipped to avoid returning container
+// bridge addresses like 10.88.0.1.
 func getInternalIP() string {
-	addrs, err := net.InterfaceAddrs()
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ""
 	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			return ipnet.IP.String()
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if isVirtualInterface(iface.Name) {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
+			}
 		}
 	}
 	return ""
 }
 
-// watchInternalIP polls for internal IP changes every 30 seconds and restarts
-// rolodex when the public address changes (e.g. DHCP lease renewal).
-func watchInternalIP(ctx context.Context, mgr *rolodex.Manager) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			newIP := getInternalIP()
-			if newIP == "" {
-				continue
-			}
-			if mgr.SetPublicAddr(newIP) {
-				slog.Info(fmt.Sprintf("internal IP changed to %s, restarting rolodex", newIP))
-				if _, err := mgr.Start(ctx); err != nil {
-					slog.Error(fmt.Sprintf("restart rolodex after IP change: %v", err))
-				}
-			}
+// isVirtualInterface returns true for interface names that belong to container
+// runtimes, virtual bridges, or VPN tunnels.
+func isVirtualInterface(name string) bool {
+	for _, prefix := range []string{
+		"podman", "veth", "cni", "docker", "br-", "virbr", "tailscale",
+	} {
+		if strings.HasPrefix(name, prefix) {
+			return true
 		}
 	}
+	return false
 }
 
 // getContainerImageID returns the image digest of the container this process

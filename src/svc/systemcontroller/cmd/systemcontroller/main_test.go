@@ -183,3 +183,33 @@ func TestPersistVersionOutsideContainer(t *testing.T) {
 		t.Fatal("expected version file to not be written outside container")
 	}
 }
+
+func TestIsVirtualInterface(t *testing.T) {
+	tests := []struct {
+		name   string
+		iface  string
+		expect bool
+	}{
+		{"podman bridge", "podman0", true},
+		{"podman network", "podman1", true},
+		{"veth pair", "veth1234abc", true},
+		{"cni bridge", "cni-podman0", true},
+		{"docker bridge", "docker0", true},
+		{"docker network", "br-abc123", true},
+		{"virbr", "virbr0", true},
+		{"tailscale", "tailscale0", true},
+		{"physical eth", "eth0", false},
+		{"physical enp", "enp1s0", false},
+		{"physical wlan", "wlan0", false},
+		{"physical wlo", "wlo1", false},
+		{"physical eno", "eno1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isVirtualInterface(tt.iface)
+			if got != tt.expect {
+				t.Fatalf("isVirtualInterface(%q) = %v, want %v", tt.iface, got, tt.expect)
+			}
+		})
+	}
+}

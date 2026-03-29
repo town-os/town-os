@@ -321,13 +321,13 @@ func TestPrometheusUnitIsSystemService(t *testing.T) {
 // --- Monitoring UI tests ---
 
 func TestMonitoringUIUnitConfigUPlot(t *testing.T) {
-	cfg := MonitoringUIUnitConfig(BackendUPlot, "")
+	cfg := MonitoringUIUnitConfig(BackendUPlot, "", "nc:test")
 
 	if cfg.Key != "monitoring-ui" {
 		t.Fatalf("expected key monitoring-ui, got %q", cfg.Key)
 	}
-	if cfg.Image != SocatImage {
-		t.Fatalf("expected image %q, got %q", SocatImage, cfg.Image)
+	if cfg.Image != "nc:test" {
+		t.Fatalf("expected image %q, got %q", "nc:test", cfg.Image)
 	}
 
 	// Should use host networking.
@@ -343,17 +343,25 @@ func TestMonitoringUIUnitConfigUPlot(t *testing.T) {
 
 	// Command should include socat forwarding 5308 to 9090.
 	cmdStr := strings.Join(cfg.Command, " ")
-	if !strings.Contains(cmdStr, "socat TCP-LISTEN:5308") {
+	if !strings.Contains(cmdStr, "socat") {
+		t.Fatalf("expected socat in command, got %v", cfg.Command)
+	}
+	if !strings.Contains(cmdStr, "TCP-LISTEN:5308") {
 		t.Fatalf("expected socat on port 5308, got %v", cfg.Command)
 	}
 	if !strings.Contains(cmdStr, "TCP:127.0.0.1:9090") {
 		t.Fatalf("expected socat target 127.0.0.1:9090, got %v", cfg.Command)
 	}
+
+	// Command should NOT include apk add (socat is pre-installed in NC image).
+	if strings.Contains(cmdStr, "apk") {
+		t.Fatalf("command should not install socat at runtime, got %v", cfg.Command)
+	}
 }
 
 func TestMonitoringUIUnitConfigGrafana(t *testing.T) {
 	btrfsBase := t.TempDir()
-	cfg := MonitoringUIUnitConfig(BackendGrafana, btrfsBase)
+	cfg := MonitoringUIUnitConfig(BackendGrafana, btrfsBase, "")
 
 	if cfg.Key != "monitoring-ui" {
 		t.Fatalf("expected key monitoring-ui, got %q", cfg.Key)
@@ -391,10 +399,10 @@ func TestMonitoringUIUnitConfigGrafana(t *testing.T) {
 }
 
 func TestMonitoringUIUnitConfigDefaultBackend(t *testing.T) {
-	cfg := MonitoringUIUnitConfig("", "")
+	cfg := MonitoringUIUnitConfig("", "", "")
 
-	// Empty backend defaults to uplot.
-	if cfg.Image != SocatImage {
+	// Empty backend defaults to uplot with fallback socat image.
+	if cfg.Image != DefaultSocatImage {
 		t.Fatalf("empty backend should default to uplot (socat), got image %q", cfg.Image)
 	}
 }
@@ -440,7 +448,7 @@ func TestWriteGrafanaProvisioningFiles(t *testing.T) {
 func TestStartMonitoringUI(t *testing.T) {
 	sd := systemd.InitMockManager()
 
-	if err := StartMonitoringUI(t.Context(), sd, BackendUPlot, ""); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, BackendUPlot, "", "nc:test"); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -460,7 +468,7 @@ func TestStartMonitoringUIGrafana(t *testing.T) {
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
 
-	if err := StartMonitoringUI(t.Context(), sd, BackendGrafana, btrfsBase); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, BackendGrafana, btrfsBase, ""); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -485,20 +493,20 @@ func TestStartMonitoringUIInstallError(t *testing.T) {
 	sd := systemd.InitMockManager()
 	sd.InstallUnitErr = os.ErrPermission
 
-	err := StartMonitoringUI(t.Context(), sd, BackendUPlot, "")
+	err := StartMonitoringUI(t.Context(), sd, BackendUPlot, "", "")
 	if err == nil {
 		t.Fatal("expected error when InstallUnit fails")
 	}
 }
 
 func TestMonitoringUISystemServiceUPlot(t *testing.T) {
-	svc := MonitoringUISystemService(BackendUPlot)
+	svc := MonitoringUISystemService(BackendUPlot, "nc:test")
 
 	if svc.Key != "monitoring-ui" {
 		t.Fatalf("expected key monitoring-ui, got %q", svc.Key)
 	}
-	if svc.Image != SocatImage {
-		t.Fatalf("expected socat image for uplot, got %q", svc.Image)
+	if svc.Image != "nc:test" {
+		t.Fatalf("expected nc image for uplot, got %q", svc.Image)
 	}
 	if svc.Port != MonitoringExternalPort {
 		t.Fatalf("expected port %q, got %q", MonitoringExternalPort, svc.Port)
@@ -506,7 +514,7 @@ func TestMonitoringUISystemServiceUPlot(t *testing.T) {
 }
 
 func TestMonitoringUISystemServiceGrafana(t *testing.T) {
-	svc := MonitoringUISystemService(BackendGrafana)
+	svc := MonitoringUISystemService(BackendGrafana, "")
 
 	if svc.Image != GrafanaImage {
 		t.Fatalf("expected grafana image, got %q", svc.Image)
@@ -517,7 +525,7 @@ func TestMonitoringUISystemServiceGrafana(t *testing.T) {
 }
 
 func TestMonitoringUIUnitIsSystemService(t *testing.T) {
-	cfg := MonitoringUIUnitConfig(BackendUPlot, "")
+	cfg := MonitoringUIUnitConfig(BackendUPlot, "", "")
 	uf := systemd.GenerateSystemServiceUnit(cfg)
 
 	if !systemd.IsSystemServiceUnit(uf.Name) {
@@ -527,7 +535,7 @@ func TestMonitoringUIUnitIsSystemService(t *testing.T) {
 
 func TestMonitoringUIGrafanaUnitIsSystemService(t *testing.T) {
 	btrfsBase := t.TempDir()
-	cfg := MonitoringUIUnitConfig(BackendGrafana, btrfsBase)
+	cfg := MonitoringUIUnitConfig(BackendGrafana, btrfsBase, "")
 	uf := systemd.GenerateSystemServiceUnit(cfg)
 
 	if !systemd.IsSystemServiceUnit(uf.Name) {

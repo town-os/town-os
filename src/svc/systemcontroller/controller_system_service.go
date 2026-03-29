@@ -49,7 +49,7 @@ func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 		for _, svc := range []monitoring.SystemService{
 			monitoring.NodeExporterSystemService(""),
 			monitoring.PrometheusSystemService(),
-			monitoring.MonitoringUISystemService(backend),
+			monitoring.MonitoringUISystemService(backend, s.Controller.GetNetworkControllerImage()),
 		} {
 			all = append(all, systemServiceInfo{
 				Key:         svc.Key,

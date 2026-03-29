@@ -74,8 +74,9 @@ func rolodexTestKey() string {
 	return "rolodex-test-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatUint(rand.Uint64(), 36)
 }
 
-// initRolodexRealTest creates a rolodex manager with real systemd, starts it,
-// and returns a connected client and the DNS port it is listening on.
+// initRolodexRealTest creates a rolodex container via a systemd unit, writes
+// config, and returns a connected client and the DNS port. The Manager does
+// not manage units, so this helper installs the unit directly.
 func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	t.Helper()
 
@@ -89,31 +90,53 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
-		Local:          true,
 		UnixSocketPath: socketPath,
 		DNSPort:        dnsPort,
 		Key:            key,
 	})
 
+	if _, err := mgr.WriteConfig(); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {
 		var cancel context.CancelFunc
-		// Leave 15s headroom so diagnostics print before -test.timeout panics.
 		ctx, cancel = context.WithDeadline(ctx, dl.Add(-15*time.Second))
 		t.Cleanup(cancel)
 	}
 
-	// Clean up any leftover unit with this key (unlikely but safe).
+	// Install and start the unit directly via systemd.
 	unitName := systemd.SystemServiceUnitName(key)
 	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
 	_ = sd.UninstallUnit(ctx, unitName)
 
-	if _, err := mgr.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
+	cfg := systemd.SystemServiceUnitConfig{
+		Key:         key,
+		Description: "Rolodex DNS (test)",
+		Image:       rolodexTestImage(),
+		Args: []string{
+			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/tcp",
+			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/udp",
+			"-v", dataDir + ":/data",
+		},
+		Command:    []string{"/usr/local/bin/rolodex-dns", "--config", "/data/rolodex.yml"},
+		VolumeDirs: []string{dataDir},
 	}
+	uf := systemd.GenerateSystemServiceUnit(cfg)
+
+	if err := sd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	if err := sd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	if err := sd.SetStatus(ctx, uf.Name, systemd.Restart); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		unitName := systemd.SystemServiceUnitName(mgr.Key())
 		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Stop); err != nil {
 			t.Logf("cleanup SetStatus(stop): %v", err)
 		}
@@ -127,7 +150,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	status := mgr.Status(ctx)
 	if !status.Running {
 		dumpRolodexDiagnostics(ctx, t, dataDir, key)
-		t.Fatal("rolodex not running 2s after Start")
+		t.Fatal("rolodex not running 2s after start")
 	}
 
 	client := waitForRolodexClient(t, ctx, socketPath, dataDir, key)
@@ -186,16 +209,20 @@ func TestRolodexRealContainerStart(t *testing.T) {
 	dataDir := rolodexTempDir(t, "rolodex-start-*")
 	sd := systemd.NewManager()
 	key := rolodexTestKey()
+	dnsPort := findFreePort(t)
 
 	mgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
-		Local:          true,
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-		DNSPort:        findFreePort(t),
+		DNSPort:        dnsPort,
 		Key:            key,
 	})
+
+	if _, err := mgr.WriteConfig(); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
 
 	ctx := context.Background()
 
@@ -204,11 +231,31 @@ func TestRolodexRealContainerStart(t *testing.T) {
 	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
 	_ = sd.UninstallUnit(ctx, unitName)
 
-	if _, err := mgr.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
+	cfg := systemd.SystemServiceUnitConfig{
+		Key:         key,
+		Description: "Rolodex DNS (test)",
+		Image:       rolodexTestImage(),
+		Args: []string{
+			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/tcp",
+			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/udp",
+			"-v", dataDir + ":/data",
+		},
+		Command:    []string{"/usr/local/bin/rolodex-dns", "--config", "/data/rolodex.yml"},
+		VolumeDirs: []string{dataDir},
 	}
+	uf := systemd.GenerateSystemServiceUnit(cfg)
+
+	if err := sd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	if err := sd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	if err := sd.SetStatus(ctx, uf.Name, systemd.Restart); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+
 	t.Cleanup(func() {
-		unitName := systemd.SystemServiceUnitName(mgr.Key())
 		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
 			t.Logf("cleanup SetStatus(stop): %v", err)
 		}
@@ -228,7 +275,7 @@ func TestRolodexRealContainerStart(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !status.Running {
-		t.Fatal("expected rolodex running after Start")
+		t.Fatal("expected rolodex running after unit start")
 	}
 }
 
@@ -446,4 +493,89 @@ func waitForRolodexClient(t *testing.T, ctx context.Context, socketPath, dataDir
 	dumpRolodexDiagnostics(ctx, t, dataDir, key)
 	t.Fatalf("waitForRolodexClient: timed out waiting for %s", socketPath)
 	return nil
+}
+
+func TestRolodexWriteConfigIdempotent(t *testing.T) {
+	t.Parallel()
+	dataDir := rolodexTempDir(t, "rolodex-idempotent-*")
+	mgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        systemd.InitMockManager(),
+		DataDir:        dataDir,
+		Image:          rolodexTestImage(),
+		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
+	})
+
+	// First call should write.
+	written, err := mgr.WriteConfig()
+	if err != nil {
+		t.Fatalf("first WriteConfig: %v", err)
+	}
+	if !written {
+		t.Fatal("expected first WriteConfig to write")
+	}
+
+	// Record mtime.
+	configPath := filepath.Join(dataDir, "rolodex.yml")
+	fi1, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat after first write: %v", err)
+	}
+
+	// Second call should skip (content unchanged, file older than binary).
+	written, err = mgr.WriteConfig()
+	if err != nil {
+		t.Fatalf("second WriteConfig: %v", err)
+	}
+	if written {
+		t.Fatal("expected second WriteConfig to skip (content unchanged)")
+	}
+
+	// File should not have been rewritten.
+	fi2, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat after second write: %v", err)
+	}
+	if !fi1.ModTime().Equal(fi2.ModTime()) {
+		t.Fatal("file mtime changed even though content was identical")
+	}
+}
+
+func TestRolodexWriteConfigSkipsNewerFile(t *testing.T) {
+	t.Parallel()
+	dataDir := rolodexTempDir(t, "rolodex-newer-*")
+	configPath := filepath.Join(dataDir, "rolodex.yml")
+
+	// Write custom content with a future mtime.
+	customContent := "# user-modified config\n"
+	if err := os.WriteFile(configPath, []byte(customContent), 0644); err != nil {
+		t.Fatalf("pre-write: %v", err)
+	}
+	future := time.Now().Add(24 * time.Hour)
+	if err := os.Chtimes(configPath, future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	mgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        systemd.InitMockManager(),
+		DataDir:        dataDir,
+		Image:          rolodexTestImage(),
+		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
+	})
+
+	written, err := mgr.WriteConfig()
+	if err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	if written {
+		t.Fatal("expected WriteConfig to skip file newer than binary")
+	}
+
+	// Verify content was preserved.
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != customContent {
+		t.Fatalf("expected preserved content, got:\n%s", data)
+	}
 }

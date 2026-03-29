@@ -123,7 +123,7 @@ func TestMonitoringSystemServiceUnitsUPlot(t *testing.T) {
 	}
 
 	// Start Monitoring UI (uplot) system service.
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, monitoring.BackendUPlot, ""); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, monitoring.BackendUPlot, "", ""); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -175,7 +175,7 @@ func TestMonitoringSystemServiceUnitsGrafana(t *testing.T) {
 	btrfsBase := t.TempDir()
 
 	// Start Monitoring UI (grafana) system service.
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, monitoring.BackendGrafana, btrfsBase); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, monitoring.BackendGrafana, btrfsBase, ""); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestMonitoringUIUPlotRealStart(t *testing.T) {
 	sd := systemd.NewManager()
 	ctx := context.Background()
 
-	if err := monitoring.StartMonitoringUI(ctx, sd, monitoring.BackendUPlot, ""); err != nil {
+	if err := monitoring.StartMonitoringUI(ctx, sd, monitoring.BackendUPlot, "", ""); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
