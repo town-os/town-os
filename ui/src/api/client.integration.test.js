@@ -1347,10 +1347,10 @@ describe('SystemControllerClient integration', () => {
 
     // Audit
 
-    it('listAuditLog requires auth', async () => {
-      await expect(
-        noAuth.listAuditLog({}),
-      ).rejects.toThrow(/POST \/audit\/log:.*missing authorization token/)
+    it('listAuditLog allows localhost without auth', async () => {
+      // Localhost requests bypass auth via localhostOrAuth middleware.
+      const resp = await noAuth.listAuditLog({})
+      expect(Array.isArray(resp.entries)).toBe(true)
     })
 
     // Settings methods
