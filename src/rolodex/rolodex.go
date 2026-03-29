@@ -134,12 +134,15 @@ func (m *Manager) SetPublicAddr(addr string) bool {
 	return true
 }
 
-// Start writes the rolodex config, installs/enables/starts the systemd unit.
-// In production mode (!Local), it rewrites resolv.conf to point at the
-// rolodex loopback address. Both modes bind DNS to 127.0.0.2:53 which
-// coexists with systemd-resolved. When ResolvedConfDir is set, mDNS is
-// enabled in systemd-resolved for .local hostname advertisement.
-func (m *Manager) Start(ctx context.Context) error {
+// Start writes the rolodex config, compares the desired systemd unit with
+// the installed one, and restarts the service only when the unit content
+// has changed (e.g. public address binding added) or the unit does not
+// exist yet. The Rolodex systemd unit is installed on the USB image and
+// started at boot before the systemcontroller; this method only manages
+// configuration updates. In production mode (!Local), resolv.conf is
+// rewritten to point at the rolodex loopback address. Returns true if
+// the service was restarted.
+func (m *Manager) Start(ctx context.Context) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -147,54 +150,79 @@ func (m *Manager) Start(ctx context.Context) error {
 	// This enables .local resolution (e.g. town-os.local) via
 	// systemd-resolved on the physical network interface.
 	if err := m.configureResolvedMDNS(ctx); err != nil {
-		return fmt.Errorf("configure resolved mDNS: %w", err)
+		return false, fmt.Errorf("configure resolved mDNS: %w", err)
 	}
 
 	if err := m.writeConfig(); err != nil {
-		return fmt.Errorf("write rolodex config: %w", err)
+		return false, fmt.Errorf("write rolodex config: %w", err)
 	}
 
-	// Install and enable the unit in all modes.
+	// Compare desired unit content with what is currently installed.
+	// Only restart when the unit has changed (e.g. public address
+	// binding was added) or does not exist yet.
+	restarted := false
 	for _, unit := range m.unitConfigs() {
 		uf := systemd.GenerateSystemServiceUnit(unit)
-		if err := m.cfg.Systemd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
-			return fmt.Errorf("install unit %s: %w", uf.Name, err)
-		}
-		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
-			return fmt.Errorf("enable unit %s: %w", uf.Name, err)
+
+		current, readErr := m.cfg.Systemd.ReadUnit(uf.Name)
+		unitChanged := readErr != nil || current != uf.Content
+
+		if unitChanged {
+			if err := m.cfg.Systemd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
+				return false, fmt.Errorf("install unit %s: %w", uf.Name, err)
+			}
+			if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
+				return false, fmt.Errorf("enable unit %s: %w", uf.Name, err)
+			}
+			if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Restart); err != nil {
+				return false, fmt.Errorf("restart unit %s: %w", uf.Name, err)
+			}
+			restarted = true
 		}
 	}
 
 	if !m.cfg.Local {
 		if err := m.setResolv(); err != nil {
-			return fmt.Errorf("set resolv.conf: %w", err)
+			return restarted, fmt.Errorf("set resolv.conf: %w", err)
 		}
 	}
 
-	for _, unit := range m.unitConfigs() {
-		uf := systemd.GenerateSystemServiceUnit(unit)
-		// Stop before Start to pick up new configuration. Stop errors
-		// are non-fatal — the unit may not be running.
-		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Stop); err != nil {
-			slog.Debug("stop unit before restart (may not be running)", "unit", uf.Name, "error", err)
-		}
-		if err := m.cfg.Systemd.SetStatus(ctx, uf.Name, systemd.Start); err != nil {
-			if !m.cfg.Local {
-				if restoreErr := m.restoreResolv(); restoreErr != nil {
-					slog.Error("failed to restore resolv.conf during error recovery", "error", restoreErr)
-				}
-			}
-			return fmt.Errorf("start unit %s: %w", uf.Name, err)
-		}
-	}
-
-	return nil
+	return restarted, nil
 }
 
-// Stop stops the rolodex systemd unit. In production mode, it restores
-// resolv.conf BEFORE stopping rolodex so there is always a working DNS
-// provider.
-func (m *Manager) Stop(ctx context.Context) error {
+// WaitForDNSReady polls the DNS TCP port until it accepts connections or the
+// context is cancelled. This should be called after Start to ensure the DNS
+// server inside the container is actually ready to serve queries before
+// proceeding with operations that depend on DNS (e.g., pulling container
+// images).
+func (m *Manager) WaitForDNSReady(ctx context.Context) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	addr := net.JoinHostPort(DNSLoopback, m.dnsPort())
+	var dialer net.Dialer
+
+	for {
+		conn, err := dialer.DialContext(waitCtx, "tcp", addr)
+		if err == nil {
+			if closeErr := conn.Close(); closeErr != nil {
+				slog.Debug("close DNS probe connection", "error", closeErr)
+			}
+			return nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("DNS server at %s not ready: %w", addr, waitCtx.Err())
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+// Stop restores resolv.conf to the systemd-resolved stub in production
+// mode. The Rolodex systemd unit is a boot service and is NOT stopped
+// here — it continues running independently of the systemcontroller.
+func (m *Manager) Stop(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -202,11 +230,6 @@ func (m *Manager) Stop(ctx context.Context) error {
 		if err := m.restoreResolv(); err != nil {
 			return fmt.Errorf("restore resolv.conf: %w", err)
 		}
-	}
-
-	unitName := systemd.SystemServiceUnitName(m.key())
-	if err := m.cfg.Systemd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
-		return fmt.Errorf("stop unit %s: %w", unitName, err)
 	}
 
 	return nil

@@ -108,7 +108,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
 	_ = sd.UninstallUnit(ctx, unitName)
 
-	if err := mgr.Start(ctx); err != nil {
+	if _, err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() {
@@ -204,7 +204,7 @@ func TestRolodexRealContainerStart(t *testing.T) {
 	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
 	_ = sd.UninstallUnit(ctx, unitName)
 
-	if err := mgr.Start(ctx); err != nil {
+	if _, err := mgr.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() {

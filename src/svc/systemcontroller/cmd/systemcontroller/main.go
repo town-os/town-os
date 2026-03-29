@@ -189,20 +189,15 @@ func run() (err error) {
 		}
 	}()
 
-	// Derive rolodex image so we can start DNS before building the NC image.
+	// Derive rolodex image for unit config updates (e.g. image upgrades).
+	// The Rolodex systemd unit is installed on the USB image and started
+	// at boot before the systemcontroller. We only manage configuration
+	// and conditional restarts here.
 	rolImage := os.Getenv("ROLODEX_IMAGE")
 	if rolImage == "" {
 		rolImage = "quay.io/town/rolodex:" + tag
 	}
 
-	// Pull the rolodex image only if it is not already loaded (e.g. pre-loaded
-	// in test/dev containers where DNS may not be available yet).
-	if err := ensureImage(ctx, rolImage); err != nil {
-		fmt.Fprintf(os.Stderr, "pull %s: %v\n", rolImage, err)
-	}
-
-	// Start the rolodex DNS server before building the NC image so that
-	// DNS is available for `apk add` inside the podman build.
 	rolDataDir := filepath.Join(*btrfsPath, "rolodex")
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
@@ -218,11 +213,23 @@ func run() (err error) {
 		ResolvedConfDir: "/etc/systemd/resolved.conf.d",
 		PublicAddr:      getInternalIP(),
 	})
-	if err := rolMgr.Start(ctx); err != nil {
+	restarted, startErr := rolMgr.Start(ctx)
+	if startErr != nil {
 		// Non-fatal: rolodex failure should not prevent the system
 		// controller from starting.
-		fmt.Fprintf(os.Stderr, "rolodex: %v\n", err)
+		fmt.Fprintf(os.Stderr, "rolodex: %v\n", startErr)
 		rolMgr = nil
+	}
+
+	// Wait for DNS readiness. Fast if Rolodex was already running
+	// (no restart needed); polls until ready if a restart occurred.
+	if rolMgr != nil {
+		if restarted {
+			slog.Info("rolodex unit changed, waiting for DNS readiness")
+		}
+		if err := rolMgr.WaitForDNSReady(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
+		}
 	}
 
 	// Build the network controller container image locally. This must
@@ -465,7 +472,7 @@ func watchInternalIP(ctx context.Context, mgr *rolodex.Manager) {
 			}
 			if mgr.SetPublicAddr(newIP) {
 				slog.Info(fmt.Sprintf("internal IP changed to %s, restarting rolodex", newIP))
-				if err := mgr.Start(ctx); err != nil {
+				if _, err := mgr.Start(ctx); err != nil {
 					slog.Error(fmt.Sprintf("restart rolodex after IP change: %v", err))
 				}
 			}

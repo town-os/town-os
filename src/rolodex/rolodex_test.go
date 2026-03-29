@@ -6,10 +6,12 @@ package rolodex
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -406,8 +408,12 @@ func TestStartProductionRewritesResolv(t *testing.T) {
 		ResolvConfPath: resolvPath,
 	})
 
-	if err := mgr.Start(context.Background()); err != nil {
+	restarted, err := mgr.Start(context.Background())
+	if err != nil {
 		t.Fatalf("Start: %v", err)
+	}
+	if !restarted {
+		t.Fatal("expected restart on first Start (unit not yet installed)")
 	}
 
 	// Verify resolv.conf is a regular file pointing at DNSLoopback.
@@ -427,33 +433,23 @@ func TestStartProductionRewritesResolv(t *testing.T) {
 		t.Fatalf("expected resolv.conf %q, got %q", want, got)
 	}
 
-	// Verify no calls to systemd-resolved.service.
-	for _, c := range mock.GetCalls() {
-		if c.Method == "SetStatus" && len(c.Args) >= 1 {
-			unit, _ := c.Args[0].(string)
-			if unit == "systemd-resolved.service" {
-				t.Fatalf("unexpected call to systemd-resolved.service: %v", c)
-			}
-		}
-	}
-
-	// Verify rolodex unit was installed and started.
+	// Verify rolodex unit was installed and restarted.
 	unitName := systemd.SystemServiceUnitName("rolodex")
 	if _, ok := mock.InstalledUnits[unitName]; !ok {
 		t.Errorf("expected unit %s to be installed", unitName)
 	}
-	hasStart := false
+	hasRestart := false
 	for _, c := range mock.GetCalls() {
 		if c.Method == "SetStatus" && len(c.Args) >= 2 {
 			u, _ := c.Args[0].(string)
 			a, _ := c.Args[1].(systemd.StatusAction)
-			if u == unitName && a == systemd.Start {
-				hasStart = true
+			if u == unitName && a == systemd.Restart {
+				hasRestart = true
 			}
 		}
 	}
-	if !hasStart {
-		t.Errorf("expected SetStatus(%s, start)", unitName)
+	if !hasRestart {
+		t.Errorf("expected SetStatus(%s, restart)", unitName)
 	}
 }
 
@@ -465,18 +461,8 @@ func TestStartProductionRollbackOnFailure(t *testing.T) {
 	mock := &selectiveErrMock{
 		MockManager: inner,
 		failUnit:    unitName,
-		failAction:  systemd.Start,
-		failErr:     errors.New("container start failed"),
-	}
-
-	// Create a symlink as resolv.conf.
-	stubFile := filepath.Join(dir, "stub-resolv.conf")
-	if err := os.WriteFile(stubFile, []byte("nameserver 127.0.0.53\n"), 0644); err != nil {
-		t.Fatalf("write stub: %v", err)
-	}
-	resolvPath := filepath.Join(dir, "resolv.conf")
-	if err := os.Symlink(stubFile, resolvPath); err != nil {
-		t.Fatalf("symlink: %v", err)
+		failAction:  systemd.Restart,
+		failErr:     errors.New("container restart failed"),
 	}
 
 	mgr := NewManager(Config{
@@ -485,28 +471,99 @@ func TestStartProductionRollbackOnFailure(t *testing.T) {
 		Image:          "quay.io/town/rolodex:latest",
 		Local:          false,
 		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
-		ResolvConfPath: resolvPath,
 	})
 
-	err := mgr.Start(context.Background())
+	_, err := mgr.Start(context.Background())
 	if err == nil {
 		t.Fatal("expected error from Start")
 	}
+}
 
-	// Verify resolv.conf was restored as a symlink.
-	fi, err := os.Lstat(resolvPath)
+func TestStartSkipsRestartWhenUnitUnchanged(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-skip-restart-*")
+	mock := systemd.InitMockManager()
+
+	mgr := NewManager(Config{
+		Systemd:        mock,
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          true,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+	})
+
+	// First Start installs and restarts the unit (ReadUnit returns error).
+	restarted, err := mgr.Start(context.Background())
 	if err != nil {
-		t.Fatalf("Lstat: %v", err)
+		t.Fatalf("first Start: %v", err)
 	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("expected symlink after rollback, got regular file")
+	if !restarted {
+		t.Fatal("expected restart on first Start")
 	}
-	target, err := os.Readlink(resolvPath)
+
+	// Clear call log.
+	mock.Calls = nil
+
+	// Second Start should find the unit unchanged and skip restart.
+	restarted, err = mgr.Start(context.Background())
 	if err != nil {
-		t.Fatalf("Readlink: %v", err)
+		t.Fatalf("second Start: %v", err)
 	}
-	if target != stubFile {
-		t.Fatalf("expected symlink target %q, got %q", stubFile, target)
+	if restarted {
+		t.Fatal("expected no restart when unit is unchanged")
+	}
+
+	// Verify no Restart/Start/Stop calls were made.
+	for _, c := range mock.GetCalls() {
+		if c.Method == "SetStatus" {
+			t.Fatalf("unexpected SetStatus call: %v", c)
+		}
+	}
+}
+
+func TestStartRestartsWhenUnitChanged(t *testing.T) {
+	dir := rolodexTestDir(t, "rolodex-changed-restart-*")
+	mock := systemd.InitMockManager()
+
+	mgr := NewManager(Config{
+		Systemd:        mock,
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		Local:          true,
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+	})
+
+	// First Start installs the unit.
+	if _, err := mgr.Start(context.Background()); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+
+	// Change the public address so the unit content changes.
+	mgr.SetPublicAddr("10.0.0.1")
+
+	mock.Calls = nil
+
+	// Second Start should detect the change and restart.
+	restarted, err := mgr.Start(context.Background())
+	if err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	if !restarted {
+		t.Fatal("expected restart when public address changed")
+	}
+
+	unitName := systemd.SystemServiceUnitName("rolodex")
+	hasRestart := false
+	for _, c := range mock.GetCalls() {
+		if c.Method == "SetStatus" && len(c.Args) >= 2 {
+			u, _ := c.Args[0].(string)
+			a, _ := c.Args[1].(systemd.StatusAction)
+			if u == unitName && a == systemd.Restart {
+				hasRestart = true
+			}
+		}
+	}
+	if !hasRestart {
+		t.Fatalf("expected Restart call for %s", unitName)
 	}
 }
 
@@ -534,7 +591,7 @@ func TestStopProductionRestoresResolv(t *testing.T) {
 	})
 
 	// Start first so the manager has state to restore.
-	if err := mgr.Start(context.Background()); err != nil {
+	if _, err := mgr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -545,23 +602,15 @@ func TestStopProductionRestoresResolv(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	// Verify resolv.conf restore happens before rolodex stop.
-	calls := mock.GetCalls()
-	unitName := systemd.SystemServiceUnitName("rolodex")
-	rolodexStopIdx := -1
-	for i, c := range calls {
-		if c.Method != "SetStatus" || len(c.Args) < 2 {
-			continue
+	// Stop should NOT call SetStatus(Stop) — the Rolodex unit is a boot
+	// service and is not stopped by the systemcontroller.
+	for _, c := range mock.GetCalls() {
+		if c.Method == "SetStatus" && len(c.Args) >= 2 {
+			action, _ := c.Args[1].(systemd.StatusAction)
+			if action == systemd.Stop {
+				t.Fatal("Stop() should not stop the rolodex unit")
+			}
 		}
-		unit, _ := c.Args[0].(string)
-		action, _ := c.Args[1].(systemd.StatusAction)
-		if unit == unitName && action == systemd.Stop && rolodexStopIdx == -1 {
-			rolodexStopIdx = i
-		}
-	}
-
-	if rolodexStopIdx == -1 {
-		t.Fatalf("missing SetStatus(%s, stop)", unitName)
 	}
 
 	// Verify resolv.conf was restored as a symlink.
@@ -595,7 +644,7 @@ func TestConfigureResolvedMDNS(t *testing.T) {
 		ResolvedConfDir: resolvedDir,
 	})
 
-	if err := mgr.Start(context.Background()); err != nil {
+	if _, err := mgr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -625,7 +674,7 @@ func TestConfigureResolvedMDNSSkippedWhenEmpty(t *testing.T) {
 		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
 	})
 
-	if err := mgr.Start(context.Background()); err != nil {
+	if _, err := mgr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -676,7 +725,7 @@ func TestStartLocalSkipsResolved(t *testing.T) {
 		ResolvConfPath: resolvPath,
 	})
 
-	if err := mgr.Start(context.Background()); err != nil {
+	if _, err := mgr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -766,4 +815,134 @@ func TestUnitConfigsResolvConfDirectives(t *testing.T) {
 			t.Fatalf("should not have ExecStopPost without ResolvConfPath, got %v", cfg.ExecStopPost)
 		}
 	})
+}
+
+// findFreePort returns a free TCP port on the loopback interface by binding
+// to port 0 and reading back the assigned port.
+func findFreePort(t *testing.T) string {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("findFreePort: %v", err)
+	}
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("SplitHostPort: %v", err)
+	}
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	return port
+}
+
+func TestWaitForDNSReadyImmediate(t *testing.T) {
+	port := findFreePort(t)
+
+	// Start a TCP listener before calling WaitForDNSReady.
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", net.JoinHostPort(DNSLoopback, port))
+	if err != nil {
+		// 127.0.0.2 may not be configured on all CI hosts; skip gracefully.
+		t.Skip("127.0.0.2 not available, skipping")
+	}
+	t.Cleanup(func() { _ = ln.Close() }) //nolint:errcheck // best-effort cleanup
+
+	mgr := NewManager(Config{
+		Systemd: systemd.InitMockManager(),
+		DataDir: t.TempDir(),
+		Image:   "quay.io/town/rolodex:test",
+		DNSPort: port,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	if err := mgr.WaitForDNSReady(ctx); err != nil {
+		t.Fatalf("WaitForDNSReady: %v", err)
+	}
+
+	// Should complete almost immediately (well under 1 second).
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("WaitForDNSReady took %v, expected < 2s", elapsed)
+	}
+}
+
+func TestWaitForDNSReadyDelayedStart(t *testing.T) {
+	port := findFreePort(t)
+
+	// Verify 127.0.0.2 is reachable.
+	var lc net.ListenConfig
+	probe, err := lc.Listen(context.Background(), "tcp", net.JoinHostPort(DNSLoopback, port))
+	if err != nil {
+		t.Skip("127.0.0.2 not available, skipping")
+	}
+	if err := probe.Close(); err != nil {
+		t.Fatalf("close probe: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Systemd: systemd.InitMockManager(),
+		DataDir: t.TempDir(),
+		Image:   "quay.io/town/rolodex:test",
+		DNSPort: port,
+	})
+
+	// Start the listener after a short delay to simulate container startup.
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		ln, listenErr := lc.Listen(context.Background(), "tcp", net.JoinHostPort(DNSLoopback, port))
+		if listenErr != nil {
+			return
+		}
+		<-done
+		_ = ln.Close() //nolint:errcheck // goroutine cleanup
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	if err := mgr.WaitForDNSReady(ctx); err != nil {
+		t.Fatalf("WaitForDNSReady: %v", err)
+	}
+
+	elapsed := time.Since(start)
+	if elapsed < 400*time.Millisecond {
+		t.Fatalf("WaitForDNSReady returned too quickly (%v), listener should not be up yet", elapsed)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("WaitForDNSReady took %v, expected < 5s", elapsed)
+	}
+}
+
+func TestWaitForDNSReadyContextCancelled(t *testing.T) {
+	port := findFreePort(t)
+
+	mgr := NewManager(Config{
+		Systemd: systemd.InitMockManager(),
+		DataDir: t.TempDir(),
+		Image:   "quay.io/town/rolodex:test",
+		DNSPort: port,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := mgr.WaitForDNSReady(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from WaitForDNSReady when no listener and context expires")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded in error, got: %v", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("WaitForDNSReady took %v after context timeout, expected prompt return", elapsed)
+	}
 }
