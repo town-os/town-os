@@ -406,12 +406,13 @@ func TestSystemControllerInstallNginxNetworkLifecycle(t *testing.T) {
 
 	networkName := systemd.NetworkName("core", "nginx", "1.0")
 
-	// Service unit must NOT create or remove the network (NC owns it).
-	if strings.Contains(serviceContent, "podman network create") {
-		t.Fatalf("service unit must not create network (NC owns it), got:\n%s", serviceContent)
+	// Service unit creates the network idempotently (boot race safety)
+	// but must NOT rm -f (NC owns cleanup).
+	if !strings.Contains(serviceContent, "podman network create "+networkName) {
+		t.Fatalf("service unit should idempotently create network, got:\n%s", serviceContent)
 	}
 	if strings.Contains(serviceContent, "podman network rm") {
-		t.Fatalf("service unit must not remove network (NC owns it), got:\n%s", serviceContent)
+		t.Fatalf("service unit must not remove network (NC owns cleanup), got:\n%s", serviceContent)
 	}
 
 	// Service must have After= for the NC unit.
@@ -707,12 +708,12 @@ func TestReconcileSharedNetworkForDependency(t *testing.T) {
 		t.Fatalf("dependency unit missing Before, got:\n%s", depContent)
 	}
 
-	// Dep must NOT create or rm the network (NC owns it).
+	// Dep creates the network idempotently (boot race safety) but must NOT rm -f.
 	if strings.Contains(depContent, "podman network rm") {
 		t.Fatalf("dependency must not remove the shared network, got:\n%s", depContent)
 	}
-	if strings.Contains(depContent, "podman network create") {
-		t.Fatalf("dependency must not create the network (NC owns it), got:\n%s", depContent)
+	if !strings.Contains(depContent, "podman network create "+parentNetwork) {
+		t.Fatalf("dependency should idempotently create parent network, got:\n%s", depContent)
 	}
 
 	// Dep must wait for the parent's NC (which creates the network).

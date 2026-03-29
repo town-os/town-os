@@ -200,11 +200,11 @@ func TestNCOwnsNetworkLifecycleForStandalonePackage(t *testing.T) {
 	if svcContent == "" {
 		t.Fatalf("expected service unit %s to be installed", svcName)
 	}
-	if strings.Contains(svcContent, "podman network create") {
-		t.Fatalf("service must not create network, got:\n%s", svcContent)
+	if !strings.Contains(svcContent, "podman network create") {
+		t.Fatalf("service should idempotently create network, got:\n%s", svcContent)
 	}
 	if strings.Contains(svcContent, "podman network rm") {
-		t.Fatalf("service must not remove network, got:\n%s", svcContent)
+		t.Fatalf("service must not remove network (NC owns cleanup), got:\n%s", svcContent)
 	}
 
 	// Service must have After= for the NC.
@@ -255,9 +255,9 @@ func TestNCBeforeDependenciesInChain(t *testing.T) {
 		t.Fatalf("dep missing NC %s in After, got:\n%s", ncUnitName, depContent)
 	}
 
-	// Dep must NOT create or remove the network (NC owns it).
-	if strings.Contains(depContent, "podman network create") {
-		t.Fatalf("dep must not create network, got:\n%s", depContent)
+	// Dep creates the network idempotently (boot race safety) but must NOT rm -f.
+	if !strings.Contains(depContent, "podman network create") {
+		t.Fatalf("dep should idempotently create network, got:\n%s", depContent)
 	}
 	if strings.Contains(depContent, "podman network rm") {
 		t.Fatalf("dep must not remove network, got:\n%s", depContent)
