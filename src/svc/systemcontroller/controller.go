@@ -146,7 +146,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)
 	e.Add("POST", "/account/disable", s.disableAccount, s.requireAdmin)
 	e.Add("POST", "/account/enable", s.enableAccount, s.requireAdmin)
-	e.Add("POST", "/audit/log", s.listAuditLog, s.requireAdmin)
+	e.Add("POST", "/audit/log", s.listAuditLog, s.localhostOrAuth)
 	e.Add("GET", "/settings", s.getSettings, s.requireAdmin)
 	e.Add("POST", "/settings/get", s.getSetting, s.requireAdmin)
 	e.Add("POST", "/settings/set", s.setSetting, s.requireAdmin)

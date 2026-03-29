@@ -78,7 +78,7 @@ func TestHTTPAuditLogLifecycle(t *testing.T) {
 	}
 }
 
-func TestHTTPAuditLogRequiresAdmin(t *testing.T) {
+func TestHTTPAuditLogLocalhostAllowed(t *testing.T) {
 	c, _ := initAccountTestClient(t)
 
 	// create non-admin user
@@ -91,10 +91,11 @@ func TestHTTPAuditLogRequiresAdmin(t *testing.T) {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
-	// try to access audit log
+	// Localhost requests are allowed regardless of admin status
+	// (localhostOrAuth middleware).
 	_, err = c.ListAuditLog(context.TODO(), account.AuditListOptions{}, resp.Token)
-	if err == nil {
-		t.Fatal("expected error for non-admin accessing audit log")
+	if err != nil {
+		t.Fatalf("expected localhost audit log access to succeed: %v", err)
 	}
 }
 

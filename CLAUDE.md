@@ -645,7 +645,7 @@ Tracked actions include: create/modify/remove filesystem, add/remove/move/refres
 
 Read-only endpoints are explicitly excluded from audit logging. Excluded paths include the root path (`/`), all GET list/query endpoints, info endpoints (`/packages/installed/info`), response retrieval (`/packages/last-responses`, `/packages/responses`), install preview (`/packages/install-preview`), version/question lookups, timezone listing, the pages list endpoint, status ping, system services listing (`/system-services`), audit log queries, settings reads, and log streaming endpoints.
 
-- `POST /audit/log` (admin required) -- query the audit log with cursor-based or offset pagination, account filtering, sorting, and search.
+- `POST /audit/log` (localhost or auth) -- query the audit log with cursor-based or offset pagination, account filtering, sorting, and search.
 
 ### Settings Management
 
