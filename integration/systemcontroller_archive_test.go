@@ -252,7 +252,7 @@ func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
 	t.Parallel()
 	c, btr := initSystemControllerTestWithStorageAndBtrfsBase(t)
 	ctx := context.TODO()
-	subvol := "installed/testrepo/testpkg/1.0/data"
+	subvol := "installed/repo-archtest/testpkg/1.0/data"
 
 	if err := btr.CreateFilesystem(storage.Filesystem{Name: subvol}); err != nil {
 		t.Fatalf("CreateFilesystem: %v", err)
@@ -261,13 +261,13 @@ func TestArchiveUploadDownloadInstalledVolume(t *testing.T) {
 		if err := btr.RemoveFilesystem(subvol); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
-		if err := btr.RemoveFilesystem("installed/testrepo/testpkg/1.0"); err != nil {
+		if err := btr.RemoveFilesystem("installed/repo-archtest/testpkg/1.0"); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
-		if err := btr.RemoveFilesystem("installed/testrepo/testpkg"); err != nil {
+		if err := btr.RemoveFilesystem("installed/repo-archtest/testpkg"); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
-		if err := btr.RemoveFilesystem("installed/testrepo"); err != nil {
+		if err := btr.RemoveFilesystem("installed/repo-archtest"); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
 	})
@@ -312,7 +312,7 @@ func TestModifyInstalledVolumeQuota(t *testing.T) {
 	t.Parallel()
 	c, btr := initSystemControllerTestWithStorageAndBtrfsBase(t)
 	ctx := context.TODO()
-	subvol := "installed/testrepo/quotapkg/1.0/data"
+	subvol := "installed/repo-quotamod/quotapkg/1.0/data"
 
 	if err := btr.CreateFilesystem(storage.Filesystem{Name: subvol}); err != nil {
 		t.Fatalf("CreateFilesystem: %v", err)
@@ -321,13 +321,13 @@ func TestModifyInstalledVolumeQuota(t *testing.T) {
 		if err := btr.RemoveFilesystem(subvol); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
-		if err := btr.RemoveFilesystem("installed/testrepo/quotapkg/1.0"); err != nil {
+		if err := btr.RemoveFilesystem("installed/repo-quotamod/quotapkg/1.0"); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
-		if err := btr.RemoveFilesystem("installed/testrepo/quotapkg"); err != nil {
+		if err := btr.RemoveFilesystem("installed/repo-quotamod/quotapkg"); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
-		if err := btr.RemoveFilesystem("installed/testrepo"); err != nil {
+		if err := btr.RemoveFilesystem("installed/repo-quotamod"); err != nil {
 			t.Errorf("RemoveFilesystem: %v", err)
 		}
 	})
