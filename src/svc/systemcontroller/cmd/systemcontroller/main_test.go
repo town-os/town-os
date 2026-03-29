@@ -118,7 +118,7 @@ func TestBuildNCImageSkipsWhenExists(t *testing.T) {
 	ensureImage = func(_ context.Context, _ string) error { return nil }
 
 	// buildNetworkControllerImage checks podman image exists for
-	// localhost/town-os-networkcontroller:local. Since we can't control that
+	// town-os-networkcontroller:local. Since we can't control that
 	// in unit tests, we verify the function signature is stable and
 	// the ensureImage var is used for base image pulls.
 	// Full integration is tested via make test-integration.
@@ -130,21 +130,21 @@ func TestNCImageFallbackOnBuildFailure(t *testing.T) {
 	var ncImage string
 	// This mirrors the logic in run(): if build fails, ncImage is empty.
 	if ncImage == "" {
-		ncImage = "localhost/town-os-networkcontroller:local"
+		ncImage = "town-os-networkcontroller:local"
 	}
-	if ncImage != "localhost/town-os-networkcontroller:local" {
-		t.Fatalf("expected fallback to localhost/town-os-networkcontroller:local, got %q", ncImage)
+	if ncImage != "town-os-networkcontroller:local" {
+		t.Fatalf("expected fallback to town-os-networkcontroller:local, got %q", ncImage)
 	}
 }
 
 func TestNCImageFallbackPreservesSuccessfulBuild(t *testing.T) {
 	// When the build succeeds, the image name should be preserved.
-	ncImage := "localhost/town-os-networkcontroller:local"
+	ncImage := "town-os-networkcontroller:local"
 	if ncImage == "" {
-		ncImage = "localhost/town-os-networkcontroller:local"
+		ncImage = "town-os-networkcontroller:local"
 	}
-	if ncImage != "localhost/town-os-networkcontroller:local" {
-		t.Fatalf("expected localhost/town-os-networkcontroller:local, got %q", ncImage)
+	if ncImage != "town-os-networkcontroller:local" {
+		t.Fatalf("expected town-os-networkcontroller:local, got %q", ncImage)
 	}
 }
 

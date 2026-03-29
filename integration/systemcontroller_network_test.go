@@ -565,7 +565,7 @@ func TestReconcileNginxNetworkState(t *testing.T) {
 		RepositoryRoot:         rr,
 		Storage:                mock,
 		Systemd:                sd,
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkControllerImage: "town-os-networkcontroller:local",
 		NetworkStatePath:       netStateDir,
 	})
 	if err != nil {

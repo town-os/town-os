@@ -2179,7 +2179,7 @@ func TestReconcileDoesNotPickUpMonitoringSystemServices(t *testing.T) {
 		Storage:                storage.InitBtrFSMock(),
 		Systemd:                sd,
 		BtrfsBasePath:          t.TempDir(),
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkControllerImage: "town-os-networkcontroller:local",
 		NetworkStatePath:       t.TempDir(),
 	}); err != nil {
 		t.Fatalf("Reconcile: %v", err)

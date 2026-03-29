@@ -238,7 +238,7 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "network controller image: %v\n", err)
 	}
 	if ncImage == "" {
-		ncImage = "localhost/town-os-networkcontroller:local"
+		ncImage = "town-os-networkcontroller:local"
 	}
 
 	// Derive UI image.
@@ -540,7 +540,7 @@ var ensureImage = func(ctx context.Context, image string) error {
 // baked into the systemcontroller image at build time, so rebuilding on every
 // startup guarantees the NC image always matches the running systemcontroller.
 func buildNetworkControllerImage(ctx context.Context) (string, error) {
-	const imageName = "localhost/town-os-networkcontroller:local"
+	const imageName = "town-os-networkcontroller:local"
 
 	buildDir, err := os.MkdirTemp("", "nc-image-build-*")
 	if err != nil {

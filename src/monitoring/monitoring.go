@@ -13,7 +13,7 @@ const (
 	GrafanaImage = "docker.io/grafana/grafana:latest"
 	// DefaultSocatImage is the fallback container image for the uPlot socat
 	// forwarder when no NC image is available.
-	DefaultSocatImage = "localhost/town-os-networkcontroller:local"
+	DefaultSocatImage = "town-os-networkcontroller:local"
 
 	// PrometheusPort is the default internal port used by Prometheus.
 	PrometheusPort = "9090"

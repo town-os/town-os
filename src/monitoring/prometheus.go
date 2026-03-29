@@ -41,7 +41,7 @@ func WritePrometheusConfig(btrfsBase, nodeExporterPort string) error {
 		nodeExporterPort = NodeExporterPort
 	}
 	configDir := filepath.Join(btrfsBase, "monitoring", "prometheus-config")
-	if err := os.MkdirAll(configDir, 0750); err != nil {
+	if err := os.MkdirAll(configDir, 0755); err != nil { //nolint:gosec // config dir must be readable by container process
 		return fmt.Errorf("create prometheus config dir: %w", err)
 	}
 	config := fmt.Sprintf(`global:
@@ -55,7 +55,7 @@ scrape_configs:
     static_configs:
       - targets: ["host.containers.internal:%s"]
 `, nodeExporterPort)
-	if err := os.WriteFile(filepath.Join(configDir, "prometheus.yml"), []byte(config), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "prometheus.yml"), []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
 		return fmt.Errorf("write prometheus.yml: %w", err)
 	}
 	return nil

@@ -351,7 +351,7 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T) (*syst
 		RepositoryRoot:         rr,
 		Installer:              inst,
 		Systemd:                sd,
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkControllerImage: "town-os-networkcontroller:local",
 		NetworkStatePath:       netStateDir,
 	})
 	t.Cleanup(func() { ts.Server.Close() })

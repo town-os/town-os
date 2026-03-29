@@ -72,26 +72,26 @@ func WriteGrafanaProvisioningFiles(btrfsBase string) error {
 
 	// Datasource directory.
 	dsDir := filepath.Join(provDir, "datasources")
-	if err := os.MkdirAll(dsDir, 0750); err != nil {
+	if err := os.MkdirAll(dsDir, 0755); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("create grafana datasources dir: %w", err)
 	}
 	dsYAML := GrafanaDatasourceYAML("host.containers.internal")
-	if err := os.WriteFile(filepath.Join(dsDir, "prometheus.yml"), []byte(dsYAML), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dsDir, "prometheus.yml"), []byte(dsYAML), 0644); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("write grafana datasource: %w", err)
 	}
 
 	// Dashboard provider directory.
 	dashDir := filepath.Join(provDir, "dashboards")
-	if err := os.MkdirAll(dashDir, 0750); err != nil {
+	if err := os.MkdirAll(dashDir, 0755); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("create grafana dashboards dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dashDir, "default.yml"), []byte(GrafanaDashboardProviderYAML), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dashDir, "default.yml"), []byte(GrafanaDashboardProviderYAML), 0644); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("write grafana dashboard provider: %w", err)
 	}
 
 	// Dashboard JSON directory (referenced by provider).
 	jsonDir := filepath.Join(provDir, "dashboard-json")
-	if err := os.MkdirAll(jsonDir, 0750); err != nil {
+	if err := os.MkdirAll(jsonDir, 0755); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("create grafana dashboard-json dir: %w", err)
 	}
 
