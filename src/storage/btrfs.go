@@ -481,9 +481,14 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 		quota, err := b.Controller.QGroupShow(filepath.Join(b.BasePath, item.Name))
 		if err != nil {
 			// Subvolume may have been deleted between the list and the
-			// quota query (concurrent operations). Skip it.
-			slog.Debug("listing filesystems: skipping deleted subvolume", "name", item.Name, "error", err)
-			continue
+			// quota query (concurrent operations). Skip only when the
+			// error indicates the path no longer exists.
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "No such file or directory") || strings.Contains(errMsg, "not a subvolume") {
+				slog.Debug("listing filesystems: skipping deleted subvolume", "name", item.Name, "error", err)
+				continue
+			}
+			return nil, fmt.Errorf("qgroup show %q: %w", item.Name, err)
 		}
 
 		fs = append(fs, Filesystem{Name: item.Name, Quota: quota})
