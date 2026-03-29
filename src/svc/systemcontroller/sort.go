@@ -120,8 +120,11 @@ func compareValues(a, b reflect.Value) int {
 		return 1
 	case reflect.Struct:
 		if a.Type() == reflect.TypeFor[time.Time]() {
-			at, _ := a.Interface().(time.Time)
-			bt, _ := b.Interface().(time.Time)
+			at, atOK := a.Interface().(time.Time)
+			bt, btOK := b.Interface().(time.Time)
+			if !atOK || !btOK {
+				return 0
+			}
 			if at.Before(bt) {
 				return -1
 			}
