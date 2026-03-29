@@ -15,37 +15,25 @@ func TestSystemControllerCreateAndList(t *testing.T) {
 	t.Parallel()
 	c := initSystemControllerTest(t)
 
-	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
-	if err != nil {
-		t.Fatalf("error listing before create: %v", err)
-	}
-	baseCount := len(baseResult.Entries)
+	// Use a unique prefix so parallel tests don't affect our count.
+	const prefix = "sc-create-list"
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-create-list"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: prefix}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := c.RemoveFilesystem(context.TODO(), "sc-create-list"); err != nil {
-			t.Errorf("cleanup RemoveFilesystem(%q): %v", "sc-create-list", err)
+		if err := c.RemoveFilesystem(context.TODO(), prefix); err != nil {
+			t.Errorf("cleanup RemoveFilesystem(%q): %v", prefix, err)
 		}
 	})
 
-	listResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
+	listResult, err := c.ListFilesystems(context.TODO(), prefix, "", systemcontroller.ListParams{})
 	if err != nil {
-		t.Fatalf("error listing after create: %v", err)
-	}
-
-	if len(listResult.Entries) != baseCount+1 {
-		t.Fatalf("expected %d filesystems after create, got %d", baseCount+1, len(listResult.Entries))
-	}
-
-	listResult, err = c.ListFilesystems(context.TODO(), "sc-create-list", "", systemcontroller.ListParams{})
-	if err != nil {
-		t.Fatalf("error listing with exact prefix: %v", err)
+		t.Fatalf("error listing with prefix: %v", err)
 	}
 
 	if len(listResult.Entries) != 1 {
-		t.Fatalf("expected 1 filesystem under test path, got %d", len(listResult.Entries))
+		t.Fatalf("expected 1 filesystem with prefix %q, got %d", prefix, len(listResult.Entries))
 	}
 }
 
@@ -53,27 +41,23 @@ func TestSystemControllerRemove(t *testing.T) {
 	t.Parallel()
 	c := initSystemControllerTest(t)
 
-	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
-	if err != nil {
-		t.Fatalf("error listing before create: %v", err)
-	}
-	baseCount := len(baseResult.Entries)
+	const prefix = "sc-remove"
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-remove"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: prefix}); err != nil {
 		t.Fatalf("error creating filesystem: %v", err)
 	}
 
-	if err := c.RemoveFilesystem(context.TODO(), "sc-remove"); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), prefix); err != nil {
 		t.Fatalf("error removing filesystem: %v", err)
 	}
 
-	listResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
+	listResult, err := c.ListFilesystems(context.TODO(), prefix, "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after remove: %v", err)
 	}
 
-	if len(listResult.Entries) != baseCount {
-		t.Fatalf("expected %d filesystems after remove, got %d", baseCount, len(listResult.Entries))
+	if len(listResult.Entries) != 0 {
+		t.Fatalf("expected 0 filesystems with prefix %q after remove, got %d", prefix, len(listResult.Entries))
 	}
 }
 
@@ -81,12 +65,7 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 	t.Parallel()
 	c := initSystemControllerTest(t)
 
-	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
-	if err != nil {
-		t.Fatalf("error listing before create: %v", err)
-	}
-	baseCount := len(baseResult.Entries)
-
+	const prefix = "sc-multi"
 	names := []string{"sc-multi-a", "sc-multi-b", "sc-multi-c"}
 	for _, name := range names {
 		if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: name}); err != nil {
@@ -103,13 +82,13 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 		}
 	}
 
-	listResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
+	listResult, err := c.ListFilesystems(context.TODO(), prefix, "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after creates: %v", err)
 	}
 
-	if len(listResult.Entries) != baseCount+len(names) {
-		t.Fatalf("expected %d filesystems, got %d", baseCount+len(names), len(listResult.Entries))
+	if len(listResult.Entries) != len(names) {
+		t.Fatalf("expected %d filesystems with prefix %q, got %d", len(names), prefix, len(listResult.Entries))
 	}
 
 	// Remove one and verify count
@@ -117,13 +96,13 @@ func TestSystemControllerMultipleFilesystems(t *testing.T) {
 		t.Fatalf("error removing sc-multi-b: %v", err)
 	}
 
-	listResult, err = c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
+	listResult, err = c.ListFilesystems(context.TODO(), prefix, "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("error listing after partial remove: %v", err)
 	}
 
-	if len(listResult.Entries) != baseCount+len(names)-1 {
-		t.Fatalf("expected %d filesystems after partial remove, got %d", baseCount+len(names)-1, len(listResult.Entries))
+	if len(listResult.Entries) != len(names)-1 {
+		t.Fatalf("expected %d filesystems with prefix %q after partial remove, got %d", len(names)-1, prefix, len(listResult.Entries))
 	}
 }
 
@@ -225,37 +204,33 @@ func TestSystemControllerFullLifecycle(t *testing.T) {
 	t.Parallel()
 	c := initSystemControllerTest(t)
 
-	baseResult, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
-	if err != nil {
-		t.Fatalf("ListFilesystems before create: %v", err)
-	}
-	baseCount := len(baseResult.Entries)
+	const prefix = "sc-lifecycle"
 
 	// Create
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-lifecycle"}); err != nil {
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: prefix}); err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
 
 	// Verify exists
-	listResult, err := c.ListFilesystems(context.TODO(), "sc-lifecycle", "", systemcontroller.ListParams{})
+	listResult, err := c.ListFilesystems(context.TODO(), prefix, "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify creation: %v", err)
 	}
 	if len(listResult.Entries) != 1 {
-		t.Fatalf("expected 1 filesystem, got %d", len(listResult.Entries))
+		t.Fatalf("expected 1 filesystem with prefix %q, got %d", prefix, len(listResult.Entries))
 	}
 
 	// Remove
-	if err := c.RemoveFilesystem(context.TODO(), "sc-lifecycle"); err != nil {
+	if err := c.RemoveFilesystem(context.TODO(), prefix); err != nil {
 		t.Fatalf("remove failed: %v", err)
 	}
 
 	// Verify gone
-	listResult, err = c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{})
+	listResult, err = c.ListFilesystems(context.TODO(), prefix, "", systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListFilesystems to verify removal: %v", err)
 	}
-	if len(listResult.Entries) != baseCount {
-		t.Fatalf("expected %d filesystems after remove, got %d", baseCount, len(listResult.Entries))
+	if len(listResult.Entries) != 0 {
+		t.Fatalf("expected 0 filesystems with prefix %q after remove, got %d", prefix, len(listResult.Entries))
 	}
 }
