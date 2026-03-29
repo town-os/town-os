@@ -51,7 +51,7 @@ func GenerateManifest(backend, nodeExporterPort string) string {
 
 	switch backend {
 	case BackendGrafana:
-		return grafanaManifest(nodeExporterPort)
+		return grafanaManifest()
 	default:
 		return uplotManifest(nodeExporterPort)
 	}
@@ -98,7 +98,7 @@ templates:
 // on port 5308, with Prometheus running on the same container network. The
 // Grafana provisioning files are generated separately by WriteGrafanaConfig
 // because the dashboard JSON contains Go template-conflicting syntax.
-func grafanaManifest(_ string) string {
+func grafanaManifest() string {
 	return fmt.Sprintf(`image: %s
 description: "System monitoring (Grafana + Prometheus + Node Exporter)"
 command: []
