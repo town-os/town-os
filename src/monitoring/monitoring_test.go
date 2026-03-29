@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"encoding/json"
+
 	"gopkg.in/yaml.v3"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -250,6 +252,90 @@ func TestNodeExporterSystemServiceCustomPort(t *testing.T) {
 	svc := NodeExporterSystemService("19100")
 	if svc.Port != "19100" {
 		t.Fatalf("expected custom port 19100, got %q", svc.Port)
+	}
+}
+
+func TestMonitoringPackageCompileAndUnitGeneration(t *testing.T) {
+	repoBase := t.TempDir()
+
+	if err := EnsureMonitoringPackage(repoBase, BackendUPlot, ""); err != nil {
+		t.Fatalf("EnsureMonitoringPackage: %v", err)
+	}
+
+	inst := packages.NewInstallManager(repoBase)
+	if _, err := InstallMonitoringPackage(inst); err != nil {
+		t.Fatalf("InstallMonitoringPackage: %v", err)
+	}
+
+	// Create a minimal repositories.json so RepositoryRootFromBase works.
+	reposFile := filepath.Join(repoBase, packages.RepositoriesFile)
+	repoData, err := json.Marshal([]packages.Repository{})
+	if err != nil {
+		t.Fatalf("marshal repos: %v", err)
+	}
+	if err := os.WriteFile(reposFile, repoData, 0600); err != nil {
+		t.Fatalf("write repos file: %v", err)
+	}
+
+	// Verify LoadPackage works (same path reconcile uses).
+	rr, err := packages.RepositoryRootFromBase(repoBase)
+	if err != nil {
+		t.Fatalf("RepositoryRootFromBase: %v", err)
+	}
+
+	ip, err := rr.LoadPackage(MonitoringRepo, MonitoringPackageName, MonitoringVersion)
+	if err != nil {
+		t.Fatalf("LoadPackage: %v", err)
+	}
+
+	compiled, err := ip.Compile(packages.Responses{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	if compiled.Image == "" {
+		t.Fatal("expected non-empty image after compile")
+	}
+
+	// Verify the package has internal ports (needed for NC generation).
+	if len(compiled.Network.Internal) == 0 {
+		t.Fatal("expected internal port mapping for NC generation")
+	}
+
+	// Verify the port 5308 is mapped.
+	found := false
+	for ext := range compiled.Network.Internal {
+		if ext == 5308 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected port 5308 in internal network, got %v", compiled.Network.Internal)
+	}
+
+	// Verify unit generation produces an NC unit.
+	units := systemd.GeneratePackageUnits(systemd.PackageUnitConfig{
+		RepoName:               MonitoringRepo,
+		PkgName:                MonitoringPackageName,
+		Version:                MonitoringVersion,
+		Description:            ip.Description,
+		Image:                  compiled.Image,
+		Environment:            compiled.Environment,
+		External:               compiled.Network.External,
+		Internal:               compiled.Network.Internal,
+		Volumes:                compiled.Volumes,
+		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkStatePath:       "/var/run/town-os",
+	})
+
+	if units.NetworkController == nil {
+		t.Fatal("expected NC unit for monitoring package (has ports)")
+	}
+	if !strings.Contains(units.NetworkController.Content, "5308") {
+		t.Fatal("NC unit should expose port 5308")
+	}
+	if !strings.Contains(units.Service.Content, PrometheusImage) {
+		t.Fatalf("service unit should reference prometheus image, got:\n%s", units.Service.Content)
 	}
 }
 

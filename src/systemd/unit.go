@@ -387,6 +387,12 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=simple\n")
 
+	// Wait for the NC image to be available. The systemcontroller builds
+	// it at startup, so on boot the image may not exist yet. This check
+	// combined with Restart=on-failure ensures the NC retries until the
+	// image is ready.
+	fmt.Fprintf(&b, "ExecStartPre=/usr/bin/podman image exists %s\n", cfg.NetworkControllerImage)
+
 	// Create the podman network — NC owns the network lifecycle.
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
 
