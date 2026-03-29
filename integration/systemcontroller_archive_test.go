@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/storage"
-	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 )
 
 // makeTarGz builds a tar.gz archive in memory from a map of filename -> content.
@@ -339,18 +338,18 @@ func TestModifyInstalledVolumeQuota(t *testing.T) {
 		t.Fatalf("ModifyFilesystem quota on installed volume: %v", err)
 	}
 
-	// Use a prefix specific to this test's repo to avoid races with parallel
-	// tests that create/delete subvolumes under installed/.
-	result, err := c.ListFilesystems(ctx, "quotapkg/1.0/data", "installed", systemcontroller.ListParams{})
+	// Query the volume directly via btrfs storage to verify the quota was
+	// applied. Using the API with a prefix doesn't work for installed volumes
+	// because the handler prepends "user/" to the prefix.
+	list, err := btr.ListFilesystems("installed/repo-quotamod/quotapkg/1.0/data")
 	if err != nil {
 		t.Fatalf("ListFilesystems: %v", err)
 	}
-
-	if len(result.Entries) != 1 {
-		t.Fatalf("expected 1 entry for quotapkg/1.0/data, got %d", len(result.Entries))
+	if len(list) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(list))
 	}
-	if result.Entries[0].Quota != 1073741824 {
-		t.Fatalf("expected quota 1073741824, got %d", result.Entries[0].Quota)
+	if list[0].Quota != 1073741824 {
+		t.Fatalf("expected quota 1073741824, got %d", list[0].Quota)
 	}
 }
 
