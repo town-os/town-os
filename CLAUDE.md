@@ -8,6 +8,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
     - BEFORE YOU PUSH, ALWAYS "git pull --rebase" and fix any merge issues.
     - DO NOT TOUCH GPG IN ANY WAY. Just `git commit` normally. If signing fails, stop and ask the user. Never kill gpg-agent, never use --no-gpg-sign, never try to fix GPG yourself.
     - DO NOT COMMIT WITHOUT SIGNING.
+    - DO NOT MESS WITH GPG AGENT FOR ANYTHING
 
 - when parameters are supplied, ensure they are used in the calling function
 
