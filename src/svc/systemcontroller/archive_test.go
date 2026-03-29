@@ -18,7 +18,6 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
-	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -156,7 +155,7 @@ func (b *archiveTestBackend) GetGitCloner() packages.GitCloner                  
 func (b *archiveTestBackend) GetPagesManager() account.PagesManager               { return nil }
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
-func (b *archiveTestBackend) GetMonitoring() *monitoring.Manager                  { return nil }
+func (b *archiveTestBackend) GetMonitoringBackend() string                        { return "" }
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
 func (b *archiveTestBackend) GetUI() *ui.Manager { return nil }

@@ -16,7 +16,6 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
-	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -57,7 +56,7 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 	return packages.DefaultGitCloner{}
 }
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
-func (s *serverBase) GetMonitoring() *monitoring.Manager     { return s.Monitoring }
+func (s *serverBase) GetMonitoringBackend() string { return s.MonitoringBackend }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
 func (s *serverBase) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {

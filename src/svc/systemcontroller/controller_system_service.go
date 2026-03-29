@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
 )
@@ -43,16 +44,16 @@ type systemServiceInfo struct {
 func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 	var all []systemServiceInfo
 
-	if mon := s.Controller.GetMonitoring(); mon != nil {
-		for _, svc := range mon.SystemServices() {
-			all = append(all, systemServiceInfo{
-				Key:         svc.Key,
-				DisplayName: svc.DisplayName,
-				Image:       svc.Image,
-				Port:        svc.Port,
-				UnitName:    svc.UnitName,
-			})
-		}
+	// Node Exporter runs as a system service (needs host networking).
+	if s.Controller.GetMonitoringBackend() != "" {
+		ne := monitoring.NodeExporterSystemService("")
+		all = append(all, systemServiceInfo{
+			Key:         ne.Key,
+			DisplayName: ne.DisplayName,
+			Image:       ne.Image,
+			Port:        ne.Port,
+			UnitName:    ne.UnitName,
+		})
 	}
 
 	if rol := s.Controller.GetRolodex(); rol != nil {

@@ -7,7 +7,6 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
-	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -36,7 +35,7 @@ type systemControllerBackend interface {
 	GetInternalIP() string
 	GetGitCloner() packages.GitCloner
 	GetPagesManager() account.PagesManager
-	GetMonitoring() *monitoring.Manager
+	GetMonitoringBackend() string
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
 	GetUI() *ui.Manager
@@ -169,7 +168,6 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 
 	// Monitoring
 	e.Add("GET", "/monitoring/status", s.monitoringStatus, s.requireAuth)
-	e.Add("GET", "/monitoring/grafana/*", s.grafanaProxy)
 
 	// System Services
 	e.Add("GET", "/system-services", s.listSystemServices, s.localhostOrAuth)
@@ -207,7 +205,7 @@ type ServerConfig struct {
 	NetworkStatePath       string
 	PagesMgr                 account.PagesManager
 	GitCloner                packages.GitCloner
-	Monitoring               *monitoring.Manager
+	MonitoringBackend        string
 	Rolodex                  *rolodex.Manager
 	RolodexClient            rolodex.Client
 	UI                       *ui.Manager

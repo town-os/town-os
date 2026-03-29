@@ -88,7 +88,7 @@ type MockClient struct {
 	RebuildPageErr         error
 	UploadPageArchiveErr   error
 	ListLocalesErr       error
-	MonitoringStatusResp       *monitoring.Status
+	MonitoringStatusResp       *monitoring.MonitoringStatus
 	MonitoringStatusErr        error
 	SystemServices             []SystemServiceEntry
 	ListSystemServicesErr      error

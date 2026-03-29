@@ -15,26 +15,6 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-func initMonitoringTestClient(t *testing.T) (*SystemdClient, *monitoring.Manager, *systemd.MockManager) {
-	t.Helper()
-	mock := storage.InitBtrFSMock()
-	sd := systemd.InitMockManager()
-	monMgr := monitoring.NewManager(monitoring.Config{
-		Systemd: sd,
-		DataDir: t.TempDir(),
-	})
-
-	ts := InitTestServer(ServerConfig{Storage: mock, Monitoring: monMgr, Systemd: sd})
-	t.Cleanup(ts.Close)
-
-	c, err := ts.Client()
-	if err != nil {
-		t.Fatalf("ts.Client: %v", err)
-	}
-
-	return c, monMgr, sd
-}
-
 func TestHTTPMonitoringStatusWithoutMonitoring(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ts := InitTestServer(ServerConfig{Storage: mock})
@@ -68,20 +48,31 @@ func TestHTTPMonitoringStatusWithoutMonitoring(t *testing.T) {
 	}
 }
 
-func TestHTTPMonitoringStatusWithMonitoring(t *testing.T) {
-	c, monMgr, sd := initMonitoringTestClient(t)
+func TestHTTPMonitoringStatusUPlotBackend(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
 
-	ctx := context.Background()
-	if err := monMgr.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer monMgr.Stop()
-
-	// Pre-populate systemd mock with active units to simulate running state.
+	// Simulate the monitoring package unit running.
+	monUnitName := systemd.UnitName(
+		monitoring.MonitoringRepo,
+		monitoring.MonitoringPackageName,
+		monitoring.MonitoringVersion,
+	)
 	sd.Units = []systemd.UnitStatus{
-		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: monUnitName, ActiveState: "active"},
 		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
-		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "active"},
+	}
+
+	ts := InitTestServer(ServerConfig{
+		Storage:           mock,
+		Systemd:           sd,
+		MonitoringBackend: monitoring.BackendUPlot,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
 	}
 
 	status, err := c.MonitoringStatus(context.TODO())
@@ -89,53 +80,65 @@ func TestHTTPMonitoringStatusWithMonitoring(t *testing.T) {
 		t.Fatalf("MonitoringStatus: %v", err)
 	}
 
-	if !status.Prometheus.Running {
+	if status.Backend != monitoring.BackendUPlot {
+		t.Fatalf("expected backend %q, got %q", monitoring.BackendUPlot, status.Backend)
+	}
+	if !status.Prometheus {
 		t.Fatal("expected prometheus running")
 	}
-	if !status.NodeExporter.Running {
+	if !status.NodeExporter {
 		t.Fatal("expected node-exporter running")
 	}
-	if !status.Grafana.Running {
+}
+
+func TestHTTPMonitoringStatusGrafanaBackend(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+
+	monUnitName := systemd.UnitName(
+		monitoring.MonitoringRepo,
+		monitoring.MonitoringPackageName,
+		monitoring.MonitoringVersion,
+	)
+	depUnitName := systemd.UnitName(
+		monitoring.MonitoringRepo,
+		monitoring.MonitoringPackageName+"--dep--prometheus",
+		monitoring.MonitoringVersion,
+	)
+	sd.Units = []systemd.UnitStatus{
+		{Name: monUnitName, ActiveState: "active"},
+		{Name: depUnitName, ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+	}
+
+	ts := InitTestServer(ServerConfig{
+		Storage:           mock,
+		Systemd:           sd,
+		MonitoringBackend: monitoring.BackendGrafana,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	status, err := c.MonitoringStatus(context.TODO())
+	if err != nil {
+		t.Fatalf("MonitoringStatus: %v", err)
+	}
+
+	if status.Backend != monitoring.BackendGrafana {
+		t.Fatalf("expected backend %q, got %q", monitoring.BackendGrafana, status.Backend)
+	}
+	if !status.Prometheus {
+		t.Fatal("expected prometheus running")
+	}
+	if !status.Grafana {
 		t.Fatal("expected grafana running")
 	}
-}
-
-func TestHTTPMonitoringStatusReportsImages(t *testing.T) {
-	c, _, _ := initMonitoringTestClient(t)
-
-	status, err := c.MonitoringStatus(context.TODO())
-	if err != nil {
-		t.Fatalf("MonitoringStatus: %v", err)
-	}
-
-	if status.Prometheus.Image != monitoring.PrometheusImage {
-		t.Fatalf("expected prometheus image %q, got %q", monitoring.PrometheusImage, status.Prometheus.Image)
-	}
-	if status.NodeExporter.Image != monitoring.NodeExporterImage {
-		t.Fatalf("expected node-exporter image %q, got %q", monitoring.NodeExporterImage, status.NodeExporter.Image)
-	}
-	if status.Grafana.Image != monitoring.GrafanaImage {
-		t.Fatalf("expected grafana image %q, got %q", monitoring.GrafanaImage, status.Grafana.Image)
-	}
-}
-
-func TestHTTPMonitoringStatusReportsPorts(t *testing.T) {
-	c, _, _ := initMonitoringTestClient(t)
-
-	status, err := c.MonitoringStatus(context.TODO())
-	if err != nil {
-		t.Fatalf("MonitoringStatus: %v", err)
-	}
-
-	// Default ports.
-	if status.Prometheus.Port != "9090" {
-		t.Fatalf("expected prometheus port 9090, got %q", status.Prometheus.Port)
-	}
-	if status.NodeExporter.Port != "9100" {
-		t.Fatalf("expected node-exporter port 9100, got %q", status.NodeExporter.Port)
-	}
-	if status.Grafana.Port != "3000" {
-		t.Fatalf("expected grafana port 3000, got %q", status.Grafana.Port)
+	if !status.NodeExporter {
+		t.Fatal("expected node-exporter running")
 	}
 }
 
@@ -147,17 +150,16 @@ func TestMockClientMonitoringStatus(t *testing.T) {
 		t.Fatalf("MockClient.MonitoringStatus: %v", err)
 	}
 
-	// Default mock should return empty status.
-	if status.Prometheus.Running {
+	if status.Prometheus {
 		t.Fatal("expected prometheus not running in default mock")
 	}
 }
 
 func TestMockClientMonitoringStatusCustomResponse(t *testing.T) {
 	m := InitMockClient()
-	m.MonitoringStatusResp = &monitoring.Status{
-		Prometheus: monitoring.ContainerStatus{Running: true},
-		Grafana:    monitoring.ContainerStatus{Running: true},
+	m.MonitoringStatusResp = &monitoring.MonitoringStatus{
+		Backend:    monitoring.BackendUPlot,
+		Prometheus: true,
 	}
 
 	status, err := m.MonitoringStatus(context.TODO())
@@ -165,11 +167,11 @@ func TestMockClientMonitoringStatusCustomResponse(t *testing.T) {
 		t.Fatalf("MockClient.MonitoringStatus: %v", err)
 	}
 
-	if !status.Prometheus.Running {
+	if !status.Prometheus {
 		t.Fatal("expected prometheus running")
 	}
-	if !status.Grafana.Running {
-		t.Fatal("expected grafana running")
+	if status.Backend != monitoring.BackendUPlot {
+		t.Fatalf("expected backend %q, got %q", monitoring.BackendUPlot, status.Backend)
 	}
 }
 

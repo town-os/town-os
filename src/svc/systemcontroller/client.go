@@ -220,12 +220,10 @@ type Client interface {
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)
 
-	// MonitoringStatus returns the current state of the monitoring stack
-	// (Prometheus, Node Exporter, Grafana) including container running
-	// status, images, and ports.
+	// MonitoringStatus returns the current state of the monitoring stack.
 	//
 	// Calls GET /monitoring/status on the Control Plane Service.
-	MonitoringStatus(ctx context.Context) (*monitoring.Status, error)
+	MonitoringStatus(ctx context.Context) (*monitoring.MonitoringStatus, error)
 
 	// ListSystemServices returns system services with their current status.
 	//

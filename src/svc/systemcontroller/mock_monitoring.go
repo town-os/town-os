@@ -7,10 +7,9 @@ import (
 )
 
 // MonitoringStatus returns the current monitoring stack status from the mock.
-// Returns a default empty status when MonitoringStatusResp is nil.
 //
 // Calls GET /monitoring/status on the Control Plane Service.
-func (m *MockClient) MonitoringStatus(_ context.Context) (*monitoring.Status, error) {
+func (m *MockClient) MonitoringStatus(_ context.Context) (*monitoring.MonitoringStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -24,5 +23,5 @@ func (m *MockClient) MonitoringStatus(_ context.Context) (*monitoring.Status, er
 		return m.MonitoringStatusResp, nil
 	}
 
-	return &monitoring.Status{}, nil
+	return &monitoring.MonitoringStatus{}, nil
 }

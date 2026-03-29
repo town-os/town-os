@@ -240,6 +240,47 @@ func run() (err error) {
 		ncImage = "localhost/town-os-networkcontroller:local"
 	}
 
+	// Derive UI image.
+	uiImage := os.Getenv("UI_IMAGE")
+	if uiImage == "" {
+		uiImage = "quay.io/town/ui:" + tag
+	}
+
+	// Determine monitoring backend (uplot or grafana).
+	monBackend := monitoring.BackendUPlot
+	if v, settingsErr := settingsMgr.Get("monitoring_backend"); settingsErr == nil && v != "" {
+		monBackend = v
+	}
+
+	// Pull container images (non-fatal).
+	coreImages := []string{
+		monitoring.PrometheusImage,
+		monitoring.NodeExporterImage,
+		uiImage,
+	}
+	if monBackend == monitoring.BackendGrafana {
+		coreImages = append(coreImages, monitoring.GrafanaImage)
+	}
+	for _, img := range coreImages {
+		if err := ensureImage(ctx, img); err != nil {
+			fmt.Fprintf(os.Stderr, "pull %s: %v\n", img, err)
+		}
+	}
+
+	// Start Node Exporter as a system service (needs host networking).
+	if err := monitoring.StartNodeExporter(ctx, sd, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "node-exporter: %v\n", err)
+	}
+
+	// Write the monitoring package manifest and register it as installed
+	// BEFORE reconcile so that reconcile picks it up and generates
+	// volumes, templates, NC state, and systemd units.
+	if err := monitoring.EnsureMonitoringPackage(repoBase, monBackend, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "monitoring package: %v\n", err)
+	} else if _, err := monitoring.InstallMonitoringPackage(inst); err != nil {
+		fmt.Fprintf(os.Stderr, "monitoring install: %v\n", err)
+	}
+
 	// Detect whether the systemcontroller image changed since the last
 	// run. When it has, reconcile will restart all units whose generated
 	// content differs from what is on disk.
@@ -275,55 +316,6 @@ func run() (err error) {
 
 	// Persist current image SHA so the next startup can detect changes.
 	persistVersion(ctx, versionFile)
-
-	// Derive UI image.
-	uiImage := os.Getenv("UI_IMAGE")
-	if uiImage == "" {
-		uiImage = "quay.io/town/ui:" + tag
-	}
-
-	// Determine monitoring backend (uplot or grafana).
-	monBackend := "uplot"
-	if v, settingsErr := settingsMgr.Get("monitoring_backend"); settingsErr == nil && v != "" {
-		monBackend = v
-	}
-
-	// Pull remaining system service container images (non-fatal).
-	// Skip images that are already loaded (e.g. pre-loaded in test/dev
-	// containers where DNS may not be available).
-	coreImages := []string{
-		monitoring.PrometheusImage,
-		monitoring.NodeExporterImage,
-		uiImage,
-	}
-	if monBackend == "grafana" {
-		coreImages = append(coreImages, monitoring.GrafanaImage)
-	}
-	for _, img := range coreImages {
-		if err := ensureImage(ctx, img); err != nil {
-			fmt.Fprintf(os.Stderr, "pull %s: %v\n", img, err)
-		}
-	}
-
-	// Start the monitoring stack. When backend is "uplot", only Prometheus
-	// and Node Exporter are started (Grafana is skipped, saving ~771 MB).
-	monDataDir := filepath.Join(repoBase, "monitoring")
-	monMgr := monitoring.NewManager(monitoring.Config{
-		Systemd: sd,
-		DataDir: monDataDir,
-	})
-	var monErr error
-	if monBackend == "grafana" {
-		monErr = monMgr.Start(ctx)
-	} else {
-		monErr = monMgr.StartCore(ctx)
-	}
-	if monErr != nil {
-		// Non-fatal: monitoring failure should not prevent the system
-		// controller from starting.
-		fmt.Fprintf(os.Stderr, "monitoring: %v\n", monErr)
-		monMgr = nil
-	}
 
 	// Poll for internal IP changes (DHCP lease renewals) and restart
 	// rolodex when the public address changes.
@@ -388,7 +380,7 @@ func run() (err error) {
 		BtrfsBasePath:          *btrfsPath,
 		NetworkControllerImage: ncImage,
 		NetworkStatePath:       *networkStatePath,
-		Monitoring:               monMgr,
+		MonitoringBackend:        monBackend,
 		Rolodex:                  rolMgr,
 		UI:                       uiMgr,
 	})

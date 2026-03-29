@@ -17,12 +17,12 @@ func initSystemServiceTestClient(t *testing.T) (*SystemdClient, *systemd.MockMan
 	t.Helper()
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
-	monMgr := monitoring.NewManager(monitoring.Config{
-		Systemd: sd,
-		DataDir: t.TempDir(),
-	})
 
-	ts := InitTestServer(ServerConfig{Storage: mock, Systemd: sd, Monitoring: monMgr})
+	ts := InitTestServer(ServerConfig{
+		Storage:           mock,
+		Systemd:           sd,
+		MonitoringBackend: monitoring.BackendUPlot,
+	})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -61,28 +61,22 @@ func TestHTTPListSystemServicesWithMonitoring(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	if len(entries) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(entries))
+	// Only node-exporter is a system service now; prometheus/grafana are packages.
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry (node-exporter), got %d", len(entries))
 	}
 
-	keys := map[string]bool{}
-	for _, e := range entries {
-		keys[e.Key] = true
-		if e.Image == "" {
-			t.Fatalf("expected non-empty image for key %q", e.Key)
-		}
-		if e.Port == "" {
-			t.Fatalf("expected non-empty port for key %q", e.Key)
-		}
-		if e.DisplayName == "" {
-			t.Fatalf("expected non-empty display name for key %q", e.Key)
-		}
+	if entries[0].Key != "node-exporter" {
+		t.Fatalf("expected key node-exporter, got %q", entries[0].Key)
 	}
-
-	for _, key := range []string{"prometheus", "node-exporter", "grafana"} {
-		if !keys[key] {
-			t.Fatalf("expected key %q in entries", key)
-		}
+	if entries[0].Image == "" {
+		t.Fatal("expected non-empty image")
+	}
+	if entries[0].Port == "" {
+		t.Fatal("expected non-empty port")
+	}
+	if entries[0].DisplayName == "" {
+		t.Fatal("expected non-empty display name")
 	}
 }
 
@@ -90,9 +84,7 @@ func TestHTTPListSystemServicesReportsRunningState(t *testing.T) {
 	c, sd := initSystemServiceTestClient(t)
 
 	sd.Units = []systemd.UnitStatus{
-		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active", SubState: "running"},
 		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active", SubState: "running"},
-		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "failed", SubState: "failed"},
 	}
 
 	entries, err := c.ListSystemServices(context.TODO())
@@ -100,24 +92,18 @@ func TestHTTPListSystemServicesReportsRunningState(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	for _, e := range entries {
-		switch e.Key {
-		case "prometheus", "node-exporter":
-			if e.ActiveState != "active" {
-				t.Fatalf("expected %s active, got %q", e.Key, e.ActiveState)
-			}
-		case "grafana":
-			if e.ActiveState != "failed" {
-				t.Fatalf("expected grafana failed, got %q", e.ActiveState)
-			}
-		}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].ActiveState != "active" {
+		t.Fatalf("expected node-exporter active, got %q", entries[0].ActiveState)
 	}
 }
 
 func TestHTTPSetSystemServiceStatusStart(t *testing.T) {
 	c, sd := initSystemServiceTestClient(t)
 
-	if err := c.SetSystemServiceStatus(context.TODO(), "prometheus", systemd.Start); err != nil {
+	if err := c.SetSystemServiceStatus(context.TODO(), "node-exporter", systemd.Start); err != nil {
 		t.Fatalf("SetSystemServiceStatus: %v", err)
 	}
 
@@ -125,21 +111,13 @@ func TestHTTPSetSystemServiceStatusStart(t *testing.T) {
 	found := false
 	for _, call := range calls {
 		if call.Method == "SetStatus" && len(call.Args) >= 2 {
-			if call.Args[0] == systemd.SystemServiceUnitName("prometheus") && call.Args[1] == systemd.Start {
+			if call.Args[0] == systemd.SystemServiceUnitName("node-exporter") && call.Args[1] == systemd.Start {
 				found = true
 			}
 		}
 	}
 	if !found {
-		t.Fatal("expected SetStatus(prometheus, start) call")
-	}
-}
-
-func TestHTTPSetSystemServiceStatusStop(t *testing.T) {
-	c, _ := initSystemServiceTestClient(t)
-
-	if err := c.SetSystemServiceStatus(context.TODO(), "grafana", systemd.Stop); err != nil {
-		t.Fatalf("SetSystemServiceStatus: %v", err)
+		t.Fatal("expected SetStatus(node-exporter, start) call")
 	}
 }
 
@@ -154,7 +132,7 @@ func TestHTTPSetSystemServiceStatusRestart(t *testing.T) {
 func TestHTTPSetSystemServiceStatusEnableRejected(t *testing.T) {
 	c, _ := initSystemServiceTestClient(t)
 
-	err := c.SetSystemServiceStatus(context.TODO(), "prometheus", systemd.Enable)
+	err := c.SetSystemServiceStatus(context.TODO(), "node-exporter", systemd.Enable)
 	if err == nil {
 		t.Fatal("expected error for enable action")
 	}
@@ -173,9 +151,7 @@ func TestHTTPPingIncludesSystemServiceCounts(t *testing.T) {
 	c, sd := initSystemServiceTestClient(t)
 
 	sd.Units = []systemd.UnitStatus{
-		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
 		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
-		{Name: systemd.SystemServiceUnitName("grafana"), ActiveState: "failed"},
 	}
 
 	ping, err := c.Ping(context.TODO())
@@ -187,23 +163,19 @@ func TestHTTPPingIncludesSystemServiceCounts(t *testing.T) {
 		t.Fatal("expected system_services in ping response")
 	}
 
-	if ping.SystemServices.Total != 3 {
-		t.Fatalf("expected 3 total system services, got %d", ping.SystemServices.Total)
+	if ping.SystemServices.Total != 1 {
+		t.Fatalf("expected 1 total system services, got %d", ping.SystemServices.Total)
 	}
 
-	if ping.SystemServices.Active != 2 {
-		t.Fatalf("expected 2 active system services, got %d", ping.SystemServices.Active)
-	}
-
-	if ping.SystemServices.Failed != 1 {
-		t.Fatalf("expected 1 failed system service, got %d", ping.SystemServices.Failed)
+	if ping.SystemServices.Active != 1 {
+		t.Fatalf("expected 1 active system services, got %d", ping.SystemServices.Active)
 	}
 }
 
 func TestMockClientListSystemServices(t *testing.T) {
 	m := InitMockClient()
 	m.SystemServices = []SystemServiceEntry{
-		{Key: "prometheus", DisplayName: "Prometheus"},
+		{Key: "node-exporter", DisplayName: "Node Exporter"},
 	}
 
 	entries, err := m.ListSystemServices(context.TODO())
@@ -215,8 +187,8 @@ func TestMockClientListSystemServices(t *testing.T) {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if entries[0].Key != "prometheus" {
-		t.Fatalf("expected key prometheus, got %q", entries[0].Key)
+	if entries[0].Key != "node-exporter" {
+		t.Fatalf("expected key node-exporter, got %q", entries[0].Key)
 	}
 }
 
@@ -233,7 +205,7 @@ func TestMockClientListSystemServicesError(t *testing.T) {
 func TestMockClientSetSystemServiceStatus(t *testing.T) {
 	m := InitMockClient()
 
-	if err := m.SetSystemServiceStatus(context.TODO(), "prometheus", systemd.Start); err != nil {
+	if err := m.SetSystemServiceStatus(context.TODO(), "node-exporter", systemd.Start); err != nil {
 		t.Fatalf("SetSystemServiceStatus: %v", err)
 	}
 
@@ -249,7 +221,7 @@ func TestMockClientSetSystemServiceStatus(t *testing.T) {
 func TestMockClientSetSystemServiceStatusRejectsEnable(t *testing.T) {
 	m := InitMockClient()
 
-	err := m.SetSystemServiceStatus(context.TODO(), "prometheus", systemd.Enable)
+	err := m.SetSystemServiceStatus(context.TODO(), "node-exporter", systemd.Enable)
 	if err == nil {
 		t.Fatal("expected error for enable action")
 	}
