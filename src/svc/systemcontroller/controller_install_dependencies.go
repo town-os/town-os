@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -164,6 +165,71 @@ func (s *SystemControllerHandlers) installDependencies(
 	}
 
 	return records, envVars, nil
+}
+
+// applyDepTemplates resolves @dep_KEY_host@ and @dep_KEY_port_N@ template
+// variables in the given environment map. Template keys are derived from the
+// TOWNOS_DEP_* environment variable names by stripping the "TOWNOS_" prefix
+// and lowercasing (e.g. TOWNOS_DEP_DB_HOST → dep_db_host).
+func applyDepTemplates(env map[string]string, depEnvVars map[string]string) {
+	depTemplates := make(packages.Responses, len(depEnvVars))
+	for envKey, envVal := range depEnvVars {
+		templateKey := strings.ToLower(strings.TrimPrefix(envKey, "TOWNOS_"))
+		depTemplates[templateKey] = envVal
+	}
+	for k, v := range env {
+		env[k] = packages.ApplyTemplates(v, depTemplates)
+	}
+}
+
+// buildDepEnvVarsFromRecords rebuilds TOWNOS_DEP_* environment variables
+// from persisted dependency records. This is used during reconcile when
+// the parent package must be recompiled from scratch.
+func buildDepEnvVarsFromRecords(
+	deps map[string]packages.DependencyRecord,
+	repoRoot *packages.RepositoryRoot,
+	installer packages.Installer,
+	settingsMgr account.SettingsManager,
+	externalIP, internalIP string,
+) map[string]string {
+	envVars := map[string]string{}
+	for depKey, rec := range deps {
+		upperKey := strings.ToUpper(depKey)
+		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = systemd.ContainerName(rec.Repo, rec.EffectiveName, rec.Version)
+
+		ip, err := repoRoot.LoadInstalledPackage(rec.Repo, rec.EffectiveName, rec.Version)
+		if err != nil {
+			slog.Debug(fmt.Sprintf("buildDepEnvVars: load dep %s/%s@%s: %v", rec.Repo, rec.EffectiveName, rec.Version, err))
+			continue
+		}
+		responses, err := installer.GetResponses(rec.Repo, rec.EffectiveName, rec.Version)
+		if err != nil {
+			slog.Debug(fmt.Sprintf("buildDepEnvVars: get responses %s/%s@%s: %v", rec.Repo, rec.EffectiveName, rec.Version, err))
+			continue
+		}
+		tld := "home"
+		if settingsMgr != nil {
+			if v, err := settingsMgr.Get("dns_tld"); err == nil && v != "" {
+				tld = v
+			}
+		}
+		compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
+			ExternalHost: externalIP,
+			InternalHost: internalIP,
+			PackageDNS:   rec.EffectiveName + "." + rec.Repo + "." + tld,
+		})
+		if err != nil {
+			slog.Debug(fmt.Sprintf("buildDepEnvVars: compile dep %s/%s@%s: %v", rec.Repo, rec.EffectiveName, rec.Version, err))
+			continue
+		}
+		for containerPort := range compiled.Network.External {
+			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
+		}
+		for containerPort := range compiled.Network.Internal {
+			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
+		}
+	}
+	return envVars
 }
 
 // uninstallDependencies removes all dependencies for a parent package by
