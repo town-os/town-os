@@ -428,6 +428,12 @@ const enUS = {
   'settings.proton_image_placeholder': 'ghcr.io/town-os/proton-runner:latest',
   'settings.proton_image_current_not_set': 'not set',
   'settings.toast_proton_image_updated': 'Proton runner image updated',
+  'settings.monitoring_title': 'Monitoring Dashboard',
+  'settings.monitoring_description': 'Select which monitoring frontend to use. uPlot is a lightweight built-in chart renderer. Grafana provides full dashboarding with additional resource usage.',
+  'settings.monitoring_label': 'Backend',
+  'settings.monitoring_option_uplot': 'uPlot (lightweight)',
+  'settings.monitoring_option_grafana': 'Grafana',
+  'settings.toast_monitoring_updated': 'Monitoring backend updated. The change takes effect on the next service restart.',
 
   // --- DataTable ---
   'datatable.search_placeholder': 'Search...',

@@ -14,6 +14,7 @@ const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 1024 * 1024 * 1024 // 1 GB
 const ARCHIVE_UNPACK_TIMEOUT_KEY = 'archive_unpack_timeout'
 const DEFAULT_ARCHIVE_UNPACK_TIMEOUT = 600 // seconds (10 min)
 const PROTON_IMAGE_KEY = 'proton_image'
+const MONITORING_BACKEND_KEY = 'monitoring_backend'
 
 function formatBytes(t, bytes) {
   if (bytes === 0) return t('settings.format_no_quota')
@@ -253,6 +254,28 @@ export default function SystemSettings() {
     }
   }
 
+  // --- Monitoring Backend ---
+  const currentMonitoringBackend = settings[MONITORING_BACKEND_KEY] || 'uplot'
+
+  const [monitoringBackendInput, setMonitoringBackendInput] = useState('uplot')
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    setMonitoringBackendInput(settings[MONITORING_BACKEND_KEY] || 'uplot')
+  }, [settings])
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  async function handleSaveMonitoringBackend(e) {
+    e.preventDefault()
+    try {
+      await getClient().setSetting(MONITORING_BACKEND_KEY, monitoringBackendInput)
+      toast.success(t('settings.toast_monitoring_updated'))
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
   const populated = new Set(localeData?.populated || [])
 
   return (
@@ -442,6 +465,32 @@ export default function SystemSettings() {
               placeholder={t('settings.proton_image_placeholder')}
               className="w-96"
             />
+          </div>
+          <Button type="submit">{t('settings.save_btn')}</Button>
+        </form>
+      </div>
+
+      <div className="rounded-lg border p-6 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold">{t('settings.monitoring_title')}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t('settings.monitoring_description')}{' '}
+            {t('settings.current_value', { value: '' })}<strong>{currentMonitoringBackend === 'grafana' ? 'Grafana' : 'uPlot'}</strong>
+          </p>
+        </div>
+
+        <form onSubmit={handleSaveMonitoringBackend} className="flex items-end gap-3">
+          <div className="space-y-2">
+            <Label htmlFor="monitoring-backend-select">{t('settings.monitoring_label')}</Label>
+            <select
+              id="monitoring-backend-select"
+              value={monitoringBackendInput}
+              onChange={(e) => setMonitoringBackendInput(e.target.value)}
+              className="flex h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
+            >
+              <option value="uplot">{t('settings.monitoring_option_uplot')}</option>
+              <option value="grafana">{t('settings.monitoring_option_grafana')}</option>
+            </select>
           </div>
           <Button type="submit">{t('settings.save_btn')}</Button>
         </form>

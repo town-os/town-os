@@ -232,6 +232,7 @@ const defaultSettings = {
   max_archive_size: '1073741824',
   archive_unpack_timeout: '600',
   proton_image: '',
+  monitoring_backend: 'uplot',
 }
 
 const mockGetSettings = vi.fn(() => Promise.resolve({ ...defaultSettings }))
@@ -291,11 +292,11 @@ describe('SystemSettings component', () => {
     })
   })
 
-  it('renders five Save buttons', async () => {
+  it('renders six Save buttons', async () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(5)
+      expect(buttons).toHaveLength(6)
     })
   })
 
@@ -658,6 +659,80 @@ describe('SystemSettings Proton Runner Image', () => {
     renderSystemSettings()
     await waitFor(() => {
       expect(screen.getByText(/Proton compatibility layer/)).toBeTruthy()
+    })
+  })
+})
+
+describe('SystemSettings Monitoring Backend', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+  })
+
+  it('renders the Monitoring Dashboard section title', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText('Monitoring Dashboard')).toBeTruthy()
+    })
+  })
+
+  it('renders the backend selector', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Backend')).toBeTruthy()
+    })
+  })
+
+  it('displays current backend value as uPlot by default', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const strong = screen.getByText('uPlot')
+      expect(strong.tagName).toBe('STRONG')
+    })
+  })
+
+  it('displays Grafana when monitoring_backend is grafana', async () => {
+    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, monitoring_backend: 'grafana' })
+    renderSystemSettings()
+    await waitFor(() => {
+      const strong = screen.getAllByText('Grafana')
+      expect(strong.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('clicking Save calls setSetting with monitoring_backend key', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, monitoring_backend: 'grafana' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Backend')).toBeTruthy()
+    })
+
+    // Wait for the select to reflect the grafana value from settings.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Backend').value).toBe('grafana')
+    })
+
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[saveButtons.length - 1])
+    })
+
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('monitoring_backend', 'grafana')
+    })
+  })
+
+  it('renders both uplot and grafana options', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const select = screen.getByLabelText('Backend')
+      const options = select.querySelectorAll('option')
+      expect(options).toHaveLength(2)
+      expect(options[0].value).toBe('uplot')
+      expect(options[1].value).toBe('grafana')
     })
   })
 })
