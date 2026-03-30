@@ -525,24 +525,16 @@ func persistVersion(ctx context.Context, versionFile string) {
 	}
 }
 
-// hostPodman executes a podman command on the host via nsenter into PID 1's
-// namespaces. The systemcontroller runs inside a container, so plain `podman`
-// operates on the container's image/container store. System service units run
-// on the host, so images must be available in the host's podman store.
-var hostPodman = func(ctx context.Context, args ...string) *exec.Cmd {
-	nsenterArgs := []string{"-t", "1", "-m", "-u", "-i", "-n", "-C", "--", "podman"}
-	nsenterArgs = append(nsenterArgs, args...)
-	return exec.CommandContext(ctx, "nsenter", nsenterArgs...) //nolint:gosec // G204 -- args from controlled callers
-}
-
-// ensureImage checks whether a container image is loaded on the host and pulls
-// it from the registry when it is not. This is a variable so tests can replace
+// ensureImage checks whether a container image is loaded locally and pulls it
+// from the registry when it is not. The systemcontroller container shares the
+// host's podman storage (/var/lib/containers), so plain `podman` operates on
+// the host's image store directly. This is a variable so tests can replace
 // the implementation without requiring podman.
 var ensureImage = func(ctx context.Context, image string) error {
-	if err := hostPodman(ctx, "image", "exists", image).Run(); err == nil {
+	if err := exec.CommandContext(ctx, "podman", "image", "exists", image).Run(); err == nil { //nolint:gosec // G204 -- image from caller
 		return nil // already loaded
 	}
-	out, pullErr := hostPodman(ctx, "pull", image).CombinedOutput()
+	out, pullErr := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from caller
 	if pullErr != nil {
 		return fmt.Errorf("pull %s: %w: %s", image, pullErr, string(out))
 	}
@@ -558,14 +550,7 @@ var ensureImage = func(ctx context.Context, image string) error {
 func buildNetworkControllerImage(ctx context.Context) error {
 	const imageName = "localhost/town-os-networkcontroller:local"
 
-	// Use /town-os/build as the parent for the build dir because /town-os
-	// is a shared bind-mount visible from the host. Container-local /tmp
-	// is not accessible via nsenter into the host namespaces.
-	const buildParent = "/town-os/build"
-	if err := os.MkdirAll(buildParent, 0750); err != nil {
-		return fmt.Errorf("create build parent dir: %w", err)
-	}
-	buildDir, err := os.MkdirTemp(buildParent, "nc-image-build-*")
+	buildDir, err := os.MkdirTemp("", "nc-image-build-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
@@ -628,7 +613,7 @@ CMD ["/town-os-networkcontroller"]
 		return err
 	}
 
-	out, err := hostPodman(ctx, "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
 	if err != nil {
 		return fmt.Errorf("podman build: %w: %s", err, string(out))
 	}
