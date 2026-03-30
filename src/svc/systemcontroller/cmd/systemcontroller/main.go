@@ -554,10 +554,14 @@ var ensureImage = func(ctx context.Context, image string) error {
 func buildNetworkControllerImage(ctx context.Context) (string, error) {
 	const imageName = "localhost/town-os-networkcontroller:local"
 
-	// Use /town-os as the parent for the build dir because it is a shared
-	// bind-mount visible from the host. Container-local /tmp is not
-	// accessible via nsenter into the host namespaces.
-	buildDir, err := os.MkdirTemp("/town-os", "nc-image-build-*")
+	// Use /town-os/build as the parent for the build dir because /town-os
+	// is a shared bind-mount visible from the host. Container-local /tmp
+	// is not accessible via nsenter into the host namespaces.
+	const buildParent = "/town-os/build"
+	if err := os.MkdirAll(buildParent, 0750); err != nil {
+		return "", fmt.Errorf("create build parent dir: %w", err)
+	}
+	buildDir, err := os.MkdirTemp(buildParent, "nc-image-build-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}

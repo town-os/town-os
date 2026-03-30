@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -145,6 +147,95 @@ func TestNCImageFallbackPreservesSuccessfulBuild(t *testing.T) {
 	}
 	if ncImage != "localhost/town-os-networkcontroller:local" {
 		t.Fatalf("expected localhost/town-os-networkcontroller:local, got %q", ncImage)
+	}
+}
+
+func TestHostPodmanWrapsWithNsenter(t *testing.T) {
+	cmd := hostPodman(context.Background(), "image", "exists", "test:latest")
+	args := cmd.Args
+	// Should start with nsenter -t 1 -m -u -i -n -- podman
+	// nsenter -t 1 -m -u -i -n -- podman image exists test:latest
+	if len(args) < 11 {
+		t.Fatalf("expected at least 11 args, got %d: %v", len(args), args)
+	}
+	if args[0] != "nsenter" {
+		t.Fatalf("expected nsenter, got %q", args[0])
+	}
+	if args[1] != "-t" || args[2] != "1" {
+		t.Fatalf("expected -t 1, got %q %q", args[1], args[2])
+	}
+	if args[7] != "--" {
+		t.Fatalf("expected -- at index 7, got %q", args[7])
+	}
+	if args[8] != "podman" {
+		t.Fatalf("expected podman at index 8, got %q", args[8])
+	}
+	if args[9] != "image" || args[10] != "exists" || args[11] != "test:latest" {
+		t.Fatalf("expected podman args [image exists test:latest], got %v", args[9:])
+	}
+}
+
+func TestHostPodmanReplaceable(t *testing.T) {
+	orig := hostPodman
+	t.Cleanup(func() { hostPodman = orig })
+
+	var captured []string
+	hostPodman = func(ctx context.Context, args ...string) *exec.Cmd {
+		captured = args
+		return exec.CommandContext(ctx, "true")
+	}
+
+	cmd := hostPodman(context.Background(), "build", "-t", "test")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("expected success: %v", err)
+	}
+	if len(captured) != 3 || captured[0] != "build" {
+		t.Fatalf("expected [build -t test], got %v", captured)
+	}
+}
+
+func TestBuildNCImageUsesBuildDir(t *testing.T) {
+	// Verify that buildNetworkControllerImage uses /town-os/build as the
+	// build parent (shared mount visible from host). We intercept
+	// hostPodman and ensureImage to capture the build dir path without
+	// requiring podman or the NC binary.
+	origHP := hostPodman
+	origEI := ensureImage
+	t.Cleanup(func() {
+		hostPodman = origHP
+		ensureImage = origEI
+	})
+
+	ensureImage = func(_ context.Context, _ string) error { return nil }
+
+	var buildDirArg string
+	hostPodman = func(ctx context.Context, args ...string) *exec.Cmd {
+		// Capture the last argument (the build context directory).
+		if len(args) > 0 {
+			buildDirArg = args[len(args)-1]
+		}
+		return exec.CommandContext(ctx, "echo", "mock-build")
+	}
+
+	// buildNetworkControllerImage needs /town-os-networkcontroller binary
+	// and /town-os/build dir. Skip if not available (unit test env).
+	if _, err := os.Stat("/town-os-networkcontroller"); err != nil {
+		t.Skip("NC binary not available, skipping")
+	}
+	if _, err := os.Stat("/town-os"); err != nil {
+		t.Skip("/town-os not available, skipping")
+	}
+
+	_, err := buildNetworkControllerImage(context.Background())
+	if err != nil {
+		t.Fatalf("buildNetworkControllerImage: %v", err)
+	}
+
+	if buildDirArg == "" {
+		t.Fatal("expected hostPodman to be called with a build dir")
+	}
+	if !strings.HasPrefix(buildDirArg, "/town-os/build/") {
+		t.Fatalf("expected build dir under /town-os/build/, got %q", buildDirArg)
 	}
 }
 
