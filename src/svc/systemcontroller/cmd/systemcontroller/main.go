@@ -44,6 +44,8 @@ func run() (err error) {
 		}
 	}
 
+	const ncImage = "localhost/town-os-networkcontroller:local"
+
 	dir, err := os.MkdirTemp("", "systemcontroller-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -61,6 +63,23 @@ func run() (err error) {
 			if err := os.MkdirAll(d, 0750); err != nil {
 				return fmt.Errorf("create directory %s: %w", d, err)
 			}
+		}
+	}
+
+	// Build the network controller image on the host as the very first
+	// runtime operation. All system services and package NC units run on
+	// the host's podman, so the image must exist in the host's image
+	// store. The build uses --dns=8.8.8.8 so it does not depend on
+	// rolodex or any other service being ready.
+	// Non-fatal: if the network is unavailable the build will fail, but
+	// the system controller still starts. The image will be built on the
+	// next restart once the network is up.
+	{
+		buildCtx, buildCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		buildErr := buildNetworkControllerImage(buildCtx)
+		buildCancel()
+		if buildErr != nil {
+			fmt.Fprintf(os.Stderr, "network controller image: %v\n", buildErr)
 		}
 	}
 
@@ -191,7 +210,7 @@ func run() (err error) {
 
 	// Rolodex is a boot service managed entirely by systemd. The
 	// systemcontroller only writes the config file and waits for DNS
-	// readiness before proceeding with image pulls and the NC build.
+	// readiness before proceeding with image pulls.
 	rolImage := os.Getenv("ROLODEX_IMAGE")
 	if rolImage == "" {
 		rolImage = "quay.io/town/rolodex:" + tag
@@ -224,21 +243,6 @@ func run() (err error) {
 	// Wait for DNS readiness.
 	if err := rolMgr.WaitForDNSReady(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
-	}
-
-	// Build the network controller container image locally. This must
-	// happen before reconciliation so the image is available when package
-	// units are installed. Rolodex is started above so DNS works for
-	// `apk add` inside the build.
-	// Non-fatal: if the network is unavailable at boot the pull/build
-	// will fail, but the system controller still starts. The image will
-	// be built on the next restart once the network is up.
-	ncImage, err := buildNetworkControllerImage(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "network controller image: %v\n", err)
-	}
-	if ncImage == "" {
-		ncImage = "localhost/town-os-networkcontroller:local"
 	}
 
 	// Derive UI image.
@@ -551,7 +555,7 @@ var ensureImage = func(ctx context.Context, image string) error {
 // every startup guarantees the NC image always matches the running
 // systemcontroller. The build directory is placed under /town-os (shared
 // mount) so it is accessible from the host's filesystem namespace.
-func buildNetworkControllerImage(ctx context.Context) (string, error) {
+func buildNetworkControllerImage(ctx context.Context) error {
 	const imageName = "localhost/town-os-networkcontroller:local"
 
 	// Use /town-os/build as the parent for the build dir because /town-os
@@ -559,11 +563,11 @@ func buildNetworkControllerImage(ctx context.Context) (string, error) {
 	// is not accessible via nsenter into the host namespaces.
 	const buildParent = "/town-os/build"
 	if err := os.MkdirAll(buildParent, 0750); err != nil {
-		return "", fmt.Errorf("create build parent dir: %w", err)
+		return fmt.Errorf("create build parent dir: %w", err)
 	}
 	buildDir, err := os.MkdirTemp(buildParent, "nc-image-build-*")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
+		return fmt.Errorf("create temp dir: %w", err)
 	}
 	defer func() {
 		if rerr := os.RemoveAll(buildDir); rerr != nil {
@@ -577,7 +581,7 @@ COPY town-os-networkcontroller /town-os-networkcontroller
 CMD ["/town-os-networkcontroller"]
 `
 	if err := os.WriteFile(filepath.Join(buildDir, "Containerfile"), []byte(containerfile), 0600); err != nil {
-		return "", fmt.Errorf("write Containerfile: %w", err)
+		return fmt.Errorf("write Containerfile: %w", err)
 	}
 
 	const ncBinaryPath = "/town-os-networkcontroller"
@@ -585,7 +589,7 @@ CMD ["/town-os-networkcontroller"]
 
 	src, err := os.Open(ncBinaryPath)
 	if err != nil {
-		return "", fmt.Errorf("open NC binary %s: %w", ncBinaryPath, err)
+		return fmt.Errorf("open NC binary %s: %w", ncBinaryPath, err)
 	}
 
 	dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755) //nolint:gosec // G304 -- destPath is constructed from a controlled temp dir
@@ -593,7 +597,7 @@ CMD ["/town-os-networkcontroller"]
 		if closeErr := src.Close(); closeErr != nil {
 			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
 		}
-		return "", fmt.Errorf("create NC binary copy: %w", err)
+		return fmt.Errorf("create NC binary copy: %w", err)
 	}
 
 	if _, err := dst.ReadFrom(src); err != nil {
@@ -603,35 +607,35 @@ CMD ["/town-os-networkcontroller"]
 		if closeErr := src.Close(); closeErr != nil {
 			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
 		}
-		return "", fmt.Errorf("copy NC binary: %w", err)
+		return fmt.Errorf("copy NC binary: %w", err)
 	}
 
 	if err := dst.Close(); err != nil {
 		if closeErr := src.Close(); closeErr != nil {
 			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
 		}
-		return "", fmt.Errorf("close NC binary copy: %w", err)
+		return fmt.Errorf("close NC binary copy: %w", err)
 	}
 
 	if err := src.Close(); err != nil {
-		return "", fmt.Errorf("close NC source: %w", err)
+		return fmt.Errorf("close NC source: %w", err)
 	}
 
 	// Pull the base image on the host only if it is not already loaded.
 	// --pull=never in the build step below avoids a second pull attempt.
 	const baseImage = "docker.io/library/alpine:latest"
 	if err := ensureImage(ctx, baseImage); err != nil {
-		return "", err
+		return err
 	}
 
 	out, err := hostPodman(ctx, "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("podman build: %w: %s", err, string(out))
+		return fmt.Errorf("podman build: %w: %s", err, string(out))
 	}
 
 	slog.Info("built network controller image: " + imageName)
 
-	return imageName, nil
+	return nil
 }
 
 func main() {

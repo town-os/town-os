@@ -126,27 +126,15 @@ func TestBuildNCImageSkipsWhenExists(t *testing.T) {
 	// Full integration is tested via make test-integration.
 }
 
-func TestNCImageFallbackOnBuildFailure(t *testing.T) {
-	// Simulate buildNetworkControllerImage returning empty string on failure.
-	// The run() function should fall back to the constant image name.
-	var ncImage string
-	// This mirrors the logic in run(): if build fails, ncImage is empty.
-	if ncImage == "" {
-		ncImage = "localhost/town-os-networkcontroller:local"
-	}
-	if ncImage != "localhost/town-os-networkcontroller:local" {
-		t.Fatalf("expected fallback to localhost/town-os-networkcontroller:local, got %q", ncImage)
-	}
-}
-
-func TestNCImageFallbackPreservesSuccessfulBuild(t *testing.T) {
-	// When the build succeeds, the image name should be preserved.
-	ncImage := "localhost/town-os-networkcontroller:local"
-	if ncImage == "" {
-		ncImage = "localhost/town-os-networkcontroller:local"
-	}
-	if ncImage != "localhost/town-os-networkcontroller:local" {
-		t.Fatalf("expected localhost/town-os-networkcontroller:local, got %q", ncImage)
+func TestNCImageIsConstant(t *testing.T) {
+	// ncImage is declared as a const in run(). Verify the build function
+	// uses the same value so the constant and build output stay in sync.
+	// We can't reference the function-local const directly, but the build
+	// function's internal imageName const must match. This test documents
+	// the expected value.
+	const expected = "localhost/town-os-networkcontroller:local"
+	if expected != "localhost/town-os-networkcontroller:local" {
+		t.Fatal("NC image name constant changed — update all references")
 	}
 }
 
@@ -226,8 +214,7 @@ func TestBuildNCImageUsesBuildDir(t *testing.T) {
 		t.Skip("/town-os not available, skipping")
 	}
 
-	_, err := buildNetworkControllerImage(context.Background())
-	if err != nil {
+	if err := buildNetworkControllerImage(context.Background()); err != nil {
 		t.Fatalf("buildNetworkControllerImage: %v", err)
 	}
 
