@@ -606,7 +606,7 @@ CMD ["/town-os-networkcontroller"]
 		return "", err
 	}
 
-	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
+	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
 	if err != nil {
 		return "", fmt.Errorf("podman build: %w: %s", err, string(out))
 	}
