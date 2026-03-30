@@ -142,9 +142,9 @@ func TestHostPodmanWrapsWithNsenter(t *testing.T) {
 	cmd := hostPodman(context.Background(), "image", "exists", "test:latest")
 	args := cmd.Args
 	// Should start with nsenter -t 1 -m -u -i -n -- podman
-	// nsenter -t 1 -m -u -i -n -- podman image exists test:latest
-	if len(args) < 11 {
-		t.Fatalf("expected at least 11 args, got %d: %v", len(args), args)
+	// nsenter -t 1 -m -u -i -n -C -- podman image exists test:latest
+	if len(args) < 12 {
+		t.Fatalf("expected at least 12 args, got %d: %v", len(args), args)
 	}
 	if args[0] != "nsenter" {
 		t.Fatalf("expected nsenter, got %q", args[0])
@@ -152,14 +152,17 @@ func TestHostPodmanWrapsWithNsenter(t *testing.T) {
 	if args[1] != "-t" || args[2] != "1" {
 		t.Fatalf("expected -t 1, got %q %q", args[1], args[2])
 	}
-	if args[7] != "--" {
-		t.Fatalf("expected -- at index 7, got %q", args[7])
+	if args[7] != "-C" {
+		t.Fatalf("expected -C (cgroup namespace) at index 7, got %q", args[7])
 	}
-	if args[8] != "podman" {
-		t.Fatalf("expected podman at index 8, got %q", args[8])
+	if args[8] != "--" {
+		t.Fatalf("expected -- at index 8, got %q", args[8])
 	}
-	if args[9] != "image" || args[10] != "exists" || args[11] != "test:latest" {
-		t.Fatalf("expected podman args [image exists test:latest], got %v", args[9:])
+	if args[9] != "podman" {
+		t.Fatalf("expected podman at index 9, got %q", args[9])
+	}
+	if args[10] != "image" || args[11] != "exists" || args[12] != "test:latest" {
+		t.Fatalf("expected podman args [image exists test:latest], got %v", args[10:])
 	}
 }
 

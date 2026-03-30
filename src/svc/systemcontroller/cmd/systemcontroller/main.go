@@ -530,7 +530,7 @@ func persistVersion(ctx context.Context, versionFile string) {
 // operates on the container's image/container store. System service units run
 // on the host, so images must be available in the host's podman store.
 var hostPodman = func(ctx context.Context, args ...string) *exec.Cmd {
-	nsenterArgs := []string{"-t", "1", "-m", "-u", "-i", "-n", "--", "podman"}
+	nsenterArgs := []string{"-t", "1", "-m", "-u", "-i", "-n", "-C", "--", "podman"}
 	nsenterArgs = append(nsenterArgs, args...)
 	return exec.CommandContext(ctx, "nsenter", nsenterArgs...) //nolint:gosec // G204 -- args from controlled callers
 }
