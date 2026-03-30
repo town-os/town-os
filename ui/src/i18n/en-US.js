@@ -230,6 +230,7 @@ const enUS = {
   'system.refresh_confirm_btn': 'Refresh All Services',
   'system.refresh_toast_started': 'Refreshing core services...',
   'system.refresh_toast_complete': 'System controller is back online.',
+  'system.refresh_in_progress': 'Refreshing services, waiting for the system controller to restart...',
 
   // --- Package Management ---
   'packages.page_title': 'Town OS - Packages',

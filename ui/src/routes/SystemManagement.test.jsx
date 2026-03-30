@@ -427,6 +427,47 @@ describe('SystemManagement', () => {
     })
   })
 
+  it('shows refresh dialog with warnings when admin clicks Refresh Core Services', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Refresh Core Services/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh Core Services/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/This will pull the latest/)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Refresh All Services/ })).toBeTruthy()
+    })
+  })
+
+  it('shows spinner in refresh dialog after confirming', async () => {
+    // Make refreshSystemServices hang so we can observe the spinner.
+    mockRefreshSystemServices.mockImplementationOnce(
+      () => new Promise(() => {}),
+    )
+
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Refresh Core Services/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh Core Services/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Refresh All Services/ })).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh All Services/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Refreshing services, waiting for/)).toBeTruthy()
+    })
+    // Warning text and confirm button should be gone.
+    expect(screen.queryByText(/This will pull the latest/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /Refresh All Services/ })).toBeNull()
+  })
+
   it('hides system services section when no services returned', async () => {
     mockListSystemServices.mockResolvedValueOnce([])
     renderSystemManagement()

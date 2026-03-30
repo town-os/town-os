@@ -36,6 +36,7 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 
@@ -47,6 +48,7 @@ export default function SystemManagement() {
   const [actionConfirm, setActionConfirm] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [refreshDialog, setRefreshDialog] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const pollRef = useRef(null)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('package_identifier')
@@ -77,9 +79,9 @@ export default function SystemManagement() {
 
   const handleRefreshServices = useCallback(async () => {
     try {
+      setRefreshing(true)
       await getClient().refreshSystemServices()
       toast.success(t('system.refresh_toast_started'))
-      setRefreshDialog(false)
       // After 3s delay, start polling ping to detect when systemcontroller returns.
       setTimeout(() => {
         pollRef.current = setInterval(async () => {
@@ -87,6 +89,8 @@ export default function SystemManagement() {
             await getClient().ping()
             clearInterval(pollRef.current)
             pollRef.current = null
+            setRefreshing(false)
+            setRefreshDialog(false)
             toast.success(t('system.refresh_toast_complete'))
             window.location.reload()
           } catch {
@@ -95,6 +99,7 @@ export default function SystemManagement() {
         }, 2000)
       }, 3000)
     } catch (err) {
+      setRefreshing(false)
       toast.error(err.message)
     }
   }, [t])
@@ -428,30 +433,39 @@ export default function SystemManagement() {
       </ConfirmDialog>
 
       {/* Refresh Core Services Dialog */}
-      <Dialog open={refreshDialog} onOpenChange={(v) => !v && setRefreshDialog(false)}>
-        <DialogContent>
+      <Dialog open={refreshDialog} onOpenChange={(v) => !refreshing && !v && setRefreshDialog(false)}>
+        <DialogContent onPointerDownOutside={refreshing ? (e) => e.preventDefault() : undefined}>
           <DialogHeader>
             <DialogTitle>{t('system.refresh_dialog_title')}</DialogTitle>
             <DialogDescription className="sr-only">{t('system.refresh_dialog_title')}</DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border border-destructive bg-destructive/10 p-4 space-y-2">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
-              <div className="space-y-1 text-sm">
-                <p>{t('system.refresh_warning_1')}</p>
-                <p>{t('system.refresh_warning_2')}</p>
-                <p className="font-semibold">{t('system.refresh_warning_3')}</p>
-              </div>
+          {refreshing ? (
+            <div className="flex flex-col items-center gap-4 py-6">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">{t('system.refresh_in_progress')}</p>
             </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setRefreshDialog(false)}>
-              {t('confirm.default_cancel_label')}
-            </Button>
-            <Button variant="destructive" onClick={handleRefreshServices}>
-              {t('system.refresh_confirm_btn')}
-            </Button>
-          </div>
+          ) : (
+            <>
+              <div className="rounded-lg border border-destructive bg-destructive/10 p-4 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+                  <div className="space-y-1 text-sm">
+                    <p>{t('system.refresh_warning_1')}</p>
+                    <p>{t('system.refresh_warning_2')}</p>
+                    <p className="font-semibold">{t('system.refresh_warning_3')}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setRefreshDialog(false)}>
+                  {t('confirm.default_cancel_label')}
+                </Button>
+                <Button variant="destructive" onClick={handleRefreshServices}>
+                  {t('system.refresh_confirm_btn')}
+                </Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
