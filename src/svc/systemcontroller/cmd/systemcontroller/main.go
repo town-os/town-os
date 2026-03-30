@@ -521,14 +521,24 @@ func persistVersion(ctx context.Context, versionFile string) {
 	}
 }
 
-// ensureImage checks whether a container image is loaded locally and pulls it
-// from the registry when it is not. This is a variable so tests can replace
+// hostPodman executes a podman command on the host via nsenter into PID 1's
+// namespaces. The systemcontroller runs inside a container, so plain `podman`
+// operates on the container's image/container store. System service units run
+// on the host, so images must be available in the host's podman store.
+var hostPodman = func(ctx context.Context, args ...string) *exec.Cmd {
+	nsenterArgs := []string{"-t", "1", "-m", "-u", "-i", "-n", "--", "podman"}
+	nsenterArgs = append(nsenterArgs, args...)
+	return exec.CommandContext(ctx, "nsenter", nsenterArgs...) //nolint:gosec // G204 -- args from controlled callers
+}
+
+// ensureImage checks whether a container image is loaded on the host and pulls
+// it from the registry when it is not. This is a variable so tests can replace
 // the implementation without requiring podman.
 var ensureImage = func(ctx context.Context, image string) error {
-	if err := exec.CommandContext(ctx, "podman", "image", "exists", image).Run(); err == nil { //nolint:gosec // G204 -- image from caller
+	if err := hostPodman(ctx, "image", "exists", image).Run(); err == nil {
 		return nil // already loaded
 	}
-	out, pullErr := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from caller
+	out, pullErr := hostPodman(ctx, "pull", image).CombinedOutput()
 	if pullErr != nil {
 		return fmt.Errorf("pull %s: %w: %s", image, pullErr, string(out))
 	}
@@ -536,13 +546,18 @@ var ensureImage = func(ctx context.Context, image string) error {
 }
 
 // buildNetworkControllerImage builds the network controller container image
-// locally using podman build. The NC binary (/town-os-networkcontroller) is
-// baked into the systemcontroller image at build time, so rebuilding on every
-// startup guarantees the NC image always matches the running systemcontroller.
+// on the host's podman via nsenter. The NC binary (/town-os-networkcontroller)
+// is baked into the systemcontroller image at build time, so rebuilding on
+// every startup guarantees the NC image always matches the running
+// systemcontroller. The build directory is placed under /town-os (shared
+// mount) so it is accessible from the host's filesystem namespace.
 func buildNetworkControllerImage(ctx context.Context) (string, error) {
 	const imageName = "localhost/town-os-networkcontroller:local"
 
-	buildDir, err := os.MkdirTemp("", "nc-image-build-*")
+	// Use /town-os as the parent for the build dir because it is a shared
+	// bind-mount visible from the host. Container-local /tmp is not
+	// accessible via nsenter into the host namespaces.
+	buildDir, err := os.MkdirTemp("/town-os", "nc-image-build-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}
@@ -598,15 +613,14 @@ CMD ["/town-os-networkcontroller"]
 		return "", fmt.Errorf("close NC source: %w", err)
 	}
 
-	// Pull the base image only if it is not already loaded (e.g. pre-loaded
-	// in test/dev containers). --pull=never in the build step below avoids a
-	// second pull attempt.
+	// Pull the base image on the host only if it is not already loaded.
+	// --pull=never in the build step below avoids a second pull attempt.
 	const baseImage = "docker.io/library/alpine:latest"
 	if err := ensureImage(ctx, baseImage); err != nil {
 		return "", err
 	}
 
-	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
+	out, err := hostPodman(ctx, "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("podman build: %w: %s", err, string(out))
 	}
