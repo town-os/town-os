@@ -12,6 +12,9 @@ import (
 // PrometheusUnitConfig returns the systemd system service configuration
 // for Prometheus. It runs with port 9090 mapped to the host and bind-mounts
 // config and data directories from the monitoring data path.
+// prometheusUID is the user ID that the Prometheus container runs as.
+const prometheusUID = "65534"
+
 func PrometheusUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
 	configDir := filepath.Join(btrfsBase, "monitoring", "prometheus-config")
 	dataDir := filepath.Join(btrfsBase, "monitoring", "prometheus-data")
@@ -31,6 +34,9 @@ func PrometheusUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
 			"--web.listen-address=:" + PrometheusPort,
 		},
 		VolumeDirs: []string{configDir, dataDir},
+		ExecStartPre: []string{
+			"/bin/chown -R " + prometheusUID + ":" + prometheusUID + " " + dataDir,
+		},
 	}
 }
 
