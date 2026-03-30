@@ -102,11 +102,14 @@ func (m *Manager) dnsPort() string {
 	return DefaultDNSPort
 }
 
-// rolodexConfig is the canonical rolodex YAML configuration.
-const rolodexConfig = `database_path: /data/rolodex.db
+// rolodexConfig returns the canonical rolodex YAML configuration with the
+// given DNS port. The bind address is always DNSLoopback (127.0.0.2) because
+// the rolodex container runs with --net host.
+func rolodexConfig(port string) string {
+	return fmt.Sprintf(`database_path: /data/rolodex.db
 dns:
-  udp_bind: "127.0.0.2:53"
-  tcp_bind: "127.0.0.2:53"
+  udp_bind: "%s:%s"
+  tcp_bind: "%s:%s"
 grpc:
   tcp_bind: ""
   unix_socket: /data/rolodex.sock
@@ -117,7 +120,8 @@ forwarders:
 rbl:
   enabled: false
   providers: []
-`
+`, DNSLoopback, port, DNSLoopback, port)
+}
 
 // executableMtime is the function used to get the systemcontroller binary's
 // modification time. Replaceable in tests.
@@ -145,6 +149,7 @@ func (m *Manager) WriteConfig() (bool, error) {
 		return false, fmt.Errorf("create data dir: %w", err)
 	}
 
+	config := rolodexConfig(m.dnsPort())
 	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
 
 	fi, statErr := os.Stat(configPath)
@@ -158,12 +163,12 @@ func (m *Manager) WriteConfig() (bool, error) {
 
 		// File is older than (or same age as) our binary — check content.
 		existing, readErr := os.ReadFile(configPath) //nolint:gosec // G304 -- configPath is constructed from the controlled DataDir config field
-		if readErr == nil && string(existing) == rolodexConfig {
+		if readErr == nil && string(existing) == config {
 			return false, nil
 		}
 	}
 
-	if err := os.WriteFile(configPath, []byte(rolodexConfig), 0644); err != nil { //nolint:gosec // config must be readable by container process
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
 		return false, fmt.Errorf("write config: %w", err)
 	}
 

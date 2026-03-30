@@ -157,7 +157,7 @@ func TestWriteConfigOverwritesStaleContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(data) != rolodexConfig {
+	if string(data) != rolodexConfig(DefaultDNSPort) {
 		t.Fatalf("expected canonical config, got:\n%s", data)
 	}
 }

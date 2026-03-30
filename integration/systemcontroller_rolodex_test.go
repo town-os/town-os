@@ -116,8 +116,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 		Description: "Rolodex DNS (test)",
 		Image:       rolodexTestImage(),
 		Args: []string{
-			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/tcp",
-			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/udp",
+			"--net", "host",
 			"-v", dataDir + ":/data",
 		},
 		Command:    []string{"/usr/local/bin/rolodex-dns", "--config", "/data/rolodex.yml"},
@@ -236,8 +235,7 @@ func TestRolodexRealContainerStart(t *testing.T) {
 		Description: "Rolodex DNS (test)",
 		Image:       rolodexTestImage(),
 		Args: []string{
-			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/tcp",
-			"-p", rolodex.DNSLoopback + ":" + dnsPort + ":53/udp",
+			"--net", "host",
 			"-v", dataDir + ":/data",
 		},
 		Command:    []string{"/usr/local/bin/rolodex-dns", "--config", "/data/rolodex.yml"},
