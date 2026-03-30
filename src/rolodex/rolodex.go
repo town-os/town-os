@@ -105,8 +105,8 @@ func (m *Manager) dnsPort() string {
 // rolodexConfig is the canonical rolodex YAML configuration.
 const rolodexConfig = `database_path: /data/rolodex.db
 dns:
-  udp_bind: "0.0.0.0:53"
-  tcp_bind: "0.0.0.0:53"
+  udp_bind: "127.0.0.2:53"
+  tcp_bind: "127.0.0.2:53"
 grpc:
   tcp_bind: ""
   unix_socket: /data/rolodex.sock
