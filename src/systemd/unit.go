@@ -438,6 +438,7 @@ type SystemServiceUnitConfig struct {
 	VolumeDirs     []string // host directories to mkdir -p before starting
 	ExecStartPre   []string // additional ExecStartPre commands (after container cleanup and mkdir)
 	ExecStopPost   []string // ExecStopPost commands (run after the service stops or fails)
+	PullNever      bool     // when true, adds --pull=never to podman run (for local images)
 }
 
 // GenerateSystemServiceUnit produces a systemd unit file for a system service.
@@ -466,6 +467,9 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 
 	// ExecStart
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s", containerName)
+	if cfg.PullNever {
+		b.WriteString(" \\\n  --pull=never")
+	}
 	for _, arg := range cfg.Args {
 		fmt.Fprintf(&b, " \\\n  %s", arg)
 	}

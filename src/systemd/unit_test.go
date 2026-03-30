@@ -883,7 +883,7 @@ func TestNCUnitRequiresImageName(t *testing.T) {
 		Internal:               packages.PortMap{},
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
-		NetworkControllerImage: "town-os-networkcontroller:local",
+		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
 		NetworkStatePath:       "/var/run/town-os",
 	}
 
@@ -899,7 +899,7 @@ func TestNCUnitRequiresImageName(t *testing.T) {
 	}
 
 	// The image name must appear before --state in the ExecStart line.
-	if !strings.Contains(nc, "town-os-networkcontroller:local /town-os-networkcontroller --state") {
+	if !strings.Contains(nc, "localhost/town-os-networkcontroller:local /town-os-networkcontroller --state") {
 		t.Fatalf("NC ExecStart must have image name and binary before --state, got:\n%s", nc)
 	}
 

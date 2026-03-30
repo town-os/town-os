@@ -32,6 +32,7 @@ func uplotUIUnitConfig(socatImage string) systemd.SystemServiceUnitConfig {
 		Key:         "monitoring-ui",
 		Description: "Monitoring UI (uPlot)",
 		Image:       socatImage,
+		PullNever:   true,
 		Args: []string{
 			"--net", "host",
 		},
