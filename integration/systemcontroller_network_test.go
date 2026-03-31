@@ -753,6 +753,83 @@ func TestReconcileSharedNetworkForDependency(t *testing.T) {
 	}
 }
 
+// TestNetworkStateUpdatesOnReinstallWithDifferentPort verifies that when a
+// package is reinstalled with a different port response, the network state
+// file is rewritten with the new port mapping. This exercises the path that
+// triggers the NC reconcile (the NC watches the state file via fsnotify and
+// must detect the configuration change, not just port addition/removal).
+func TestNetworkStateUpdatesOnReinstallWithDifferentPort(t *testing.T) {
+	t.Parallel()
+	c, netStateDir := initSystemControllerInstallSystemdTestWithNetworkState(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	// Install nginx with port 8080.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "8080",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0 (port 8080): %v", err)
+	}
+
+	statePath := filepath.Join(netStateDir, "core-nginx-1.0.json")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read state file (first install): %v", err)
+	}
+
+	var state1 networkcontroller.PackageNetworkState
+	if err := json.Unmarshal(data, &state1); err != nil {
+		t.Fatalf("unmarshal state (first install): %v", err)
+	}
+
+	if len(state1.Ports) != 1 || state1.Ports[0].ExternalPort != 8080 {
+		t.Fatalf("expected port 8080, got %+v", state1.Ports)
+	}
+
+	// Reinstall with a different port (9090).
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "example",
+		"port":     "9090",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0 (port 9090): %v", err)
+	}
+
+	data, err = os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read state file (reinstall): %v", err)
+	}
+
+	var state2 networkcontroller.PackageNetworkState
+	if err := json.Unmarshal(data, &state2); err != nil {
+		t.Fatalf("unmarshal state (reinstall): %v", err)
+	}
+
+	if len(state2.Ports) != 1 {
+		t.Fatalf("expected 1 port after reinstall, got %d", len(state2.Ports))
+	}
+	if state2.Ports[0].ExternalPort != 9090 {
+		t.Fatalf("expected external port 9090 after reinstall, got %d", state2.Ports[0].ExternalPort)
+	}
+	if state2.Ports[0].InternalPort != 80 {
+		t.Fatalf("expected internal port 80 after reinstall, got %d", state2.Ports[0].InternalPort)
+	}
+	if !state2.Ports[0].Forward {
+		t.Fatal("expected Forward=true after reinstall")
+	}
+	if !state2.Ports[0].UPnP {
+		t.Fatal("expected UPnP=true after reinstall")
+	}
+
+	// Container name must be set for the NC to resolve the socat target.
+	expectedContainer := systemd.ContainerName("core", "nginx", "1.0")
+	if state2.ContainerName != expectedContainer {
+		t.Fatalf("expected container_name %q, got %q", expectedContainer, state2.ContainerName)
+	}
+}
+
 // TestNCImageBuildProducesValidImage verifies that the NC container image can
 // be built from the binary baked into the systemcontroller image. The test
 // container has /town-os-networkcontroller and alpine:latest pre-loaded.

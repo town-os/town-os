@@ -609,6 +609,247 @@ func TestReconcileInternalPortForward(t *testing.T) {
 	}
 }
 
+func TestReconcileInternalPortChange(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
+
+	// Initial state: ext=8080 → int=80.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: true},
+		},
+	})
+
+	if len(runner.GetCalls()) != 1 {
+		t.Fatalf("expected 1 exec call after initial reconcile, got %d", len(runner.GetCalls()))
+	}
+
+	// Change internal port: ext=8080 → int=8080.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 8080, UPnP: true, Forward: true},
+		},
+	})
+
+	// Old socat must be killed.
+	procs := runner.GetProcs()
+	if !procs[0].IsKilled() {
+		t.Fatal("expected old socat process to be killed when internal port changes")
+	}
+
+	// New socat must be started with the new internal port.
+	calls := runner.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 exec calls, got %d", len(calls))
+	}
+	if calls[1].Args[1] != "TCP:town-os-package--test-nginx-1.0:8080" {
+		t.Fatalf("expected new socat to target port 8080, got %s", calls[1].Args[1])
+	}
+
+	// Forwarder map should reflect the new internal port.
+	fwds := ctrl.GetForwarders()
+	if fwds[8080] != 8080 {
+		t.Fatalf("expected forwarder 8080->8080, got 8080->%d", fwds[8080])
+	}
+}
+
+func TestReconcileForwardTrueToFalse(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
+
+	// Initial state: Forward=true.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: true},
+		},
+	})
+
+	if len(runner.GetCalls()) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(runner.GetCalls()))
+	}
+
+	// Change Forward to false — socat must be stopped.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: false},
+		},
+	})
+
+	procs := runner.GetProcs()
+	if !procs[0].IsKilled() {
+		t.Fatal("expected socat to be killed when Forward changes to false")
+	}
+
+	fwds := ctrl.GetForwarders()
+	if len(fwds) != 0 {
+		t.Fatalf("expected 0 forwarders after Forward=false, got %d", len(fwds))
+	}
+
+	// No new socat should have been started.
+	if len(runner.GetCalls()) != 1 {
+		t.Fatalf("expected no new exec calls, got %d total", len(runner.GetCalls()))
+	}
+}
+
+func TestReconcileUPnPTrueToFalse(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
+
+	// Initial state: UPnP=true.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: false},
+		},
+	})
+
+	mappings := ctrl.GetMappings()
+	if len(mappings) != 1 {
+		t.Fatalf("expected 1 mapping, got %d", len(mappings))
+	}
+
+	// Change UPnP to false — mapping must be removed.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: false, Forward: false},
+		},
+	})
+
+	mappings = ctrl.GetMappings()
+	if len(mappings) != 0 {
+		t.Fatalf("expected 0 mappings after UPnP=false, got %d", len(mappings))
+	}
+
+	// Verify RemovePortMapping was called.
+	found := false
+	for _, c := range mock.GetCalls() {
+		if c.Method == "RemovePortMapping" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected RemovePortMapping call when UPnP changes to false")
+	}
+}
+
+func TestReconcileForwardFlagChangeUpdatesUPnPMapping(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
+
+	// Initial state: Forward=true, UPnP=true → UPnP maps ext→ext (8080→8080).
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: true},
+		},
+	})
+
+	upnpCalls := mock.GetCalls()
+	if len(upnpCalls) != 1 {
+		t.Fatalf("expected 1 UPnP call, got %d", len(upnpCalls))
+	}
+	// forward=true → UPnP internal port = external port.
+	intPort, ok := upnpCalls[0].Args[2].(uint16)
+	if !ok {
+		t.Fatalf("expected uint16, got %T", upnpCalls[0].Args[2])
+	}
+	if intPort != 8080 {
+		t.Fatalf("expected UPnP internal port 8080, got %d", intPort)
+	}
+
+	// Change Forward to false — UPnP mapping must be updated to ext→int (8080→80).
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: false},
+		},
+	})
+
+	// Should see: RemovePortMapping + AddPortMapping.
+	upnpCalls = mock.GetCalls()
+	removeCount := 0
+	addCount := 0
+	var lastAddIntPort uint16
+	for _, c := range upnpCalls {
+		switch c.Method {
+		case "RemovePortMapping":
+			removeCount++
+		case "AddPortMapping":
+			addCount++
+			if p, ok := c.Args[2].(uint16); ok {
+				lastAddIntPort = p
+			}
+		}
+	}
+
+	if removeCount != 1 {
+		t.Fatalf("expected 1 RemovePortMapping, got %d", removeCount)
+	}
+	if addCount != 2 {
+		t.Fatalf("expected 2 AddPortMapping (initial + re-add), got %d", addCount)
+	}
+	// forward=false → UPnP internal port = actual internal port.
+	if lastAddIntPort != 80 {
+		t.Fatalf("expected re-added UPnP mapping with internal port 80, got %d", lastAddIntPort)
+	}
+}
+
+func TestReconcileInternalPortChangeUpdatesUPnPMapping(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-package--test-nginx-1.0")
+
+	// Initial: ext=8080, int=80, UPnP=true, Forward=false → maps 8080→80.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: true, Forward: false},
+		},
+	})
+
+	// Change internal port to 8080 → should remap to 8080→8080.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 8080, UPnP: true, Forward: false},
+		},
+	})
+
+	upnpCalls := mock.GetCalls()
+	// Last AddPortMapping should use internal port 8080.
+	var lastAddIntPort uint16
+	for _, c := range upnpCalls {
+		if c.Method == "AddPortMapping" {
+			if p, ok := c.Args[2].(uint16); ok {
+				lastAddIntPort = p
+			}
+		}
+	}
+	if lastAddIntPort != 8080 {
+		t.Fatalf("expected re-added UPnP mapping with internal port 8080, got %d", lastAddIntPort)
+	}
+}
+
 func TestUPnPTTLAndRefreshInterval(t *testing.T) {
 	mock := &upnp.MockManager{}
 	runner := newMockRunner()

@@ -221,7 +221,9 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 }
 
 // reconcile compares the desired state with the current active state and
-// starts/stops forwarders and UPnP mappings as needed.
+// starts/stops forwarders and UPnP mappings as needed. It detects both
+// port additions/removals and configuration changes on existing ports
+// (e.g. internal port, Forward flag, or UPnP flag changes).
 func (c *Controller) reconcile(desired *PackageNetworkState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -234,14 +236,21 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 		desiredPorts[p.ExternalPort] = p
 	}
 
-	// Remove ports that are no longer desired.
-	for ext := range c.forwarders {
-		if _, ok := desiredPorts[ext]; !ok {
+	// Remove forwarders for ports that are no longer desired, or whose
+	// configuration changed (internal port changed, or Forward turned off).
+	for ext, fwd := range c.forwarders {
+		desired, ok := desiredPorts[ext]
+		if !ok || !desired.Forward || fwd.intPort != desired.InternalPort {
 			c.stopForwarderLocked(ext)
 		}
 	}
-	for ext := range c.mappings {
-		if _, ok := desiredPorts[ext]; !ok {
+
+	// Remove UPnP mappings for ports that are no longer desired, or whose
+	// configuration changed (UPnP turned off, Forward flag changed which
+	// affects the mapped internal port, or internal port changed).
+	for ext, m := range c.mappings {
+		desired, ok := desiredPorts[ext]
+		if !ok || !desired.UPnP || m.cfg.Forward != desired.Forward || m.cfg.InternalPort != desired.InternalPort {
 			c.removeUPnPMappingLocked(ext)
 		}
 	}
@@ -255,7 +264,7 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 		return sortedPorts[i].ExternalPort < sortedPorts[j].ExternalPort
 	})
 
-	// Add new ports.
+	// Add or re-add ports (stale entries were removed above).
 	for _, p := range sortedPorts {
 		if p.Forward {
 			if _, exists := c.forwarders[p.ExternalPort]; !exists {
