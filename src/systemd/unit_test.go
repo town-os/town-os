@@ -633,6 +633,18 @@ func TestGeneratePackageUnitsNCAlwaysPresentWithExternalPorts(t *testing.T) {
 		t.Fatalf("network controller missing PartOf, got:\n%s", nc)
 	}
 
+	// NC unit must use Type=notify with sdnotify=conmon so systemd waits
+	// for actual container readiness before starting dependent services.
+	if !strings.Contains(nc, "Type=notify") {
+		t.Fatalf("NC unit must use Type=notify, got:\n%s", nc)
+	}
+	if !strings.Contains(nc, "NotifyAccess=all") {
+		t.Fatalf("NC unit must have NotifyAccess=all, got:\n%s", nc)
+	}
+	if !strings.Contains(nc, "--sdnotify=conmon") {
+		t.Fatalf("NC unit must use --sdnotify=conmon, got:\n%s", nc)
+	}
+
 	// Service should use private network.
 	svc := units.Service.Content
 	if !strings.Contains(svc, "--net town-os-net--test-repo-nginx-1.0") {
@@ -1165,10 +1177,12 @@ func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 		t.Fatalf("dependency must not remove network, got:\n%s", svc)
 	}
 
-	// Dependency must wait for parent's NC container.
-	parentNCContainer := NetworkControllerContainerNameFromUnit(parentNCUnit)
-	if !strings.Contains(svc, "podman inspect") || !strings.Contains(svc, parentNCContainer) {
-		t.Fatalf("dependency must wait for parent NC container, got:\n%s", svc)
+	// Dependency orders after parent NC via systemd After= (no polling).
+	if !strings.Contains(svc, parentNCUnit) {
+		t.Fatalf("dependency must have After for parent NC unit, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "podman inspect --format") {
+		t.Fatalf("dependency must not poll NC container (Type=notify handles readiness), got:\n%s", svc)
 	}
 }
 
@@ -1294,7 +1308,7 @@ func TestGeneratePackageUnitsStandaloneNetworkCleanup(t *testing.T) {
 	}
 }
 
-func TestServiceUnitWaitsForNCContainer(t *testing.T) {
+func TestServiceUnitOrdersAfterNC(t *testing.T) {
 	cfg := PackageUnitConfig{
 		RepoName:               "core",
 		PkgName:                "nginx",
@@ -1312,13 +1326,23 @@ func TestServiceUnitWaitsForNCContainer(t *testing.T) {
 	units := GeneratePackageUnits(cfg)
 	svc := units.Service.Content
 
-	ncContainer := NetworkControllerContainerName("core", "nginx", "1.0")
-	if !strings.Contains(svc, "podman inspect") || !strings.Contains(svc, ncContainer) {
-		t.Fatalf("service should wait for NC container %s, got:\n%s", ncContainer, svc)
+	// Service must order after the NC unit via systemd directives.
+	// The NC uses Type=notify so systemd waits for actual readiness.
+	ncUnit := NetworkControllerUnitName("core", "nginx", "1.0")
+	if !strings.Contains(svc, "After="+ncUnit) {
+		t.Fatalf("service should order After NC unit %s, got:\n%s", ncUnit, svc)
+	}
+	if !strings.Contains(svc, "Wants="+ncUnit) {
+		t.Fatalf("service should Want NC unit %s, got:\n%s", ncUnit, svc)
+	}
+
+	// No polling loop should be present — systemd handles readiness.
+	if strings.Contains(svc, "podman inspect --format") {
+		t.Fatalf("service should not poll NC container (Type=notify handles readiness), got:\n%s", svc)
 	}
 }
 
-func TestDependencyUnitWaitsForParentNCContainer(t *testing.T) {
+func TestDependencyUnitOrdersAfterParentNC(t *testing.T) {
 	parentNCUnit := NetworkControllerUnitName("core", "app", "1.0")
 	cfg := PackageUnitConfig{
 		RepoName:         "core",
@@ -1338,9 +1362,14 @@ func TestDependencyUnitWaitsForParentNCContainer(t *testing.T) {
 	units := GeneratePackageUnits(cfg)
 	svc := units.Service.Content
 
-	parentNCContainer := NetworkControllerContainerNameFromUnit(parentNCUnit)
-	if !strings.Contains(svc, "podman inspect") || !strings.Contains(svc, parentNCContainer) {
-		t.Fatalf("dependency should wait for parent NC container %s, got:\n%s", parentNCContainer, svc)
+	// Dependency must order after the parent NC unit via systemd directives.
+	if !strings.Contains(svc, parentNCUnit) {
+		t.Fatalf("dependency should have After for parent NC unit %s, got:\n%s", parentNCUnit, svc)
+	}
+
+	// No polling loop — the parent NC uses Type=notify.
+	if strings.Contains(svc, "podman inspect --format") {
+		t.Fatalf("dependency should not poll NC container (Type=notify handles readiness), got:\n%s", svc)
 	}
 }
 

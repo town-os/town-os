@@ -213,18 +213,6 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, "ExecStartPre=-/bin/systemctl stop %s\n", strings.Join(socketNames, " "))
 	}
 
-	// Wait for the NC container to be running before starting the service.
-	// Uses podman inspect to check for "running" state rather than just
-	// container existence, ensuring socat port forwarders are actually up.
-	if needsNetworkController {
-		ncContainerName := NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
-		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do s=$(/usr/bin/podman inspect --format \"{{.State.Status}}\" %s 2>/dev/null) && [ \"$s\" = \"running\" ] && exit 0; sleep 0.5; done; echo \"NC container %s not running after 30s\"; exit 1'\n", ncContainerName, ncContainerName)
-	} else if cfg.ParentNCUnitName != "" {
-		// Dependency: wait for the parent's NC container to be running.
-		parentNCContainer := NetworkControllerContainerNameFromUnit(cfg.ParentNCUnitName)
-		fmt.Fprintf(&b, "ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do s=$(/usr/bin/podman inspect --format \"{{.State.Status}}\" %s 2>/dev/null) && [ \"$s\" = \"running\" ] && exit 0; sleep 0.5; done; echo \"parent NC container %s not running after 30s\"; exit 1'\n", parentNCContainer, parentNCContainer)
-	}
-
 	// Firewall: open ports (host-facing only).
 	if len(hostPorts) > 0 {
 		portArgs := make([]string, len(hostPorts))
@@ -383,7 +371,12 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 
 	// [Service]
 	b.WriteString("\n[Service]\n")
-	b.WriteString("Type=simple\n")
+	// Type=notify with --sdnotify=conmon: podman's conmon sends READY=1
+	// to systemd when the container process actually starts. This lets
+	// systemd's native Before=/After= ordering guarantee the NC is
+	// running before dependent services start — no polling needed.
+	b.WriteString("Type=notify\n")
+	b.WriteString("NotifyAccess=all\n")
 
 	// Wait for the NC image to be available. The systemcontroller builds
 	// it at startup, so on boot the image may not exist yet. This check
@@ -396,13 +389,12 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 
 	// Clean up any stale NC container.
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman container cleanup %s\n", ncContainerName)
-	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", ncContainerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", ncContainerName)
 
 	// Run the NC on the shared podman network with -p flags for host port
 	// exposure. socat inside the NC resolves the service container by DNS
 	// name on the shared network — no IP discovery needed.
-	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s", ncContainerName)
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --sdnotify=conmon --name %s", ncContainerName)
 	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
 	for _, p := range ports {
 		fmt.Fprintf(&b, " \\\n  -p %d:%d", p, p)
