@@ -92,13 +92,6 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
-
-    # Rolodex image — tagged to match from rc.latest.
-    substep "Tagging ${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
-    substep "Pushing ${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:rc.${DATE_TAG}"
-
     # Proton runner image.
     substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
     ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
@@ -140,16 +133,6 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
     substep "Pushing ${RELEASE_UI_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
-
-    # Rolodex image — tagged to match from rc.latest.
-    substep "Tagging ${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
-    substep "Tagging ${ROLODEX_IMAGE%%:*}:latest"
-    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:latest"
-    substep "Pushing ${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
-    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:release.${DATE_TAG}"
-    substep "Pushing ${ROLODEX_IMAGE%%:*}:latest"
-    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:latest"
 
     # Proton runner image.
     substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
@@ -239,12 +222,6 @@ case "$1" in
     ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:${TAG}"
     substep "Pushing ${RELEASE_UI_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:${TAG}"
-
-    # Rolodex image.
-    substep "Tagging ${ROLODEX_IMAGE%%:*}:${TAG}"
-    ${SUDO} podman tag "${ROLODEX_IMAGE}" "${ROLODEX_IMAGE%%:*}:${TAG}"
-    substep "Pushing ${ROLODEX_IMAGE%%:*}:${TAG}"
-    ${SUDO} podman push "${ROLODEX_IMAGE%%:*}:${TAG}"
 
     # Proton runner image.
     substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}"
