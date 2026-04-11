@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"gitea.com/town-os/town-os/src/hostpodman"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
@@ -218,10 +219,10 @@ func cleanupContainerUnits(t *testing.T, repo, pkgName, version string, external
 		}
 	}
 	containerName := systemd.ContainerName(repo, pkgName, version)
-	if err := exec.CommandContext(context.TODO(), "podman", "stop", "-t", "10", containerName).Run(); err != nil {
+	if err := hostpodman.Command(context.TODO(), "stop", "-t", "10", containerName).Run(); err != nil {
 		t.Logf("cleanup: podman stop %s: %v", containerName, err)
 	}
-	if err := exec.CommandContext(context.TODO(), "podman", "rm", "-f", containerName).Run(); err != nil {
+	if err := hostpodman.Command(context.TODO(), "rm", "-f", containerName).Run(); err != nil {
 		t.Logf("cleanup: podman rm %s: %v", containerName, err)
 	}
 }
@@ -234,7 +235,7 @@ func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.
 	unitName := systemd.UnitName(repo, pkgName, version)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		out, err := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
+		out, err := hostpodman.Command(context.TODO(), "inspect", "--format", "{{.State.Status}}", containerName).Output()
 		if err == nil && strings.TrimSpace(string(out)) == "running" {
 			return
 		}
@@ -334,7 +335,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
-		logs, logsErr := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", containerName).CombinedOutput()
+		logs, logsErr := hostpodman.Command(context.TODO(), "logs", "--tail", "20", containerName).CombinedOutput()
 		if logsErr != nil {
 			t.Logf("podman logs %s: %v", containerName, logsErr)
 		}
@@ -345,7 +346,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify podman container is listed.
-	out, err := exec.CommandContext(context.TODO(), "podman", "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
+	out, err := hostpodman.Command(context.TODO(), "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
 	if err != nil {
 		t.Fatalf("podman ps: %v", err)
 	}
@@ -361,7 +362,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	// Wait for the container to stop.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		inspectOut, inspectErr := exec.CommandContext(context.TODO(), "podman", "inspect", "--format", "{{.State.Status}}", containerName).Output()
+		inspectOut, inspectErr := hostpodman.Command(context.TODO(), "inspect", "--format", "{{.State.Status}}", containerName).Output()
 		if inspectErr != nil || strings.TrimSpace(string(inspectOut)) != "running" {
 			break
 		}
@@ -375,7 +376,7 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 	}
 
 	// Verify the container is no longer running.
-	out, err = exec.CommandContext(context.TODO(), "podman", "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
+	out, err = hostpodman.Command(context.TODO(), "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
 	if err == nil && strings.Contains(string(out), containerName) {
 		t.Fatalf("expected %s not in podman ps after uninstall", containerName)
 	}
@@ -482,7 +483,7 @@ func TestSystemControllerRealContainerReinstall(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
-		logs, logsErr := exec.CommandContext(context.TODO(), "podman", "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
+		logs, logsErr := hostpodman.Command(context.TODO(), "logs", "--tail", "20", systemd.ContainerName("core", "redis", "7.0")).CombinedOutput()
 		if logsErr != nil {
 			t.Logf("podman logs %s: %v", systemd.ContainerName("core", "redis", "7.0"), logsErr)
 		}

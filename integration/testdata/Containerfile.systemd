@@ -30,7 +30,7 @@ COPY integration/testdata/town-os-package--repo-test-1.0.service /etc/systemd/sy
 RUN printf 'nameserver 127.0.0.2\n' > /etc/resolv.conf \
     && mkdir -p /etc/systemd/resolved.conf.d \
     && printf '[Resolve]\nDNS=127.0.0.2\n' > /etc/systemd/resolved.conf.d/rolodex.conf
-RUN systemctl enable town-os-systemcontroller.service town-os-package--repo-test-1.0.service
+RUN systemctl enable town-os-systemcontroller.service town-os-package--repo-test-1.0.service podman.socket
 RUN mkdir -p /test /etc/containers/registries.conf.d \
     && mkdir -p /data/repos/repo/packages/test /data/repos/installed/repo/test \
     && printf 'image: test:1.0\n' > /data/repos/repo/packages/test/1.0.yaml \

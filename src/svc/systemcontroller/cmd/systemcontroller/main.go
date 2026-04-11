@@ -11,13 +11,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/hostpodman"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -304,7 +304,7 @@ func run() (err error) {
 		PostUpdateExec: func(ctx context.Context, containerName string, command string) error {
 			execCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
-			out, execErr := exec.CommandContext(execCtx, "podman", "exec", containerName, "sh", "-c", command).CombinedOutput() //nolint:gosec // G204 -- containerName and command from trusted package YAML
+			out, execErr := hostpodman.Command(execCtx, "exec", containerName, "sh", "-c", command).CombinedOutput()
 			if execErr != nil {
 				return fmt.Errorf("%w: %s", execErr, string(out))
 			}
@@ -493,7 +493,7 @@ func getContainerImageID(ctx context.Context) string {
 	if containerID == "" {
 		return ""
 	}
-	out, err := exec.CommandContext(ctx, "podman", "inspect", "--format", "{{.Image}}", containerID).Output() //nolint:gosec // G204 -- containerID from /proc
+	out, err := hostpodman.Command(ctx, "inspect", "--format", "{{.Image}}", containerID).Output()
 	if err != nil {
 		return ""
 	}
@@ -525,16 +525,17 @@ func persistVersion(ctx context.Context, versionFile string) {
 	}
 }
 
-// ensureImage checks whether a container image is loaded locally and pulls it
-// from the registry when it is not. The systemcontroller container shares the
-// host's podman storage (/var/lib/containers), so plain `podman` operates on
-// the host's image store directly. This is a variable so tests can replace
+// ensureImage checks whether a container image is loaded on the host's
+// podman and pulls it from the registry when it is not. All podman
+// operations route through hostpodman.Command so they act on the host's
+// image store via /run/podman/podman.sock instead of the systemcontroller
+// container's isolated storage. This is a variable so tests can replace
 // the implementation without requiring podman.
 var ensureImage = func(ctx context.Context, image string) error {
-	if err := exec.CommandContext(ctx, "podman", "image", "exists", image).Run(); err == nil { //nolint:gosec // G204 -- image from caller
+	if err := hostpodman.Command(ctx, "image", "exists", image).Run(); err == nil {
 		return nil // already loaded
 	}
-	out, pullErr := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from caller
+	out, pullErr := hostpodman.Command(ctx, "pull", image).CombinedOutput()
 	if pullErr != nil {
 		return fmt.Errorf("pull %s: %w: %s", image, pullErr, string(out))
 	}
@@ -542,11 +543,13 @@ var ensureImage = func(ctx context.Context, image string) error {
 }
 
 // buildNetworkControllerImage builds the network controller container image
-// on the host's podman via nsenter. The NC binary (/town-os-networkcontroller)
-// is baked into the systemcontroller image at build time, so rebuilding on
-// every startup guarantees the NC image always matches the running
-// systemcontroller. The build directory is placed under /town-os (shared
-// mount) so it is accessible from the host's filesystem namespace.
+// on the host's podman via the /run/podman/podman.sock socket. The NC
+// binary (/town-os-networkcontroller) is baked into the systemcontroller
+// image at build time, so rebuilding on every startup guarantees the NC
+// image always matches the running systemcontroller. After the build
+// completes, the function re-checks that the image is visible to host
+// podman and returns an error if it is not — turning a silent mis-routed
+// build into a loud boot-time failure.
 func buildNetworkControllerImage(ctx context.Context) error {
 	const imageName = "localhost/town-os-networkcontroller:local"
 
@@ -613,9 +616,17 @@ CMD ["/town-os-networkcontroller"]
 		return err
 	}
 
-	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
+	out, err := hostpodman.Command(ctx, "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("podman build: %w: %s", err, string(out))
+	}
+
+	// Verify the image actually landed on the host's podman. Catches the
+	// silent failure mode where the build ran against an isolated podman
+	// and the image is invisible to the host systemd units that reference
+	// it.
+	if existsErr := hostpodman.Command(ctx, "image", "exists", imageName).Run(); existsErr != nil {
+		return fmt.Errorf("NC image %s not visible to host podman after build (socket bind mount missing?): %w", imageName, existsErr)
 	}
 
 	slog.Info("built network controller image: " + imageName)

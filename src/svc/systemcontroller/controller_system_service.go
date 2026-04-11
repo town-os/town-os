@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
+	"gitea.com/town-os/town-os/src/hostpodman"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -133,9 +133,11 @@ func (s *SystemControllerHandlers) listSystemServices(c *echo.Context) error {
 	return c.JSON(200, entries)
 }
 
-// pullImage pulls a container image using podman.
+// pullImage pulls a container image using the host's podman via the
+// /run/podman/podman.sock socket so the image lands on the host's image
+// store rather than in the systemcontroller container's isolated podman.
 func pullImage(ctx context.Context, image string) error {
-	out, err := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from system service config
+	out, err := hostpodman.Command(ctx, "pull", image).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("podman pull %s: %w: %s", image, err, string(out))
 	}

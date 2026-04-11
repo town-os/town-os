@@ -16,6 +16,6 @@ COPY --from=town-os /town-os.tag /town-os.tag
 COPY --from=town-os /ui /ui
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 RUN printf 'nameserver 127.0.0.1\n' > /etc/resolv.conf
-RUN systemctl enable town-os-systemcontroller.service
+RUN systemctl enable town-os-systemcontroller.service podman.socket
 EXPOSE 5309
 CMD ["/lib/systemd/systemd"]
