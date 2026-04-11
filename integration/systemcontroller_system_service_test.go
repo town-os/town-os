@@ -25,10 +25,12 @@ func initSystemServiceIntegrationTest(t *testing.T) (*systemcontroller.SystemdCl
 	})
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
-		Storage:           mock,
-		Systemd:           sd,
-		MonitoringBackend: monitoring.BackendUPlot,
-		UI:                uiMgr,
+		Storage:                    mock,
+		Systemd:                    sd,
+		MonitoringBackend:          monitoring.BackendUPlot,
+		UI:                         uiMgr,
+		SystemControllerImage:      "quay.io/town/town:rc.latest",
+		SystemControllerListenAddr: ":5309",
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 
@@ -64,16 +66,17 @@ func TestSystemControllerListSystemServicesPopulated(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	// node-exporter + prometheus + monitoring-ui (monitoring) + ui = 4 system services.
-	if len(entries) != 4 {
-		t.Fatalf("expected 4 system services, got %d", len(entries))
+	// node-exporter + prometheus + monitoring-ui (monitoring) + ui +
+	// systemcontroller = 5 system services.
+	if len(entries) != 5 {
+		t.Fatalf("expected 5 system services, got %d", len(entries))
 	}
 
 	keys := map[string]bool{}
 	for _, e := range entries {
 		keys[e.Key] = true
 	}
-	for _, key := range []string{"node-exporter", "prometheus", "monitoring-ui", "ui"} {
+	for _, key := range []string{"node-exporter", "prometheus", "monitoring-ui", "ui", systemcontroller.SystemControllerServiceKey} {
 		if !keys[key] {
 			t.Fatalf("missing expected key %q", key)
 		}
@@ -143,10 +146,10 @@ func TestSystemControllerSystemServicesIsolatedFromPackageUnits(t *testing.T) {
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	// Should return 4 services (node-exporter + prometheus + monitoring-ui + ui),
-	// with status for node-exporter.
-	if len(entries) != 4 {
-		t.Fatalf("expected 4 system services, got %d", len(entries))
+	// Should return 5 services (node-exporter + prometheus + monitoring-ui
+	// + ui + systemcontroller), with status for node-exporter.
+	if len(entries) != 5 {
+		t.Fatalf("expected 5 system services, got %d", len(entries))
 	}
 
 	for _, e := range entries {
@@ -160,9 +163,9 @@ func TestSystemControllerSystemServicesIsolatedFromPackageUnits(t *testing.T) {
 // system-service-prefixed NC (`-network.service`) and socket units — which
 // are generated alongside prometheus and monitoring-ui by the package unit
 // path — are not surfaced as separate entries from ListSystemServices.
-// The registered service list should always yield exactly 4 entries
-// (node-exporter + prometheus + monitoring-ui + ui) regardless of how many
-// supporting NC/socket units exist on the system.
+// The registered service list should always yield exactly 5 entries
+// (node-exporter + prometheus + monitoring-ui + ui + systemcontroller)
+// regardless of how many supporting NC/socket units exist on the system.
 func TestSystemControllerListSystemServicesIgnoresNCAndSocketUnits(t *testing.T) {
 	t.Parallel()
 	c, sd := initSystemServiceIntegrationTest(t)
@@ -176,6 +179,7 @@ func TestSystemControllerListSystemServicesIgnoresNCAndSocketUnits(t *testing.T)
 		{Name: "town-os-system--monitoring-ui-network.service", ActiveState: "active"},
 		{Name: "town-os-system--monitoring-ui-5308-tcp.socket", ActiveState: "active"},
 		{Name: systemd.SystemServiceUnitName("ui"), ActiveState: "active"},
+		{Name: systemd.SystemControllerUnitName, ActiveState: "active"},
 	}
 
 	entries, err := c.ListSystemServices(context.TODO())
@@ -183,10 +187,16 @@ func TestSystemControllerListSystemServicesIgnoresNCAndSocketUnits(t *testing.T)
 		t.Fatalf("ListSystemServices: %v", err)
 	}
 
-	if len(entries) != 4 {
-		t.Fatalf("expected 4 entries (NC and socket units excluded), got %d", len(entries))
+	if len(entries) != 5 {
+		t.Fatalf("expected 5 entries (NC and socket units excluded), got %d", len(entries))
 	}
-	expected := map[string]bool{"node-exporter": true, "prometheus": true, "monitoring-ui": true, "ui": true}
+	expected := map[string]bool{
+		"node-exporter":                             true,
+		"prometheus":                                true,
+		"monitoring-ui":                             true,
+		"ui":                                        true,
+		systemcontroller.SystemControllerServiceKey: true,
+	}
 	for _, e := range entries {
 		if !expected[e.Key] {
 			t.Fatalf("unexpected entry key %q", e.Key)
@@ -198,7 +208,8 @@ func TestSystemControllerListSystemServicesIgnoresNCAndSocketUnits(t *testing.T)
 // the ping endpoint's system_services count only includes main service units,
 // not the NC (`-network.service`) and socket units generated alongside them
 // by the package unit path. Prometheus and monitoring-ui each contribute one
-// NC + one socket that must not be counted.
+// NC + one socket that must not be counted. The systemcontroller unit itself
+// is counted via systemd.IsSystemServiceUnit.
 func TestSystemControllerPingExcludesSystemServiceNCAndSocketUnits(t *testing.T) {
 	t.Parallel()
 	c, sd := initSystemServiceIntegrationTest(t)
@@ -212,6 +223,7 @@ func TestSystemControllerPingExcludesSystemServiceNCAndSocketUnits(t *testing.T)
 		{Name: "town-os-system--monitoring-ui-network.service", ActiveState: "active"},
 		{Name: "town-os-system--monitoring-ui-5308-tcp.socket", ActiveState: "active"},
 		{Name: systemd.SystemServiceUnitName("ui"), ActiveState: "active"},
+		{Name: systemd.SystemControllerUnitName, ActiveState: "active"},
 	}
 
 	ping, err := c.Ping(context.TODO())
@@ -223,14 +235,14 @@ func TestSystemControllerPingExcludesSystemServiceNCAndSocketUnits(t *testing.T)
 		t.Fatal("expected system_services in ping response")
 	}
 
-	// 4 main services: node-exporter, prometheus, monitoring-ui, ui.
-	// NC and socket units should be excluded.
-	if ping.SystemServices.Total != 4 {
-		t.Fatalf("expected 4 total system services (NC and socket units excluded), got %d", ping.SystemServices.Total)
+	// 5 main services: node-exporter, prometheus, monitoring-ui, ui,
+	// systemcontroller. NC and socket units should be excluded.
+	if ping.SystemServices.Total != 5 {
+		t.Fatalf("expected 5 total system services (NC and socket units excluded), got %d", ping.SystemServices.Total)
 	}
-	// 3 active (node-exporter, prometheus, ui); monitoring-ui is failed.
-	if ping.SystemServices.Active != 3 {
-		t.Fatalf("expected 3 active system services, got %d", ping.SystemServices.Active)
+	// 4 active (node-exporter, prometheus, ui, systemcontroller); monitoring-ui is failed.
+	if ping.SystemServices.Active != 4 {
+		t.Fatalf("expected 4 active system services, got %d", ping.SystemServices.Active)
 	}
 	if ping.SystemServices.Failed != 1 {
 		t.Fatalf("expected 1 failed system service, got %d", ping.SystemServices.Failed)

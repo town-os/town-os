@@ -155,6 +155,14 @@ const PackageUnitPrefix = "town-os-package--"
 // SystemServiceUnitPrefix is the prefix for all system service systemd units.
 const SystemServiceUnitPrefix = "town-os-system--"
 
+// SystemControllerUnitName is the canonical systemd unit name of the
+// systemcontroller itself. It does not follow the town-os-system--
+// prefix convention because it predates the system-service pattern,
+// but it is treated as a system service by IsSystemServiceUnit,
+// ListUnits, and the /system-services API so users can see and
+// restart it from the UI alongside other system services.
+const SystemControllerUnitName = "town-os-systemcontroller.service"
+
 // SystemServiceUnitName returns the systemd service unit name for a system service key.
 func SystemServiceUnitName(key string) string {
 	return fmt.Sprintf("%s%s.service", SystemServiceUnitPrefix, key)
@@ -165,8 +173,13 @@ func SystemServiceContainerName(key string) string {
 	return fmt.Sprintf("%s%s", SystemServiceUnitPrefix, key)
 }
 
-// IsSystemServiceUnit returns true if the unit name is a system service unit.
+// IsSystemServiceUnit returns true if the unit name is a system service
+// unit — either a town-os-system-- prefixed unit or the systemcontroller
+// unit itself.
 func IsSystemServiceUnit(name string) bool {
+	if name == SystemControllerUnitName {
+		return true
+	}
 	return strings.HasPrefix(name, SystemServiceUnitPrefix) && strings.HasSuffix(name, ".service")
 }
 

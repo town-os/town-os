@@ -292,6 +292,11 @@ export default function SystemManagement() {
                     const isActive = svc.ActiveState === 'active'
                     const isFailed = svc.ActiveState === 'failed'
                     const variant = isActive ? 'default' : isFailed ? 'destructive' : 'secondary'
+                    // The systemcontroller cannot be stopped from its own
+                    // HTTP handler — that would kill the process serving
+                    // this request. Hide the Stop action for the self
+                    // entry; Restart is still available (systemd respawns).
+                    const isSelf = svc.key === 'systemcontroller'
                     return (
                       <tr key={svc.key} className="border-b last:border-b-0">
                         <td className="px-4 py-2 text-sm font-medium">{svc.display_name}</td>
@@ -312,10 +317,12 @@ export default function SystemManagement() {
                                 <Play className="h-3 w-3 mr-2" />
                                 {t('system.action_start')}
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'stop')}>
-                                <Square className="h-3 w-3 mr-2" />
-                                {t('system.action_stop')}
-                              </DropdownMenuItem>
+                              {!isSelf && (
+                                <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'stop')}>
+                                  <Square className="h-3 w-3 mr-2" />
+                                  {t('system.action_stop')}
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'restart')}>
                                 <RotateCcw className="h-3 w-3 mr-2" />
                                 {t('system.action_restart')}

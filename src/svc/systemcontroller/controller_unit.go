@@ -126,7 +126,7 @@ func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgUnitEnableDisableNotAllowed))
 	}
 
-	if req.Action == systemd.Stop && req.Name == "town-os-systemcontroller.service" {
+	if req.Action == systemd.Stop && req.Name == systemd.SystemControllerUnitName {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgUnitCannotStopController))
 	}
 

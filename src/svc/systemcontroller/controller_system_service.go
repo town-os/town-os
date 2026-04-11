@@ -40,6 +40,24 @@ type systemServiceInfo struct {
 	UnitName    string
 }
 
+// SystemControllerServiceKey is the system service key used for the
+// systemcontroller's own entry in the system services list. The UI and
+// clients match on this key to identify the self entry (for example, to
+// refuse the Stop action that would kill the very process serving the
+// request).
+const SystemControllerServiceKey = "systemcontroller"
+
+// extractListenPort returns the port portion of a listen address like
+// ":5309" or "0.0.0.0:5309". Returns an empty string when the input has
+// no ":" separator.
+func extractListenPort(listenAddr string) string {
+	idx := strings.LastIndex(listenAddr, ":")
+	if idx < 0 {
+		return ""
+	}
+	return listenAddr[idx+1:]
+}
+
 // collectSystemServices gathers system service metadata from all providers.
 func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 	var all []systemServiceInfo
@@ -83,6 +101,21 @@ func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 				UnitName:    svc.UnitName,
 			})
 		}
+	}
+
+	// The systemcontroller itself runs as a host systemd unit. List it as
+	// a system service so users can see its status and trigger restarts
+	// from the UI. The image and listen address are plumbed through
+	// ServerConfig from main.go; tests that don't configure them omit the
+	// entry entirely.
+	if img := s.Controller.GetSystemControllerImage(); img != "" {
+		all = append(all, systemServiceInfo{
+			Key:         SystemControllerServiceKey,
+			DisplayName: "System Controller",
+			Image:       img,
+			Port:        extractListenPort(s.Controller.GetSystemControllerListenAddr()),
+			UnitName:    systemd.SystemControllerUnitName,
+		})
 	}
 
 	return all
@@ -184,8 +217,14 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 		return echo.NewHTTPError(500, "systemd manager not available")
 	}
 
-	// Restart all system service units.
+	// Restart all system service units. Skip the systemcontroller's own
+	// unit — synchronously restarting it here would kill the process
+	// serving this HTTP request before we can return a response. A
+	// delayed goroutine below schedules the self-restart instead.
 	for _, svc := range svcs {
+		if svc.UnitName == systemd.SystemControllerUnitName {
+			continue
+		}
 		if err := sd.SetStatus(ctx, svc.UnitName, systemd.Restart); err != nil {
 			pullErrors = append(pullErrors, fmt.Sprintf("restart %s: %v", svc.UnitName, err))
 		}
@@ -207,7 +246,7 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 	// Schedule systemcontroller restart in a goroutine with 1s delay.
 	go func() {
 		time.Sleep(1 * time.Second)
-		if err := sd.SetStatus(s.ctx, "town-os-systemcontroller.service", systemd.Restart); err != nil {
+		if err := sd.SetStatus(s.ctx, systemd.SystemControllerUnitName, systemd.Restart); err != nil {
 			slog.Debug(fmt.Sprintf("restart systemcontroller: %v", err))
 		}
 	}()
@@ -234,6 +273,13 @@ func (s *SystemControllerHandlers) setSystemServiceStatus(c *echo.Context) error
 		return echo.NewHTTPError(400, fmt.Sprintf("action %q is not allowed for system services", req.Action))
 	}
 
+	// Refuse to stop the systemcontroller from its own HTTP handler —
+	// that would kill the process serving this very request. Restart is
+	// still permitted (systemd respawns us).
+	if req.Key == SystemControllerServiceKey && req.Action == systemd.Stop {
+		return echo.NewHTTPError(400, "cannot stop the system controller from its own API")
+	}
+
 	// Validate key against known services.
 	var unitName string
 	for _, svc := range svcs {
@@ -249,6 +295,20 @@ func (s *SystemControllerHandlers) setSystemServiceStatus(c *echo.Context) error
 	sd := s.Controller.GetSystemdManager()
 	if sd == nil {
 		return echo.NewHTTPError(500, "systemd manager not available")
+	}
+
+	// Restarting the systemcontroller from its own HTTP handler would
+	// cut off the response mid-flight when systemd kills the old process.
+	// Schedule the restart on a short delay so the handler can return
+	// 200 first; systemd respawns us after the delay fires.
+	if req.Key == SystemControllerServiceKey && req.Action == systemd.Restart {
+		go func() {
+			time.Sleep(1 * time.Second)
+			if err := sd.SetStatus(s.ctx, unitName, systemd.Restart); err != nil {
+				slog.Debug(fmt.Sprintf("delayed restart %s: %v", unitName, err))
+			}
+		}()
+		return c.JSON(200, map[string]string{"status": "ok"})
 	}
 
 	if err := sd.SetStatus(c.Request().Context(), unitName, req.Action); err != nil {

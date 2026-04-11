@@ -157,7 +157,9 @@ func (b *archiveTestBackend) GetInternalIP() string                             
 func (b *archiveTestBackend) GetMonitoringBackend() string                        { return "" }
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
-func (b *archiveTestBackend) GetUI() *ui.Manager { return nil }
+func (b *archiveTestBackend) GetUI() *ui.Manager                    { return nil }
+func (b *archiveTestBackend) GetSystemControllerImage() string      { return "" }
+func (b *archiveTestBackend) GetSystemControllerListenAddr() string { return "" }
 func (b *archiveTestBackend) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
 	return reconcileExtractFromImage
 }

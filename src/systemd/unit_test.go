@@ -962,6 +962,36 @@ func TestIsPackageServiceUnit(t *testing.T) {
 	}
 }
 
+func TestIsSystemServiceUnit(t *testing.T) {
+	tests := []struct {
+		name   string
+		expect bool
+	}{
+		{"town-os-system--node-exporter.service", true},
+		{"town-os-system--prometheus.service", true},
+		{"town-os-system--monitoring-ui.service", true},
+		{"town-os-system--rolodex.service", true},
+		{"town-os-system--ui.service", true},
+		// The systemcontroller itself is treated as a system service even
+		// though its unit name does not follow the town-os-system-- prefix.
+		{"town-os-systemcontroller.service", true},
+		// Package units are not system services.
+		{"town-os-package--core-nginx-1.0.service", false},
+		{"sshd.service", false},
+		{"", false},
+		// Socket variants are matched by the prefix check but the ping /
+		// list handlers filter them out separately.
+		{"town-os-system--prometheus-9090-tcp.socket", false},
+	}
+
+	for _, tt := range tests {
+		got := IsSystemServiceUnit(tt.name)
+		if got != tt.expect {
+			t.Errorf("IsSystemServiceUnit(%q) = %v, want %v", tt.name, got, tt.expect)
+		}
+	}
+}
+
 func TestGenerateServiceUnitWithDescription(t *testing.T) {
 	cfg := PackageUnitConfig{
 		RepoName:    "test-repo",
