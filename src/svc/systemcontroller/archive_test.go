@@ -143,8 +143,7 @@ func (b *archiveTestBackend) GetSystemdManager() systemd.Manager                
 func (b *archiveTestBackend) GetAccountManager() account.Manager                  { return nil }
 func (b *archiveTestBackend) GetSessionManager() account.SessionManager           { return nil }
 func (b *archiveTestBackend) GetAuditManager() account.AuditManager               { return nil }
-func (b *archiveTestBackend) GetSettingsManager() account.SettingsManager          { return b.settingsMgr }
-func (b *archiveTestBackend) GetPagesStore() *PagesStore                          { return nil }
+func (b *archiveTestBackend) GetSettingsManager() account.SettingsManager         { return b.settingsMgr }
 func (b *archiveTestBackend) GetGitClient() git.Client                            { return nil }
 func (b *archiveTestBackend) GetAllowedHosts() []string                           { return nil }
 func (b *archiveTestBackend) GetDefaultRepoCredentials() (string, string)         { return "", "" }

@@ -24,7 +24,6 @@ type systemControllerBackend interface {
 	GetSessionManager() account.SessionManager
 	GetAuditManager() account.AuditManager
 	GetSettingsManager() account.SettingsManager
-	GetPagesStore() *PagesStore
 	GetGitClient() git.Client
 	GetAllowedHosts() []string
 	GetDefaultRepoCredentials() (string, string)
@@ -195,7 +194,6 @@ type ServerConfig struct {
 	SessionMgr               account.SessionManager
 	AuditMgr                 account.AuditManager
 	SettingsMgr              account.SettingsManager
-	Pages                    *PagesStore
 	Git                      git.Client
 	AllowedHosts             []string
 	DefaultRepoUser          string

@@ -41,23 +41,16 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 		return err
 	}
 
-	// Find currently installed version.
+	// Look up the currently installed version directly.
 	inst := s.Controller.GetInstaller()
 	var activeVersion string
 	if inst != nil {
-		installed, err := inst.ListInstalled()
+		version, ok, err := inst.GetInstalledVersion(repoName, req.Name)
 		if err != nil {
 			return err
 		}
-		for _, pkg := range installed {
-			pi, err := packages.ParsePackageIdentity(pkg)
-			if err != nil {
-				continue
-			}
-			if pi.Repo == repoName && pi.Name == req.Name {
-				activeVersion = pi.Version
-				break
-			}
+		if ok {
+			activeVersion = version
 		}
 	}
 

@@ -39,8 +39,7 @@ func (s *serverBase) GetSystemdManager() systemd.Manager          { return s.Sys
 func (s *serverBase) GetAccountManager() account.Manager          { return s.AccountMgr }
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
-func (s *serverBase) GetSettingsManager() account.SettingsManager  { return s.SettingsMgr }
-func (s *serverBase) GetPagesStore() *PagesStore                  { return s.Pages }
+func (s *serverBase) GetSettingsManager() account.SettingsManager { return s.SettingsMgr }
 func (s *serverBase) GetGitClient() git.Client                    { return s.Git }
 func (s *serverBase) GetAllowedHosts() []string                   { return s.AllowedHosts }
 func (s *serverBase) GetDefaultRepoCredentials() (string, string) {

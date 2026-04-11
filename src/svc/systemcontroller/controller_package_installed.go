@@ -260,22 +260,16 @@ func (s *SystemControllerHandlers) disablePackage(c *echo.Context) error {
 		return err
 	}
 
-	// Find the installed version(s) and stop the service.
+	// Look up the installed version directly instead of scanning the full list.
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		installed, err := inst.ListInstalled()
+		version, ok, err := inst.GetInstalledVersion(req.Repo, req.Name)
 		if err != nil {
 			return err
 		}
-		for _, pkg := range installed {
-			pi, err := packages.ParsePackageIdentity(pkg)
-			if err != nil {
-				continue
-			}
-			if pi.Repo == req.Repo && pi.Name == req.Name {
-				unitName := systemd.UnitName(req.Repo, req.Name, pi.Version)
-				if err := sd.SetStatus(c.Request().Context(), unitName, systemd.Stop); err != nil {
-					return err
-				}
+		if ok {
+			unitName := systemd.UnitName(req.Repo, req.Name, version)
+			if err := sd.SetStatus(c.Request().Context(), unitName, systemd.Stop); err != nil {
+				return err
 			}
 		}
 	}
@@ -300,22 +294,16 @@ func (s *SystemControllerHandlers) enablePackage(c *echo.Context) error {
 		return err
 	}
 
-	// Find the installed version(s) and start the service.
+	// Look up the installed version directly instead of scanning the full list.
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
-		installed, err := inst.ListInstalled()
+		version, ok, err := inst.GetInstalledVersion(req.Repo, req.Name)
 		if err != nil {
 			return err
 		}
-		for _, pkg := range installed {
-			pi, err := packages.ParsePackageIdentity(pkg)
-			if err != nil {
-				continue
-			}
-			if pi.Repo == req.Repo && pi.Name == req.Name {
-				unitName := systemd.UnitName(req.Repo, req.Name, pi.Version)
-				if err := sd.SetStatus(c.Request().Context(), unitName, systemd.Start); err != nil {
-					return err
-				}
+		if ok {
+			unitName := systemd.UnitName(req.Repo, req.Name, version)
+			if err := sd.SetStatus(c.Request().Context(), unitName, systemd.Start); err != nil {
+				return err
 			}
 		}
 	}

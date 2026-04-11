@@ -65,43 +65,44 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
 
 - **Network controller image is built as the first boot operation** — the NC container image (`localhost/town-os-networkcontroller:local`) is built via `podman build` as the very first runtime operation in the systemcontroller startup, before rolodex config, image pulls, or anything else. The systemcontroller container shares the host's podman storage (`/var/lib/containers`) so images built inside the container are directly available to host systemd units. The NC binary (`/town-os-networkcontroller`) is baked into the systemcontroller image at build time, guaranteeing the NC always matches the running systemcontroller. The `alpine:latest` base image is pulled via `ensureImage` if not already loaded. The build uses `--dns=8.8.8.8` so it does not depend on rolodex DNS. The build is non-fatal; if the network is unavailable at boot, the system controller starts without per-package networking and the image is built on the next restart. Never cache or skip the NC image build.
 
-- **All monitoring services are system services** — Prometheus, Node Exporter, and the Monitoring UI all run as system services (`town-os-system--` prefix), never as packages. They are started directly in `main.go` before reconcile, not through the package system. The three services are: `town-os-system--node-exporter.service` (host networking, port 9100), `town-os-system--prometheus.service` (port 9090, bind-mount config/data from `{btrfsBase}/monitoring/`), and `town-os-system--monitoring-ui.service` (port 5308). The monitoring UI service runs either a socat forwarder (uPlot mode, default) or Grafana (grafana mode), controlled by the `monitoring_backend` setting. Prometheus config is written directly to disk, not via the package template system. Never use the package system (`EnsureMonitoringPackage`, `InstallMonitoringPackage`, etc.) for monitoring — those functions no longer exist.
+- **All monitoring services are system services** — Prometheus, Node Exporter, and the Monitoring UI all run under the system service namespace (`town-os-system--` prefix), started directly from `main.go` before reconcile. They are never installed through the package repository system; there is no installable "monitoring" package. The three services are: `town-os-system--node-exporter.service` (host networking, port 9100), `town-os-system--prometheus.service` (port 9090, bind-mount config/data from `{btrfsBase}/monitoring/`), and `town-os-system--monitoring-ui.service` (port 5308). The monitoring UI service runs either a socat forwarder (uPlot mode, default) or Grafana (grafana mode), controlled by the `monitoring_backend` setting. Prometheus config is written directly to disk. Prometheus, Grafana, and the uPlot socat forwarder are generated via `systemd.GeneratePackageUnits` with `PackageUnitConfig.SystemServiceKey` set, so they get a full network controller, socket activation, and a private podman network — the same plumbing as regular packages, but with the system service naming.
 
 ## System Controller Boot Sequence
 
 The system controller startup in `src/svc/systemcontroller/cmd/systemcontroller/main.go` follows this exact order. Each step that says **(non-fatal)** logs to stderr and continues; everything else is fatal and aborts startup.
 
-1. **Parse CLI flags and env vars** — `-db`, `-btrfs`, `-repo-dir`, `-network-state`, `-listen`. Env overrides: `TOWN_OS_LISTEN`.
-2. **Create directories** — temp working dir, btrfs base, network state dir, DB parent dir.
-3. **Open SQLite database** — persistent if `-db` is set, otherwise ephemeral temp file.
-4. **Init account manager** — creates accounts table.
-5. **Generate ephemeral JWT signing key** — 32 random bytes via `crypto/rand`, overridable with `TOWN_OS_SIGNING_KEY`. Init session manager, which clears all prior sessions (old tokens are invalid with the new key).
-6. **Init audit manager** — creates audit log table.
-7. **Init settings manager** — creates settings table with defaults (`default_quota`, `max_archive_size`, `locale`, etc.).
-8. **Init pages manager** — only if `TOWN_OS_PAGES` env var is set.
-9. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
-10. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
-11. **Init install manager, btrfs storage, systemd manager**.
-12. **Build network controller image** **(non-fatal)** — the very first runtime operation. Copies the NC binary from `/town-os-networkcontroller`, pulls `alpine:latest` via `ensureImage`, runs `podman build`. The SC container shares the host's podman storage so the image is immediately available to host systemd units. Uses `--dns=8.8.8.8` so it does not depend on rolodex.
-13. **Read version tag** — from `/town-os.tag` file, or compile-time `Version` ldflags var, or fallback `rc.latest`. Used to derive image tags for sibling services.
-14. **Start background repo refresh** — goroutine polls every 5 minutes.
-15. **Write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if file is newer than the binary or content is unchanged) and restarts the service only when the file was written. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly (not via podman port mappings). The DNS port defaults to 53 but can be overridden via the `DNSPort` config field for tests.
-16. **Wait for Rolodex DNS readiness** **(non-fatal)** — polls until the DNS TCP port accepts connections.
-17. **Read monitoring backend setting** — `monitoring_backend` from settings DB, default `uplot`.
-18. **Pull container images** **(non-fatal)** — Prometheus, Node Exporter, UI image, optionally Grafana. Uses `ensureImage` (skips pull if already loaded). The SC shares the host's podman storage so pulled images are available to host systemd units.
-19. **Start monitoring system services** **(all non-fatal)** — Node Exporter (host networking, port 9100), Prometheus (port 9090, bind-mount config/data, `ExecStartPre` chowns data dir to uid 65534), Monitoring UI (port 5308, socat with `--pull=never` from NC image, or Grafana).
-20. **Detect version change** — compare running container's image SHA (`/proc/1/cgroup` → `podman inspect`) against `<btrfsPath>/town-os-version`. Sets `versionChanged` flag for reconcile.
-21. **Reconcile** — iterates all installed packages and restores runtime state:
+1. **Set `CONTAINER_HOST`** — `setupPodmanEnv()` sets `CONTAINER_HOST=unix:///run/podman/podman.sock` so every subsequent `podman` invocation (and child process) routes through the host's podman socket instead of the systemcontroller container's isolated storage.
+2. **Parse CLI flags and env vars** — `-db`, `-btrfs`, `-repo-dir`, `-network-state`, `-listen`. Env overrides: `TOWN_OS_LISTEN`.
+3. **Create directories** — temp working dir, btrfs base, network state dir, DB parent dir.
+4. **Build network controller image** **(non-fatal)** — the very first runtime operation that touches podman, before DB open, manager init, or anything else. Copies the NC binary from `/town-os-networkcontroller`, pulls `alpine:latest` via `ensureImage`, runs `podman build`. The SC container shares the host's podman storage (via `CONTAINER_HOST`) so the image is immediately available to host systemd units. Uses `--dns=8.8.8.8` so it does not depend on rolodex.
+5. **Open SQLite database** — persistent if `-db` is set, otherwise ephemeral temp file.
+6. **Init account manager** — creates accounts table.
+7. **Generate ephemeral JWT signing key** — 32 random bytes via `crypto/rand`, overridable with `TOWN_OS_SIGNING_KEY`. Init session manager, which clears all prior sessions (old tokens are invalid with the new key).
+8. **Init audit manager** — creates audit log table.
+9. **Init settings manager** — creates settings table with defaults (`default_quota`, `max_archive_size`, `locale`, etc.).
+10. **Init pages manager** — only if `TOWN_OS_PAGES` env var is set.
+11. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
+12. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
+13. **Init install manager, btrfs storage, systemd manager**.
+14. **Read version tag** — from `/town-os.tag` file, or compile-time `Version` ldflags var, or fallback `rc.latest`. Used to derive image tags for sibling services.
+15. **Start background repo refresh** — goroutine polls every 5 minutes.
+16. **Write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if file is newer than the binary or content is unchanged) and restarts the service only when the file was written. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly (not via podman port mappings). The DNS port defaults to 53 but can be overridden via the `DNSPort` config field for tests.
+17. **Wait for Rolodex DNS readiness** **(non-fatal)** — polls until the DNS TCP port accepts connections.
+18. **Read monitoring backend setting** — `monitoring_backend` from settings DB, default `uplot`.
+19. **Pull container images** **(non-fatal)** — Prometheus, Node Exporter, UI image, optionally Grafana. Uses `ensureImage` (skips pull if already loaded). The SC shares the host's podman storage so pulled images are available to host systemd units.
+20. **Start monitoring system services** **(all non-fatal)** — Node Exporter (host networking, port 9100), Prometheus (port 9090, bind-mount config/data, `ExecStartPre` chowns data dir to uid 65534), Monitoring UI (port 5308, socat with `--pull=never` from NC image, or Grafana).
+21. **Detect version change** — compare running container's image SHA (`/proc/1/cgroup` → `podman inspect`) against `<btrfsPath>/town-os-version`. Sets `versionChanged` flag for reconcile.
+22. **Reconcile** — iterates all installed packages and restores runtime state:
     - Creates root btrfs subvolumes (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`).
     - For each installed package (latest version per repo/name): loads YAML, compiles with saved responses, creates btrfs volumes with quotas, seeds empty volumes from archives/git/proton, applies file templates, writes network state files, generates and installs systemd units (service + NC + sockets), starts services.
     - If `versionChanged`: restarts units whose content changed (NC first, then deps, then services), then runs `post_update` commands.
     - Reconciles pages: ensures subvolumes, symlinks, Caddyfile, and Caddy unit.
-22. **Persist version SHA** — writes current image SHA to `<btrfsPath>/town-os-version`.
-23. **Reconcile DNS** — connects to Rolodex gRPC socket (retries up to 30s), sets up TLD zone, registers A records for all installed packages.
-24. **Start UI container** **(non-fatal)** — installs and starts `town-os-system--ui.service` (Caddy, host networking, port 80).
-25. **Create HTTP handler** — wires all managers into `ServerConfig`, starts external IP poller (ipinfo.io, 1-hour interval), configures Echo router with CORS, auth middleware, audit middleware.
-26. **Start HTTP server** — listens on `:5309` (or `TOWN_OS_LISTEN`). Prints `systemcontroller: listening on :5309` to stderr. **System is now ready.**
-27. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with 30s timeout. All background goroutines exit via context cancellation.
+23. **Persist version SHA** — writes current image SHA to `<btrfsPath>/town-os-version`.
+24. **Reconcile DNS** — connects to Rolodex gRPC socket (retries up to 30s), sets up TLD zone, registers A records for all installed packages.
+25. **Start UI container** **(non-fatal)** — installs and starts `town-os-system--ui.service` (Caddy, host networking, port 80).
+26. **Create HTTP handler** — wires all managers into `ServerConfig`, starts external IP poller (ipinfo.io, 1-hour interval), configures Echo router with CORS, auth middleware, audit middleware.
+27. **Start HTTP server** — listens on `:5309` (or `TOWN_OS_LISTEN`). Prints `systemcontroller: listening on :5309` to stderr. **System is now ready.**
+28. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with 30s timeout. All background goroutines exit via context cancellation.
 
 ## Performance Conventions
 
@@ -784,29 +785,16 @@ environment:
 
 Town OS includes an integrated local DNS resolver powered by a `rolodex-dns` container. The rolodex server manages zone files and records for installed packages, providing local name resolution via a gRPC Unix socket interface.
 
-### DNS Server Lifecycle
+### Rolodex Manager
 
-The `rolodex.Manager` manages the DNS server container lifecycle:
+Rolodex itself is a boot service installed and supervised by systemd — the systemcontroller does not install, start, stop, or restart it at the container level. The `rolodex.Manager` instead:
 
-- **Start** -- writes configuration, installs a systemd unit, and optionally rewrites `/etc/resolv.conf` to point at the local resolver (`127.0.0.2`). In local mode, resolv.conf rewriting is skipped.
-- **Stop** -- restores the original `/etc/resolv.conf` and stops the systemd unit.
-- **SetPublicAddr** -- updates the public address (returns true if it changed, triggering a restart).
+- **`WriteConfig`** -- writes `rolodex.yml` into `DataDir`. Idempotent: skips writing when the file exists, is newer than the systemcontroller binary, and already matches the expected content. Returns a boolean indicating whether the file was written (so the caller can decide whether to restart the systemd unit).
+- **`WaitForDNSReady`** -- polls `DNSLoopback:{port}` over TCP until it accepts a connection or the 30-second deadline passes. Called at startup before any operation that depends on DNS (e.g., image pulls).
+- **`SystemServices`** -- returns metadata for the rolodex system service (key, display name, image, port, unit name) so it surfaces alongside other system services in status responses and the UI.
+- **`Status`** -- queries the systemd unit state to report whether rolodex is running.
 
-The rolodex image tag is derived from the system controller's release tag (`quay.io/town/rolodex:<tag>`), overridable via the `ROLODEX_IMAGE` environment variable.
-
-### Multicast DNS (.local)
-
-Town OS advertises its hostname (e.g., `town-os.local`) via systemd-resolved's built-in mDNS support. The rolodex manager configures this at startup via the `ResolvedConfDir` config field:
-
-1. Writes a systemd-resolved drop-in (`townos.conf`) to `/etc/systemd/resolved.conf.d` with `MulticastDNS=yes`.
-2. Reloads systemd-resolved to apply the configuration.
-3. Enables mDNS on the physical network interface (the one bound to `PublicAddr`) via `resolvectl mdns <iface> yes`, since networkd may default to `mDNS=no` per-link.
-
-This runs on every `Start` call, including after internal IP changes. No separate mDNS daemon (e.g., avahi) is used.
-
-### Internal IP Change Detection
-
-A background goroutine polls the system's internal IP every 30 seconds. When a change is detected (e.g., DHCP lease renewal), rolodex is restarted with the new public address, which also re-enables mDNS on the new interface.
+The rolodex container runs with `--net host` and binds DNS to `DNSLoopback` (`127.0.0.2`) on the configured port (default `53`, overridable via `DNSPort` for tests). The image tag is derived from the system controller's release tag (`quay.io/town/rolodex:<tag>`), overridable via the `ROLODEX_IMAGE` environment variable.
 
 ### DNS API
 
@@ -992,22 +980,20 @@ The system settings page includes a language picker. Common languages are shown 
 
 ### Startup Sequence
 
-The system controller initializes services in this order:
+The authoritative step-by-step boot ordering lives in [System Controller Boot Sequence](#system-controller-boot-sequence). In summary:
 
-1. Database and account managers.
-2. Session manager (clears all prior sessions, generates new ephemeral signing key).
-3. Settings, audit, and pages managers.
-4. Repository root (with immediate force refresh).
-5. Systemd manager.
-6. Rolodex DNS server (image pulled via `ensureImage` if not pre-loaded).
-7. Network controller image build (base image pulled via `ensureImage`; Rolodex provides DNS for `apk add`).
-8. Reconciliation (restores installed package state -- volumes, quotas, templates, network state files, systemd units).
-9. Monitoring stack image pulls (via `ensureImage`) and startup (Prometheus + Node Exporter always; Grafana only when `monitoring_backend` is `"grafana"`; socat forwarder when `"uplot"`).
-10. Internal IP watcher (30-second poll; restarts Rolodex on IP change).
-11. UI container.
-12. HTTP server.
+1. `setupPodmanEnv()` points `CONTAINER_HOST` at the host podman socket.
+2. Flag parsing, directory creation, and NC image build (the first podman operation).
+3. Database, account, session, audit, settings, and (optional) pages managers.
+4. Repository seeding, repository root force-refresh.
+5. Install manager, btrfs storage, systemd manager.
+6. Rolodex config write + readiness wait (rolodex itself is supervised by systemd).
+7. Monitoring image pulls and system service starts (Prometheus, Node Exporter, Monitoring UI).
+8. Version-change detection, reconcile, post-update commands.
+9. DNS reconcile, UI container start.
+10. HTTP server listen.
 
-Startup failures for monitoring, Rolodex, the network controller image build, and the UI container are non-fatal; the system continues without them. All container image pulls use the `ensureImage` helper which checks `podman image exists` before pulling, avoiding redundant pulls in test/dev environments where images are pre-loaded. Pull failures for non-essential services are logged to stderr and do not prevent startup, allowing the system to boot even when the network is temporarily unavailable.
+Startup failures for monitoring, Rolodex config, the network controller image build, and the UI container are non-fatal; the system continues without them. All container image pulls use the `ensureImage` helper which checks `podman image exists` before pulling, avoiding redundant pulls in test/dev environments where images are pre-loaded. Pull failures for non-essential services are logged to stderr and do not prevent startup, allowing the system to boot even when the network is temporarily unavailable.
 
 ### Version Tag Detection
 
@@ -1027,21 +1013,21 @@ In `DEBUG` mode, all origins are allowed. Otherwise, cross-port requests from th
 
 ### Graceful Shutdown
 
-SIGINT triggers context cancellation. Rolodex is stopped explicitly (restoring `/etc/resolv.conf`), the HTTP server shuts down, and all background goroutines exit via context channels.
+SIGINT triggers context cancellation. The HTTP server shuts down, and all background goroutines exit via context channels. Rolodex is supervised by systemd and is not stopped by the systemcontroller.
 
 ### CLI Flags
 
 - `-db <path>` -- path to SQLite database (defaults to ephemeral temp file).
 - `-btrfs <path>` -- base path for btrfs subvolume operations.
 - `-repo-dir <path>` -- base directory for git repositories (defaults to ephemeral temp dir).
-- `-networkcontroller-bin <path>` -- path to the `town-os-networkcontroller` binary (defaults to `/town-os-networkcontroller`).
 - `-network-state <path>` -- directory for per-package network state files (defaults to `/var/run/town-os`).
-- `-network-mode <mode>` -- container network mode: empty string for port mappings or `"host"` for host networking.
 - `-listen <addr>` -- HTTP listen address (defaults to `:5309`).
+
+The NC binary path is not a flag; it is hardcoded to `/town-os-networkcontroller` (baked into the systemcontroller container at build time so the NC binary always matches the running systemcontroller).
 
 ### Environment Variables
 
-- `TOWN_OS_NETWORK_MODE` -- overrides `-network-mode` flag.
+- `CONTAINER_HOST` -- unix socket URL for the host podman daemon. Set automatically at startup to `unix:///run/podman/podman.sock` (see `HostPodmanSocket`). Every `podman` invocation — including child processes forked by the systemcontroller — inherits this from the process environment and routes through the host socket instead of the systemcontroller container's isolated podman storage. The install-repo systemd unit should also set `Environment=CONTAINER_HOST=...` for visibility in `systemctl` output, but the `setupPodmanEnv()` call is the runtime source of truth.
 - `TOWN_OS_LISTEN` -- overrides `-listen` flag.
 - `TOWN_OS_SIGNING_KEY` -- override the ephemeral JWT signing key (see Session Management).
 - `TOWN_OS_TEST` -- if set, use test repositories instead of production defaults.
@@ -1049,7 +1035,6 @@ SIGINT triggers context cancellation. Rolodex is stopped explicitly (restoring `
 - `LOG_LEVEL` -- logging level: `debug`, `info`, `warn`, `error` (defaults to `error`).
 - `TOWN_OS_REPO_USERNAME` / `TOWN_OS_REPO_PASSWORD` -- repository credentials applied to all repositories on first initialization.
 - `ROLODEX_IMAGE` -- override Rolodex container image (defaults to `quay.io/town/rolodex:<tag>`).
-- `ROLODEX_LOCAL` -- if set, run Rolodex in local mode (skip resolv.conf rewriting).
 - `UI_IMAGE` -- override UI container image (defaults to `quay.io/town/ui:<tag>`).
 
 ## Development Prerequisites

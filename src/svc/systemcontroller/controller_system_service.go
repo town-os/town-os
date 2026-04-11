@@ -149,8 +149,8 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 	svcs := s.collectSystemServices()
 
 	// Collect unique images.
-	seen := map[string]struct{}{}
-	var images []string
+	seen := make(map[string]struct{}, len(svcs))
+	images := make([]string, 0, len(svcs))
 	for _, svc := range svcs {
 		if _, ok := seen[svc.Image]; ok {
 			continue

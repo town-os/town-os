@@ -132,12 +132,16 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 	}
 
+	// Cache the installed-package list so we only read it once for both
+	// the count and the unit-name set below.
+	var installedPackages []string
 	if inst := s.Controller.GetInstaller(); inst != nil {
-		installed, err := inst.ListInstalled()
+		pkgs, err := inst.ListInstalled()
 		if err != nil {
 			return err
 		}
-		resp.Installed = len(installed)
+		installedPackages = pkgs
+		resp.Installed = len(pkgs)
 	}
 
 	if am := s.Controller.GetAccountManager(); am != nil {
@@ -161,18 +165,14 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 
 		// Build a set of unit names for installed packages so the
 		// counts only reflect packages that are actually installed.
-		installedUnits := map[string]struct{}{}
-		if inst := s.Controller.GetInstaller(); inst != nil {
-			installed, listErr := inst.ListInstalled()
-			if listErr == nil {
-				for _, pkg := range installed {
-					pi, parseErr := packages.ParsePackageIdentity(pkg)
-					if parseErr != nil {
-						continue
-					}
-					installedUnits[systemd.UnitName(pi.Repo, pi.Name, pi.Version)] = struct{}{}
-				}
+		// Reuse the list captured above to avoid a second filesystem scan.
+		installedUnits := make(map[string]struct{}, len(installedPackages))
+		for _, pkg := range installedPackages {
+			pi, parseErr := packages.ParsePackageIdentity(pkg)
+			if parseErr != nil {
+				continue
 			}
+			installedUnits[systemd.UnitName(pi.Repo, pi.Name, pi.Version)] = struct{}{}
 		}
 
 		counts := &UnitCounts{}

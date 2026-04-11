@@ -500,7 +500,7 @@ func collectInstalledDNSInfo(inst packages.Installer, rr *packages.RepositoryRoo
 		return nil
 	}
 
-	var pkgs []rolodex.PackageDNSInfo
+	pkgs := make([]rolodex.PackageDNSInfo, 0, len(installed))
 	for _, pkg := range installed {
 		pi, err := packages.ParsePackageIdentity(pkg)
 		if err != nil {
