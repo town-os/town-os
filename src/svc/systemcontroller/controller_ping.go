@@ -2,6 +2,7 @@ package systemcontroller
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"gitea.com/town-os/town-os/src/packages"
@@ -178,6 +179,10 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		sysCounts := &UnitCounts{}
 		for _, u := range units {
 			if systemd.IsSystemServiceUnit(u.Name) {
+				// Skip NC and socket units — only count main service units.
+				if strings.HasSuffix(u.Name, "-network.service") || strings.HasSuffix(u.Name, ".socket") {
+					continue
+				}
 				sysCounts.Total++
 				switch u.ActiveState {
 				case "active":

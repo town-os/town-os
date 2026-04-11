@@ -281,78 +281,74 @@ func TestRolodexRealContainerStart(t *testing.T) {
 // subtests. Separate containers cause unreliable port bindings on 127.0.0.2
 // after teardown (see d789b23).
 func TestRolodexClientOperations(t *testing.T) {
+	t.Parallel()
 	client, _ := initRolodexRealTest(t)
 	ctx := context.Background()
 
-	t.Run("Connect", func(t *testing.T) {
-		// Verify the connection works by listing records.
-		records, err := client.ListRecords(ctx, nil)
-		if err != nil {
-			t.Fatalf("ListRecords: %v", err)
-		}
-		// New server should have no records.
-		if len(records) != 0 {
-			t.Fatalf("expected 0 records, got %d", len(records))
-		}
-	})
+	// Connect: a fresh rolodex instance has no records.
+	records, err := client.ListRecords(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records on fresh instance, got %d", len(records))
+	}
 
-	t.Run("AddRemoveRecords", func(t *testing.T) {
-		// Add an A record.
-		if err := client.AddRecord(ctx, &upstream.DnsRecord{
-			Name:       "test.local.",
-			RecordType: upstream.RecordTypeA,
-			Value:      "10.0.0.1",
-			Ttl:        300,
-		}); err != nil {
-			t.Fatalf("AddRecord A: %v", err)
-		}
+	// Add an A record.
+	if err := client.AddRecord(ctx, &upstream.DnsRecord{
+		Name:       "test.local.",
+		RecordType: upstream.RecordTypeA,
+		Value:      "10.0.0.1",
+		Ttl:        300,
+	}); err != nil {
+		t.Fatalf("AddRecord A: %v", err)
+	}
 
-		// Add an AAAA record.
-		if err := client.AddRecord(ctx, &upstream.DnsRecord{
-			Name:       "test.local.",
-			RecordType: upstream.RecordTypeAAAA,
-			Value:      "::1",
-			Ttl:        300,
-		}); err != nil {
-			t.Fatalf("AddRecord AAAA: %v", err)
-		}
+	// Add an AAAA record.
+	if err := client.AddRecord(ctx, &upstream.DnsRecord{
+		Name:       "test.local.",
+		RecordType: upstream.RecordTypeAAAA,
+		Value:      "::1",
+		Ttl:        300,
+	}); err != nil {
+		t.Fatalf("AddRecord AAAA: %v", err)
+	}
 
-		// List and verify.
-		records, err := client.ListRecords(ctx, nil)
-		if err != nil {
-			t.Fatalf("ListRecords: %v", err)
-		}
-		if len(records) < 2 {
-			t.Fatalf("expected at least 2 records, got %d", len(records))
-		}
+	// List and verify.
+	records, err = client.ListRecords(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+	if len(records) < 2 {
+		t.Fatalf("expected at least 2 records, got %d", len(records))
+	}
 
-		// Remove records for test.local. by type.
-		aType := upstream.RecordTypeA
-		removed, err := client.RemoveRecord(ctx, "test.local.", &upstream.RemoveRecordOptions{RecordType: &aType})
-		if err != nil {
-			t.Fatalf("RemoveRecord A: %v", err)
-		}
-		if removed == 0 {
-			t.Fatal("expected at least 1 A record removed")
-		}
-		aaaaType := upstream.RecordTypeAAAA
-		removed, err = client.RemoveRecord(ctx, "test.local.", &upstream.RemoveRecordOptions{RecordType: &aaaaType})
-		if err != nil {
-			t.Fatalf("RemoveRecord AAAA: %v", err)
-		}
-		if removed == 0 {
-			t.Fatal("expected at least 1 AAAA record removed")
-		}
+	// Remove records for test.local. by type.
+	aType := upstream.RecordTypeA
+	removed, err := client.RemoveRecord(ctx, "test.local.", &upstream.RemoveRecordOptions{RecordType: &aType})
+	if err != nil {
+		t.Fatalf("RemoveRecord A: %v", err)
+	}
+	if removed == 0 {
+		t.Fatal("expected at least 1 A record removed")
+	}
+	aaaaType := upstream.RecordTypeAAAA
+	removed, err = client.RemoveRecord(ctx, "test.local.", &upstream.RemoveRecordOptions{RecordType: &aaaaType})
+	if err != nil {
+		t.Fatalf("RemoveRecord AAAA: %v", err)
+	}
+	if removed == 0 {
+		t.Fatal("expected at least 1 AAAA record removed")
+	}
 
-		// Verify empty.
-		records, err = client.ListRecords(ctx, nil)
-		if err != nil {
-			t.Fatalf("ListRecords after remove: %v", err)
-		}
-		if len(records) != 0 {
-			t.Fatalf("expected 0 records after remove, got %d", len(records))
-		}
-	})
+	// Verify empty.
+	records, err = client.ListRecords(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListRecords after remove: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records after remove, got %d", len(records))
+	}
 }
 
 func TestRolodexDNSQueryForwarding(t *testing.T) {

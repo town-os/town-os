@@ -6,9 +6,11 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -834,9 +836,12 @@ func TestNetworkStateUpdatesOnReinstallWithDifferentPort(t *testing.T) {
 // be built from the binary baked into the systemcontroller image. The test
 // container has /town-os-networkcontroller and alpine:latest pre-loaded.
 func TestNCImageBuildProducesValidImage(t *testing.T) {
-	// Serial: uses real podman to build and run a container image.
-	const imageName = "town-os-networkcontroller:test-build"
+	t.Parallel()
 	const ncBinaryPath = "/town-os-networkcontroller"
+
+	// Unique image name so this test can coexist with future tests that
+	// also build NC images without clashing on the podman image store.
+	imageName := "town-os-networkcontroller:test-build-" + strconv.FormatUint(rand.Uint64(), 36)
 
 	// Verify the NC binary exists in the test container.
 	if _, err := os.Stat(ncBinaryPath); err != nil {
@@ -868,7 +873,7 @@ func TestNCImageBuildProducesValidImage(t *testing.T) {
 		t.Fatalf("podman build failed: %v\n%s", err, string(out))
 	}
 	t.Cleanup(func() {
-		if rmErr := exec.CommandContext(ctx, "podman", "rmi", "-f", imageName).Run(); rmErr != nil { //nolint:gosec // G204 -- imageName is a constant
+		if rmErr := exec.CommandContext(ctx, "podman", "rmi", "-f", imageName).Run(); rmErr != nil {
 			t.Logf("cleanup image: %v", rmErr)
 		}
 	})

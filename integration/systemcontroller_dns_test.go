@@ -276,6 +276,7 @@ func TestDNSTLDChangeReprovisionsRecords(t *testing.T) {
 // subtests. Separate containers cause unreliable port bindings on 127.0.0.2
 // after teardown (see d789b23).
 func TestDNSRealQueries(t *testing.T) {
+	t.Parallel()
 	client, dnsPort := initRolodexRealTest(t)
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {
@@ -298,6 +299,7 @@ func TestDNSRealQueries(t *testing.T) {
 	}
 
 	t.Run("SetupAndQuery", func(t *testing.T) {
+		t.Parallel()
 		// Verify ns1.home. resolves via DNS.
 		var addrs []string
 		var resolveErr error
@@ -323,6 +325,7 @@ func TestDNSRealQueries(t *testing.T) {
 	})
 
 	t.Run("PackageRecord", func(t *testing.T) {
+		t.Parallel()
 		// Register a package.
 		if err := rolodex.RegisterPackageDNS(ctx, client, "core", "nginx", "home", rolodex.DNSLoopback, "", nil); err != nil {
 			t.Fatalf("RegisterPackageDNS: %v", err)

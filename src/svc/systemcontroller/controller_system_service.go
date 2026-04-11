@@ -96,12 +96,18 @@ func (s *SystemControllerHandlers) listSystemServices(c *echo.Context) error {
 
 	sd := s.Controller.GetSystemdManager()
 
+	// Build a set of unit names we care about, then look them up.
+	targetUnits := make(map[string]struct{}, len(svcs))
+	for _, svc := range svcs {
+		targetUnits[svc.UnitName] = struct{}{}
+	}
+
 	unitStates := map[string]systemd.UnitStatus{}
 	if sd != nil {
 		units, err := sd.ListUnits(c.Request().Context())
 		if err == nil {
 			for _, u := range units {
-				if systemd.IsSystemServiceUnit(u.Name) {
+				if _, ok := targetUnits[u.Name]; ok {
 					unitStates[u.Name] = u
 				}
 			}
@@ -183,11 +189,12 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 		}
 	}
 
-	// Find and restart all networkcontroller units.
+	// Find and restart all networkcontroller units (both package and system service).
 	units, err := sd.ListUnits(ctx)
 	if err == nil {
 		for _, u := range units {
-			if strings.HasSuffix(u.Name, "-network.service") && strings.HasPrefix(u.Name, systemd.PackageUnitPrefix) {
+			if strings.HasSuffix(u.Name, "-network.service") &&
+				(strings.HasPrefix(u.Name, systemd.PackageUnitPrefix) || strings.HasPrefix(u.Name, systemd.SystemServiceUnitPrefix)) {
 				if err := sd.SetStatus(ctx, u.Name, systemd.Restart); err != nil {
 					pullErrors = append(pullErrors, fmt.Sprintf("restart %s: %v", u.Name, err))
 				}

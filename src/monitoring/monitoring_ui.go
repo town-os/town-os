@@ -6,63 +6,64 @@ import (
 	"os"
 	"path/filepath"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-// MonitoringUIUnitConfig returns the systemd system service configuration
-// for the monitoring dashboard on port 5308. In uPlot mode this is a socat
-// forwarder to Prometheus on port 9090; in Grafana mode it runs the full
-// Grafana container. The socatImage parameter specifies the container image
-// for the uPlot forwarder (typically the NC image which has socat pre-installed).
-func MonitoringUIUnitConfig(backend, btrfsBase, socatImage string) systemd.SystemServiceUnitConfig {
-	if backend == "" || backend == BackendUPlot {
-		return uplotUIUnitConfig(socatImage)
+// UPlotPackageConfig returns the PackageUnitConfig for the uPlot socat
+// forwarder that exposes port 5308 and forwards to Prometheus on port 9090.
+// The NC image is used as both the socat container (it has socat
+// pre-installed) and the network controller image. Passing an empty
+// ncImage falls back to DefaultSocatImage.
+func UPlotPackageConfig(ncImage, networkStatePath string) systemd.PackageUnitConfig {
+	if ncImage == "" {
+		ncImage = DefaultSocatImage
 	}
-	return grafanaUIUnitConfig(btrfsBase)
-}
-
-// uplotUIUnitConfig returns a socat forwarder that exposes port 5308 and
-// forwards to Prometheus on port 9090 via the host network. The image should
-// have socat pre-installed (e.g. the NC image built at startup).
-func uplotUIUnitConfig(socatImage string) systemd.SystemServiceUnitConfig {
-	if socatImage == "" {
-		socatImage = DefaultSocatImage
-	}
-	return systemd.SystemServiceUnitConfig{
-		Key:         "monitoring-ui",
-		Description: "Monitoring UI (uPlot)",
-		Image:       socatImage,
-		PullNever:   true,
-		Args: []string{
-			"--net", "host",
-		},
+	return systemd.PackageUnitConfig{
+		SystemServiceKey:       "monitoring-ui",
+		Description:            "Monitoring UI (uPlot)",
+		Image:                  ncImage,
+		PullNever:              true,
+		External:               packages.PortMap{5308: 5308},
+		NetworkControllerImage: ncImage,
+		NetworkStatePath:       networkStatePath,
 		Command: []string{
 			"socat", "TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr", "TCP:127.0.0.1:" + PrometheusPort,
 		},
+		RestartAlways:          true,
+		StartLimitIntervalZero: true,
 	}
 }
 
-// grafanaUIUnitConfig returns the Grafana container configuration with port
-// 5308 mapped to Grafana's internal port 3000.
-func grafanaUIUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
+// GrafanaPackageConfig returns the PackageUnitConfig for Grafana so it gets a
+// proper NC, socket units, and private podman network. Only used when the
+// monitoring backend is "grafana".
+func GrafanaPackageConfig(btrfsBase, ncImage, networkStatePath string) systemd.PackageUnitConfig {
 	provisioningDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
 	dataDir := filepath.Join(btrfsBase, "monitoring", "grafana-data")
-	return systemd.SystemServiceUnitConfig{
-		Key:         "monitoring-ui",
-		Description: "Monitoring UI (Grafana)",
-		Image:       GrafanaImage,
-		Args: []string{
-			"-p", MonitoringExternalPort + ":" + GrafanaPort,
-			"-e", "GF_AUTH_ANONYMOUS_ENABLED=true",
-			"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer",
-			"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
-			"-e", "GF_USERS_DEFAULT_THEME=light",
-			"-e", "GF_SERVER_ENABLE_GZIP=true",
-			"-e", "GF_SERVER_HTTP_PORT=" + GrafanaPort,
-			"-v", provisioningDir + ":/etc/grafana/provisioning",
-			"-v", dataDir + ":/var/lib/grafana",
+
+	return systemd.PackageUnitConfig{
+		SystemServiceKey:       "monitoring-ui",
+		Description:            "Monitoring UI (Grafana)",
+		Image:                  GrafanaImage,
+		External:               packages.PortMap{5308: 3000},
+		NetworkControllerImage: ncImage,
+		NetworkStatePath:       networkStatePath,
+		Environment: map[string]string{
+			"GF_AUTH_ANONYMOUS_ENABLED":    "true",
+			"GF_AUTH_ANONYMOUS_ORG_ROLE":   "Viewer",
+			"GF_SECURITY_ALLOW_EMBEDDING": "true",
+			"GF_USERS_DEFAULT_THEME":       "light",
+			"GF_SERVER_ENABLE_GZIP":        "true",
+			"GF_SERVER_HTTP_PORT":          GrafanaPort,
 		},
-		VolumeDirs: []string{provisioningDir, dataDir},
+		HostVolumeMounts: []systemd.HostVolumeMount{
+			{HostPath: provisioningDir, ContainerPath: "/etc/grafana/provisioning"},
+			{HostPath: dataDir, ContainerPath: "/var/lib/grafana"},
+		},
+		MkdirPaths:             []string{provisioningDir, dataDir},
+		RestartAlways:          true,
+		StartLimitIntervalZero: true,
 	}
 }
 
@@ -99,36 +100,35 @@ func WriteGrafanaProvisioningFiles(btrfsBase string) error {
 	return nil
 }
 
-// StartMonitoringUI writes any required configuration, then installs, enables,
-// and starts the monitoring UI system service (socat or Grafana). The socatImage
-// parameter specifies the container image for the uPlot forwarder.
-func StartMonitoringUI(ctx context.Context, sd systemd.Manager, backend, btrfsBase, socatImage string) error {
+// StartMonitoringUI installs and starts the monitoring UI service. Both uPlot
+// and Grafana modes generate full package units (NC, sockets, private network).
+func StartMonitoringUI(ctx context.Context, sd systemd.Manager, backend, btrfsBase, ncImage, networkStatePath string) error {
+	var cfg systemd.PackageUnitConfig
+
 	if backend == BackendGrafana {
 		if err := WriteGrafanaProvisioningFiles(btrfsBase); err != nil {
 			return fmt.Errorf("write grafana provisioning: %w", err)
 		}
+		cfg = GrafanaPackageConfig(btrfsBase, ncImage, networkStatePath)
+	} else {
+		cfg = UPlotPackageConfig(ncImage, networkStatePath)
 	}
 
-	cfg := MonitoringUIUnitConfig(backend, btrfsBase, socatImage)
-	uf := systemd.GenerateSystemServiceUnit(cfg)
+	units := systemd.GeneratePackageUnits(cfg)
 
-	if err := sd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
-		return fmt.Errorf("install monitoring-ui unit: %w", err)
-	}
-	if err := sd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
-		return fmt.Errorf("enable monitoring-ui: %w", err)
-	}
-	if err := sd.SetStatus(ctx, uf.Name, systemd.Restart); err != nil {
-		return fmt.Errorf("start monitoring-ui: %w", err)
+	if err := writeMonitoringNetworkState(cfg); err != nil {
+		return fmt.Errorf("write monitoring-ui network state: %w", err)
 	}
 
-	return nil
+	return installAndStartPackageUnits(ctx, sd, units)
 }
 
 // MonitoringUISystemService returns metadata for the monitoring UI system
-// service, used by the system services API. The image varies by backend.
-func MonitoringUISystemService(backend, socatImage string) SystemService {
-	image := socatImage
+// service, used by the system services API. The image varies by backend:
+// Grafana in grafana mode, or the NC image (which has socat pre-installed)
+// in uPlot mode.
+func MonitoringUISystemService(backend, ncImage string) SystemService {
+	image := ncImage
 	if image == "" {
 		image = DefaultSocatImage
 	}

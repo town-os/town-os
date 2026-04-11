@@ -12,6 +12,14 @@ import (
 	"gitea.com/town-os/town-os/src/packages"
 )
 
+// HostVolumeMount describes an arbitrary host-path to container-path volume
+// mount (as opposed to btrfs-managed package volumes).
+type HostVolumeMount struct {
+	HostPath      string
+	ContainerPath string
+	Options       string // e.g. "ro", "rw,z" — defaults to "rw,z" if empty
+}
+
 // PackageUnitConfig holds all the information needed to generate systemd units
 // for a package's podman container or QEMU VM service.
 type PackageUnitConfig struct {
@@ -51,6 +59,92 @@ type PackageUnitConfig struct {
 	// package. When set on a dependency, the dep adds After= for the NC so
 	// the shared network exists before the dep starts.
 	ParentNCUnitName string
+
+	// SystemServiceKey, when non-empty, generates units with the system
+	// service naming convention (town-os-system-- prefix) instead of the
+	// package prefix. This allows system infrastructure (e.g. monitoring)
+	// to use the same unit generation code path as packages.
+	SystemServiceKey string
+
+	// ExtraArgs are additional podman run arguments inserted before the image
+	// name (e.g. "--pid", "host", "--cap-add", "SYS_TIME").
+	ExtraArgs []string
+
+	// HostVolumeMounts are arbitrary host:container volume mounts (in addition
+	// to btrfs-managed Volumes). Applied after btrfs volumes.
+	HostVolumeMounts []HostVolumeMount
+
+	// ExecStartPreExtra are additional ExecStartPre commands appended after
+	// standard container cleanup and volume preparation.
+	ExecStartPreExtra []string
+
+	// MkdirPaths are host directories to create (mkdir -p) before starting.
+	MkdirPaths []string
+
+	// RestartAlways uses Restart=always instead of Restart=on-failure.
+	RestartAlways bool
+
+	// PullNever adds --pull=never to the podman run command for local images.
+	PullNever bool
+
+	// StartLimitIntervalZero sets StartLimitIntervalSec=0 for unlimited retries.
+	StartLimitIntervalZero bool
+}
+
+// serviceUnitName returns the systemd unit name for the main service.
+func (cfg PackageUnitConfig) serviceUnitName() string {
+	if cfg.SystemServiceKey != "" {
+		return SystemServiceUnitName(cfg.SystemServiceKey)
+	}
+	return UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
+}
+
+// serviceContainerName returns the podman container name for the service.
+func (cfg PackageUnitConfig) serviceContainerName() string {
+	if cfg.SystemServiceKey != "" {
+		return SystemServiceContainerName(cfg.SystemServiceKey)
+	}
+	return ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
+}
+
+// serviceNetworkName returns the podman network name.
+func (cfg PackageUnitConfig) serviceNetworkName() string {
+	if cfg.SystemServiceKey != "" {
+		return "town-os-net--system-" + cfg.SystemServiceKey
+	}
+	return NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version)
+}
+
+// serviceNCUnitName returns the network controller unit name.
+func (cfg PackageUnitConfig) serviceNCUnitName() string {
+	if cfg.SystemServiceKey != "" {
+		return fmt.Sprintf("%s%s-network.service", SystemServiceUnitPrefix, cfg.SystemServiceKey)
+	}
+	return NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
+}
+
+// serviceNCContainerName returns the NC podman container name.
+func (cfg PackageUnitConfig) serviceNCContainerName() string {
+	if cfg.SystemServiceKey != "" {
+		return fmt.Sprintf("%s%s-network", SystemServiceUnitPrefix, cfg.SystemServiceKey)
+	}
+	return NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
+}
+
+// serviceSocketUnitName returns the socket unit name for a given port.
+func (cfg PackageUnitConfig) serviceSocketUnitName(port uint16) string {
+	if cfg.SystemServiceKey != "" {
+		return fmt.Sprintf("%s%s-%d-tcp.socket", SystemServiceUnitPrefix, cfg.SystemServiceKey, port)
+	}
+	return SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, port)
+}
+
+// serviceNCStatePath returns the NC state file path.
+func (cfg PackageUnitConfig) serviceNCStatePath() string {
+	if cfg.SystemServiceKey != "" {
+		return fmt.Sprintf("%s/system-%s.json", cfg.NetworkStatePath, cfg.SystemServiceKey)
+	}
+	return fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, cfg.RepoName, cfg.PkgName, cfg.Version)
 }
 
 // UnitFile represents a single systemd unit file with its name and content.
@@ -151,7 +245,7 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkController bool) UnitFile {
 	var b strings.Builder
 
-	containerName := ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	containerName := cfg.serviceContainerName()
 
 	// [Unit]
 	b.WriteString("[Unit]\n")
@@ -159,6 +253,9 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, "Description=Town OS: %s\n", cfg.Description)
 	} else {
 		fmt.Fprintf(&b, "Description=Town OS Package Service: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version)
+	}
+	if cfg.StartLimitIntervalZero {
+		b.WriteString("StartLimitIntervalSec=0\n")
 	}
 
 	// Dependency ordering: deps get PartOf+Before parent; parent gets Wants+After deps.
@@ -174,7 +271,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		after = append(after, dep)
 	}
 	if needsNetworkController {
-		ncUnit := NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
+		ncUnit := cfg.serviceNCUnitName()
 		wants = append(wants, ncUnit)
 		after = append(after, ncUnit)
 	}
@@ -208,7 +305,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	if len(hostPorts) > 0 {
 		socketNames := make([]string, len(hostPorts))
 		for i, p := range hostPorts {
-			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
+			socketNames[i] = cfg.serviceSocketUnitName(p)
 		}
 		fmt.Fprintf(&b, "ExecStartPre=-/bin/systemctl stop %s\n", strings.Join(socketNames, " "))
 	}
@@ -238,9 +335,19 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		}
 	}
 
+	// Create host directories before starting.
+	for _, dir := range cfg.MkdirPaths {
+		fmt.Fprintf(&b, "ExecStartPre=/bin/mkdir -p %s\n", dir)
+	}
+
+	// Additional ExecStartPre commands.
+	for _, cmd := range cfg.ExecStartPreExtra {
+		fmt.Fprintf(&b, "ExecStartPre=%s\n", cmd)
+	}
+
 	// Determine network name: dependencies join the parent's network,
 	// standalone packages use their own.
-	networkName := NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	networkName := cfg.serviceNetworkName()
 	isDep := cfg.ParentNetwork != ""
 	if isDep {
 		networkName = cfg.ParentNetwork
@@ -258,7 +365,15 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 
 	// ExecStart: podman run on the shared/private network.
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)
+	if cfg.PullNever {
+		b.WriteString(" \\\n  --pull=never")
+	}
 	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
+
+	// Extra podman args (e.g. --pid host, --cap-add).
+	for _, arg := range cfg.ExtraArgs {
+		fmt.Fprintf(&b, " \\\n  %s", arg)
+	}
 
 	// Environment variables, sorted by key.
 	envKeys := make([]string, 0, len(cfg.Environment))
@@ -275,6 +390,15 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		vol := cfg.Volumes[name]
 		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
 		fmt.Fprintf(&b, " \\\n  -v %s:%s:rw,z", hostPath, vol.Mountpoint)
+	}
+
+	// Host volume mounts (arbitrary host paths, not btrfs-managed).
+	for _, hv := range cfg.HostVolumeMounts {
+		opts := hv.Options
+		if opts == "" {
+			opts = "rw,z"
+		}
+		fmt.Fprintf(&b, " \\\n  -v %s:%s:%s", hv.HostPath, hv.ContainerPath, opts)
 	}
 
 	if len(cfg.Command) > 0 {
@@ -303,7 +427,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	if len(hostPorts) > 0 {
 		socketNames := make([]string, len(hostPorts))
 		for i, p := range hostPorts {
-			socketNames[i] = SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, p)
+			socketNames[i] = cfg.serviceSocketUnitName(p)
 		}
 		fmt.Fprintf(&b, "ExecStopPost=-/bin/systemctl start %s\n", strings.Join(socketNames, " "))
 	}
@@ -315,22 +439,34 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, "ExecStopPost=-/usr/bin/podman network rm -f %s\n", networkName)
 	}
 
-	b.WriteString("Restart=on-failure\n")
+	if cfg.RestartAlways {
+		b.WriteString("Restart=always\n")
+	} else {
+		b.WriteString("Restart=on-failure\n")
+	}
 
 	// [Install]
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=multi-user.target\n")
 
 	return UnitFile{
-		Name:    UnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
+		Name:    cfg.serviceUnitName(),
 		Content: b.String(),
 	}
 }
 
 func generateSocketUnit(cfg PackageUnitConfig, port uint16) UnitFile {
-	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
+	svcName := cfg.serviceUnitName()
+
+	var descID string
+	if cfg.SystemServiceKey != "" {
+		descID = cfg.SystemServiceKey
+	} else {
+		descID = fmt.Sprintf("%s/%s@%s", cfg.RepoName, cfg.PkgName, cfg.Version)
+	}
+
 	content := fmt.Sprintf(`[Unit]
-Description=Town OS Socket: %s/%s@%s port %d/tcp
+Description=Town OS Socket: %s port %d/tcp
 PartOf=%s
 
 [Socket]
@@ -339,26 +475,33 @@ FreeBind=true
 
 [Install]
 WantedBy=sockets.target
-`, cfg.RepoName, cfg.PkgName, cfg.Version, port, svcName, port)
+`, descID, port, svcName, port)
 
 	return UnitFile{
-		Name:    SocketUnitName(cfg.RepoName, cfg.PkgName, cfg.Version, port),
+		Name:    cfg.serviceSocketUnitName(port),
 		Content: content,
 	}
 }
 
 func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFile {
-	svcName := UnitName(cfg.RepoName, cfg.PkgName, cfg.Version)
-	containerName := ContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
-	ncContainerName := NetworkControllerContainerName(cfg.RepoName, cfg.PkgName, cfg.Version)
-	networkName := NetworkName(cfg.RepoName, cfg.PkgName, cfg.Version)
-	statePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, cfg.RepoName, cfg.PkgName, cfg.Version)
+	svcName := cfg.serviceUnitName()
+	containerName := cfg.serviceContainerName()
+	ncContainerName := cfg.serviceNCContainerName()
+	networkName := cfg.serviceNetworkName()
+	statePath := cfg.serviceNCStatePath()
+
+	var descID string
+	if cfg.SystemServiceKey != "" {
+		descID = cfg.SystemServiceKey
+	} else {
+		descID = fmt.Sprintf("%s/%s@%s", cfg.RepoName, cfg.PkgName, cfg.Version)
+	}
 
 	var b strings.Builder
 
 	// [Unit] — NC starts first (Before service and deps), stops last.
 	b.WriteString("[Unit]\n")
-	fmt.Fprintf(&b, "Description=Town OS Network Controller: %s/%s@%s\n", cfg.RepoName, cfg.PkgName, cfg.Version)
+	fmt.Fprintf(&b, "Description=Town OS Network Controller: %s\n", descID)
 	fmt.Fprintf(&b, "PartOf=%s\n", svcName)
 	// The system controller builds the NC image at startup, so NC units
 	// must wait for it to finish before attempting to start.
@@ -407,14 +550,21 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 	// NC owns network cleanup — remove the network after everything stops.
 	fmt.Fprintf(&b, "ExecStopPost=-/usr/bin/podman network rm -f %s\n", networkName)
 
-	b.WriteString("Restart=on-failure\n")
+	if cfg.RestartAlways {
+		b.WriteString("Restart=always\n")
+	} else {
+		b.WriteString("Restart=on-failure\n")
+	}
+	if cfg.StartLimitIntervalZero {
+		b.WriteString("StartLimitIntervalSec=0\n")
+	}
 
 	// [Install]
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=multi-user.target\n")
 
 	return UnitFile{
-		Name:    NetworkControllerUnitName(cfg.RepoName, cfg.PkgName, cfg.Version),
+		Name:    cfg.serviceNCUnitName(),
 		Content: b.String(),
 	}
 }
@@ -491,16 +641,35 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 // generated for a package with the given port maps. This is used during
 // uninstall to know which units to tear down.
 func PackageUnitNames(repo, pkgName, version string, external, internal packages.PortMap) []string {
-	names := []string{UnitName(repo, pkgName, version)}
+	cfg := PackageUnitConfig{RepoName: repo, PkgName: pkgName, Version: version}
+	names := []string{cfg.serviceUnitName()}
 
 	ports := allPorts(external, internal)
 	for _, p := range ports {
-		names = append(names, SocketUnitName(repo, pkgName, version, p))
+		names = append(names, cfg.serviceSocketUnitName(p))
 	}
 
 	// Network controller is present whenever there are any ports.
 	if len(ports) > 0 {
-		names = append(names, NetworkControllerUnitName(repo, pkgName, version))
+		names = append(names, cfg.serviceNCUnitName())
+	}
+
+	return names
+}
+
+// SystemServicePackageUnitNames returns the list of all systemd unit names
+// generated for a system service that uses GeneratePackageUnits (e.g. monitoring).
+func SystemServicePackageUnitNames(key string, external, internal packages.PortMap) []string {
+	cfg := PackageUnitConfig{SystemServiceKey: key}
+	names := []string{cfg.serviceUnitName()}
+
+	ports := allPorts(external, internal)
+	for _, p := range ports {
+		names = append(names, cfg.serviceSocketUnitName(p))
+	}
+
+	if len(ports) > 0 {
+		names = append(names, cfg.serviceNCUnitName())
 	}
 
 	return names

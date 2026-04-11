@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -159,16 +160,86 @@ func initSystemControllerSystemdTest(t *testing.T, sd *systemd.MockManager, inst
 	return c
 }
 
-func initRealSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
+// realSystemdFixture bundles the per-test artifacts returned by
+// initRealSystemdTest: the HTTP client, the installed unit name, and the
+// distinctive log message the unit echoes when started. Each field is
+// unique per invocation so multiple tests can share the real systemd
+// bus in parallel without clobbering each other's state.
+type realSystemdFixture struct {
+	Client   *systemcontroller.SystemdClient
+	UnitName string
+	Message  string
+}
+
+// initRealSystemdTest installs a unique oneshot systemd unit via the real
+// systemd manager and returns a client + identifiers for the unit. Each
+// test gets its own randomized PackageIdentity so tests can run in
+// parallel against the shared system bus. The unit logs a per-test
+// unique message via /bin/echo so log-replay tests can match it
+// unambiguously.
+func initRealSystemdTest(t *testing.T) realSystemdFixture {
 	t.Helper()
 
+	suffix := strconv.FormatUint(rand.Uint64(), 36)
+	identity := packages.PackageIdentity{
+		Repo:    "realtest",
+		Name:    "unit-" + suffix,
+		Version: "1.0",
+	}
+	unitName := systemd.UnitName(identity.Repo, identity.Name, identity.Version)
+	message := "town-os-realtest-msg-" + suffix
+
 	sd := systemd.NewManager()
+	ctx := context.Background()
+
+	// Minimal oneshot unit that echoes a unique marker so log-replay
+	// tests can find it in the journal.
+	unitContent := fmt.Sprintf(`[Unit]
+Description=Town OS Real Systemd Test: %s
+
+[Service]
+Type=oneshot
+ExecStart=/bin/echo %s
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+`, identity.Name, message)
+
+	if err := sd.InstallUnit(ctx, unitName, unitContent); err != nil {
+		t.Fatalf("InstallUnit %s: %v", unitName, err)
+	}
+	// Enable so multi-user.target's Wants= keeps the unit loaded in
+	// systemd's memory even when it's inactive. Without this,
+	// unreferenced inactive units are GC'd and vanish from ListUnits,
+	// breaking tests that Stop and then re-list the unit. Enable does
+	// not start the unit — it just creates the symlink + daemon-reload.
+	if err := sd.SetStatus(ctx, unitName, systemd.Enable); err != nil {
+		t.Fatalf("Enable %s: %v", unitName, err)
+	}
+	// Registered before ts.Close below so (LIFO) ts.Close runs first,
+	// then the unit is stopped and removed.
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Stop); err != nil {
+			t.Logf("cleanup SetStatus(%s, stop): %v", unitName, err)
+		}
+		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Disable); err != nil {
+			t.Logf("cleanup SetStatus(%s, disable): %v", unitName, err)
+		}
+		if err := sd.UninstallUnit(cleanupCtx, unitName); err != nil {
+			t.Logf("cleanup UninstallUnit(%s): %v", unitName, err)
+		}
+	})
+
 	mock := storage.InitBtrFSMock()
 	inst := packages.InitMockInstallManager()
-	inst.Installed = []packages.PackageIdentity{
-		{Repo: "repo", Name: "test", Version: "1.0"},
-	}
-	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{Storage: mock, Systemd: sd, Installer: inst})
+	inst.Installed = []packages.PackageIdentity{identity}
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:   mock,
+		Systemd:   sd,
+		Installer: inst,
+	})
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -176,7 +247,11 @@ func initRealSystemdTest(t *testing.T) *systemcontroller.SystemdClient {
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return c
+	return realSystemdFixture{
+		Client:   c,
+		UnitName: unitName,
+		Message:  message,
+	}
 }
 
 func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdClient {

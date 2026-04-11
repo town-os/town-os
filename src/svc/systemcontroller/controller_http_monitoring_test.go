@@ -43,7 +43,6 @@ func TestHTTPMonitoringStatusUPlotBackend(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 
-	// All monitoring services are system services now.
 	sd.Units = []systemd.UnitStatus{
 		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
 		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "active"},

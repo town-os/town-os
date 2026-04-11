@@ -13,11 +13,17 @@ import (
 )
 
 // --- Real systemd integration tests ---
+//
+// Each test uses initRealSystemdTest which installs a per-test unique
+// oneshot unit and echoes a per-test unique log message. Tests can run
+// in parallel against the shared system bus because no two tests share
+// a unit name, container name, or log marker.
 
 func TestRealSystemdListUnits(t *testing.T) {
-	c := initRealSystemdTest(t)
+	t.Parallel()
+	f := initRealSystemdTest(t)
 
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "repo-test"})
+	units, err := f.Client.ListUnits(context.TODO(), systemcontroller.ListParams{Search: f.UnitName})
 	if err != nil {
 		t.Fatalf("ListUnits: %v", err)
 	}
@@ -28,7 +34,7 @@ func TestRealSystemdListUnits(t *testing.T) {
 
 	found := false
 	for _, u := range units.Entries {
-		if u.Name == "town-os-package--repo-test-1.0.service" {
+		if u.Name == f.UnitName {
 			found = true
 			if u.LoadState != "loaded" {
 				t.Fatalf("expected LoadState 'loaded', got %q", u.LoadState)
@@ -37,31 +43,32 @@ func TestRealSystemdListUnits(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("expected town-os-package--repo-test-1.0.service in unit list")
+		t.Fatalf("expected %s in unit list", f.UnitName)
 	}
 }
 
 func TestRealSystemdStartStop(t *testing.T) {
-	c := initRealSystemdTest(t)
+	t.Parallel()
+	f := initRealSystemdTest(t)
 
 	// Ensure stopped first.
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Stop); err != nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Stop); err != nil {
 		t.Logf("SetUnitStatus cleanup: %v", err)
 	}
 
 	// Start.
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Start); err != nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "repo-test"})
+	units, err := f.Client.ListUnits(context.TODO(), systemcontroller.ListParams{Search: f.UnitName})
 	if err != nil {
 		t.Fatalf("ListUnits after start: %v", err)
 	}
 
 	found := false
 	for _, u := range units.Entries {
-		if u.Name == "town-os-package--repo-test-1.0.service" {
+		if u.Name == f.UnitName {
 			found = true
 			if u.ActiveState != "active" {
 				t.Fatalf("expected active after start, got %q", u.ActiveState)
@@ -70,80 +77,83 @@ func TestRealSystemdStartStop(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("town-os-package--repo-test-1.0.service not found after start")
+		t.Fatalf("%s not found after start", f.UnitName)
 	}
 
 	// Stop.
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Stop); err != nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Stop); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	units, err = c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "repo-test"})
+	units, err = f.Client.ListUnits(context.TODO(), systemcontroller.ListParams{Search: f.UnitName})
 	if err != nil {
 		t.Fatalf("ListUnits after stop: %v", err)
 	}
 
 	for _, u := range units.Entries {
-		if u.Name == "town-os-package--repo-test-1.0.service" {
+		if u.Name == f.UnitName {
 			if u.ActiveState != "inactive" {
 				t.Fatalf("expected inactive after stop, got %q", u.ActiveState)
 			}
 			return
 		}
 	}
-	t.Fatal("town-os-package--repo-test-1.0.service not found after stop")
+	t.Fatalf("%s not found after stop", f.UnitName)
 }
 
 func TestRealSystemdRestart(t *testing.T) {
-	c := initRealSystemdTest(t)
+	t.Parallel()
+	f := initRealSystemdTest(t)
 
 	// Ensure started.
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Start); err != nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Restart); err != nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Restart); err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
 
-	units, err := c.ListUnits(context.TODO(), systemcontroller.ListParams{Search: "repo-test"})
+	units, err := f.Client.ListUnits(context.TODO(), systemcontroller.ListParams{Search: f.UnitName})
 	if err != nil {
 		t.Fatalf("ListUnits after restart: %v", err)
 	}
 
 	for _, u := range units.Entries {
-		if u.Name == "town-os-package--repo-test-1.0.service" {
+		if u.Name == f.UnitName {
 			if u.ActiveState != "active" {
 				t.Fatalf("expected active after restart, got %q", u.ActiveState)
 			}
 			return
 		}
 	}
-	t.Fatal("town-os-package--repo-test-1.0.service not found after restart")
+	t.Fatalf("%s not found after restart", f.UnitName)
 }
 
 func TestRealSystemdEnableDisableRejected(t *testing.T) {
-	c := initRealSystemdTest(t)
+	t.Parallel()
+	f := initRealSystemdTest(t)
 
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Disable); err == nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Disable); err == nil {
 		t.Fatal("expected error for Disable, got nil")
 	}
 
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Enable); err == nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Enable); err == nil {
 		t.Fatal("expected error for Enable, got nil")
 	}
 }
 
 func TestRealSystemdLogReplay(t *testing.T) {
-	c := initRealSystemdTest(t)
+	t.Parallel()
+	f := initRealSystemdTest(t)
 
 	// Ensure the service has been started at least once.
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Start); err != nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	time.Sleep(time.Second)
 
-	ch, err := c.LogReplay(context.TODO(), "town-os-package--repo-test-1.0.service")
+	ch, err := f.Client.LogReplay(context.TODO(), f.UnitName)
 	if err != nil {
 		t.Fatalf("LogReplay: %v", err)
 	}
@@ -160,7 +170,7 @@ loop:
 				break loop
 			}
 			entries = append(entries, entry)
-			if entry.Message == "town-os-test-message" {
+			if entry.Message == f.Message {
 				break loop
 			}
 		case <-timer.C:
@@ -174,10 +184,10 @@ loop:
 
 	found := false
 	for _, e := range entries {
-		if e.Message == "town-os-test-message" {
+		if e.Message == f.Message {
 			found = true
-			if e.SystemdUnit != "town-os-package--repo-test-1.0.service" {
-				t.Fatalf("expected SystemdUnit 'town-os-package--repo-test-1.0.service', got %q", e.SystemdUnit)
+			if e.SystemdUnit != f.UnitName {
+				t.Fatalf("expected SystemdUnit %q, got %q", f.UnitName, e.SystemdUnit)
 			}
 			break
 		}
@@ -187,20 +197,21 @@ loop:
 		for _, e := range entries {
 			messages = append(messages, e.Message)
 		}
-		t.Fatalf("expected 'town-os-test-message' in journal entries, got messages: %v", messages)
+		t.Fatalf("expected %q in journal entries, got messages: %v", f.Message, messages)
 	}
 }
 
 func TestRealSystemdLogReplayFields(t *testing.T) {
-	c := initRealSystemdTest(t)
+	t.Parallel()
+	f := initRealSystemdTest(t)
 
 	// Ensure the service has been started at least once.
-	if err := c.SetUnitStatus(context.TODO(), "town-os-package--repo-test-1.0.service", systemd.Start); err != nil {
+	if err := f.Client.SetUnitStatus(context.TODO(), f.UnitName, systemd.Start); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	time.Sleep(time.Second)
 
-	ch, err := c.LogReplay(context.TODO(), "town-os-package--repo-test-1.0.service")
+	ch, err := f.Client.LogReplay(context.TODO(), f.UnitName)
 	if err != nil {
 		t.Fatalf("LogReplay: %v", err)
 	}

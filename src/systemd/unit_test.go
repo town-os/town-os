@@ -1402,3 +1402,214 @@ func TestServiceWithoutNCDoesNotWait(t *testing.T) {
 		t.Fatalf("service without NC should not wait for any container, got:\n%s", svc)
 	}
 }
+
+func TestSystemServiceKeyNaming(t *testing.T) {
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "prometheus",
+		Image:                  "quay.io/prometheus/prometheus:latest",
+		External:               packages.PortMap{9090: 9090},
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	// Service unit name uses system service prefix.
+	if units.Service.Name != SystemServiceUnitName("prometheus") {
+		t.Fatalf("expected %q, got %q", SystemServiceUnitName("prometheus"), units.Service.Name)
+	}
+
+	// Container name uses system service prefix.
+	if !strings.Contains(units.Service.Content, "town-os-system--prometheus") {
+		t.Fatalf("expected system service container name, got:\n%s", units.Service.Content)
+	}
+
+	// NC unit uses system service prefix.
+	if units.NetworkController == nil {
+		t.Fatal("expected NC unit")
+	}
+	expectedNCName := "town-os-system--prometheus-network.service"
+	if units.NetworkController.Name != expectedNCName {
+		t.Fatalf("expected NC name %q, got %q", expectedNCName, units.NetworkController.Name)
+	}
+
+	// Socket unit uses system service prefix.
+	if len(units.Sockets) != 1 {
+		t.Fatalf("expected 1 socket, got %d", len(units.Sockets))
+	}
+	expectedSocketName := "town-os-system--prometheus-9090-tcp.socket"
+	if units.Sockets[0].Name != expectedSocketName {
+		t.Fatalf("expected socket name %q, got %q", expectedSocketName, units.Sockets[0].Name)
+	}
+
+	// Network name uses system prefix.
+	if !strings.Contains(units.Service.Content, "town-os-net--system-prometheus") {
+		t.Fatalf("expected system network name, got:\n%s", units.Service.Content)
+	}
+
+	// NC state path uses system prefix.
+	if !strings.Contains(units.NetworkController.Content, "system-prometheus.json") {
+		t.Fatalf("expected system state path, got:\n%s", units.NetworkController.Content)
+	}
+}
+
+func TestSystemServiceKeyExtraArgs(t *testing.T) {
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "test-svc",
+		Image:                  "test:latest",
+		ExtraArgs:              []string{"--pid", "host", "--cap-add", "SYS_TIME"},
+		External:               packages.PortMap{8080: 80},
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "--pid") {
+		t.Fatalf("expected --pid in extra args, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "--cap-add") {
+		t.Fatalf("expected --cap-add in extra args, got:\n%s", svc)
+	}
+}
+
+func TestSystemServiceKeyHostVolumeMounts(t *testing.T) {
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "test-svc",
+		Image:                  "test:latest",
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+		External:               packages.PortMap{8080: 80},
+		HostVolumeMounts: []HostVolumeMount{
+			{HostPath: "/host/config", ContainerPath: "/etc/config", Options: "ro"},
+			{HostPath: "/host/data", ContainerPath: "/data"},
+		},
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "-v /host/config:/etc/config:ro") {
+		t.Fatalf("expected config volume mount with ro option, got:\n%s", svc)
+	}
+	// Default option should be rw,z.
+	if !strings.Contains(svc, "-v /host/data:/data:rw,z") {
+		t.Fatalf("expected data volume mount with default rw,z, got:\n%s", svc)
+	}
+}
+
+func TestSystemServiceKeyMkdirAndExecStartPre(t *testing.T) {
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "test-svc",
+		Image:                  "test:latest",
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+		External:               packages.PortMap{8080: 80},
+		MkdirPaths:             []string{"/data/config", "/data/storage"},
+		ExecStartPreExtra:      []string{"/bin/chown -R 1000:1000 /data/storage"},
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "mkdir -p /data/config") {
+		t.Fatalf("expected mkdir for /data/config, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "mkdir -p /data/storage") {
+		t.Fatalf("expected mkdir for /data/storage, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "chown -R 1000:1000 /data/storage") {
+		t.Fatalf("expected chown ExecStartPre, got:\n%s", svc)
+	}
+}
+
+func TestSystemServiceKeyRestartAlwaysAndStartLimit(t *testing.T) {
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "test-svc",
+		Image:                  "test:latest",
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+		External:               packages.PortMap{8080: 80},
+		RestartAlways:          true,
+		StartLimitIntervalZero: true,
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "Restart=always") {
+		t.Fatalf("expected Restart=always, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "StartLimitIntervalSec=0") {
+		t.Fatalf("expected StartLimitIntervalSec=0, got:\n%s", svc)
+	}
+
+	// NC should also use Restart=always.
+	nc := units.NetworkController.Content
+	if !strings.Contains(nc, "Restart=always") {
+		t.Fatalf("NC expected Restart=always, got:\n%s", nc)
+	}
+}
+
+func TestSystemServiceKeyPullNever(t *testing.T) {
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "test-svc",
+		Image:                  "local:test",
+		PullNever:              true,
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+		External:               packages.PortMap{8080: 80},
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	if !strings.Contains(svc, "--pull=never") {
+		t.Fatalf("expected --pull=never, got:\n%s", svc)
+	}
+}
+
+func TestSystemServicePackageUnitNames(t *testing.T) {
+	ext := packages.PortMap{9090: 9090, 5308: 9090}
+	names := SystemServicePackageUnitNames("prometheus", ext, nil)
+
+	if len(names) != 4 {
+		t.Fatalf("expected 4 unit names (service + 2 sockets + NC), got %d: %v", len(names), names)
+	}
+
+	// Verify all use system service prefix.
+	for _, name := range names {
+		if !strings.HasPrefix(name, SystemServiceUnitPrefix) {
+			t.Fatalf("expected system service prefix, got %q", name)
+		}
+	}
+}
+
+func TestSystemServiceKeyDescriptionFormat(t *testing.T) {
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "prometheus",
+		Description:            "Prometheus",
+		Image:                  "prom:latest",
+		External:               packages.PortMap{9090: 9090},
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+	}
+
+	units := GeneratePackageUnits(cfg)
+
+	// Service description should use the Description field.
+	if !strings.Contains(units.Service.Content, "Description=Town OS: Prometheus") {
+		t.Fatalf("expected description, got:\n%s", units.Service.Content)
+	}
+
+	// NC description should use the key.
+	if !strings.Contains(units.NetworkController.Content, "Description=Town OS Network Controller: prometheus") {
+		t.Fatalf("expected NC description with key, got:\n%s", units.NetworkController.Content)
+	}
+
+	// Socket description should use the key.
+	if !strings.Contains(units.Sockets[0].Content, "Description=Town OS Socket: prometheus port 9090/tcp") {
+		t.Fatalf("expected socket description with key, got:\n%s", units.Sockets[0].Content)
+	}
+}

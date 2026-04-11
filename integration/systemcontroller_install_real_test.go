@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,13 @@ import (
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
 )
+
+// realRedisMu serializes tests that install core/redis@7.0 into real
+// btrfs (/town-os) with real systemd. Multiple tests use the same
+// package identity and cannot share that state concurrently, but they
+// still participate in the parallel pool — holding this mutex only
+// blocks other redis-using tests, not the rest of the parallel queue.
+var realRedisMu sync.Mutex
 
 // --- Install + Real Systemd integration tests ---
 
@@ -55,6 +63,7 @@ func initSystemControllerInstallRealSystemdTest(t *testing.T) *systemcontroller.
 }
 
 func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
+	t.Parallel()
 	c := initSystemControllerInstallRealSystemdTest(t)
 
 	unitName := systemd.UnitName("core", "nginx", "1.0")
@@ -247,6 +256,13 @@ func waitForContainer(t *testing.T, repo, pkgName, version string, timeout time.
 }
 
 func TestSystemControllerRealContainerLifecycle(t *testing.T) {
+	t.Parallel()
+	// Serialize against other redis-installing tests since they share the
+	// same btrfs subvolume path and systemd unit name. Registered first so
+	// LIFO cleanup holds the lock until after all teardown completes.
+	realRedisMu.Lock()
+	t.Cleanup(realRedisMu.Unlock)
+
 	c := initSystemControllerRealContainerTest(t)
 
 	// Add core repo.
@@ -375,6 +391,12 @@ func TestSystemControllerRealContainerLifecycle(t *testing.T) {
 }
 
 func TestSystemControllerRealContainerReinstall(t *testing.T) {
+	t.Parallel()
+	// Serialize against other redis-installing tests — see the comment
+	// in TestSystemControllerRealContainerLifecycle for why.
+	realRedisMu.Lock()
+	t.Cleanup(realRedisMu.Unlock)
+
 	c := initSystemControllerRealContainerTest(t)
 
 	// Add core repo.

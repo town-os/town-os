@@ -155,3 +155,84 @@ func TestSystemControllerSystemServicesIsolatedFromPackageUnits(t *testing.T) {
 		}
 	}
 }
+
+// TestSystemControllerListSystemServicesIgnoresNCAndSocketUnits verifies that
+// system-service-prefixed NC (`-network.service`) and socket units — which
+// are generated alongside prometheus and monitoring-ui by the package unit
+// path — are not surfaced as separate entries from ListSystemServices.
+// The registered service list should always yield exactly 4 entries
+// (node-exporter + prometheus + monitoring-ui + ui) regardless of how many
+// supporting NC/socket units exist on the system.
+func TestSystemControllerListSystemServicesIgnoresNCAndSocketUnits(t *testing.T) {
+	t.Parallel()
+	c, sd := initSystemServiceIntegrationTest(t)
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: "town-os-system--prometheus-network.service", ActiveState: "active"},
+		{Name: "town-os-system--prometheus-9090-tcp.socket", ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "active"},
+		{Name: "town-os-system--monitoring-ui-network.service", ActiveState: "active"},
+		{Name: "town-os-system--monitoring-ui-5308-tcp.socket", ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("ui"), ActiveState: "active"},
+	}
+
+	entries, err := c.ListSystemServices(context.TODO())
+	if err != nil {
+		t.Fatalf("ListSystemServices: %v", err)
+	}
+
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 entries (NC and socket units excluded), got %d", len(entries))
+	}
+	expected := map[string]bool{"node-exporter": true, "prometheus": true, "monitoring-ui": true, "ui": true}
+	for _, e := range entries {
+		if !expected[e.Key] {
+			t.Fatalf("unexpected entry key %q", e.Key)
+		}
+	}
+}
+
+// TestSystemControllerPingExcludesSystemServiceNCAndSocketUnits verifies that
+// the ping endpoint's system_services count only includes main service units,
+// not the NC (`-network.service`) and socket units generated alongside them
+// by the package unit path. Prometheus and monitoring-ui each contribute one
+// NC + one socket that must not be counted.
+func TestSystemControllerPingExcludesSystemServiceNCAndSocketUnits(t *testing.T) {
+	t.Parallel()
+	c, sd := initSystemServiceIntegrationTest(t)
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: "town-os-system--prometheus-network.service", ActiveState: "active"},
+		{Name: "town-os-system--prometheus-9090-tcp.socket", ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "failed"},
+		{Name: "town-os-system--monitoring-ui-network.service", ActiveState: "active"},
+		{Name: "town-os-system--monitoring-ui-5308-tcp.socket", ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("ui"), ActiveState: "active"},
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.SystemServices == nil {
+		t.Fatal("expected system_services in ping response")
+	}
+
+	// 4 main services: node-exporter, prometheus, monitoring-ui, ui.
+	// NC and socket units should be excluded.
+	if ping.SystemServices.Total != 4 {
+		t.Fatalf("expected 4 total system services (NC and socket units excluded), got %d", ping.SystemServices.Total)
+	}
+	// 3 active (node-exporter, prometheus, ui); monitoring-ui is failed.
+	if ping.SystemServices.Active != 3 {
+		t.Fatalf("expected 3 active system services, got %d", ping.SystemServices.Active)
+	}
+	if ping.SystemServices.Failed != 1 {
+		t.Fatalf("expected 1 failed system service, got %d", ping.SystemServices.Failed)
+	}
+}
