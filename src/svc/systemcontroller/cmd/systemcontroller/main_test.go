@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +49,59 @@ func TestGenerateSigningKeyEnvOverride(t *testing.T) {
 
 	if string(key) != "env-override-key-for-testing!!" {
 		t.Fatalf("expected env key, got %s", string(key))
+	}
+}
+
+func TestHostPodmanSocketConstant(t *testing.T) {
+	// The socket URL is the canonical value we bind-mount in and what
+	// podman.socket creates on the host. Changing this is a coordinated
+	// change across main.go, the install-repo systemd unit, and the
+	// Containerfile podman.socket setup.
+	const want = "unix:///run/podman/podman.sock"
+	if HostPodmanSocket != want {
+		t.Fatalf("HostPodmanSocket: expected %q, got %q", want, HostPodmanSocket)
+	}
+}
+
+func TestSetupPodmanEnvSetsContainerHost(t *testing.T) {
+	// t.Setenv snapshots CONTAINER_HOST and restores it on test exit.
+	t.Setenv("CONTAINER_HOST", "")
+	if err := os.Unsetenv("CONTAINER_HOST"); err != nil {
+		t.Fatalf("Unsetenv: %v", err)
+	}
+
+	if err := setupPodmanEnv(); err != nil {
+		t.Fatalf("setupPodmanEnv: %v", err)
+	}
+
+	got := os.Getenv("CONTAINER_HOST")
+	if got != HostPodmanSocket {
+		t.Fatalf("CONTAINER_HOST: expected %q, got %q", HostPodmanSocket, got)
+	}
+}
+
+func TestSetupPodmanEnvPropagatesToChildProcess(t *testing.T) {
+	// Register a restore via t.Setenv first so any prior value is
+	// preserved regardless of what setupPodmanEnv does.
+	t.Setenv("CONTAINER_HOST", "")
+	if err := os.Unsetenv("CONTAINER_HOST"); err != nil {
+		t.Fatalf("Unsetenv: %v", err)
+	}
+
+	if err := setupPodmanEnv(); err != nil {
+		t.Fatalf("setupPodmanEnv: %v", err)
+	}
+
+	// Child processes inherit the parent's environment. Verify
+	// CONTAINER_HOST shows up in a subprocess so any future exec.Command
+	// invocation of podman will pick it up automatically.
+	out, err := exec.CommandContext(t.Context(), "sh", "-c", "echo \"$CONTAINER_HOST\"").Output()
+	if err != nil {
+		t.Fatalf("subprocess: %v", err)
+	}
+	got := strings.TrimSpace(string(out))
+	if got != HostPodmanSocket {
+		t.Fatalf("CONTAINER_HOST in subprocess env: expected %q, got %q", HostPodmanSocket, got)
 	}
 }
 

@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"math/rand/v2"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
-	"gitea.com/town-os/town-os/src/hostpodman"
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
@@ -868,23 +868,23 @@ func TestNCImageBuildProducesValidImage(t *testing.T) {
 	}
 
 	// Build the image.
-	out, err := hostpodman.Command(ctx, "build", "--pull=never", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "podman","build", "--pull=never", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
 	if err != nil {
 		t.Fatalf("podman build failed: %v\n%s", err, string(out))
 	}
 	t.Cleanup(func() {
-		if rmErr := hostpodman.Command(ctx, "rmi", "-f", imageName).Run(); rmErr != nil {
+		if rmErr := exec.CommandContext(ctx, "podman","rmi", "-f", imageName).Run(); rmErr != nil {
 			t.Logf("cleanup image: %v", rmErr)
 		}
 	})
 
 	// Verify the image exists.
-	if err := hostpodman.Command(ctx, "image", "exists", imageName).Run(); err != nil {
+	if err := exec.CommandContext(ctx, "podman","image", "exists", imageName).Run(); err != nil {
 		t.Fatalf("image %s should exist after build: %v", imageName, err)
 	}
 
 	// Verify the binary is inside the image.
-	out, err = hostpodman.Command(ctx, "run", "--rm", imageName, "ls", "/town-os-networkcontroller").CombinedOutput()
+	out, err = exec.CommandContext(ctx, "podman","run", "--rm", imageName, "ls", "/town-os-networkcontroller").CombinedOutput()
 	if err != nil {
 		t.Fatalf("NC binary not found in image: %v\n%s", err, string(out))
 	}

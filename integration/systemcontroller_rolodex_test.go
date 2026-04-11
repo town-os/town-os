@@ -15,7 +15,6 @@ import (
 	"time"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
-	"gitea.com/town-os/town-os/src/hostpodman"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
@@ -441,7 +440,7 @@ func dumpRolodexDiagnostics(ctx context.Context, t *testing.T, dataDir, key stri
 	}
 
 	// Container status.
-	if out, err := hostpodman.Command(ctx, "ps", "-a", "--filter", "name="+systemd.SystemServiceContainerName(key)).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "podman", "ps", "-a", "--filter", "name="+systemd.SystemServiceContainerName(key)).CombinedOutput(); err != nil {
 		t.Logf("podman ps (exit %v):\n%s", err, out)
 	} else {
 		t.Logf("podman ps:\n%s", out)

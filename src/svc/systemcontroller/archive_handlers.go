@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/git"
-	"gitea.com/town-os/town-os/src/hostpodman"
 	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -209,24 +208,25 @@ func gitCloneIntoPath(ctx context.Context, gitURL, targetPath string) error {
 
 // reconcileExtractFromImage is a standalone function for extracting data from
 // a container image into a target path, used during both install and reconcile.
-// All podman operations route through hostpodman.Command so they act on the
-// host's image store and container state via /run/podman/podman.sock.
+// Every podman invocation inherits CONTAINER_HOST from the systemcontroller
+// process environment (set at startup) so pull/create/rm/cp act on the host's
+// image store and container state via /run/podman/podman.sock.
 func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath string) error {
 	// Pull the image.
-	pullCmd := hostpodman.Command(ctx, "pull", image)
+	pullCmd := exec.CommandContext(ctx, "podman", "pull", image) //nolint:gosec // G204 -- image from validated package config
 	if output, err := pullCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman pull %s: %w: %s", image, err, string(output))
 	}
 
 	// Create a temporary container.
-	createCmd := hostpodman.Command(ctx, "create", image)
+	createCmd := exec.CommandContext(ctx, "podman", "create", image) //nolint:gosec // G204 -- image from validated package config
 	output, err := createCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("podman create %s: %w: %s", image, err, string(output))
 	}
 	containerID := strings.TrimSpace(string(output))
 	defer func() {
-		rmCmd := hostpodman.Command(ctx, "rm", "-f", containerID)
+		rmCmd := exec.CommandContext(ctx, "podman", "rm", "-f", containerID) //nolint:gosec // G204 -- containerID from podman create output
 		if out, err := rmCmd.CombinedOutput(); err != nil {
 			slog.Debug(fmt.Sprintf("podman rm %s: %v: %s", containerID, err, string(out)))
 		}
@@ -235,7 +235,7 @@ func reconcileExtractFromImage(ctx context.Context, image, directory, targetPath
 	// Copy from container to target path.
 	src := fmt.Sprintf("%s:%s", containerID, directory)
 	targetPath = filepath.Clean(targetPath)
-	cpCmd := hostpodman.Command(ctx, "cp", src, targetPath)
+	cpCmd := exec.CommandContext(ctx, "podman", "cp", src, targetPath) //nolint:gosec // G204 -- src/targetPath from validated inputs
 	if output, err := cpCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman cp %s -> %s: %w: %s", src, targetPath, err, string(output))
 	}
