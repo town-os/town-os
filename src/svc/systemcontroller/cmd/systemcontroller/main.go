@@ -290,9 +290,10 @@ func run() (err error) {
 	}
 	rolodex.ConfigureResolvedRouting(ctx, dnsTLD, rolodex.DNSLoopback)
 
-	// Derive UI image.
+	// Derive UI image. When UI_IMAGE is explicitly empty the UI container
+	// is skipped entirely (useful in dev where bun serves the UI).
 	uiImage := os.Getenv("UI_IMAGE")
-	if uiImage == "" {
+	if _, uiSet := os.LookupEnv("UI_IMAGE"); !uiSet {
 		uiImage = "quay.io/town/ui:" + tag
 	}
 
@@ -306,7 +307,9 @@ func run() (err error) {
 	coreImages := []string{
 		monitoring.PrometheusImage,
 		monitoring.NodeExporterImage,
-		uiImage,
+	}
+	if uiImage != "" {
+		coreImages = append(coreImages, uiImage)
 	}
 	if monBackend == monitoring.BackendGrafana {
 		coreImages = append(coreImages, monitoring.GrafanaImage)
@@ -397,13 +400,17 @@ func run() (err error) {
 		}
 	}
 
-	// Start the UI container (Caddy web server).
-	uiMgr := ui.NewManager(ui.Config{Systemd: sd, Image: uiImage})
-	if err := uiMgr.Start(ctx); err != nil {
-		// Non-fatal: UI failure should not prevent the system
-		// controller from starting.
-		fmt.Fprintf(os.Stderr, "ui: %v\n", err)
-		uiMgr = nil
+	// Start the UI container (Caddy web server). Skipped when UI_IMAGE
+	// is empty (dev mode — bun serves the UI directly).
+	var uiMgr *ui.Manager
+	if uiImage != "" {
+		uiMgr = ui.NewManager(ui.Config{Systemd: sd, Image: uiImage})
+		if err := uiMgr.Start(ctx); err != nil {
+			// Non-fatal: UI failure should not prevent the system
+			// controller from starting.
+			fmt.Fprintf(os.Stderr, "ui: %v\n", err)
+			uiMgr = nil
+		}
 	}
 
 	handler := systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{

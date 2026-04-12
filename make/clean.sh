@@ -35,6 +35,11 @@ case "$1" in
     ${SUDO} podman ps -a --format '{{.Names}}' 2>/dev/null \
       | grep -E '^town-os-dev$' \
       | xargs -r -I{} ${SUDO} podman rm -f {} 2>/dev/null || true
+    # Remove orphaned monitoring/system containers that escape the dev
+    # container (host PID/network namespace) and hold ports after removal.
+    ${SUDO} podman ps -a --format '{{.Names}}' 2>/dev/null \
+      | grep -E '^town-os-system--' \
+      | xargs -r -I{} ${SUDO} podman rm -f {} 2>/dev/null || true
     # Prune orphaned volumes to free podman locks.
     ${SUDO} podman volume prune -f 2>/dev/null || true
     ;;

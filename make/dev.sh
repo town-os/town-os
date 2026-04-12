@@ -68,6 +68,14 @@ redirect_host_dns() {
 case "$1" in
   start)
     step "Starting dev environment"
+    # Kill orphaned monitoring containers from a previous dev run that may
+    # still be holding host ports (node-exporter on 9100, prometheus NC on
+    # 9090, monitoring-ui NC on 5308).
+    for c in town-os-system--node-exporter \
+             town-os-system--prometheus town-os-system--prometheus-network \
+             town-os-system--monitoring-ui town-os-system--monitoring-ui-network; do
+      ${SUDO} podman rm -f "$c" 2>/dev/null || true
+    done
     ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
     mkdir -p "${STATE_DIR}/dev-data" "${STATE_DIR}/dev-repos" "${STATE_DIR}/dev-rolodex"
     substep "Launching dev container"
@@ -75,6 +83,8 @@ case "$1" in
       -e "TOWN_OS_REPO_USERNAME=${TOWN_OS_REPO_USERNAME}" \
       -e "TOWN_OS_REPO_PASSWORD=${TOWN_OS_REPO_PASSWORD}" \
       -e "TOWN_OS_TAG=${TOWN_OS_TAG}" \
+      -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
+      -e "UI_IMAGE=" \
       -e TOWN_OS_PAGES=1 \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
@@ -103,13 +113,46 @@ case "$1" in
        printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD [\"/town-os-networkcontroller\"]\n" > Containerfile && \
        podman build --dns 1.1.1.1 --pull=never -t localhost/town-os-networkcontroller:local -f Containerfile . && \
        cd /tmp && rm -rf nc-build'
+    step "Restarting systemcontroller after image loading"
+    ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
+    ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl restart town-os-systemcontroller.service
+    substep "Waiting for systemcontroller API to be ready"
+    wait_for_url "http://localhost:5309/status/ping" 120
+    # Create a default dev account and authenticate unless NO_ACCOUNT=1.
+    DEV_TOKEN=""
+    if [ "${NO_ACCOUNT:-}" != "1" ]; then
+      step "Creating dev account (townos / townos!!)"
+      curl -sf -X POST http://localhost:5309/account/create \
+        -H 'Content-Type: application/json' \
+        -d '{"username":"townos","password":"townos!!","email":"dev@town-os.local","phone":"555-0100","real_name":"Town OS Developer","admin":true}' \
+        >/dev/null 2>&1 || true
+      DEV_TOKEN=$(curl -sf -X POST http://localhost:5309/account/authenticate \
+        -H 'Content-Type: application/json' \
+        -d '{"username":"townos","password":"townos!!"}' \
+        2>/dev/null | grep -o '"token":"[^"]*"' | cut -d'"' -f4) || true
+    fi
     step "Redirecting host DNS to rolodex"
     redirect_host_dns
     # Ensure DNS is restored when the UI dev server exits (Ctrl-C, crash, etc.)
     trap restore_host_dns EXIT
     step "Starting UI dev server"
     substep "API server: http://$(hostname):5309"
+    if [ -n "${DEV_TOKEN}" ]; then
+      substep "Dashboard:  http://$(hostname):5173/?token=${DEV_TOKEN}"
+    else
+      substep "Dashboard:  http://$(hostname):5173"
+    fi
     cd ui && bun install && bun run dev -- --host
+    # Stop services inside the dev container before removing it so
+    # monitoring containers (which share the host network/PID namespace)
+    # do not orphan conmon processes that hold ports.
+    ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl stop \
+      town-os-system--node-exporter.service \
+      town-os-system--prometheus.service \
+      town-os-system--prometheus-network.service \
+      town-os-system--monitoring-ui.service \
+      town-os-system--monitoring-ui-network.service \
+      2>/dev/null || true
     ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
     ;;
   logs)
@@ -119,8 +162,22 @@ case "$1" in
   stop)
     step "Stopping dev container"
     restore_host_dns
+    # Stop services inside the container before removal.
+    ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl stop \
+      town-os-system--node-exporter.service \
+      town-os-system--prometheus.service \
+      town-os-system--prometheus-network.service \
+      town-os-system--monitoring-ui.service \
+      town-os-system--monitoring-ui-network.service \
+      2>/dev/null || true
     # Stop and remove the dev container for this working directory.
     remove_container "${PODMAN_DEV_CONTAINER}"
+    # Clean up orphaned monitoring containers on the host.
+    for c in town-os-system--node-exporter \
+             town-os-system--prometheus town-os-system--prometheus-network \
+             town-os-system--monitoring-ui town-os-system--monitoring-ui-network; do
+      ${SUDO} podman rm -f "$c" 2>/dev/null || true
+    done
     ;;
   stop-all)
     step "Stopping all dev containers"
@@ -129,6 +186,12 @@ case "$1" in
     ${SUDO} podman ps -a --format '{{.Names}}' 2>/dev/null \
       | grep -E '^town-os-dev$' \
       | xargs -r -I{} ${SUDO} podman rm -f {} 2>/dev/null || true
+    # Clean up orphaned monitoring containers on the host.
+    for c in town-os-system--node-exporter \
+             town-os-system--prometheus town-os-system--prometheus-network \
+             town-os-system--monitoring-ui town-os-system--monitoring-ui-network; do
+      ${SUDO} podman rm -f "$c" 2>/dev/null || true
+    done
     ;;
   *)
     echo "Usage: $0 {start|logs|stop|stop-all}"

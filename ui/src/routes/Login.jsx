@@ -33,6 +33,21 @@ export default function Login() {
   }, [t])
 
   useEffect(() => {
+    // Dev auto-login: if ?token= is in the URL, store it and redirect.
+    const params = new URLSearchParams(window.location.search)
+    const urlToken = params.get('token')
+    if (urlToken) {
+      setToken(urlToken)
+      getClient()
+        .sessionUsername(urlToken)
+        .then((username) => {
+          setAccount({ username, admin: true })
+          navigate('/dashboard')
+        })
+        .catch((err) => console.debug('auto-login failed:', err))
+      return
+    }
+
     const token = getToken()
     if (token) {
       getClient()
