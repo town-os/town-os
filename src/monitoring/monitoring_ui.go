@@ -28,7 +28,7 @@ func UPlotPackageConfig(ncImage, networkStatePath string) systemd.PackageUnitCon
 		NetworkControllerImage: ncImage,
 		NetworkStatePath:       networkStatePath,
 		Command: []string{
-			"socat", "TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr", "TCP:127.0.0.1:" + PrometheusPort,
+			"socat", "TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr", "TCP:host.containers.internal:" + PrometheusPort,
 		},
 		RestartAlways:          true,
 		StartLimitIntervalZero: true,

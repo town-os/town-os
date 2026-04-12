@@ -369,8 +369,11 @@ func TestUPlotPackageConfig(t *testing.T) {
 	if !strings.Contains(cmdStr, "TCP-LISTEN:5308") {
 		t.Fatalf("expected socat on port 5308, got %v", cfg.Command)
 	}
-	if !strings.Contains(cmdStr, "TCP:127.0.0.1:9090") {
-		t.Fatalf("expected socat target 127.0.0.1:9090, got %v", cfg.Command)
+	if !strings.Contains(cmdStr, "TCP:host.containers.internal:9090") {
+		t.Fatalf("expected socat target host.containers.internal:9090, got %v", cfg.Command)
+	}
+	if strings.Contains(cmdStr, "127.0.0.1:9090") {
+		t.Fatalf("socat target must not be 127.0.0.1:9090 (unreachable from inside the monitoring-ui container network), got %v", cfg.Command)
 	}
 }
 

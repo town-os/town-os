@@ -48,7 +48,7 @@ const MEMORY_QUERIES = [
 export default function MonitoringCharts() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ height: 'calc(100vh - 104px)' }}>
-      <div className="rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
         <UPlotChart
           queries={DISK_IO_QUERIES}
           title="Disk I/O (/town-os)"
@@ -56,7 +56,7 @@ export default function MonitoringCharts() {
           rangeSeconds={21600}
         />
       </div>
-      <div className="rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
         <UPlotChart
           queries={NETWORK_QUERIES}
           title="Network (External)"
@@ -64,7 +64,7 @@ export default function MonitoringCharts() {
           rangeSeconds={21600}
         />
       </div>
-      <div className="rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
         <UPlotChart
           queries={CPU_QUERIES}
           title="CPU Usage"
@@ -75,7 +75,7 @@ export default function MonitoringCharts() {
           rangeSeconds={21600}
         />
       </div>
-      <div className="rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
         <UPlotChart
           queries={MEMORY_QUERIES}
           title="Memory Usage"

@@ -6,6 +6,7 @@ package integration_test
 import (
 	"context"
 	"net"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -354,4 +355,124 @@ func TestDNSRealQueries(t *testing.T) {
 			t.Fatalf("expected nginx.core.home. to resolve to %s, got %v", rolodex.DNSLoopback, addrs)
 		}
 	})
+}
+
+// --- Resolved routing tests ---
+
+func TestResolvedRoutingNonFatal(t *testing.T) {
+	t.Parallel()
+	// ConfigureResolvedRouting must never panic or crash, even if
+	// resolvectl is not available (e.g., inside the test container).
+	rolodex.ConfigureResolvedRouting(context.Background(), "home", rolodex.DNSLoopback)
+}
+
+func TestResolvedRoutingCalledOnTLDChange(t *testing.T) {
+	t.Parallel()
+
+	var calledTLD, calledAddr string
+	recorder := func(_ context.Context, tld, addr string) {
+		calledTLD = tld
+		calledAddr = addr
+	}
+
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	rc := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
+
+	dataDir := rolodexTempDir(t, "resolved-tld-*")
+	rolMgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        sd,
+		DataDir:        dataDir,
+		Image:          rolodexTestImage(),
+		UnixSocketPath: filepath.Join(dataDir, "resolved-test.sock"),
+	})
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:              mock,
+		Systemd:              sd,
+		Rolodex:              rolMgr,
+		RolodexClient:        rc,
+		SettingsMgr:          settings,
+		ResolvedConfigurator: recorder,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	if err := c.SetDNSTLD(context.TODO(), "local"); err != nil {
+		t.Fatalf("SetDNSTLD: %v", err)
+	}
+
+	if calledTLD != "local" {
+		t.Fatalf("expected ResolvedConfigurator called with TLD %q, got %q", "local", calledTLD)
+	}
+	if calledAddr != rolodex.DNSLoopback {
+		t.Fatalf("expected ResolvedConfigurator called with addr %q, got %q", rolodex.DNSLoopback, calledAddr)
+	}
+}
+
+func TestResolvedRoutingNotCalledWhenNil(t *testing.T) {
+	t.Parallel()
+
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	rc := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
+
+	dataDir := rolodexTempDir(t, "resolved-nil-*")
+	rolMgr := rolodex.NewManager(rolodex.Config{
+		Systemd:        sd,
+		DataDir:        dataDir,
+		Image:          rolodexTestImage(),
+		UnixSocketPath: filepath.Join(dataDir, "resolved-nil.sock"),
+	})
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:       mock,
+		Systemd:       sd,
+		Rolodex:       rolMgr,
+		RolodexClient: rc,
+		SettingsMgr:   settings,
+		// ResolvedConfigurator intentionally nil.
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("could not create client: %v", err)
+	}
+
+	// Should not panic when ResolvedConfigurator is nil.
+	if err := c.SetDNSTLD(context.TODO(), "local"); err != nil {
+		t.Fatalf("SetDNSTLD: %v", err)
+	}
+}
+
+func TestResolvedRoutingConfiguredOnBoot(t *testing.T) {
+	t.Parallel()
+
+	// ConfigureResolvedRouting writes a drop-in config file and restarts
+	// systemd-resolved. In the integration test container, the write may
+	// fail (no /etc/systemd/resolved.conf.d/ or no resolved). The function
+	// must be non-fatal regardless.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	rolodex.ConfigureResolvedRouting(ctx, "home", rolodex.DNSLoopback)
+
+	// If the drop-in dir exists, verify the file was written correctly.
+	dropInPath := "/etc/systemd/resolved.conf.d/town-os.conf"
+	content, err := os.ReadFile(dropInPath)
+	if err != nil {
+		t.Skipf("resolved drop-in not written (expected in containers without resolved): %v", err)
+	}
+
+	expected := "[Resolve]\nDNS=" + rolodex.DNSLoopback + "\nDomains=~home\n"
+	if string(content) != expected {
+		t.Fatalf("drop-in content mismatch:\ngot:  %q\nwant: %q", string(content), expected)
+	}
 }

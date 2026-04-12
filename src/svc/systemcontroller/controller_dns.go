@@ -171,6 +171,12 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 		}
 	}
 
+	// Update systemd-resolved routing for the new TLD so inter-package
+	// DNS resolution uses rolodex for the new domain.
+	if fn := s.Controller.GetResolvedConfigurator(); fn != nil {
+		fn(ctx, req.TLD, rolodex.DNSLoopback)
+	}
+
 	return c.JSON(200, map[string]string{"status": "ok", "tld": req.TLD})
 }
 

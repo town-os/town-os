@@ -158,7 +158,10 @@ func (b *archiveTestBackend) GetMonitoringBackend() string                      
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
 func (b *archiveTestBackend) GetUI() *ui.Manager                    { return nil }
-func (b *archiveTestBackend) GetSystemControllerImage() string      { return "" }
+func (b *archiveTestBackend) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
+	return nil
+}
+func (b *archiveTestBackend) GetSystemControllerImage() string { return "" }
 func (b *archiveTestBackend) GetSystemControllerListenAddr() string { return "" }
 func (b *archiveTestBackend) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
 	return reconcileExtractFromImage

@@ -89,7 +89,7 @@ export default function StorageManagement() {
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -106,7 +106,7 @@ export default function StorageManagement() {
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -117,7 +117,7 @@ export default function StorageManagement() {
       setDeleteConfirm(null)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
       setDeleteConfirm(null)
     }
   }
@@ -129,7 +129,7 @@ export default function StorageManagement() {
       setDeletePkgVolume(null)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
       setDeletePkgVolume(null)
     }
   }
@@ -202,7 +202,7 @@ export default function StorageManagement() {
       setDownloadDialog({ open: false })
     } catch (err) {
       if (err.name === 'AbortError') return
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -223,7 +223,7 @@ export default function StorageManagement() {
       setUploadDialog({ open: false })
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -245,7 +245,7 @@ export default function StorageManagement() {
       setVolumeModifyDialog({ open: false })
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 

@@ -162,7 +162,7 @@ export default function UPlotChart({
 
       const opts = {
         width: containerRef.current?.clientWidth || 600,
-        height: containerRef.current?.clientHeight || 280,
+        height: Math.max(150, (containerRef.current?.clientHeight || 280) - 65),
         title,
         cursor: { show: true },
         scales: {
@@ -211,7 +211,7 @@ export default function UPlotChart({
       if (chartRef.current && containerRef.current) {
         chartRef.current.setSize({
           width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
+          height: Math.max(150, containerRef.current.clientHeight - 65),
         })
       }
     }

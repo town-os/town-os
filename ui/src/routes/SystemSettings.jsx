@@ -90,7 +90,7 @@ export default function SystemSettings() {
       toast.success(t('settings.toast_language_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -137,7 +137,7 @@ export default function SystemSettings() {
       toast.success(t('settings.toast_quota_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -175,7 +175,7 @@ export default function SystemSettings() {
       toast.success(t('settings.toast_archive_size_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -228,7 +228,7 @@ export default function SystemSettings() {
       toast.success(t('settings.toast_timeout_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -250,7 +250,7 @@ export default function SystemSettings() {
       toast.success(t('settings.toast_proton_image_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -272,7 +272,7 @@ export default function SystemSettings() {
       toast.success(t('settings.toast_monitoring_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 

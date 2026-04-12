@@ -58,7 +58,10 @@ func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr 
 func (s *serverBase) GetMonitoringBackend() string { return s.MonitoringBackend }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
-func (s *serverBase) GetSystemControllerImage() string       { return s.SystemControllerImage }
+func (s *serverBase) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
+	return s.ResolvedConfigurator
+}
+func (s *serverBase) GetSystemControllerImage() string { return s.SystemControllerImage }
 func (s *serverBase) GetSystemControllerListenAddr() string  { return s.SystemControllerListenAddr }
 func (s *serverBase) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
 	if s.ImageExtractFunc != nil {

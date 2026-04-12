@@ -78,7 +78,7 @@ export default function UserManagement() {
       setEditDialog({ open: false })
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -94,7 +94,7 @@ export default function UserManagement() {
       setStatusConfirm(null)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
       setStatusConfirm(null)
     }
   }

@@ -20,14 +20,15 @@ export async function readProgressStream(resp, onStep) {
     buffer = lines.pop()
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue
+      let msg
       try {
-        const msg = JSON.parse(line.slice(6))
-        if (msg.error) throw new Error(msg.error)
-        if (msg.step && onStep) onStep(msg.step)
-        if (msg.done) return
-      } catch (e) {
-        if (e.message && !e.message.startsWith('Unexpected')) throw e
+        msg = JSON.parse(line.slice(6))
+      } catch {
+        continue // skip malformed JSON lines
       }
+      if (msg.error) throw new Error(msg.error)
+      if (msg.step && onStep) onStep(msg.step)
+      if (msg.done) return
     }
   }
 }

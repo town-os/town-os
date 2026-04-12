@@ -277,6 +277,15 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
 	}
 
+	// Configure systemd-resolved to route the TLD to rolodex so
+	// inter-package DNS resolution works (container -> aardvark ->
+	// resolved -> rolodex for .tld queries). Non-fatal.
+	dnsTLD := "home"
+	if v, tldErr := settingsMgr.Get("dns_tld"); tldErr == nil && v != "" {
+		dnsTLD = v
+	}
+	rolodex.ConfigureResolvedRouting(ctx, dnsTLD, rolodex.DNSLoopback)
+
 	// Derive UI image.
 	uiImage := os.Getenv("UI_IMAGE")
 	if uiImage == "" {
@@ -411,6 +420,7 @@ func run() (err error) {
 		MonitoringBackend:          monBackend,
 		Rolodex:                    rolMgr,
 		UI:                         uiMgr,
+		ResolvedConfigurator:       rolodex.ConfigureResolvedRouting,
 		SystemControllerImage:      "quay.io/town/town:" + tag,
 		SystemControllerListenAddr: *listenAddr,
 	})

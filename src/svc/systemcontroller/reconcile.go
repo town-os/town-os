@@ -535,10 +535,19 @@ type ReconcileDNSConfig struct {
 	InternalIP     string
 }
 
-// ReconcileDNS sets up the TLD zone and registers DNS records for all
-// installed packages. Errors for individual packages are logged and skipped.
+// ReconcileDNS tears down any stale zone records, sets up the TLD zone, and
+// registers DNS records for all installed packages. The teardown-then-setup
+// pattern prevents duplicate SOA/NS/A records from accumulating across
+// reboots. Errors for individual packages are logged and skipped.
 func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	tld := reconcileDNSTLD(cfg.SettingsMgr)
+
+	// Tear down first so AddRecord (which appends, not upserts) does not
+	// create duplicate SOA/NS/A records on every boot.
+	if err := rolodex.TeardownTLD(ctx, cfg.Client, tld); err != nil {
+		slog.Debug(fmt.Sprintf("reconcile DNS teardown %s: %v", tld, err))
+		// Non-fatal: zone may not exist yet on first boot.
+	}
 
 	if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, ""); err != nil {
 		return fmt.Errorf("setup TLD %s: %w", tld, err)

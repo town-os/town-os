@@ -221,7 +221,7 @@ export default function PackageManagement() {
         await handleShowPreview(repo, name, latestVersion)
       }
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -310,7 +310,7 @@ export default function PackageManagement() {
         dismissProgress()
       }
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -319,7 +319,7 @@ export default function PackageManagement() {
       const info = await getClient().getInstalledInfo(repo, name, version)
       setInfoDialog({ open: true, repo, name, version, ...info })
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -329,7 +329,7 @@ export default function PackageManagement() {
       const content = await getClient().getPackageManifest(repo, name, version)
       setManifestDialog((prev) => ({ ...prev, content }))
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
       setManifestDialog({ open: false })
     }
   }
@@ -372,7 +372,7 @@ export default function PackageManagement() {
         setQuestionsDialog({ ...savedDialog, open: true, fieldErrors })
         toast.error(t('packages.toast_fix_fields'))
       } else {
-        toast.error(err.message)
+        toast.error(err.detail || err.message)
       }
     } finally {
       dismissProgress()
@@ -392,7 +392,7 @@ export default function PackageManagement() {
       toast.success(shouldPurge ? t('packages.toast_uninstalled_purged') : t('packages.toast_uninstalled'))
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     } finally {
       dismissProgress()
     }
@@ -408,7 +408,7 @@ export default function PackageManagement() {
       setRepoDialog(false)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -419,7 +419,7 @@ export default function PackageManagement() {
       setDeleteRepoConfirm(null)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
       setDeleteRepoConfirm(null)
     }
   }
@@ -436,7 +436,7 @@ export default function PackageManagement() {
       toast.success(t('packages.toast_repos_refreshed'))
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     } finally {
       setRefreshing(false)
       dismissProgress()
@@ -448,7 +448,7 @@ export default function PackageManagement() {
       await getClient().moveRepository(name, position)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -1034,7 +1034,7 @@ export default function PackageManagement() {
           try {
             await getClient().purgeUninstalledVolumes(d.repo, d.name)
           } catch (err) {
-            toast.error(err.message)
+            toast.error(err.detail || err.message)
             return
           }
           await handleInstall(d.repo, d.name, d.version, false, d.importFromVersion)

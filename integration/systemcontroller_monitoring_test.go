@@ -191,6 +191,12 @@ func TestMonitoringUIUPlotPackageUnits(t *testing.T) {
 	if !strings.Contains(uiContent, "5308") {
 		t.Fatalf("monitoring-ui unit should expose port 5308, got:\n%s", uiContent)
 	}
+	if !strings.Contains(uiContent, "TCP:host.containers.internal:9090") {
+		t.Fatalf("socat must target host.containers.internal:9090 so the forwarder can reach Prometheus on the host, got:\n%s", uiContent)
+	}
+	if strings.Contains(uiContent, "TCP:127.0.0.1:9090") {
+		t.Fatalf("socat must not target 127.0.0.1:9090 (unreachable from inside the monitoring-ui container network), got:\n%s", uiContent)
+	}
 
 	// NC unit should be installed.
 	ncInstalled := false

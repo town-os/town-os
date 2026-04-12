@@ -101,7 +101,7 @@ export default function DNSManagement() {
       setAddRecordType('')
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -114,7 +114,7 @@ export default function DNSManagement() {
       toast.success(t('dns.toast_record_removed'))
       setRemovedRecords((prev) => [...prev, removed])
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -127,7 +127,7 @@ export default function DNSManagement() {
       setChangeTLDDialog(false)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }
 
@@ -138,7 +138,7 @@ export default function DNSManagement() {
       setSetupConfirm(false)
       doRefresh()
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
       setSetupConfirm(false)
     }
   }

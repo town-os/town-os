@@ -1545,13 +1545,18 @@ func TestReconcileDNS(t *testing.T) {
 
 	calls := mock.GetCalls()
 
-	// Expect: AddAuthoritativeZone, AddRecord(SOA), AddRecord(NS), AddRecord(A for ns1)
+	// Expect teardown first (ListRecords + RemoveAuthoritativeZone, no
+	// RemoveRecord calls because the zone is empty before the first setup),
+	// then setup: AddAuthoritativeZone, AddRecord(SOA), AddRecord(NS),
+	// AddRecord(A for ns1).
 	// Then for each package: AddRecord(A for pkg.repo.tld.)
 	// nginx has an extra domain "www", so: AddRecord(A for nginx.repo-a.lan.) + AddRecord(A for www.nginx.repo-a.lan.)
 	// redis: AddRecord(A for redis.repo-a.lan.)
 
 	var addAuthZoneCalls int
 	var addRecordCalls int
+	var listRecordsCalls int
+	var removeAuthZoneCalls int
 	for _, c := range calls {
 		switch c.Method {
 		case "AddAuthoritativeZone":
@@ -1565,7 +1570,19 @@ func TestReconcileDNS(t *testing.T) {
 			}
 		case "AddRecord":
 			addRecordCalls++
+		case "ListRecords":
+			listRecordsCalls++
+		case "RemoveAuthoritativeZone":
+			removeAuthZoneCalls++
 		}
+	}
+
+	// Teardown calls: ListRecords + RemoveAuthoritativeZone
+	if listRecordsCalls != 1 {
+		t.Fatalf("expected 1 ListRecords call (teardown), got %d", listRecordsCalls)
+	}
+	if removeAuthZoneCalls != 1 {
+		t.Fatalf("expected 1 RemoveAuthoritativeZone call (teardown), got %d", removeAuthZoneCalls)
 	}
 
 	if addAuthZoneCalls != 1 {
@@ -1575,6 +1592,51 @@ func TestReconcileDNS(t *testing.T) {
 	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) + A(www.nginx.repo-a.lan.) + A(redis.repo-a.lan.) = 6
 	if addRecordCalls != 6 {
 		t.Fatalf("expected 6 AddRecord calls, got %d", addRecordCalls)
+	}
+}
+
+func TestReconcileDNSIdempotent(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\n",
+	})
+
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{
+		values: map[string]string{"dns_tld": "lan"},
+	}
+
+	cfg := ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+	}
+
+	// Run reconcile twice to verify no duplicate records accumulate.
+	for i := range 2 {
+		if err := ReconcileDNS(context.Background(), cfg); err != nil {
+			t.Fatalf("ReconcileDNS run %d: %v", i+1, err)
+		}
+	}
+
+	// After two runs, the mock should only have records from the second run
+	// (teardown clears the first run's records before re-adding).
+	records, err := mock.ListRecords(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+
+	// Expected: SOA + NS + A(ns1) + A(nginx.repo-a.lan.) = 4 records
+	if len(records) != 4 {
+		for _, r := range records {
+			t.Logf("  record: name=%s type=%v value=%s", r.Name, r.RecordType, r.Value)
+		}
+		t.Fatalf("expected 4 records after 2 reconcile runs (no duplicates), got %d", len(records))
 	}
 }
 
@@ -1599,10 +1661,13 @@ func TestReconcileDNSNoPackages(t *testing.T) {
 
 	calls := mock.GetCalls()
 
-	// Only TLD setup: AddAuthoritativeZone + SOA + NS + A(ns1) = 4 calls
+	// Teardown (ListRecords + RemoveAuthoritativeZone) then TLD setup:
+	// AddAuthoritativeZone + SOA + NS + A(ns1)
 	var addAuthZoneCalls int
+	var removeAuthZoneCalls int
 	for _, c := range calls {
-		if c.Method == "AddAuthoritativeZone" {
+		switch c.Method {
+		case "AddAuthoritativeZone":
 			addAuthZoneCalls++
 			zone, ok := c.Args[0].(string)
 			if !ok {
@@ -1612,9 +1677,14 @@ func TestReconcileDNSNoPackages(t *testing.T) {
 			if zone != "home." {
 				t.Fatalf("expected default zone home., got %s", zone)
 			}
+		case "RemoveAuthoritativeZone":
+			removeAuthZoneCalls++
 		}
 	}
 
+	if removeAuthZoneCalls != 1 {
+		t.Fatalf("expected 1 RemoveAuthoritativeZone call (teardown), got %d", removeAuthZoneCalls)
+	}
 	if addAuthZoneCalls != 1 {
 		t.Fatalf("expected 1 AddAuthoritativeZone call, got %d", addAuthZoneCalls)
 	}

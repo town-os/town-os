@@ -39,6 +39,7 @@ type systemControllerBackend interface {
 	GetRolodexClient() rolodex.Client
 	GetUI() *ui.Manager
 	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
+	GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string)
 	GetSystemControllerImage() string
 	GetSystemControllerListenAddr() string
 }
@@ -210,6 +211,10 @@ type ServerConfig struct {
 	RolodexClient            rolodex.Client
 	UI                       *ui.Manager
 	ImageExtractFunc         func(ctx context.Context, image, directory, targetPath string) error
+	// ResolvedConfigurator is called after DNS reconcile or TLD change to
+	// configure systemd-resolved routing for the TLD. When nil, the call
+	// is skipped. Set to rolodex.ConfigureResolvedRouting in production.
+	ResolvedConfigurator func(ctx context.Context, tld, loopbackAddr string)
 	// SystemControllerImage is the container image reference that the
 	// systemcontroller's own systemd unit runs. When non-empty, the
 	// systemcontroller is listed as a system service in the /system-services
