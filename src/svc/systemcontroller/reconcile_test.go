@@ -1845,7 +1845,7 @@ notes:
 	}
 }
 
-func TestReconcileVersionChangedRestartsChangedUnits(t *testing.T) {
+func TestReconcileVersionChangedRestartsAllUnits(t *testing.T) {
 	rr, inst := setupReconcileRepo(t, map[string]string{
 		"nginx/1.0": "image: nginx:1.0\nnetwork:\n  external:\n    \"8080\": \"80\"\n",
 	})
@@ -1876,9 +1876,9 @@ func TestReconcileVersionChangedRestartsChangedUnits(t *testing.T) {
 	// Clear calls so we can observe what the second reconcile does.
 	sd.ClearCalls()
 
-	// Second reconcile with VersionChanged=true. The units are already
-	// installed with the same content, so no restarts should happen
-	// (content hasn't changed).
+	// Second reconcile with VersionChanged=true. Even though unit content
+	// is identical, ALL packages must be restarted because container images
+	// may have been updated.
 	if err := Reconcile(context.Background(), ReconcileConfig{
 		Installer:              inst,
 		RepositoryRoot:         rr,
@@ -1891,14 +1891,31 @@ func TestReconcileVersionChangedRestartsChangedUnits(t *testing.T) {
 		t.Fatalf("second reconcile: %v", err)
 	}
 
-	// No Restart calls expected since content is identical.
+	// Expect Restart calls for all units (NC + service) even though
+	// content is unchanged — version change triggers full restart.
+	svcUnit := systemd.UnitName("repo-a", "nginx", "1.0")
+	ncUnit := systemd.NetworkControllerUnitName("repo-a", "nginx", "1.0")
+	restartedSvc := false
+	restartedNC := false
 	for _, call := range sd.GetCalls() {
 		if call.Method == "SetStatus" {
-			action, ok := call.Args[1].(systemd.StatusAction)
-			if ok && action == systemd.Restart {
-				t.Fatalf("unexpected Restart call for %v — content unchanged", call.Args[0])
+			name, _ := call.Args[0].(string)
+			action, _ := call.Args[1].(systemd.StatusAction)
+			if action == systemd.Restart {
+				if name == svcUnit {
+					restartedSvc = true
+				}
+				if name == ncUnit {
+					restartedNC = true
+				}
 			}
 		}
+	}
+	if !restartedSvc {
+		t.Fatal("expected service unit to be restarted on version change even with unchanged content")
+	}
+	if !restartedNC {
+		t.Fatal("expected NC unit to be restarted on version change even with unchanged content")
 	}
 }
 
@@ -1984,9 +2001,6 @@ func TestReconcileVersionChangedRunsPostUpdate(t *testing.T) {
 		t.Fatalf("first reconcile: %v", err)
 	}
 
-	// Tamper to simulate content change.
-	svcUnit := systemd.UnitName("repo-a", "postgres", "16.0")
-	sd.InstalledUnits[svcUnit] = "old content"
 	sd.ClearCalls()
 
 	// Track post-update calls.
@@ -2062,7 +2076,7 @@ func TestReconcilePostUpdateNotRunWhenNoVersionChange(t *testing.T) {
 	}
 }
 
-func TestReconcilePostUpdateNotRunWhenContentUnchanged(t *testing.T) {
+func TestReconcilePostUpdateRunsOnVersionChangeEvenWithUnchangedContent(t *testing.T) {
 	t.Parallel()
 	rr, inst := setupReconcileRepo(t, map[string]string{
 		"postgres/16.0": "image: postgres:16\nnetwork:\n  external:\n    \"5432\": \"5432\"\npost_update:\n  - \"pg_upgrade\"\n",
@@ -2092,7 +2106,9 @@ func TestReconcilePostUpdateNotRunWhenContentUnchanged(t *testing.T) {
 	sd.ClearCalls()
 
 	called := false
-	// Second reconcile with version changed but same content (no tamper).
+	// Second reconcile with version changed but same content. Post-update
+	// commands must still run because the system was updated (container
+	// images may have changed even if the unit text is identical).
 	if err := Reconcile(context.Background(), ReconcileConfig{
 		Installer:              inst,
 		RepositoryRoot:         rr,
@@ -2109,8 +2125,8 @@ func TestReconcilePostUpdateNotRunWhenContentUnchanged(t *testing.T) {
 		t.Fatalf("second reconcile: %v", err)
 	}
 
-	if called {
-		t.Fatal("post-update should not run when unit content hasn't changed")
+	if !called {
+		t.Fatal("post-update should run on version change even when unit content is unchanged")
 	}
 }
 
@@ -2138,9 +2154,6 @@ func TestReconcilePostUpdateFailureIsNonFatal(t *testing.T) {
 		t.Fatalf("first reconcile: %v", err)
 	}
 
-	// Tamper to simulate content change.
-	svcUnit := systemd.UnitName("repo-a", "postgres", "16.0")
-	sd.InstalledUnits[svcUnit] = "old content"
 	sd.ClearCalls()
 
 	var calledCommands []string
@@ -2199,9 +2212,6 @@ func TestReconcilePostUpdateNilExecIsSkipped(t *testing.T) {
 		t.Fatalf("first reconcile: %v", err)
 	}
 
-	// Tamper to simulate content change.
-	svcUnit := systemd.UnitName("repo-a", "postgres", "16.0")
-	sd.InstalledUnits[svcUnit] = "old content"
 	sd.ClearCalls()
 
 	// Nil PostUpdateExec should not panic.

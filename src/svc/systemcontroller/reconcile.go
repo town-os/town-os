@@ -160,30 +160,32 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 			slog.Info("reconcile: restored " + identity)
 		}
 
-		// When the systemcontroller version changed, restart all units whose
-		// content differs from what was on disk. Order: NC first (owns
-		// networks), then dependencies, then parent/standalone services.
+		// When the systemcontroller version changed, restart ALL package
+		// units — not just those whose unit content changed. Container
+		// images may have been updated even when the systemd unit text is
+		// identical. Order: NC first (owns networks), then dependencies,
+		// then parent/standalone services.
 		if cfg.VersionChanged {
-			for _, name := range changedUnits.nc {
+			for _, name := range changedUnits.allNc {
 				slog.Info("reconcile: restarting NC " + name)
 				if err := cfg.Systemd.SetStatus(ctx, name, systemd.Restart); err != nil {
 					slog.Error(fmt.Sprintf("reconcile: restart NC %s: %v", name, err))
 				}
 			}
-			for _, name := range changedUnits.deps {
+			for _, name := range changedUnits.allDeps {
 				slog.Info("reconcile: restarting dependency " + name)
 				if err := cfg.Systemd.SetStatus(ctx, name, systemd.Restart); err != nil {
 					slog.Error(fmt.Sprintf("reconcile: restart dep %s: %v", name, err))
 				}
 			}
-			for _, name := range changedUnits.services {
+			for _, name := range changedUnits.allServices {
 				slog.Info("reconcile: restarting service " + name)
 				if err := cfg.Systemd.SetStatus(ctx, name, systemd.Restart); err != nil {
 					slog.Error(fmt.Sprintf("reconcile: restart service %s: %v", name, err))
 				}
 			}
 
-			// Execute post-update commands for packages that had changed units.
+			// Execute post-update commands for all container packages.
 			if cfg.PostUpdateExec != nil {
 				for _, pu := range changedUnits.postUpdates {
 					for _, cmd := range pu.commands {
@@ -381,9 +383,15 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			installUnitIfChanged(ctx, cfg.Systemd, sock.Name, sock.Content)
 		}
 		if units.NetworkController != nil {
+			changedUnits.allNc = append(changedUnits.allNc, units.NetworkController.Name)
 			if installUnitIfChanged(ctx, cfg.Systemd, units.NetworkController.Name, units.NetworkController.Content) {
 				changedUnits.nc = append(changedUnits.nc, units.NetworkController.Name)
 			}
+		}
+		if packages.IsDependency(pi.Name) {
+			changedUnits.allDeps = append(changedUnits.allDeps, units.Service.Name)
+		} else {
+			changedUnits.allServices = append(changedUnits.allServices, units.Service.Name)
 		}
 		if changed {
 			if packages.IsDependency(pi.Name) {
@@ -391,14 +399,14 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			} else {
 				changedUnits.services = append(changedUnits.services, units.Service.Name)
 			}
+		}
 
-			// Track post-update commands for container packages with changed units.
-			if len(compiled.PostUpdate) > 0 && compiled.Runtime == packages.RuntimeContainer {
-				changedUnits.postUpdates = append(changedUnits.postUpdates, reconcilePostUpdate{
-					containerName: systemd.ContainerName(repoName, pi.Name, pi.Version),
-					commands:      compiled.PostUpdate,
-				})
-			}
+		// Track post-update commands for container packages.
+		if len(compiled.PostUpdate) > 0 && compiled.Runtime == packages.RuntimeContainer {
+			changedUnits.postUpdates = append(changedUnits.postUpdates, reconcilePostUpdate{
+				containerName: systemd.ContainerName(repoName, pi.Name, pi.Version),
+				commands:      compiled.PostUpdate,
+			})
 		}
 
 		// Enable socket and network controller units.
@@ -442,10 +450,17 @@ type reconcilePostUpdate struct {
 
 // reconcileChangedUnits tracks units whose content changed during reconcile.
 type reconcileChangedUnits struct {
-	nc          []string              // network controller units (restart first)
-	deps        []string              // dependency service units (restart second)
-	services    []string              // parent/standalone service units (restart last)
+	nc          []string              // changed network controller units
+	deps        []string              // changed dependency service units
+	services    []string              // changed parent/standalone service units
 	postUpdates []reconcilePostUpdate // post-update commands for changed container packages
+
+	// allNc, allDeps, allServices track every unit installed during
+	// reconcile so that a version-change restart can restart ALL packages,
+	// not just those whose unit content changed.
+	allNc       []string
+	allDeps     []string
+	allServices []string
 }
 
 // installUnitIfChanged installs a unit file and returns true if the content
