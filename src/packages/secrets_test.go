@@ -4,21 +4,23 @@
 package packages
 
 import (
-	"encoding/hex"
 	"testing"
 )
 
 func TestGenerateSecret(t *testing.T) {
-	t.Run("valid hex output", func(t *testing.T) {
+	t.Run("valid latin1 output", func(t *testing.T) {
 		s, err := GenerateSecret()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(s) != 64 {
-			t.Fatalf("expected 64-char hex string, got %d chars: %q", len(s), s)
+		runes := []rune(s)
+		if len(runes) != 32 {
+			t.Fatalf("expected 32-character string, got %d chars: %q", len(runes), s)
 		}
-		if _, err := hex.DecodeString(s); err != nil {
-			t.Fatalf("expected valid hex, got decode error: %v", err)
+		for i, r := range runes {
+			if (r < 0x20 || r > 0x7E) && (r < 0xA0 || r > 0xFF) {
+				t.Fatalf("character at index %d is not printable Latin-1: %U", i, r)
+			}
 		}
 	})
 

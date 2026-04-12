@@ -124,8 +124,9 @@ questions:
 	if secret == "" {
 		t.Fatal("expected auto-generated secret, got empty string")
 	}
-	if len(secret) != 64 {
-		t.Fatalf("expected 64-char hex secret, got %d chars: %q", len(secret), secret)
+	runes := []rune(secret)
+	if len(runes) != 32 {
+		t.Fatalf("expected 32-rune secret, got %d runes: %q", len(runes), secret)
 	}
 }
 
