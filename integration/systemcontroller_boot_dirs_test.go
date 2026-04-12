@@ -17,7 +17,7 @@ func TestBootDirectoriesCreated(t *testing.T) {
 		"/town-os",         // -btrfs flag
 		"/data/db",         // parent of -db /data/db/dev.db
 		"/data/repos",      // -repo-dir flag
-		"/var/run/town-os", // -network-state default
+		"/run/town-os",     // -network-state default
 	}
 
 	for _, d := range dirs {

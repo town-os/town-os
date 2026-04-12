@@ -38,6 +38,16 @@ var Version string
 // the systemcontroller container's isolated podman storage.
 const HostPodmanSocket = "unix:///run/podman/podman.sock"
 
+// DefaultNetworkStatePath is the default value for the -network-state
+// flag. It must point to a directory that the systemcontroller container
+// and the host share so that NC containers (created on the host via
+// CONTAINER_HOST) can bind-mount the same path the systemcontroller
+// writes state files into. The install-repo systemd unit must
+// bind-mount /run/town-os from the host into the systemcontroller
+// container at the same path; without that, NC containers fail to start
+// with "statfs /run/town-os: no such file or directory".
+const DefaultNetworkStatePath = "/run/town-os"
+
 // setupPodmanEnv sets CONTAINER_HOST in the current process environment
 // so that every subsequent `podman` invocation defaults to --url
 // HostPodmanSocket. Child processes forked via os/exec inherit the
@@ -56,7 +66,7 @@ func run() (err error) {
 	dbPath := flag.String("db", "", "path to persistent SQLite database file (default: ephemeral temp DB)")
 	btrfsPath := flag.String("btrfs", "", "base path for btrfs subvolume operations")
 	repoDir := flag.String("repo-dir", "", "base directory for git repositories (default: ephemeral temp dir)")
-	networkStatePath := flag.String("network-state", "/var/run/town-os", "directory for per-package network state files")
+	networkStatePath := flag.String("network-state", DefaultNetworkStatePath, "directory for per-package network state files")
 	listenAddr := flag.String("listen", ":5309", "address to listen on")
 	flag.Parse()
 

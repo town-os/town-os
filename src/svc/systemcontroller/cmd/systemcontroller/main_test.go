@@ -52,6 +52,22 @@ func TestGenerateSigningKeyEnvOverride(t *testing.T) {
 	}
 }
 
+func TestDefaultNetworkStatePath(t *testing.T) {
+	// The default must live under /run (a host-shared bind mount in the
+	// install-repo systemd unit) so NC containers created on the host via
+	// CONTAINER_HOST can bind-mount the same path the systemcontroller
+	// writes state files into. /var/run/town-os was the historical default
+	// before commit 2981c42 routed podman through the host socket; that
+	// path lived only inside the systemcontroller container's namespace,
+	// so NCs failed to start with "statfs /var/run/town-os: no such file
+	// or directory". Changing this value requires a coordinated update to
+	// the install-repo systemcontroller unit's bind mounts.
+	const want = "/run/town-os"
+	if DefaultNetworkStatePath != want {
+		t.Fatalf("DefaultNetworkStatePath: expected %q, got %q", want, DefaultNetworkStatePath)
+	}
+}
+
 func TestHostPodmanSocketConstant(t *testing.T) {
 	// The socket URL is the canonical value we bind-mount in and what
 	// podman.socket creates on the host. Changing this is a coordinated

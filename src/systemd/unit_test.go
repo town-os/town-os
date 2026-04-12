@@ -22,7 +22,7 @@ func TestGeneratePackageUnitsBasic(t *testing.T) {
 		Volumes:                  map[string]packages.PackageVolume{"data": {Mountpoint: "/var/data"}},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -123,7 +123,7 @@ func TestGeneratePackageUnitsMultiplePorts(t *testing.T) {
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -169,7 +169,7 @@ func TestGeneratePackageUnitsInternalOnly(t *testing.T) {
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -213,7 +213,7 @@ func TestGeneratePackageUnitsNoPorts(t *testing.T) {
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -265,7 +265,7 @@ func TestGeneratePackageUnitsEnvironmentSorted(t *testing.T) {
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -418,7 +418,7 @@ func TestGeneratePackageUnitsPrivateNetwork(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -448,7 +448,7 @@ func TestGeneratePackageUnitsCommand(t *testing.T) {
 		Volumes:                  map[string]packages.PackageVolume{},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -488,7 +488,7 @@ func TestGeneratePackageUnitsCommandWithPrivateNetwork(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -523,7 +523,7 @@ func TestGeneratePackageUnitsVolumeFormat(t *testing.T) {
 		},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -557,7 +557,7 @@ func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -572,7 +572,7 @@ func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 	if !strings.Contains(nc, "Before=town-os-package--test-repo-nginx-1.0.service") {
 		t.Fatalf("network controller missing Before, got:\n%s", nc)
 	}
-	if !strings.Contains(nc, "quay.io/town/networkcontroller:test /town-os-networkcontroller --state /var/run/town-os/test-repo-nginx-1.0.json") {
+	if !strings.Contains(nc, "quay.io/town/networkcontroller:test /town-os-networkcontroller --state /run/town-os/test-repo-nginx-1.0.json") {
 		t.Fatalf("network controller missing ExecStart with correct state path, got:\n%s", nc)
 	}
 	if !strings.Contains(nc, "--target-container town-os-package--test-repo-nginx-1.0") {
@@ -620,7 +620,7 @@ func TestGeneratePackageUnitsNCAlwaysPresentWithExternalPorts(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -667,7 +667,7 @@ func TestGeneratePackageUnitsInternalPortForwarding(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -708,7 +708,7 @@ func TestGeneratePackageUnitsInternalSamePort(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -896,7 +896,7 @@ func TestNCUnitRequiresImageName(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -1056,7 +1056,7 @@ func TestGeneratePackageUnitsProtonCommand(t *testing.T) {
 		},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -1118,7 +1118,7 @@ func TestGeneratePackageUnitsProtonWithArgs(t *testing.T) {
 		},
 		BtrfsBase:                "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:         "/var/run/town-os",
+		NetworkStatePath:         "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -1153,7 +1153,7 @@ func TestGeneratePackageUnitsDependencySharedNetwork(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{"data": {Mountpoint: "/var/lib/postgresql/data"}},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 		ParentNetwork:          parentNetwork,
 		ParentUnitName:         parentUnit,
 		ParentNCUnitName:       parentNCUnit,
@@ -1229,7 +1229,7 @@ func TestGeneratePackageUnitsParentWithDeps(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 		DependencyUnitNames:    []string{depUnit},
 	}
 
@@ -1276,7 +1276,7 @@ func TestParentWithDepsStillGetsNC(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 		DependencyUnitNames:    []string{depUnit},
 	}
 
@@ -1308,7 +1308,7 @@ func TestGeneratePackageUnitsStandaloneNetworkCleanup(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
@@ -1350,7 +1350,7 @@ func TestServiceUnitOrdersAfterNC(t *testing.T) {
 		Volumes:                map[string]packages.PackageVolume{},
 		BtrfsBase:              "/town-os",
 		NetworkControllerImage: "quay.io/town/networkcontroller:test",
-		NetworkStatePath:       "/var/run/town-os",
+		NetworkStatePath:       "/run/town-os",
 	}
 
 	units := GeneratePackageUnits(cfg)
