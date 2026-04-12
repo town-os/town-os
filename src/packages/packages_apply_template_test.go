@@ -32,7 +32,7 @@ func TestApplyTemplateAdditional(t *testing.T) {
 	table := map[string][4]string{
 		"empty input":           {"", "var", "repl", ""},
 		"no templates":          {"plain text", "var", "repl", "plain text"},
-		"empty variable name":   {"@@", "", "repl", "repl"},
+		"double at preserved":   {"@@", "", "repl", "@@"},
 		"adjacent templates":    {"@a@@b@", "a", "X", "X@b@"},
 		"same var twice":        {"@v@ and @v@", "v", "X", "X and X"},
 		"replacement with @":    {"@v@", "v", "has@sign", "has@sign"},
@@ -41,6 +41,8 @@ func TestApplyTemplateAdditional(t *testing.T) {
 		"only template":         {"@v@", "v", "X", "X"},
 		"multiple unclosed":     {"@abc", "abc", "X", "@abc"},
 		"volume template":       {"/data/@vol@/files", "vol", "mydata", "/data/mydata/files"},
+		"triple at variable":    {"ssh://git@@@PACKAGE_DNS@/repo", "PACKAGE_DNS", "gitea.home", "ssh://git@@gitea.home/repo"},
+		"double at no match":    {"admin@@example.com", "other", "x", "admin@@example.com"},
 	}
 
 	for name, data := range table {
@@ -69,20 +71,30 @@ func TestApplyTemplates(t *testing.T) {
 			Responses{"host": "x"},
 			"@unknown@",
 		},
-		"ssh url with adjacent at signs": {
-			"ssh://git@@domain@:@sshport@",
+		"ssh url with triple at": {
+			"ssh://git@@@domain@:@sshport@",
 			Responses{"domain": "example.com", "sshport": "2222"},
 			"ssh://git@example.com:2222",
 		},
 		"double at literal": {
 			"@@",
 			Responses{"v": "x"},
-			"@@",
+			"@",
 		},
 		"triple at": {
 			"@@@v@",
 			Responses{"v": "X"},
-			"@@X",
+			"@X",
+		},
+		"double at in text": {
+			"user@@host",
+			Responses{"v": "x"},
+			"user@host",
+		},
+		"double at followed by non-template": {
+			"@@plain",
+			Responses{"plain": "x"},
+			"@plain",
 		},
 		"plain text": {
 			"no templates",
@@ -139,11 +151,11 @@ func TestCompileWithContextPackageDNS(t *testing.T) {
 	}
 }
 
-func TestCompileNotesDoubleAtResponseSubstitution(t *testing.T) {
+func TestCompileNotesTripleAtResponseSubstitution(t *testing.T) {
 	ip := InputPackage{
 		Image: InputPackageImage{URL: "test-image"},
 		Notes: map[string]Note{
-			"git_url": {Value: "ssh://git@@sshhost@:@sshport@/repo"},
+			"git_url": {Value: "ssh://git@@@sshhost@:@sshport@/repo"},
 		},
 		Questions: map[string]Question{
 			"sshhost": {Query: "SSH host?"},
@@ -328,7 +340,7 @@ func BenchmarkApplyTemplate(b *testing.B) {
 }
 
 func BenchmarkApplyTemplates(b *testing.B) {
-	input := "ssh://git@@domain@:@sshport@/repo @extra@ path"
+	input := "ssh://git@@@domain@:@sshport@/repo @extra@ path"
 	responses := Responses{
 		"domain":  "example.com",
 		"sshport": "2222",

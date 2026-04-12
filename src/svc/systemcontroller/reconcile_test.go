@@ -1739,6 +1739,58 @@ environment:
 	}
 }
 
+func TestReconcileDoubleAtEscapeInEnvironment(t *testing.T) {
+	// Verify that @@ produces a literal @ and @@@ produces @ + template.
+	// This is the pattern used for SSH URLs like ssh://git@@@PACKAGE_DNS@.
+	pkgYAML := `image: nginx:1.0
+environment:
+  SSH_URL: "ssh://git@@@PACKAGE_DNS@/repo"
+  EMAIL: "admin@@example.com"
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"gitea/1.0": pkgYAML,
+	})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "gitea", "gitea", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+
+	settings := &mockSettingsManager{
+		values: map[string]string{"dns_tld": "home"},
+	}
+
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Systemd:        sd,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) < 1 {
+		t.Fatal("expected at least 1 systemd call")
+	}
+
+	unitContent, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("expected string arg for unit content")
+	}
+
+	// @@@ in SSH_URL: @@ = literal @, then @PACKAGE_DNS@ = gitea.repo-a.home
+	if !strings.Contains(unitContent, "ssh://git@gitea.repo-a.home/repo") {
+		t.Fatalf("expected 'ssh://git@gitea.repo-a.home/repo' in unit content, got:\n%s", unitContent)
+	}
+
+	// @@ in EMAIL: @@ = literal @, "example.com" is just text
+	if !strings.Contains(unitContent, "admin@example.com") {
+		t.Fatalf("expected 'admin@example.com' in unit content, got:\n%s", unitContent)
+	}
+}
+
 // mockSettingsManager is a minimal in-memory settings manager for tests.
 type mockSettingsManager struct {
 	values map[string]string

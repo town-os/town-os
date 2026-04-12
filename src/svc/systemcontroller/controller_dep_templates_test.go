@@ -30,7 +30,7 @@ func TestApplyDepTemplates(t *testing.T) {
 
 	t.Run("multiple deps", func(t *testing.T) {
 		env := map[string]string{
-			"DATABASE_URL": "postgres://user:pass@@dep_db_host@:@dep_db_port_5432@/mydb",
+			"DATABASE_URL": "postgres://user:pass@@@dep_db_host@:@dep_db_port_5432@/mydb",
 			"CACHE_URL":    "redis://@dep_cache_host@:@dep_cache_port_6379@",
 		}
 		depEnvVars := map[string]string{

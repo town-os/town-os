@@ -15,17 +15,28 @@ func applyTemplate(input string, v string, repl string) string {
 		switch {
 		case input[x] == TemplateChar:
 			if inside {
-				inside = false
-
-				if tv.String() == v {
-					out.WriteString(repl)
+				if tv.Len() == 0 {
+					// Consecutive @@ — preserve both characters literally.
+					// The @@ escape is only resolved by ApplyTemplates
+					// (the single-pass multi-key resolver). The per-key
+					// applyTemplate must not modify @@ because it runs
+					// multiple passes and would corrupt escapes.
+					out.WriteByte(TemplateChar)
+					out.WriteByte(TemplateChar)
+					inside = false
 				} else {
-					out.WriteByte(TemplateChar)
-					out.WriteString(tv.String())
-					out.WriteByte(TemplateChar)
-				}
+					inside = false
 
-				tv.Reset()
+					if tv.String() == v {
+						out.WriteString(repl)
+					} else {
+						out.WriteByte(TemplateChar)
+						out.WriteString(tv.String())
+						out.WriteByte(TemplateChar)
+					}
+
+					tv.Reset()
+				}
 			} else {
 				inside = true
 			}
@@ -46,8 +57,9 @@ func applyTemplate(input string, v string, repl string) string {
 
 // ApplyTemplates resolves all template variables in a single pass, avoiding
 // re-parsing of @ characters introduced by earlier substitutions. Consecutive
-// @@ are treated as a literal @ followed by the start of a new template
-// variable (e.g. "git@@domain@" → "git@" + template "domain").
+// @@ is a literal @ escape (e.g. "user@@host" → "user@host"). To produce
+// a literal @ followed by a template variable, use three @'s:
+// "ssh://git@@@PACKAGE_DNS@" → "ssh://git@" + template "PACKAGE_DNS".
 func ApplyTemplates(input string, responses Responses) string {
 	var inside bool
 	var tv, out strings.Builder
@@ -57,10 +69,11 @@ func ApplyTemplates(input string, responses Responses) string {
 		case input[x] == TemplateChar:
 			if inside {
 				if tv.Len() == 0 {
-					// Consecutive @@ — emit a literal @ and stay
-					// inside so the next characters form the real
-					// variable name (e.g. "git@@domain@" → "git@" + @domain@).
+					// Consecutive @@ — emit a literal @ and exit
+					// inside mode. A subsequent @ starts a fresh
+					// template variable (e.g. "@@@var@" → "@" + @var@).
 					out.WriteByte(TemplateChar)
+					inside = false
 				} else {
 					inside = false
 
@@ -154,10 +167,8 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		}
 	}
 
-	for name, note := range i.Notes {
-		note.Value = applyTemplate(note.Value, iv, response)
-		i.Notes[name] = note
-	}
+	// Notes are NOT processed here — they are compiled separately via
+	// CompileNotes which uses ApplyTemplates (single-pass, handles @@ escape).
 
 	for key, dep := range i.Dependencies {
 		for rk, rv := range dep.Responses {
@@ -318,7 +329,26 @@ func (i *InputPackage) CompileWithContext(response Responses, ctx CompileContext
 	if ctx.PackageDNS != "" {
 		i.iterateFields("PACKAGE_DNS", ctx.PackageDNS)
 	}
-	return i.Compile(response)
+
+	pkg, err := i.Compile(response)
+	if err != nil {
+		return nil, err
+	}
+
+	// Re-compile notes with context variables merged into responses.
+	// Notes are excluded from iterateFields (which uses the per-key
+	// applyTemplate and corrupts @@ escapes across passes). Instead,
+	// CompileNotesWithContext resolves everything in a single
+	// ApplyTemplates pass.
+	if len(i.Notes) > 0 {
+		notes, notesErr := i.CompileNotesWithContext(response, ctx)
+		if notesErr != nil {
+			return nil, notesErr
+		}
+		pkg.Notes = notes
+	}
+
+	return pkg, nil
 }
 
 func (i *InputPackage) Compile(response Responses) (*Package, error) {
@@ -500,6 +530,15 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 				}
 			}
 			compiledDeps[key] = resolved
+		}
+	}
+
+	// Resolve @@ escapes in environment values. The per-key applyTemplate
+	// preserves @@ across passes to avoid corruption; now that all passes
+	// are done, collapse @@ → @ for the final output.
+	for k, v := range i.Environment {
+		if strings.Contains(v, "@@") {
+			i.Environment[k] = strings.ReplaceAll(v, "@@", "@")
 		}
 	}
 

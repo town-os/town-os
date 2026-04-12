@@ -3,6 +3,7 @@ package packages
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
 	"strings"
@@ -335,23 +336,19 @@ func (i *InputPackage) CompileNotes(responses Responses) (map[string]string, err
 // compiling them with user responses. This is used when notes need context
 // substitution (e.g. @PACKAGE_DNS@) outside of a full Compile call.
 func (i *InputPackage) CompileNotesWithContext(responses Responses, ctx CompileContext) (map[string]string, error) {
+	// Merge context variables and user responses into a single map so
+	// ApplyTemplates resolves everything in one pass. This correctly
+	// handles @@ escapes (e.g. "ssh://git@@@PACKAGE_DNS@").
+	merged := make(Responses, len(responses)+3)
+	maps.Copy(merged, responses)
 	if ctx.ExternalHost != "" {
-		for name, note := range i.Notes {
-			note.Value = applyTemplate(note.Value, "LOCAL_EXTERNAL_HOST", ctx.ExternalHost)
-			i.Notes[name] = note
-		}
+		merged["LOCAL_EXTERNAL_HOST"] = ctx.ExternalHost
 	}
 	if ctx.InternalHost != "" {
-		for name, note := range i.Notes {
-			note.Value = applyTemplate(note.Value, "LOCAL_INTERNAL_HOST", ctx.InternalHost)
-			i.Notes[name] = note
-		}
+		merged["LOCAL_INTERNAL_HOST"] = ctx.InternalHost
 	}
 	if ctx.PackageDNS != "" {
-		for name, note := range i.Notes {
-			note.Value = applyTemplate(note.Value, "PACKAGE_DNS", ctx.PackageDNS)
-			i.Notes[name] = note
-		}
+		merged["PACKAGE_DNS"] = ctx.PackageDNS
 	}
-	return i.CompileNotes(responses)
+	return i.CompileNotes(merged)
 }

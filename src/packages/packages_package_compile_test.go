@@ -983,7 +983,7 @@ func TestCompileNotes(t *testing.T) {
 			Volumes:     map[string]InputPackageVolume{},
 			Questions:   map[string]Question{},
 			Notes: map[string]Note{
-				"SSH": {Value: "ssh://git@@domain@:@sshport@", Type: NoteURL},
+				"SSH": {Value: "ssh://git@@@domain@:@sshport@", Type: NoteURL},
 			},
 		}
 		notes, err := input.CompileNotes(Responses{"domain": "example.com", "sshport": "2222"})
