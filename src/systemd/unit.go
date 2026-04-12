@@ -511,6 +511,9 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 	beforeTargets := []string{svcName}
 	beforeTargets = append(beforeTargets, cfg.DependencyUnitNames...)
 	fmt.Fprintf(&b, "Before=%s\n", strings.Join(beforeTargets, " "))
+	if cfg.StartLimitIntervalZero {
+		b.WriteString("StartLimitIntervalSec=0\n")
+	}
 
 	// [Service]
 	b.WriteString("\n[Service]\n")
@@ -554,9 +557,6 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 		b.WriteString("Restart=always\n")
 	} else {
 		b.WriteString("Restart=on-failure\n")
-	}
-	if cfg.StartLimitIntervalZero {
-		b.WriteString("StartLimitIntervalSec=0\n")
 	}
 
 	// [Install]
