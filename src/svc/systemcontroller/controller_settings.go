@@ -107,6 +107,14 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 		return err
 	}
 
+	// When the monitoring backend changes, restart the monitoring UI
+	// service immediately so the switch takes effect without a reboot.
+	if req.Key == "monitoring_backend" {
+		if err := s.Controller.RefreshMonitoringBackend(c.Request().Context(), value); err != nil {
+			return echo.NewHTTPError(500, fmt.Sprintf("failed to refresh monitoring backend: %v", err))
+		}
+	}
+
 	c.Response().WriteHeader(200)
 	return nil
 }

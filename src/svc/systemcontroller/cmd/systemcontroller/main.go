@@ -217,8 +217,12 @@ func run() (err error) {
 
 	// Read the tag baked into the image at push time. This lets us derive
 	// matching tags for sibling images (UI, rolodex) at runtime.
+	// Fallback chain: TOWN_OS_TAG env var → compile-time Version ldflags →
+	// /town-os.tag file → "rc.latest".
 	tag := "rc.latest"
-	if Version != "" {
+	if envTag := os.Getenv("TOWN_OS_TAG"); envTag != "" {
+		tag = envTag
+	} else if Version != "" {
 		tag = Version
 	} else if data, err := os.ReadFile("/town-os.tag"); err == nil {
 		if t := strings.TrimSpace(string(data)); t != "" {

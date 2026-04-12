@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+#
+# set-dns -- Force or reset the DNS server for a network interface.
+#
+# Sets a static DNS server on the given interface and disables DHCP-provided
+# DNS so the setting is not overwritten on lease renewal. Use "reset" to
+# restore DHCP-managed DNS.
+#
+# The script auto-detects which network backend is managing the system and
+# uses the appropriate tool. Detection order (first match wins):
+#
+#   1. netplan        -- Ubuntu/cloud systems. Writes an override YAML at
+#                        /etc/netplan/90-set-dns-<iface>.yaml with
+#                        dhcp4-overrides.use-dns: false. Reset removes the
+#                        file. Both run `netplan apply`.
+#
+#   2. NetworkManager -- Arch, Fedora, most desktops. Uses `nmcli con mod`
+#                        to set ipv4.dns and ipv4.ignore-auto-dns, then
+#                        bounces the connection. Reset clears both and
+#                        re-enables auto DNS.
+#
+#   3. systemd-networkd -- Minimal/server systems. Writes a drop-in at
+#                        /etc/systemd/network/90-set-dns-<iface>.network.d/
+#                        setting DNS= and UseDNS=false for DHCPv4/v6.
+#                        Reset removes the drop-in. Both reload and
+#                        reconfigure the interface.
+#
+#   4. ConnMan        -- Embedded/IoT systems. Uses `connmanctl config` to
+#                        set --nameservers. Manual servers implicitly
+#                        suppress DHCP DNS. Reset passes --nameservers auto.
+#
+#   5. ifupdown       -- Legacy Debian (/etc/network/interfaces). Cannot be
+#                        safely automated; prints manual instructions, then
+#                        falls through to the resolv.conf handler for an
+#                        immediate (non-persistent) fix.
+#
+#   6. /etc/resolv.conf -- Last resort when no network manager is detected.
+#                        Overwrites resolv.conf directly (backs up to
+#                        /etc/resolv.conf.set-dns.bak on first use). Not
+#                        persistent across reboots or DHCP renewals. Reset
+#                        is not supported; prints recovery instructions.
+#
+# Requires: ip, sudo, and the tools for the detected backend (nmcli,
+#           networkctl, netplan, connmanctl, or ifup).
+#
+set -euo pipefail
+
+usage() {
+    local cmd
+    cmd=$(basename "$0")
+
+    cat <<EOF
+Usage: $cmd <interface> <ip|reset>
+
+Force the DNS server for an interface, blocking DHCP from overriding it.
+Pass "reset" to restore DHCP-managed DNS.
+
+The network backend is auto-detected in this order:
+  netplan > NetworkManager > systemd-networkd > ConnMan > ifupdown > resolv.conf
+
+Options:
+  -h, --help    Show this help message and exit.
+
+Examples:
+  $cmd enp7s0 192.168.1.1      # set DNS to 192.168.1.1
+  $cmd wlan0  fd12::1           # set DNS to an IPv6 address
+  $cmd enp7s0 reset             # revert to DHCP-provided DNS
+EOF
+    exit 1
+}
+
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+case "${1:-}" in
+    -h|--help) usage ;;
+esac
+
+if [[ $# -ne 2 ]]; then
+    usage
+fi
+
+iface="$1"
+target="$2"
+
+# Verify the interface exists
+if ! ip link show "$iface" &>/dev/null; then
+    echo "Error: interface '$iface' not found" >&2
+    exit 1
+fi
+
+# Validate IP unless resetting
+if [[ "$target" != "reset" ]]; then
+    if ! [[ "$target" =~ ^[0-9a-fA-F.:]+$ ]]; then
+        echo "Error: '$target' does not look like an IP address" >&2
+        exit 1
+    fi
+fi
+
+detect_backend() {
+    # Order matters: netplan wraps networkd/NM, so check it first.
+    # Then check the actual running daemons.
+    if command -v netplan &>/dev/null && [[ -d /etc/netplan ]] \
+        && ls /etc/netplan/*.yaml &>/dev/null 2>&1; then
+        echo "netplan"
+        return
+    fi
+
+    if systemctl is-active --quiet NetworkManager 2>/dev/null; then
+        echo "networkmanager"
+        return
+    fi
+
+    if systemctl is-active --quiet systemd-networkd 2>/dev/null; then
+        echo "networkd"
+        return
+    fi
+
+    if systemctl is-active --quiet connman 2>/dev/null; then
+        echo "connman"
+        return
+    fi
+
+    if [[ -d /etc/network ]] && command -v ifup &>/dev/null; then
+        echo "ifupdown"
+        return
+    fi
+
+    echo "resolv.conf"
+}
+
+backend=$(detect_backend)
+echo "Detected network backend: $backend"
+
+# ── NetworkManager ──────────────────────────────────────────────────
+do_networkmanager() {
+    local conn
+    conn=$(nmcli -t -f NAME,DEVICE con show --active \
+        | awk -F: -v dev="$iface" '$2 == dev { print $1; exit }')
+    if [[ -z "$conn" ]]; then
+        echo "Error: no active NetworkManager connection for '$iface'" >&2
+        exit 1
+    fi
+
+    if [[ "$target" == "reset" ]]; then
+        sudo nmcli con mod "$conn" ipv4.dns "" ipv4.ignore-auto-dns no
+        sudo nmcli con up "$conn"
+        echo "Reverted '$iface' DNS to DHCP defaults."
+    else
+        sudo nmcli con mod "$conn" ipv4.dns "$target" ipv4.ignore-auto-dns yes
+        sudo nmcli con up "$conn"
+        echo "DNS for '$iface' set to $target (DHCP DNS disabled)."
+    fi
+}
+
+# ── systemd-networkd ───────────────────────────────────────────────
+do_networkd() {
+    local override_dir="/etc/systemd/network/90-set-dns-${iface}.network.d"
+
+    if [[ "$target" == "reset" ]]; then
+        if [[ -d "$override_dir" ]]; then
+            sudo rm -rf "$override_dir"
+        fi
+        sudo networkctl reload
+        sudo networkctl reconfigure "$iface"
+        echo "Reverted '$iface' DNS to DHCP defaults."
+    else
+        sudo mkdir -p "$override_dir"
+        sudo tee "$override_dir/dns-override.conf" >/dev/null <<EOF
+[Network]
+DNS=$target
+
+[DHCPv4]
+UseDNS=false
+
+[DHCPv6]
+UseDNS=false
+EOF
+        sudo networkctl reload
+        sudo networkctl reconfigure "$iface"
+        echo "DNS for '$iface' set to $target (DHCP DNS disabled)."
+    fi
+}
+
+# ── netplan (wraps networkd or NM) ─────────────────────────────────
+do_netplan() {
+    local override="/etc/netplan/90-set-dns-${iface}.yaml"
+
+    if [[ "$target" == "reset" ]]; then
+        if [[ -f "$override" ]]; then
+            sudo rm -f "$override"
+        fi
+        sudo netplan apply
+        echo "Reverted '$iface' DNS to DHCP defaults."
+    else
+        sudo tee "$override" >/dev/null <<EOF
+network:
+  version: 2
+  ethernets:
+    $iface:
+      nameservers:
+        addresses: [$target]
+      dhcp4-overrides:
+        use-dns: false
+      dhcp6-overrides:
+        use-dns: false
+EOF
+        sudo netplan apply
+        echo "DNS for '$iface' set to $target (DHCP DNS disabled)."
+    fi
+}
+
+# ── ConnMan ────────────────────────────────────────────────────────
+do_connman() {
+    local svc
+    svc=$(connmanctl services 2>/dev/null \
+        | awk -v dev="$iface" '$0 ~ dev { print $NF; exit }')
+    if [[ -z "$svc" ]]; then
+        echo "Error: no connman service found for '$iface'" >&2
+        exit 1
+    fi
+
+    if [[ "$target" == "reset" ]]; then
+        sudo connmanctl config "$svc" --nameservers auto
+        echo "Reverted '$iface' DNS to DHCP defaults."
+    else
+        sudo connmanctl config "$svc" --nameservers "$target"
+        echo "DNS for '$iface' set to $target."
+        echo "Note: connman will not use DHCP DNS when manual servers are set."
+    fi
+}
+
+# ── ifupdown (/etc/network/interfaces) ─────────────────────────────
+do_ifupdown() {
+    local cfg="/etc/network/interfaces"
+
+    echo "Warning: ifupdown requires manual editing of $cfg" >&2
+    if [[ "$target" == "reset" ]]; then
+        echo "Remove any 'dns-nameservers' line for '$iface' from $cfg," >&2
+        echo "then run: sudo ifdown $iface && sudo ifup $iface" >&2
+    else
+        echo "Add 'dns-nameservers $target' under the '$iface' stanza in $cfg," >&2
+        echo "then run: sudo ifdown $iface && sudo ifup $iface" >&2
+    fi
+
+    # Fall through to resolv.conf as an immediate (non-persistent) fix
+    echo "Applying immediate (non-persistent) change via /etc/resolv.conf..." >&2
+    do_resolvconf
+}
+
+# ── Direct /etc/resolv.conf fallback ──────────────────────────────
+do_resolvconf() {
+    local resolvconf="/etc/resolv.conf"
+
+    if [[ -L "$resolvconf" ]]; then
+        echo "Warning: $resolvconf is a symlink (likely managed by resolvconf/systemd-resolved)." >&2
+        echo "Changes may be overwritten on next DHCP lease." >&2
+    fi
+
+    if [[ "$target" == "reset" ]]; then
+        echo "Cannot auto-reset /etc/resolv.conf; restore from backup or renew DHCP lease." >&2
+        echo "Try: sudo dhclient $iface" >&2
+        exit 1
+    else
+        # Back up if no backup exists yet
+        if [[ ! -f "${resolvconf}.set-dns.bak" ]]; then
+            sudo cp "$resolvconf" "${resolvconf}.set-dns.bak"
+            echo "Backed up $resolvconf to ${resolvconf}.set-dns.bak"
+        fi
+        echo "nameserver $target" | sudo tee "$resolvconf" >/dev/null
+        echo "DNS set to $target in $resolvconf (non-persistent)."
+    fi
+}
+
+case "$backend" in
+    networkmanager) do_networkmanager ;;
+    networkd)       do_networkd ;;
+    netplan)        do_netplan ;;
+    connman)        do_connman ;;
+    ifupdown)       do_ifupdown ;;
+    resolv.conf)    do_resolvconf ;;
+esac

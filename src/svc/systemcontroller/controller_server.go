@@ -16,6 +16,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -56,6 +57,18 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 }
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
 func (s *serverBase) GetMonitoringBackend() string { return s.MonitoringBackend }
+
+// RefreshMonitoringBackend switches the monitoring UI to the given backend
+// by regenerating and restarting the monitoring-ui system service. The
+// MonitoringBackend field is updated so subsequent reads reflect the change.
+func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend string) error {
+	s.MonitoringBackend = backend
+	sd := s.GetSystemdManager()
+	if sd == nil {
+		return nil
+	}
+	return monitoring.StartMonitoringUI(ctx, sd, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath)
+}
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
 func (s *serverBase) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {

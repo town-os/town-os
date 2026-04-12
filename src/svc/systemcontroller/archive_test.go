@@ -154,7 +154,10 @@ func (b *archiveTestBackend) GetGitCloner() packages.GitCloner                  
 func (b *archiveTestBackend) GetPagesManager() account.PagesManager               { return nil }
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
-func (b *archiveTestBackend) GetMonitoringBackend() string                        { return "" }
+func (b *archiveTestBackend) GetMonitoringBackend() string { return "" }
+func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ string) error {
+	return nil
+}
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
 func (b *archiveTestBackend) GetUI() *ui.Manager                    { return nil }

@@ -35,6 +35,7 @@ type systemControllerBackend interface {
 	GetGitCloner() packages.GitCloner
 	GetPagesManager() account.PagesManager
 	GetMonitoringBackend() string
+	RefreshMonitoringBackend(ctx context.Context, backend string) error
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
 	GetUI() *ui.Manager
