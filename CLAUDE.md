@@ -236,7 +236,9 @@ At install time, the system pulls `app_image`, extracts `app_directory` into the
 
 Template substitution uses `@variable_name@` syntax. Variables are replaced with question responses during package compilation. Substitution applies to: environment values, network port names and destinations, volume mountpoints, volume quotas, volume archive references, volume git URLs, VM image URLs, and VM memory values. Two built-in variables are also available: `@LOCAL_EXTERNAL_HOST@` and `@LOCAL_INTERNAL_HOST@`.
 
-Note compilation uses a single-pass resolver (`applyTemplates`) that handles all response keys at once, treating consecutive `@@` as a literal `@` followed by the start of a new template variable (e.g., `ssh://git@@domain@:@sshport@` correctly resolves to `ssh://git@example.com:2222`). Other fields (environment, ports, volumes) use a per-key resolver.
+The `@@` sequence is a literal `@` escape. To produce a literal `@` followed by a template variable, use three `@` signs: `@@@variable@`. For example, `ssh://git@@@PACKAGE_DNS@:@sshport@` resolves to `ssh://git@gitea.default.home:2222`. A standalone `@@` resolves to `@` (e.g., `admin@@example.com` → `admin@example.com`).
+
+Note compilation uses a single-pass resolver (`ApplyTemplates`) that merges context variables (`PACKAGE_DNS`, `LOCAL_EXTERNAL_HOST`, `LOCAL_INTERNAL_HOST`) and user responses into one pass, correctly handling `@@` escapes. Other fields (environment, ports, volumes) use a per-key resolver (`applyTemplate`) that preserves `@@` through multiple passes, with a final `@@` → `@` resolution at the end of `Compile`.
 
 ### Questions
 
