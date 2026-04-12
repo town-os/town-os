@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { useRequireAuth, usePolling } from '@/lib/hooks.js'
@@ -56,6 +56,9 @@ export default function SystemManagement() {
   const [journalUnit, setJournalUnit] = useState(null)
   const [journalPriority, setJournalPriority] = useState(0)
 
+  const [actionInProgress, setActionInProgress] = useState(false)
+  const actionToastId = useRef('svc-action-progress')
+
   const [searchTerm, setSearchTerm] = useState('')
   const [customLogDialog, setCustomLogDialog] = useState(false)
   const [customLogUnit, setCustomLogUnit] = useState('')
@@ -100,7 +103,7 @@ export default function SystemManagement() {
       }, 3000)
     } catch (err) {
       setRefreshing(false)
-      toast.error(err.message)
+      toast.error(err.detail || err.message)
     }
   }, [t])
 
@@ -126,28 +129,103 @@ export default function SystemManagement() {
     })
   }
 
+  const toastKeyByAction = useMemo(() => ({
+    start: 'system.toast_starting',
+    stop: 'system.toast_stopping',
+    restart: 'system.toast_restarting',
+  }), [])
+
+  function pollUnitState(type, identifier, targetState, timeout = 30000) {
+    return new Promise((resolve) => {
+      const startTime = Date.now()
+      const intervalId = setInterval(async () => {
+        try {
+          let currentState
+          if (type === 'package') {
+            const result = await getClient().listUnits(
+              undefined, undefined, undefined, undefined, identifier,
+            )
+            const unit = result.entries.find((u) => u.Name === identifier)
+            currentState = unit?.ActiveState
+          } else {
+            const services = await getClient().listSystemServices()
+            const svc = services.find((s) => s.key === identifier)
+            currentState = svc?.ActiveState
+          }
+          if (currentState === targetState) {
+            clearInterval(intervalId)
+            resolve(true)
+          } else if (Date.now() - startTime > timeout) {
+            clearInterval(intervalId)
+            resolve(false)
+          }
+        } catch {
+          if (Date.now() - startTime > timeout) {
+            clearInterval(intervalId)
+            resolve(false)
+          }
+        }
+      }, 2000)
+    })
+  }
+
   async function handleAction() {
     if (!actionConfirm) return
+    const { name, action } = actionConfirm
+    const targetState = action === 'stop' ? 'inactive' : 'active'
+    const capitalAction = `${action[0].toUpperCase()}${action.slice(1)}`
+
+    setActionInProgress(true)
+    toast.loading(t(toastKeyByAction[action], { name }), { id: actionToastId.current })
+
     try {
-      await getClient().setUnitStatus(actionConfirm.name, actionConfirm.action)
-      toast.success(
-        `${t('system.toast_action_success')} ${actionConfirm.name}`,
-      )
+      await getClient().setUnitStatus(name, action)
+      toast.loading(t('system.toast_action_waiting', { state: targetState }), { id: actionToastId.current })
+
+      const reached = await pollUnitState('package', name, targetState)
+      toast.dismiss(actionToastId.current)
+
+      if (reached) {
+        toast.success(t('system.toast_action_success', { action: capitalAction, name }))
+      } else {
+        toast.warning(t('system.toast_action_timeout', { action: capitalAction, name }))
+      }
+    } catch (err) {
+      toast.dismiss(actionToastId.current)
+      toast.error(err.detail || err.message)
+    } finally {
+      setActionInProgress(false)
       setActionConfirm(null)
       doRefresh()
-    } catch (err) {
-      toast.error(err.message)
-      setActionConfirm(null)
     }
   }
 
   async function handleSystemServiceAction(key, action) {
+    const targetState = action === 'stop' ? 'inactive' : 'active'
+    const capitalAction = `${action[0].toUpperCase()}${action.slice(1)}`
+    const displayName = systemServices.find((s) => s.key === key)?.display_name || key
+
+    setActionInProgress(true)
+    toast.loading(t(toastKeyByAction[action], { name: displayName }), { id: actionToastId.current })
+
     try {
       await getClient().setSystemServiceStatus(key, action)
-      toast.success(`${action[0].toUpperCase()}${action.slice(1)} succeeded`)
-      doRefresh()
+      toast.loading(t('system.toast_action_waiting', { state: targetState }), { id: actionToastId.current })
+
+      const reached = await pollUnitState('system', key, targetState)
+      toast.dismiss(actionToastId.current)
+
+      if (reached) {
+        toast.success(t('system.toast_action_success', { action: capitalAction, name: displayName }))
+      } else {
+        toast.warning(t('system.toast_action_timeout', { action: capitalAction, name: displayName }))
+      }
     } catch (err) {
-      toast.error(err.message)
+      toast.dismiss(actionToastId.current)
+      toast.error(err.detail || err.message)
+    } finally {
+      setActionInProgress(false)
+      doRefresh()
     }
   }
 
@@ -190,6 +268,7 @@ export default function SystemManagement() {
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem
+              disabled={actionInProgress}
               onClick={() =>
                 setActionConfirm({ name: row.Name, action: 'start' })
               }
@@ -199,6 +278,7 @@ export default function SystemManagement() {
             </DropdownMenuItem>
             {row.Name !== 'town-os-systemcontroller.service' && (
               <DropdownMenuItem
+                disabled={actionInProgress}
                 onClick={() =>
                   setActionConfirm({ name: row.Name, action: 'stop' })
                 }
@@ -208,6 +288,7 @@ export default function SystemManagement() {
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
+              disabled={actionInProgress}
               onClick={() =>
                 setActionConfirm({ name: row.Name, action: 'restart' })
               }
@@ -313,17 +394,17 @@ export default function SystemManagement() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent>
-                              <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'start')}>
+                              <DropdownMenuItem disabled={actionInProgress} onClick={() => handleSystemServiceAction(svc.key, 'start')}>
                                 <Play className="h-3 w-3 mr-2" />
                                 {t('system.action_start')}
                               </DropdownMenuItem>
                               {!isSelf && (
-                                <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'stop')}>
+                                <DropdownMenuItem disabled={actionInProgress} onClick={() => handleSystemServiceAction(svc.key, 'stop')}>
                                   <Square className="h-3 w-3 mr-2" />
                                   {t('system.action_stop')}
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem onClick={() => handleSystemServiceAction(svc.key, 'restart')}>
+                              <DropdownMenuItem disabled={actionInProgress} onClick={() => handleSystemServiceAction(svc.key, 'restart')}>
                                 <RotateCcw className="h-3 w-3 mr-2" />
                                 {t('system.action_restart')}
                               </DropdownMenuItem>
@@ -435,6 +516,7 @@ export default function SystemManagement() {
         onConfirm={handleAction}
         onCancel={() => setActionConfirm(null)}
         confirmLabel={`${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)}`}
+        loading={actionInProgress}
       >
         {t('system.confirm_action_message', { action: `${actionConfirm?.action?.[0]?.toUpperCase()}${actionConfirm?.action?.slice(1)}`, name: actionConfirm?.name })}
       </ConfirmDialog>

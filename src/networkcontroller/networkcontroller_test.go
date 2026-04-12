@@ -25,6 +25,7 @@ type mockProcess struct {
 	pid     int
 	killed  bool
 	waitCh  chan struct{}
+	waitErr error // error returned by Wait()
 }
 
 func newMockProcess(pid int) *mockProcess {
@@ -45,7 +46,21 @@ func (p *mockProcess) Kill() error {
 
 func (p *mockProcess) Wait() error {
 	<-p.waitCh
-	return nil
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.waitErr
+}
+
+// Exit simulates the process exiting unexpectedly (without Kill).
+func (p *mockProcess) Exit(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.waitErr = err
+	select {
+	case <-p.waitCh:
+	default:
+		close(p.waitCh)
+	}
 }
 
 func (p *mockProcess) Pid() int { return p.pid }
@@ -1018,6 +1033,241 @@ func TestTargetContainerFromStateFile(t *testing.T) {
 
 	cancel()
 	<-errCh
+}
+
+func TestForwarderRetryOnUnexpectedExit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	writeState(t, path, PackageNetworkState{
+		Package:       "mattermost",
+		Version:       "1.0",
+		ContainerName: "town-os-package--default-mattermost-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8065, InternalPort: 8065, UPnP: false, Forward: true},
+		},
+	})
+
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(nil, runner, "town-os-package--default-mattermost-1.0")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ctrl.Run(ctx, path)
+	}()
+
+	// Wait for initial forwarder to start.
+	waitForCalls(t, runner, 1)
+
+	// Simulate socat dying (DNS resolution failure).
+	procs := runner.GetProcs()
+	procs[0].Exit(errors.New("socat: Name does not resolve"))
+
+	// Wait for retry — should see a second exec call after backoff.
+	waitForCalls(t, runner, 2)
+
+	calls := runner.GetCalls()
+	if calls[1].Name != "/usr/bin/socat" {
+		t.Fatalf("expected socat retry, got %s", calls[1].Name)
+	}
+	if calls[1].Args[0] != "TCP-LISTEN:8065,fork,reuseaddr" {
+		t.Fatalf("expected same listen arg on retry, got %s", calls[1].Args[0])
+	}
+	if calls[1].Args[1] != "TCP:town-os-package--default-mattermost-1.0:8065" {
+		t.Fatalf("expected same target on retry, got %s", calls[1].Args[1])
+	}
+
+	cancel()
+	<-errCh
+}
+
+func TestForwarderRetryBackoffIncreases(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	writeState(t, path, PackageNetworkState{
+		Package:       "mattermost",
+		Version:       "1.0",
+		ContainerName: "town-os-package--default-mattermost-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8065, InternalPort: 8065, UPnP: false, Forward: true},
+		},
+	})
+
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(nil, runner, "town-os-package--default-mattermost-1.0")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ctrl.Run(ctx, path)
+	}()
+
+	// First start.
+	waitForCalls(t, runner, 1)
+	runner.GetProcs()[0].Exit(errors.New("DNS fail"))
+
+	// Second start (after ~1s backoff).
+	start := time.Now()
+	waitForCalls(t, runner, 2)
+	firstRetryDelay := time.Since(start)
+
+	runner.GetProcs()[1].Exit(errors.New("DNS fail"))
+
+	// Third start (after ~2s backoff).
+	start = time.Now()
+	waitForCalls(t, runner, 3)
+	secondRetryDelay := time.Since(start)
+
+	// Second retry should take longer than the first (exponential backoff).
+	if secondRetryDelay < firstRetryDelay {
+		t.Fatalf("expected increasing backoff: first=%v, second=%v", firstRetryDelay, secondRetryDelay)
+	}
+
+	cancel()
+	<-errCh
+}
+
+func TestForwarderRetryStopsOnShutdown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	writeState(t, path, PackageNetworkState{
+		Package:       "mattermost",
+		Version:       "1.0",
+		ContainerName: "town-os-package--default-mattermost-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8065, InternalPort: 8065, UPnP: false, Forward: true},
+		},
+	})
+
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(nil, runner, "town-os-package--default-mattermost-1.0")
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ctrl.Run(ctx, path)
+	}()
+
+	waitForCalls(t, runner, 1)
+	runner.GetProcs()[0].Exit(errors.New("DNS fail"))
+
+	// Give the goroutine time to process the exit and send on retryCh.
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel before the retry timer fires (1s backoff).
+	cancel()
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("expected clean shutdown, got: %v", err)
+	}
+
+	// Should NOT have retried (only 1 exec call).
+	if len(runner.GetCalls()) != 1 {
+		t.Fatalf("expected 1 exec call (no retry after shutdown), got %d", len(runner.GetCalls()))
+	}
+}
+
+func TestForwarderRetryBackoffResetsOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	writeState(t, path, PackageNetworkState{
+		Package:       "mattermost",
+		Version:       "1.0",
+		ContainerName: "town-os-package--default-mattermost-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8065, InternalPort: 8065, UPnP: false, Forward: true},
+		},
+	})
+
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(nil, runner, "town-os-package--default-mattermost-1.0")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ctrl.Run(ctx, path)
+	}()
+
+	// First start, then die (sets backoff to 1s).
+	waitForCalls(t, runner, 1)
+	runner.GetProcs()[0].Exit(errors.New("DNS fail"))
+
+	// Second start succeeds (retry after ~1s). Backoff should reset.
+	waitForCalls(t, runner, 2)
+
+	ctrl.mu.Lock()
+	_, hasBackoff := ctrl.retryBackoff[8065]
+	ctrl.mu.Unlock()
+	if hasBackoff {
+		t.Fatal("expected backoff to be reset after successful forwarder start")
+	}
+
+	// Kill again — next retry should be ~1s, not ~2s (backoff was reset).
+	runner.GetProcs()[1].Exit(errors.New("DNS fail"))
+
+	start := time.Now()
+	waitForCalls(t, runner, 3)
+	retryDelay := time.Since(start)
+
+	// Should be ~1s (initial backoff), not ~2s. Allow generous tolerance.
+	if retryDelay > 1800*time.Millisecond {
+		t.Fatalf("expected ~1s retry after backoff reset, got %v", retryDelay)
+	}
+
+	cancel()
+	<-errCh
+}
+
+func TestForwarderExplicitStopDoesNotRetry(t *testing.T) {
+	runner := newMockRunner()
+	ctrl := NewControllerWithRunnerAndTarget(nil, runner, "town-os-package--test-nginx-1.0")
+
+	// Initialize retry channels to simulate Run() environment.
+	ctrl.retryCh = make(chan uint16, 16)
+	ctrl.reconcileCh = make(chan struct{}, 1)
+	ctrl.retryBackoff = make(map[uint16]time.Duration)
+
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 8080, InternalPort: 80, UPnP: false, Forward: true},
+		},
+	})
+
+	if len(runner.GetCalls()) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(runner.GetCalls()))
+	}
+
+	// Reconcile with empty ports — deliberate stop via stopForwarderLocked.
+	// Kill() removes the entry before the goroutine can process it.
+	ctrl.reconcile(&PackageNetworkState{
+		Package: "nginx",
+		Version: "1.0",
+		Ports:   []PortConfig{},
+	})
+
+	// Give goroutine time to process.
+	time.Sleep(200 * time.Millisecond)
+
+	// retryCh should be empty — no retry signal for deliberate stops.
+	select {
+	case ext := <-ctrl.retryCh:
+		t.Fatalf("unexpected retry signal for port %d after explicit stop", ext)
+	default:
+		// Good — no signal.
+	}
 }
 
 func writeState(t *testing.T, path string, state PackageNetworkState) {

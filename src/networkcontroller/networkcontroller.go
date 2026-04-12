@@ -93,6 +93,9 @@ type Controller struct {
 	forwarders      map[uint16]*activeForwarder // keyed by external port
 	mappings        map[uint16]*activeMapping   // keyed by external port
 	state           *PackageNetworkState
+	retryCh         chan uint16            // dead forwarder notification (ext port)
+	reconcileCh     chan struct{}          // delayed re-reconcile trigger
+	retryBackoff    map[uint16]time.Duration // per-port exponential backoff
 }
 
 // NewController creates a new Controller with the given UPnP manager.
@@ -155,6 +158,12 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 		c.targetContainer = state.ContainerName
 	}
 
+	// Initialize retry channels used by startForwarderLocked goroutines to
+	// signal dead forwarders back to the Run() select loop.
+	c.retryCh = make(chan uint16, 16)
+	c.reconcileCh = make(chan struct{}, 1)
+	c.retryBackoff = make(map[uint16]time.Duration)
+
 	c.reconcile(state)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -216,6 +225,41 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 
 		case <-ticker.C:
 			c.renewUPnP()
+
+		case extPort := <-c.retryCh:
+			c.mu.Lock()
+			delay := c.retryBackoff[extPort]
+			if delay == 0 {
+				delay = 1 * time.Second
+			} else {
+				delay *= 2
+				if delay > 30*time.Second {
+					delay = 30 * time.Second
+				}
+			}
+			c.retryBackoff[extPort] = delay
+			c.mu.Unlock()
+			slog.Info(fmt.Sprintf("forwarder %d died, retrying in %v", extPort, delay))
+			go func() {
+				timer := time.NewTimer(delay)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+					select {
+					case c.reconcileCh <- struct{}{}:
+					default:
+					}
+				case <-ctx.Done():
+				}
+			}()
+
+		case <-c.reconcileCh:
+			c.mu.Lock()
+			lastState := c.state
+			c.mu.Unlock()
+			if lastState != nil {
+				c.reconcile(lastState)
+			}
 		}
 	}
 }
@@ -296,13 +340,34 @@ func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
 	}
 
 	c.forwarders[extPort] = &activeForwarder{proc: proc, intPort: intPort}
+	if c.retryBackoff != nil {
+		delete(c.retryBackoff, extPort)
+	}
 	slog.Info(fmt.Sprintf("started forwarder %d->%s:%d (pid %d)", extPort, target, intPort, proc.Pid()))
 
-	// Reap the child process in the background.
+	// Reap the child process in the background. If socat exits unexpectedly
+	// (e.g. DNS resolution failure on boot), remove the dead entry from the
+	// forwarders map and signal the Run() loop to re-reconcile with backoff.
+	retryCh := c.retryCh // nil when Run() hasn't been called (direct reconcile in tests)
 	go func() {
 		if err := proc.Wait(); err != nil {
 			slog.Debug(fmt.Sprintf("socat %d->%d exited: %v", extPort, intPort, err))
 		}
+		if retryCh == nil {
+			return
+		}
+		c.mu.Lock()
+		current, ok := c.forwarders[extPort]
+		if ok && current.proc == proc {
+			delete(c.forwarders, extPort)
+			c.mu.Unlock()
+			select {
+			case retryCh <- extPort:
+			default:
+			}
+			return
+		}
+		c.mu.Unlock()
 	}()
 }
 
