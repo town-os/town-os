@@ -352,6 +352,52 @@ func TestHTTPPingIncludesInternalIP(t *testing.T) {
 	_ = ping.InternalIP
 }
 
+func TestHTTPPingPagesEnabledFalseWhenUnset(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if ping.PagesEnabled {
+		t.Fatal("expected pages_enabled=false when PagesMgr is nil")
+	}
+}
+
+func TestHTTPPingPagesEnabledTrueWhenSet(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	rr := emptyRepoRoot(t)
+	ts := InitTestServer(ServerConfig{
+		Storage:        mock,
+		RepositoryRoot: rr,
+		PagesMgr:       account.InitMockPagesManager(),
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	if !ping.PagesEnabled {
+		t.Fatal("expected pages_enabled=true when PagesMgr is set")
+	}
+}
+
 func TestHTTPPingIncludesUpgradesAvailable(t *testing.T) {
 	c, _ := initUpgradesTestServer(t)
 

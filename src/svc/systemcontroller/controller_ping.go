@@ -40,6 +40,7 @@ type PingResponse struct {
 	RepositoryErrors   map[string]string  `json:"repository_errors,omitempty"`
 	TimezoneOffset     int                `json:"timezone_offset"`
 	Locale             string             `json:"locale"`
+	PagesEnabled       bool               `json:"pages_enabled"`
 }
 
 type UnitCounts struct {
@@ -224,6 +225,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp.InternalIP = s.Controller.GetInternalIP()
 	resp.TimezoneOffset = packages.TimezoneOffset()
 	resp.Locale = s.getLocale()
+	resp.PagesEnabled = s.Controller.GetPagesManager() != nil
 
 	// Compute upgrade info.
 	upgrades := s.computeUpgrades()

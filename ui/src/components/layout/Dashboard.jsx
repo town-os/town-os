@@ -28,7 +28,7 @@ const NAV_KEYS = [
   { to: '/dashboard/users', key: 'nav.users', icon: Users },
   { to: '/dashboard/system', key: 'nav.services', icon: Cog },
   { to: '/dashboard/packages', key: 'nav.packages', icon: Package },
-  { to: '/dashboard/pages', key: 'nav.pages', icon: Globe },
+  { to: '/dashboard/pages', key: 'nav.pages', icon: Globe, pagesOnly: true },
   { to: '/dashboard/dns', key: 'nav.dns', icon: Wifi },
   { to: '/dashboard/monitoring', key: 'nav.monitoring', icon: Activity },
   { to: '/dashboard/log', key: 'nav.audit_log', icon: FileText },
@@ -64,7 +64,9 @@ export default function Dashboard({ children }) {
         </div>
         <nav className="flex flex-col gap-1 px-3 py-2">
           {NAV_KEYS.filter(
-            (item) => !item.adminOnly || account?.admin,
+            (item) =>
+              (!item.adminOnly || account?.admin) &&
+              (!item.pagesOnly || ping?.pages_enabled),
           ).map((navItem) => {
             const NavIcon = navItem.icon
             const active = location.pathname === navItem.to

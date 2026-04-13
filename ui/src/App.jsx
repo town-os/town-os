@@ -2,6 +2,7 @@ import {
   BrowserRouter,
   Routes,
   Route,
+  Navigate,
 } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
@@ -21,9 +22,23 @@ import PagesManagement from '@/routes/PagesManagement.jsx'
 import SystemSettings from '@/routes/SystemSettings.jsx'
 import DNSManagement from '@/routes/DNSManagement.jsx'
 import MonitoringDashboard from '@/routes/MonitoringDashboard.jsx'
+import { usePolling } from '@/lib/hooks.js'
+import getClient from '@/lib/client-instance.js'
 
 function DashboardRoute({ children }) {
   return <Dashboard>{children}</Dashboard>
+}
+
+function PagesRoute() {
+  const [ping, , loading] = usePolling(
+    () => getClient().ping().catch(() => ({ status: 'error' })),
+    null,
+    [],
+    60000,
+  )
+  if (loading && !ping) return null
+  if (!ping?.pages_enabled) return <Navigate to="/dashboard" replace />
+  return <PagesManagement />
 }
 
 export default function App() {
@@ -88,7 +103,7 @@ export default function App() {
             path="/dashboard/pages"
             element={
               <DashboardRoute>
-                <PagesManagement />
+                <PagesRoute />
               </DashboardRoute>
             }
           />
