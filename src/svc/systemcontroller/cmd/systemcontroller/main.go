@@ -98,6 +98,16 @@ func run() (err error) {
 		}
 	}
 
+	// Self-heal: remove any stale town-os.db (and its SQLite sidecar
+	// files) left at the btrfs root by older deployments. The runtime
+	// DB lives under <btrfsBase>/data/db/system.db, never at the root.
+	cleanupStaleRootDB(*btrfsPath)
+
+	// Reject -db paths that would re-create the file we just cleaned up.
+	if err := validateDBPath(*dbPath, *btrfsPath); err != nil {
+		return err
+	}
+
 	// Build the network controller image on the host as the very first
 	// runtime operation. All system services and package NC units run on
 	// the host's podman, so the image must exist in the host's image
