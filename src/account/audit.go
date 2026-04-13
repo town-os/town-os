@@ -78,6 +78,10 @@ var RouteActionKeys = map[string]string{
 	"/dns/records/remove":                  i18n.MsgAuditRemoveDNSRecord,
 	"/dns/tld":                             i18n.MsgAuditSetDNSTLD,
 	"/dns/setup":                           i18n.MsgAuditSetupDNS,
+	"/storage/remove-package-volume":       i18n.MsgAuditRemovePackageVolume,
+	"/packages/clear-last-responses":       i18n.MsgAuditClearLastResponses,
+	"/system-services/status":              i18n.MsgAuditSetSystemServiceStatus,
+	"/system-services/refresh":             i18n.MsgAuditRefreshSystemServices,
 }
 
 // RouteActions maps API paths to their localized audit action descriptions

@@ -117,4 +117,8 @@ var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveDNSRecord:         "remove dns record",
 	MsgAuditSetDNSTLD:               "set dns tld",
 	MsgAuditSetupDNS:                "setup dns",
+	MsgAuditRemovePackageVolume:     "remove package volume",
+	MsgAuditClearLastResponses:      "clear cached install responses",
+	MsgAuditSetSystemServiceStatus:  "set system service status",
+	MsgAuditRefreshSystemServices:   "refresh system services",
 }

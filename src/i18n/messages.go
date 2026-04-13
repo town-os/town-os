@@ -188,4 +188,17 @@ const (
 	MsgAuditSetDNSTLD = "audit.action.set_dns_tld"
 	// MsgAuditSetupDNS is the audit action for setting up DNS.
 	MsgAuditSetupDNS = "audit.action.setup_dns"
+	// MsgAuditRemovePackageVolume is the audit action for removing a single
+	// package volume via /storage/remove-package-volume.
+	MsgAuditRemovePackageVolume = "audit.action.remove_package_volume"
+	// MsgAuditClearLastResponses is the audit action for clearing the
+	// cached last-install responses for a package via
+	// /packages/clear-last-responses.
+	MsgAuditClearLastResponses = "audit.action.clear_last_responses"
+	// MsgAuditSetSystemServiceStatus is the audit action for changing a
+	// system service's runtime state via /system-services/status.
+	MsgAuditSetSystemServiceStatus = "audit.action.set_system_service_status"
+	// MsgAuditRefreshSystemServices is the audit action for refreshing
+	// system services via /system-services/refresh.
+	MsgAuditRefreshSystemServices = "audit.action.refresh_system_services"
 )

@@ -167,6 +167,10 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 		MsgAuditRemoveDNSRecord,
 		MsgAuditSetDNSTLD,
 		MsgAuditSetupDNS,
+		MsgAuditRemovePackageVolume,
+		MsgAuditClearLastResponses,
+		MsgAuditSetSystemServiceStatus,
+		MsgAuditRefreshSystemServices,
 	}
 
 	for _, key := range keys {
