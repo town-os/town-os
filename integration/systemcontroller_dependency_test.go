@@ -116,6 +116,86 @@ func TestInstallWithDependencyLifecycle(t *testing.T) {
 	if len(pkgs2.Entries) != 0 {
 		t.Fatalf("expected 0 installed after uninstall, got %d: %v", len(pkgs2.Entries), pkgs2.Entries)
 	}
+
+	// Verify the dep's systemd unit was actually uninstalled (not just
+	// the parent). Without the cascade, the dep's UninstallUnit call
+	// would be missing and the unit file would leak across reboots.
+	depUninstalled := false
+	for _, call := range sd.GetCalls() {
+		if call.Method != "UninstallUnit" {
+			continue
+		}
+		name, ok := call.Args[0].(string)
+		if !ok {
+			t.Fatal("type assertion failed on UninstallUnit arg 0")
+		}
+		if name == depUnitName {
+			depUninstalled = true
+			break
+		}
+	}
+	if !depUninstalled {
+		t.Fatalf("expected UninstallUnit call for dep %s, did not find it", depUnitName)
+	}
+}
+
+// TestUninstallCascadesDependencyVolumes verifies that purging a parent
+// also purges the dependency's volumes. Without the cascade, the dep's
+// btrfs subvolumes would leak under installed/<repo>/<parent--dep--key>/.
+func TestUninstallCascadesDependencyVolumes(t *testing.T) {
+	t.Parallel()
+	c, _ := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "app-with-cache", "1.0", packages.Responses{
+		"port":      "9090",
+		"cachepass": "secret123",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	depEffName := packages.DependencyName("app-with-cache", "cache")
+
+	// Confirm at least one volume exists under the dep prefix before uninstall.
+	depInstalledPrefix := "installed/core/" + depEffName
+	depUninstalledPrefix := "uninstalled/core/" + depEffName
+
+	preFS, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{Limit: 1000})
+	if err != nil {
+		t.Fatalf("ListFilesystems pre: %v", err)
+	}
+	hadDepVolume := false
+	for _, fs := range preFS.Entries {
+		if fs.Name == depInstalledPrefix || strings.HasPrefix(fs.Name, depInstalledPrefix+"/") {
+			hadDepVolume = true
+			break
+		}
+	}
+	if !hadDepVolume {
+		t.Skip("test fixture has no volumes for dep — cannot verify cascade purge")
+	}
+
+	if err := c.UninstallPackage(context.TODO(), "core", "app-with-cache", "1.0", true); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	postFS, err := c.ListFilesystems(context.TODO(), "", "", systemcontroller.ListParams{Limit: 1000})
+	if err != nil {
+		t.Fatalf("ListFilesystems post: %v", err)
+	}
+	// Both installed/ and uninstalled/ trees must be empty for the dep —
+	// purgeVolumes removes from both prefixes.
+	for _, fs := range postFS.Entries {
+		if fs.Name == depInstalledPrefix || strings.HasPrefix(fs.Name, depInstalledPrefix+"/") {
+			t.Fatalf("expected dep installed volumes to be purged, found %q", fs.Name)
+		}
+		if fs.Name == depUninstalledPrefix || strings.HasPrefix(fs.Name, depUninstalledPrefix+"/") {
+			t.Fatalf("expected dep uninstalled volumes to be purged, found %q", fs.Name)
+		}
+	}
 }
 
 // --- NC setup tests ---

@@ -271,6 +271,119 @@ func TestHTTPUninstallPackageNotInstalled(t *testing.T) {
 	}
 }
 
+// TestHTTPUninstallCascadesDependencies verifies that uninstalling a parent
+// package recursively removes every dependency record (and every nested
+// sub-dependency) it owns. The test pre-populates the mock installer with
+// a dep record on the parent and a sub-dep record on the dep, then
+// uninstalls the parent and asserts that Uninstall was called for all
+// three levels and the Installed list is empty.
+func TestHTTPUninstallCascadesDependencies(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	// Install the parent through the normal HTTP path.
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+
+	depEffName := packages.DependencyName("nginx", "cache")
+	subDepEffName := packages.DependencyName(depEffName, "metrics")
+
+	// Pre-populate the dependency tree on the mock installer:
+	//   nginx -> cache (redis@7.0) -> metrics (prom-exporter@1.0)
+	if err := inst.SaveDependencies("repo-a", "nginx", map[string]packages.DependencyRecord{
+		"cache": {EffectiveName: depEffName, Package: "redis", Repo: "repo-a", Version: "7.0"},
+	}); err != nil {
+		t.Fatalf("SaveDependencies parent: %v", err)
+	}
+	if err := inst.SaveDependencies("repo-a", depEffName, map[string]packages.DependencyRecord{
+		"metrics": {EffectiveName: subDepEffName, Package: "prom-exporter", Repo: "repo-a", Version: "1.0"},
+	}); err != nil {
+		t.Fatalf("SaveDependencies sub-dep: %v", err)
+	}
+
+	// Pre-install the dep records so Uninstall does not return ErrNotInstalled
+	// (the cascade walks the persisted dep records, not the live tree).
+	if err := inst.Install("repo-a", depEffName, "redis", "7.0", packages.Responses{}); err != nil {
+		t.Fatalf("Install dep: %v", err)
+	}
+	if err := inst.Install("repo-a", subDepEffName, "prom-exporter", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("Install sub-dep: %v", err)
+	}
+
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	// Every level must have received an Uninstall call.
+	uninstalled := map[string]bool{}
+	for _, call := range inst.GetCalls() {
+		if call.Method != "Uninstall" {
+			continue
+		}
+		name, ok := call.Args[1].(string)
+		if !ok {
+			t.Fatal("type assertion failed on Uninstall arg 1")
+		}
+		uninstalled[name] = true
+	}
+	for _, want := range []string{"nginx", depEffName, subDepEffName} {
+		if !uninstalled[want] {
+			t.Fatalf("expected Uninstall call for %q, got %v", want, uninstalled)
+		}
+	}
+
+	// LoadDependencies must have been walked at every parent level so the
+	// cascade can discover the sub-dep. Two levels = two LoadDependencies
+	// calls (one for the parent, one for the cache dep).
+	loadDepCalls := map[string]bool{}
+	for _, call := range inst.GetCalls() {
+		if call.Method != "LoadDependencies" {
+			continue
+		}
+		name, ok := call.Args[1].(string)
+		if !ok {
+			t.Fatal("type assertion failed on LoadDependencies arg 1")
+		}
+		loadDepCalls[name] = true
+	}
+	if !loadDepCalls["nginx"] {
+		t.Fatalf("expected LoadDependencies for nginx, got %v", loadDepCalls)
+	}
+	if !loadDepCalls[depEffName] {
+		t.Fatalf("expected LoadDependencies for %s (sub-dep walk), got %v", depEffName, loadDepCalls)
+	}
+
+	// Final state: nothing should remain installed in the mock.
+	if len(inst.Installed) != 0 {
+		t.Fatalf("expected 0 installed after cascade uninstall, got %d: %v", len(inst.Installed), inst.Installed)
+	}
+}
+
+// TestHTTPUninstallCascadesDependenciesNoDeps verifies that uninstalling a
+// package without any dependencies does not error and does not call
+// Uninstall on any other package — the cascade must be a no-op when
+// LoadDependencies returns nil.
+func TestHTTPUninstallCascadesDependenciesNoDeps(t *testing.T) {
+	c, inst := initInstallTestClient(t)
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{"hostname": "example", "port": "8080"}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+	if err := c.UninstallPackage(context.TODO(), "repo-a", "nginx", "1.0", false); err != nil {
+		t.Fatalf("UninstallPackage: %v", err)
+	}
+
+	uninstallCount := 0
+	for _, call := range inst.GetCalls() {
+		if call.Method == "Uninstall" {
+			uninstallCount++
+		}
+	}
+	if uninstallCount != 1 {
+		t.Fatalf("expected exactly one Uninstall call (parent only), got %d", uninstallCount)
+	}
+}
+
 func TestHTTPUninstallPackageWithPurge(t *testing.T) {
 	c, _ := initInstallTestClient(t)
 

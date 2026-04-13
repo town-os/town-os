@@ -382,6 +382,8 @@ Installation creates a hard link from the repository package file to the install
 
 When not purging, volumes are moved from the `installed/` prefix to the `uninstalled/` prefix. The network state file is removed and systemd units are stopped, disabled, and uninstalled.
 
+**Dependency cascade.** Uninstalling a parent package recursively uninstalls every dependency it owns. The cascade reads the persisted dependency records (`LoadDependencies`) for the parent and walks each child depth-first, repeating the lookup at every level so nested sub-dependencies (`parent--dep--child--dep--grandchild`) are removed too. For each dependency the cascade unregisters its DNS records, uninstalls its systemd units (service + NC + sockets), removes its network state file, calls `inst.Uninstall` to drop the install record, and either purges its volumes (when `purge_volumes` is set) or moves them to the `uninstalled/` prefix. The cascade is implemented in `uninstallDependencies` (`src/svc/systemcontroller/controller_install_dependencies.go`) and runs after the parent's own uninstall completes. There is no reference counting: each dependency belongs to exactly one parent (its install record lives at `installed/<repo>/<parent--dep--key>/`), so a shared dependency installed under two parents has two independent records, and uninstalling one parent only removes its own copy.
+
 #### Installed Package Info
 
 `POST /packages/installed/info` (auth required) returns questions, responses, compiled notes, and note types for an installed package.
