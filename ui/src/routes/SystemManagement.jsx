@@ -85,11 +85,20 @@ export default function SystemManagement() {
       setRefreshing(true)
       await getClient().refreshSystemServices()
       toast.success(t('system.refresh_toast_started'))
-      // After 3s delay, start polling ping to detect when systemcontroller returns.
+      // After 3s delay, start polling ping to detect when systemcontroller
+      // returns AND the UI container is serving its document again. The UI
+      // refresh restarts every system service including the UI (Caddy on
+      // port 80), so reloading on systemcontroller ping alone can hit a
+      // UI container that's still restarting. Poll both before reloading.
       setTimeout(() => {
         pollRef.current = setInterval(async () => {
           try {
             await getClient().ping()
+            const res = await fetch(window.location.href, {
+              cache: 'no-store',
+              credentials: 'same-origin',
+            })
+            if (!res.ok) return
             clearInterval(pollRef.current)
             pollRef.current = null
             setRefreshing(false)
@@ -97,7 +106,7 @@ export default function SystemManagement() {
             toast.success(t('system.refresh_toast_complete'))
             window.location.reload()
           } catch {
-            // Controller not back yet.
+            // Controller or UI not back yet.
           }
         }, 2000)
       }, 3000)

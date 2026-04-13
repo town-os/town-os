@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import SystemManagement from './SystemManagement.jsx'
 
@@ -466,6 +466,59 @@ describe('SystemManagement', () => {
     // Warning text and confirm button should be gone.
     expect(screen.queryByText(/This will pull the latest/)).toBeNull()
     expect(screen.queryByRole('button', { name: /Refresh All Services/ })).toBeNull()
+  })
+
+  it('reloads the browser only after both systemcontroller and UI are back', async () => {
+    // Simulate: systemcontroller comes back first (ping succeeds) but UI
+    // container is still restarting (fetch fails), then UI comes back.
+    // Reload must wait until both are reachable.
+    const reloadSpy = vi.fn()
+    const origLocation = window.location
+    delete window.location
+    window.location = { ...origLocation, reload: reloadSpy, href: 'http://localhost/' }
+
+    const fetchSpy = vi.fn()
+    // First call during poll: UI not back yet.
+    fetchSpy.mockRejectedValueOnce(new Error('network error'))
+    // Second call during poll: UI back.
+    fetchSpy.mockResolvedValueOnce({ ok: true })
+    const origFetch = globalThis.fetch
+    globalThis.fetch = fetchSpy
+
+    mockPing.mockResolvedValue({ username: 'admin' })
+
+    try {
+      renderSystemManagement()
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Refresh Core Services/ })).toBeTruthy()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: /Refresh Core Services/ }))
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Refresh All Services/ })).toBeTruthy()
+      })
+
+      vi.useFakeTimers()
+      fireEvent.click(screen.getByRole('button', { name: /Refresh All Services/ }))
+
+      // Wait out the 3s settling delay before polling starts.
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+      // First poll tick: ping ok, fetch rejects — no reload yet.
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      expect(reloadSpy).not.toHaveBeenCalled()
+      // Second poll tick: ping ok, fetch ok — reload fires.
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost/',
+        expect.objectContaining({ cache: 'no-store' }),
+      )
+    } finally {
+      vi.useRealTimers()
+      globalThis.fetch = origFetch
+      window.location = origLocation
+    }
   })
 
   it('hides system services section when no services returned', async () => {
