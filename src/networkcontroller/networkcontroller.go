@@ -20,11 +20,22 @@ import (
 )
 
 // PortConfig describes a single port's networking requirements.
+//
+// When TLS is true, the NC runs an in-process TLS listener on ExternalPort
+// instead of spawning socat for the port. Incoming TLS connections are
+// terminated with the leaf certificate at CertPath/cert.pem +
+// CertPath/key.pem and the plaintext is proxied to
+// <target-container>:InternalPort over the shared podman network. Forward
+// is still honored for UPnP bookkeeping (it is always true for TLS ports),
+// but the socat subprocess is never started — the Go TLS goroutine owns
+// the external port.
 type PortConfig struct {
 	ExternalPort uint16 `json:"external_port"`
 	InternalPort uint16 `json:"internal_port"`
 	UPnP         bool   `json:"upnp"`
 	Forward      bool   `json:"forward"`
+	TLS          bool   `json:"tls,omitempty"`
+	CertPath     string `json:"cert_path,omitempty"`
 }
 
 // PackageNetworkState is the per-package JSON state file written by the
@@ -40,6 +51,24 @@ type PackageNetworkState struct {
 // ExecRunner abstracts process execution for testing.
 type ExecRunner interface {
 	Start(name string, args ...string) (Process, error)
+}
+
+// TLSListener is the minimal interface the controller needs from a TLS
+// forwarder. The real implementation is in tls_proxy.go; tests swap in a
+// stub via TLSStarter so reconcile-time tests do not bind real ports.
+type TLSListener interface {
+	Close() error
+}
+
+// TLSStarter constructs a TLS forwarder for a single external port. Returning
+// a real listener means the port is now bound; tests inject a stub that
+// records the call and returns a no-op closer.
+type TLSStarter func(extPort uint16, target string, intPort uint16, certDir string) (TLSListener, error)
+
+// defaultTLSStarter binds an actual tls.Listen-backed forwarder. Used in
+// production; tests provide their own via NewControllerWithTLSStarter.
+func defaultTLSStarter(extPort uint16, target string, intPort uint16, certDir string) (TLSListener, error) {
+	return startTLSForwarder(extPort, target, intPort, certDir)
 }
 
 // Process abstracts a running process for testing.
@@ -71,10 +100,14 @@ func (r *osRunner) Start(name string, args ...string) (Process, error) {
 	return &osProcess{cmd: cmd}, nil
 }
 
-// activeForwarder tracks a running socat process.
+// activeForwarder tracks a running socat process or an in-process TLS
+// listener. Exactly one of proc and tlsFwd is non-nil.
 type activeForwarder struct {
 	proc    Process
+	tlsFwd  TLSListener
 	intPort uint16
+	useTLS  bool
+	cfgKey  string // forces re-create when cert path changes
 }
 
 // activeMapping tracks a UPnP port mapping.
@@ -89,12 +122,13 @@ type Controller struct {
 	mu              sync.Mutex
 	upnp            upnp.Manager
 	runner          ExecRunner
-	targetContainer string // container DNS name on the podman network (socat target)
+	tlsStarter      TLSStarter
+	targetContainer string                      // container DNS name on the podman network (socat target)
 	forwarders      map[uint16]*activeForwarder // keyed by external port
 	mappings        map[uint16]*activeMapping   // keyed by external port
 	state           *PackageNetworkState
-	retryCh         chan uint16            // dead forwarder notification (ext port)
-	reconcileCh     chan struct{}          // delayed re-reconcile trigger
+	retryCh         chan uint16              // dead forwarder notification (ext port)
+	reconcileCh     chan struct{}            // delayed re-reconcile trigger
 	retryBackoff    map[uint16]time.Duration // per-port exponential backoff
 }
 
@@ -104,6 +138,7 @@ func NewController(upnpMgr upnp.Manager) *Controller {
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     &osRunner{},
+		tlsStarter: defaultTLSStarter,
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
@@ -115,6 +150,7 @@ func NewControllerWithTarget(upnpMgr upnp.Manager, targetContainer string) *Cont
 	return &Controller{
 		upnp:            upnpMgr,
 		runner:          &osRunner{},
+		tlsStarter:      defaultTLSStarter,
 		targetContainer: targetContainer,
 		forwarders:      make(map[uint16]*activeForwarder),
 		mappings:        make(map[uint16]*activeMapping),
@@ -126,6 +162,7 @@ func NewControllerWithRunner(upnpMgr upnp.Manager, runner ExecRunner) *Controlle
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     runner,
+		tlsStarter: defaultTLSStarter,
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
@@ -137,10 +174,20 @@ func NewControllerWithRunnerAndTarget(upnpMgr upnp.Manager, runner ExecRunner, t
 	return &Controller{
 		upnp:            upnpMgr,
 		runner:          runner,
+		tlsStarter:      defaultTLSStarter,
 		targetContainer: targetContainer,
 		forwarders:      make(map[uint16]*activeForwarder),
 		mappings:        make(map[uint16]*activeMapping),
 	}
+}
+
+// SetTLSStarter overrides the TLS forwarder factory. Tests use this to
+// inject a stub that records calls without binding real ports. Production
+// callers rely on the default starter wired in NewController*.
+func (c *Controller) SetTLSStarter(starter TLSStarter) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tlsStarter = starter
 }
 
 // Run reads the initial state file, starts an fsnotify watcher and a UPnP
@@ -281,10 +328,12 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 	}
 
 	// Remove forwarders for ports that are no longer desired, or whose
-	// configuration changed (internal port changed, or Forward turned off).
+	// configuration changed (internal port changed, Forward turned off, or
+	// TLS terminator/cert swap).
 	for ext, fwd := range c.forwarders {
 		desired, ok := desiredPorts[ext]
-		if !ok || !desired.Forward || fwd.intPort != desired.InternalPort {
+		if !ok || !desired.Forward || fwd.intPort != desired.InternalPort ||
+			fwd.useTLS != desired.TLS || fwd.cfgKey != forwarderCfgKey(desired) {
 			c.stopForwarderLocked(ext)
 		}
 	}
@@ -312,7 +361,11 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 	for _, p := range sortedPorts {
 		if p.Forward {
 			if _, exists := c.forwarders[p.ExternalPort]; !exists {
-				c.startForwarderLocked(p.ExternalPort, p.InternalPort)
+				if p.TLS {
+					c.startTLSForwarderLocked(p)
+				} else {
+					c.startForwarderLocked(p.ExternalPort, p.InternalPort)
+				}
 			}
 		}
 		if p.UPnP {
@@ -321,6 +374,17 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 			}
 		}
 	}
+}
+
+// forwarderCfgKey captures the subset of PortConfig that must trigger a
+// teardown+rebuild when it changes. Internal port is already checked
+// separately; here we cover the TLS-specific cert path so a cert rotation
+// forces the TLS goroutine to reload.
+func forwarderCfgKey(p PortConfig) string {
+	if !p.TLS {
+		return ""
+	}
+	return p.CertPath
 }
 
 func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
@@ -343,7 +407,7 @@ func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
 	if c.retryBackoff != nil {
 		delete(c.retryBackoff, extPort)
 	}
-	slog.Info(fmt.Sprintf("started forwarder %d->%s:%d (pid %d)", extPort, target, intPort, proc.Pid()))
+	slog.Info(fmt.Sprintf("started socat forwarder %d->%s:%d (pid %d)", extPort, target, intPort, proc.Pid()))
 
 	// Reap the child process in the background. If socat exits unexpectedly
 	// (e.g. DNS resolution failure on boot), remove the dead entry from the
@@ -376,11 +440,55 @@ func (c *Controller) stopForwarderLocked(extPort uint16) {
 	if !ok {
 		return
 	}
-	if err := fwd.proc.Kill(); err != nil {
-		slog.Debug(fmt.Sprintf("kill socat %d: %v", extPort, err))
+	switch {
+	case fwd.tlsFwd != nil:
+		if err := fwd.tlsFwd.Close(); err != nil {
+			slog.Debug(fmt.Sprintf("close tls %d: %v", extPort, err))
+		}
+	case fwd.proc != nil:
+		if err := fwd.proc.Kill(); err != nil {
+			slog.Debug(fmt.Sprintf("kill socat %d: %v", extPort, err))
+		}
 	}
 	delete(c.forwarders, extPort)
 	slog.Info(fmt.Sprintf("stopped forwarder %d", extPort))
+}
+
+// startTLSForwarderLocked starts an in-process TLS listener for cfg.ExternalPort
+// that terminates TLS using the leaf cert at cfg.CertPath and proxies the
+// plaintext to the target container on the shared podman network. Unlike
+// socat-based forwarders this does not spawn a child process, so no retry
+// channel is wired up — the listener's goroutine logs and continues on
+// transient Accept errors, and reconcile tears it down on cert/port changes.
+func (c *Controller) startTLSForwarderLocked(cfg PortConfig) {
+	target := c.targetContainer
+	if target == "" {
+		slog.Warn(fmt.Sprintf("no target container for tls forwarder %d->%d, skipping", cfg.ExternalPort, cfg.InternalPort))
+		return
+	}
+	if cfg.CertPath == "" {
+		slog.Warn(fmt.Sprintf("tls forwarder %d missing cert_path, skipping", cfg.ExternalPort))
+		return
+	}
+	starter := c.tlsStarter
+	if starter == nil {
+		starter = defaultTLSStarter
+	}
+	fwd, err := starter(cfg.ExternalPort, target, cfg.InternalPort, cfg.CertPath)
+	if err != nil {
+		slog.Error(fmt.Sprintf("start tls %d->%d: %v", cfg.ExternalPort, cfg.InternalPort, err))
+		return
+	}
+	c.forwarders[cfg.ExternalPort] = &activeForwarder{
+		tlsFwd:  fwd,
+		intPort: cfg.InternalPort,
+		useTLS:  true,
+		cfgKey:  forwarderCfgKey(cfg),
+	}
+	if c.retryBackoff != nil {
+		delete(c.retryBackoff, cfg.ExternalPort)
+	}
+	slog.Info(fmt.Sprintf("started tls forwarder %d->%s:%d", cfg.ExternalPort, target, cfg.InternalPort))
 }
 
 func (c *Controller) upnpDescription(cfg PortConfig) string {

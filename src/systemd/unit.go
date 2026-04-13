@@ -89,6 +89,14 @@ type PackageUnitConfig struct {
 
 	// StartLimitIntervalZero sets StartLimitIntervalSec=0 for unlimited retries.
 	StartLimitIntervalZero bool
+
+	// TLSDir is the host path to the btrfs-backed TLS directory that
+	// contains the local CA and every per-package leaf cert. When set,
+	// the network controller container gets this tree bind-mounted
+	// read-only so tls_proxy.go can read cert.pem/key.pem for each
+	// package whose state file turns on the TLS flag. Leave empty to
+	// skip the mount (tests and packages with no HTTP-supplying ports).
+	TLSDir string
 }
 
 // serviceUnitName returns the systemd unit name for the main service.
@@ -546,6 +554,13 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 		fmt.Fprintf(&b, " \\\n  -p %d:%d", p, p)
 	}
 	fmt.Fprintf(&b, " \\\n  -v %s:%s:ro", cfg.NetworkStatePath, cfg.NetworkStatePath)
+	// Per-package leaf certs live under the TLS directory; the NC reloads
+	// them on every TLS handshake so rotation is picked up without a
+	// listener restart. Mounted read-only: only the systemcontroller ever
+	// writes here.
+	if cfg.TLSDir != "" {
+		fmt.Fprintf(&b, " \\\n  -v %s:/etc/town-os/tls:ro", cfg.TLSDir)
+	}
 	fmt.Fprintf(&b, " \\\n  %s /town-os-networkcontroller --state %s --target-container %s\n", cfg.NetworkControllerImage, statePath, containerName)
 
 	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", ncContainerName)

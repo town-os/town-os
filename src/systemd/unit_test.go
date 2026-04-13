@@ -606,6 +606,36 @@ func TestGeneratePackageUnitsNetworkControllerContent(t *testing.T) {
 	if strings.Contains(nc, "podman inspect") {
 		t.Fatalf("network controller should not have podman inspect, got:\n%s", nc)
 	}
+	// When TLSDir is unset the NC unit must not bind-mount a tls dir.
+	if strings.Contains(nc, ":/etc/town-os/tls:ro") {
+		t.Fatalf("network controller should not mount TLS dir when TLSDir is empty, got:\n%s", nc)
+	}
+}
+
+func TestGeneratePackageUnitsNCMountsTLSDirWhenSet(t *testing.T) {
+	cfg := PackageUnitConfig{
+		RepoName:               "test-repo",
+		PkgName:                "nginx",
+		Version:                "1.0",
+		Image:                  "nginx:1.26-alpine",
+		Environment:            map[string]string{},
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/run/town-os",
+		TLSDir:                 "/town-os/tls",
+	}
+
+	units := GeneratePackageUnits(cfg)
+	if units.NetworkController == nil {
+		t.Fatal("expected network controller unit")
+	}
+	nc := units.NetworkController.Content
+	if !strings.Contains(nc, "-v /town-os/tls:/etc/town-os/tls:ro") {
+		t.Fatalf("network controller missing TLS dir mount, got:\n%s", nc)
+	}
 }
 
 func TestGeneratePackageUnitsNCAlwaysPresentWithExternalPorts(t *testing.T) {

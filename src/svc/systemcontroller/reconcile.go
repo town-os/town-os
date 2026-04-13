@@ -16,6 +16,7 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	townostls "gitea.com/town-os/town-os/src/tls"
 )
 
 // ReconcileConfig holds the dependencies needed to reconcile installed packages
@@ -35,6 +36,12 @@ type ReconcileConfig struct {
 	ExternalIP             string
 	InternalIP             string
 	VersionChanged         bool // true when the systemcontroller version differs from last run
+
+	// TLSCA is the local CA used to mint per-package leaf certs for HTTP
+	// endpoints. nil disables TLS termination entirely; the reconciler
+	// still writes state files and generates units, they just don't carry
+	// any TLS=true ports.
+	TLSCA *townostls.CA
 
 	// PostUpdateExec executes a shell command inside a running container.
 	// Called after version-change restarts for packages with post_update commands.
@@ -75,7 +82,7 @@ func reconcileDefaultQuota(mgr account.SettingsManager) uint64 {
 func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	// Ensure root subvolumes exist for volume management.
 	if cfg.Storage != nil {
-		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume, PagesVolumePrefix, VMImagesSubvolume, UserVolumePrefix} {
+		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume, PagesVolumePrefix, VMImagesSubvolume, UserVolumePrefix, TLSSubvolume} {
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: root}); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile: create root volume %s: %v", root, err))
 			}
@@ -338,7 +345,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	isDep := netInfo.ParentNCUnitName != ""
 	needsNetworkState := !isDep && (len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0)
 	if cfg.NetworkStatePath != "" && needsNetworkState {
-		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled); err != nil {
+		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled, ip.Supplies); err != nil {
 			return fmt.Errorf("write network state: %w", err)
 		}
 	}
@@ -364,6 +371,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			NetworkStatePath:       cfg.NetworkStatePath,
 			Runtime:                compiled.Runtime,
 			VM:                     compiled.VM,
+			TLSDir:                 hostTLSBase(cfg.BtrfsBasePath),
 		}
 		if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
 			unitCfg.VMImagePath = resolveVMImagePath(cfg.BtrfsBasePath, compiled.VM.Image)
@@ -582,7 +590,11 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 // reconcileWriteNetworkState writes the per-package network state file during
 // reconciliation. Dependencies (names containing --dep--) always have UPnP
 // disabled to keep their ports local-only.
-func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version string, compiled *packages.Package) error {
+//
+// supplies is the raw `supplies:` list from the package YAML. When it
+// contains "http" and cfg.TLSCA is set, a leaf cert is issued for the
+// package and every external port is marked TLS=true in the state file.
+func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version string, compiled *packages.Package, supplies []string) error {
 	isDep := packages.IsDependency(pkgName)
 
 	state := networkcontroller.PackageNetworkState{
@@ -610,6 +622,22 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 			UPnP:         false,
 			Forward:      true,
 		})
+	}
+
+	if suppliesHTTP(supplies) && hasHTTPPort(&state) {
+		packageDNS := pkgName + "." + repoName + "." + reconcileDNSTLD(cfg.SettingsMgr)
+		certPath, err := issueLeafForPackage(
+			cfg.TLSCA,
+			cfg.BtrfsBasePath,
+			repoName, pkgName, version,
+			compiled, packageDNS,
+		)
+		if err != nil {
+			return fmt.Errorf("issue tls leaf: %w", err)
+		}
+		if certPath != "" {
+			applyTLSToPorts(&state, certPath)
+		}
 	}
 
 	sort.Slice(state.Ports, func(i, j int) bool {

@@ -22,6 +22,7 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	townostls "gitea.com/town-os/town-os/src/tls"
 	"gitea.com/town-os/town-os/src/ui"
 )
 
@@ -167,6 +168,7 @@ func (b *archiveTestBackend) GetResolvedConfigurator() func(ctx context.Context,
 }
 func (b *archiveTestBackend) GetSystemControllerImage() string { return "" }
 func (b *archiveTestBackend) GetSystemControllerListenAddr() string { return "" }
+func (b *archiveTestBackend) GetTLSCA() *townostls.CA               { return nil }
 func (b *archiveTestBackend) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
 	return reconcileExtractFromImage
 }

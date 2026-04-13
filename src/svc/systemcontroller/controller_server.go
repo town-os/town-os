@@ -22,6 +22,7 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	townostls "gitea.com/town-os/town-os/src/tls"
 	"gitea.com/town-os/town-os/src/ui"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -108,8 +109,9 @@ func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
 func (s *serverBase) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
 	return s.ResolvedConfigurator
 }
-func (s *serverBase) GetSystemControllerImage() string { return s.SystemControllerImage }
-func (s *serverBase) GetSystemControllerListenAddr() string  { return s.SystemControllerListenAddr }
+func (s *serverBase) GetSystemControllerImage() string      { return s.SystemControllerImage }
+func (s *serverBase) GetSystemControllerListenAddr() string { return s.SystemControllerListenAddr }
+func (s *serverBase) GetTLSCA() *townostls.CA               { return s.TLSCA }
 func (s *serverBase) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
 	if s.ImageExtractFunc != nil {
 		return s.ImageExtractFunc

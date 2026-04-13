@@ -190,6 +190,7 @@ func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version,
 		NetworkStatePath:       s.Controller.GetNetworkStatePath(),
 		Runtime:                compiled.Runtime,
 		VM:                     compiled.VM,
+		TLSDir:                 hostTLSBase(s.Controller.GetBtrfsBasePath()),
 	}
 	if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
 		cfg.VMImagePath = resolveVMImagePath(s.Controller.GetBtrfsBasePath(), compiled.VM.Image)
@@ -408,7 +409,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 
 		units := systemd.GeneratePackageUnits(cfg)
-		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, compiled); err != nil {
+		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, compiled, ip.Supplies); err != nil {
 			pw.Err(err)
 			return nil
 		}

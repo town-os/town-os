@@ -22,7 +22,7 @@ const (
 // isReservedFilesystem returns true if the given name is one of the
 // system-managed volume prefixes that users must not create, modify, or delete.
 func isReservedFilesystem(name string) bool {
-	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix {
+	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix || name == TLSSubvolume {
 		return true
 	}
 	if strings.HasPrefix(name, PackagesVolumePrefix+"/") {
@@ -41,6 +41,9 @@ func isReservedFilesystem(name string) bool {
 		return true
 	}
 	if strings.HasPrefix(name, UserVolumePrefix+"/") {
+		return true
+	}
+	if strings.HasPrefix(name, TLSSubvolume+"/") {
 		return true
 	}
 	return false

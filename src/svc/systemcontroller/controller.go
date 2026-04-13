@@ -11,6 +11,7 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	townostls "gitea.com/town-os/town-os/src/tls"
 	"gitea.com/town-os/town-os/src/ui"
 	"github.com/labstack/echo/v5"
 )
@@ -44,6 +45,7 @@ type systemControllerBackend interface {
 	GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string)
 	GetSystemControllerImage() string
 	GetSystemControllerListenAddr() string
+	GetTLSCA() *townostls.CA
 }
 
 type SystemController interface {
@@ -92,6 +94,7 @@ func getHandler(ctx context.Context, sc systemControllerBackend) *SystemControll
 func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// Public
 	e.Add("GET", "/status/ping", s.ping)
+	e.Add("GET", "/tls/ca.crt", s.getTLSCA)
 	e.Add("POST", "/account/authenticate", s.authenticateAccount)
 
 	// Self-authenticated (handlers do own token validation)
@@ -234,6 +237,11 @@ type ServerConfig struct {
 	// HTTP server listens on (e.g. ":5309"). Used for display in the
 	// /system-services entry.
 	SystemControllerListenAddr string
+
+	// TLSCA is the local X.509 root used to issue per-package leaf certs
+	// for HTTP-supplying packages. nil disables TLS termination and leaves
+	// HTTP endpoints as plain TCP forwarders.
+	TLSCA *townostls.CA
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {

@@ -20,7 +20,12 @@ import (
 // writePackageNetworkState writes the per-package JSON state file consumed by
 // the networkcontroller daemon. Dependencies (names containing --dep--)
 // always have UPnP disabled to keep their ports local-only.
-func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, version string, compiled *packages.Package) error {
+//
+// When supplies contains "http" and the local CA is available, a leaf cert
+// is issued (or refreshed) for the package and every external port is
+// marked TLS=true so the NC terminates TLS on the host-facing port instead
+// of running a plain socat forwarder.
+func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, version string, compiled *packages.Package, supplies []string) error {
 	statePath := s.Controller.GetNetworkStatePath()
 	if statePath == "" {
 		return nil
@@ -59,6 +64,22 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		return nil
 	}
 
+	if suppliesHTTP(supplies) && hasHTTPPort(&state) {
+		packageDNS := pkgName + "." + repoName + "." + s.dnsTLD()
+		certPath, err := issueLeafForPackage(
+			s.Controller.GetTLSCA(),
+			s.Controller.GetBtrfsBasePath(),
+			repoName, pkgName, version,
+			compiled, packageDNS,
+		)
+		if err != nil {
+			return fmt.Errorf("issue tls leaf: %w", err)
+		}
+		if certPath != "" {
+			applyTLSToPorts(&state, certPath)
+		}
+	}
+
 	// Sort for deterministic output.
 	sort.Slice(state.Ports, func(i, j int) bool {
 		return state.Ports[i].ExternalPort < state.Ports[j].ExternalPort
@@ -78,6 +99,19 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 	}
 
 	return nil
+}
+
+// dnsTLD returns the configured DNS TLD or "home" when unset. Used when
+// computing PACKAGE_DNS for SAN fields at install time.
+func (s *SystemControllerHandlers) dnsTLD() string {
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return "home"
+	}
+	if v, err := mgr.Get("dns_tld"); err == nil && v != "" {
+		return v
+	}
+	return "home"
 }
 
 // removePackageNetworkState removes the per-package network state file.

@@ -24,6 +24,7 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
+	townostls "gitea.com/town-os/town-os/src/tls"
 	"gitea.com/town-os/town-os/src/ui"
 )
 
@@ -350,6 +351,19 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 	}
 
+	// Ensure the local TLS CA exists. This has to happen before reconcile
+	// so reconcile can issue leaf certs for HTTP-supplying packages as it
+	// walks installed units. The btrfs `tls` subvolume is created by
+	// reconcile itself, but EnsureCA falls back to os.MkdirAll so the
+	// path is usable even when the subvolume layout is not yet in place
+	// (e.g. very first boot on a fresh btrfs).
+	var tlsCA *townostls.CA
+	if caVal, caErr := townostls.EnsureCA(filepath.Join(*btrfsPath, systemcontroller.TLSSubvolume)); caErr != nil {
+		fmt.Fprintf(os.Stderr, "tls ca: %v\n", caErr)
+	} else {
+		tlsCA = caVal
+	}
+
 	// Detect whether the systemcontroller image changed since the last
 	// run. When it has, reconcile will restart all units whose generated
 	// content differs from what is on disk.
@@ -368,6 +382,7 @@ func run() (err error) {
 		NetworkStatePath:       *networkStatePath,
 		InternalIP:             getInternalIP(),
 		VersionChanged:         versionChanged,
+		TLSCA:                  tlsCA,
 		PostUpdateExec: func(ctx context.Context, containerName string, command string) error {
 			execCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
@@ -447,6 +462,7 @@ func run() (err error) {
 		BtrfsBasePath:              *btrfsPath,
 		NetworkControllerImage:     ncImage,
 		NetworkStatePath:           *networkStatePath,
+		TLSCA:                      tlsCA,
 		MonitoringBackend:          monBackend,
 		DiskDevices:                diskDevices,
 		Rolodex:                    rolMgr,
