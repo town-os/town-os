@@ -327,7 +327,7 @@ func run() (err error) {
 	if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, "", ncImage, *networkStatePath); err != nil {
 		fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
 	}
-	if err := monitoring.StartMonitoringUI(ctx, sd, monBackend, *btrfsPath, ncImage, *networkStatePath); err != nil {
+	if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, *networkStatePath); err != nil {
 		fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 	}
 

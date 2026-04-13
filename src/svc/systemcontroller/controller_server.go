@@ -67,7 +67,7 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 	if sd == nil {
 		return nil
 	}
-	return monitoring.StartMonitoringUI(ctx, sd, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath)
+	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath)
 }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }

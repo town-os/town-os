@@ -2,12 +2,23 @@ package monitoring
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+)
+
+// grafanaUID and grafanaGID are the user and group ids that the Grafana
+// container runs as. The bind-mounted data directory must be owned by
+// this uid:gid pair or Grafana aborts at startup with
+// "GF_PATHS_DATA='/var/lib/grafana' is not writable".
+const (
+	grafanaUID = "472"
+	grafanaGID = "472"
 )
 
 // UPlotPackageConfig returns the PackageUnitConfig for the uPlot socat
@@ -61,10 +72,41 @@ func GrafanaPackageConfig(btrfsBase, ncImage, networkStatePath string) systemd.P
 			{HostPath: provisioningDir, ContainerPath: "/etc/grafana/provisioning"},
 			{HostPath: dataDir, ContainerPath: "/var/lib/grafana"},
 		},
-		MkdirPaths:             []string{provisioningDir, dataDir},
+		MkdirPaths: []string{provisioningDir, dataDir},
+		ExecStartPreExtra: []string{
+			"/bin/chown -R " + grafanaUID + ":" + grafanaGID + " " + dataDir,
+			"/bin/chown -R " + grafanaUID + ":" + grafanaGID + " " + provisioningDir,
+		},
 		RestartAlways:          true,
 		StartLimitIntervalZero: true,
 	}
+}
+
+// EnsureGrafanaStorage creates btrfs subvolumes for Grafana's data and
+// provisioning directories under the monitoring prefix. Idempotent: paths
+// that already exist (plain directory or subvolume from a previous run) are
+// left alone so in-place upgrades keep existing data. The generated systemd
+// unit chowns the directories to the Grafana uid via ExecStartPre.
+func EnsureGrafanaStorage(st storage.Storage, btrfsBase string) error {
+	if st == nil {
+		return nil
+	}
+	names := []string{
+		filepath.Join("monitoring", "grafana-data"),
+		filepath.Join("monitoring", "grafana-provisioning"),
+	}
+	for _, name := range names {
+		path := filepath.Join(btrfsBase, name)
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		if err := st.CreateFilesystem(storage.Filesystem{Name: name}); err != nil {
+			return fmt.Errorf("create grafana subvolume %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // WriteGrafanaProvisioningFiles writes the Grafana provisioning configuration
@@ -102,10 +144,16 @@ func WriteGrafanaProvisioningFiles(btrfsBase string) error {
 
 // StartMonitoringUI installs and starts the monitoring UI service. Both uPlot
 // and Grafana modes generate full package units (NC, sockets, private network).
-func StartMonitoringUI(ctx context.Context, sd systemd.Manager, backend, btrfsBase, ncImage, networkStatePath string) error {
+// In Grafana mode, btrfs subvolumes for Grafana's data and provisioning
+// directories are ensured via st; passing nil skips subvolume creation and
+// falls back to plain directories created by ExecStartPre mkdir.
+func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage, networkStatePath string) error {
 	var cfg systemd.PackageUnitConfig
 
 	if backend == BackendGrafana {
+		if err := EnsureGrafanaStorage(st, btrfsBase); err != nil {
+			return fmt.Errorf("ensure grafana storage: %w", err)
+		}
 		if err := WriteGrafanaProvisioningFiles(btrfsBase); err != nil {
 			return fmt.Errorf("write grafana provisioning: %w", err)
 		}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
@@ -438,6 +439,20 @@ func TestGrafanaPackageConfig(t *testing.T) {
 	if len(cfg.MkdirPaths) != 2 {
 		t.Fatalf("expected 2 MkdirPaths, got %d", len(cfg.MkdirPaths))
 	}
+
+	// Grafana runs as uid 472 inside the container and fails with
+	// "GF_PATHS_DATA is not writable" unless the bind-mounted data
+	// directory is owned by that uid. Two ExecStartPre chown commands
+	// are required: one for the data dir and one for the provisioning
+	// dir.
+	if len(cfg.ExecStartPreExtra) != 2 {
+		t.Fatalf("expected 2 ExecStartPreExtra entries, got %d", len(cfg.ExecStartPreExtra))
+	}
+	for _, cmd := range cfg.ExecStartPreExtra {
+		if !strings.Contains(cmd, "chown -R 472:472") {
+			t.Fatalf("expected chown -R 472:472 in ExecStartPreExtra, got %q", cmd)
+		}
+	}
 }
 
 func TestGrafanaGeneratesPackageUnits(t *testing.T) {
@@ -464,6 +479,115 @@ func TestGrafanaGeneratesPackageUnits(t *testing.T) {
 	}
 	if !strings.Contains(svc, "GF_AUTH_ANONYMOUS_ENABLED=true") {
 		t.Fatal("grafana unit should have env vars")
+	}
+	// The data directory must be chowned to the Grafana uid before the
+	// container starts, otherwise Grafana aborts with "GF_PATHS_DATA is
+	// not writable".
+	if !strings.Contains(svc, "chown -R 472:472 "+filepath.Join(btrfsBase, "monitoring", "grafana-data")) {
+		t.Fatalf("grafana unit should chown data dir to uid 472, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "chown -R 472:472 "+filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")) {
+		t.Fatalf("grafana unit should chown provisioning dir to uid 472, got:\n%s", svc)
+	}
+}
+
+func TestEnsureGrafanaStorage(t *testing.T) {
+	btrfsBase := t.TempDir()
+	ctrl := storage.InitBtrFSMockController()
+	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
+
+	if err := EnsureGrafanaStorage(st, btrfsBase); err != nil {
+		t.Fatalf("EnsureGrafanaStorage: %v", err)
+	}
+
+	// The mock records full paths (btrfsBase/<name>). Check that both
+	// Grafana subvolumes were created on a fresh base.
+	names := map[string]bool{}
+	for _, fs := range ctrl.GetFilesystems() {
+		names[fs.Name] = true
+	}
+	dataPath := filepath.Join(btrfsBase, "monitoring", "grafana-data")
+	provPath := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
+	if !names[dataPath] {
+		t.Fatalf("expected subvolume %q to be created, got %v", dataPath, names)
+	}
+	if !names[provPath] {
+		t.Fatalf("expected subvolume %q to be created, got %v", provPath, names)
+	}
+}
+
+func TestEnsureGrafanaStorageIdempotent(t *testing.T) {
+	btrfsBase := t.TempDir()
+	// Pre-create the data directory on disk (simulating a previous run
+	// where the path exists as either a subvolume or a plain directory).
+	// EnsureGrafanaStorage must not attempt to create a subvolume on top
+	// of an existing path, which would fail with "path already exists".
+	existing := filepath.Join(btrfsBase, "monitoring", "grafana-data")
+	if err := os.MkdirAll(existing, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	ctrl := storage.InitBtrFSMockController()
+	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
+
+	if err := EnsureGrafanaStorage(st, btrfsBase); err != nil {
+		t.Fatalf("EnsureGrafanaStorage: %v", err)
+	}
+
+	// grafana-data was pre-existing, so the only NEW subvolume created
+	// under the grafana prefix should be grafana-provisioning. (An
+	// intermediate "monitoring" subvolume is also created by the btrfs
+	// auto-nesting logic, which we ignore here.)
+	dataPath := filepath.Join(btrfsBase, "monitoring", "grafana-data")
+	provPath := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
+	names := map[string]bool{}
+	for _, fs := range ctrl.GetFilesystems() {
+		names[fs.Name] = true
+	}
+	if names[dataPath] {
+		t.Fatalf("grafana-data already existed on disk and must not be recreated as a subvolume, got %v", names)
+	}
+	if !names[provPath] {
+		t.Fatalf("expected grafana-provisioning subvolume to be created, got %v", names)
+	}
+}
+
+func TestEnsureGrafanaStorageNilStorage(t *testing.T) {
+	// Passing nil storage must be a no-op (so callers can disable btrfs
+	// subvolume creation and fall back to the plain ExecStartPre mkdir).
+	if err := EnsureGrafanaStorage(nil, t.TempDir()); err != nil {
+		t.Fatalf("nil storage should be a no-op: %v", err)
+	}
+}
+
+func TestStartMonitoringUIGrafanaCreatesSubvolumes(t *testing.T) {
+	sd := systemd.InitMockManager()
+	btrfsBase := t.TempDir()
+	networkStatePath := t.TempDir()
+
+	ctrl := storage.InitBtrFSMockController()
+	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
+
+	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
+		t.Fatalf("StartMonitoringUI: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, fs := range ctrl.GetFilesystems() {
+		names[fs.Name] = true
+	}
+	if !names[filepath.Join(btrfsBase, "monitoring", "grafana-data")] {
+		t.Fatalf("expected grafana-data subvolume, got %v", names)
+	}
+	if !names[filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")] {
+		t.Fatalf("expected grafana-provisioning subvolume, got %v", names)
+	}
+
+	// The generated unit must include the chown ExecStartPre lines.
+	svcUnit := systemd.SystemServiceUnitName("monitoring-ui")
+	content := sd.InstalledUnits[svcUnit]
+	if !strings.Contains(content, "chown -R 472:472") {
+		t.Fatalf("expected chown ExecStartPre in unit, got:\n%s", content)
 	}
 }
 
@@ -506,7 +630,7 @@ func TestStartMonitoringUIUPlot(t *testing.T) {
 	sd := systemd.InitMockManager()
 	networkStatePath := t.TempDir()
 
-	if err := StartMonitoringUI(t.Context(), sd, BackendUPlot, "", "nc:test", networkStatePath); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", networkStatePath); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -524,8 +648,9 @@ func TestStartMonitoringUIGrafana(t *testing.T) {
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
 	networkStatePath := t.TempDir()
+	st := storage.InitBtrFSFromController(btrfsBase, storage.InitBtrFSMockController())
 
-	if err := StartMonitoringUI(t.Context(), sd, BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -548,7 +673,7 @@ func TestStartMonitoringUIInstallError(t *testing.T) {
 	sd := systemd.InitMockManager()
 	sd.InstallUnitErr = os.ErrPermission
 
-	err := StartMonitoringUI(t.Context(), sd, BackendUPlot, "", "nc:test", t.TempDir())
+	err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", t.TempDir())
 	if err == nil {
 		t.Fatal("expected error when InstallUnit fails")
 	}

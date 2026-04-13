@@ -172,7 +172,7 @@ func TestMonitoringUIUPlotPackageUnits(t *testing.T) {
 	sd := systemd.InitMockManager()
 	networkStatePath := t.TempDir()
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, monitoring.BackendUPlot, "", "nc:test", networkStatePath); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), monitoring.BackendUPlot, "", "nc:test", networkStatePath); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -217,8 +217,10 @@ func TestMonitoringUIGrafanaPackageUnits(t *testing.T) {
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
 	networkStatePath := t.TempDir()
+	ctrl := storage.InitBtrFSMockController()
+	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, monitoring.BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, st, monitoring.BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -230,6 +232,28 @@ func TestMonitoringUIGrafanaPackageUnits(t *testing.T) {
 
 	if !strings.Contains(uiContent, monitoring.GrafanaImage) {
 		t.Fatalf("grafana monitoring-ui unit should use grafana image, got:\n%s", uiContent)
+	}
+
+	// The unit must chown the data directory to the Grafana uid or
+	// Grafana aborts with "GF_PATHS_DATA is not writable".
+	if !strings.Contains(uiContent, "chown -R 472:472") {
+		t.Fatalf("grafana monitoring-ui unit should chown data dir to uid 472, got:\n%s", uiContent)
+	}
+
+	// Btrfs subvolumes for Grafana's data and provisioning directories
+	// must have been created via the storage interface. The mock records
+	// full joined paths (btrfsBase/<name>).
+	names := map[string]bool{}
+	for _, fs := range ctrl.GetFilesystems() {
+		names[fs.Name] = true
+	}
+	dataPath := btrfsBase + "/monitoring/grafana-data"
+	provPath := btrfsBase + "/monitoring/grafana-provisioning"
+	if !names[dataPath] {
+		t.Fatalf("expected %s subvolume to be created, got %v", dataPath, names)
+	}
+	if !names[provPath] {
+		t.Fatalf("expected %s subvolume to be created, got %v", provPath, names)
 	}
 
 	// NC unit should be installed.
