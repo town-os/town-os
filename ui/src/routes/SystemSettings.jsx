@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
@@ -258,6 +258,8 @@ export default function SystemSettings() {
   const currentMonitoringBackend = settings[MONITORING_BACKEND_KEY] || 'uplot'
 
   const [monitoringBackendInput, setMonitoringBackendInput] = useState('uplot')
+  const [monitoringBackendSaving, setMonitoringBackendSaving] = useState(false)
+  const monitoringToastId = useRef('monitoring-backend')
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -265,14 +267,48 @@ export default function SystemSettings() {
   }, [settings])
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // pollMonitoringReady polls /monitoring/status until the backend matches
+  // the requested value AND the monitoring-ui unit is active, or a timeout
+  // elapses. Returns true on success, false on timeout or persistent error.
+  async function pollMonitoringReady(wantBackend, { timeoutMs = 30000, intervalMs = 1500 } = {}) {
+    const startTime = Date.now()
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const status = await getClient().monitoringStatus()
+        if (status && status.backend === wantBackend && status.monitoring_ui) {
+          return true
+        }
+      } catch {
+        // Transient errors while systemd is restarting the unit are
+        // expected; keep polling until the timeout.
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+    return false
+  }
+
   async function handleSaveMonitoringBackend(e) {
     e.preventDefault()
+    const wantBackend = monitoringBackendInput
+    setMonitoringBackendSaving(true)
+    toast.loading(t('settings.toast_monitoring_restarting'), { id: monitoringToastId.current })
     try {
-      await getClient().setSetting(MONITORING_BACKEND_KEY, monitoringBackendInput)
-      toast.success(t('settings.toast_monitoring_updated'))
+      await getClient().setSetting(MONITORING_BACKEND_KEY, wantBackend)
+      const ready = await pollMonitoringReady(wantBackend)
+      toast.dismiss(monitoringToastId.current)
+      if (ready) {
+        toast.success(t('settings.toast_monitoring_ready', {
+          backend: wantBackend === 'grafana' ? 'Grafana' : 'uPlot',
+        }))
+      } else {
+        toast.warning(t('settings.toast_monitoring_timeout'))
+      }
       setRefreshKey((k) => k + 1)
     } catch (err) {
+      toast.dismiss(monitoringToastId.current)
       toast.error(err.detail || err.message)
+    } finally {
+      setMonitoringBackendSaving(false)
     }
   }
 
@@ -486,13 +522,16 @@ export default function SystemSettings() {
               id="monitoring-backend-select"
               value={monitoringBackendInput}
               onChange={(e) => setMonitoringBackendInput(e.target.value)}
-              className="flex h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
+              disabled={monitoringBackendSaving}
+              className="flex h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="uplot">{t('settings.monitoring_option_uplot')}</option>
               <option value="grafana">{t('settings.monitoring_option_grafana')}</option>
             </select>
           </div>
-          <Button type="submit">{t('settings.save_btn')}</Button>
+          <Button type="submit" disabled={monitoringBackendSaving}>
+            {monitoringBackendSaving ? t('settings.saving_btn') : t('settings.save_btn')}
+          </Button>
         </form>
       </div>
     </div>

@@ -75,6 +75,44 @@ func TestHTTPMonitoringStatusUPlotBackend(t *testing.T) {
 	if !status.NodeExporter {
 		t.Fatal("expected node-exporter running")
 	}
+	if !status.MonitoringUI {
+		t.Fatal("expected monitoring-ui running")
+	}
+}
+
+func TestHTTPMonitoringStatusMonitoringUIStopped(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+
+	// The monitoring-ui unit is inactive (e.g. mid-restart after a
+	// backend switch). The API must report MonitoringUI=false so the
+	// settings UI can keep polling.
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "activating"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+	}
+
+	ts := InitTestServer(ServerConfig{
+		Storage:           mock,
+		Systemd:           sd,
+		MonitoringBackend: monitoring.BackendUPlot,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	status, err := c.MonitoringStatus(context.TODO())
+	if err != nil {
+		t.Fatalf("MonitoringStatus: %v", err)
+	}
+
+	if status.MonitoringUI {
+		t.Fatal("expected monitoring-ui not active")
+	}
 }
 
 func TestHTTPMonitoringStatusGrafanaBackend(t *testing.T) {
@@ -115,6 +153,9 @@ func TestHTTPMonitoringStatusGrafanaBackend(t *testing.T) {
 	}
 	if !status.NodeExporter {
 		t.Fatal("expected node-exporter running")
+	}
+	if !status.MonitoringUI {
+		t.Fatal("expected monitoring-ui running")
 	}
 }
 

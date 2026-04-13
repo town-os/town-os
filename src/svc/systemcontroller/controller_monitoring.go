@@ -29,15 +29,17 @@ func (s *SystemControllerHandlers) monitoringStatus(c *echo.Context) error {
 		}
 	}
 
+	monitoringUIActive := unitStates[systemd.SystemServiceUnitName("monitoring-ui")]
 	status := monitoring.MonitoringStatus{
 		Backend:      backend,
 		Prometheus:   unitStates[systemd.SystemServiceUnitName("prometheus")],
 		NodeExporter: unitStates[systemd.SystemServiceUnitName("node-exporter")],
+		MonitoringUI: monitoringUIActive,
 	}
 
 	// In grafana mode, the monitoring-ui unit IS grafana.
 	if backend == monitoring.BackendGrafana {
-		status.Grafana = unitStates[systemd.SystemServiceUnitName("monitoring-ui")]
+		status.Grafana = monitoringUIActive
 	}
 
 	return c.JSON(200, status)

@@ -40,9 +40,13 @@ type SystemService struct {
 }
 
 // MonitoringStatus represents the state of the monitoring stack for the API.
+// MonitoringUI reflects whether the monitoring-ui unit (socat in uPlot mode,
+// Grafana in grafana mode) is active; the UI polls this after changing the
+// backend to confirm the restart completed.
 type MonitoringStatus struct {
 	Backend      string `json:"backend"`
 	Prometheus   bool   `json:"prometheus"`
 	NodeExporter bool   `json:"node_exporter"`
+	MonitoringUI bool   `json:"monitoring_ui"`
 	Grafana      bool   `json:"grafana,omitempty"`
 }

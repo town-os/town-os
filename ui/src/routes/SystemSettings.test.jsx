@@ -238,6 +238,14 @@ const defaultSettings = {
 const mockGetSettings = vi.fn(() => Promise.resolve({ ...defaultSettings }))
 const mockSetSetting = vi.fn(() => Promise.resolve())
 const mockGetSetting = vi.fn(() => Promise.resolve('53687091200'))
+const mockMonitoringStatus = vi.fn(() =>
+  Promise.resolve({
+    backend: 'uplot',
+    prometheus: true,
+    node_exporter: true,
+    monitoring_ui: true,
+  }),
+)
 const mockGetLocales = vi.fn(() => Promise.resolve({
   current: 'en-US',
   populated: ['en-US'],
@@ -251,6 +259,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     setSetting: mockSetSetting,
     getSetting: mockGetSetting,
     getLocales: mockGetLocales,
+    monitoringStatus: mockMonitoringStatus,
   }),
 }))
 
@@ -268,7 +277,16 @@ describe('SystemSettings component', () => {
   beforeEach(() => {
     mockGetSettings.mockClear()
     mockSetSetting.mockClear()
+    mockMonitoringStatus.mockClear()
     mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+    mockMonitoringStatus.mockImplementation(() =>
+      Promise.resolve({
+        backend: 'uplot',
+        prometheus: true,
+        node_exporter: true,
+        monitoring_ui: true,
+      }),
+    )
   })
 
   it('renders the System Settings heading', async () => {
@@ -705,6 +723,15 @@ describe('SystemSettings Monitoring Backend', () => {
     mockGetSettings.mockImplementation(() =>
       Promise.resolve({ ...defaultSettings, monitoring_backend: 'grafana' }),
     )
+    mockMonitoringStatus.mockImplementation(() =>
+      Promise.resolve({
+        backend: 'grafana',
+        prometheus: true,
+        node_exporter: true,
+        grafana: true,
+        monitoring_ui: true,
+      }),
+    )
     renderSystemSettings()
     await waitFor(() => {
       expect(screen.getByLabelText('Backend')).toBeTruthy()
@@ -723,6 +750,64 @@ describe('SystemSettings Monitoring Backend', () => {
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('monitoring_backend', 'grafana')
     })
+  })
+
+  it('polls monitoringStatus after saving monitoring backend', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, monitoring_backend: 'grafana' }),
+    )
+    mockMonitoringStatus.mockImplementation(() =>
+      Promise.resolve({
+        backend: 'grafana',
+        prometheus: true,
+        node_exporter: true,
+        grafana: true,
+        monitoring_ui: true,
+      }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Backend').value).toBe('grafana')
+    })
+
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[saveButtons.length - 1])
+    })
+
+    await waitFor(() => {
+      expect(mockMonitoringStatus).toHaveBeenCalled()
+    })
+  })
+
+  it('disables Save button while waiting for monitoring restart', async () => {
+    // monitoringStatus never resolves with the matching backend: the
+    // component should keep the button in its "Saving..." state.
+    let resolveSet
+    mockSetSetting.mockImplementation(
+      () => new Promise((resolve) => { resolveSet = resolve }),
+    )
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, monitoring_backend: 'grafana' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Backend').value).toBe('grafana')
+    })
+
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[saveButtons.length - 1])
+    })
+
+    // Saving button replaces Save while the set-setting call is pending.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Saving...' })).toBeTruthy()
+    })
+    expect(screen.getByLabelText('Backend').disabled).toBe(true)
+
+    // Let setSetting resolve so the test doesn't leak a pending promise.
+    resolveSet()
   })
 
   it('renders both uplot and grafana options', async () => {

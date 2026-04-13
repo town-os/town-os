@@ -439,6 +439,10 @@ const enUS = {
   'settings.monitoring_option_uplot': 'uPlot (lightweight)',
   'settings.monitoring_option_grafana': 'Grafana',
   'settings.toast_monitoring_updated': 'Monitoring backend updated. The change takes effect on the next service restart.',
+  'settings.toast_monitoring_restarting': 'Restarting monitoring UI...',
+  'settings.toast_monitoring_ready': 'Monitoring UI restarted ({backend})',
+  'settings.toast_monitoring_timeout': 'Monitoring backend was saved, but the monitoring UI did not come back online in time. Check the service logs.',
+  'settings.saving_btn': 'Saving...',
 
   // --- DataTable ---
   'datatable.search_placeholder': 'Search...',
