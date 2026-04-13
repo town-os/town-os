@@ -303,6 +303,15 @@ func run() (err error) {
 		monBackend = v
 	}
 
+	// Discover the block devices backing the btrfs filesystem at btrfsPath
+	// so the monitoring dashboards can sum node_disk_* metrics over only
+	// those devices. Non-fatal: on failure the Disk I/O panel renders
+	// empty rather than aggregating unrelated host disks.
+	diskDevices, diskErr := monitoring.BtrfsDevices(*btrfsPath)
+	if diskErr != nil {
+		fmt.Fprintf(os.Stderr, "btrfs disk device discovery: %v\n", diskErr)
+	}
+
 	// Pull container images (non-fatal).
 	coreImages := []string{
 		monitoring.PrometheusImage,
@@ -327,7 +336,7 @@ func run() (err error) {
 	if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, "", ncImage, *networkStatePath); err != nil {
 		fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
 	}
-	if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, *networkStatePath); err != nil {
+	if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, *networkStatePath, diskDevices); err != nil {
 		fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 	}
 
@@ -429,6 +438,7 @@ func run() (err error) {
 		NetworkControllerImage:     ncImage,
 		NetworkStatePath:           *networkStatePath,
 		MonitoringBackend:          monBackend,
+		DiskDevices:                diskDevices,
 		Rolodex:                    rolMgr,
 		UI:                         uiMgr,
 		ResolvedConfigurator:       rolodex.ConfigureResolvedRouting,

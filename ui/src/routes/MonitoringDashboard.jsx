@@ -73,7 +73,7 @@ export default function MonitoringDashboard() {
         </div>
       ) : (
         allRunning ? (
-          <MonitoringCharts />
+          <MonitoringCharts diskDevices={status?.disk_devices || []} />
         ) : (
           <div className="flex flex-col items-center justify-center text-muted-foreground" style={{ height: 'calc(100vh - 104px)' }}>
             <Activity className="h-12 w-12 mb-4 opacity-30" />

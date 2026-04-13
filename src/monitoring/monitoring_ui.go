@@ -171,8 +171,12 @@ func chownGrafanaTree(path string) error {
 }
 
 // WriteGrafanaProvisioningFiles writes the Grafana provisioning configuration
-// (datasource and dashboard provider) to the monitoring directory.
-func WriteGrafanaProvisioningFiles(btrfsBase string) error {
+// (datasource and dashboard provider) to the monitoring directory. The
+// Disk I/O panel of the generated dashboard is parameterised on
+// diskDevices, the kernel device basenames backing the btrfs filesystem
+// at /town-os; pass nil to render the panel with a sentinel regex that
+// matches nothing.
+func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string) error {
 	provDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
 
 	// Datasource directory.
@@ -199,7 +203,7 @@ func WriteGrafanaProvisioningFiles(btrfsBase string) error {
 	if err := os.MkdirAll(jsonDir, 0755); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("create grafana dashboard-json dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(jsonDir, "town-os-overview.json"), []byte(TownOSOverviewDashboard), 0644); err != nil { //nolint:gosec // must be readable by container process
+	if err := os.WriteFile(filepath.Join(jsonDir, "town-os-overview.json"), []byte(TownOSOverviewDashboard(diskDevices)), 0644); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("write town-os overview dashboard: %w", err)
 	}
 
@@ -213,14 +217,14 @@ func WriteGrafanaProvisioningFiles(btrfsBase string) error {
 // proactively chowned to the Grafana uid before the unit is installed, so
 // a previously-broken boot (wrong owner, restart loop) self-heals as soon
 // as the new systemcontroller runs.
-func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage, networkStatePath string) error {
+func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage, networkStatePath string, diskDevices []string) error {
 	var cfg systemd.PackageUnitConfig
 
 	if backend == BackendGrafana {
 		if err := EnsureGrafanaStorage(st, btrfsBase); err != nil {
 			return fmt.Errorf("ensure grafana storage: %w", err)
 		}
-		if err := WriteGrafanaProvisioningFiles(btrfsBase); err != nil {
+		if err := WriteGrafanaProvisioningFiles(btrfsBase, diskDevices); err != nil {
 			return fmt.Errorf("write grafana provisioning: %w", err)
 		}
 		// Re-chown after writing provisioning files (os.WriteFile

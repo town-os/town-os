@@ -35,6 +35,7 @@ func (s *SystemControllerHandlers) monitoringStatus(c *echo.Context) error {
 		Prometheus:   unitStates[systemd.SystemServiceUnitName("prometheus")],
 		NodeExporter: unitStates[systemd.SystemServiceUnitName("node-exporter")],
 		MonitoringUI: monitoringUIActive,
+		DiskDevices:  s.Controller.GetDiskDevices(),
 	}
 
 	// In grafana mode, the monitoring-ui unit IS grafana.

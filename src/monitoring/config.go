@@ -1,5 +1,10 @@
 package monitoring
 
+import (
+	"fmt"
+	"strings"
+)
+
 // GrafanaDatasourceYAML returns the Grafana datasource provisioning YAML
 // that auto-configures Prometheus as the default data source.
 func GrafanaDatasourceYAML(prometheusHost string) string {
@@ -28,14 +33,47 @@ providers:
       foldersFromFilesStructure: false
 `
 
-// TownOSOverviewDashboard is the default Grafana dashboard loaded by the
-// monitoring UI iframe. It has four panels: Disk I/O for the `/town-os`
-// mount, external Network throughput (excluding virtual interfaces),
-// CPU breakdown stacked by mode with a Total overlay, and Memory Usage.
+// NoBtrfsDevicesSentinel is substituted into the Disk I/O device regex
+// when the controller could not discover any block devices backing the
+// btrfs filesystem. It is a string that no real kernel device name can
+// match, so the panel renders "No data" rather than silently summing
+// every disk on the host.
+const NoBtrfsDevicesSentinel = "__no_btrfs_devices__"
+
+// DiskDeviceRegex builds the PromQL device-label regex for the Disk I/O
+// panel from the list of kernel device basenames backing /town-os. An
+// empty list resolves to NoBtrfsDevicesSentinel.
+func DiskDeviceRegex(diskDevices []string) string {
+	if len(diskDevices) == 0 {
+		return NoBtrfsDevicesSentinel
+	}
+	return strings.Join(diskDevices, "|")
+}
+
+// TownOSOverviewDashboard returns the default Grafana dashboard loaded
+// by the monitoring UI iframe. It has four panels: Disk I/O summed
+// across the block devices that back the btrfs filesystem at /town-os,
+// external Network throughput (excluding virtual interfaces), CPU
+// breakdown stacked by mode with a Total overlay, and Memory Usage.
 // All panels are transparent so they blend with the iframe background.
 // The dashboard uid (`town-os-overview`) is stable across restarts and
 // referenced by the MonitoringDashboard route in the web UI.
-const TownOSOverviewDashboard = `{
+//
+// diskDevices is the list of kernel device basenames (e.g., "sda3",
+// "nvme0n1p3") that node_exporter reports for `node_disk_*` metrics.
+// An empty/nil slice produces a regex that matches nothing, leaving
+// the Disk I/O panel empty rather than misleadingly summing unrelated
+// devices.
+func TownOSOverviewDashboard(diskDevices []string) string {
+	regex := DiskDeviceRegex(diskDevices)
+	readExpr := fmt.Sprintf("sum(rate(node_disk_read_bytes_total{device=~\\\"%s\\\"}[$__rate_interval]))", regex)
+	writeExpr := fmt.Sprintf("sum(rate(node_disk_written_bytes_total{device=~\\\"%s\\\"}[$__rate_interval]))", regex)
+	return fmt.Sprintf(townOSOverviewDashboardTemplate, readExpr, writeExpr)
+}
+
+// townOSOverviewDashboardTemplate is the dashboard JSON with two %s
+// placeholders for the Disk I/O read and write target expressions.
+const townOSOverviewDashboardTemplate = `{
   "annotations": {},
   "editable": false,
   "fiscalYearStartMonth": 0,
@@ -67,8 +105,8 @@ const TownOSOverviewDashboard = `{
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
-        { "datasource": "Prometheus", "expr": "rate(node_disk_read_bytes_total{device=~\"sd.*|nvme.*|vd.*\"}[$__rate_interval]) * on(device) group_left node_filesystem_size_bytes{mountpoint=\"/town-os\"} / node_filesystem_size_bytes{mountpoint=\"/town-os\"}", "legendFormat": "Read", "refId": "A" },
-        { "datasource": "Prometheus", "expr": "rate(node_disk_written_bytes_total{device=~\"sd.*|nvme.*|vd.*\"}[$__rate_interval]) * on(device) group_left node_filesystem_size_bytes{mountpoint=\"/town-os\"} / node_filesystem_size_bytes{mountpoint=\"/town-os\"}", "legendFormat": "Write", "refId": "B" }
+        { "datasource": "Prometheus", "expr": "%s", "legendFormat": "Read", "refId": "A" },
+        { "datasource": "Prometheus", "expr": "%s", "legendFormat": "Write", "refId": "B" }
       ],
       "title": "Disk I/O (/town-os)",
       "transparent": true,

@@ -35,6 +35,7 @@ type systemControllerBackend interface {
 	GetGitCloner() packages.GitCloner
 	GetPagesManager() account.PagesManager
 	GetMonitoringBackend() string
+	GetDiskDevices() []string
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
@@ -205,6 +206,13 @@ type ServerConfig struct {
 	BtrfsBasePath          string
 	NetworkControllerImage string
 	NetworkStatePath       string
+	// DiskDevices lists kernel device basenames (e.g. "sda3", "nvme0n1p3")
+	// of every block device backing the btrfs filesystem mounted at
+	// BtrfsBasePath. Discovered once at startup via monitoring.BtrfsDevices
+	// and surfaced through /monitoring/status so the uPlot frontend and
+	// Grafana dashboard can sum node_disk_* metrics over only those
+	// devices. Nil when discovery fails.
+	DiskDevices []string
 	PagesMgr                 account.PagesManager
 	GitCloner                packages.GitCloner
 	MonitoringBackend        string

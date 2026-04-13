@@ -44,9 +44,15 @@ type SystemService struct {
 // Grafana in grafana mode) is active; the UI polls this after changing the
 // backend to confirm the restart completed.
 type MonitoringStatus struct {
-	Backend      string `json:"backend"`
-	Prometheus   bool   `json:"prometheus"`
-	NodeExporter bool   `json:"node_exporter"`
-	MonitoringUI bool   `json:"monitoring_ui"`
-	Grafana      bool   `json:"grafana,omitempty"`
+	Backend      string   `json:"backend"`
+	Prometheus   bool     `json:"prometheus"`
+	NodeExporter bool     `json:"node_exporter"`
+	MonitoringUI bool     `json:"monitoring_ui"`
+	Grafana      bool     `json:"grafana,omitempty"`
+	// DiskDevices lists the kernel device basenames (e.g. "sda3",
+	// "nvme0n1p3") backing the btrfs filesystem mounted at /town-os.
+	// The frontend uses these to build the Disk I/O panel's PromQL
+	// query. Empty when discovery failed; the dashboard falls back to a
+	// sentinel regex that matches nothing.
+	DiskDevices []string `json:"disk_devices,omitempty"`
 }

@@ -172,7 +172,7 @@ func TestMonitoringUIUPlotPackageUnits(t *testing.T) {
 	sd := systemd.InitMockManager()
 	networkStatePath := t.TempDir()
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), monitoring.BackendUPlot, "", "nc:test", networkStatePath); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), monitoring.BackendUPlot, "", "nc:test", networkStatePath, nil); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestMonitoringUIGrafanaPackageUnits(t *testing.T) {
 	ctrl := storage.InitBtrFSMockController()
 	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, st, monitoring.BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, st, monitoring.BackendGrafana, btrfsBase, "nc:test", networkStatePath, nil); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 

@@ -155,6 +155,7 @@ func (b *archiveTestBackend) GetPagesManager() account.PagesManager             
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetMonitoringBackend() string { return "" }
+func (b *archiveTestBackend) GetDiskDevices() []string     { return nil }
 func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ string) error {
 	return nil
 }

@@ -630,7 +630,7 @@ func TestStartMonitoringUIGrafanaCreatesSubvolumes(t *testing.T) {
 	ctrl := storage.InitBtrFSMockController()
 	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
 
-	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", networkStatePath, nil); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -656,7 +656,7 @@ func TestStartMonitoringUIGrafanaCreatesSubvolumes(t *testing.T) {
 func TestWriteGrafanaProvisioningFiles(t *testing.T) {
 	btrfsBase := t.TempDir()
 
-	if err := WriteGrafanaProvisioningFiles(btrfsBase); err != nil {
+	if err := WriteGrafanaProvisioningFiles(btrfsBase, []string{"sda3", "nvme0n1p3"}); err != nil {
 		t.Fatalf("WriteGrafanaProvisioningFiles: %v", err)
 	}
 
@@ -703,13 +703,16 @@ func TestWriteGrafanaProvisioningFiles(t *testing.T) {
 	if !strings.Contains(content, `"title": "Town OS Overview"`) {
 		t.Fatal("dashboard should have the Town OS Overview title")
 	}
+	if !strings.Contains(content, `device=~\"sda3|nvme0n1p3\"`) {
+		t.Fatalf("dashboard should embed disk device regex from caller, got:\n%s", content[:min(len(content), 1000)])
+	}
 }
 
 func TestStartMonitoringUIUPlot(t *testing.T) {
 	sd := systemd.InitMockManager()
 	networkStatePath := t.TempDir()
 
-	if err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", networkStatePath); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", networkStatePath, nil); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -729,7 +732,7 @@ func TestStartMonitoringUIGrafana(t *testing.T) {
 	networkStatePath := t.TempDir()
 	st := storage.InitBtrFSFromController(btrfsBase, storage.InitBtrFSMockController())
 
-	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", networkStatePath); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", networkStatePath, nil); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -752,7 +755,7 @@ func TestStartMonitoringUIInstallError(t *testing.T) {
 	sd := systemd.InitMockManager()
 	sd.InstallUnitErr = os.ErrPermission
 
-	err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", t.TempDir())
+	err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", t.TempDir(), nil)
 	if err == nil {
 		t.Fatal("expected error when InstallUnit fails")
 	}

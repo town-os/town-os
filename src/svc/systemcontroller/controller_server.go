@@ -56,7 +56,8 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 	return packages.DefaultGitCloner{}
 }
 func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
-func (s *serverBase) GetMonitoringBackend() string { return s.MonitoringBackend }
+func (s *serverBase) GetMonitoringBackend() string          { return s.MonitoringBackend }
+func (s *serverBase) GetDiskDevices() []string              { return s.DiskDevices }
 
 // RefreshMonitoringBackend switches the monitoring UI to the given backend
 // by regenerating and restarting the monitoring-ui system service. The
@@ -67,7 +68,7 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 	if sd == nil {
 		return nil
 	}
-	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath)
+	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath, s.DiskDevices)
 }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
