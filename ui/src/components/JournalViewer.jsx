@@ -107,7 +107,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
   const minuteGroups = useMemo(() => groupByMinute(journalEntries), [journalEntries])
 
   function toggleGroup(key) {
-    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
+    setExpandedGroups((prev) => ({ ...prev, [key]: prev[key] === false }))
   }
 
   function toggleFlatMode() {
@@ -249,8 +249,12 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
   }, [journalUnit, followMode, journalEndCursor, searchQuery, journalPriority])
 
   useEffect(() => {
-    if (journalUnit && scrollRef.current && !journalLoading && journalInitial) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (journalUnit && scrollRef.current && !journalLoading && journalInitial && journalEntries.length > 0) {
+      const el = scrollRef.current
+      el.scrollTop = el.scrollHeight
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight
+      })
       setJournalInitial(false)
     } else if (followAppendRef.current && scrollRef.current) {
       if (wasAtBottomRef.current) {
@@ -460,7 +464,7 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
                     </div>
                   ))
                 : minuteGroups.map((group, gi) => {
-                  const expanded = !!expandedGroups[group.key]
+                  const expanded = expandedGroups[group.key] !== false
                   return (
                     <div key={group.key}>
                       <div

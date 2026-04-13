@@ -640,7 +640,8 @@ The journal viewer dialog provides:
 - Real-time search with debounced filtering (300 ms).
 - Time range filtering by date and hour.
 - Follow mode toggle for continuous log tailing with auto-scroll (automatically disabled when search or time filters are active).
-- Tree view toggle for grouping entries by minute.
+- Initial scroll-to-bottom: when the viewer opens, the log container is scrolled to the end once entries have finished loading. The scroll-to-bottom effect is gated on `journalEntries.length > 0` so it cannot be consumed on the empty first render before entries arrive; a trailing `requestAnimationFrame` re-pins scrollTop after layout settles in case the expanded tree grows between commit and paint.
+- Tree view toggle for grouping entries by minute. Tree view is the default and each minute group is **expanded by default**. The expand-state map stores only explicit collapses: an undefined entry is treated as expanded, so first-time toggles collapse rather than expand.
 - Copy-to-clipboard for all displayed log entries.
 - ANSI color code rendering in log output.
 - Structured field highlighting (`name=value` pairs).
