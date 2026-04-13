@@ -27,7 +27,7 @@ export default function MonitoringDashboard() {
 
   // Port 5308 is exposed directly by the network controller — no proxy.
   const monitoringBase = getBaseURLForPort(5308)
-  const grafanaURL = monitoringBase + '/d/town-os-overview/town-os-overview?kiosk&theme=light'
+  const grafanaURL = monitoringBase + '/d/town-os-overview/town-os-overview?kiosk&theme=light&refresh=30s'
 
   if (isDisabled) {
     return (

@@ -43,6 +43,7 @@ func TestTownOSOverviewDashboardWithDevices(t *testing.T) {
 		`sum(rate(node_disk_written_bytes_total{device=~\"sda3|nvme0n1p3\"}[$__rate_interval]))`,
 		`"legendFormat": "Read"`,
 		`"legendFormat": "Write"`,
+		`"refresh": "30s"`,
 	}
 	for _, s := range wantSubstrings {
 		if !strings.Contains(out, s) {
