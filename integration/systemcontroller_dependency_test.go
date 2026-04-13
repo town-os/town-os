@@ -55,13 +55,17 @@ func TestInstallWithDependencyLifecycle(t *testing.T) {
 		t.Fatalf("InstallPackage app-with-cache@1.0: %v", err)
 	}
 
-	// Verify both parent and dep are listed as installed.
+	// Only the parent shows up in the user-facing installed list — the
+	// dependency sub-package is intentionally filtered out since it
+	// belongs to the parent's lifecycle. The underlying install record
+	// still exists and is verified via the systemd unit assertions
+	// below.
 	pkgs, err := c.ListInstalled(context.TODO(), systemcontroller.ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
 	}
-	if len(pkgs.Entries) != 2 {
-		t.Fatalf("expected 2 installed (parent + dep), got %d: %v", len(pkgs.Entries), pkgs.Entries)
+	if len(pkgs.Entries) != 1 || pkgs.Entries[0] != "core/app-with-cache@1.0" {
+		t.Fatalf("expected [core/app-with-cache@1.0], got %v", pkgs.Entries)
 	}
 
 	// Verify dep unit was installed with correct name.

@@ -92,6 +92,9 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 	}
 
 	// Build a map of installed repo/name keys to their installed version.
+	// Dependency sub-packages (parent--dep--child) are intentionally
+	// excluded so they never appear as separate tiles in the packages UI;
+	// they belong to the parent's lifecycle.
 	installedVersions := map[string]string{}
 	inst := s.Controller.GetInstaller()
 	if inst != nil {
@@ -99,6 +102,7 @@ func (s *SystemControllerHandlers) listPackages(c *echo.Context) error {
 		if err != nil {
 			return err
 		}
+		installed = filterDependencyInstalls(installed)
 
 		for _, pkg := range installed {
 			pi, err := packages.ParsePackageIdentity(pkg)

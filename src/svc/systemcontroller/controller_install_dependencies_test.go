@@ -386,7 +386,11 @@ dependencies:
 		t.Fatalf("InstallPackage parent: %v", err)
 	}
 
-	// Every level must be installed.
+	// The parent must show up in the user-facing installed list; its
+	// dependency sub-packages are intentionally hidden there (they are
+	// managed via the parent's lifecycle) but they still have to exist
+	// in the underlying installer, which the raw inst.ListInstalled()
+	// call verifies below.
 	pkgs, err := c.ListInstalled(context.TODO(), ListParams{})
 	if err != nil {
 		t.Fatalf("ListInstalled: %v", err)
@@ -395,9 +399,26 @@ dependencies:
 	for _, e := range pkgs.Entries {
 		gotSet[e] = true
 	}
+	if !gotSet["repo-a/parent@1.0"] {
+		t.Fatalf("missing parent entry in %v", pkgs.Entries)
+	}
+	for _, hidden := range []string{"repo-a/parent--dep--up@1.0", "repo-a/parent--dep--down@1.0"} {
+		if gotSet[hidden] {
+			t.Fatalf("dependency sub-package %q should be hidden from ListInstalled, got %v", hidden, pkgs.Entries)
+		}
+	}
+
+	rawInstalled, err := inst.ListInstalled()
+	if err != nil {
+		t.Fatalf("inst.ListInstalled: %v", err)
+	}
+	rawSet := map[string]bool{}
+	for _, e := range rawInstalled {
+		rawSet[e] = true
+	}
 	for _, want := range []string{"repo-a/parent@1.0", "repo-a/parent--dep--up@1.0", "repo-a/parent--dep--down@1.0"} {
-		if !gotSet[want] {
-			t.Fatalf("missing installed entry %q in %v", want, pkgs.Entries)
+		if !rawSet[want] {
+			t.Fatalf("missing raw install record %q in %v", want, rawInstalled)
 		}
 	}
 

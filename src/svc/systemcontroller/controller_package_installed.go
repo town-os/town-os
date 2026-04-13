@@ -21,6 +21,11 @@ func (s *SystemControllerHandlers) listInstalled(c *echo.Context) error {
 		return err
 	}
 
+	// Filter out sub-packages installed as dependencies of other packages:
+	// they belong to their parent's lifecycle and the user does not manage
+	// them directly.
+	pkgs = filterDependencyInstalls(pkgs)
+
 	p := readListParams(c)
 	pkgs = filterSearch(pkgs, p.Search)
 	sort.Strings(pkgs)
@@ -29,6 +34,27 @@ func (s *SystemControllerHandlers) listInstalled(c *echo.Context) error {
 	}
 
 	return c.JSON(200, paginate(pkgs, p.Limit, p.Offset))
+}
+
+// filterDependencyInstalls drops any install record whose effective name is
+// a dependency child (contains "--dep--"). Used by every user-facing
+// installed-packages view so dependency sub-packages stay hidden while
+// reconcile, uninstall, and the systemd unit list still see them via the
+// underlying ListInstalled() call.
+func filterDependencyInstalls(pkgs []string) []string {
+	out := make([]string, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			out = append(out, pkg)
+			continue
+		}
+		if packages.IsDependency(pi.Name) {
+			continue
+		}
+		out = append(out, pkg)
+	}
+	return out
 }
 
 func (s *SystemControllerHandlers) getResponses(c *echo.Context) error {
