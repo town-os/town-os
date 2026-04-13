@@ -4,6 +4,7 @@
 package monitoring
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -553,11 +554,72 @@ func TestEnsureGrafanaStorageIdempotent(t *testing.T) {
 }
 
 func TestEnsureGrafanaStorageNilStorage(t *testing.T) {
-	// Passing nil storage must be a no-op (so callers can disable btrfs
-	// subvolume creation and fall back to the plain ExecStartPre mkdir).
-	if err := EnsureGrafanaStorage(nil, t.TempDir()); err != nil {
-		t.Fatalf("nil storage should be a no-op: %v", err)
+	// Passing nil storage must fall back to plain directories and still
+	// create the paths on disk so the subsequent WriteGrafanaProvisioningFiles
+	// call and the systemd ExecStartPre mkdir have something valid to
+	// operate on.
+	btrfsBase := t.TempDir()
+	if err := EnsureGrafanaStorage(nil, btrfsBase); err != nil {
+		t.Fatalf("nil storage should fall back to plain dirs: %v", err)
 	}
+
+	for _, suffix := range []string{"grafana-data", "grafana-provisioning"} {
+		path := filepath.Join(btrfsBase, "monitoring", suffix)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("expected %s to exist after fallback: %v", path, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("%s should be a directory", path)
+		}
+	}
+}
+
+func TestEnsureGrafanaStorageSubvolumeErrorFallsBack(t *testing.T) {
+	// When the storage layer refuses to create a subvolume (for example
+	// when the parent directory already exists as a plain directory, as
+	// it does on the live system after StartPrometheus has run its
+	// ExecStartPre mkdir), EnsureGrafanaStorage must fall back to
+	// os.MkdirAll so Grafana can still boot.
+	btrfsBase := t.TempDir()
+	// Pre-create the parent "monitoring" directory so callers see the
+	// exact on-disk layout that the systemcontroller sees at boot.
+	if err := os.MkdirAll(filepath.Join(btrfsBase, "monitoring"), 0755); err != nil {
+		t.Fatalf("mkdir monitoring parent: %v", err)
+	}
+
+	st := &failingStorage{err: errors.New("simulated btrfs failure")}
+
+	if err := EnsureGrafanaStorage(st, btrfsBase); err != nil {
+		t.Fatalf("EnsureGrafanaStorage should fall back, got: %v", err)
+	}
+
+	for _, suffix := range []string{"grafana-data", "grafana-provisioning"} {
+		path := filepath.Join(btrfsBase, "monitoring", suffix)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected fallback dir %s to exist: %v", path, err)
+		}
+	}
+}
+
+// failingStorage is a minimal storage.Storage that fails CreateFilesystem
+// with an injected error. All other methods are unused in these tests.
+type failingStorage struct {
+	err error
+}
+
+func (f *failingStorage) CreateFilesystem(_ storage.Filesystem) error { return f.err }
+func (f *failingStorage) ModifyFilesystem(_ string, _ storage.Filesystem) error {
+	return storage.ErrUnimplemented
+}
+func (f *failingStorage) RemoveFilesystem(_ string) error { return storage.ErrUnimplemented }
+func (f *failingStorage) ListFilesystems(_ string) ([]storage.Filesystem, error) {
+	return nil, storage.ErrUnimplemented
+}
+func (f *failingStorage) RenameFilesystem(_, _ string) error   { return storage.ErrUnimplemented }
+func (f *failingStorage) SnapshotFilesystem(_, _ string) error { return storage.ErrUnimplemented }
+func (f *failingStorage) DiskUsage() (storage.DiskUsage, error) {
+	return storage.DiskUsage{}, storage.ErrUnimplemented
 }
 
 func TestStartMonitoringUIGrafanaCreatesSubvolumes(t *testing.T) {
