@@ -85,7 +85,7 @@ func TestFetchExternalIPSuccess(t *testing.T) {
 	s := &serverBase{}
 
 	// We need to temporarily redirect the fetch to our test server.
-	// Since fetchExternalIP hardcodes the URL, we'll test via startExternalIPPoller
+	// Since fetchExternalIP hardcodes the URL, we'll test via startNetworkPoller
 	// which calls fetchExternalIP. Instead, test the mechanism directly
 	// by calling the method and verifying the atomic store works.
 	// For the hardcoded URL, we test the error/non-200 paths.
@@ -116,15 +116,15 @@ func TestFetchExternalIPBadResponse(t *testing.T) {
 	s.fetchExternalIP(ctx)
 }
 
-// --- startExternalIPPoller ---
+// --- startNetworkPoller ---
 
-func TestStartExternalIPPollerContextCancellation(t *testing.T) {
+func TestStartNetworkPollerContextCancellation(t *testing.T) {
 	s := &serverBase{}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel immediately to test that the goroutine exits cleanly.
 	cancel()
-	s.startExternalIPPoller(ctx)
+	s.startNetworkPoller(ctx)
 
 	// Allow goroutine to exit.
 	time.Sleep(100 * time.Millisecond)
@@ -132,11 +132,11 @@ func TestStartExternalIPPollerContextCancellation(t *testing.T) {
 
 // --- NewHandler ---
 
-func TestNewHandlerStartsExternalIPPoller(t *testing.T) {
+func TestNewHandlerStartsNetworkPoller(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// NewHandler should not panic and should start the external IP poller.
+	// NewHandler should not panic and should start the network poller.
 	// The actual ipinfo.io fetch will either succeed or timeout gracefully.
 	handler := NewHandler(ctx, ServerConfig{})
 	if handler == nil {

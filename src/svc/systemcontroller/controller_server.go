@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,11 +27,43 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 )
 
+// Defaults for the network poller. Internal IP is checked every tick;
+// external IP is fetched every defaultPollerExternalEvery ticks (12 × 5 min
+// = once per hour, matching the pre-poller cadence). A new internal IP must
+// be observed on defaultPollerStableTicks consecutive ticks before it is
+// promoted, so a flapping veth or DHCP renewal blip does not trigger a
+// spurious DNS reconcile.
+const (
+	defaultPollerInternalIPInterval = 5 * time.Minute
+	defaultPollerExternalEvery      = 12
+	defaultPollerStableTicks        = 3
+)
+
 type serverBase struct {
 	ServerConfig
 
 	externalIP atomic.Value // stores string
 	internalIP atomic.Value // stores string
+
+	// Network-poller state. pollerMu guards the mutable fields below.
+	// pollerPendingInternal and pollerPendingTicks track an internal-IP
+	// candidate that has not yet been seen on enough consecutive ticks to
+	// be promoted into internalIP. pollerExternalTickCnt counts internal
+	// ticks until the next external-IP fetch.
+	pollerMu              sync.Mutex
+	pollerPendingInternal string
+	pollerPendingTicks    int
+	pollerExternalTickCnt int
+
+	// Tunables and overrides. Zero values mean "use the constants above".
+	// pollerInternalDiscoverer and pollerReconcileDNS are nil in production
+	// and set by unit tests to drive tickNetworkPoll synchronously without
+	// touching real interfaces or rolodex.
+	pollerInternalIPInterval time.Duration
+	pollerExternalEvery      int
+	pollerStableTicks        int
+	pollerInternalDiscoverer func() string
+	pollerReconcileDNS       func(ctx context.Context, oldIP, newIP string) error
 }
 
 func (s *serverBase) GetStorage() storage.Storage                 { return s.Storage }
@@ -130,19 +163,161 @@ func (s *serverBase) GetInternalIP() string {
 	return ""
 }
 
-// RefreshInternalIP updates the cached internal IP address by querying
-// the system's network interfaces.
-func (s *serverBase) RefreshInternalIP() {
+// discoverInternalIP returns the first non-loopback IPv4 address bound to
+// any local interface, or "" if none can be discovered. Tests inject a stub
+// via pollerInternalDiscoverer.
+func (s *serverBase) discoverInternalIP() string {
+	if s.pollerInternalDiscoverer != nil {
+		return s.pollerInternalDiscoverer()
+	}
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return
+		return ""
 	}
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			s.internalIP.Store(ipnet.IP.String())
-			return
+			return ipnet.IP.String()
 		}
 	}
+	return ""
+}
+
+// RefreshInternalIP updates the cached internal IP address by querying
+// the system's network interfaces. Empty results leave the cache untouched.
+func (s *serverBase) RefreshInternalIP() {
+	if ip := s.discoverInternalIP(); ip != "" {
+		s.internalIP.Store(ip)
+	}
+}
+
+func (s *serverBase) pollerStableTicksValue() int {
+	if s.pollerStableTicks > 0 {
+		return s.pollerStableTicks
+	}
+	return defaultPollerStableTicks
+}
+
+func (s *serverBase) pollerExternalEveryValue() int {
+	if s.pollerExternalEvery > 0 {
+		return s.pollerExternalEvery
+	}
+	return defaultPollerExternalEvery
+}
+
+func (s *serverBase) pollerInternalIntervalValue() time.Duration {
+	if s.pollerInternalIPInterval > 0 {
+		return s.pollerInternalIPInterval
+	}
+	return defaultPollerInternalIPInterval
+}
+
+// tickNetworkPoll runs one cycle of the network poller. It discovers the
+// current internal IPv4, applies "stable for N consecutive ticks" debouncing
+// to changes, fires onInternalIPChange when a change is confirmed, and
+// fetches the external IP every Nth tick. Exposed (lower-case but
+// package-visible) so unit tests can drive the change-detection logic
+// synchronously without spinning up the polling goroutine.
+func (s *serverBase) tickNetworkPoll(ctx context.Context) {
+	discovered := s.discoverInternalIP()
+
+	s.pollerMu.Lock()
+
+	var (
+		oldIP, newIP string
+		fireChange   bool
+	)
+
+	cached, _ := s.internalIP.Load().(string)
+
+	switch {
+	case discovered == "":
+		// Could not discover this tick; leave cache and pending state alone.
+	case cached == "":
+		// Prime the cache without firing a change. This is the first
+		// successful discovery — there is no "old IP" to compare against,
+		// so treat it as the baseline.
+		s.internalIP.Store(discovered)
+		s.pollerPendingInternal = ""
+		s.pollerPendingTicks = 0
+	case discovered == cached:
+		// No change; reset any in-flight candidate.
+		s.pollerPendingInternal = ""
+		s.pollerPendingTicks = 0
+	default:
+		// Different from cache. Apply the stable-for-N debounce.
+		if discovered == s.pollerPendingInternal {
+			s.pollerPendingTicks++
+		} else {
+			s.pollerPendingInternal = discovered
+			s.pollerPendingTicks = 1
+		}
+		if s.pollerPendingTicks >= s.pollerStableTicksValue() {
+			oldIP = cached
+			newIP = discovered
+			fireChange = true
+			s.internalIP.Store(discovered)
+			s.pollerPendingInternal = ""
+			s.pollerPendingTicks = 0
+		}
+	}
+
+	s.pollerExternalTickCnt++
+	fetchExternal := s.pollerExternalTickCnt >= s.pollerExternalEveryValue()
+	if fetchExternal {
+		s.pollerExternalTickCnt = 0
+	}
+
+	s.pollerMu.Unlock()
+
+	if fireChange {
+		s.onInternalIPChange(ctx, oldIP, newIP)
+	}
+	if fetchExternal {
+		s.fetchExternalIP(ctx)
+	}
+}
+
+// onInternalIPChange logs the transition and re-runs DNS reconcile so every
+// installed package's A record points at the new address. Failures are
+// logged but do not abort the poller — the next confirmed change will retry.
+//
+// Re-rendering compiled service units that baked in @LOCAL_INTERNAL_HOST@
+// is a known gap; it requires a full reconcile pass and is left to a
+// follow-up.
+func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string) {
+	if s.pollerReconcileDNS != nil {
+		if err := s.pollerReconcileDNS(ctx, oldIP, newIP); err != nil {
+			slog.Error("internal IP change handler", "old", oldIP, "new", newIP, "error", err)
+			return
+		}
+		slog.Info("internal IP changed", "old", oldIP, "new", newIP)
+		return
+	}
+
+	slog.Info("internal IP changed; reconciling DNS", "old", oldIP, "new", newIP)
+
+	// GetRolodexClient establishes its own short-lived dial context
+	// internally; all other callers (controller_dns.go) use the same
+	// no-arg form. Passing ctx through would require touching every
+	// existing caller for no behaviour change.
+	rolClient := s.GetRolodexClient() //nolint:contextcheck // see comment above
+	if rolClient == nil {
+		slog.Warn("internal IP changed but rolodex client unavailable; package DNS records may be stale", "new", newIP)
+		return
+	}
+
+	if err := ReconcileDNS(ctx, ReconcileDNSConfig{
+		Client:         rolClient,
+		Installer:      s.Installer,
+		RepositoryRoot: s.RepositoryRoot,
+		SettingsMgr:    s.SettingsMgr,
+		InternalIP:     newIP,
+	}); err != nil {
+		slog.Error("reconcile DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
+		return
+	}
+
+	slog.Info("re-registered package DNS records after internal IP change", "old", oldIP, "new", newIP)
 }
 
 func (s *serverBase) fetchExternalIP(ctx context.Context) {
@@ -183,17 +358,26 @@ func (s *serverBase) fetchExternalIP(ctx context.Context) {
 	}
 }
 
-func (s *serverBase) startExternalIPPoller(ctx context.Context) {
+// startNetworkPoller fetches the external IP immediately, primes the
+// internal-IP cache, and then ticks every pollerInternalIPInterval to refresh
+// the internal IP (with debounced change detection that fires DNS reconcile
+// on a confirmed change) and to refresh the external IP every
+// pollerExternalEvery ticks. The goroutine exits when ctx is cancelled.
+func (s *serverBase) startNetworkPoller(ctx context.Context) {
 	s.fetchExternalIP(ctx)
+	// Prime the internal-IP cache before any ticks so the first tick is a
+	// no-op rather than a spurious "" → realIP "change".
+	s.RefreshInternalIP()
+
 	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
+		ticker := time.NewTicker(s.pollerInternalIntervalValue())
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.fetchExternalIP(ctx)
+				s.tickNetworkPoll(ctx)
 			}
 		}
 	}()
@@ -280,7 +464,7 @@ func NewHandler(ctx context.Context, cfg ServerConfig) http.Handler {
 		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname)
 	}
 	sb := &serverBase{ServerConfig: cfg}
-	sb.startExternalIPPoller(ctx)
+	sb.startNetworkPoller(ctx)
 	return configureRouter(ctx, sb)
 }
 
@@ -350,7 +534,7 @@ func (us *UnixServer) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	us.cancel = cancel
 	us.server = &http.Server{Handler: withContext(ctx, configureRouter(ctx, us)), ReadHeaderTimeout: 10 * time.Second}
-	us.startExternalIPPoller(ctx)
+	us.startNetworkPoller(ctx)
 	lc := net.ListenConfig{}
 	lis, err := lc.Listen(ctx, "unix", us.Socket)
 	if err != nil {
