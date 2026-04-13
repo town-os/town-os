@@ -217,12 +217,14 @@ func (m *Manager) SystemServices() []SystemService {
 }
 
 // Status returns the current state of the rolodex container by querying
-// systemd unit state.
+// systemd unit state. It uses GetUnitStates to avoid enumerating all unit
+// files on disk, which on hosts with overlayfs root causes per-file inode
+// lookups that can flood the kernel log with ESTALE warnings.
 func (m *Manager) Status(ctx context.Context) Status {
 	running := false
-	units, err := m.cfg.Systemd.ListUnits(ctx)
+	unitName := systemd.SystemServiceUnitName(m.key())
+	units, err := m.cfg.Systemd.GetUnitStates(ctx, []string{unitName})
 	if err == nil {
-		unitName := systemd.SystemServiceUnitName(m.key())
 		for _, u := range units {
 			if u.Name == unitName {
 				running = u.ActiveState == "active"

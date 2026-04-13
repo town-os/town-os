@@ -93,6 +93,46 @@ func (m *SystemdManager) ListUnits(ctx context.Context) ([]UnitStatus, error) {
 	return result, nil
 }
 
+func (m *SystemdManager) GetUnitStates(ctx context.Context, names []string) ([]UnitStatus, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	conn, err := dbus.NewSystemConnectionContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	units, err := conn.ListUnitsByNamesContext(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build a name -> status map so we can return results in the same
+	// order as the input and synthesize not-found entries for names the
+	// dbus call omits.
+	byName := make(map[string]UnitStatus, len(units))
+	for _, u := range units {
+		byName[u.Name] = UnitStatus{
+			Name:        u.Name,
+			Description: u.Description,
+			LoadState:   u.LoadState,
+			ActiveState: u.ActiveState,
+			SubState:    u.SubState,
+		}
+	}
+
+	result := make([]UnitStatus, len(names))
+	for i, n := range names {
+		if u, ok := byName[n]; ok {
+			result[i] = u
+			continue
+		}
+		result[i] = UnitStatus{Name: n, LoadState: "not-found", ActiveState: "inactive"}
+	}
+	return result, nil
+}
+
 func (m *SystemdManager) SetStatus(ctx context.Context, unit string, action StatusAction) error {
 	conn, err := dbus.NewSystemConnectionContext(ctx)
 	if err != nil {

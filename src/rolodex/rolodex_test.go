@@ -329,6 +329,99 @@ func TestKeyCustom(t *testing.T) {
 	}
 }
 
+func TestStatusReportsRunningWhenUnitActive(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("rolodex"), ActiveState: "active", SubState: "running"},
+	}
+
+	mgr := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+		Image:   "quay.io/town/rolodex:test",
+	})
+
+	status := mgr.Status(context.Background())
+	if !status.Running {
+		t.Fatal("expected Running=true when unit is active")
+	}
+}
+
+func TestStatusReportsNotRunningWhenUnitInactive(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("rolodex"), ActiveState: "inactive"},
+	}
+
+	mgr := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+		Image:   "quay.io/town/rolodex:test",
+	})
+
+	status := mgr.Status(context.Background())
+	if status.Running {
+		t.Fatal("expected Running=false when unit is inactive")
+	}
+}
+
+func TestStatusUsesGetUnitStatesTargetedCall(t *testing.T) {
+	// Regression: Status() must query only its own unit name via
+	// GetUnitStates, not enumerate every unit via ListUnits. On overlayfs
+	// hosts a broad ListUnits call triggers ESTALE floods for unrelated
+	// unit files.
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("rolodex"), ActiveState: "active"},
+	}
+
+	mgr := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+		Image:   "quay.io/town/rolodex:test",
+	})
+
+	_ = mgr.Status(context.Background())
+
+	calls := sd.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 systemd call, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Method != "GetUnitStates" {
+		t.Fatalf("expected GetUnitStates, got %q", calls[0].Method)
+	}
+	names, ok := calls[0].Args[0].([]string)
+	if !ok {
+		t.Fatalf("expected []string arg, got %T", calls[0].Args[0])
+	}
+	want := systemd.SystemServiceUnitName("rolodex")
+	if len(names) != 1 || names[0] != want {
+		t.Fatalf("expected single query for %q, got %v", want, names)
+	}
+}
+
+func TestStatusCustomKey(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("custom-rolodex"), ActiveState: "active"},
+	}
+
+	mgr := NewManager(Config{
+		Systemd: sd,
+		DataDir: t.TempDir(),
+		Image:   "quay.io/town/rolodex:test",
+		Key:     "custom-rolodex",
+	})
+
+	status := mgr.Status(context.Background())
+	if !status.Running {
+		t.Fatal("expected Running=true when custom-key unit is active")
+	}
+	if status.Name != systemd.SystemServiceContainerName("custom-rolodex") {
+		t.Fatalf("unexpected container name: %q", status.Name)
+	}
+}
+
 func TestMockClientAddRecord(t *testing.T) {
 	mc := &MockClient{}
 	rec := &upstream.DnsRecord{

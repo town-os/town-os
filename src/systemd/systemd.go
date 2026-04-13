@@ -127,6 +127,17 @@ type LogTailResult struct {
 type Manager interface {
 	// ListUnits returns all managed systemd units and their current status.
 	ListUnits(ctx context.Context) ([]UnitStatus, error)
+	// GetUnitStates returns the current status of each named unit via a
+	// targeted dbus call that does not enumerate unit files on disk. Use
+	// this in preference to [ListUnits] when only a handful of specific
+	// units need to be inspected: it avoids touching unrelated unit files
+	// and therefore avoids cascading overlayfs lookups on hosts with
+	// layered rootfs. Names that do not resolve to a known unit are
+	// returned with LoadState="not-found" and ActiveState="inactive", so
+	// the result length always matches the input length and preserves
+	// input order. UnitFileState is not populated because filling it
+	// would require a full unit-file enumeration.
+	GetUnitStates(ctx context.Context, names []string) ([]UnitStatus, error)
 	// SetStatus applies a [StatusAction] to the named unit. Valid actions are
 	// [Start], [Stop], [Restart], [Enable], and [Disable].
 	SetStatus(ctx context.Context, unit string, action StatusAction) error

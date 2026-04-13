@@ -159,6 +159,67 @@ func TestHTTPMonitoringStatusGrafanaBackend(t *testing.T) {
 	}
 }
 
+func TestHTTPMonitoringStatusUsesTargetedUnitQuery(t *testing.T) {
+	// Regression: /monitoring/status must query the three monitoring
+	// units by name via GetUnitStates instead of ListUnits. A broad
+	// ListUnits call forces systemd to stat every unit file on disk,
+	// which on overlayfs hosts floods the kernel log with ESTALE
+	// warnings when unrelated unit files are getting copied up.
+	mock := storage.InitBtrFSMock()
+	sd := systemd.InitMockManager()
+	sd.Units = []systemd.UnitStatus{
+		{Name: systemd.SystemServiceUnitName("prometheus"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("monitoring-ui"), ActiveState: "active"},
+		{Name: systemd.SystemServiceUnitName("node-exporter"), ActiveState: "active"},
+	}
+
+	ts := InitTestServer(ServerConfig{
+		Storage:           mock,
+		Systemd:           sd,
+		MonitoringBackend: monitoring.BackendUPlot,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	if _, err := c.MonitoringStatus(context.TODO()); err != nil {
+		t.Fatalf("MonitoringStatus: %v", err)
+	}
+
+	var foundTargeted bool
+	for _, call := range sd.GetCalls() {
+		if call.Method == "ListUnits" {
+			t.Errorf("monitoringStatus still calls ListUnits; should use GetUnitStates")
+		}
+		if call.Method == "GetUnitStates" {
+			foundTargeted = true
+			names, ok := call.Args[0].([]string)
+			if !ok {
+				t.Fatalf("expected []string arg, got %T", call.Args[0])
+			}
+			want := map[string]bool{
+				systemd.SystemServiceUnitName("prometheus"):    true,
+				systemd.SystemServiceUnitName("monitoring-ui"): true,
+				systemd.SystemServiceUnitName("node-exporter"): true,
+			}
+			if len(names) != len(want) {
+				t.Fatalf("expected %d names, got %d: %v", len(want), len(names), names)
+			}
+			for _, n := range names {
+				if !want[n] {
+					t.Errorf("unexpected queried unit %q", n)
+				}
+			}
+		}
+	}
+	if !foundTargeted {
+		t.Fatal("expected GetUnitStates to be called")
+	}
+}
+
 func TestMockClientMonitoringStatus(t *testing.T) {
 	m := InitMockClient()
 

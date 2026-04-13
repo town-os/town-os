@@ -63,6 +63,34 @@ func (m *MockManager) ListUnits(ctx context.Context) ([]UnitStatus, error) {
 	return out, nil
 }
 
+func (m *MockManager) GetUnitStates(_ context.Context, names []string) ([]UnitStatus, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	argsCopy := make([]string, len(names))
+	copy(argsCopy, names)
+	m.Calls = append(m.Calls, MockCall{Method: "GetUnitStates", Args: []any{argsCopy}})
+
+	if m.ListErr != nil {
+		return nil, m.ListErr
+	}
+
+	byName := make(map[string]UnitStatus, len(m.Units))
+	for _, u := range m.Units {
+		byName[u.Name] = u
+	}
+
+	out := make([]UnitStatus, len(names))
+	for i, n := range names {
+		if u, ok := byName[n]; ok {
+			out[i] = u
+			continue
+		}
+		out[i] = UnitStatus{Name: n, LoadState: "not-found", ActiveState: "inactive"}
+	}
+	return out, nil
+}
+
 func (m *MockManager) SetStatus(ctx context.Context, unit string, action StatusAction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

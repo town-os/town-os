@@ -90,6 +90,133 @@ func TestSystemdMockManagerListUnitsErrorInjection(t *testing.T) {
 	}
 }
 
+// --- GetUnitStates tests ---
+
+func TestSystemdMockManagerGetUnitStatesMatchesKnownUnits(t *testing.T) {
+	m := InitMockManager()
+	m.Units = []UnitStatus{
+		{Name: "nginx.service", ActiveState: "active", SubState: "running"},
+		{Name: "redis.service", ActiveState: "inactive", SubState: "dead"},
+		{Name: "unrelated.service", ActiveState: "active"},
+	}
+
+	got, err := m.GetUnitStates(context.Background(), []string{"nginx.service", "redis.service"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 units, got %d", len(got))
+	}
+	if got[0].Name != "nginx.service" || got[0].ActiveState != "active" {
+		t.Fatalf("unexpected [0]: %+v", got[0])
+	}
+	if got[1].Name != "redis.service" || got[1].ActiveState != "inactive" {
+		t.Fatalf("unexpected [1]: %+v", got[1])
+	}
+}
+
+func TestSystemdMockManagerGetUnitStatesPreservesInputOrder(t *testing.T) {
+	m := InitMockManager()
+	m.Units = []UnitStatus{
+		{Name: "a.service", ActiveState: "active"},
+		{Name: "b.service", ActiveState: "inactive"},
+		{Name: "c.service", ActiveState: "failed"},
+	}
+
+	got, err := m.GetUnitStates(context.Background(), []string{"c.service", "a.service", "b.service"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []string{"c.service", "a.service", "b.service"}
+	for i, w := range want {
+		if got[i].Name != w {
+			t.Fatalf("position %d: want %q, got %q", i, w, got[i].Name)
+		}
+	}
+}
+
+func TestSystemdMockManagerGetUnitStatesSynthesizesNotFound(t *testing.T) {
+	m := InitMockManager()
+	m.Units = []UnitStatus{
+		{Name: "known.service", ActiveState: "active"},
+	}
+
+	got, err := m.GetUnitStates(context.Background(), []string{"known.service", "missing.service"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(got))
+	}
+	if got[1].Name != "missing.service" {
+		t.Fatalf("expected missing.service entry, got %q", got[1].Name)
+	}
+	if got[1].LoadState != "not-found" {
+		t.Fatalf("expected LoadState=not-found, got %q", got[1].LoadState)
+	}
+	if got[1].ActiveState != "inactive" {
+		t.Fatalf("expected ActiveState=inactive, got %q", got[1].ActiveState)
+	}
+}
+
+func TestSystemdMockManagerGetUnitStatesEmptyInput(t *testing.T) {
+	m := InitMockManager()
+	m.Units = []UnitStatus{{Name: "a.service", ActiveState: "active"}}
+
+	got, err := m.GetUnitStates(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty result for empty input, got %d entries", len(got))
+	}
+}
+
+func TestSystemdMockManagerGetUnitStatesErrorInjection(t *testing.T) {
+	m := InitMockManager()
+	injected := errors.New("injected error")
+	m.ListErr = injected
+
+	_, err := m.GetUnitStates(context.Background(), []string{"nginx.service"})
+	if !errors.Is(err, injected) {
+		t.Fatalf("expected injected error, got %v", err)
+	}
+}
+
+func TestSystemdMockManagerGetUnitStatesRecordsCall(t *testing.T) {
+	m := InitMockManager()
+	names := []string{"a.service", "b.service"}
+
+	_, err := m.GetUnitStates(context.Background(), names)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls := m.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Method != "GetUnitStates" {
+		t.Fatalf("expected GetUnitStates, got %q", calls[0].Method)
+	}
+	recorded, ok := calls[0].Args[0].([]string)
+	if !ok {
+		t.Fatalf("expected []string arg, got %T", calls[0].Args[0])
+	}
+	if len(recorded) != 2 || recorded[0] != "a.service" || recorded[1] != "b.service" {
+		t.Fatalf("recorded args mismatch: %v", recorded)
+	}
+
+	// Mutating the caller's slice must not mutate the recorded call.
+	names[0] = "mutated"
+	if recorded[0] != "a.service" {
+		t.Fatal("GetUnitStates recorded a shared reference to the input slice")
+	}
+}
+
 // --- SetStatus tests ---
 
 func TestSystemdMockManagerSetStatusAllActions(t *testing.T) {
