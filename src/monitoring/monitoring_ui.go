@@ -199,6 +199,9 @@ func WriteGrafanaProvisioningFiles(btrfsBase string) error {
 	if err := os.MkdirAll(jsonDir, 0755); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("create grafana dashboard-json dir: %w", err)
 	}
+	if err := os.WriteFile(filepath.Join(jsonDir, "town-os-overview.json"), []byte(TownOSOverviewDashboard), 0644); err != nil { //nolint:gosec // must be readable by container process
+		return fmt.Errorf("write town-os overview dashboard: %w", err)
+	}
 
 	return nil
 }

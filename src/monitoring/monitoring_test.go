@@ -686,6 +686,23 @@ func TestWriteGrafanaProvisioningFiles(t *testing.T) {
 	if !info.IsDir() {
 		t.Fatal("dashboard-json should be a directory")
 	}
+
+	// The Town OS Overview dashboard JSON must be written into
+	// dashboard-json so Grafana's file provider loads it at startup.
+	// Without this file, the default /d/town-os-overview/... URL
+	// returns 404 and the monitoring iframe renders as blank.
+	dashboardFile := filepath.Join(jsonDir, "town-os-overview.json")
+	data, err = os.ReadFile(dashboardFile) //nolint:gosec // test reads a file under t.TempDir()
+	if err != nil {
+		t.Fatalf("town-os-overview.json should exist: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `"uid": "town-os-overview"`) {
+		t.Fatalf("dashboard should declare uid town-os-overview, got:\n%s", content[:min(len(content), 200)])
+	}
+	if !strings.Contains(content, `"title": "Town OS Overview"`) {
+		t.Fatal("dashboard should have the Town OS Overview title")
+	}
 }
 
 func TestStartMonitoringUIUPlot(t *testing.T) {
