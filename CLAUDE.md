@@ -778,14 +778,22 @@ Parent packages receive environment variables for reaching their dependencies on
 
 ### Dependency Template Variables
 
-In addition to the runtime environment variables above, dependency host and port values are also available as `@variable@` template markers during package compilation. This allows parent packages to reference dependencies in their `environment` field values at compile time.
+In addition to the runtime environment variables above, dependency host and port values are also available as `@variable@` template markers during package compilation. This allows parent packages to reference dependencies in their `environment` field values at compile time, and also allows **sibling dependencies** to reference each other in the `dependencies.<key>.responses` block.
 
 - `@dep_KEY_host@` -- resolves to the dependency's podman container name (resolvable via podman DNS on the shared network).
 - `@dep_KEY_port_N@` -- resolves to port N for the dependency.
 
 Template keys are derived from the `TOWNOS_DEP_*` runtime environment variable names by stripping the `TOWNOS_` prefix and lowercasing the remainder. For example, `TOWNOS_DEP_DB_HOST` becomes template key `dep_db_host`, and `TOWNOS_DEP_DB_PORT_5432` becomes `dep_db_port_5432`.
 
-These variables are resolved after dependency installation, when the dependency's container name and ports are known. They are applied to parent environment values during unit generation. Reconcile also rebuilds dependency environment variables so that systemd units stay correct across restarts and version changes.
+On the **parent** side, these variables are resolved after dependency installation, when the dependency's container name and ports are known. They are applied to parent environment values during unit generation. Reconcile also rebuilds dependency environment variables so that systemd units stay correct across restarts and version changes.
+
+On the **dependency** side (responses declared under `dependencies.<key>.responses` that reference another sibling key), resolution happens during `installDependencies` via a topological sort:
+
+- `orderDependencies` in `src/svc/systemcontroller/controller_install_dependencies.go` parses each sibling dep's `Responses` for `@dep_KEY_host@` / `@dep_KEY_port_N@` markers and builds a DAG. Sibling deps with no references run first; referencing siblings run after the sibling(s) they name. Tie-breaking among equally-ready deps is alphabetical for determinism (Go map iteration is random, so a sort is mandatory for reproducibility).
+- A cycle among sibling deps is a hard error and aborts the install before any dep is provisioned.
+- For each dep in that order, `applyDepTemplates` is called on the dep's `Responses` **before** `depIP.CompileWithContext` runs, substituting `@dep_OTHER_*@` markers with the container name / port values accumulated from already-installed siblings. Without this pre-compile substitution, a typed question in the dep's YAML (e.g. `type: port` or any type whose `Output` runs `strconv.ParseUint`) would reject the literal placeholder with `ErrInvalidResponseType`, aborting mid-install and leaving a half-installed parent on disk.
+- Self-references (`dep X references @dep_X_host@`) are ignored, not treated as cycles. References to names that are not declared sibling keys are treated as external template vars and ignored for ordering.
+- The install handler streams errors via SSE and returns `nil` from the HTTP handler, so the audit log always records `success=true` regardless of whether the install actually completed. This means partial-install failures (half-installed dep trees, orphaned btrfs volumes under `installed/<repo>/<parent>/<version>/`) are only visible in the SSE stream and the systemd unit list — not in `/audit/log`.
 
 Example: a package with a dependency key `db` (a Postgres container exposing port 5432) can use `@dep_db_host@` and `@dep_db_port_5432@` in its environment section instead of hardcoding `127.0.0.1`:
 
@@ -793,6 +801,24 @@ Example: a package with a dependency key `db` (a Postgres container exposing por
 environment:
   DB_HOST: "@dep_db_host@"
   DB_PORT: "@dep_db_port_5432@"
+```
+
+Example with sibling-to-sibling refs (the jitsi shape): `jitsi` depends on `prosody`, `jicofo`, and `jvb`. `jicofo` and `jvb` each need prosody's container name and internal XMPP port, so the parent YAML threads them through the `responses` block of each referencing dep. `orderDependencies` installs `prosody` first, then `jicofo` and `jvb` (alphabetical among the two), each with the placeholder substituted to prosody's concrete container name and port 5222:
+
+```yaml
+dependencies:
+  prosody:
+    package: prosody
+  jicofo:
+    package: jicofo
+    responses:
+      xmpphost: "@dep_prosody_host@"
+      xmppport: "@dep_prosody_port_5222@"
+  jvb:
+    package: jvb
+    responses:
+      xmpphost: "@dep_prosody_host@"
+      xmppport: "@dep_prosody_port_5222@"
 ```
 
 ## DNS Management (Rolodex)

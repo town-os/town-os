@@ -5,12 +5,112 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/systemd"
 )
+
+// depKeyRefRegex matches sibling dependency references of the form
+// @dep_KEY_host@ or @dep_KEY_port_N@. Capture group 1 is the key; the
+// port number (if any) is not captured separately because callers need
+// only the key for topological ordering. The key character class permits
+// underscores so multi-word dep keys are handled; greedy matching combined
+// with the required _(host|port_\d+)@ suffix yields the longest key that
+// still allows the suffix to match.
+var depKeyRefRegex = regexp.MustCompile(`@dep_([a-zA-Z0-9_]+)_(?:host|port_\d+)@`)
+
+// extractDepKeyRefs returns the sibling dep keys referenced in a string
+// via @dep_KEY_host@ or @dep_KEY_port_N@ template markers. Duplicates are
+// preserved in the order they appear; callers that need a set should
+// deduplicate.
+func extractDepKeyRefs(val string) []string {
+	matches := depKeyRefRegex.FindAllStringSubmatch(val, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) >= 2 {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+// orderDependencies returns the dep keys in an order where any dep that
+// references another sibling via @dep_KEY_host@ or @dep_KEY_port_N@ is
+// placed after the dep it references. Deps with no sibling references sort
+// alphabetically among themselves for determinism. References to keys that
+// are not siblings (e.g. unrelated template vars, or names that happen to
+// match the @dep_*@ pattern) are ignored. Self-references are ignored.
+// Returns an error if a cycle is detected among sibling references.
+func orderDependencies(deps map[string]packages.InputPackageDependency) ([]string, error) {
+	known := make(map[string]bool, len(deps))
+	for key := range deps {
+		known[key] = true
+	}
+
+	inDegree := make(map[string]int, len(deps))
+	edgesFrom := make(map[string][]string, len(deps))
+	for key := range deps {
+		inDegree[key] = 0
+	}
+	for key, dep := range deps {
+		seen := map[string]bool{}
+		for _, val := range dep.Responses {
+			for _, ref := range extractDepKeyRefs(val) {
+				if !known[ref] || ref == key || seen[ref] {
+					continue
+				}
+				seen[ref] = true
+				inDegree[key]++
+				edgesFrom[ref] = append(edgesFrom[ref], key)
+			}
+		}
+	}
+
+	ready := make([]string, 0, len(deps))
+	for key, deg := range inDegree {
+		if deg == 0 {
+			ready = append(ready, key)
+		}
+	}
+	sort.Strings(ready)
+
+	order := make([]string, 0, len(deps))
+	for len(ready) > 0 {
+		key := ready[0]
+		ready = ready[1:]
+		order = append(order, key)
+
+		next := edgesFrom[key]
+		sort.Strings(next)
+		for _, n := range next {
+			inDegree[n]--
+			if inDegree[n] == 0 {
+				ready = append(ready, n)
+			}
+		}
+		sort.Strings(ready)
+	}
+
+	if len(order) != len(deps) {
+		remaining := make([]string, 0, len(deps)-len(order))
+		for k, d := range inDegree {
+			if d > 0 {
+				remaining = append(remaining, k)
+			}
+		}
+		sort.Strings(remaining)
+		return nil, fmt.Errorf("dependency cycle among sibling deps: %v", remaining)
+	}
+
+	return order, nil
+}
 
 // installDependencies resolves and installs all declared dependencies for a
 // parent package. Dependencies are installed depth-first (leaves before
@@ -31,12 +131,25 @@ func (s *SystemControllerHandlers) installDependencies(
 		return nil, nil, nil
 	}
 
+	// Order siblings so any dep that references another via @dep_KEY_host@
+	// or @dep_KEY_port_N@ in its Responses is installed after the dep it
+	// references. Without this, the referenced dep's host/port envVars are
+	// not yet known when the referencing dep compiles, and if any of those
+	// Responses feed a typed question (e.g. `type: port`), the dep's Compile
+	// rejects the literal placeholder. Determinism also helps reproduce
+	// install-time failures.
+	order, err := orderDependencies(deps)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	rr := s.Controller.GetRepositoryRoot()
 	inst := s.Controller.GetInstaller()
 	records := make(map[string]packages.DependencyRecord, len(deps))
 	envVars := map[string]string{}
 
-	for depKey, dep := range deps {
+	for _, depKey := range order {
+		dep := deps[depKey]
 		effectiveName := packages.DependencyName(parentEffectiveName, depKey)
 
 		// Resolve the repo: default to the parent's repo.
@@ -75,6 +188,14 @@ func (s *SystemControllerHandlers) installDependencies(
 		if dep.Responses != nil {
 			maps.Copy(depResponses, dep.Responses)
 		}
+
+		// Resolve @dep_OTHER_host@ / @dep_OTHER_port_N@ in this dep's
+		// Responses against envVars collected from already-installed
+		// sibling deps. The topological order above guarantees any
+		// referenced sibling has already populated envVars. Without this
+		// substitution, dep Compile would see literal placeholders and
+		// fail type validation on typed questions (e.g. `type: port`).
+		applyDepTemplates(map[string]string(depResponses), envVars)
 
 		// Auto-generate missing responses (ports, hostnames, secrets).
 		if err := s.autoGenerateResponses(&depResponses, depIP.Questions, effectiveName); err != nil { //nolint:contextcheck // autoGenerateResponses does not accept context; pre-existing pattern
