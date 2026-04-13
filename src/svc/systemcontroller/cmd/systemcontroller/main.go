@@ -351,6 +351,13 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 	}
 
+	// Install the nightly podman prune timer. Non-fatal: if the units
+	// cannot be written, the system still boots — it just accumulates
+	// image cruft until the next restart fixes it.
+	if err := systemcontroller.InstallPodmanPruneUnits(ctx, sd); err != nil {
+		fmt.Fprintf(os.Stderr, "podman prune timer: %v\n", err)
+	}
+
 	// Ensure the local TLS CA exists. This has to happen before reconcile
 	// so reconcile can issue leaf certs for HTTP-supplying packages as it
 	// walks installed units. The btrfs `tls` subvolume is created by
