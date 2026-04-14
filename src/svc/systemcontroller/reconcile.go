@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"sync"
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/networkcontroller"
@@ -131,41 +132,92 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 
 		var changedUnits reconcileChangedUnits
 
+		// Phase 1: install and enable every package's units in parallel.
+		// Slow operations (volume seeding, image extraction, git clone,
+		// unit install) dominate boot time, and each package is
+		// independent until its systemd Start fires. Pending start
+		// records are collected for phase 2.
+		const maxConcurrent = 4
+		sem := make(chan struct{}, maxConcurrent)
+		var wg sync.WaitGroup
+		var startsMu sync.Mutex
+		var pendingStarts []*pendingPackageStart
+
 		for _, pi := range byRepoName {
-			identity := pi.String()
+			wg.Add(1)
+			go func(pi packages.PackageIdentity) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
 
-			var netInfo reconcilePackageNetworkInfo
-			if packages.IsDependency(pi.Name) {
-				// Dependency: find the parent's network to join.
-				parentName := packages.ParentName(pi.Name)
-				parentKey := repoNameKey{pi.Repo, parentName}
-				if parentPI, ok := byRepoName[parentKey]; ok {
-					netInfo.ParentNetwork = systemd.NetworkName(pi.Repo, parentName, parentPI.Version)
-					netInfo.ParentUnitName = systemd.UnitName(pi.Repo, parentName, parentPI.Version)
-					netInfo.ParentNCUnitName = systemd.NetworkControllerUnitName(pi.Repo, parentName, parentPI.Version)
+				identity := pi.String()
+
+				var netInfo reconcilePackageNetworkInfo
+				if packages.IsDependency(pi.Name) {
+					// Dependency: find the parent's network to join.
+					parentName := packages.ParentName(pi.Name)
+					parentKey := repoNameKey{pi.Repo, parentName}
+					if parentPI, ok := byRepoName[parentKey]; ok {
+						netInfo.ParentNetwork = systemd.NetworkName(pi.Repo, parentName, parentPI.Version)
+						netInfo.ParentUnitName = systemd.UnitName(pi.Repo, parentName, parentPI.Version)
+						netInfo.ParentNCUnitName = systemd.NetworkControllerUnitName(pi.Repo, parentName, parentPI.Version)
+					}
+				} else if deps := allDeps[repoNameKey{pi.Repo, pi.Name}]; len(deps) > 0 {
+					// Parent: collect dependency unit names for ordering.
+					for _, rec := range deps {
+						netInfo.DependencyUnitNames = append(netInfo.DependencyUnitNames, systemd.UnitName(rec.Repo, rec.EffectiveName, rec.Version))
+					}
+					sort.Strings(netInfo.DependencyUnitNames)
 				}
-			} else if deps := allDeps[repoNameKey{pi.Repo, pi.Name}]; len(deps) > 0 {
-				// Parent: collect dependency unit names for ordering.
-				for _, rec := range deps {
-					netInfo.DependencyUnitNames = append(netInfo.DependencyUnitNames, systemd.UnitName(rec.Repo, rec.EffectiveName, rec.Version))
+
+				// Pass dependency records so parent packages can rebuild
+				// TOWNOS_DEP_* env vars and resolve @dep_KEY_host@ templates.
+				var depRecs map[string]packages.DependencyRecord
+				if !packages.IsDependency(pi.Name) {
+					depRecs = allDeps[repoNameKey{pi.Repo, pi.Name}]
 				}
-				sort.Strings(netInfo.DependencyUnitNames)
-			}
 
-			// Pass dependency records so parent packages can rebuild
-			// TOWNOS_DEP_* env vars and resolve @dep_KEY_host@ templates.
-			var depRecs map[string]packages.DependencyRecord
-			if !packages.IsDependency(pi.Name) {
-				depRecs = allDeps[repoNameKey{pi.Repo, pi.Name}]
-			}
+				pending, err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo, depRecs, &changedUnits)
+				if err != nil {
+					slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
+					return
+				}
+				if pending != nil {
+					startsMu.Lock()
+					pendingStarts = append(pendingStarts, pending)
+					startsMu.Unlock()
+				}
 
-			if err := reconcilePackage(ctx, cfg, pi, defQuota, netInfo, depRecs, &changedUnits); err != nil {
-				slog.Error(fmt.Sprintf("reconcile: %s: %v", identity, err))
-				continue
-			}
-
-			slog.Info("reconcile: restored " + identity)
+				slog.Info("reconcile: restored " + identity)
+			}(pi)
 		}
+		wg.Wait()
+
+		// Phase 2: start every package's NC + service unit in parallel.
+		// All unit files are now on disk, so systemd's After=/Wants=
+		// directives will serialize the actual boot order between
+		// dependent packages — concurrent Start calls are safe.
+		var startWG sync.WaitGroup
+		for _, ps := range pendingStarts {
+			startWG.Add(1)
+			go func(ps *pendingPackageStart) {
+				defer startWG.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				// Start the NC before the service to avoid races where
+				// the service's ExecStartPre waits for the NC container.
+				if ps.ncUnit != "" {
+					if err := cfg.Systemd.SetStatus(ctx, ps.ncUnit, systemd.Start); err != nil {
+						slog.Warn("network controller failed to start during reconcile", "unit", ps.ncUnit, "error", err)
+					}
+				}
+				if err := cfg.Systemd.SetStatus(ctx, ps.serviceUnit, systemd.Start); err != nil {
+					slog.Error(fmt.Sprintf("reconcile: start %s: %v", ps.serviceUnit, err))
+				}
+			}(ps)
+		}
+		startWG.Wait()
 
 		// When the systemcontroller version changed, restart ALL package
 		// units — not just those whose unit content changed. Container
@@ -230,10 +282,13 @@ type reconcilePackageNetworkInfo struct {
 	DependencyUnitNames []string
 }
 
-// reconcilePackage restores a single installed package: compiles it with its
-// persisted responses, ensures volumes, and installs+starts the systemd units.
-// depRecs holds dependency records for parent packages (nil for dependencies).
-func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64, netInfo reconcilePackageNetworkInfo, depRecs map[string]packages.DependencyRecord, changedUnits *reconcileChangedUnits) error {
+// reconcilePackage restores a single installed package: compiles it with
+// its persisted responses, ensures volumes, and installs+enables (but
+// does not start) the systemd units. It returns a pendingPackageStart
+// describing what to start in phase 2 of the reconcile loop, or nil when
+// there is nothing to start (package disabled or no systemd manager).
+// depRecs holds dependency records for parent packages (nil for deps).
+func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.PackageIdentity, defQuota uint64, netInfo reconcilePackageNetworkInfo, depRecs map[string]packages.DependencyRecord, changedUnits *reconcileChangedUnits) (*pendingPackageStart, error) {
 	repoName := pi.Repo
 
 	ip, err := cfg.RepositoryRoot.LoadPackage(repoName, pi.Name, pi.Version)
@@ -244,12 +299,12 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		ip, err = cfg.RepositoryRoot.LoadInstalledPackage(repoName, pi.Name, pi.Version)
 	}
 	if err != nil {
-		return fmt.Errorf("load package: %w", err)
+		return nil, fmt.Errorf("load package: %w", err)
 	}
 
 	responses, err := cfg.Installer.GetResponses(repoName, pi.Name, pi.Version)
 	if err != nil {
-		return fmt.Errorf("get responses: %w", err)
+		return nil, fmt.Errorf("get responses: %w", err)
 	}
 
 	tld := reconcileDNSTLD(cfg.SettingsMgr)
@@ -259,7 +314,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		PackageDNS:   pi.Name + "." + repoName + "." + tld,
 	})
 	if err != nil {
-		return fmt.Errorf("compile: %w", err)
+		return nil, fmt.Errorf("compile: %w", err)
 	}
 
 	// Rebuild dependency environment variables for parent packages so the
@@ -285,7 +340,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			fsName := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, volName)
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 				if err := cfg.Storage.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
-					return fmt.Errorf("storage volume %s: %w", fsName, err)
+					return nil, fmt.Errorf("storage volume %s: %w", fsName, err)
 				}
 			}
 		}
@@ -346,108 +401,118 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	needsNetworkState := !isDep && (len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0)
 	if cfg.NetworkStatePath != "" && needsNetworkState {
 		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled, ip.Supplies); err != nil {
-			return fmt.Errorf("write network state: %w", err)
+			return nil, fmt.Errorf("write network state: %w", err)
 		}
 	}
 
-	if cfg.Systemd != nil {
-		image := compiled.Image
-		if image == "" && compiled.Proton != nil {
-			image = reconcileProtonImage(cfg.SettingsMgr)
-		}
-		unitCfg := systemd.PackageUnitConfig{
-			RepoName:               repoName,
-			PkgName:                pi.Name,
-			Version:                pi.Version,
-			Description:            ip.Description,
-			Image:                  image,
-			Command:                compiled.Command,
-			Environment:            compiled.Environment,
-			External:               compiled.Network.External,
-			Internal:               compiled.Network.Internal,
-			Volumes:                compiled.Volumes,
-			BtrfsBase:              cfg.BtrfsBasePath,
-			NetworkControllerImage: cfg.NetworkControllerImage,
-			NetworkStatePath:       cfg.NetworkStatePath,
-			Runtime:                compiled.Runtime,
-			VM:                     compiled.VM,
-			TLSDir:                 hostTLSBase(cfg.BtrfsBasePath),
-		}
-		if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
-			unitCfg.VMImagePath = resolveVMImagePath(cfg.BtrfsBasePath, compiled.VM.Image)
-		}
+	if cfg.Systemd == nil {
+		return nil, nil //nolint:nilnil // nothing to start when systemd manager is absent
+	}
 
-		// Apply shared-network and systemd ordering info.
-		unitCfg.ParentNetwork = netInfo.ParentNetwork
-		unitCfg.ParentUnitName = netInfo.ParentUnitName
-		unitCfg.ParentNCUnitName = netInfo.ParentNCUnitName
-		unitCfg.DependencyUnitNames = netInfo.DependencyUnitNames
+	image := compiled.Image
+	if image == "" && compiled.Proton != nil {
+		image = reconcileProtonImage(cfg.SettingsMgr)
+	}
+	unitCfg := systemd.PackageUnitConfig{
+		RepoName:               repoName,
+		PkgName:                pi.Name,
+		Version:                pi.Version,
+		Description:            ip.Description,
+		Image:                  image,
+		Command:                compiled.Command,
+		Environment:            compiled.Environment,
+		External:               compiled.Network.External,
+		Internal:               compiled.Network.Internal,
+		Volumes:                compiled.Volumes,
+		BtrfsBase:              cfg.BtrfsBasePath,
+		NetworkControllerImage: cfg.NetworkControllerImage,
+		NetworkStatePath:       cfg.NetworkStatePath,
+		Runtime:                compiled.Runtime,
+		VM:                     compiled.VM,
+		TLSDir:                 hostTLSBase(cfg.BtrfsBasePath),
+	}
+	if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
+		unitCfg.VMImagePath = resolveVMImagePath(cfg.BtrfsBasePath, compiled.VM.Image)
+	}
 
-		units := systemd.GeneratePackageUnits(unitCfg)
+	// Apply shared-network and systemd ordering info.
+	unitCfg.ParentNetwork = netInfo.ParentNetwork
+	unitCfg.ParentUnitName = netInfo.ParentUnitName
+	unitCfg.ParentNCUnitName = netInfo.ParentNCUnitName
+	unitCfg.DependencyUnitNames = netInfo.DependencyUnitNames
 
-		// Install all unit files, tracking which ones changed.
-		changed := installUnitIfChanged(ctx, cfg.Systemd, units.Service.Name, units.Service.Content)
-		for _, sock := range units.Sockets {
-			installUnitIfChanged(ctx, cfg.Systemd, sock.Name, sock.Content)
+	units := systemd.GeneratePackageUnits(unitCfg)
+
+	// Install all unit files, tracking which ones changed. File I/O
+	// happens outside the mutex; only the slice appends need to be
+	// serialized.
+	serviceChanged := installUnitIfChanged(ctx, cfg.Systemd, units.Service.Name, units.Service.Content)
+	for _, sock := range units.Sockets {
+		installUnitIfChanged(ctx, cfg.Systemd, sock.Name, sock.Content)
+	}
+	var ncName string
+	var ncChanged bool
+	if units.NetworkController != nil {
+		ncName = units.NetworkController.Name
+		ncChanged = installUnitIfChanged(ctx, cfg.Systemd, ncName, units.NetworkController.Content)
+	}
+
+	isDepUnit := packages.IsDependency(pi.Name)
+
+	changedUnits.mu.Lock()
+	if ncName != "" {
+		changedUnits.allNc = append(changedUnits.allNc, ncName)
+		if ncChanged {
+			changedUnits.nc = append(changedUnits.nc, ncName)
 		}
-		if units.NetworkController != nil {
-			changedUnits.allNc = append(changedUnits.allNc, units.NetworkController.Name)
-			if installUnitIfChanged(ctx, cfg.Systemd, units.NetworkController.Name, units.NetworkController.Content) {
-				changedUnits.nc = append(changedUnits.nc, units.NetworkController.Name)
-			}
-		}
-		if packages.IsDependency(pi.Name) {
-			changedUnits.allDeps = append(changedUnits.allDeps, units.Service.Name)
+	}
+	if isDepUnit {
+		changedUnits.allDeps = append(changedUnits.allDeps, units.Service.Name)
+	} else {
+		changedUnits.allServices = append(changedUnits.allServices, units.Service.Name)
+	}
+	if serviceChanged {
+		if isDepUnit {
+			changedUnits.deps = append(changedUnits.deps, units.Service.Name)
 		} else {
-			changedUnits.allServices = append(changedUnits.allServices, units.Service.Name)
+			changedUnits.services = append(changedUnits.services, units.Service.Name)
 		}
-		if changed {
-			if packages.IsDependency(pi.Name) {
-				changedUnits.deps = append(changedUnits.deps, units.Service.Name)
-			} else {
-				changedUnits.services = append(changedUnits.services, units.Service.Name)
-			}
-		}
+	}
+	if len(compiled.PostUpdate) > 0 && compiled.Runtime == packages.RuntimeContainer {
+		changedUnits.postUpdates = append(changedUnits.postUpdates, reconcilePostUpdate{
+			containerName: systemd.ContainerName(repoName, pi.Name, pi.Version),
+			commands:      compiled.PostUpdate,
+		})
+	}
+	changedUnits.mu.Unlock()
 
-		// Track post-update commands for container packages.
-		if len(compiled.PostUpdate) > 0 && compiled.Runtime == packages.RuntimeContainer {
-			changedUnits.postUpdates = append(changedUnits.postUpdates, reconcilePostUpdate{
-				containerName: systemd.ContainerName(repoName, pi.Name, pi.Version),
-				commands:      compiled.PostUpdate,
-			})
+	// Enable socket and network controller units.
+	for _, sock := range units.Sockets {
+		if err := cfg.Systemd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
+			return nil, fmt.Errorf("enable socket %s: %w", sock.Name, err)
 		}
-
-		// Enable socket and network controller units.
-		for _, sock := range units.Sockets {
-			if err := cfg.Systemd.SetStatus(ctx, sock.Name, systemd.Enable); err != nil {
-				return fmt.Errorf("enable socket %s: %w", sock.Name, err)
-			}
-		}
-		if units.NetworkController != nil {
-			if err := cfg.Systemd.SetStatus(ctx, units.NetworkController.Name, systemd.Enable); err != nil {
-				return fmt.Errorf("enable network controller: %w", err)
-			}
-		}
-
-		disabled, err := cfg.Installer.IsDisabled(repoName, pi.Name)
-		if err != nil {
-			return fmt.Errorf("check disabled: %w", err)
-		}
-		if !disabled {
-			// Start the NC before the service to avoid races where the
-			// service's ExecStartPre waits for the NC container.
-			if units.NetworkController != nil {
-				if err := cfg.Systemd.SetStatus(ctx, units.NetworkController.Name, systemd.Start); err != nil {
-					slog.Warn("network controller failed to start during reconcile", "unit", units.NetworkController.Name, "error", err)
-				}
-			}
-			if err := cfg.Systemd.SetStatus(ctx, units.Service.Name, systemd.Start); err != nil {
-				return fmt.Errorf("start unit: %w", err)
-			}
+	}
+	if ncName != "" {
+		if err := cfg.Systemd.SetStatus(ctx, ncName, systemd.Enable); err != nil {
+			return nil, fmt.Errorf("enable network controller: %w", err)
 		}
 	}
 
-	return nil
+	disabled, err := cfg.Installer.IsDisabled(repoName, pi.Name)
+	if err != nil {
+		return nil, fmt.Errorf("check disabled: %w", err)
+	}
+	if disabled {
+		return nil, nil //nolint:nilnil // disabled packages have units installed but nothing to start
+	}
+	// Start is deferred to phase 2 of the reconcile loop so that all
+	// unit files are on disk before any Start call fires — otherwise
+	// a parent package starting concurrently with its dependencies
+	// would race on After=/Wants= ordering.
+	return &pendingPackageStart{
+		serviceUnit: units.Service.Name,
+		ncUnit:      ncName,
+	}, nil
 }
 
 // reconcilePostUpdate tracks a container and its post-update commands.
@@ -457,7 +522,10 @@ type reconcilePostUpdate struct {
 }
 
 // reconcileChangedUnits tracks units whose content changed during reconcile.
+// The mutex serializes the append sections in reconcilePackage so the
+// top-level reconcile loop can run packages in parallel.
 type reconcileChangedUnits struct {
+	mu          sync.Mutex
 	nc          []string              // changed network controller units
 	deps        []string              // changed dependency service units
 	services    []string              // changed parent/standalone service units
@@ -469,6 +537,17 @@ type reconcileChangedUnits struct {
 	allNc       []string
 	allDeps     []string
 	allServices []string
+}
+
+// pendingPackageStart is a unit-start job deferred until after every
+// package's units have been installed. Splitting install from start is
+// what makes the parallel reconcile loop safe: when package A depends on
+// package B, systemd's After=/Wants= ordering blocks A's start until B
+// is up — but only if B's unit file is on disk first. Installing all
+// units in phase 1 and starting them in phase 2 guarantees that.
+type pendingPackageStart struct {
+	serviceUnit string // empty means no service unit (skip)
+	ncUnit      string // empty means no NC unit
 }
 
 // installUnitIfChanged installs a unit file and returns true if the content

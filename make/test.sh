@@ -29,6 +29,7 @@ case "$1" in
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-extras.git" \
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=${UI_IMAGE}" \
+      -e "NC_IMAGE=localhost/town-os-networkcontroller:local" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -110,6 +111,7 @@ case "$1" in
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-extras.git" \
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=${UI_IMAGE}" \
+      -e "NC_IMAGE=localhost/town-os-networkcontroller:local" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \

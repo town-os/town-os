@@ -157,6 +157,9 @@ release-ui-image:
 release-proton-image:
 	@make/build.sh release-proton
 
+release-nc-image:
+	@make/build.sh release-nc
+
 push:
 	@$(MAKE) push-rc
 
@@ -178,7 +181,13 @@ push-proton-rc: release-proton-image quay-login
 push-proton-release: release-proton-image quay-login
 	@make/build.sh push-proton-release
 
-push-tag: release-image release-ui-image release-proton-image quay-login
+push-nc-rc: release-nc-image quay-login
+	@make/build.sh push-nc-rc
+
+push-nc-release: release-nc-image quay-login
+	@make/build.sh push-nc-release
+
+push-tag: release-image release-ui-image release-proton-image release-nc-image quay-login
 	@make/build.sh push-tag $(PUSH_TAG)
 
 ssh:

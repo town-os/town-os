@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -182,29 +183,43 @@ func TestEnsureImagePullFailureReturnsError(t *testing.T) {
 	}
 }
 
-func TestBuildNCImageSkipsWhenExists(t *testing.T) {
-	// Replace ensureImage to avoid podman dependency.
+func TestParallelEnsureImagesCallsEach(t *testing.T) {
 	orig := ensureImage
 	t.Cleanup(func() { ensureImage = orig })
-	ensureImage = func(_ context.Context, _ string) error { return nil }
 
-	// buildNetworkControllerImage checks podman image exists for
-	// localhost/town-os-networkcontroller:local. Since we can't control that
-	// in unit tests, we verify the function signature is stable and
-	// the ensureImage var is used for base image pulls.
-	// Full integration is tested via make test-integration.
+	var mu sync.Mutex
+	seen := map[string]int{}
+	ensureImage = func(_ context.Context, image string) error {
+		mu.Lock()
+		seen[image]++
+		mu.Unlock()
+		return nil
+	}
+
+	imgs := []string{"a:1", "b:1", "c:1", "d:1", "e:1"}
+	parallelEnsureImages(context.Background(), imgs)
+
+	if len(seen) != len(imgs) {
+		t.Fatalf("expected %d unique images, got %d (%v)", len(imgs), len(seen), seen)
+	}
+	for _, img := range imgs {
+		if seen[img] != 1 {
+			t.Errorf("expected %q called exactly once, got %d", img, seen[img])
+		}
+	}
 }
 
-func TestNCImageIsConstant(t *testing.T) {
-	// ncImage is declared as a const in run(). Verify the build function
-	// uses the same value so the constant and build output stay in sync.
-	// We can't reference the function-local const directly, but the build
-	// function's internal imageName const must match. This test documents
-	// the expected value.
-	const expected = "localhost/town-os-networkcontroller:local"
-	if expected != "localhost/town-os-networkcontroller:local" {
-		t.Fatal("NC image name constant changed — update all references")
+func TestParallelEnsureImagesSwallowsErrors(t *testing.T) {
+	orig := ensureImage
+	t.Cleanup(func() { ensureImage = orig })
+
+	ensureImage = func(_ context.Context, image string) error {
+		return fmt.Errorf("pull %s: simulated failure", image)
 	}
+
+	// Must not panic or block; errors are logged to stderr and
+	// parallelEnsureImages returns normally.
+	parallelEnsureImages(context.Background(), []string{"x:1", "y:1"})
 }
 
 func TestEnsureImageReplaceable(t *testing.T) {

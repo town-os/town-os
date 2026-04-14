@@ -85,6 +85,7 @@ case "$1" in
       -e "TOWN_OS_TAG=${TOWN_OS_TAG}" \
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=" \
+      -e "NC_IMAGE=localhost/town-os-networkcontroller:local" \
       -e TOWN_OS_PAGES=1 \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \

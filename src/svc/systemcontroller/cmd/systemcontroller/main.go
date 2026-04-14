@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -77,8 +78,6 @@ func run() (err error) {
 		}
 	}
 
-	const ncImage = "localhost/town-os-networkcontroller:local"
-
 	dir, err := os.MkdirTemp("", "systemcontroller-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -107,23 +106,6 @@ func run() (err error) {
 	// Reject -db paths that would re-create the file we just cleaned up.
 	if err := validateDBPath(*dbPath, *btrfsPath); err != nil {
 		return err
-	}
-
-	// Build the network controller image on the host as the very first
-	// runtime operation. All system services and package NC units run on
-	// the host's podman, so the image must exist in the host's image
-	// store. The build uses --dns=8.8.8.8 so it does not depend on
-	// rolodex or any other service being ready.
-	// Non-fatal: if the network is unavailable the build will fail, but
-	// the system controller still starts. The image will be built on the
-	// next restart once the network is up.
-	{
-		buildCtx, buildCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		buildErr := buildNetworkControllerImage(buildCtx)
-		buildCancel()
-		if buildErr != nil {
-			fmt.Fprintf(os.Stderr, "network controller image: %v\n", buildErr)
-		}
 	}
 
 	dbFile := filepath.Join(dir, "test.db")
@@ -227,9 +209,9 @@ func run() (err error) {
 	defer cancel()
 
 	// Read the tag baked into the image at push time. This lets us derive
-	// matching tags for sibling images (UI, rolodex) at runtime.
-	// Fallback chain: TOWN_OS_TAG env var → compile-time Version ldflags →
-	// /town-os.tag file → "rc.latest".
+	// matching tags for sibling images (UI, rolodex, networkcontroller) at
+	// runtime. Fallback chain: TOWN_OS_TAG env var → compile-time Version
+	// ldflags → /town-os.tag file → "rc.latest".
 	tag := "rc.latest"
 	if envTag := os.Getenv("TOWN_OS_TAG"); envTag != "" {
 		tag = envTag
@@ -239,6 +221,14 @@ func run() (err error) {
 		if t := strings.TrimSpace(string(data)); t != "" {
 			tag = t
 		}
+	}
+
+	// Network controller image: pulled from quay.io like every other
+	// sibling image. NC_IMAGE overrides the derived default (used by
+	// integration tests to inject localhost/town-os-networkcontroller:local).
+	ncImage := os.Getenv("NC_IMAGE")
+	if ncImage == "" {
+		ncImage = "quay.io/town/networkcontroller:" + tag
 	}
 
 	// Start a background goroutine to periodically refresh repositories.
@@ -323,8 +313,13 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "btrfs disk device discovery: %v\n", diskErr)
 	}
 
-	// Pull container images (non-fatal).
+	// Pull container images in parallel (non-fatal). The NC image is
+	// included here so the systemd units that reference it have a loaded
+	// image ready before they start. Every package NC unit also includes
+	// an ExecStartPre --pull=never network-create fallback, so a pull
+	// failure here is recoverable on the next boot.
 	coreImages := []string{
+		ncImage,
 		monitoring.PrometheusImage,
 		monitoring.NodeExporterImage,
 	}
@@ -334,22 +329,33 @@ func run() (err error) {
 	if monBackend == monitoring.BackendGrafana {
 		coreImages = append(coreImages, monitoring.GrafanaImage)
 	}
-	for _, img := range coreImages {
-		if err := ensureImage(ctx, img); err != nil {
-			fmt.Fprintf(os.Stderr, "pull %s: %v\n", img, err)
-		}
-	}
+	parallelEnsureImages(ctx, coreImages)
 
-	// Start monitoring system services (all non-fatal).
-	if err := monitoring.StartNodeExporter(ctx, sd, ""); err != nil {
-		fmt.Fprintf(os.Stderr, "node-exporter: %v\n", err)
-	}
-	if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, "", ncImage, *networkStatePath); err != nil {
-		fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
-	}
-	if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, *networkStatePath, diskDevices); err != nil {
-		fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
-	}
+	// Start monitoring system services in parallel (all non-fatal). NC
+	// image is already loaded above, so the per-service NC units can come
+	// up without a race. Each StartX encapsulates its own NC unit install
+	// and ordering, so concurrent calls do not interfere.
+	var monWG sync.WaitGroup
+	monWG.Add(3)
+	go func() {
+		defer monWG.Done()
+		if err := monitoring.StartNodeExporter(ctx, sd, ""); err != nil {
+			fmt.Fprintf(os.Stderr, "node-exporter: %v\n", err)
+		}
+	}()
+	go func() {
+		defer monWG.Done()
+		if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, "", ncImage, *networkStatePath); err != nil {
+			fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
+		}
+	}()
+	go func() {
+		defer monWG.Done()
+		if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, *networkStatePath, diskDevices); err != nil {
+			fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
+		}
+	}()
+	monWG.Wait()
 
 	// Install the nightly podman prune timer. Non-fatal: if the units
 	// cannot be written, the system still boots — it just accumulates
@@ -641,98 +647,27 @@ var ensureImage = func(ctx context.Context, image string) error {
 	return nil
 }
 
-// buildNetworkControllerImage builds the network controller container image
-// on the host's podman via the CONTAINER_HOST socket (set at startup by
-// setupPodmanEnv). The NC binary (/town-os-networkcontroller) is baked
-// into the systemcontroller image at build time, so rebuilding on every
-// startup guarantees the NC image always matches the running
-// systemcontroller. After the build completes, the function re-checks
-// that the image is visible to host podman and returns an error if it
-// is not — turning a silent mis-routed build into a loud boot-time
-// failure.
-func buildNetworkControllerImage(ctx context.Context) error {
-	const imageName = "localhost/town-os-networkcontroller:local"
-
-	buildDir, err := os.MkdirTemp("", "nc-image-build-*")
-	if err != nil {
-		return fmt.Errorf("create temp dir: %w", err)
+// parallelEnsureImages runs ensureImage concurrently across the given
+// image list with a bounded number of in-flight pulls. Pull failures are
+// logged to stderr and never fatal — every caller treats the boot image
+// set as best-effort. A channel-based semaphore bounds concurrency so a
+// cold image cache cannot saturate the registry or podman socket.
+func parallelEnsureImages(ctx context.Context, images []string) {
+	const maxConcurrent = 3
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	for _, img := range images {
+		wg.Add(1)
+		go func(img string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := ensureImage(ctx, img); err != nil {
+				fmt.Fprintf(os.Stderr, "pull %s: %v\n", img, err)
+			}
+		}(img)
 	}
-	defer func() {
-		if rerr := os.RemoveAll(buildDir); rerr != nil {
-			slog.Error(fmt.Sprintf("cleanup NC build dir: %v", rerr))
-		}
-	}()
-
-	containerfile := `FROM docker.io/library/alpine:latest
-RUN apk add --no-cache socat
-COPY town-os-networkcontroller /town-os-networkcontroller
-CMD ["/town-os-networkcontroller"]
-`
-	if err := os.WriteFile(filepath.Join(buildDir, "Containerfile"), []byte(containerfile), 0600); err != nil {
-		return fmt.Errorf("write Containerfile: %w", err)
-	}
-
-	const ncBinaryPath = "/town-os-networkcontroller"
-	destPath := filepath.Join(buildDir, "town-os-networkcontroller")
-
-	src, err := os.Open(ncBinaryPath)
-	if err != nil {
-		return fmt.Errorf("open NC binary %s: %w", ncBinaryPath, err)
-	}
-
-	dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755) //nolint:gosec // G304 -- destPath is constructed from a controlled temp dir
-	if err != nil {
-		if closeErr := src.Close(); closeErr != nil {
-			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
-		}
-		return fmt.Errorf("create NC binary copy: %w", err)
-	}
-
-	if _, err := dst.ReadFrom(src); err != nil {
-		if closeErr := dst.Close(); closeErr != nil {
-			slog.Error(fmt.Sprintf("close NC dest: %v", closeErr))
-		}
-		if closeErr := src.Close(); closeErr != nil {
-			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
-		}
-		return fmt.Errorf("copy NC binary: %w", err)
-	}
-
-	if err := dst.Close(); err != nil {
-		if closeErr := src.Close(); closeErr != nil {
-			slog.Error(fmt.Sprintf("close NC source: %v", closeErr))
-		}
-		return fmt.Errorf("close NC binary copy: %w", err)
-	}
-
-	if err := src.Close(); err != nil {
-		return fmt.Errorf("close NC source: %w", err)
-	}
-
-	// Pull the base image on the host only if it is not already loaded.
-	// --pull=never in the build step below avoids a second pull attempt.
-	const baseImage = "docker.io/library/alpine:latest"
-	if err := ensureImage(ctx, baseImage); err != nil {
-		return err
-	}
-
-	out, err := exec.CommandContext(ctx, "podman", "build", "--pull=never", "--dns=8.8.8.8", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput() //nolint:gosec // G204 -- buildDir is a controlled temp path
-	if err != nil {
-		return fmt.Errorf("podman build: %w: %s", err, string(out))
-	}
-
-	// Verify the image actually landed on the host's podman. Catches the
-	// silent failure mode where CONTAINER_HOST is unset or the socket
-	// bind mount is missing: the build would succeed against whatever
-	// local storage the container happens to have and the image would
-	// be invisible to the host systemd units that reference it.
-	if existsErr := exec.CommandContext(ctx, "podman", "image", "exists", imageName).Run(); existsErr != nil { //nolint:gosec // G204 -- imageName is a constant
-		return fmt.Errorf("NC image %s not visible to host podman after build (CONTAINER_HOST unset or socket bind mount missing?): %w", imageName, existsErr)
-	}
-
-	slog.Info("built network controller image: " + imageName)
-
-	return nil
+	wg.Wait()
 }
 
 func main() {

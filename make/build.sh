@@ -62,6 +62,14 @@ case "$1" in
     ${SUDO} podman build \
       -t "${RELEASE_PROTON_IMAGE}" -f Containerfile.proton .
     ;;
+  release-nc)
+    step "Building network controller image"
+    mkdir -p .cache/go-mod .cache/go-build
+    ${SUDO} podman build --pull=never \
+      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
+      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      -t "${RELEASE_NC_IMAGE}" -f Containerfile.networkcontroller .
+    ;;
   push-rc)
     require_registry_login quay.io
     step "Pushing release candidate"
@@ -101,6 +109,16 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
+
+    # Network controller image.
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.latest"
 
     ;;
   push-release)
@@ -143,6 +161,16 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
+
+    # Network controller image.
+    substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:latest"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest"
+    substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:latest"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest"
 
     ;;
   push-ui-rc)
@@ -197,6 +225,32 @@ case "$1" in
     substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
     ;;
+  push-nc-rc)
+    require_registry_login quay.io
+    step "Pushing network controller release candidate"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.latest"
+    ;;
+  push-nc-release)
+    require_registry_login quay.io
+    step "Pushing network controller release"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:latest"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest"
+    substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:latest"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest"
+    ;;
   push-tag)
     TAG="$2"
     if [ -z "${TAG}" ]; then
@@ -228,13 +282,19 @@ case "$1" in
     ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:${TAG}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:${TAG}"
+
+    # Network controller image.
+    substep "Tagging ${RELEASE_NC_IMAGE}:${TAG}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:${TAG}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:${TAG}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:${TAG}"
     ;;
   networkcontroller)
     step "Building network controller binary"
     CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
     ;;
   *)
-    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|push-rc|push-release|push-ui-rc|push-ui-release|push-tag <tag>}"
+    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|release-nc|push-rc|push-release|push-ui-rc|push-ui-release|push-proton-rc|push-proton-release|push-nc-rc|push-nc-release|push-tag <tag>}"
     exit 1
     ;;
 esac

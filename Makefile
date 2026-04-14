@@ -37,7 +37,8 @@ PODMAN_UI_IMAGE      := town-os-ui-integration-$(INSTANCE_ID)
 RELEASE_IMAGE        := quay.io/town/town
 RELEASE_UI_IMAGE     := quay.io/town/ui
 RELEASE_PROTON_IMAGE := quay.io/town/proton
-export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE RELEASE_PROTON_IMAGE
+RELEASE_NC_IMAGE     := quay.io/town/networkcontroller
+export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE RELEASE_PROTON_IMAGE RELEASE_NC_IMAGE
 
 # Container names (unique per working directory).
 PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
@@ -62,6 +63,9 @@ ROLODEX_IMAGE_TAG ?= rc.latest
 ROLODEX_IMAGE := quay.io/town/rolodex:$(ROLODEX_IMAGE_TAG)
 UI_IMAGE_TAG ?= rc.latest
 UI_IMAGE := quay.io/town/ui:$(UI_IMAGE_TAG)
+# The networkcontroller image is pulled from quay in production but test
+# and dev harnesses build it locally and inject NC_IMAGE=localhost/... at
+# container start, so the quay tag is intentionally NOT in ALL_IMAGES.
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE) $(UI_IMAGE)
 export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE_TAG UI_IMAGE
 export TEST_RUN TEST_TIMEOUT PUSH_TAG
@@ -82,7 +86,7 @@ include make/include.mk
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
-.PHONY: release-build release-image release-ui-image release-proton-image push push-rc push-release push-ui-rc push-ui-release push-proton-rc push-proton-release push-tag quay-login
+.PHONY: release-build release-image release-ui-image release-proton-image release-nc-image push push-rc push-release push-ui-rc push-ui-release push-proton-rc push-proton-release push-nc-rc push-nc-release push-tag quay-login
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
@@ -119,12 +123,15 @@ clean-cache: dev-stop clean-btrfs-dev
 clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
 release-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
-release-build: pull-images test-full release-image release-ui-image release-proton-image
+release-nc-image: check-podman check-runc $(STATE_DIR)/.images-pulled
+release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image
 # Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build
-push-rc: release-image release-ui-image release-proton-image quay-login
+push-rc: release-image release-ui-image release-proton-image release-nc-image quay-login
 push-release: release-build quay-login
 push-ui-rc: release-ui-image quay-login
 push-ui-release: release-ui-image quay-login
+push-nc-rc: release-nc-image quay-login
+push-nc-release: release-nc-image quay-login
 lint: check-go check-golangci-lint check-libsystemd check-bun
 btrfs: check-btrfs clean-btrfs
