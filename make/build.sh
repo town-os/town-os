@@ -65,7 +65,10 @@ case "$1" in
   release-nc)
     step "Building network controller image"
     mkdir -p .cache/go-mod .cache/go-build
-    ${SUDO} podman build --pull=never \
+    # No --pull=never: alpine:latest is the runtime base and is not in
+    # BASE_IMAGES, so the host image store may not have it yet on a
+    # fresh checkout. Let podman pull it on demand.
+    ${SUDO} podman build \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_NC_IMAGE}" -f Containerfile.networkcontroller .
