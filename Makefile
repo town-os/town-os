@@ -126,5 +126,5 @@ push-rc: release-image release-ui-image release-proton-image quay-login
 push-release: release-build quay-login
 push-ui-rc: release-ui-image quay-login
 push-ui-release: release-ui-image quay-login
-lint: check-go check-golangci-lint check-libsystemd
+lint: check-go check-golangci-lint check-libsystemd check-bun
 btrfs: check-btrfs clean-btrfs

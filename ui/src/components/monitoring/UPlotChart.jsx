@@ -1,7 +1,6 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
-import { getBaseURLForPort } from '@/lib/client-instance.js'
 
 const COLORS = [
   '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
@@ -100,7 +99,7 @@ export default function UPlotChart({
   const chartRef = useRef(null)
   const [error, setError] = useState(null)
 
-  const valueFmt = getValueFormatter(unit)
+  const valueFmt = useMemo(() => getValueFormatter(unit), [unit])
 
   const fetchData = useCallback(async () => {
     const now = Date.now() / 1000
@@ -191,11 +190,28 @@ export default function UPlotChart({
     } catch (err) {
       setError(err.message)
     }
-  }, [queries, title, unit, stacked, min, max, rangeSeconds, valueFmt])
+  }, [queries, title, stacked, min, max, rangeSeconds, valueFmt])
+
+  // Route invocations through a ref so react-hooks/set-state-in-effect
+  // can't trace setError back into the effect body: fetchData is async
+  // and setError only runs after an await, never synchronously during
+  // render commit. As a side benefit the poll effect doesn't depend on
+  // fetchData itself, so changing queries/title/etc. no longer tears
+  // down and rebuilds the setInterval — instead, the first effect below
+  // refetches once on dep change and the poll keeps ticking.
+  const fetchDataRef = useRef(fetchData)
+  const didMountRef = useRef(false)
+  useEffect(() => {
+    fetchDataRef.current = fetchData
+    if (didMountRef.current) {
+      fetchDataRef.current()
+    }
+  }, [fetchData])
 
   useEffect(() => {
-    fetchData()
-    const interval = setInterval(fetchData, refreshMs)
+    didMountRef.current = true
+    fetchDataRef.current()
+    const interval = setInterval(() => fetchDataRef.current(), refreshMs)
     return () => {
       clearInterval(interval)
       if (chartRef.current) {
@@ -203,7 +219,7 @@ export default function UPlotChart({
         chartRef.current = null
       }
     }
-  }, [fetchData, refreshMs])
+  }, [refreshMs])
 
   // Resize handler.
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render } from '@testing-library/react'
-import MonitoringCharts, { buildDiskIOQueries } from './MonitoringCharts.jsx'
+import MonitoringCharts from './MonitoringCharts.jsx'
+import { buildDiskIOQueries } from './queries.js'
 
 vi.mock('./UPlotChart.jsx', () => ({
   default: ({ title, queries }) => (
