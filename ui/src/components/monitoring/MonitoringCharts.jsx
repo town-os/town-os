@@ -1,17 +1,6 @@
 import { useMemo } from 'react'
 import UPlotChart from './UPlotChart.jsx'
-import { RATE_INTERVAL, buildDiskIOQueries } from './queries.js'
-
-const NETWORK_QUERIES = [
-  {
-    expr: `rate(node_network_receive_bytes_total{device!~"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*"}[${RATE_INTERVAL}]) * 8`,
-    legend: '{{device}} Rx',
-  },
-  {
-    expr: `rate(node_network_transmit_bytes_total{device!~"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*"}[${RATE_INTERVAL}]) * 8`,
-    legend: '{{device}} Tx',
-  },
-]
+import { RATE_INTERVAL, buildDiskIOQueries, NETWORK_QUERIES } from './queries.js'
 
 const CPU_QUERIES = [
   {
@@ -30,32 +19,48 @@ const MEMORY_QUERIES = [
   { expr: 'node_memory_MemAvailable_bytes', legend: 'Available' },
 ]
 
+function PanelBox({ children }) {
+  return (
+    <div className="min-h-0 min-w-0 overflow-hidden rounded-md border p-1.5">
+      {children}
+    </div>
+  )
+}
+
 /**
  * Four-panel monitoring dashboard replicating the Grafana Town OS Overview.
  * Queries Prometheus on port 5308 via the socat forwarder.
+ *
+ * The grid uses explicit grid-rows so each cell collapses to half the
+ * available viewport height (with min-h-0 so the children can shrink),
+ * keeping all four panels — chart, axes, and legend — inside a 1080p
+ * viewport without horizontal or vertical overflow.
  */
 export default function MonitoringCharts({ diskDevices }) {
   const diskIOQueries = useMemo(() => buildDiskIOQueries(diskDevices), [diskDevices])
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ height: 'calc(100vh - 104px)' }}>
-      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+    <div
+      className="grid grid-cols-1 grid-rows-4 gap-2 lg:grid-cols-2 lg:grid-rows-2"
+      style={{ height: 'calc(100vh - 96px)' }}
+    >
+      <PanelBox>
         <UPlotChart
           queries={diskIOQueries}
           title="Disk I/O (/town-os)"
           unit="Bps"
           rangeSeconds={21600}
         />
-      </div>
-      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+      </PanelBox>
+      <PanelBox>
         <UPlotChart
           queries={NETWORK_QUERIES}
           title="Network (External)"
           unit="bps"
           rangeSeconds={21600}
         />
-      </div>
-      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+      </PanelBox>
+      <PanelBox>
         <UPlotChart
           queries={CPU_QUERIES}
           title="CPU Usage"
@@ -65,15 +70,15 @@ export default function MonitoringCharts({ diskDevices }) {
           max={100}
           rangeSeconds={21600}
         />
-      </div>
-      <div className="overflow-hidden rounded-lg border p-2" style={{ height: 'calc(50vh - 60px)', minHeight: '250px' }}>
+      </PanelBox>
+      <PanelBox>
         <UPlotChart
           queries={MEMORY_QUERIES}
           title="Memory Usage"
           unit="bytes"
           rangeSeconds={21600}
         />
-      </div>
+      </PanelBox>
     </div>
   )
 }

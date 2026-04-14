@@ -101,7 +101,7 @@ const townOSOverviewDashboardTemplate = `{
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "legend": { "calcs": ["mean","lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
@@ -132,12 +132,12 @@ const townOSOverviewDashboardTemplate = `{
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
       "options": {
-        "legend": { "calcs": ["mean","lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
-        { "datasource": "Prometheus", "expr": "rate(node_network_receive_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) * 8", "legendFormat": "{{device}} Rx", "refId": "A" },
-        { "datasource": "Prometheus", "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) * 8", "legendFormat": "{{device}} Tx", "refId": "B" }
+        { "datasource": "Prometheus", "expr": "(rate(node_network_receive_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) and on (device) (node_network_up == 1)) * 8", "legendFormat": "{{device}} Rx", "refId": "A" },
+        { "datasource": "Prometheus", "expr": "(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) and on (device) (node_network_up == 1)) * 8", "legendFormat": "{{device}} Tx", "refId": "B" }
       ],
       "title": "Network (External)",
       "transparent": true,
@@ -174,7 +174,7 @@ const townOSOverviewDashboardTemplate = `{
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
       "options": {
-        "legend": { "calcs": ["mean","lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
@@ -214,7 +214,7 @@ const townOSOverviewDashboardTemplate = `{
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
       "options": {
-        "legend": { "calcs": ["mean","lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [

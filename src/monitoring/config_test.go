@@ -44,6 +44,13 @@ func TestTownOSOverviewDashboardWithDevices(t *testing.T) {
 		`"legendFormat": "Read"`,
 		`"legendFormat": "Write"`,
 		`"refresh": "30s"`,
+		// Network panel must keep only interfaces whose operstate is up.
+		`and on (device) (node_network_up == 1)`,
+		// Compact list legend keeps device labels on-screen at 1080p.
+		`"displayMode": "list"`,
+	}
+	if strings.Contains(out, `"displayMode": "table"`) {
+		t.Errorf("dashboard JSON should not contain legacy table-mode legend")
 	}
 	for _, s := range wantSubstrings {
 		if !strings.Contains(out, s) {

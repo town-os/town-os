@@ -159,9 +159,14 @@ export default function UPlotChart({
         })
       }
 
+      const axisFont = '10px sans-serif'
       const opts = {
         width: containerRef.current?.clientWidth || 600,
-        height: Math.max(150, (containerRef.current?.clientHeight || 280) - 65),
+        // Reserve enough vertical space above/below the canvas for the
+        // compact title (~18px) and the scrollable legend (max-height
+        // ~56px from index.css), so the canvas never overflows the
+        // bordered panel on a 1080p screen.
+        height: Math.max(120, (containerRef.current?.clientHeight || 280) - 90),
         title,
         cursor: { show: true },
         scales: {
@@ -171,9 +176,10 @@ export default function UPlotChart({
           },
         },
         axes: [
-          {},
-          { values: (_, ticks) => ticks.map(valueFmt) },
+          { font: axisFont, size: 28 },
+          { font: axisFont, size: 50, values: (_, ticks) => ticks.map(valueFmt) },
         ],
+        legend: { show: true, live: true },
         series,
       }
 
@@ -227,7 +233,7 @@ export default function UPlotChart({
       if (chartRef.current && containerRef.current) {
         chartRef.current.setSize({
           width: containerRef.current.clientWidth,
-          height: Math.max(150, containerRef.current.clientHeight - 65),
+          height: Math.max(120, containerRef.current.clientHeight - 90),
         })
       }
     }

@@ -172,3 +172,27 @@
     @apply bg-background text-foreground;
     }
 }
+
+/* Compact the uPlot title and legend so the four monitoring panels fit
+   inside a 1080p viewport. The legend is capped and scrolls vertically
+   when a host has many active interfaces. */
+.uplot .u-title {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 0 2px;
+}
+.uplot .u-legend {
+  font-size: 10px;
+  line-height: 1.25;
+  max-height: 56px;
+  overflow-y: auto;
+  margin-top: 2px;
+}
+.uplot .u-legend th,
+.uplot .u-legend td {
+  padding: 0 6px;
+}
+.uplot .u-legend .u-marker {
+  width: 8px;
+  height: 8px;
+}
