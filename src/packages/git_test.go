@@ -12,12 +12,16 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+// testGitSeedFile is the filename written into the test bare repo. Kept as
+// a package-level constant so buildBareRepo and pushUpdate agree on it.
+const testGitSeedFile = "index.html"
+
 // buildBareRepo builds a bare repository with a single commit containing
-// filename/contents on the go-git default branch (master) and returns its
-// file:// URL so DefaultGitCloner can clone it. The working copy used to
-// seed the bare repo is also returned so callers can push additional
-// commits via pushUpdate.
-func buildBareRepo(t *testing.T, filename, contents string) (bareURL, workDir string) {
+// contents on the go-git default branch (master) and returns its file://
+// URL so DefaultGitCloner can clone it. The working copy used to seed the
+// bare repo is also returned so callers can push additional commits via
+// pushUpdate.
+func buildBareRepo(t *testing.T, contents string) (bareURL, workDir string) {
 	t.Helper()
 
 	bareDir := filepath.Join(t.TempDir(), "bare.git")
@@ -37,14 +41,14 @@ func buildBareRepo(t *testing.T, filename, contents string) (bareURL, workDir st
 		t.Fatalf("CreateRemote: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(workDir, filename), []byte(contents), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, testGitSeedFile), []byte(contents), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	wt, err := repo.Worktree()
 	if err != nil {
 		t.Fatalf("Worktree: %v", err)
 	}
-	if _, err := wt.Add(filename); err != nil {
+	if _, err := wt.Add(testGitSeedFile); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if _, err := wt.Commit("initial", &gogit.CommitOptions{
@@ -63,12 +67,12 @@ func buildBareRepo(t *testing.T, filename, contents string) (bareURL, workDir st
 	return "file://" + bareDir, workDir
 }
 
-// pushUpdate commits and pushes a new file revision to the bare repo that
-// workDir is cloned from.
-func pushUpdate(t *testing.T, workDir, filename, contents string) {
+// pushUpdate commits and pushes a new revision of testGitSeedFile to the
+// bare repo that workDir is cloned from.
+func pushUpdate(t *testing.T, workDir, contents string) {
 	t.Helper()
 
-	if err := os.WriteFile(filepath.Join(workDir, filename), []byte(contents), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, testGitSeedFile), []byte(contents), 0644); err != nil {
 		t.Fatalf("WriteFile update: %v", err)
 	}
 	repo, err := gogit.PlainOpen(workDir)
@@ -79,7 +83,7 @@ func pushUpdate(t *testing.T, workDir, filename, contents string) {
 	if err != nil {
 		t.Fatalf("Worktree: %v", err)
 	}
-	if _, err := wt.Add(filename); err != nil {
+	if _, err := wt.Add(testGitSeedFile); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if _, err := wt.Commit("update", &gogit.CommitOptions{
@@ -108,7 +112,7 @@ func TestDefaultGitClonerCloneEmptyURL(t *testing.T) {
 
 func TestDefaultGitClonerCloneIntoExistingDir(t *testing.T) {
 	t.Parallel()
-	bareURL, _ := buildBareRepo(t, "index.html", "seed content")
+	bareURL, _ := buildBareRepo(t, "seed content")
 
 	target := filepath.Join(t.TempDir(), "vol")
 	if err := os.MkdirAll(target, 0755); err != nil {
@@ -140,7 +144,7 @@ func TestDefaultGitClonerCloneIntoExistingDir(t *testing.T) {
 
 func TestDefaultGitClonerCloneDefaultBranch(t *testing.T) {
 	t.Parallel()
-	bareURL, _ := buildBareRepo(t, "index.html", "default branch")
+	bareURL, _ := buildBareRepo(t, "default branch")
 
 	target := filepath.Join(t.TempDir(), "vol")
 	// Empty branch means "let the server pick HEAD" which is main.
@@ -158,14 +162,14 @@ func TestDefaultGitClonerCloneDefaultBranch(t *testing.T) {
 
 func TestDefaultGitClonerUpdate(t *testing.T) {
 	t.Parallel()
-	bareURL, workDir := buildBareRepo(t, "index.html", "v1")
+	bareURL, workDir := buildBareRepo(t, "v1")
 
 	target := filepath.Join(t.TempDir(), "vol")
 	if err := (DefaultGitCloner{}).Clone(target, bareURL, "master"); err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 
-	pushUpdate(t, workDir, "index.html", "v2")
+	pushUpdate(t, workDir, "v2")
 
 	if err := (DefaultGitCloner{}).Update(target, "master"); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -182,7 +186,7 @@ func TestDefaultGitClonerUpdate(t *testing.T) {
 
 func TestDefaultGitClonerUpdateDiscardsLocalChanges(t *testing.T) {
 	t.Parallel()
-	bareURL, workDir := buildBareRepo(t, "index.html", "v1")
+	bareURL, workDir := buildBareRepo(t, "v1")
 
 	target := filepath.Join(t.TempDir(), "vol")
 	if err := (DefaultGitCloner{}).Clone(target, bareURL, "master"); err != nil {
@@ -194,7 +198,7 @@ func TestDefaultGitClonerUpdateDiscardsLocalChanges(t *testing.T) {
 		t.Fatalf("WriteFile drift: %v", err)
 	}
 
-	pushUpdate(t, workDir, "index.html", "v2")
+	pushUpdate(t, workDir, "v2")
 
 	if err := (DefaultGitCloner{}).Update(target, "master"); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -258,6 +262,7 @@ func TestExtractBasicAuth(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gotURL, gotAuth := extractBasicAuth(tc.in)
 			if gotURL != tc.wantURL {
 				t.Fatalf("URL: got %q, want %q", gotURL, tc.wantURL)
