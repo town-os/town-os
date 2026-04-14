@@ -26,7 +26,14 @@ import {
   CircleCheck,
   CircleX,
   Circle,
+  ExternalLink,
 } from 'lucide-react'
+
+// Mirrors packages.DependencySeparator — any unit whose parsed name contains
+// this substring is a dependency child and is rolled up under its parent on
+// the dashboard, same convention used by the /packages and /packages/installed
+// handlers (see filterDependencyInstalls).
+const DEPENDENCY_SEPARATOR = '--dep--'
 
 function StatCard({ to, icon, label, value, description }) {
   const IconComponent = icon
@@ -101,29 +108,15 @@ function StatusIcon({ state }) {
   return <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
 }
 
-function NoteValue({ value, noteType }) {
-  if (noteType === 'url') {
-    return (
-      <a href={value} target="_blank" rel="noopener noreferrer" className="font-mono text-xs underline text-primary truncate">
-        {value}
-      </a>
-    )
+function urlNotes(info) {
+  if (!info || !info.notes) return []
+  const out = []
+  for (const [label, value] of Object.entries(info.notes)) {
+    if (info.note_types?.[label] === 'url') {
+      out.push({ label, value })
+    }
   }
-  if (noteType === 'email') {
-    return (
-      <a href={`mailto:${value}`} className="font-mono text-xs underline text-primary truncate">
-        {value}
-      </a>
-    )
-  }
-  if (noteType === 'phone') {
-    return (
-      <a href={`tel:${value}`} className="font-mono text-xs underline text-primary truncate">
-        {value}
-      </a>
-    )
-  }
-  return <span className="font-mono text-xs text-muted-foreground truncate">{value}</span>
+  return out
 }
 
 function ServicesPanel({ units, notesMap, t }) {
@@ -139,34 +132,45 @@ function ServicesPanel({ units, notesMap, t }) {
           {units.map((unit) => {
             const parsed = parsePackageIdentifier(unit.package_identifier)
             const displayName = parsed ? parsed.name : unit.package_identifier
-            const notes = notesMap[unit.package_identifier]
+            const links = urlNotes(notesMap[unit.package_identifier])
             return (
-              <Link
+              <div
                 key={unit.Name}
-                to="/dashboard/system"
                 className="flex items-start gap-3 rounded-md px-3 py-2 hover:bg-accent/50 transition-colors"
               >
                 <StatusIcon state={unit.ActiveState} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm font-medium">{displayName}</span>
+                    <Link
+                      to="/dashboard/packages"
+                      className="font-mono text-sm font-medium underline-offset-2 hover:underline"
+                    >
+                      {displayName}
+                    </Link>
                     <span className="text-xs text-muted-foreground">{unit.ActiveState}</span>
                   </div>
                   {unit.package_description && (
                     <p className="text-xs text-muted-foreground truncate">{unit.package_description}</p>
                   )}
-                  {notes && Object.keys(notes.notes).length > 0 && (
+                  {links.length > 0 && (
                     <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-                      {Object.entries(notes.notes).map(([label, value]) => (
-                        <span key={label} className="inline-flex items-center gap-1 text-xs">
+                      {links.map(({ label, value }) => (
+                        <a
+                          key={label}
+                          href={value}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 truncate"
+                        >
+                          <ExternalLink className="h-3 w-3 shrink-0" />
                           <span className="text-muted-foreground">{label}:</span>
-                          <NoteValue value={value} noteType={notes.note_types?.[label]} />
-                        </span>
+                          <span className="font-mono truncate">{value}</span>
+                        </a>
                       ))}
                     </div>
                   )}
                 </div>
-              </Link>
+              </div>
             )
           })}
         </div>
@@ -212,7 +216,14 @@ export default function DashboardHome() {
     [],
     60000,
   )
-  const units = useMemo(() => unitData.entries || [], [unitData.entries])
+  const units = useMemo(() => {
+    const all = unitData.entries || []
+    return all.filter((unit) => {
+      const parsed = parsePackageIdentifier(unit.package_identifier)
+      if (!parsed) return true
+      return !parsed.name.includes(DEPENDENCY_SEPARATOR)
+    })
+  }, [unitData.entries])
   const [notesMap, setNotesMap] = useState({})
   const notesFetchedRef = useRef(new Set())
 

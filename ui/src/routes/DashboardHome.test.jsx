@@ -314,7 +314,7 @@ describe('DashboardHome', () => {
     })
   })
 
-  it('displays notes from installed info', async () => {
+  it('renders URL notes as external links pointing at the URL', async () => {
     mockUnitsResponse = {
       entries: [
         { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
@@ -329,5 +329,61 @@ describe('DashboardHome', () => {
     await waitFor(() => {
       expect(screen.getByText('http://localhost:8080')).toBeTruthy()
     })
+    const link = screen.getByText('http://localhost:8080').closest('a')
+    expect(link).toBeTruthy()
+    expect(link.getAttribute('href')).toBe('http://localhost:8080')
+    expect(link.getAttribute('target')).toBe('_blank')
+  })
+
+  it('hides non-URL notes (email, phone) from the dashboard row', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
+      notes: { 'Support': 'help@example.com', 'Hotline': '+1-555-0100' },
+      note_types: { 'Support': 'email', 'Hotline': 'phone' },
+    }))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('myapp')).toBeTruthy()
+    })
+    expect(screen.queryByText('help@example.com')).toBeNull()
+    expect(screen.queryByText('+1-555-0100')).toBeNull()
+  })
+
+  it('links the package name to the packages panel', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('nginx')).toBeTruthy()
+    })
+    const nameLink = screen.getByText('nginx').closest('a')
+    expect(nameLink).toBeTruthy()
+    expect(nameLink.getAttribute('href')).toBe('/dashboard/packages')
+  })
+
+  it('hides dependency sub-packages from the services panel', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-jitsi-1.0.service', package_identifier: 'default/jitsi@1.0', ActiveState: 'active', package_description: '' },
+        { Name: 'town-os-package--default-jitsi--dep--prosody-1.0.service', package_identifier: 'default/jitsi--dep--prosody@1.0', ActiveState: 'active', package_description: '' },
+        { Name: 'town-os-package--default-jitsi--dep--jicofo-1.0.service', package_identifier: 'default/jitsi--dep--jicofo@1.0', ActiveState: 'active', package_description: '' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('jitsi')).toBeTruthy()
+    })
+    expect(screen.queryByText('jitsi--dep--prosody')).toBeNull()
+    expect(screen.queryByText('jitsi--dep--jicofo')).toBeNull()
   })
 })
