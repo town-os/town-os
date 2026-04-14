@@ -1,4 +1,4 @@
-CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE FOR ANY REASON.
+CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - **MOST IMPORTANT**:
     - DO NOT RUN `make test-full`
@@ -1088,6 +1088,17 @@ Building Town OS from source requires:
 - **btrfs-progs** -- provides `mkfs.btrfs` for creating test and dev btrfs volumes.
 - **golangci-lint** -- for Go linting.
 - **QEMU** -- `qemu-system-x86_64` for running VM packages; `qemu-img` for converting VM disk images to raw format.
+
+### Bootstrap
+
+`make deps` installs every host dependency (Go, podman, runc, btrfs-progs,
+libsystemd headers, golangci-lint, bun, qemu, build tools) on a fresh Arch
+or Ubuntu/Debian machine. It is implemented in `make/deps.sh`, detects the
+distro from `/etc/os-release`, and is safe to re-run.
+
+`make help` (the default target) prints a grouped list of every user-facing
+make target. Implemented in `make/help.sh`. Keep both scripts in sync when
+adding or renaming targets in `make/include.mk`.
 
 ### Preflight Checks
 
