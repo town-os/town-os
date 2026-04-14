@@ -1100,6 +1100,64 @@ func TestCompileTemplates(t *testing.T) {
 		}
 	})
 
+	t.Run("template content variable substitution", func(t *testing.T) {
+		input := InputPackage{
+			Image:       InputPackageImage{URL: "debian:latest"},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions: map[string]Question{
+				"pw": {Query: "Password?", Type: Secret},
+			},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {
+					Volume:  "data",
+					Path:    "app.conf",
+					Content: "password: @pw@\nserver: @PACKAGE_DNS@",
+				},
+			},
+		}
+		p, err := input.CompileWithContext(Responses{"pw": "sekret"}, CompileContext{
+			PackageDNS: "app.core.home",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "password: sekret\nserver: app.core.home"
+		if p.Templates["cfg"].Content != want {
+			t.Fatalf("expected %q, got %q", want, p.Templates["cfg"].Content)
+		}
+	})
+
+	t.Run("template content preserves Go template syntax", func(t *testing.T) {
+		input := InputPackage{
+			Image:       InputPackageImage{URL: "debian:latest"},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{"data": {Mountpoint: "/data"}},
+			Questions: map[string]Question{
+				"host": {Query: "Host?"},
+			},
+			Templates: map[string]InputPackageTemplate{
+				"cfg": {
+					Volume:  "data",
+					Path:    "app.conf",
+					Content: "host={{.Responses.host}} dns=@PACKAGE_DNS@",
+				},
+			},
+		}
+		p, err := input.CompileWithContext(Responses{"host": "localhost"}, CompileContext{
+			PackageDNS: "app.core.home",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "host={{.Responses.host}} dns=app.core.home"
+		if p.Templates["cfg"].Content != want {
+			t.Fatalf("expected %q, got %q", want, p.Templates["cfg"].Content)
+		}
+	})
+
 	t.Run("template references nonexistent volume rejected", func(t *testing.T) {
 		input := InputPackage{
 			Image:       InputPackageImage{URL: "debian:latest"},

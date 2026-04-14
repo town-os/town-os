@@ -149,6 +149,7 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		tmpl := i.Templates[name]
 		tmpl.Volume = applyTemplate(tmpl.Volume, iv, response)
 		tmpl.Path = applyTemplate(tmpl.Path, iv, response)
+		tmpl.Content = applyTemplate(tmpl.Content, iv, response)
 		i.Templates[name] = tmpl
 	}
 
