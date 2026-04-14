@@ -19,7 +19,7 @@ RUN bun run build
 
 FROM debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    btrfs-progs libsystemd0 podman runc socat git \
+    btrfs-progs libsystemd0 podman runc socat \
     pigz lbzip2 xz-utils \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
