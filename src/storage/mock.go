@@ -25,6 +25,10 @@ type MockBtrFSController struct {
 	Filesystems   []SubvolInfo
 	Quotas        map[string]uint64
 	SubvolListErr error
+	// QGroupShowFunc, when non-nil, replaces the default quota lookup so
+	// tests can inject errors (for example, to simulate concurrent
+	// deletion during ListFilesystems).
+	QGroupShowFunc func(path string) (uint64, error)
 }
 
 func InitBtrFSMockController() *MockBtrFSController {
@@ -238,6 +242,12 @@ func (m *MockBtrFSController) QuotaEnable(path string) error {
 func (m *MockBtrFSController) QGroupShow(path string) (uint64, error) {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
+
+	if m.QGroupShowFunc != nil {
+		val, err := m.QGroupShowFunc(path)
+		m.addCallLocked("QGroupShow", err, path)
+		return val, err
+	}
 
 	val := m.Quotas[path]
 	m.addCallLocked("QGroupShow", nil, path)

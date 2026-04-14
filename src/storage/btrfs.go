@@ -481,10 +481,16 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 		quota, err := b.Controller.QGroupShow(filepath.Join(b.BasePath, item.Name))
 		if err != nil {
 			// Subvolume may have been deleted between the list and the
-			// quota query (concurrent operations). Skip only when the
-			// error indicates the path no longer exists.
+			// quota query by another concurrent test or reconcile. The
+			// btrfs CLI emits several different messages for that case
+			// depending on version ("can't access", "cannot access", "No
+			// such file or directory", "not a subvolume") — treat any of
+			// them as "vanished during enumeration" and skip the entry.
 			errMsg := err.Error()
-			if strings.Contains(errMsg, "No such file or directory") || strings.Contains(errMsg, "not a subvolume") {
+			if strings.Contains(errMsg, "No such file or directory") ||
+				strings.Contains(errMsg, "not a subvolume") ||
+				strings.Contains(errMsg, "can't access") ||
+				strings.Contains(errMsg, "cannot access") {
 				slog.Debug("listing filesystems: skipping deleted subvolume", "name", item.Name, "error", err)
 				continue
 			}
