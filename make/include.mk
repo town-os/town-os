@@ -1,6 +1,12 @@
 # make/include.mk - Target recipes.
 # Dependencies are defined in the top-level Makefile.
 
+help:
+	@make/help.sh
+
+deps:
+	@make/deps.sh
+
 check-go:
 	@make/check.sh go
 

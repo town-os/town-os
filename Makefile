@@ -70,6 +70,8 @@ ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:
 export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE_TAG UI_IMAGE
 export TEST_RUN TEST_TIMEOUT PUSH_TAG
 
+.DEFAULT_GOAL := help
+
 include make/include.mk
 -include .hack/include.mk
 
@@ -77,6 +79,7 @@ include make/include.mk
 # Dependencies
 # ---------------------------------------------------------------------------
 
+.PHONY: help deps
 .PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
 .PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images
 .PHONY: ui-integration-image production-image test-image dev-production-image dev-image
