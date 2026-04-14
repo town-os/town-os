@@ -29,7 +29,11 @@ RUN curl -fsSL \
     -o /tmp/proton.tar.gz \
     && mkdir -p /opt/proton \
     && tar -xzf /tmp/proton.tar.gz -C /opt/proton --strip-components=1 \
-    && rm /tmp/proton.tar.gz
+    && rm /tmp/proton.tar.gz \
+    && rm -rf /opt/proton/files/share/doc \
+              /opt/proton/files/share/man \
+              /opt/proton/files/share/info \
+              /opt/proton/files/share/locale
 
 FROM debian:bookworm-slim
 ARG GE_PROTON_VERSION
@@ -61,6 +65,8 @@ RUN dpkg --add-architecture i386 \
         libsdl2-2.0-0 \
         # Virtual framebuffer for headless operation
         xvfb \
+        # x11-utils provides xdpyinfo used by the wrapper to detect Xvfb readiness
+        x11-utils \
         # Networking and general utilities
         ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -92,10 +98,6 @@ mkdir -p "${STEAM_COMPAT_DATA_PATH}"\n\
 \n\
 exec /opt/proton/proton "$@"\n' > /usr/local/bin/proton \
     && chmod +x /usr/local/bin/proton
-
-# x11-utils provides xdpyinfo used by the wrapper to detect Xvfb readiness.
-RUN apt-get update && apt-get install -y --no-install-recommends x11-utils \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 CMD ["/usr/local/bin/proton"]
 CMD ["--help"]

@@ -7,8 +7,8 @@ WORKDIR /src
 RUN go mod download
 COPY . /src
 ARG TOWN_OS_TAG=rc.latest
-RUN CGO_ENABLED=1 go build -ldflags "-X main.Version=${TOWN_OS_TAG}" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
-RUN CGO_ENABLED=0 go build -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
+RUN CGO_ENABLED=1 go build -ldflags "-s -w -X main.Version=${TOWN_OS_TAG}" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
+RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
 FROM oven/bun:latest AS ui-builder
 COPY ui/package.json ui/bun.lock /ui/
@@ -18,9 +18,9 @@ COPY ui/ /ui/
 RUN bun run build
 
 FROM debian:bookworm-slim AS runtime-deps
-RUN apt-get update && apt-get install -y \
-    btrfs-progs libsystemd0 podman runc socat \
-    pigz lbzip2 p7zip-full xz-utils unzip git less \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    btrfs-progs libsystemd0 podman runc socat git \
+    pigz lbzip2 xz-utils \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
 
