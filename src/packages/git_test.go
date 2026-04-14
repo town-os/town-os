@@ -119,7 +119,7 @@ func TestDefaultGitClonerCloneIntoExistingDir(t *testing.T) {
 		t.Fatalf("WriteFile stale: %v", err)
 	}
 
-	if err := DefaultGitCloner{}.Clone(target, bareURL, "master"); err != nil {
+	if err := (DefaultGitCloner{}).Clone(target, bareURL, "master"); err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestDefaultGitClonerCloneDefaultBranch(t *testing.T) {
 
 	target := filepath.Join(t.TempDir(), "vol")
 	// Empty branch means "let the server pick HEAD" which is main.
-	if err := DefaultGitCloner{}.Clone(target, bareURL, ""); err != nil {
+	if err := (DefaultGitCloner{}).Clone(target, bareURL, ""); err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(target, "index.html"))
@@ -161,13 +161,13 @@ func TestDefaultGitClonerUpdate(t *testing.T) {
 	bareURL, workDir := buildBareRepo(t, "index.html", "v1")
 
 	target := filepath.Join(t.TempDir(), "vol")
-	if err := DefaultGitCloner{}.Clone(target, bareURL, "master"); err != nil {
+	if err := (DefaultGitCloner{}).Clone(target, bareURL, "master"); err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 
 	pushUpdate(t, workDir, "index.html", "v2")
 
-	if err := DefaultGitCloner{}.Update(target, "master"); err != nil {
+	if err := (DefaultGitCloner{}).Update(target, "master"); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -185,7 +185,7 @@ func TestDefaultGitClonerUpdateDiscardsLocalChanges(t *testing.T) {
 	bareURL, workDir := buildBareRepo(t, "index.html", "v1")
 
 	target := filepath.Join(t.TempDir(), "vol")
-	if err := DefaultGitCloner{}.Clone(target, bareURL, "master"); err != nil {
+	if err := (DefaultGitCloner{}).Clone(target, bareURL, "master"); err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 
@@ -196,7 +196,7 @@ func TestDefaultGitClonerUpdateDiscardsLocalChanges(t *testing.T) {
 
 	pushUpdate(t, workDir, "index.html", "v2")
 
-	if err := DefaultGitCloner{}.Update(target, "master"); err != nil {
+	if err := (DefaultGitCloner{}).Update(target, "master"); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
