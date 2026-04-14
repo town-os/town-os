@@ -19,6 +19,14 @@ var (
 	ErrInvalidEmail       = errors.New("invalid email address")
 	ErrInvalidPhone       = errors.New("invalid phone number")
 	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
+	// ErrPasswordInvalidChars is returned when a password contains any
+	// byte outside the visible ASCII range 0x21..0x7E. Transports on the
+	// path between the browser and bcrypt (HTTP Basic auth, JSON, URL
+	// encoding, the DB's latin1 columns) all mishandle high-bit or
+	// control bytes in subtly different ways, so the safest policy is to
+	// reject them at creation time rather than trust every layer to
+	// round-trip them correctly.
+	ErrPasswordInvalidChars = errors.New("password may only contain printable ASCII characters (no spaces)")
 )
 
 var emailRegexp = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -92,6 +100,18 @@ func validatePhone(phone string) error {
 func validatePassword(password string) error {
 	if len(password) < 8 {
 		return ErrPasswordTooShort
+	}
+	// Iterate by byte (not rune): any UTF-8 multi-byte lead is >= 0xC0
+	// so a byte-range check is enough to reject every non-ASCII input
+	// without having to decode runes. The allowed band 0x21..0x7E is
+	// the full "visible ASCII" set — letters, digits, and punctuation —
+	// minus space (0x20), DEL (0x7F), every control character, and the
+	// entire high-bit plane.
+	for i := range len(password) {
+		b := password[i]
+		if b < 0x21 || b > 0x7E {
+			return ErrPasswordInvalidChars
+		}
 	}
 	return nil
 }

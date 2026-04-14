@@ -8,18 +8,21 @@ import (
 )
 
 func TestGenerateSecret(t *testing.T) {
-	t.Run("valid latin1 output", func(t *testing.T) {
+	t.Run("valid 7-bit ASCII output", func(t *testing.T) {
 		s, err := GenerateSecret()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		runes := []rune(s)
-		if len(runes) != 32 {
-			t.Fatalf("expected 32-character string, got %d chars: %q", len(runes), s)
+		// Length must be measured in bytes, not runes, to guarantee the
+		// output is exactly 32 bytes on the wire — any multi-byte rune
+		// would violate the 7-bit invariant we are testing for.
+		if len(s) != 32 {
+			t.Fatalf("expected 32-byte string, got %d bytes: %q", len(s), s)
 		}
-		for i, r := range runes {
-			if (r < 0x20 || r > 0x7E) && (r < 0xA0 || r > 0xFF) {
-				t.Fatalf("character at index %d is not printable Latin-1: %U", i, r)
+		for i := range len(s) {
+			b := s[i]
+			if b < 0x21 || b > 0x7E {
+				t.Fatalf("byte at index %d is not printable 7-bit ASCII: 0x%02X", i, b)
 			}
 		}
 	})
