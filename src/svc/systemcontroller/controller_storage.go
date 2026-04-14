@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -22,7 +23,7 @@ const (
 // isReservedFilesystem returns true if the given name is one of the
 // system-managed volume prefixes that users must not create, modify, or delete.
 func isReservedFilesystem(name string) bool {
-	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix || name == TLSSubvolume {
+	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix || name == TLSSubvolume || name == packages.SubpackagesDir {
 		return true
 	}
 	if strings.HasPrefix(name, PackagesVolumePrefix+"/") {
@@ -46,6 +47,9 @@ func isReservedFilesystem(name string) bool {
 	if strings.HasPrefix(name, TLSSubvolume+"/") {
 		return true
 	}
+	if strings.HasPrefix(name, packages.SubpackagesDir+"/") {
+		return true
+	}
 	return false
 }
 
@@ -56,20 +60,111 @@ func isPackageVolume(name string) bool {
 		strings.HasPrefix(name, UninstalledVolumePrefix+"/")
 }
 
-// stripRepoComponent removes the leading repository segment from a package
-// volume path. e.g. "default/nginx/2.0/data" becomes "nginx/2.0/data".
-func stripRepoComponent(path string) string {
-	if _, after, ok := strings.Cut(path, "/"); ok {
-		return after
+// parsedInstalledPath is the structured result of parseInstalledPath.
+// When ok=true the entry is a legitimate package path; version and
+// volName may still be empty when the path is a bare package dir (the
+// classifier still wants to surface those in the storage list) or a
+// bare version dir with no volume leaf yet. Callers that specifically
+// want volume leaves (e.g. listPackageVolumes) should gate on
+// volName != "".
+type parsedInstalledPath struct {
+	state         string // "installed" or "uninstalled"
+	repo          string
+	effectiveName string // flat --dep-- form
+	prettyName    string // slash-separated pretty form
+	version       string // may be empty for bare name / dep-key dirs
+	volName       string // may be empty for bare version dirs
+}
+
+// parseInstalledPath splits a btrfs internal name such as
+// "installed/<repo>/<parent>/subpackages/<key>/<version>/<vol>" into its
+// structured pieces. The first segment after the repo becomes the first
+// piece of the effective name; any following `subpackages/<key>` pair
+// appends another piece; the next segment is the version and the
+// remainder is the volume name.
+//
+// ok=false is returned for:
+//   - paths whose prefix isn't installed/ or uninstalled/
+//   - paths too short to carry a package (missing repo or package name)
+//   - infra paths that terminate on a `subpackages` container without a
+//     following key (e.g. "installed/core/gitea/subpackages") or that
+//     place `subpackages` directly under the repo
+//
+// Ambiguity note: an infra path like `installed/<repo>/<parent>/subpackages`
+// looks just like a malformed flat dir `installed/<repo>/<parent>/<version>`
+// where version == "subpackages". The reservation enforced by
+// packages.SubpackagesDir on dep keys and package names guarantees this
+// collision cannot happen for legitimate installs, so the parser safely
+// treats any literal `subpackages` segment as the encapsulator marker.
+func parseInstalledPath(internalName string) (parsedInstalledPath, bool) {
+	var p parsedInstalledPath
+
+	var rest string
+	switch {
+	case strings.HasPrefix(internalName, PackagesVolumePrefix+"/"):
+		p.state = "installed"
+		rest = strings.TrimPrefix(internalName, PackagesVolumePrefix+"/")
+	case strings.HasPrefix(internalName, UninstalledVolumePrefix+"/"):
+		p.state = "uninstalled"
+		rest = strings.TrimPrefix(internalName, UninstalledVolumePrefix+"/")
+	default:
+		return p, false
 	}
-	return path
+
+	if rest == "" {
+		return p, false
+	}
+	segs := strings.Split(rest, "/")
+	if len(segs) < 2 {
+		// Bare repo dir (e.g. "installed/core") — skip.
+		return p, false
+	}
+	p.repo = segs[0]
+	segs = segs[1:]
+
+	// First segment after repo must be a package name piece — a bare
+	// `subpackages` here is malformed.
+	if segs[0] == packages.SubpackagesDir {
+		return p, false
+	}
+	nameParts := []string{segs[0]}
+	i := 1
+
+	// Alternate (subpackages, key) pairs.
+	for i+1 < len(segs) && segs[i] == packages.SubpackagesDir {
+		nameParts = append(nameParts, segs[i+1])
+		i += 2
+	}
+
+	p.effectiveName = strings.Join(nameParts, packages.DependencySeparator)
+	p.prettyName = strings.Join(nameParts, "/")
+
+	if i >= len(segs) {
+		// Bare package or dep-key directory (nothing after the name
+		// chain). ok=true with empty version/volName so the filesystem
+		// lister still surfaces the dir with its package pretty name.
+		return p, true
+	}
+	// A trailing `subpackages` without a key (e.g. the container subvol
+	// itself) is infra and should be skipped entirely.
+	if segs[i] == packages.SubpackagesDir {
+		return parsedInstalledPath{}, false
+	}
+	p.version = segs[i]
+	i++
+	if i < len(segs) {
+		p.volName = strings.Join(segs[i:], "/")
+	}
+	return p, true
 }
 
 // classifyFilesystem determines the state of a filesystem based on its name
 // prefix. Returns the state ("user", "installed", "uninstalled") and the
 // display name with internal prefixes and repository component stripped.
-// Root subvolumes (installed, uninstalled, empty name) return empty state to
-// signal they should be skipped.
+// Root subvolumes (installed, uninstalled, empty name) and infra
+// intermediate subvolumes (the `subpackages` encapsulator, bare package
+// dirs, bare version dirs) return empty state to signal they should be
+// skipped.
 func classifyFilesystem(name string) (state, displayName string) {
 	if name == "" || name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix {
 		return "", name
@@ -90,14 +185,26 @@ func classifyFilesystem(name string) (state, displayName string) {
 		return "", name
 	}
 
-	installedPrefix := PackagesVolumePrefix + "/"
-	uninstalledPrefix := UninstalledVolumePrefix + "/"
-
-	if after, ok := strings.CutPrefix(name, installedPrefix); ok {
-		return "installed", stripRepoComponent(after)
+	if p, ok := parseInstalledPath(name); ok {
+		// Display form uses the pretty name so dep volumes render as
+		// "parent/key/version/vol" instead of the on-disk
+		// "parent/subpackages/key/version/vol". Bare package / version
+		// directories (empty version / volName) still surface with
+		// whatever parts are present so users can browse the tree.
+		display := p.prettyName
+		if p.version != "" {
+			display += "/" + p.version
+		}
+		if p.volName != "" {
+			display += "/" + p.volName
+		}
+		return p.state, display
 	}
-	if after, ok := strings.CutPrefix(name, uninstalledPrefix); ok {
-		return "uninstalled", stripRepoComponent(after)
+
+	// Install/uninstall prefix matched but parseInstalledPath said ok=false —
+	// infra intermediate subvolume, skip.
+	if strings.HasPrefix(name, PackagesVolumePrefix+"/") || strings.HasPrefix(name, UninstalledVolumePrefix+"/") {
+		return "", name
 	}
 
 	userPrefix := UserVolumePrefix + "/"
@@ -109,23 +216,32 @@ func classifyFilesystem(name string) (state, displayName string) {
 }
 
 // serviceNameFromVolumePath derives the systemd service unit name from a
-// volume internal name like "installed/repo/name/version/volName". Returns
-// empty string if the path does not have enough components.
+// volume internal name like
+// "installed/<repo>/<parent>/subpackages/<key>/<version>/<vol>". Returns
+// empty string if the path does not have enough components to identify a
+// package — specifically, bare repo / package / dep-key / subpackages
+// container paths have no version, and systemd unit names require one.
 func serviceNameFromVolumePath(internalName string) string {
-	parts := strings.SplitN(internalName, "/", 5)
-	if len(parts) < 4 {
+	p, ok := parseInstalledPath(internalName)
+	if !ok || p.version == "" {
 		return ""
 	}
-	// parts: [prefix, repo, name, version, ...]
-	return systemd.UnitName(parts[1], parts[2], parts[3])
+	return systemd.UnitName(p.repo, p.effectiveName, p.version)
 }
 
+// packageVolumePath returns the canonical on-disk btrfs volume path for
+// a package volume. Dependency effective names are translated to the
+// nested form via packages.StoragePath, so every caller stays oblivious
+// to flat-vs-nested layout details.
 func packageVolumePath(repo, name, version, volName string) string {
-	return fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repo, name, version, volName)
+	return fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repo, packages.StoragePath(name), version, volName)
 }
 
+// packagePrefix returns the installed/<repo>/<storagePath>/ trailing-slash
+// prefix used for recursive listing and purging. Dependency names route
+// through packages.StoragePath just like packageVolumePath.
 func packagePrefix(repo, name string) string {
-	return fmt.Sprintf("%s/%s/%s/", PackagesVolumePrefix, repo, name)
+	return fmt.Sprintf("%s/%s/%s/", PackagesVolumePrefix, repo, packages.StoragePath(name))
 }
 
 type FilesystemName struct {
@@ -286,56 +402,54 @@ func (s *SystemControllerHandlers) listPackageVolumes(c *echo.Context) error {
 		return err
 	}
 
-	// Group volumes by repo/name key.
+	// Group volumes by (repo, pretty name). Pretty name is used as both
+	// the grouping key and the display name so dep volumes surface as
+	// "parent/key" instead of the ugly flat effective form. Different
+	// packages at different effective positions cannot share a pretty
+	// name within the same repo because StoragePath/PrettyName are
+	// deterministic functions of the effective name.
 	type groupKey struct {
 		repo string
-		name string
+		name string // pretty display form
 	}
 	groups := map[groupKey][]PackageVolume{}
-	nameToRepos := map[string]map[string]bool{} // package name → set of repos
+	nameToRepos := map[string]map[string]bool{} // pretty name → set of repos
 
 	for _, f := range list {
-		var prefix, state string
-		if after, ok := strings.CutPrefix(f.Name, PackagesVolumePrefix+"/"); ok {
-			prefix = after
-			state = "installed"
-		} else if after, ok := strings.CutPrefix(f.Name, UninstalledVolumePrefix+"/"); ok {
-			prefix = after
-			state = "uninstalled"
-		} else {
+		p, ok := parseInstalledPath(f.Name)
+		if !ok {
+			continue
+		}
+		// Skip any intermediate (bare package, dep-key, or version-only)
+		// subvolume — listPackageVolumes only surfaces actual volume
+		// leaves, which require both a version and a volume name.
+		if p.version == "" || p.volName == "" {
+			continue
+		}
+		if !req.IncludeUninstalled && p.state == "uninstalled" {
 			continue
 		}
 
-		if !req.IncludeUninstalled && state == "uninstalled" {
-			continue
-		}
+		subPath := p.version + "/" + p.volName
 
-		// Parse: repo/name/version/volName
-		parts := strings.SplitN(prefix, "/", 4)
-		if len(parts) < 4 {
-			continue // intermediate subvolume, skip
-		}
-
-		repo := parts[0]
-		pkgName := parts[1]
-		subPath := parts[2] + "/" + parts[3] // version/volName
-
-		key := groupKey{repo: repo, name: pkgName}
+		key := groupKey{repo: p.repo, name: p.prettyName}
 		groups[key] = append(groups[key], PackageVolume{
 			Name:         subPath,
 			InternalName: f.Name,
-			Repo:         repo,
+			Repo:         p.repo,
 			Quota:        f.Quota,
-			State:        state,
+			State:        p.state,
 		})
 
-		if nameToRepos[pkgName] == nil {
-			nameToRepos[pkgName] = map[string]bool{}
+		if nameToRepos[p.prettyName] == nil {
+			nameToRepos[p.prettyName] = map[string]bool{}
 		}
-		nameToRepos[pkgName][repo] = true
+		nameToRepos[p.prettyName][p.repo] = true
 	}
 
-	// Build result, detecting name collisions.
+	// Build result, detecting cross-repo name collisions and
+	// disambiguating by prefixing with the repo name when two repos
+	// expose a package with the same pretty form.
 	result := make([]PackageVolumeGroup, 0, len(groups))
 	for key, vols := range groups {
 		displayName := key.name

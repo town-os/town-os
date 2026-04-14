@@ -145,6 +145,24 @@ func TestValidateRejectsDepSeparatorInPackageName(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsSubpackagesNameAndKey(t *testing.T) {
+	// "subpackages" is the encapsulator directory name that groups deps
+	// under their parent on disk. A top-level package or dep key by that
+	// name would collide with the ListInstalled walker and corrupt dep
+	// enumeration, so both validators must reject it at compile / load.
+	if err := ValidatePackageName("subpackages"); !errors.Is(err, ErrInvalidDependencyName) {
+		t.Errorf("ValidatePackageName(\"subpackages\"): expected ErrInvalidDependencyName, got %v", err)
+	}
+	if err := ValidateDependencyName("subpackages"); !errors.Is(err, ErrInvalidDependencyName) {
+		t.Errorf("ValidateDependencyName(\"subpackages\"): expected ErrInvalidDependencyName, got %v", err)
+	}
+	// Negative control: names that merely CONTAIN "subpackages" as a
+	// substring are fine.
+	if err := ValidatePackageName("my-subpackages-app"); err != nil {
+		t.Errorf("ValidatePackageName(\"my-subpackages-app\"): unexpected error %v", err)
+	}
+}
+
 func TestCompileRejectsInvalidDependencyKey(t *testing.T) {
 	ip := InputPackage{
 		Image: InputPackageImage{URL: "myapp:latest"},

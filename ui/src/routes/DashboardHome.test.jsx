@@ -231,32 +231,6 @@ describe('DashboardHome', () => {
     })
   })
 
-  it('shows active state text for each service', async () => {
-    mockUnitsResponse = {
-      entries: [
-        { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
-      ],
-    }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByText('active')).toBeTruthy()
-    })
-  })
-
-  it('shows service description when available', async () => {
-    mockUnitsResponse = {
-      entries: [
-        { Name: 'town-os-package--default-app-1.0.service', package_identifier: 'default/app@1.0', ActiveState: 'active', package_description: 'My application' },
-      ],
-    }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByText('My application')).toBeTruthy()
-    })
-  })
-
   it('does not show services panel when no units', async () => {
     mockUnitsResponse = { entries: [] }
     mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
@@ -314,7 +288,7 @@ describe('DashboardHome', () => {
     })
   })
 
-  it('renders URL notes as external links pointing at the URL', async () => {
+  it('renders https URL notes as external links pointing at the URL', async () => {
     mockUnitsResponse = {
       entries: [
         { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
@@ -322,17 +296,35 @@ describe('DashboardHome', () => {
     }
     mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
-      notes: { 'Web UI': 'http://localhost:8080' },
+      notes: { 'Web UI': 'https://myapp.example.com' },
       note_types: { 'Web UI': 'url' },
     }))
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText('http://localhost:8080')).toBeTruthy()
+      expect(screen.getByText('https://myapp.example.com')).toBeTruthy()
     })
-    const link = screen.getByText('http://localhost:8080').closest('a')
+    const link = screen.getByText('https://myapp.example.com').closest('a')
     expect(link).toBeTruthy()
-    expect(link.getAttribute('href')).toBe('http://localhost:8080')
+    expect(link.getAttribute('href')).toBe('https://myapp.example.com')
     expect(link.getAttribute('target')).toBe('_blank')
+  })
+
+  it('hides non-https URL notes from the dashboard row', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
+      notes: { 'Web UI': 'http://myapp.example.com' },
+      note_types: { 'Web UI': 'url' },
+    }))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('myapp')).toBeTruthy()
+    })
+    expect(screen.queryByText('http://myapp.example.com')).toBeNull()
   })
 
   it('hides non-URL notes (email, phone) from the dashboard row', async () => {
@@ -370,12 +362,45 @@ describe('DashboardHome', () => {
     expect(nameLink.getAttribute('href')).toBe('/dashboard/packages')
   })
 
+  it('links the status icon to the services panel', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
+      ],
+    }
+    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    const statusLink = await screen.findByRole('link', { name: 'nginx status: active' })
+    expect(statusLink.getAttribute('href')).toBe('/dashboard/system')
+  })
+
   it('hides dependency sub-packages from the services panel', async () => {
     mockUnitsResponse = {
       entries: [
-        { Name: 'town-os-package--default-jitsi-1.0.service', package_identifier: 'default/jitsi@1.0', ActiveState: 'active', package_description: '' },
-        { Name: 'town-os-package--default-jitsi--dep--prosody-1.0.service', package_identifier: 'default/jitsi--dep--prosody@1.0', ActiveState: 'active', package_description: '' },
-        { Name: 'town-os-package--default-jitsi--dep--jicofo-1.0.service', package_identifier: 'default/jitsi--dep--jicofo@1.0', ActiveState: 'active', package_description: '' },
+        {
+          Name: 'town-os-package--default-jitsi-1.0.service',
+          package_identifier: 'default/jitsi@1.0',
+          display_identifier: 'default/jitsi@1.0',
+          is_dependency: false,
+          ActiveState: 'active',
+          package_description: '',
+        },
+        {
+          Name: 'town-os-package--default-jitsi--dep--prosody-1.0.service',
+          package_identifier: 'default/jitsi--dep--prosody@1.0',
+          display_identifier: 'default/jitsi/prosody@1.0',
+          is_dependency: true,
+          ActiveState: 'active',
+          package_description: '',
+        },
+        {
+          Name: 'town-os-package--default-jitsi--dep--jicofo-1.0.service',
+          package_identifier: 'default/jitsi--dep--jicofo@1.0',
+          display_identifier: 'default/jitsi/jicofo@1.0',
+          is_dependency: true,
+          ActiveState: 'active',
+          package_description: '',
+        },
       ],
     }
     mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
@@ -383,6 +408,9 @@ describe('DashboardHome', () => {
     await waitFor(() => {
       expect(screen.getByText('jitsi')).toBeTruthy()
     })
+    // Neither the flat nor pretty dependency identifier should render.
+    expect(screen.queryByText('jitsi/prosody')).toBeNull()
+    expect(screen.queryByText('jitsi/jicofo')).toBeNull()
     expect(screen.queryByText('jitsi--dep--prosody')).toBeNull()
     expect(screen.queryByText('jitsi--dep--jicofo')).toBeNull()
   })

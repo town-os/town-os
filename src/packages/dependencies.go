@@ -7,6 +7,13 @@ import "strings"
 // produces effective name "myapp--dep--db".
 const DependencySeparator = "--dep--"
 
+// SubpackagesDir is the reserved subvolume name used to encapsulate dependency
+// packages on disk underneath their parent. An effective dependency name like
+// "parent--dep--key" maps to the storage path "parent/subpackages/key" — the
+// parent's install dir contains a `subpackages` subvolume that groups every
+// dep keyed by its dep key, recursively.
+const SubpackagesDir = "subpackages"
+
 // DependenciesFile is the filename used to persist dependency records alongside
 // the installed package.
 const DependenciesFile = "dependencies.json"
@@ -52,4 +59,44 @@ func ParentName(name string) string {
 		return name
 	}
 	return name[:idx]
+}
+
+// StoragePath translates a flat effective name such as
+// "parent--dep--key--dep--sub" into the nested on-disk form
+// "parent/subpackages/key/subpackages/sub". Standalone package names (no
+// DependencySeparator) pass through unchanged. This is the single source of
+// truth for disk-layout nesting — every call site that previously joined the
+// flat name under installed/<repo>/ routes through this helper.
+func StoragePath(name string) string {
+	segs := strings.Split(name, DependencySeparator)
+	if len(segs) == 1 {
+		return segs[0]
+	}
+	var b strings.Builder
+	// Pre-compute an approximate cap: parent + (sep + subpackages + sep) * (n-1).
+	b.Grow(len(name) + (len(SubpackagesDir)+2)*(len(segs)-1))
+	b.WriteString(segs[0])
+	for _, s := range segs[1:] {
+		b.WriteByte('/')
+		b.WriteString(SubpackagesDir)
+		b.WriteByte('/')
+		b.WriteString(s)
+	}
+	return b.String()
+}
+
+// ParseStoragePath reverses StoragePath: "parent/subpackages/key/subpackages/sub"
+// → "parent--dep--key--dep--sub". Input paths without the SubpackagesDir
+// marker are returned unchanged, so standalone names round-trip cleanly.
+func ParseStoragePath(relPath string) string {
+	return strings.ReplaceAll(relPath, "/"+SubpackagesDir+"/", DependencySeparator)
+}
+
+// PrettyName returns the human-facing display form for a dependency-aware
+// name, using '/' as the segment separator so deps render as "parent/key"
+// instead of "parent--dep--key". Standalone names pass through unchanged.
+// This is the form surfaced on display_identifier API fields for UI / CLI
+// consumers that want to reflect the actual packaging structure.
+func PrettyName(name string) string {
+	return strings.ReplaceAll(name, DependencySeparator, "/")
 }

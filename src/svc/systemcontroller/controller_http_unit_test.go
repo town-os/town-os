@@ -118,6 +118,70 @@ func TestHTTPListUnitsFiltersUninstalledUnits(t *testing.T) {
 	if units.Entries[0].PackageIdentifier != "repo/foo@1.0" {
 		t.Fatalf("expected package_identifier %q, got %q", "repo/foo@1.0", units.Entries[0].PackageIdentifier)
 	}
+	// Standalone packages produce an identical display identifier: the
+	// PrettyName of a no-separator name is itself.
+	if units.Entries[0].DisplayIdentifier != "repo/foo@1.0" {
+		t.Fatalf("expected display_identifier %q, got %q", "repo/foo@1.0", units.Entries[0].DisplayIdentifier)
+	}
+	if units.Entries[0].IsDependency {
+		t.Fatal("standalone package must not be flagged as dependency")
+	}
+}
+
+func TestHTTPListUnitsExposesPrettyNameForDependencies(t *testing.T) {
+	c, sd, inst := initSystemdTestClient(t)
+
+	// A parent with a dep: both should surface from ListUnits. The dep's
+	// flat package_identifier keeps the --dep-- form (so /packages/...
+	// call-backs continue to work); the display_identifier uses slashes
+	// and IsDependency is true.
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "core", Name: "gitea", Version: "1.0"},
+		{Repo: "core", Name: "gitea--dep--postgres", Version: "15.0"},
+	}
+
+	sd.Units = []systemd.UnitStatus{
+		{Name: "town-os-package--core-gitea-1.0.service", ActiveState: "active"},
+		{Name: "town-os-package--core-gitea--dep--postgres-15.0.service", ActiveState: "active"},
+	}
+
+	units, err := c.ListUnits(context.TODO(), ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnits: %v", err)
+	}
+	if len(units.Entries) != 2 {
+		t.Fatalf("expected 2 units, got %d: %+v", len(units.Entries), units.Entries)
+	}
+
+	byName := map[string]UnitListEntry{}
+	for _, e := range units.Entries {
+		byName[e.Name] = e
+	}
+
+	parent, ok := byName["town-os-package--core-gitea-1.0.service"]
+	if !ok {
+		t.Fatal("parent unit missing")
+	}
+	if parent.PackageIdentifier != "core/gitea@1.0" || parent.DisplayIdentifier != "core/gitea@1.0" {
+		t.Errorf("parent identifiers: package=%q display=%q", parent.PackageIdentifier, parent.DisplayIdentifier)
+	}
+	if parent.IsDependency {
+		t.Error("parent must not be flagged as dependency")
+	}
+
+	dep, ok := byName["town-os-package--core-gitea--dep--postgres-15.0.service"]
+	if !ok {
+		t.Fatal("dep unit missing")
+	}
+	if dep.PackageIdentifier != "core/gitea--dep--postgres@15.0" {
+		t.Errorf("dep package_identifier = %q, want core/gitea--dep--postgres@15.0", dep.PackageIdentifier)
+	}
+	if dep.DisplayIdentifier != "core/gitea/postgres@15.0" {
+		t.Errorf("dep display_identifier = %q, want core/gitea/postgres@15.0", dep.DisplayIdentifier)
+	}
+	if !dep.IsDependency {
+		t.Error("dep must be flagged as dependency")
+	}
 }
 
 func TestHTTPSetUnitStatusStart(t *testing.T) {

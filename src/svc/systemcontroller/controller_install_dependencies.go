@@ -287,10 +287,20 @@ func (s *SystemControllerHandlers) installDependencies(
 	return records, envVars, nil
 }
 
-// uninstallDependencies removes all dependencies for a parent package by
-// reading the persisted dependency records. Dependencies are uninstalled in
-// reverse order (parent first, then dependencies).
-func (s *SystemControllerHandlers) uninstallDependencies(ctx context.Context, repoName, pkgName string, purgeVolumes bool) {
+// uninstallDependencies removes metadata for every dependency of a parent
+// package: DNS records, systemd units, per-package network state files,
+// and install records (the hardlinked <version>.yaml, disabled marker,
+// and dependencies.json under the dep's nested install dir).
+//
+// Volume operations are intentionally NOT performed here. Dependency
+// volumes live physically nested under the parent's install tree
+// (installed/<repo>/<parent>/subpackages/<key>/<version>/<vol>), so a
+// cascade-time per-dep rename would conflict with the parent's own
+// top-level rename one step later when both try to materialize the same
+// uninstalled/<repo>/<parent> subtree. Instead, the top-level uninstall
+// handler does a single atomic parent-dir rename (or a single recursive
+// purge) that carries every nested dep subvolume with it in one op.
+func (s *SystemControllerHandlers) uninstallDependencies(ctx context.Context, repoName, pkgName string) {
 	inst := s.Controller.GetInstaller()
 
 	deps, err := inst.LoadDependencies(repoName, pkgName)
@@ -303,38 +313,23 @@ func (s *SystemControllerHandlers) uninstallDependencies(ctx context.Context, re
 	}
 
 	for depKey, rec := range deps {
-		// Recursively uninstall sub-dependencies first.
-		s.uninstallDependencies(ctx, rec.Repo, rec.EffectiveName, purgeVolumes)
+		// Recursively uninstall sub-dependencies first so that deep
+		// trees are torn down leaves-up for metadata, matching the
+		// Wants/Before=systemd ordering inside a dependency chain.
+		s.uninstallDependencies(ctx, rec.Repo, rec.EffectiveName)
 
-		// Unregister DNS.
 		s.unregisterPackageDNS(ctx, rec.Repo, rec.Package, rec.EffectiveName, rec.Version)
 
-		// Uninstall systemd units.
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
 			if err := s.uninstallPackageUnits(ctx, sd, rec.Repo, rec.EffectiveName, rec.Version); err != nil {
 				slog.Debug(fmt.Sprintf("uninstall dep %q units: %v", depKey, err))
 			}
 		}
 
-		// Remove network state.
 		s.removePackageNetworkState(rec.Repo, rec.EffectiveName, rec.Version)
 
-		// Uninstall package record.
 		if err := inst.Uninstall(rec.Repo, rec.EffectiveName, rec.Version); err != nil {
 			slog.Debug(fmt.Sprintf("uninstall dep %q record: %v", depKey, err))
-		}
-
-		// Handle volumes.
-		if purgeVolumes {
-			if err := s.purgePackageVolumes(rec.Repo, rec.EffectiveName); err != nil {
-				slog.Debug(fmt.Sprintf("purge dep %q volumes: %v", depKey, err))
-			}
-		} else if st := s.Controller.GetStorage(); st != nil {
-			src := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, rec.Repo, rec.EffectiveName)
-			dst := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, rec.Repo, rec.EffectiveName)
-			if err := st.RenameFilesystem(src, dst); err != nil {
-				slog.Debug(fmt.Sprintf("preserve dep %q volumes: rename %s -> %s: %v", depKey, src, dst, err))
-			}
 		}
 	}
 }

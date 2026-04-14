@@ -293,10 +293,16 @@ func ValidateTemplatePath(path string) error {
 }
 
 // ValidateDependencyName checks that a dependency key follows the volume
-// naming convention (alphanumeric with dots, dashes, and underscores).
+// naming convention (alphanumeric with dots, dashes, and underscores) and
+// is not the reserved SubpackagesDir name used to encapsulate dep storage
+// on disk. Using "subpackages" as a dep key would collide with the
+// nesting container directory and corrupt the installed-package walker.
 func ValidateDependencyName(name string) error {
 	if !volumeNameRegexp.MatchString(name) {
 		return fmt.Errorf("%w: %q", ErrInvalidDependencyName, name)
+	}
+	if name == SubpackagesDir {
+		return fmt.Errorf("%w: %q is a reserved subpackages directory name", ErrInvalidDependencyName, name)
 	}
 	return nil
 }
@@ -311,10 +317,16 @@ func ValidateDependencySpec(dep InputPackageDependency) error {
 }
 
 // ValidatePackageName checks that a package name does not contain the
-// dependency separator, which is reserved for dependency namespacing.
+// dependency separator (reserved for dependency namespacing) and is not
+// the reserved SubpackagesDir encapsulator — a package literally called
+// "subpackages" would collide with the on-disk nesting container directory
+// produced by StoragePath.
 func ValidatePackageName(name string) error {
 	if strings.Contains(name, DependencySeparator) {
 		return fmt.Errorf("%w: %q contains reserved separator %q", ErrInvalidDependencyName, name, DependencySeparator)
+	}
+	if name == SubpackagesDir {
+		return fmt.Errorf("%w: %q is a reserved subpackages directory name", ErrInvalidDependencyName, name)
 	}
 	return nil
 }

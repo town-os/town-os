@@ -256,12 +256,13 @@ func (s *SystemControllerHandlers) purgeUninstalledVolumes(c *echo.Context) erro
 		return nil
 	}
 
-	uninstPrefix := fmt.Sprintf("%s/%s/%s/", UninstalledVolumePrefix, req.Repo, req.Name)
+	storagePath := packages.StoragePath(req.Name)
+	uninstPrefix := fmt.Sprintf("%s/%s/%s/", UninstalledVolumePrefix, req.Repo, storagePath)
 	if err := s.purgeVolumePrefix(st, uninstPrefix); err != nil {
 		return err
 	}
 
-	uninstParent := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, req.Name)
+	uninstParent := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, storagePath)
 	if err := st.RemoveFilesystem(uninstParent); err != nil {
 		slog.Debug(fmt.Sprintf("purge uninstalled parent %s: %v", uninstParent, err))
 	}

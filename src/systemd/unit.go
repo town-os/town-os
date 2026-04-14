@@ -338,7 +338,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	for _, name := range volNames {
 		vol := cfg.Volumes[name]
 		if vol.UID != nil && vol.GID != nil {
-			hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
+			hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, packages.StoragePath(cfg.PkgName), cfg.Version, name)
 			fmt.Fprintf(&b, "ExecStartPre=/bin/chown -R %d:%d %s\n", *vol.UID, *vol.GID, hostPath)
 		}
 	}
@@ -393,10 +393,12 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, " \\\n  -e %s=%s", k, cfg.Environment[k])
 	}
 
-	// Volume mounts.
+	// Volume mounts. Dependency pkg names translate to the nested
+	// storage path so the podman -v source matches what the install
+	// manager created on disk.
 	for _, name := range volNames {
 		vol := cfg.Volumes[name]
-		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, cfg.PkgName, cfg.Version, name)
+		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, packages.StoragePath(cfg.PkgName), cfg.Version, name)
 		fmt.Fprintf(&b, " \\\n  -v %s:%s:rw,z", hostPath, vol.Mountpoint)
 	}
 

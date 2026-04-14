@@ -17,10 +17,28 @@ import (
 type UnitListEntry struct {
 	systemd.UnitStatus
 
-	PackageIdentifier  string `json:"package_identifier,omitempty"`
+	// PackageIdentifier is the raw flat form "<repo>/<effectiveName>@<version>".
+	// For dependency packages the effective name contains "--dep--", e.g.
+	// "core/gitea--dep--postgres@1.0". This is the form callers feed back
+	// to other APIs (`/packages/installed/info`, `/packages/uninstall`, …)
+	// that expect the effective name, so it stays stable across the
+	// pretty-name refactor.
+	PackageIdentifier string `json:"package_identifier,omitempty"`
+	// DisplayIdentifier is the user-facing pretty form
+	// "<repo>/<PrettyName(effectiveName)>@<version>". For standalone
+	// packages DisplayIdentifier == PackageIdentifier. For deps the
+	// "--dep--" separators are replaced with "/" so the identifier
+	// reflects the nested on-disk structure, e.g.
+	// "core/gitea/postgres@1.0".
+	DisplayIdentifier  string `json:"display_identifier,omitempty"`
 	PackageDescription string `json:"package_description,omitempty"`
-	NCFailed           bool   `json:"nc_failed,omitempty"`
-	NCActive           bool   `json:"nc_active,omitempty"`
+	// IsDependency is true for unit entries whose package was installed
+	// as a dependency of another package. Clients use this instead of
+	// string-matching "--dep--" to decide whether to roll a unit up
+	// under its parent in dashboard-style views.
+	IsDependency bool `json:"is_dependency,omitempty"`
+	NCFailed     bool `json:"nc_failed,omitempty"`
+	NCActive     bool `json:"nc_active,omitempty"`
 }
 
 type SetStatusRequest struct {
@@ -48,8 +66,14 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 		}
 	}
 
-	// Build unit name → package identity/description map.
+	// Build unit name → package identity/description map. Each installed
+	// entry produces both the raw flat identifier (used for API
+	// round-tripping) and the pretty display identifier (used for UI
+	// rendering) so downstream consumers don't have to duplicate the
+	// translation logic.
 	identityMap := map[string]string{}
+	displayMap := map[string]string{}
+	isDepMap := map[string]bool{}
 	descriptionMap := map[string]string{}
 	if inst := s.Controller.GetInstaller(); inst != nil {
 		installed, listErr := inst.ListInstalled()
@@ -62,6 +86,8 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 				}
 				unitName := systemd.UnitName(pi.Repo, pi.Name, pi.Version)
 				identityMap[unitName] = fmt.Sprintf("%s/%s@%s", pi.Repo, pi.Name, pi.Version)
+				displayMap[unitName] = fmt.Sprintf("%s/%s@%s", pi.Repo, packages.PrettyName(pi.Name), pi.Version)
+				isDepMap[unitName] = packages.IsDependency(pi.Name)
 
 				// Load only the specific package YAML instead of all packages.
 				if rr != nil {
@@ -86,6 +112,8 @@ func (s *SystemControllerHandlers) listUnits(c *echo.Context) error {
 		entry := UnitListEntry{
 			UnitStatus:         u,
 			PackageIdentifier:  pkgID,
+			DisplayIdentifier:  displayMap[u.Name],
+			IsDependency:       isDepMap[u.Name],
 			PackageDescription: descriptionMap[u.Name],
 		}
 

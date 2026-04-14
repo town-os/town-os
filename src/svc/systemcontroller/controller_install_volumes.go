@@ -170,8 +170,9 @@ func (s *SystemControllerHandlers) provisionVolumes(repoName, effectiveName, ver
 	}
 
 	if reuseVolumes {
-		src := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repoName, effectiveName)
-		dst := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repoName, effectiveName)
+		storage := packages.StoragePath(effectiveName)
+		src := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repoName, storage)
+		dst := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repoName, storage)
 		if err := st.RenameFilesystem(src, dst); err != nil {
 			slog.Debug(fmt.Sprintf("reuse volumes: rename %s -> %s: %v", src, dst, err))
 		}
@@ -318,24 +319,28 @@ func (s *SystemControllerHandlers) purgePackageVolumes(repo, name string) error 
 		return nil
 	}
 
-	// Purge from installed/<repo>/<name>/.
+	storage := packages.StoragePath(name)
+
+	// Purge from installed/<repo>/<storagePath>/. With the nested layout
+	// this recursively removes every dep subvolume (including every
+	// `subpackages/<key>/...` subtree) rooted at the parent.
 	if err := s.purgeVolumePrefix(st, packagePrefix(repo, name)); err != nil {
 		return err
 	}
 
-	// Remove the installed/<repo>/<name> parent subvolume itself.
-	parentPath := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repo, name)
+	// Remove the installed/<repo>/<storagePath> parent subvolume itself.
+	parentPath := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repo, storage)
 	if err := st.RemoveFilesystem(parentPath); err != nil {
 		slog.Debug(fmt.Sprintf("purge parent volume %s: %v", parentPath, err))
 	}
 
-	// Also purge from uninstalled/<repo>/<name>/.
-	uninstPrefix := fmt.Sprintf("%s/%s/%s/", UninstalledVolumePrefix, repo, name)
+	// Also purge from uninstalled/<repo>/<storagePath>/.
+	uninstPrefix := fmt.Sprintf("%s/%s/%s/", UninstalledVolumePrefix, repo, storage)
 	if err := s.purgeVolumePrefix(st, uninstPrefix); err != nil {
 		return err
 	}
 
-	uninstParent := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repo, name)
+	uninstParent := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repo, storage)
 	if err := st.RemoveFilesystem(uninstParent); err != nil {
 		slog.Debug(fmt.Sprintf("purge uninstalled parent volume %s: %v", uninstParent, err))
 	}

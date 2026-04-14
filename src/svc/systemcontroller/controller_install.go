@@ -500,9 +500,13 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 	}
 
 	pw.Step("uninstalling_dependencies")
-	s.uninstallDependencies(ctx, req.Repo, effectiveName, req.PurgeVolumes)
+	s.uninstallDependencies(ctx, req.Repo, effectiveName)
 
-	// Volume handling after uninstall.
+	// Volume handling after uninstall. Dep volumes live nested under the
+	// parent's on-disk tree, so a single top-level purge (or rename to
+	// the uninstalled/ mirror) atomically handles every dep subtree in
+	// one operation. The uninstallDependencies cascade above never
+	// touched volumes — only metadata.
 	pw.Step("cleaning_volumes")
 	if req.PurgeVolumes {
 		if err := s.purgePackageVolumes(req.Repo, effectiveName); err != nil {
@@ -517,8 +521,9 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		}
 
 		if !otherVersionInstalled {
-			src := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, req.Repo, effectiveName)
-			dst := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, effectiveName)
+			storage := packages.StoragePath(effectiveName)
+			src := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, req.Repo, storage)
+			dst := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, storage)
 			if err := st.RenameFilesystem(src, dst); err != nil {
 				slog.Debug(fmt.Sprintf("preserve volumes: rename %s -> %s: %v", src, dst, err))
 			}

@@ -36,6 +36,16 @@ func (r *Repository) LoadPackages(baseDir string) (PackageTable, error) {
 			continue
 		}
 
+		// Reject package names that collide with Town OS reserved
+		// identifiers (the --dep-- separator or the "subpackages"
+		// encapsulator directory). Skipping instead of erroring lets the
+		// rest of the repository load — a single bad directory must not
+		// break every other package in the repo.
+		if err := ValidatePackageName(name.Name()); err != nil {
+			logrus.Warnf("skipping reserved package name %s/%s: %v", r.Name, name.Name(), err)
+			continue
+		}
+
 		nameDir := filepath.Join(packagesDir, name.Name())
 		versions, err := os.ReadDir(nameDir)
 		if err != nil {
@@ -142,9 +152,12 @@ func (rr *RepositoryRoot) LoadPackage(repoName, pkgName, version string) (_ Inpu
 // LoadInstalledPackage loads a single InputPackage from the installed directory
 // by name and version. This is needed for dependency packages whose effective
 // name differs from the source package name in the repository. The installed
-// YAML is a hard link to the repo source file.
+// YAML is a hard link to the repo source file. Dependency effective names are
+// translated to the nested storage path (parent/subpackages/key/...) via
+// StoragePath before the file open, so this loader stays in sync with the
+// InstallManager's on-disk layout.
 func (rr *RepositoryRoot) LoadInstalledPackage(repoName, pkgName, version string) (_ InputPackage, err error) {
-	fn, err := SafePath(rr.BaseDir, InstalledDir, repoName, pkgName, version+".yaml")
+	fn, err := SafePath(rr.BaseDir, InstalledDir, repoName, StoragePath(pkgName), version+".yaml")
 	if err != nil {
 		return InputPackage{}, err
 	}

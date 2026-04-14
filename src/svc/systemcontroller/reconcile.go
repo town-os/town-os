@@ -337,7 +337,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			if quota == 0 {
 				quota = defQuota
 			}
-			fsName := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, volName)
+			fsName := packageVolumePath(repoName, pi.Name, pi.Version, volName)
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 				if err := cfg.Storage.ModifyFilesystem(fsName, storage.Filesystem{Name: fsName, Quota: quota}); err != nil {
 					return nil, fmt.Errorf("storage volume %s: %w", fsName, err)
@@ -349,7 +349,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		// empty volumes during reconciliation.
 		if len(ip.Archives) > 0 {
 			for _, archive := range ip.Archives {
-				volPath := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, archive.Volume)
+				volPath := packageVolumePath(repoName, pi.Name, pi.Version, archive.Volume)
 				targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
 				entries, err := os.ReadDir(targetPath)
 				if err != nil || len(entries) > 0 {
@@ -363,7 +363,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 
 		// Proton app extraction: extract from app_image into empty volumes.
 		if compiled.Proton != nil {
-			volPath := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, compiled.Proton.Volume)
+			volPath := packageVolumePath(repoName, pi.Name, pi.Version, compiled.Proton.Volume)
 			targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
 			entries, err := os.ReadDir(targetPath)
 			if err == nil && len(entries) == 0 {
@@ -378,7 +378,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			if vol.Git == "" {
 				continue
 			}
-			volPath := fmt.Sprintf("%s/%s/%s/%s/%s", PackagesVolumePrefix, repoName, pi.Name, pi.Version, volName)
+			volPath := packageVolumePath(repoName, pi.Name, pi.Version, volName)
 			targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
 			entries, err := os.ReadDir(targetPath)
 			if err != nil || len(entries) > 0 {
@@ -823,7 +823,7 @@ func reconcileApplyTemplates(cfg ReconcileConfig, compiled *packages.Package, re
 	}
 
 	if err := packages.ApplyPackageTemplates(compiled.Templates, data, func(volName string) string {
-		return fmt.Sprintf("%s/%s/%s/%s/%s/%s", cfg.BtrfsBasePath, PackagesVolumePrefix, pi.Repo, pi.Name, pi.Version, volName)
+		return fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, packageVolumePath(pi.Repo, pi.Name, pi.Version, volName))
 	}); err != nil {
 		slog.Debug(fmt.Sprintf("reconcile apply templates %s: %v", pi.String(), err))
 	}

@@ -98,8 +98,10 @@ func TestListFilesystemsSkipsConcurrentlyDeletedSubvol(t *testing.T) {
 				t.Fatalf("expected *MockBtrFSController, got %T", mock.Controller)
 			}
 			errToInject := errors.New(tc.errMsg) //nolint:err113 // simulating a real btrfs error payload string
+			// BasePath is "" for InitBtrFSMock, so filepath.Join produces
+			// bare "gone" — match on either form.
 			ctrl.QGroupShowFunc = func(path string) (uint64, error) {
-				if strings.HasSuffix(path, "/gone") {
+				if path == "gone" || strings.HasSuffix(path, "/gone") {
 					return 0, errToInject
 				}
 				return 4096, nil

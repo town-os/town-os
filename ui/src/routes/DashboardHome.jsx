@@ -29,12 +29,6 @@ import {
   ExternalLink,
 } from 'lucide-react'
 
-// Mirrors packages.DependencySeparator — any unit whose parsed name contains
-// this substring is a dependency child and is rolled up under its parent on
-// the dashboard, same convention used by the /packages and /packages/installed
-// handlers (see filterDependencyInstalls).
-const DEPENDENCY_SEPARATOR = '--dep--'
-
 function StatCard({ to, icon, label, value, description }) {
   const IconComponent = icon
   return (
@@ -91,15 +85,22 @@ function CopyButton({ text, t }) {
   )
 }
 
+// parsePackageIdentifier splits an identifier of the form
+// "<repo>/<name>@<version>" into its components. The name segment is the
+// portion between the first slash and the final @, so it correctly
+// handles pretty dependency identifiers like "core/gitea/postgres@1.0"
+// (returning name = "gitea/postgres"). When called on a raw
+// package_identifier the name still carries the flat --dep-- form, which
+// is what /packages/installed/info expects as its name argument.
 function parsePackageIdentifier(id) {
   if (!id) return null
-  const atIdx = id.indexOf('@')
+  const atIdx = id.lastIndexOf('@')
   if (atIdx === -1) return null
-  const repoName = id.slice(0, atIdx)
+  const left = id.slice(0, atIdx)
   const version = id.slice(atIdx + 1)
-  const slashIdx = repoName.indexOf('/')
+  const slashIdx = left.indexOf('/')
   if (slashIdx === -1) return null
-  return { repo: repoName.slice(0, slashIdx), name: repoName.slice(slashIdx + 1), version }
+  return { repo: left.slice(0, slashIdx), name: left.slice(slashIdx + 1), version }
 }
 
 function StatusIcon({ state }) {
@@ -108,13 +109,13 @@ function StatusIcon({ state }) {
   return <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
 }
 
-function urlNotes(info) {
+function httpsNotes(info) {
   if (!info || !info.notes) return []
   const out = []
   for (const [label, value] of Object.entries(info.notes)) {
-    if (info.note_types?.[label] === 'url') {
-      out.push({ label, value })
-    }
+    if (info.note_types?.[label] !== 'url') continue
+    if (typeof value !== 'string' || !value.startsWith('https://')) continue
+    out.push({ label, value })
   }
   return out
 }
@@ -128,48 +129,50 @@ function ServicesPanel({ units, notesMap, t }) {
         <CardTitle className="text-sm font-medium">{t('dashboard.services_title')}</CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="space-y-2">
+        <div className="space-y-1">
           {units.map((unit) => {
-            const parsed = parsePackageIdentifier(unit.package_identifier)
-            const displayName = parsed ? parsed.name : unit.package_identifier
-            const links = urlNotes(notesMap[unit.package_identifier])
+            // Prefer the server-provided pretty identifier when present.
+            // It's the same as package_identifier for standalone packages
+            // and reflects the nested dep structure (parent/key) for deps.
+            const displayId = unit.display_identifier || unit.package_identifier
+            const displayParsed = parsePackageIdentifier(displayId)
+            const displayName = displayParsed ? displayParsed.name : displayId
+            const links = httpsNotes(notesMap[unit.package_identifier])
             return (
               <div
                 key={unit.Name}
-                className="flex items-start gap-3 rounded-md px-3 py-2 hover:bg-accent/50 transition-colors"
+                className="flex items-center gap-3 rounded-md px-3 py-1.5 hover:bg-accent/50 transition-colors min-w-0"
               >
-                <StatusIcon state={unit.ActiveState} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      to="/dashboard/packages"
-                      className="font-mono text-sm font-medium underline-offset-2 hover:underline"
-                    >
-                      {displayName}
-                    </Link>
-                    <span className="text-xs text-muted-foreground">{unit.ActiveState}</span>
+                <Link
+                  to="/dashboard/system"
+                  aria-label={t('dashboard.services_status_label', { name: displayName, state: unit.ActiveState })}
+                  className="shrink-0"
+                >
+                  <StatusIcon state={unit.ActiveState} />
+                </Link>
+                <Link
+                  to="/dashboard/packages"
+                  className="font-mono text-sm font-medium underline-offset-2 hover:underline shrink-0"
+                >
+                  {displayName}
+                </Link>
+                {links.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 min-w-0">
+                    {links.map(({ label, value }) => (
+                      <a
+                        key={label}
+                        href={value}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 min-w-0"
+                      >
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                        <span className="text-muted-foreground shrink-0">{label}:</span>
+                        <span className="font-mono truncate">{value}</span>
+                      </a>
+                    ))}
                   </div>
-                  {unit.package_description && (
-                    <p className="text-xs text-muted-foreground truncate">{unit.package_description}</p>
-                  )}
-                  {links.length > 0 && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-                      {links.map(({ label, value }) => (
-                        <a
-                          key={label}
-                          href={value}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 truncate"
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                          <span className="text-muted-foreground">{label}:</span>
-                          <span className="font-mono truncate">{value}</span>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             )
           })}
@@ -218,11 +221,11 @@ export default function DashboardHome() {
   )
   const units = useMemo(() => {
     const all = unitData.entries || []
-    return all.filter((unit) => {
-      const parsed = parsePackageIdentifier(unit.package_identifier)
-      if (!parsed) return true
-      return !parsed.name.includes(DEPENDENCY_SEPARATOR)
-    })
+    // Dependency services are rolled up under their parent on the
+    // dashboard — the server tells us which ones are deps via the
+    // is_dependency flag so we don't have to string-match the identifier
+    // or mirror the separator constant here.
+    return all.filter((unit) => !unit.is_dependency)
   }, [unitData.entries])
   const [notesMap, setNotesMap] = useState({})
   const notesFetchedRef = useRef(new Set())
