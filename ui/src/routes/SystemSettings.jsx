@@ -84,6 +84,10 @@ export default function SystemSettings() {
   async function handleSaveLanguage(e) {
     e.preventDefault()
     if (!selectedLocale) return
+    if (selectedLocale === localeData?.current) {
+      toast.info(t('settings.toast_nothing_to_do'))
+      return
+    }
     try {
       await getClient().setSetting('locale', selectedLocale)
       setLocale(selectedLocale)
@@ -130,6 +134,10 @@ export default function SystemSettings() {
       toast.error(t('settings.error_invalid_quota'))
       return
     }
+    if (bytes === currentQuota) {
+      toast.info(t('settings.toast_nothing_to_do'))
+      return
+    }
     try {
       await getClient().setSetting(DEFAULT_QUOTA_KEY, String(bytes))
       toast.success(t('settings.toast_quota_updated'))
@@ -164,6 +172,10 @@ export default function SystemSettings() {
     const bytes = unitToBytes(archiveSizeInput, archiveSizeUnit)
     if (bytes === null) {
       toast.error(t('settings.error_invalid_archive_size'))
+      return
+    }
+    if (bytes === currentMaxArchiveSize) {
+      toast.info(t('settings.toast_nothing_to_do'))
       return
     }
     try {
@@ -217,6 +229,10 @@ export default function SystemSettings() {
       toast.error(t('settings.error_invalid_timeout'))
       return
     }
+    if (secs === currentUnpackTimeout) {
+      toast.info(t('settings.toast_nothing_to_do'))
+      return
+    }
     try {
       await getClient().setSetting(ARCHIVE_UNPACK_TIMEOUT_KEY, String(secs))
       toast.success(t('settings.toast_timeout_updated'))
@@ -237,6 +253,10 @@ export default function SystemSettings() {
 
   async function handleSaveProtonImage(e) {
     e.preventDefault()
+    if (protonImageInput === currentProtonImage) {
+      toast.info(t('settings.toast_nothing_to_do'))
+      return
+    }
     try {
       await getClient().setSetting(PROTON_IMAGE_KEY, protonImageInput)
       toast.success(t('settings.toast_proton_image_updated'))
@@ -280,6 +300,10 @@ export default function SystemSettings() {
   async function handleSaveMonitoringBackend(e) {
     e.preventDefault()
     const wantBackend = monitoringBackendInput
+    if (wantBackend === currentMonitoringBackend) {
+      toast.info(t('settings.toast_nothing_to_do'))
+      return
+    }
     setMonitoringBackendSaving(true)
     toast.loading(t('settings.toast_monitoring_restarting'), { id: monitoringToastId.current })
     try {

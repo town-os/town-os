@@ -444,6 +444,7 @@ const enUS = {
   'settings.toast_monitoring_ready': 'Monitoring UI restarted ({backend})',
   'settings.toast_monitoring_timeout': 'Monitoring backend was saved, but the monitoring UI did not come back online in time. Check the service logs.',
   'settings.saving_btn': 'Saving...',
+  'settings.toast_nothing_to_do': 'There is nothing to be done',
 
   // --- DataTable ---
   'datatable.search_placeholder': 'Search...',

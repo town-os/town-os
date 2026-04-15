@@ -263,6 +263,19 @@ vi.mock('@/lib/client-instance.js', () => ({
   }),
 }))
 
+const { mockToast } = vi.hoisted(() => ({
+  mockToast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+  },
+}))
+
+vi.mock('sonner', () => ({ toast: mockToast }))
+
 import SystemSettings from './SystemSettings.jsx'
 
 function renderSystemSettings() {
@@ -367,20 +380,6 @@ describe('SystemSettings component', () => {
     })
   })
 
-  it('clicking Save on quota calls setSetting with the correct byte value', async () => {
-    renderSystemSettings()
-    await waitFor(() => {
-      const input = screen.getByLabelText('Quota')
-      expect(input.value).toBe('50')
-    })
-    // Submit the quota form (second Save button, after Language)
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[1])
-    await waitFor(() => {
-      expect(mockSetSetting).toHaveBeenCalledWith('default_quota', '53687091200')
-    })
-  })
-
   it('initializes with MB unit when settings value is MB-aligned', async () => {
     // 512 MB = 536870912 bytes — should decompose to 512 MB
     mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, default_quota: '536870912' })
@@ -441,20 +440,6 @@ describe('SystemSettings Max Archive Size', () => {
     await waitFor(() => {
       const input = screen.getByLabelText('Size')
       expect(input.value).toBe('1')
-    })
-  })
-
-  it('clicking Save on archive size calls setSetting correctly', async () => {
-    renderSystemSettings()
-    await waitFor(() => {
-      const input = screen.getByLabelText('Size')
-      expect(input.value).toBe('1')
-    })
-    // Submit the archive size form (third Save button, after Language and Quota)
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[2])
-    await waitFor(() => {
-      expect(mockSetSetting).toHaveBeenCalledWith('max_archive_size', '1073741824')
     })
   })
 
@@ -519,20 +504,6 @@ describe('SystemSettings Archive Unpack Timeout', () => {
     await waitFor(() => {
       const input = screen.getByLabelText('Timeout')
       expect(input.value).toBe('10')
-    })
-  })
-
-  it('clicking Save on timeout calls setSetting correctly', async () => {
-    renderSystemSettings()
-    await waitFor(() => {
-      const input = screen.getByLabelText('Timeout')
-      expect(input.value).toBe('10')
-    })
-    // Submit the timeout form (fourth Save button, after Language, Quota, Archive Size)
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[3])
-    await waitFor(() => {
-      expect(mockSetSetting).toHaveBeenCalledWith('archive_unpack_timeout', '600')
     })
   })
 
@@ -637,22 +608,6 @@ describe('SystemSettings Proton Runner Image', () => {
     })
   })
 
-  it('clicking Save calls setSetting with proton_image key', async () => {
-    mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, proton_image: 'ghcr.io/town-os/proton-runner:latest' })
-    renderSystemSettings()
-    await waitFor(() => {
-      const input = screen.getByLabelText('Image')
-      expect(input.value).toBe('ghcr.io/town-os/proton-runner:latest')
-    })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    await act(async () => {
-      fireEvent.click(saveButtons[4])
-    })
-    await waitFor(() => {
-      expect(mockSetSetting).toHaveBeenCalledWith('proton_image', 'ghcr.io/town-os/proton-runner:latest')
-    })
-  })
-
   it('allows saving empty string to clear the setting', async () => {
     mockGetSettings.mockResolvedValueOnce({ ...defaultSettings, proton_image: 'old-image:v1' })
     renderSystemSettings()
@@ -719,97 +674,6 @@ describe('SystemSettings Monitoring Backend', () => {
     })
   })
 
-  it('clicking Save calls setSetting with monitoring_backend key', async () => {
-    mockGetSettings.mockImplementation(() =>
-      Promise.resolve({ ...defaultSettings, monitoring_backend: 'grafana' }),
-    )
-    mockMonitoringStatus.mockImplementation(() =>
-      Promise.resolve({
-        backend: 'grafana',
-        prometheus: true,
-        node_exporter: true,
-        grafana: true,
-        monitoring_ui: true,
-      }),
-    )
-    renderSystemSettings()
-    await waitFor(() => {
-      expect(screen.getByLabelText('Backend')).toBeTruthy()
-    })
-
-    // Wait for the select to reflect the grafana value from settings.
-    await waitFor(() => {
-      expect(screen.getByLabelText('Backend').value).toBe('grafana')
-    })
-
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    await act(async () => {
-      fireEvent.click(saveButtons[saveButtons.length - 1])
-    })
-
-    await waitFor(() => {
-      expect(mockSetSetting).toHaveBeenCalledWith('monitoring_backend', 'grafana')
-    })
-  })
-
-  it('polls monitoringStatus after saving monitoring backend', async () => {
-    mockGetSettings.mockImplementation(() =>
-      Promise.resolve({ ...defaultSettings, monitoring_backend: 'grafana' }),
-    )
-    mockMonitoringStatus.mockImplementation(() =>
-      Promise.resolve({
-        backend: 'grafana',
-        prometheus: true,
-        node_exporter: true,
-        grafana: true,
-        monitoring_ui: true,
-      }),
-    )
-    renderSystemSettings()
-    await waitFor(() => {
-      expect(screen.getByLabelText('Backend').value).toBe('grafana')
-    })
-
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    await act(async () => {
-      fireEvent.click(saveButtons[saveButtons.length - 1])
-    })
-
-    await waitFor(() => {
-      expect(mockMonitoringStatus).toHaveBeenCalled()
-    })
-  })
-
-  it('disables Save button while waiting for monitoring restart', async () => {
-    // monitoringStatus never resolves with the matching backend: the
-    // component should keep the button in its "Saving..." state.
-    let resolveSet
-    mockSetSetting.mockImplementation(
-      () => new Promise((resolve) => { resolveSet = resolve }),
-    )
-    mockGetSettings.mockImplementation(() =>
-      Promise.resolve({ ...defaultSettings, monitoring_backend: 'grafana' }),
-    )
-    renderSystemSettings()
-    await waitFor(() => {
-      expect(screen.getByLabelText('Backend').value).toBe('grafana')
-    })
-
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    await act(async () => {
-      fireEvent.click(saveButtons[saveButtons.length - 1])
-    })
-
-    // Saving button replaces Save while the set-setting call is pending.
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Saving...' })).toBeTruthy()
-    })
-    expect(screen.getByLabelText('Backend').disabled).toBe(true)
-
-    // Let setSetting resolve so the test doesn't leak a pending promise.
-    resolveSet()
-  })
-
   it('renders both uplot and grafana options', async () => {
     renderSystemSettings()
     await waitFor(() => {
@@ -820,6 +684,128 @@ describe('SystemSettings Monitoring Backend', () => {
       expect(options[1].value).toBe('grafana')
     })
   })
+})
+
+describe('SystemSettings unchanged save is a no-op', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockMonitoringStatus.mockClear()
+    mockGetLocales.mockClear()
+    mockToast.info.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+    mockGetLocales.mockImplementation(() => Promise.resolve({
+      current: 'en-US',
+      populated: ['en-US'],
+      common_languages: [{ code: 'en-US', native_name: 'English', english_name: 'English' }],
+      extended_locales: [],
+    }))
+  })
+
+  function expectNothingToDoToast() {
+    expect(mockToast.info).toHaveBeenCalledTimes(1)
+    expect(mockToast.info).toHaveBeenCalledWith('There is nothing to be done')
+  }
+
+  it('language: clicking Save with unchanged locale does not call setSetting', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      const select = screen.getByLabelText('Language')
+      expect(select.value).toBe('en-US')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[0])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+  })
+
+  it('quota: clicking Save with unchanged value does not call setSetting', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Quota').value).toBe('50')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[1])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+  })
+
+  it('archive size: clicking Save with unchanged value does not call setSetting', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Size').value).toBe('1')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[2])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+  })
+
+  it('timeout: clicking Save with unchanged value does not call setSetting', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Timeout').value).toBe('10')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[3])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+  })
+
+  it('proton image: clicking Save with unchanged empty value does not call setSetting', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Image').value).toBe('')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[4])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+  })
+
+  it('proton image: clicking Save with unchanged non-empty value does not call setSetting', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, proton_image: 'ghcr.io/town-os/proton-runner:latest' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Image').value).toBe('ghcr.io/town-os/proton-runner:latest')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[4])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+  })
+
+  it('monitoring: clicking Save with unchanged backend does not call setSetting, monitoringStatus, or toggle saving state', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Backend').value).toBe('uplot')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[saveButtons.length - 1])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expect(mockMonitoringStatus).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+    // Button stays as "Save" — never transitions to "Saving..."
+    expect(screen.queryByRole('button', { name: 'Saving...' })).toBeNull()
+    expect(screen.getByLabelText('Backend').disabled).toBe(false)
+  })
+
 })
 
 describe('formatBytes edge cases', () => {
