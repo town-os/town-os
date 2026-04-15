@@ -69,8 +69,18 @@ Please the try the development build (`make dev` on any linux; see below for mor
 
 ## Prerequisites
 
+The fast path on a fresh machine is `make deps`:
+
+```bash
+make deps
+```
+
+This installs every host dependency (Go 1.25, podman, runc, btrfs-progs, libsystemd headers, golangci-lint, bun, qemu, build tools) on Arch-based and Debian/Ubuntu-based distros. It also runs `bun install` in `ui/` so the UI toolchain (eslint, vite, vitest) is ready for `make lint` and `make test`. Safe to re-run.
+
+Full list of what Town OS needs on the host:
+
 - Go 1.25+
-- [Bun](https://bun.sh) (JS runtime)
+- [Bun](https://bun.sh) (JS runtime; the `ui/` devDeps include eslint, vite, and vitest and are installed automatically by `make deps`)
 - Podman (rootful, with `sudo`) and `runc` runtime
 - QEMU (`qemu-system-x86_64`, `qemu-img`) for VM package support
 - btrfs-progs (`mkfs.btrfs`)
@@ -78,52 +88,36 @@ Please the try the development build (`make dev` on any linux; see below for mor
 - golangci-lint
 - Python 3 (used for port allocation in test targets)
 
-### Ubuntu
+If you prefer to install everything by hand, the commands below mirror what `make/deps.sh` does.
 
-You can install all dependencies at once using the provided script ([`install-ubuntu-deps.sh`](./install-ubuntu-deps.sh)):
-
-```bash
-./install-ubuntu-deps.sh
-exec $SHELL
-```
-
-After the script completes, `exec $SHELL` reloads your shell so that newly installed tools (like `bun` and `golangci-lint`) are available on your `PATH`.
-
-Or install them manually:
+### Ubuntu / Debian
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y golang btrfs-progs libsystemd-dev podman runc python3 unzip build-essential qemu-system-x86 qemu-utils
+sudo apt-get install -y build-essential pkg-config ca-certificates libsystemd-dev \
+    btrfs-progs podman runc python3 curl git unzip qemu-system-x86 qemu-utils
 ```
 
-Install [Bun](https://bun.sh):
+Install Go 1.25+ from <https://go.dev/dl/>, then:
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
-```
-
-Install [golangci-lint](https://golangci-lint.run/welcome/install/):
-
-```bash
 curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
+(cd ui && bun install)
 ```
 
 ### Arch Linux / Manjaro
 
 ```bash
-sudo pacman -S go podman runc btrfs-progs python qemu-full
+sudo pacman -Sy --needed base-devel pkgconf systemd btrfs-progs podman runc \
+    python curl git unzip qemu-base qemu-img golangci-lint go
 ```
 
-Install [Bun](https://bun.sh):
+Then:
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
-```
-
-Install [golangci-lint](https://golangci-lint.run/welcome/install/):
-
-```bash
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
+(cd ui && bun install)
 ```
 
 Optionally create a `.env` file with repository credentials for the **dev environment**:
@@ -152,14 +146,18 @@ If you're just trying things out, use the `stable` branch (the default). If you 
 
 Run `make dev` to build the test image, create a dev btrfs volume, start the backend container on port 5309, and launch the Vite dev server with hot reload. Once running, access the UI at `http://<hostname>:5173`.
 
-Ports 8080 (backend API) and 5173 (Vite dev server) must be accessible on the host.
+Ports 5309 (backend API) and 5173 (Vite dev server) must be accessible on the host.
 
-| Target           | Description                                                                     |
-| ---------------- | ------------------------------------------------------------------------------- |
-| `make dev`       | Start the full dev environment (backend + Vite dev server).                     |
-| `make dev-stop`  | Stop and remove the dev backend container.                                      |
-| `make dev-logs`  | Tail journalctl inside the running dev container.                               |
-| `make clean-dev` | Stop the dev container and tear down the dev btrfs volume. Removes `dev-data/`. |
+| Target               | Description                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| `make dev`           | Start the full dev environment (backend + Vite dev server).                                 |
+| `make dev-stop`      | Stop and remove the dev backend container for this working tree.                            |
+| `make dev-stop-all`  | Stop every `town-os-dev-*` container on the host, not just this working tree's.             |
+| `make dev-logs`      | Tail journalctl inside the running dev container.                                           |
+| `make btrfs-dev`     | Create a fresh 50GB btrfs loopback volume for the dev environment.                          |
+| `make dev-btrfs`     | Create the dev btrfs volume only if one isn't already mounted (used automatically by `dev`).|
+| `make clean-btrfs-dev` | Unmount, detach loop devices, and remove the dev btrfs volume.                            |
+| `make clean-dev`     | Stop the dev container and tear down the dev btrfs volume. Removes `dev-data/`.             |
 
 ## Makefile Targets
 
@@ -254,15 +252,18 @@ All release images are pushed to `quay.io/town/`. Push targets tag images with b
 | `make release-image`        | Build the release system controller image (`quay.io/town/town`).                                                   |
 | `make release-ui-image`     | Build the release UI image (`quay.io/town/ui`).                                                                    |
 | `make release-proton-image` | Build the release Proton runner image (`quay.io/town/proton`).                                                     |
-| `make release-build`        | Pull images, run `test-full`, then build all three release images.                                                 |
+| `make release-nc-image`     | Build the release network controller image (`quay.io/town/networkcontroller`).                                     |
+| `make release-build`        | Pull images, run `test-full`, then build all four release images (system controller, UI, Proton, network controller). |
 | `make push`                 | Alias for `push-rc`.                                                                                               |
-| `make push-rc`              | Push all images (system controller, UI, Rolodex, Proton) as release candidates (`rc.<date>` + `rc.latest`).        |
+| `make push-rc`              | Push all images (system controller, UI, Proton, network controller) as release candidates (`rc.<date>` + `rc.latest`). |
 | `make push-release`         | Run `release-build`, then push all images as a release (`release.<date>` + `latest`).                              |
 | `make push-ui-rc`           | Push only the UI image as a release candidate (`rc.<date>` + `rc.latest`).                                         |
 | `make push-ui-release`      | Push only the UI image as a release (`release.<date>` + `latest`).                                                 |
 | `make push-proton-rc`       | Push only the Proton runner image as a release candidate (`rc.<date>` + `rc.latest`).                              |
 | `make push-proton-release`  | Push only the Proton runner image as a release (`release.<date>` + `latest`).                                      |
-| `make push-tag PUSH_TAG=x`  | Build and push all images (system controller, UI, Rolodex, Proton) with a custom tag `x`.                         |
+| `make push-nc-rc`           | Push only the network controller image as a release candidate (`rc.<date>` + `rc.latest`).                         |
+| `make push-nc-release`      | Push only the network controller image as a release (`release.<date>` + `latest`).                                 |
+| `make push-tag PUSH_TAG=x`  | Build and push all images (system controller, UI, Proton, network controller) with a custom tag `x`.               |
 
 ### Registry Authentication
 
