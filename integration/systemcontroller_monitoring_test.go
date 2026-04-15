@@ -235,8 +235,10 @@ func TestMonitoringUIGrafanaPackageUnits(t *testing.T) {
 	}
 
 	// The unit must chown the data directory to the Grafana uid or
-	// Grafana aborts with "GF_PATHS_DATA is not writable".
-	if !strings.Contains(uiContent, "chown -R 472:472") {
+	// Grafana aborts with "GF_PATHS_DATA is not writable". The chown is
+	// non-recursive by design (commit d4fbc88): Grafana creates nested
+	// files as 472 itself, so only the top-level mount needs ownership.
+	if !strings.Contains(uiContent, "chown 472:472") {
 		t.Fatalf("grafana monitoring-ui unit should chown data dir to uid 472, got:\n%s", uiContent)
 	}
 

@@ -14,10 +14,12 @@ import (
 )
 
 func uiTestImage() string {
-	if img := os.Getenv("UI_IMAGE"); img != "" {
-		return img
+	img := os.Getenv("UI_IMAGE")
+	if img == "" {
+		img = "quay.io/town/ui:rc.latest"
 	}
-	return "quay.io/town/ui:rc.latest"
+	ensureImagePulled(img)
+	return img
 }
 
 func TestUIContainerRealStartAndAccessible(t *testing.T) {

@@ -23,10 +23,12 @@ import (
 )
 
 func rolodexTestImage() string {
-	if img := os.Getenv("ROLODEX_IMAGE"); img != "" {
-		return img
+	img := os.Getenv("ROLODEX_IMAGE")
+	if img == "" {
+		img = "quay.io/town/rolodex:rc.latest"
 	}
-	return "quay.io/town/rolodex:rc.latest"
+	ensureImagePulled(img)
+	return img
 }
 
 // rolodexTempDir creates a temporary directory with a dash-case name and
