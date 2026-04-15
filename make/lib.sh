@@ -47,6 +47,33 @@ warn() {
 }
 
 # ---------------------------------------------------------------------------
+# Repository credential checks
+# ---------------------------------------------------------------------------
+
+# warn_missing_repo_creds — print a loud warning when test runs have no
+# GitHub credentials for fetching the test package repos. Without them,
+# populate-repos falls back to anonymous GitHub access, which can rate-
+# limit or hang the initial test run. The warning is informational: the
+# test still proceeds, since local sibling clones or a primed
+# .cache/git-repos/ cache may make creds unnecessary.
+warn_missing_repo_creds() {
+  if [ -n "${TOWN_OS_REPO_USERNAME:-}" ] && [ -n "${TOWN_OS_REPO_PASSWORD:-}" ]; then
+    return 0
+  fi
+  local dotenv_note="no .env file found"
+  if [ -f .env ]; then
+    dotenv_note=".env is present but does not set both variables"
+  fi
+  warn "TOWN_OS_REPO_USERNAME / TOWN_OS_REPO_PASSWORD are not set (${dotenv_note})."
+  warn "Test package repos will be fetched anonymously from GitHub."
+  warn "GitHub rate-limits anonymous clones and the initial populate step"
+  warn "may stall or hang for several minutes (or fail outright) on a fresh"
+  warn "checkout with no .cache/git-repos/ or ../test-packages-* siblings."
+  warn "Fix: create a .env with TOWN_OS_REPO_USERNAME and TOWN_OS_REPO_PASSWORD"
+  warn "     (a GitHub personal access token works as the password)."
+}
+
+# ---------------------------------------------------------------------------
 # Container helpers
 # ---------------------------------------------------------------------------
 

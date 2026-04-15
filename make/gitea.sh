@@ -26,6 +26,7 @@ case "$1" in
     ;;
   populate)
     step "Populating Gitea with test repos"
+    warn_missing_repo_creds
     # Populate Gitea with test repos cached from GitHub and pushed via go-git.
     mkdir -p "${STATE_DIR}/git-repos"
     GITEA_URL="http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")" \
