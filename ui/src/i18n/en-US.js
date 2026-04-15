@@ -62,6 +62,7 @@ const enUS = {
   'dashboard.stat_last_5_minutes': 'Last 5 minutes',
   'dashboard.services_title': 'Installed Services',
   'dashboard.services_no_services': 'No services installed',
+  'dashboard.services_status_label': '{name} status: {state}',
 
   // --- Navigation ---
   'nav.home': 'Home',
