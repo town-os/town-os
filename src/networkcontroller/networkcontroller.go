@@ -21,14 +21,16 @@ import (
 
 // PortConfig describes a single port's networking requirements.
 //
-// When TLS is true, the NC runs an in-process TLS listener on ExternalPort
-// instead of spawning socat for the port. Incoming TLS connections are
-// terminated with the leaf certificate at CertPath/cert.pem +
-// CertPath/key.pem and the plaintext is proxied to
-// <target-container>:InternalPort over the shared podman network. Forward
-// is still honored for UPnP bookkeeping (it is always true for TLS ports),
-// but the socat subprocess is never started — the Go TLS goroutine owns
-// the external port.
+// When TLS is true, the NC hands the port to its embedded Caddy
+// supervisor, which binds ExternalPort, terminates TLS with the leaf
+// certificate at CertPath/cert.pem + CertPath/key.pem, and reverse-
+// proxies plaintext HTTP to <target-container>:InternalPort on the
+// shared podman network. Unlike the old in-process byte tunnel, Caddy
+// injects X-Forwarded-Proto, X-Forwarded-For, and Host so the backend
+// sees the real request shape.
+//
+// When TLS is false the NC spawns a socat child for the port, preserving
+// raw TCP forwarding for non-HTTP services (SSH, databases, etc.).
 type PortConfig struct {
 	ExternalPort uint16 `json:"external_port"`
 	InternalPort uint16 `json:"internal_port"`
@@ -53,23 +55,15 @@ type ExecRunner interface {
 	Start(name string, args ...string) (Process, error)
 }
 
-// TLSListener is the minimal interface the controller needs from a TLS
-// forwarder. The real implementation is in tls_proxy.go; tests swap in a
-// stub via TLSStarter so reconcile-time tests do not bind real ports.
-type TLSListener interface {
-	Close() error
-}
+// noopCaddySupervisor is the supervisor tests and plain NewController
+// callers get when they do not opt in to a real Caddy. Its Reload and
+// Start are successful no-ops; Shutdown returns nil. Production wiring
+// swaps this out via SetCaddySupervisor (or uses NewControllerWithCaddy).
+type noopCaddySupervisor struct{}
 
-// TLSStarter constructs a TLS forwarder for a single external port. Returning
-// a real listener means the port is now bound; tests inject a stub that
-// records the call and returns a no-op closer.
-type TLSStarter func(extPort uint16, target string, intPort uint16, certDir string) (TLSListener, error)
-
-// defaultTLSStarter binds an actual tls.Listen-backed forwarder. Used in
-// production; tests provide their own via NewControllerWithTLSStarter.
-func defaultTLSStarter(extPort uint16, target string, intPort uint16, certDir string) (TLSListener, error) {
-	return startTLSForwarder(extPort, target, intPort, certDir)
-}
+func (noopCaddySupervisor) Start() error         { return nil }
+func (noopCaddySupervisor) Reload(_ []byte) error { return nil }
+func (noopCaddySupervisor) Shutdown() error      { return nil }
 
 // Process abstracts a running process for testing.
 type Process interface {
@@ -100,14 +94,11 @@ func (r *osRunner) Start(name string, args ...string) (Process, error) {
 	return &osProcess{cmd: cmd}, nil
 }
 
-// activeForwarder tracks a running socat process or an in-process TLS
-// listener. Exactly one of proc and tlsFwd is non-nil.
+// activeForwarder tracks a running socat process bound to a single
+// external port. TLS ports are not tracked here — Caddy owns them.
 type activeForwarder struct {
 	proc    Process
-	tlsFwd  TLSListener
 	intPort uint16
-	useTLS  bool
-	cfgKey  string // forces re-create when cert path changes
 }
 
 // activeMapping tracks a UPnP port mapping.
@@ -115,14 +106,15 @@ type activeMapping struct {
 	cfg PortConfig
 }
 
-// Controller manages socat forwarders and UPnP mappings for a single package.
-// The NC container joins the same podman network as the service containers
-// and resolves targets by container DNS name (no IP addresses needed).
+// Controller manages socat forwarders, a Caddy reverse proxy, and UPnP
+// mappings for a single package. The NC container joins the same podman
+// network as the service containers and resolves targets by container
+// DNS name (no IP addresses needed).
 type Controller struct {
 	mu              sync.Mutex
 	upnp            upnp.Manager
 	runner          ExecRunner
-	tlsStarter      TLSStarter
+	caddy           CaddySupervisor
 	targetContainer string                      // container DNS name on the podman network (socat target)
 	forwarders      map[uint16]*activeForwarder // keyed by external port
 	mappings        map[uint16]*activeMapping   // keyed by external port
@@ -138,7 +130,7 @@ func NewController(upnpMgr upnp.Manager) *Controller {
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     &osRunner{},
-		tlsStarter: defaultTLSStarter,
+		caddy:      noopCaddySupervisor{},
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
@@ -150,7 +142,7 @@ func NewControllerWithTarget(upnpMgr upnp.Manager, targetContainer string) *Cont
 	return &Controller{
 		upnp:            upnpMgr,
 		runner:          &osRunner{},
-		tlsStarter:      defaultTLSStarter,
+		caddy:           noopCaddySupervisor{},
 		targetContainer: targetContainer,
 		forwarders:      make(map[uint16]*activeForwarder),
 		mappings:        make(map[uint16]*activeMapping),
@@ -162,7 +154,7 @@ func NewControllerWithRunner(upnpMgr upnp.Manager, runner ExecRunner) *Controlle
 	return &Controller{
 		upnp:       upnpMgr,
 		runner:     runner,
-		tlsStarter: defaultTLSStarter,
+		caddy:      noopCaddySupervisor{},
 		forwarders: make(map[uint16]*activeForwarder),
 		mappings:   make(map[uint16]*activeMapping),
 	}
@@ -174,20 +166,24 @@ func NewControllerWithRunnerAndTarget(upnpMgr upnp.Manager, runner ExecRunner, t
 	return &Controller{
 		upnp:            upnpMgr,
 		runner:          runner,
-		tlsStarter:      defaultTLSStarter,
+		caddy:           noopCaddySupervisor{},
 		targetContainer: targetContainer,
 		forwarders:      make(map[uint16]*activeForwarder),
 		mappings:        make(map[uint16]*activeMapping),
 	}
 }
 
-// SetTLSStarter overrides the TLS forwarder factory. Tests use this to
-// inject a stub that records calls without binding real ports. Production
-// callers rely on the default starter wired in NewController*.
-func (c *Controller) SetTLSStarter(starter TLSStarter) {
+// SetCaddySupervisor installs the Caddy supervisor used for TLS-marked
+// ports. Production wiring calls this with NewCaddySupervisor(); tests
+// inject a recording stub. Must be called before Run so the first
+// reconcile gets the right instance.
+func (c *Controller) SetCaddySupervisor(sup CaddySupervisor) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.tlsStarter = starter
+	if sup == nil {
+		sup = noopCaddySupervisor{}
+	}
+	c.caddy = sup
 }
 
 // Run reads the initial state file, starts an fsnotify watcher and a UPnP
@@ -312,9 +308,16 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 }
 
 // reconcile compares the desired state with the current active state and
-// starts/stops forwarders and UPnP mappings as needed. It detects both
-// port additions/removals and configuration changes on existing ports
-// (e.g. internal port, Forward flag, or UPnP flag changes).
+// starts/stops socat forwarders, Caddy-fronted TLS sites, and UPnP
+// mappings as needed. It detects both port additions/removals and
+// configuration changes on existing ports (e.g. internal port, Forward
+// flag, TLS flag flipping on or off, or UPnP flag changes).
+//
+// TLS ports are delegated wholesale to the embedded Caddy supervisor:
+// every TLS-marked port in the desired state becomes one site block in
+// a freshly rendered Caddyfile, and the supervisor's Reload handles
+// no-op vs. start vs. zero-downtime reload. Non-TLS forwarded ports
+// continue to be managed by per-port socat children.
 func (c *Controller) reconcile(desired *PackageNetworkState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -327,13 +330,12 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 		desiredPorts[p.ExternalPort] = p
 	}
 
-	// Remove forwarders for ports that are no longer desired, or whose
-	// configuration changed (internal port changed, Forward turned off, or
-	// TLS terminator/cert swap).
+	// Remove socat forwarders for ports that are no longer desired as
+	// non-TLS forwarded ports. A port flipping to TLS=true is also a
+	// teardown reason — Caddy takes it over below.
 	for ext, fwd := range c.forwarders {
-		desired, ok := desiredPorts[ext]
-		if !ok || !desired.Forward || fwd.intPort != desired.InternalPort ||
-			fwd.useTLS != desired.TLS || fwd.cfgKey != forwarderCfgKey(desired) {
+		d, ok := desiredPorts[ext]
+		if !ok || !d.Forward || d.TLS || fwd.intPort != d.InternalPort {
 			c.stopForwarderLocked(ext)
 		}
 	}
@@ -342,8 +344,8 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 	// configuration changed (UPnP turned off, Forward flag changed which
 	// affects the mapped internal port, or internal port changed).
 	for ext, m := range c.mappings {
-		desired, ok := desiredPorts[ext]
-		if !ok || !desired.UPnP || m.cfg.Forward != desired.Forward || m.cfg.InternalPort != desired.InternalPort {
+		d, ok := desiredPorts[ext]
+		if !ok || !d.UPnP || m.cfg.Forward != d.Forward || m.cfg.InternalPort != d.InternalPort {
 			c.removeUPnPMappingLocked(ext)
 		}
 	}
@@ -357,15 +359,11 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 		return sortedPorts[i].ExternalPort < sortedPorts[j].ExternalPort
 	})
 
-	// Add or re-add ports (stale entries were removed above).
+	// Pass 1: socat non-TLS forwarded ports. Stale entries were removed above.
 	for _, p := range sortedPorts {
-		if p.Forward {
+		if p.Forward && !p.TLS {
 			if _, exists := c.forwarders[p.ExternalPort]; !exists {
-				if p.TLS {
-					c.startTLSForwarderLocked(p)
-				} else {
-					c.startForwarderLocked(p.ExternalPort, p.InternalPort)
-				}
+				c.startForwarderLocked(p.ExternalPort, p.InternalPort)
 			}
 		}
 		if p.UPnP {
@@ -374,17 +372,23 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 			}
 		}
 	}
-}
 
-// forwarderCfgKey captures the subset of PortConfig that must trigger a
-// teardown+rebuild when it changes. Internal port is already checked
-// separately; here we cover the TLS-specific cert path so a cert rotation
-// forces the TLS goroutine to reload.
-func forwarderCfgKey(p PortConfig) string {
-	if !p.TLS {
-		return ""
+	// Pass 2: hand every TLS port to Caddy via a fresh Caddyfile.
+	// Reload is a no-op when the rendered bytes match what was last
+	// written, so this is safe to call unconditionally on every
+	// reconcile. When there are no TLS ports we shut caddy down so the
+	// child process does not linger with an empty config.
+	sites := collectCaddySites([]*PackageNetworkState{desired})
+	if len(sites) == 0 {
+		if err := c.caddy.Shutdown(); err != nil {
+			slog.Warn(fmt.Sprintf("caddy shutdown: %v", err))
+		}
+	} else {
+		content := renderCaddyfile(sites)
+		if err := c.caddy.Reload(content); err != nil {
+			slog.Error(fmt.Sprintf("caddy reload: %v", err))
+		}
 	}
-	return p.CertPath
 }
 
 func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
@@ -440,55 +444,13 @@ func (c *Controller) stopForwarderLocked(extPort uint16) {
 	if !ok {
 		return
 	}
-	switch {
-	case fwd.tlsFwd != nil:
-		if err := fwd.tlsFwd.Close(); err != nil {
-			slog.Debug(fmt.Sprintf("close tls %d: %v", extPort, err))
-		}
-	case fwd.proc != nil:
+	if fwd.proc != nil {
 		if err := fwd.proc.Kill(); err != nil {
 			slog.Debug(fmt.Sprintf("kill socat %d: %v", extPort, err))
 		}
 	}
 	delete(c.forwarders, extPort)
 	slog.Info(fmt.Sprintf("stopped forwarder %d", extPort))
-}
-
-// startTLSForwarderLocked starts an in-process TLS listener for cfg.ExternalPort
-// that terminates TLS using the leaf cert at cfg.CertPath and proxies the
-// plaintext to the target container on the shared podman network. Unlike
-// socat-based forwarders this does not spawn a child process, so no retry
-// channel is wired up — the listener's goroutine logs and continues on
-// transient Accept errors, and reconcile tears it down on cert/port changes.
-func (c *Controller) startTLSForwarderLocked(cfg PortConfig) {
-	target := c.targetContainer
-	if target == "" {
-		slog.Warn(fmt.Sprintf("no target container for tls forwarder %d->%d, skipping", cfg.ExternalPort, cfg.InternalPort))
-		return
-	}
-	if cfg.CertPath == "" {
-		slog.Warn(fmt.Sprintf("tls forwarder %d missing cert_path, skipping", cfg.ExternalPort))
-		return
-	}
-	starter := c.tlsStarter
-	if starter == nil {
-		starter = defaultTLSStarter
-	}
-	fwd, err := starter(cfg.ExternalPort, target, cfg.InternalPort, cfg.CertPath)
-	if err != nil {
-		slog.Error(fmt.Sprintf("start tls %d->%d: %v", cfg.ExternalPort, cfg.InternalPort, err))
-		return
-	}
-	c.forwarders[cfg.ExternalPort] = &activeForwarder{
-		tlsFwd:  fwd,
-		intPort: cfg.InternalPort,
-		useTLS:  true,
-		cfgKey:  forwarderCfgKey(cfg),
-	}
-	if c.retryBackoff != nil {
-		delete(c.retryBackoff, cfg.ExternalPort)
-	}
-	slog.Info(fmt.Sprintf("started tls forwarder %d->%s:%d", cfg.ExternalPort, target, cfg.InternalPort))
 }
 
 func (c *Controller) upnpDescription(cfg PortConfig) string {
@@ -559,7 +521,8 @@ func (c *Controller) renewUPnP() {
 	}
 }
 
-// Shutdown removes all UPnP mappings and kills all socat processes.
+// Shutdown removes all UPnP mappings, kills all socat processes, and
+// stops the Caddy supervisor if it was running.
 func (c *Controller) Shutdown() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -569,6 +532,11 @@ func (c *Controller) Shutdown() {
 	}
 	for ext := range c.forwarders {
 		c.stopForwarderLocked(ext)
+	}
+	if c.caddy != nil {
+		if err := c.caddy.Shutdown(); err != nil {
+			slog.Debug(fmt.Sprintf("caddy shutdown: %v", err))
+		}
 	}
 }
 

@@ -38,6 +38,11 @@ func run() error {
 	} else {
 		ctrl = networkcontroller.NewController(upnpMgr)
 	}
+	// Install the real Caddy supervisor. It starts a single caddy child
+	// the first time reconcile produces a non-empty Caddyfile and reloads
+	// it zero-downtime thereafter. Non-HTTP (non-TLS) ports continue to
+	// go through socat as before.
+	ctrl.SetCaddySupervisor(networkcontroller.NewCaddySupervisor())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

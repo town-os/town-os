@@ -114,6 +114,53 @@ func (r *mockRunner) GetProcs() []*mockProcess {
 	return out
 }
 
+// mockCaddySupervisor records Reload calls without touching disk or
+// spawning a real caddy process. Used by reconcile-level tests that
+// care about which Caddyfile content was produced.
+type mockCaddySupervisor struct {
+	mu        sync.Mutex
+	reloads   [][]byte
+	shutdowns int
+	starts    int
+}
+
+func (m *mockCaddySupervisor) Start() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.starts++
+	return nil
+}
+
+func (m *mockCaddySupervisor) Reload(content []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reloads = append(m.reloads, append([]byte(nil), content...))
+	return nil
+}
+
+func (m *mockCaddySupervisor) Shutdown() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.shutdowns++
+	return nil
+}
+
+func (m *mockCaddySupervisor) Reloads() [][]byte {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([][]byte, len(m.reloads))
+	for i, r := range m.reloads {
+		out[i] = append([]byte(nil), r...)
+	}
+	return out
+}
+
+func (m *mockCaddySupervisor) Shutdowns() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.shutdowns
+}
+
 func TestStateFileParsing(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.json")
@@ -1278,5 +1325,150 @@ func writeState(t *testing.T, path string, state PackageNetworkState) {
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatalf("write: %v", err)
+	}
+}
+
+// writeCertFixture creates a per-test cert directory with a cert.pem
+// containing deterministic bytes. Returns the directory path so tests
+// can stamp it into PortConfig.CertPath.
+func writeCertFixture(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cert.pem"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write cert.pem: %v", err)
+	}
+	return dir
+}
+
+func TestReconcileTLSPortGoesToCaddyNotSocat(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	caddy := &mockCaddySupervisor{}
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-default-plex-1.0")
+	ctrl.SetCaddySupervisor(caddy)
+
+	certDir := writeCertFixture(t, "plex-cert")
+	ctrl.reconcile(&PackageNetworkState{
+		Repo:          "default",
+		Package:       "plex",
+		Version:       "1.0",
+		ContainerName: "town-os-default-plex-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 21305, InternalPort: 32400, Forward: true, TLS: true, CertPath: certDir},
+		},
+	})
+
+	// No socat calls — the TLS port belongs to caddy.
+	if calls := runner.GetCalls(); len(calls) != 0 {
+		t.Fatalf("expected 0 socat calls for a TLS-only state, got %d: %+v", len(calls), calls)
+	}
+
+	reloads := caddy.Reloads()
+	if len(reloads) != 1 {
+		t.Fatalf("expected exactly one caddy reload, got %d", len(reloads))
+	}
+	rendered := string(reloads[0])
+	for _, want := range []string{
+		"https://:21305 {",
+		"reverse_proxy town-os-default-plex-1.0:32400",
+		"tls " + filepath.Join(certDir, "cert.pem"),
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("caddy config missing %q:\n%s", want, rendered)
+		}
+	}
+
+	// The forwarders map should stay empty: socat owns nothing here.
+	if fwds := ctrl.GetForwarders(); len(fwds) != 0 {
+		t.Fatalf("expected 0 socat forwarders, got %d", len(fwds))
+	}
+}
+
+func TestReconcileMixedTLSAndNonTLSPorts(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	caddy := &mockCaddySupervisor{}
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-default-gitea-1.0")
+	ctrl.SetCaddySupervisor(caddy)
+
+	certDir := writeCertFixture(t, "gitea-cert")
+	ctrl.reconcile(&PackageNetworkState{
+		Repo:          "default",
+		Package:       "gitea",
+		Version:       "1.0",
+		ContainerName: "town-os-default-gitea-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 12000, InternalPort: 3000, Forward: true, TLS: true, CertPath: certDir},
+			{ExternalPort: 12001, InternalPort: 22, Forward: true, TLS: false},
+		},
+	})
+
+	// Exactly one socat child for the SSH port.
+	calls := runner.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 socat call for the non-TLS port, got %d: %+v", len(calls), calls)
+	}
+	if !strings.Contains(calls[0].Args[0], "12001") {
+		t.Fatalf("expected socat to listen on 12001, got %q", calls[0].Args[0])
+	}
+
+	// Caddy got one reload with just the https site.
+	reloads := caddy.Reloads()
+	if len(reloads) != 1 {
+		t.Fatalf("expected 1 caddy reload, got %d", len(reloads))
+	}
+	rendered := string(reloads[0])
+	if !strings.Contains(rendered, "https://:12000 {") {
+		t.Fatalf("missing gitea https site:\n%s", rendered)
+	}
+	if strings.Contains(rendered, ":12001") {
+		t.Fatalf("caddy should not serve the SSH port 12001:\n%s", rendered)
+	}
+}
+
+func TestReconcileShutsCaddyDownWhenNoTLSPorts(t *testing.T) {
+	mock := &upnp.MockManager{}
+	runner := newMockRunner()
+	caddy := &mockCaddySupervisor{}
+	ctrl := NewControllerWithRunnerAndTarget(mock, runner, "town-os-default-gitea-1.0")
+	ctrl.SetCaddySupervisor(caddy)
+
+	// First reconcile: one TLS port → caddy gets a real reload.
+	certDir := writeCertFixture(t, "gitea-cert")
+	ctrl.reconcile(&PackageNetworkState{
+		Repo:          "default",
+		Package:       "gitea",
+		Version:       "1.0",
+		ContainerName: "town-os-default-gitea-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 12000, InternalPort: 3000, Forward: true, TLS: true, CertPath: certDir},
+		},
+	})
+	if got := len(caddy.Reloads()); got != 1 {
+		t.Fatalf("expected 1 reload after initial TLS state, got %d", got)
+	}
+
+	// Second reconcile: flip TLS off → caddy should be shut down, not
+	// reloaded with an empty config.
+	ctrl.reconcile(&PackageNetworkState{
+		Repo:          "default",
+		Package:       "gitea",
+		Version:       "1.0",
+		ContainerName: "town-os-default-gitea-1.0",
+		Ports: []PortConfig{
+			{ExternalPort: 12000, InternalPort: 3000, Forward: true, TLS: false},
+		},
+	})
+	if got := len(caddy.Reloads()); got != 1 {
+		t.Fatalf("expected reload count to stay at 1 when TLS was removed, got %d", got)
+	}
+	if got := caddy.Shutdowns(); got != 1 {
+		t.Fatalf("expected 1 caddy shutdown after TLS removal, got %d", got)
+	}
+
+	// And socat should now own the port.
+	calls := runner.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 socat call after flip, got %d", len(calls))
 	}
 }
