@@ -141,6 +141,11 @@ After installing prerequisites, run `make pull-images` once to fetch all contain
 
 ## Development
 
+> **Start here on a fresh machine:**
+>
+> - **`make deps`** — installs every host dependency (Go, podman, runc, btrfs-progs, libsystemd headers, golangci-lint, bun, qemu, build tools) on Arch or Ubuntu/Debian. Safe to re-run.
+> - **`make help`** — prints a grouped list of every user-facing make target. This is also the default target, so plain `make` works too.
+
 **There are probably still some outstanding issues running integration tests while the dev server is running. This is being investigated.**
 
 If you're just trying things out, use the `stable` branch (the default). If you want the latest changes (which may not be good), use `main`. Both branches will roll as things are deemed stable or integrated into the repository.
