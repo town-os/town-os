@@ -21,6 +21,7 @@ FROM debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     btrfs-progs libsystemd0 podman runc socat \
     pigz lbzip2 xz-utils \
+    ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
 
