@@ -108,8 +108,9 @@ func (m *Manager) dnsPort() string {
 func rolodexConfig(port string) string {
 	return fmt.Sprintf(`database_path: /data/rolodex.db
 dns:
-  udp_bind: "%s:%s"
-  tcp_bind: "%s:%s"
+  bind:
+    - udp: "%s:%s"
+    - tcp: "%s:%s"
 grpc:
   tcp_bind: ""
   unix_socket: /data/rolodex.sock

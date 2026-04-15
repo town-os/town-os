@@ -52,8 +52,10 @@ func TestWriteConfig(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"database_path: /data/rolodex.db",
-		"udp_bind:",
-		"tcp_bind:",
+		"dns:",
+		"bind:",
+		"- udp:",
+		"- tcp:",
 		"unix_socket: /data/rolodex.sock",
 	} {
 		if !strings.Contains(content, want) {

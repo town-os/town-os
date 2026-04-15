@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -447,27 +448,62 @@ func dumpRolodexDiagnostics(ctx context.Context, t *testing.T, dataDir, key stri
 	}
 }
 
+// rolodexClientWaitTimeout is the hard upper bound on how long
+// waitForRolodexClient blocks waiting for the gRPC unix socket to come up.
+// A healthy rolodex container is ready in under a second; anything past 30s
+// means the unit is failing to start (config parse error, image pull,
+// crash loop, etc.) and waiting longer just hides the failure.
+const rolodexClientWaitTimeout = 30 * time.Second
+
+// rolodexUnitFailureSubstrings are journal phrases that indicate rolodex-dns
+// has crashed at startup and is not going to recover on its own. Hitting any
+// of these short-circuits the poll loop with a specific error.
+var rolodexUnitFailureSubstrings = []string{
+	"failed to parse config file",
+	"missing field",
+	"Address already in use",
+	"panicked at",
+	"Error: failed to",
+}
+
 // waitForRolodexClient waits for the rolodex Unix socket to become available
-// and returns a connected client. The wait is bounded by ctx's deadline
-// (set from -test.timeout via t.Deadline).
+// and returns a connected client. The wait is hard-capped at
+// rolodexClientWaitTimeout (independent of the parent ctx, which is derived
+// from -test.timeout and would otherwise let a wedged container hang the
+// suite for ~60 minutes). On every poll iteration it also inspects the
+// systemd unit and recent journal entries; a failed/crash-looping unit or a
+// known-fatal error message in the journal aborts the wait immediately
+// instead of polling until the deadline.
 func waitForRolodexClient(t *testing.T, ctx context.Context, socketPath, dataDir, key string) rolodex.Client {
 	t.Helper()
 
-	poll := 100 * time.Millisecond
+	deadline := time.Now().Add(rolodexClientWaitTimeout)
+	waitCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	unitName := systemd.SystemServiceUnitName(key)
+	poll := 200 * time.Millisecond
 
 	var lastDialErr, lastRPCErr error
-	for ctx.Err() == nil {
-		attemptCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	for waitCtx.Err() == nil {
+		// Cheap fail-fast check: if the unit has crashed or the journal
+		// already shows a known-fatal message, stop polling.
+		if reason := rolodexUnitFatal(waitCtx, unitName); reason != "" {
+			dumpRolodexDiagnostics(ctx, t, dataDir, key)
+			t.Fatalf("waitForRolodexClient: %s", reason)
+		}
+
+		attemptCtx, attemptCancel := context.WithTimeout(waitCtx, 2*time.Second)
 		client, err := rolodex.Dial(attemptCtx, socketPath)
 		if err != nil {
 			lastDialErr = err
-			cancel()
+			attemptCancel()
 			time.Sleep(poll)
 			continue
 		}
 		// Verify the connection is actually live.
 		_, err = client.ListRecords(attemptCtx, nil)
-		cancel()
+		attemptCancel()
 		if err != nil {
 			lastRPCErr = err
 			if closeErr := client.Close(); closeErr != nil {
@@ -485,8 +521,52 @@ func waitForRolodexClient(t *testing.T, ctx context.Context, socketPath, dataDir
 		t.Logf("waitForRolodexClient: last ListRecords error: %v", lastRPCErr)
 	}
 	dumpRolodexDiagnostics(ctx, t, dataDir, key)
-	t.Fatalf("waitForRolodexClient: timed out waiting for %s", socketPath)
+	t.Fatalf("waitForRolodexClient: timed out after %s waiting for %s", rolodexClientWaitTimeout, socketPath)
 	return nil
+}
+
+// rolodexUnitFatal returns a non-empty reason string when the rolodex unit
+// is in a state that means waiting longer is pointless. It checks both the
+// systemd ActiveState (failed unit) and the recent journal for known-fatal
+// startup errors. All shell-outs use a tight timeout so a slow systemctl
+// call cannot itself wedge the test.
+func rolodexUnitFatal(ctx context.Context, unitName string) string {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	// Read ActiveState/NRestarts/Result via `systemctl show`. A non-active
+	// Result (exit-code/signal) means rolodex-dns crashed at startup, even
+	// if Restart=always will eventually retry.
+	if out, err := exec.CommandContext(probeCtx, "systemctl", "show", unitName,
+		"--property=ActiveState", "--property=NRestarts", "--property=Result").Output(); err == nil {
+		props := string(out)
+		if strings.Contains(props, "Result=exit-code") || strings.Contains(props, "Result=signal") {
+			return "rolodex unit reported fatal Result: " + strings.TrimSpace(props)
+		}
+		// NRestarts climbing means Restart=always is masking a crash loop.
+		// Three restarts in the wait window is enough to call it.
+		for _, line := range strings.Split(props, "\n") {
+			if rest, ok := strings.CutPrefix(line, "NRestarts="); ok {
+				if n, convErr := strconv.Atoi(strings.TrimSpace(rest)); convErr == nil && n >= 3 {
+					return "rolodex unit is crash-looping (NRestarts=" + rest + ")"
+				}
+			}
+		}
+	}
+
+	// Journal scan: look for any of the known-fatal phrases. journalctl
+	// with -n 50 is bounded and fast.
+	if out, err := exec.CommandContext(probeCtx, "journalctl", "-u", unitName,
+		"-n", "50", "--no-pager", "-o", "cat").Output(); err == nil {
+		log := string(out)
+		for _, sub := range rolodexUnitFailureSubstrings {
+			if strings.Contains(log, sub) {
+				return "rolodex unit journal shows fatal error (" + sub + ")"
+			}
+		}
+	}
+
+	return ""
 }
 
 func TestRolodexWriteConfigIdempotent(t *testing.T) {
