@@ -138,6 +138,19 @@ install_bun() {
   echo ">>> NOTE: add ~/.bun/bin to your PATH (the bun installer writes this to your shell rc)."
 }
 
+install_ui_deps() {
+  if [ ! -f ui/package.json ]; then
+    return
+  fi
+  if ! command -v bun >/dev/null 2>&1 && [ ! -x "$HOME/.bun/bin/bun" ]; then
+    echo ">>> WARNING: bun not found on PATH; skipping UI dependency install (eslint)." >&2
+    return
+  fi
+  BUN_BIN="$(command -v bun || echo "$HOME/.bun/bin/bun")"
+  echo ">>> Installing UI dependencies via bun (eslint, vite, vitest, ...)..."
+  (cd ui && "$BUN_BIN" install)
+}
+
 enable_podman_socket() {
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     echo ">>> Enabling rootful podman socket (required by the systemcontroller)..."
@@ -154,6 +167,7 @@ fi
 install_go
 install_golangci_lint
 install_bun
+install_ui_deps
 enable_podman_socket
 
 echo
