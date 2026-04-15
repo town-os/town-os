@@ -441,18 +441,40 @@ func TestGrafanaPackageConfig(t *testing.T) {
 		t.Fatalf("expected 2 MkdirPaths, got %d", len(cfg.MkdirPaths))
 	}
 
-	// Grafana runs as uid 472 inside the container and fails with
-	// "GF_PATHS_DATA is not writable" unless the bind-mounted data
-	// directory is owned by that uid. Two ExecStartPre chown commands
-	// are required: one for the data dir and one for the provisioning
-	// dir.
-	if len(cfg.ExecStartPreExtra) != 2 {
-		t.Fatalf("expected 2 ExecStartPreExtra entries, got %d", len(cfg.ExecStartPreExtra))
-	}
-	for _, cmd := range cfg.ExecStartPreExtra {
-		if !strings.Contains(cmd, "chown -R 472:472") {
-			t.Fatalf("expected chown -R 472:472 in ExecStartPreExtra, got %q", cmd)
+	// Grafana writes plugins, sessions, and grafana.db into
+	// /var/lib/grafana so the data-dir bind-mount must declare UID/GID
+	// 472:472. The provisioning bind-mount is read-only to Grafana (it
+	// only reads the datasource and dashboard YAML files, whose host
+	// permissions are 0644) so it must NOT declare UID/GID — no chown
+	// is emitted for it, and that is intentional.
+	var dataMount, provMount *systemd.HostVolumeMount
+	for i := range cfg.HostVolumeMounts {
+		hv := &cfg.HostVolumeMounts[i]
+		switch hv.ContainerPath {
+		case "/var/lib/grafana":
+			dataMount = hv
+		case "/etc/grafana/provisioning":
+			provMount = hv
 		}
+	}
+	if dataMount == nil {
+		t.Fatal("missing /var/lib/grafana host mount")
+	}
+	if provMount == nil {
+		t.Fatal("missing /etc/grafana/provisioning host mount")
+	}
+	if dataMount.UID == nil || *dataMount.UID != 472 {
+		t.Fatalf("data mount should declare UID=472, got %v", dataMount.UID)
+	}
+	if dataMount.GID == nil || *dataMount.GID != 472 {
+		t.Fatalf("data mount should declare GID=472, got %v", dataMount.GID)
+	}
+	if provMount.UID != nil || provMount.GID != nil {
+		t.Fatalf("provisioning mount should NOT declare UID/GID (it is read-only to Grafana), got UID=%v GID=%v", provMount.UID, provMount.GID)
+	}
+
+	if len(cfg.ExecStartPreExtra) != 0 {
+		t.Fatalf("expected no ExecStartPreExtra entries (chown is declarative via HostVolumeMount.UID/GID), got %d", len(cfg.ExecStartPreExtra))
 	}
 }
 
@@ -481,14 +503,22 @@ func TestGrafanaGeneratesPackageUnits(t *testing.T) {
 	if !strings.Contains(svc, "GF_AUTH_ANONYMOUS_ENABLED=true") {
 		t.Fatal("grafana unit should have env vars")
 	}
-	// The data directory must be chowned to the Grafana uid before the
-	// container starts, otherwise Grafana aborts with "GF_PATHS_DATA is
-	// not writable".
-	if !strings.Contains(svc, "chown -R 472:472 "+filepath.Join(btrfsBase, "monitoring", "grafana-data")) {
-		t.Fatalf("grafana unit should chown data dir to uid 472, got:\n%s", svc)
+	// The data directory must be chowned (non-recursively) to the
+	// Grafana uid before the container starts, otherwise Grafana aborts
+	// with "GF_PATHS_DATA is not writable". Only the top directory is
+	// chowned — Grafana creates its own subdirectories inside as uid 472.
+	dataDir := filepath.Join(btrfsBase, "monitoring", "grafana-data")
+	if !strings.Contains(svc, "ExecStartPre=/bin/chown 472:472 "+dataDir+"\n") {
+		t.Fatalf("grafana unit should chown (non-recursive) data dir to 472:472, got:\n%s", svc)
 	}
-	if !strings.Contains(svc, "chown -R 472:472 "+filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")) {
-		t.Fatalf("grafana unit should chown provisioning dir to uid 472, got:\n%s", svc)
+	if strings.Contains(svc, "chown -R 472:472 "+dataDir) {
+		t.Fatalf("grafana unit should NOT recursively chown data dir, got:\n%s", svc)
+	}
+	// The provisioning dir is read-only to Grafana — no chown should be
+	// emitted for it at all.
+	provDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
+	if strings.Contains(svc, "chown 472:472 "+provDir) || strings.Contains(svc, "chown -R 472:472 "+provDir) {
+		t.Fatalf("grafana unit should NOT chown provisioning dir (it is read-only to Grafana), got:\n%s", svc)
 	}
 }
 
@@ -645,11 +675,16 @@ func TestStartMonitoringUIGrafanaCreatesSubvolumes(t *testing.T) {
 		t.Fatalf("expected grafana-provisioning subvolume, got %v", names)
 	}
 
-	// The generated unit must include the chown ExecStartPre lines.
+	// The generated unit must include a non-recursive chown for the
+	// writable grafana-data bind-mount, declared via HostVolumeMount.UID/GID.
 	svcUnit := systemd.SystemServiceUnitName("monitoring-ui")
 	content := sd.InstalledUnits[svcUnit]
-	if !strings.Contains(content, "chown -R 472:472") {
-		t.Fatalf("expected chown ExecStartPre in unit, got:\n%s", content)
+	dataDir := filepath.Join(btrfsBase, "monitoring", "grafana-data")
+	if !strings.Contains(content, "ExecStartPre=/bin/chown 472:472 "+dataDir+"\n") {
+		t.Fatalf("expected non-recursive chown for grafana-data, got:\n%s", content)
+	}
+	if strings.Contains(content, "chown -R") {
+		t.Fatalf("grafana unit should not contain recursive chown, got:\n%s", content)
 	}
 }
 

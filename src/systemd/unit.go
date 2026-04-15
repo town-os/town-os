@@ -13,11 +13,16 @@ import (
 )
 
 // HostVolumeMount describes an arbitrary host-path to container-path volume
-// mount (as opposed to btrfs-managed package volumes).
+// mount (as opposed to btrfs-managed package volumes). When both UID and GID
+// are set, the unit generator emits an ExecStartPre chown to fix host-path
+// ownership before the container starts, which is required for container
+// images that run as a fixed uid (Grafana, Prometheus, etc.).
 type HostVolumeMount struct {
 	HostPath      string
 	ContainerPath string
-	Options       string // e.g. "ro", "rw,z" — defaults to "rw,z" if empty
+	Options       string  // e.g. "ro", "rw,z" — defaults to "rw,z" if empty
+	UID           *uint32 // optional host-path owner; emits chown -R when set with GID
+	GID           *uint32 // optional host-path group; emits chown -R when set with UID
 }
 
 // PackageUnitConfig holds all the information needed to generate systemd units
@@ -343,9 +348,28 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		}
 	}
 
-	// Create host directories before starting.
+	// Create host directories before starting. Do this before chowning
+	// host-volume mounts so the path exists when chown runs.
 	for _, dir := range cfg.MkdirPaths {
 		fmt.Fprintf(&b, "ExecStartPre=/bin/mkdir -p %s\n", dir)
+	}
+
+	// Chown host-volume mounts when UID/GID is set. This is the single
+	// declarative source of ownership for bind-mounted host paths and
+	// replaces per-service hand-rolled ExecStartPreExtra chown entries.
+	//
+	// The chown is intentionally non-recursive: only the top of the
+	// bind-mount is touched. Containers that WRITE to their bind mount
+	// (Grafana → /var/lib/grafana, Prometheus → /prometheus) need to
+	// own the top directory so they can create files inside, but once
+	// they've created children those children are already owned by the
+	// container uid and never drift. Containers that only READ from
+	// their mount don't need the chown at all — 0755/0644 host perms
+	// already let any uid read the contents.
+	for _, hv := range cfg.HostVolumeMounts {
+		if hv.UID != nil && hv.GID != nil {
+			fmt.Fprintf(&b, "ExecStartPre=/bin/chown %d:%d %s\n", *hv.UID, *hv.GID, hv.HostPath)
+		}
 	}
 
 	// Additional ExecStartPre commands.

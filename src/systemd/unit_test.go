@@ -1559,6 +1559,56 @@ func TestSystemServiceKeyHostVolumeMounts(t *testing.T) {
 	}
 }
 
+func TestHostVolumeMountUIDGIDEmitsChown(t *testing.T) {
+	uid := uint32(472)
+	gid := uint32(472)
+	otherUID := uint32(1000)
+	otherGID := uint32(1000)
+	cfg := PackageUnitConfig{
+		SystemServiceKey:       "test-svc",
+		Image:                  "test:latest",
+		NetworkControllerImage: "nc:test",
+		NetworkStatePath:       "/run/state",
+		External:               packages.PortMap{8080: 80},
+		HostVolumeMounts: []HostVolumeMount{
+			// Read-only mount without UID/GID: no chown expected.
+			{HostPath: "/host/config", ContainerPath: "/etc/config", Options: "ro"},
+			// Writable mount with UID/GID: chown expected.
+			{HostPath: "/host/data", ContainerPath: "/data", UID: &uid, GID: &gid},
+			// Second writable mount with different UID/GID.
+			{HostPath: "/host/other", ContainerPath: "/other", UID: &otherUID, GID: &otherGID},
+		},
+		MkdirPaths: []string{"/host/data", "/host/other"},
+	}
+
+	units := GeneratePackageUnits(cfg)
+	svc := units.Service.Content
+
+	// Chown is non-recursive: only the top of the bind-mount is
+	// touched. Containers that write to their mount need to own the
+	// top to create files inside; subdirectories are created by the
+	// container process itself as its own uid and never drift.
+	if !strings.Contains(svc, "ExecStartPre=/bin/chown 472:472 /host/data\n") {
+		t.Fatalf("expected non-recursive chown for /host/data, got:\n%s", svc)
+	}
+	if !strings.Contains(svc, "ExecStartPre=/bin/chown 1000:1000 /host/other\n") {
+		t.Fatalf("expected non-recursive chown for /host/other, got:\n%s", svc)
+	}
+	if strings.Contains(svc, "chown -R") {
+		t.Fatalf("HostVolumeMount chown should NEVER be recursive, got:\n%s", svc)
+	}
+	// /host/config has no UID/GID, so no chown line should reference it.
+	if strings.Contains(svc, "chown 472:472 /host/config") || strings.Contains(svc, "chown 1000:1000 /host/config") {
+		t.Fatalf("read-only mount without UID/GID should not be chowned, got:\n%s", svc)
+	}
+	// Chown must come after mkdir so the path exists when chown runs.
+	mkdirIdx := strings.Index(svc, "mkdir -p /host/data")
+	chownIdx := strings.Index(svc, "chown 472:472 /host/data")
+	if mkdirIdx < 0 || chownIdx < 0 || mkdirIdx > chownIdx {
+		t.Fatalf("mkdir should precede chown for /host/data, got mkdir@%d chown@%d:\n%s", mkdirIdx, chownIdx, svc)
+	}
+}
+
 func TestSystemServiceKeyMkdirAndExecStartPre(t *testing.T) {
 	cfg := PackageUnitConfig{
 		SystemServiceKey:       "test-svc",

@@ -13,8 +13,21 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-// prometheusUID is the user ID that the Prometheus container runs as.
-const prometheusUID = "65534"
+// prometheusUID / prometheusGID are the user and group IDs that the
+// Prometheus container runs as (upstream image uses "nobody"). The
+// bind-mounted data directory must be owned by this uid:gid pair or
+// Prometheus aborts at startup with a permission error.
+const (
+	prometheusUID uint32 = 65534
+	prometheusGID uint32 = 65534
+)
+
+// prometheusUID32 / prometheusGID32 are mutable copies for addressing
+// via HostVolumeMount.UID / HostVolumeMount.GID.
+var (
+	prometheusUID32 = prometheusUID
+	prometheusGID32 = prometheusGID
+)
 
 // PrometheusPackageConfig returns the PackageUnitConfig for Prometheus so it
 // gets a proper NC, socket units, and private podman network — exactly like a
@@ -40,12 +53,9 @@ func PrometheusPackageConfig(btrfsBase, ncImage, networkStatePath string) system
 		},
 		HostVolumeMounts: []systemd.HostVolumeMount{
 			{HostPath: configDir, ContainerPath: "/etc/prometheus", Options: "ro"},
-			{HostPath: dataDir, ContainerPath: "/prometheus"},
+			{HostPath: dataDir, ContainerPath: "/prometheus", UID: &prometheusUID32, GID: &prometheusGID32},
 		},
-		MkdirPaths: []string{configDir, dataDir},
-		ExecStartPreExtra: []string{
-			"/bin/chown -R " + prometheusUID + ":" + prometheusUID + " " + dataDir,
-		},
+		MkdirPaths:             []string{configDir, dataDir},
 		RestartAlways:          true,
 		StartLimitIntervalZero: true,
 	}

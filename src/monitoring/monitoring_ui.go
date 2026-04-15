@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
@@ -24,11 +22,12 @@ const (
 	grafanaGID = 472
 )
 
-// grafanaUIDStr / grafanaGIDStr render the ids as strings for embedding
-// in systemd unit ExecStartPre shell commands.
+// grafanaUID32 / grafanaGID32 are pointer-friendly copies for embedding
+// in HostVolumeMount.UID / HostVolumeMount.GID, which the unit generator
+// turns into an ExecStartPre chown for the bind-mounted host path.
 var (
-	grafanaUIDStr = strconv.Itoa(grafanaUID)
-	grafanaGIDStr = strconv.Itoa(grafanaGID)
+	grafanaUID32 uint32 = grafanaUID
+	grafanaGID32 uint32 = grafanaGID
 )
 
 // UPlotPackageConfig returns the PackageUnitConfig for the uPlot socat
@@ -79,14 +78,19 @@ func GrafanaPackageConfig(btrfsBase, ncImage, networkStatePath string) systemd.P
 			"GF_SERVER_HTTP_PORT":          GrafanaPort,
 		},
 		HostVolumeMounts: []systemd.HostVolumeMount{
+			// Provisioning files are read-only from Grafana's
+			// perspective; 0755/0644 perms set in
+			// WriteGrafanaProvisioningFiles let uid 472 read them
+			// without owning them, so no chown is needed.
 			{HostPath: provisioningDir, ContainerPath: "/etc/grafana/provisioning"},
-			{HostPath: dataDir, ContainerPath: "/var/lib/grafana"},
+			// Grafana writes plugins, sessions, and grafana.db
+			// into /var/lib/grafana, so it must own the top of
+			// this bind-mount. The chown is non-recursive:
+			// Grafana creates subdirectories itself as uid 472,
+			// so they stay correctly owned without any walk.
+			{HostPath: dataDir, ContainerPath: "/var/lib/grafana", UID: &grafanaUID32, GID: &grafanaGID32},
 		},
-		MkdirPaths: []string{provisioningDir, dataDir},
-		ExecStartPreExtra: []string{
-			"/bin/chown -R " + grafanaUIDStr + ":" + grafanaGIDStr + " " + dataDir,
-			"/bin/chown -R " + grafanaUIDStr + ":" + grafanaGIDStr + " " + provisioningDir,
-		},
+		MkdirPaths:             []string{provisioningDir, dataDir},
 		RestartAlways:          true,
 		StartLimitIntervalZero: true,
 	}
@@ -103,19 +107,19 @@ func grafanaStoragePaths(btrfsBase string) [][2]string {
 }
 
 // EnsureGrafanaStorage ensures Grafana's data and provisioning directories
-// exist and are owned by the Grafana uid:gid. It first tries to create
-// each directory as a btrfs subvolume (idempotent: existing paths are
-// left alone), then falls back to a plain directory when subvolume
-// creation fails — for example when the parent "monitoring" directory
-// already exists as a non-btrfs directory (which it does on the live
-// system, because StartPrometheus creates it via ExecStartPre mkdir
-// before StartMonitoringUI runs). Finally, every entry under the path
-// is chowned to the Grafana uid:gid so that Grafana (uid 472) can
-// create its plugins/, logs/, and sessions/ subdirectories at startup.
+// exist on disk. It first tries to create each directory as a btrfs
+// subvolume (idempotent: existing paths are left alone), then falls
+// back to a plain directory when subvolume creation fails — for
+// example when the parent "monitoring" directory already exists as a
+// non-btrfs directory (which it does on the live system, because
+// StartPrometheus creates it via ExecStartPre mkdir before
+// StartMonitoringUI runs).
 //
-// This is the self-heal path: regardless of how a previous boot left
-// the directories (wrong owner, plain dir, stale subvolume), running
-// this function and then restarting the unit brings Grafana back up.
+// Ownership is not set here. The generated monitoring-ui systemd unit
+// emits an ExecStartPre=/bin/chown -R for every HostVolumeMount whose
+// UID/GID fields are set (see GrafanaPackageConfig), and that is the
+// single declarative source of ownership for the bind-mounted host
+// paths. This function only has to make sure the paths exist.
 func EnsureGrafanaStorage(st storage.Storage, btrfsBase string) error {
 	for _, p := range grafanaStoragePaths(btrfsBase) {
 		name, dir := p[0], p[1]
@@ -136,36 +140,6 @@ func EnsureGrafanaStorage(st storage.Storage, btrfsBase string) error {
 		} else if err != nil {
 			return fmt.Errorf("stat %s: %w", dir, err)
 		}
-		if err := chownGrafanaTree(dir); err != nil {
-			return fmt.Errorf("chown grafana dir %s: %w", dir, err)
-		}
-	}
-	return nil
-}
-
-// chownGrafanaTree recursively sets uid:gid=472:472 on every entry
-// under path. The function is best-effort: per-entry chown failures
-// are logged and skipped so a test context (running as non-root)
-// does not fail the surrounding EnsureGrafanaStorage call. In
-// production the systemcontroller runs as root inside its container
-// and the chown succeeds; the ExecStartPre chown in the generated
-// unit is the authoritative fix that runs on every service start.
-func chownGrafanaTree(path string) error {
-	walkErr := filepath.WalkDir(path, func(p string, _ fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		//nolint:gosec // G122 -- path comes from filepath.WalkDir of a
-		// systemcontroller-owned directory (monitoring/grafana-*), not
-		// from user input; the chown target is the Grafana uid which
-		// cannot be abused via symlink TOCTOU at this privilege level.
-		if chownErr := os.Lchown(p, grafanaUID, grafanaGID); chownErr != nil {
-			slog.Debug("chown grafana entry", "path", p, "error", chownErr)
-		}
-		return nil
-	})
-	if walkErr != nil && !errors.Is(walkErr, os.ErrNotExist) {
-		return walkErr
 	}
 	return nil
 }
@@ -212,11 +186,11 @@ func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string) error
 
 // StartMonitoringUI installs and starts the monitoring UI service. Both uPlot
 // and Grafana modes generate full package units (NC, sockets, private network).
-// In Grafana mode, Grafana's data and provisioning directories are ensured
-// (btrfs subvolume where possible, plain directory fallback otherwise) and
-// proactively chowned to the Grafana uid before the unit is installed, so
-// a previously-broken boot (wrong owner, restart loop) self-heals as soon
-// as the new systemcontroller runs.
+// In Grafana mode, the data and provisioning directories are created (btrfs
+// subvolume where possible, plain directory fallback otherwise) and the
+// provisioning files are written; ownership of both trees is then set by the
+// ExecStartPre chowns emitted by the generated unit from the HostVolumeMount
+// UID/GID fields.
 func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage, networkStatePath string, diskDevices []string) error {
 	var cfg systemd.PackageUnitConfig
 
@@ -226,11 +200,6 @@ func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Stora
 		}
 		if err := WriteGrafanaProvisioningFiles(btrfsBase, diskDevices); err != nil {
 			return fmt.Errorf("write grafana provisioning: %w", err)
-		}
-		// Re-chown after writing provisioning files (os.WriteFile
-		// resets ownership to the systemcontroller's uid).
-		if err := chownGrafanaTree(filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")); err != nil {
-			return fmt.Errorf("chown grafana provisioning: %w", err)
 		}
 		cfg = GrafanaPackageConfig(btrfsBase, ncImage, networkStatePath)
 	} else {
