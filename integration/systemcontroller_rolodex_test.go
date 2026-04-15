@@ -545,7 +545,7 @@ func rolodexUnitFatal(ctx context.Context, unitName string) string {
 		}
 		// NRestarts climbing means Restart=always is masking a crash loop.
 		// Three restarts in the wait window is enough to call it.
-		for _, line := range strings.Split(props, "\n") {
+		for line := range strings.SplitSeq(props, "\n") {
 			if rest, ok := strings.CutPrefix(line, "NRestarts="); ok {
 				if n, convErr := strconv.Atoi(strings.TrimSpace(rest)); convErr == nil && n >= 3 {
 					return "rolodex unit is crash-looping (NRestarts=" + rest + ")"
