@@ -1,8 +1,12 @@
 CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - **MOST IMPORTANT**:
-    - DO NOT RUN `make test-full`
-    - ONLY RUN `make lint`, `make test`, `make test-integration` for running independent segments. Do not run compiler tools or other build tools.
+    - **Use `make`, not raw compiler/test tools.** Never run `go build`, `go test`, `go vet`, `golangci-lint`, `bun test`, `vitest`, or any equivalent directly. Always go through a make target so the repo's wrappers (cleanup traps, btrfs lifecycle, per-run instance IDs) apply.
+    - **Make targets you may run whenever you need them** (fast, idempotent, no remote side effects):
+      `make help`, `make lint`, `make test`, `make test-ui-unit`, `make test-integration`, `make check-*` (bun / go / podman / runc / btrfs / libsystemd / golangci-lint). Use these freely to validate changes — you don't need to ask first.
+    - **Make targets that require explicit user permission before running:**
+      `make test-full` (expensive, spawns full container stack — NEVER run this unprompted), `make push*` / `make release*` / `make *-image` / `make production-image` / `make pull-images` (talk to registries or build images), `make dev*` / `make registry` / `make gitea` (start long-running local services), `make clean*` / `make btrfs*` (destructive on local state).
+    - **If a make target isn't in either list above, ask first.**
     - DO NOT FORCE PUSH FOR ANY REASON EVER.
     - when you need to push, push to "origin" only.
     - BEFORE YOU PUSH, ALWAYS "git pull --rebase" and fix any merge issues.
@@ -22,6 +26,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - **Use CMD instead of ENTRYPOINT in container images** — all Containerfiles and inline Containerfile strings must use `CMD` instead of `ENTRYPOINT`. This allows `podman run <image> <command>` to override the default command without `--entrypoint`. Applies to the systemcontroller image, NC image, and any dynamically generated Containerfiles.
 
+- **Every runtime container image must ship a system CA bundle** — any Containerfile (or inline Containerfile string) whose final stage runs Town OS code making outbound HTTPS calls must install `ca-certificates` (debian/ubuntu: `apt-get install ca-certificates`; alpine: `apk add ca-certificates`) unless the base image already provides it (e.g. `caddy`, `oven/bun`). Without a CA bundle, Go's TLS stack fails every HTTPS call with `x509: certificate signed by unknown authority` and failures in background pollers are invisible at default log level (see `fetchExternalIP` silently dropping `ipinfo.io` responses). When adding a new Containerfile, verify the final image has `/etc/ssl/certs/ca-certificates.crt` before considering the image shippable.
+
 - **`--replace` on all `podman run --name`** — no exceptions, anywhere in the repo.
 
 - **Fail fast** — if any make subtask or script launched by a make subtask fails, stop immediately. Do not continue to the next phase.
@@ -30,9 +36,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - **No hardcoded shared resources in tests** — all test temp files, sockets, directories, and ports must use unique-per-run paths (`t.TempDir()`, `filepath.Join`, `findFreePort`, etc.). Never use fixed paths like `/tmp/foo.sock`.
 
-- **DO NOT RUN TESTS UNLESS TOLD**
-
-- **DO NOT RUN COMPILER / TEST TOOLS BY HAND. ONLY USE MAKE.**
+- **Running the allowed make targets is fine without being asked; anything else in the "requires permission" list above needs an explicit OK.** Never invoke `go`, `go test`, `go vet`, `golangci-lint`, `bun test`, `vitest`, etc. directly — always go through make.
 
 - **Ephemeral state in /tmp** — all port files, btrfs volumes, dev data, and per-run artifacts
   live in `/tmp/town-os-$(INSTANCE_ID)/`, not the working directory.
