@@ -38,7 +38,28 @@ const (
 	defaultPollerInternalIPInterval = 5 * time.Minute
 	defaultPollerExternalEvery      = 12
 	defaultPollerStableTicks        = 3
+
+	// externalIPFetchTimeout bounds a single ipinfo.io request (DNS + TCP
+	// connect + TLS handshake + body read). 30s is deliberately generous:
+	// a DNS-degraded box routinely spent >10s here pre-fix, and a silent
+	// failure would leave the dashboard missing external_ip for up to an
+	// hour until the next hourly poll.
+	externalIPFetchTimeout = 30 * time.Second
+	defaultExternalIPURL   = "https://ipinfo.io/json"
 )
+
+// externalIPStartupBackoffs controls the startup retry cadence for the
+// external-IP fetch. The first attempt happens immediately; subsequent
+// attempts wait for the listed duration before firing. Chosen so a
+// transient DNS/TLS hiccup at boot is retried within minutes rather
+// than waiting for the hourly poll. Overridable via the
+// externalIPStartupBackoffs field on serverBase for tests.
+var defaultExternalIPStartupBackoffs = []time.Duration{
+	0,
+	30 * time.Second,
+	2 * time.Minute,
+	10 * time.Minute,
+}
 
 type serverBase struct {
 	ServerConfig
@@ -65,6 +86,21 @@ type serverBase struct {
 	pollerStableTicks        int
 	pollerInternalDiscoverer func() string
 	pollerReconcileDNS       func(ctx context.Context, oldIP, newIP string) error
+
+	// externalIPURL overrides defaultExternalIPURL; tests set it to an
+	// httptest.Server URL. externalIPStartupBackoffs overrides
+	// defaultExternalIPStartupBackoffs; tests shrink the waits. An empty
+	// slice disables the startup retry entirely.
+	externalIPURL             string
+	externalIPStartupBackoffs []time.Duration
+
+	// extFailWarnLogged tracks whether the "external IP fetch failed"
+	// Warn log has already fired. We log the FIRST failure at Warn so a
+	// DNS-degraded box surfaces the problem at default log level, then
+	// drop to Debug for subsequent failures so the journal doesn't fill
+	// up while the hourly poll keeps retrying.
+	extFailMu        sync.Mutex
+	extFailWarnLogged bool
 }
 
 func (s *serverBase) GetStorage() storage.Storage                 { return s.Storage }
@@ -322,51 +358,148 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 	slog.Info("re-registered package DNS records after internal IP change", "old", oldIP, "new", newIP)
 }
 
-func (s *serverBase) fetchExternalIP(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+// externalIPURLValue returns the configured external-IP URL or the default.
+func (s *serverBase) externalIPURLValue() string {
+	if s.externalIPURL != "" {
+		return s.externalIPURL
+	}
+	return defaultExternalIPURL
+}
+
+// externalIPStartupBackoffsValue returns the configured startup backoff
+// schedule or the default. A non-nil empty slice means "disabled".
+func (s *serverBase) externalIPStartupBackoffsValue() []time.Duration {
+	if s.externalIPStartupBackoffs != nil {
+		return s.externalIPStartupBackoffs
+	}
+	return defaultExternalIPStartupBackoffs
+}
+
+// fetchExternalIPOnce performs a single bounded request to the configured
+// ipinfo-compatible endpoint. Returns the IP on success (may be empty if
+// the response had no `ip` field) or an error suitable for logging.
+func (s *serverBase) fetchExternalIPOnce(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, externalIPFetchTimeout)
 	defer cancel()
-	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, "https://ipinfo.io/json", nil)
-	if reqErr != nil {
-		slog.Debug(fmt.Sprintf("fetchExternalIP: %v", reqErr))
-		return
-	}
-	client := &http.Client{}
-	resp, err := client.Do(req) //nolint:gosec // G704 -- URL is a constant
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.externalIPURLValue(), nil)
 	if err != nil {
-		slog.Debug(fmt.Sprintf("fetchExternalIP: %v", err))
-		return
+		return "", fmt.Errorf("new request: %w", err)
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			slog.Debug(fmt.Sprintf("fetchExternalIP: close body: %v", err))
-		}
-	}()
-
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G107 -- URL is operator-configured
+	if err != nil {
+		return "", fmt.Errorf("do: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		slog.Debug(fmt.Sprintf("fetchExternalIP: status %d", resp.StatusCode)) //nolint:gosec // G706 -- status code is not tainted
-		return
+		return "", fmt.Errorf("status %d", resp.StatusCode) //nolint:gosec // G706 -- status code is not tainted
 	}
-
 	var result struct {
 		IP string `json:"ip"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		slog.Debug(fmt.Sprintf("fetchExternalIP: decode: %v", err))
+		return "", fmt.Errorf("decode: %w", err)
+	}
+	return result.IP, nil
+}
+
+// fetchAndStoreExternalIP runs a single fetch, stores the result on
+// success, and logs outcome appropriately. Returns true when a non-empty
+// IP was stored. The first failure (while no IP has ever been fetched
+// successfully) is logged at Warn so a DNS-degraded box is visible at
+// default log level. Subsequent failures are logged at Debug to avoid
+// spamming the journal. On success, the first success is logged at Info
+// and subsequent changes at Info ("external IP changed").
+func (s *serverBase) fetchAndStoreExternalIP(ctx context.Context) bool {
+	ip, err := s.fetchExternalIPOnce(ctx)
+	if err != nil {
+		s.logExternalIPFetchFailure(err)
+		return false
+	}
+	if ip == "" {
+		slog.Debug("fetchExternalIP: endpoint returned empty ip field")
+		return false
+	}
+	old, _ := s.externalIP.Load().(string)
+	s.externalIP.Store(ip)
+	switch {
+	case old == "":
+		slog.Info("external IP discovered", "ip", ip)
+	case old != ip:
+		slog.Info("external IP changed", "old", old, "new", ip)
+	}
+	// A success clears the Warn-logged latch so a future failure after
+	// a recovered run logs at Warn again (operator wants to see it).
+	s.extFailMu.Lock()
+	s.extFailWarnLogged = false
+	s.extFailMu.Unlock()
+	return true
+}
+
+// logExternalIPFetchFailure applies the "first failure loud, rest quiet"
+// policy described on extFailWarnLogged. Kept separate so
+// fetchAndStoreExternalIP stays linear.
+func (s *serverBase) logExternalIPFetchFailure(err error) {
+	// If we already have a stored IP, a single transient failure does not
+	// warrant a Warn — the dashboard still shows the last-known value.
+	if ip, _ := s.externalIP.Load().(string); ip != "" {
+		slog.Debug("fetchExternalIP: transient failure while cached IP still valid", "err", err, "cached_ip", ip)
 		return
 	}
+	s.extFailMu.Lock()
+	alreadyLogged := s.extFailWarnLogged
+	s.extFailWarnLogged = true
+	s.extFailMu.Unlock()
+	if alreadyLogged {
+		slog.Debug("fetchExternalIP: failed again", "err", err)
+		return
+	}
+	slog.Warn(
+		"fetchExternalIP: failed and dashboard external_ip will be empty until a later attempt succeeds",
+		"url", s.externalIPURLValue(),
+		"err", err,
+	)
+}
 
-	if result.IP != "" {
-		s.externalIP.Store(result.IP)
+// fetchExternalIP preserves the original one-shot API for existing call
+// sites (network poller tick and legacy tests) while routing through the
+// new log-and-store path. Callers that want startup retries should use
+// fetchExternalIPWithStartupBackoff instead.
+func (s *serverBase) fetchExternalIP(ctx context.Context) {
+	s.fetchAndStoreExternalIP(ctx)
+}
+
+// fetchExternalIPWithStartupBackoff runs the immediate attempt plus a
+// short cascade of retries (defaults: 30s, 2m, 10m) so a DNS-degraded
+// boot recovers in minutes instead of waiting for the hourly tick.
+// Returns as soon as a fetch succeeds, ctx is cancelled, or the backoff
+// schedule is exhausted. Safe to call on its own goroutine.
+func (s *serverBase) fetchExternalIPWithStartupBackoff(ctx context.Context) {
+	for _, d := range s.externalIPStartupBackoffsValue() {
+		if d > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(d):
+			}
+		}
+		if s.fetchAndStoreExternalIP(ctx) {
+			return
+		}
 	}
 }
 
-// startNetworkPoller fetches the external IP immediately, primes the
-// internal-IP cache, and then ticks every pollerInternalIPInterval to refresh
-// the internal IP (with debounced change detection that fires DNS reconcile
-// on a confirmed change) and to refresh the external IP every
-// pollerExternalEvery ticks. The goroutine exits when ctx is cancelled.
+// startNetworkPoller fetches the external IP (with a short retry cascade
+// on a dedicated goroutine so startup isn't blocked by a 30s timeout),
+// primes the internal-IP cache, and then ticks every pollerInternalIPInterval
+// to refresh the internal IP (with debounced change detection that fires
+// DNS reconcile on a confirmed change) and to refresh the external IP
+// every pollerExternalEvery ticks. All goroutines exit when ctx is cancelled.
 func (s *serverBase) startNetworkPoller(ctx context.Context) {
-	s.fetchExternalIP(ctx)
+	// Startup external-IP fetch happens on its own goroutine: each attempt
+	// can take up to externalIPFetchTimeout and the full backoff schedule
+	// runs for ~12m worst case. Blocking startNetworkPoller on that would
+	// delay the first internal-IP tick and the HTTP server becoming healthy.
+	go s.fetchExternalIPWithStartupBackoff(ctx)
 	// Prime the internal-IP cache before any ticks so the first tick is a
 	// no-op rather than a spurious "" → realIP "change".
 	s.RefreshInternalIP()
