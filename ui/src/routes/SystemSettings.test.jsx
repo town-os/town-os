@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
 // --- Pure function tests (mirrored from SystemSettings.jsx) ---
@@ -682,6 +683,158 @@ describe('SystemSettings Monitoring Backend', () => {
       expect(options).toHaveLength(2)
       expect(options[0].value).toBe('uplot')
       expect(options[1].value).toBe('grafana')
+    })
+  })
+})
+
+// This block reclaims the coverage that got deleted when the unchanged-save
+// no-op feature landed — those tests clicked Save without changing the input,
+// which under the new behaviour is (correctly) a no-op. These tests change
+// the input via userEvent (which, unlike fireEvent.change, correctly drives
+// React's controlled-input value tracker for number inputs and selects in
+// jsdom) and assert that setSetting is called with the new value.
+describe('SystemSettings changed-value save hits setSetting', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockMonitoringStatus.mockClear()
+    mockGetLocales.mockClear()
+    mockToast.info.mockClear()
+    mockToast.success.mockClear()
+    mockToast.loading.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+    mockGetLocales.mockImplementation(() => Promise.resolve({
+      current: 'en-US',
+      populated: ['en-US', 'es-ES'],
+      common_languages: [
+        { code: 'en-US', native_name: 'English', english_name: 'English' },
+        { code: 'es-ES', native_name: 'Español', english_name: 'Spanish' },
+      ],
+      extended_locales: [],
+    }))
+  })
+
+  // NOTE: a "type a new number into the Quota field" happy-path test is
+  // deliberately absent. user-event v14 + jsdom + React 19 can't reliably
+  // clear a pre-filled controlled <input type="number"> that starts at
+  // '50' — neither user.clear() nor {selectall}{backspace} nor the native
+  // value-setter-plus-input-event pattern consistently empties it.
+  // Archive Size (initial '1') and Timeout (initial '10') use the same
+  // user.clear()+user.type() pattern successfully, so the bug is
+  // value-specific, not pattern-specific, and worth leaving as a failing
+  // test would pin us to that quirk. The unit-change test below exercises
+  // the same handleSaveQuota code path (quotaToBytes -> setSetting with a
+  // new byte count) via selectOptions on the unit select, which is rock
+  // solid in the same stack.
+
+  it('quota: changing unit to MB re-computes bytes and posts them', async () => {
+    const user = userEvent.setup()
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Quota').value).toBe('50')
+    })
+    // Loaded is 50 GB (53687091200 bytes). Switching the unit select to
+    // MB makes the form compute 50 MB (52428800 bytes), which is a real
+    // change, so setSetting fires with the new byte count.
+    const quotaUnit = document.getElementById('quota-unit')
+    await user.selectOptions(quotaUnit, 'MB')
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[1])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('default_quota', String(50 * 1024 * 1024))
+    })
+  })
+
+  it('archive size: changing value posts the new byte count', async () => {
+    const user = userEvent.setup()
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Size').value).toBe('1')
+    })
+    const input = screen.getByLabelText('Size')
+    await user.clear(input)
+    await user.type(input, '5')
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[2])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('max_archive_size', String(5 * 1024 * 1024 * 1024))
+    })
+  })
+
+  it('timeout: changing value posts the new second count', async () => {
+    const user = userEvent.setup()
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Timeout').value).toBe('10')
+    })
+    const input = screen.getByLabelText('Timeout')
+    await user.clear(input)
+    await user.type(input, '30')
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[3])
+    await waitFor(() => {
+      // Default unit is minutes when the loaded value is minute-aligned,
+      // so 30 minutes = 1800 seconds.
+      expect(mockSetSetting).toHaveBeenCalledWith('archive_unpack_timeout', '1800')
+    })
+  })
+
+  it('proton image: changing value posts the new string', async () => {
+    const user = userEvent.setup()
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Image').value).toBe('')
+    })
+    const input = screen.getByLabelText('Image')
+    await user.type(input, 'ghcr.io/town-os/proton-runner:v2')
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[4])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('proton_image', 'ghcr.io/town-os/proton-runner:v2')
+    })
+  })
+
+  it('language: changing selected locale posts it', async () => {
+    const user = userEvent.setup()
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Language').value).toBe('en-US')
+    })
+    const select = screen.getByLabelText('Language')
+    await user.selectOptions(select, 'es-ES')
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[0])
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('locale', 'es-ES')
+    })
+  })
+
+  it('monitoring: changing backend posts it and polls monitoringStatus', async () => {
+    const user = userEvent.setup()
+    mockMonitoringStatus.mockImplementation(() =>
+      Promise.resolve({
+        backend: 'grafana',
+        prometheus: true,
+        node_exporter: true,
+        grafana: true,
+        monitoring_ui: true,
+      }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Backend').value).toBe('uplot')
+    })
+    const select = screen.getByLabelText('Backend')
+    await user.selectOptions(select, 'grafana')
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[saveButtons.length - 1])
+    })
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('monitoring_backend', 'grafana')
+    })
+    await waitFor(() => {
+      expect(mockMonitoringStatus).toHaveBeenCalled()
     })
   })
 })
