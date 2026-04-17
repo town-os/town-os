@@ -447,8 +447,8 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	if len(pkgs) != 6 {
-		t.Fatalf("expected 6 packages (app-with-cache, demo-nginx, mosquitto, nginx, postgres, redis), got %d", len(pkgs))
+	if len(pkgs) != 7 {
+		t.Fatalf("expected 7 packages (app-with-cache, demo-nginx, mosquitto, nginx, postgres, redis, underscore-questions), got %d", len(pkgs))
 	}
 
 	// verify sorted and all expected names present
@@ -461,7 +461,7 @@ func TestListPackagesMultipleRepos(t *testing.T) {
 		found[pi.Name] = true
 	}
 
-	for _, want := range []string{"demo-nginx", "mosquitto", "nginx", "postgres", "redis"} {
+	for _, want := range []string{"demo-nginx", "mosquitto", "nginx", "postgres", "redis", "underscore-questions"} {
 		if !found[want] {
 			t.Fatalf("expected package %s to be present", want)
 		}
@@ -502,9 +502,9 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		t.Fatalf("failed to list packages: %v", err)
 	}
 
-	// same 6 packages regardless of order
-	if len(pkgs) != 6 {
-		t.Fatalf("expected 6 packages, got %d", len(pkgs))
+	// same 7 packages regardless of order
+	if len(pkgs) != 7 {
+		t.Fatalf("expected 7 packages, got %d", len(pkgs))
 	}
 
 	// verify all expected names and versions present
@@ -517,7 +517,7 @@ func TestListPackagesPreferenceOrder(t *testing.T) {
 		foundNames[pi.Name] = true
 	}
 
-	for _, name := range []string{"demo-nginx", "mosquitto", "nginx", "postgres", "redis"} {
+	for _, name := range []string{"demo-nginx", "mosquitto", "nginx", "postgres", "redis", "underscore-questions"} {
 		if !foundNames[name] {
 			t.Fatalf("expected package %s to be present", name)
 		}

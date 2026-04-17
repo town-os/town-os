@@ -147,7 +147,11 @@ func TestValidateEnvironmentKey(t *testing.T) {
 }
 
 func TestValidateQuestionName(t *testing.T) {
-	valid := []string{"hostname", "port", "password", "myVar123", "abc", "A", "x1"}
+	valid := []string{
+		"hostname", "port", "password", "myVar123", "abc", "A", "x1",
+		"has_underscore", "registration_secret", "macaroon_secret_key",
+		"a_b_c", "x1_y2",
+	}
 	for _, name := range valid {
 		t.Run("valid/"+name, func(t *testing.T) {
 			err := ValidateQuestionName(name)
@@ -160,7 +164,7 @@ func TestValidateQuestionName(t *testing.T) {
 	invalid := []string{
 		"",
 		"has-dash",
-		"has_underscore",
+		"_leading",
 		"has space",
 		"has.dot",
 		"has@at",
@@ -524,6 +528,59 @@ func TestCompileRejectsInvalidQuestionName(t *testing.T) {
 	}
 }
 
+// Underscore-bearing question names (e.g. "registration_secret") must be
+// accepted by validation AND substituted into @template@ markers everywhere
+// templates flow through Compile — environment, volumes, and file templates.
+// This guards the matrix-package shape that previously failed to install.
+func TestCompileAcceptsUnderscoreQuestionName(t *testing.T) {
+	input := InputPackage{
+		Image: InputPackageImage{URL: "nginx"},
+		Environment: map[string]string{
+			"REG_SECRET": "@registration_secret@",
+		},
+		Network: InputPackageNetwork{},
+		Volumes: map[string]InputPackageVolume{
+			"data": {Mountpoint: "/var/lib/@dbname_lower@"},
+		},
+		Templates: map[string]InputPackageTemplate{
+			"conf": {
+				Volume:  "data",
+				Path:    "homeserver.yaml",
+				Content: "secret: @registration_secret@\nname: @dbname_lower@\n",
+			},
+		},
+		Questions: map[string]Question{
+			"registration_secret": {Query: "secret?"},
+			"dbname_lower":        {Query: "db?"},
+		},
+	}
+	pkg, err := input.Compile(Responses{
+		"registration_secret": "abc123",
+		"dbname_lower":        "synapse",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := pkg.Environment["REG_SECRET"]; got != "abc123" {
+		t.Fatalf("environment substitution failed: got %q", got)
+	}
+	vol, ok := pkg.Volumes["data"]
+	if !ok {
+		t.Fatal("missing data volume")
+	}
+	if vol.Mountpoint != "/var/lib/synapse" {
+		t.Fatalf("volume mountpoint substitution failed: got %q", vol.Mountpoint)
+	}
+	tmpl, ok := pkg.Templates["conf"]
+	if !ok {
+		t.Fatal("missing conf template")
+	}
+	wantContent := "secret: abc123\nname: synapse\n"
+	if tmpl.Content != wantContent {
+		t.Fatalf("template content substitution failed: got %q", tmpl.Content)
+	}
+}
+
 func TestCompileRejectsInvalidEnvironmentKey(t *testing.T) {
 	input := InputPackage{
 		Image:       InputPackageImage{URL: "nginx"},
@@ -834,11 +891,38 @@ func TestValidateInputPackage(t *testing.T) {
 			Environment: map[string]string{},
 			Network:     InputPackageNetwork{},
 			Volumes:     map[string]InputPackageVolume{},
-			Questions:   map[string]Question{"bad_name": {Query: "test?"}},
+			Questions:   map[string]Question{"bad-name": {Query: "test?"}},
 		}
 		err := pkg.Validate()
 		if !errors.Is(err, ErrInvalidQuestionName) {
 			t.Fatalf("expected ErrInvalidQuestionName, got %v", err)
+		}
+	})
+
+	t.Run("rejects question name starting with underscore", func(t *testing.T) {
+		pkg := InputPackage{
+			Image:       InputPackageImage{URL: "nginx"},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{"_leading": {Query: "test?"}},
+		}
+		err := pkg.Validate()
+		if !errors.Is(err, ErrInvalidQuestionName) {
+			t.Fatalf("expected ErrInvalidQuestionName, got %v", err)
+		}
+	})
+
+	t.Run("accepts question name with underscores", func(t *testing.T) {
+		pkg := InputPackage{
+			Image:       InputPackageImage{URL: "nginx"},
+			Environment: map[string]string{},
+			Network:     InputPackageNetwork{},
+			Volumes:     map[string]InputPackageVolume{},
+			Questions:   map[string]Question{"registration_secret": {Query: "test?"}},
+		}
+		if err := pkg.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 

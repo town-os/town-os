@@ -254,7 +254,7 @@ Note compilation uses a single-pass resolver (`ApplyTemplates`) that merges cont
 
 ### Questions
 
-Questions prompt the user during package installation. Each question has a `query` (display text), an optional `type` (output type for validation), and an optional `default` value. Question names must be alphanumeric only.
+Questions prompt the user during package installation. Each question has a `query` (display text), an optional `type` (output type for validation), and an optional `default` value. Question names must start with an alphanumeric character and may contain only alphanumeric characters and underscores (e.g. `port`, `dbpass`, `registration_secret`). Dashes, dots, and other punctuation are rejected; underscores are allowed because question names are used as `@template@` markers and multi-word identifiers like `registration_secret` are common in real packages.
 
 #### Output Types
 

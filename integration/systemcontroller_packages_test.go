@@ -89,8 +89,8 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("ListPackages: %v", err)
 	}
 
-	if len(pkgs.Entries) != 6 {
-		t.Fatalf("expected 6 packages, got %d", len(pkgs.Entries))
+	if len(pkgs.Entries) != 7 {
+		t.Fatalf("expected 7 packages, got %d", len(pkgs.Entries))
 	}
 
 	// Verify all expected packages present.
@@ -99,7 +99,7 @@ func TestSystemControllerListPackagesMultipleRepos(t *testing.T) {
 		pkgSet[fmt.Sprintf("%s/%s@%s", p.Repo, p.Name, p.Version)] = true
 	}
 
-	for _, want := range []string{"core/app-with-cache@1.0", "core/demo-nginx@1.0", "core/nginx@2.0", "core/redis@7.0", "extras/mosquitto@2.0", "extras/postgres@16.0"} {
+	for _, want := range []string{"core/app-with-cache@1.0", "core/demo-nginx@1.0", "core/nginx@2.0", "core/redis@7.0", "extras/mosquitto@2.0", "extras/postgres@16.0", "extras/underscore-questions@1.0"} {
 		if !pkgSet[want] {
 			t.Fatalf("expected %s in package list", want)
 		}

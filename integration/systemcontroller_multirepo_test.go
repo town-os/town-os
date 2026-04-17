@@ -80,9 +80,9 @@ func TestSystemControllerListPackagesByRepoIntegration(t *testing.T) {
 		t.Fatalf("expected second group to be core, got %s", groups[1].Repo)
 	}
 
-	// Extras has mosquitto and postgres.
-	if len(groups[0].Packages) != 2 {
-		t.Fatalf("expected 2 packages in extras, got %d", len(groups[0].Packages))
+	// Extras has mosquitto, postgres, and underscore-questions.
+	if len(groups[0].Packages) != 3 {
+		t.Fatalf("expected 3 packages in extras, got %d", len(groups[0].Packages))
 	}
 	// Core has app-with-cache, demo-nginx, nginx, redis.
 	if len(groups[1].Packages) != 4 {

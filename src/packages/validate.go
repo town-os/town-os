@@ -27,10 +27,10 @@ var (
 )
 
 var (
-	envKeyRegexp      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-	questionRegexp    = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
-	volumeNameRegexp  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
-	imageRefRegexp    = regexp.MustCompile(`^[a-zA-Z0-9@][a-zA-Z0-9._:/@-]*$`)
+	envKeyRegexp     = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	questionRegexp   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_]*$`)
+	volumeNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	imageRefRegexp   = regexp.MustCompile(`^[a-zA-Z0-9@][a-zA-Z0-9._:/@-]*$`)
 )
 
 // NormalizeImageURL normalizes a container image reference:
@@ -116,11 +116,14 @@ func ValidateEnvironmentKey(key string) error {
 	return nil
 }
 
-// ValidateQuestionName checks that a question/template variable name
-// contains only alphanumeric characters.
+// ValidateQuestionName checks that a question/template variable name starts
+// with an alphanumeric character and contains only alphanumeric characters
+// and underscores. The leading-character restriction keeps the name a valid
+// identifier; underscores are permitted so multi-word names like
+// "registration_secret" can be used as @template@ markers.
 func ValidateQuestionName(name string) error {
 	if !questionRegexp.MatchString(name) {
-		return fmt.Errorf("%w: %q (must be alphanumeric)", ErrInvalidQuestionName, name)
+		return fmt.Errorf("%w: %q (must start with an alphanumeric character and contain only alphanumerics and underscores)", ErrInvalidQuestionName, name)
 	}
 	return nil
 }
