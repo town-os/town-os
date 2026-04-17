@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -49,6 +50,48 @@ func TestNodeExporterUnitConfigCustomPort(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected custom port 19100 in command")
+	}
+}
+
+// TestNodeExporterUnitConfigDiskstatsExcludeAllowsRealDevices pins the
+// diskstats device-exclude override so node_exporter keeps emitting
+// metrics for the exact device shapes our Disk I/O panel queries:
+// partitions (sda3, nvme0n1p3), whole disks, and loop devices (used by
+// the integration-test btrfs loopback). The upstream default excludes
+// all of those and leaves the panel empty.
+func TestNodeExporterUnitConfigDiskstatsExcludeAllowsRealDevices(t *testing.T) {
+	cfg := NodeExporterUnitConfig("")
+
+	var flag string
+	for _, cmd := range cfg.Command {
+		if rest, ok := strings.CutPrefix(cmd, "--collector.diskstats.device-exclude="); ok {
+			flag = rest
+		}
+	}
+	if flag == "" {
+		t.Fatalf("expected --collector.diskstats.device-exclude in node-exporter command, got %v", cfg.Command)
+	}
+	if flag != DiskstatsDeviceExclude {
+		t.Fatalf("diskstats device-exclude drifted: got %q want %q", flag, DiskstatsDeviceExclude)
+	}
+
+	re, err := regexp.Compile(flag)
+	if err != nil {
+		t.Fatalf("device-exclude regex does not compile: %v", err)
+	}
+
+	keep := []string{"sda", "sda3", "nvme0n1", "nvme0n1p3", "loop0", "dm-0", "vda1", "xvda2"}
+	for _, d := range keep {
+		if re.MatchString(d) {
+			t.Errorf("device-exclude %q should not match real device %q", flag, d)
+		}
+	}
+
+	drop := []string{"ram0", "ram15", "fd0"}
+	for _, d := range drop {
+		if !re.MatchString(d) {
+			t.Errorf("device-exclude %q should match pseudo-device %q", flag, d)
+		}
 	}
 }
 

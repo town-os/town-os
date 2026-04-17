@@ -5,10 +5,16 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"math/rand/v2"
+	"net/http"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/storage"
@@ -124,6 +130,185 @@ func TestMonitoringNodeExporterRealStart(t *testing.T) {
 	if !found {
 		t.Fatalf("expected unit %s in unit list", unitName)
 	}
+}
+
+// upstreamDiskstatsDefaultExclude mirrors the node_exporter default for
+// `--collector.diskstats.device-exclude`. It is the pattern our override
+// in NodeExporterUnitConfig is supposed to be narrower than; this test
+// uses it to find at least one real device in /proc/diskstats that
+// would have been filtered out before the override existed, then confirms
+// that node_exporter now emits metrics for it.
+var upstreamDiskstatsDefaultExclude = regexp.MustCompile(
+	`^(ram|loop|fd|(h|s|v|xv)d[a-z]|nvme\d+n\d+p)\d+$`,
+)
+
+// TestMonitoringNodeExporterEmitsDiskMetricsForFilteredDevices starts a
+// real node_exporter container against the system bus, scrapes its
+// /metrics endpoint, and confirms at least one device excluded by the
+// upstream default (a partition or a loop device) appears in
+// node_disk_read_bytes_total. Regression coverage for the empty Disk I/O
+// panel: /town-os lives on exactly those shapes of device, and without
+// the --collector.diskstats.device-exclude override in
+// NodeExporterUnitConfig the dashboard queries silently return no series.
+func TestMonitoringNodeExporterEmitsDiskMetricsForFilteredDevices(t *testing.T) {
+	t.Parallel()
+
+	candidateDevices := diskstatsDevicesMatchingUpstreamDefault(t)
+	if len(candidateDevices) == 0 {
+		t.Skip("no partition or loop device in /proc/diskstats to verify against")
+	}
+	t.Logf("candidate filtered-by-default devices in /proc/diskstats: %v", candidateDevices)
+
+	nePort := findFreePort(t)
+	t.Logf("node-exporter port: %s", nePort)
+
+	sd := systemd.NewManager()
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+
+	suffix := strconv.FormatUint(rand.Uint64(), 36)
+	cfg := monitoring.NodeExporterUnitConfig(nePort)
+	cfg.Key = "node-exporter-test-" + suffix
+	uf := systemd.GenerateSystemServiceUnit(cfg)
+	unitName := uf.Name
+
+	if err := sd.InstallUnit(ctx, unitName, uf.Content); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)    //nolint:errcheck // best-effort cleanup
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable) //nolint:errcheck // best-effort cleanup
+		_ = sd.UninstallUnit(cleanupCtx, unitName)              //nolint:errcheck // best-effort cleanup
+	})
+	if err := sd.SetStatus(ctx, unitName, systemd.Enable); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	if err := sd.SetStatus(ctx, unitName, systemd.Restart); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+
+	metricsURL := fmt.Sprintf("http://127.0.0.1:%s/metrics", nePort)
+	body := scrapeNodeExporterMetrics(ctx, t, metricsURL)
+
+	seenDevices := parseDiskReadBytesDevices(body)
+	t.Logf("devices emitted by node_exporter: %v", seenDevices)
+
+	intersect := intersection(seenDevices, candidateDevices)
+	if len(intersect) == 0 {
+		t.Fatalf("node_exporter emitted no node_disk_read_bytes_total series for any "+
+			"upstream-default-excluded device. candidates=%v emitted=%v flag=%q",
+			candidateDevices, seenDevices, monitoring.DiskstatsDeviceExclude)
+	}
+}
+
+// diskstatsDevicesMatchingUpstreamDefault returns the set of devices in
+// /proc/diskstats whose names match the upstream node_exporter default
+// exclude regex — exactly the devices we want node_exporter to emit
+// metrics for now that we've narrowed the exclude.
+func diskstatsDevicesMatchingUpstreamDefault(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile("/proc/diskstats")
+	if err != nil {
+		t.Skipf("/proc/diskstats unavailable: %v", err)
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		name := fields[2]
+		if upstreamDiskstatsDefaultExclude.MatchString(name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// scrapeNodeExporterMetrics polls metricsURL until it returns a non-empty
+// body or the context expires. node_exporter's systemd unit reports
+// active as soon as `podman run` forks, but the container still needs to
+// bind the listen port, so a short poll is the right shape here rather
+// than a single request.
+func scrapeNodeExporterMetrics(ctx context.Context, t *testing.T, metricsURL string) string {
+	t.Helper()
+	client := &http.Client{Timeout: 5 * time.Second}
+	var lastErr error
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("node_exporter did not serve metrics before deadline (last error: %v)", lastErr)
+			return ""
+		default:
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
+		if err != nil {
+			t.Fatalf("build request: %v", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Logf("close response body: %v", closeErr)
+		}
+		if readErr != nil {
+			lastErr = readErr
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("status %d", resp.StatusCode)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if len(body) == 0 {
+			lastErr = fmt.Errorf("empty body")
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		return string(body)
+	}
+}
+
+var diskReadDeviceLine = regexp.MustCompile(`^node_disk_read_bytes_total\{[^}]*device="([^"]+)"`)
+
+// parseDiskReadBytesDevices extracts the distinct `device` label values
+// from node_disk_read_bytes_total series in a Prometheus text-format
+// exposition body.
+func parseDiskReadBytesDevices(body string) []string {
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(body, "\n") {
+		m := diskReadDeviceLine.FindStringSubmatch(line)
+		if m != nil {
+			seen[m[1]] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	return out
+}
+
+// intersection returns the elements present in both slices.
+func intersection(a, b []string) []string {
+	in := make(map[string]struct{}, len(b))
+	for _, v := range b {
+		in[v] = struct{}{}
+	}
+	var out []string
+	for _, v := range a {
+		if _, ok := in[v]; ok {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func TestMonitoringPrometheusPackageUnits(t *testing.T) {
