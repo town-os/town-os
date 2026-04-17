@@ -1,14 +1,14 @@
 package account
 
 // DefaultSettings are seeded into the database on first init.
-// Existing values are never overwritten.
+// Existing values are never overwritten. Build-tagged additions (e.g.
+// proton_image when the `proton` tag is set) register themselves in init().
 var DefaultSettings = map[string]string{
 	"default_quota":          "53687091200", // 50 GB
-	"max_archive_size":       "1073741824",   // 1 GB
-	"archive_unpack_timeout": "600",          // seconds (10 min)
+	"max_archive_size":       "1073741824",  // 1 GB
+	"archive_unpack_timeout": "600",         // seconds (10 min)
 	"locale":                 "en-US",       // BCP 47 locale code
-	"proton_image":           "quay.io/town/proton:latest", // Proton runner image (GE-Proton)
-	"dns_tld":               "home",        // Default top-level domain for package DNS records
+	"dns_tld":                "home",        // Default top-level domain for package DNS records
 }
 
 type SettingsManager interface {

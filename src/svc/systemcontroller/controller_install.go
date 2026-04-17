@@ -170,10 +170,7 @@ func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd
 // backend configuration. When the package uses proton and has no explicit
 // image URL, the proton_image system setting is used.
 func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version, description string, compiled *packages.Package) systemd.PackageUnitConfig {
-	image := compiled.Image
-	if image == "" && compiled.Proton != nil {
-		image = s.protonImage()
-	}
+	image := s.resolveProtonImage(compiled)
 	cfg := systemd.PackageUnitConfig{
 		RepoName:               repoName,
 		PkgName:                pkgName,
@@ -196,22 +193,6 @@ func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version,
 		cfg.VMImagePath = resolveVMImagePath(s.Controller.GetBtrfsBasePath(), compiled.VM.Image)
 	}
 	return cfg
-}
-
-// protonImage returns the system-wide Proton runner container image from
-// the proton_image setting. Returns an empty string if not configured.
-func (s *SystemControllerHandlers) protonImage() string {
-	mgr := s.Controller.GetSettingsManager()
-	if mgr == nil {
-		return ""
-	}
-
-	val, err := mgr.Get("proton_image")
-	if err != nil {
-		return ""
-	}
-
-	return val
 }
 
 // findActiveVersion returns the currently installed version for a package,

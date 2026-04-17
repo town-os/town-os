@@ -48,10 +48,12 @@ func TestContainerfilesProvideCABundle(t *testing.T) {
 	// Every Containerfile whose final stage runs Town OS code that makes
 	// outbound HTTPS calls. Adjust if new Containerfiles are added. A
 	// Containerfile missing from this list will not be caught here.
+	//
+	// Containerfile.proton is gated on the `proton` build tag and asserted
+	// in containerfile_cabundle_proton_test.go.
 	paths := []string{
 		"Containerfile",
 		"Containerfile.networkcontroller",
-		"Containerfile.proton",
 		"Containerfile.ui",
 		"integration/testdata/Containerfile.dev",
 		"integration/testdata/Containerfile.systemd",

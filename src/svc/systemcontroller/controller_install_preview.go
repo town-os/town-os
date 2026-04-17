@@ -134,10 +134,7 @@ func (s *SystemControllerHandlers) installPreview(c *echo.Context) error {
 		return internalPorts[i].External < internalPorts[j].External
 	})
 
-	previewImage := ip.Image.URL
-	if previewImage == "" && ip.Proton != nil {
-		previewImage = s.protonImage()
-	}
+	previewImage := s.resolvePreviewProtonImage(ip.Image.URL, &ip)
 
 	preview := InstallPreview{
 		Repo:          repoName,

@@ -51,7 +51,7 @@ Services all have adequate logging and supervision. There is a comfortable UI fo
 
 The entire interface is internationalized. All user-facing strings -- both backend error messages and frontend UI text -- are routed through a message catalog keyed by BCP 47 locale codes (e.g. `en-US`, `de-DE`). A language selection screen in System Settings presents 21 common languages in their native scripts, with an expandable list of 87+ country-specific codes. Only English (en-US) is fully translated today; the infrastructure is ready for community translations.
 
-Windows applications can run alongside native Linux containers through Valve's Proton compatibility layer. A package definition with a `proton` section specifies a Windows app image, an extraction directory, and an executable path; the system pulls the app from an OCI image, extracts it into a persistent volume, and runs it inside a Proton runner container. The runner image is configured system-wide via the `proton_image` setting.
+Windows applications can run alongside native Linux containers through Valve's Proton compatibility layer. A package definition with a `proton` section specifies a Windows app image, an extraction directory, and an executable path; the system pulls the app from an OCI image, extracts it into a persistent volume, and runs it inside a Proton runner container. The runner image is configured system-wide via the `proton_image` setting. **Proton support is opt-in**: rebuild with `make PROTON_ENABLED=1 …` (or `go build -tags proton`) to compile it in. Without the tag, `proton:` blocks in package YAML are rejected at install time, the `proton_image` setting is not seeded, the Settings UI omits the Proton card, and the release pipeline does not build or push the runner image.
 
 A built-in monitoring stack provides system observability out of the box. Prometheus collects metrics, Node Exporter reports host-level statistics, and Grafana serves auto-provisioned dashboards -- all managed as a single unit with no manual configuration required.
 
@@ -251,19 +251,19 @@ All release images are pushed to `quay.io/town/`. Push targets tag images with b
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `make release-image`        | Build the release system controller image (`quay.io/town/town`).                                                   |
 | `make release-ui-image`     | Build the release UI image (`quay.io/town/ui`).                                                                    |
-| `make release-proton-image` | Build the release Proton runner image (`quay.io/town/proton`).                                                     |
+| `make release-proton-image` | Build the release Proton runner image (`quay.io/town/proton`). **Requires `PROTON_ENABLED=1`**; the target does not exist otherwise. |
 | `make release-nc-image`     | Build the release network controller image (`quay.io/town/networkcontroller`).                                     |
-| `make release-build`        | Pull images, run `test-full`, then build all four release images (system controller, UI, Proton, network controller). |
+| `make release-build`        | Pull images, run `test-full`, then build the release images. Includes the Proton runner when `PROTON_ENABLED=1`.    |
 | `make push`                 | Alias for `push-rc`.                                                                                               |
-| `make push-rc`              | Push all images (system controller, UI, Proton, network controller) as release candidates (`rc.<date>` + `rc.latest`). |
+| `make push-rc`              | Push all images (system controller, UI, network controller; Proton when `PROTON_ENABLED=1`) as release candidates (`rc.<date>` + `rc.latest`). |
 | `make push-release`         | Run `release-build`, then push all images as a release (`release.<date>` + `latest`).                              |
 | `make push-ui-rc`           | Push only the UI image as a release candidate (`rc.<date>` + `rc.latest`).                                         |
 | `make push-ui-release`      | Push only the UI image as a release (`release.<date>` + `latest`).                                                 |
-| `make push-proton-rc`       | Push only the Proton runner image as a release candidate (`rc.<date>` + `rc.latest`).                              |
-| `make push-proton-release`  | Push only the Proton runner image as a release (`release.<date>` + `latest`).                                      |
+| `make push-proton-rc`       | Push only the Proton runner image as a release candidate. **Requires `PROTON_ENABLED=1`**.                          |
+| `make push-proton-release`  | Push only the Proton runner image as a release. **Requires `PROTON_ENABLED=1`**.                                    |
 | `make push-nc-rc`           | Push only the network controller image as a release candidate (`rc.<date>` + `rc.latest`).                         |
 | `make push-nc-release`      | Push only the network controller image as a release (`release.<date>` + `latest`).                                 |
-| `make push-tag PUSH_TAG=x`  | Build and push all images (system controller, UI, Proton, network controller) with a custom tag `x`.               |
+| `make push-tag PUSH_TAG=x`  | Build and push all images with a custom tag `x`. Includes the Proton runner when `PROTON_ENABLED=1`.               |
 
 ### Registry Authentication
 

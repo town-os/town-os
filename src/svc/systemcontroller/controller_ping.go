@@ -41,6 +41,7 @@ type PingResponse struct {
 	TimezoneOffset     int                `json:"timezone_offset"`
 	Locale             string             `json:"locale"`
 	PagesEnabled       bool               `json:"pages_enabled"`
+	ProtonEnabled      bool               `json:"proton_enabled"`
 }
 
 type UnitCounts struct {
@@ -226,6 +227,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp.TimezoneOffset = packages.TimezoneOffset()
 	resp.Locale = s.getLocale()
 	resp.PagesEnabled = s.Controller.GetPagesManager() != nil
+	resp.ProtonEnabled = packages.ProtonEnabled()
 
 	// Compute upgrade info.
 	upgrades := s.computeUpgrades()

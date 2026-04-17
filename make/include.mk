@@ -160,8 +160,10 @@ release-image:
 release-ui-image:
 	@make/build.sh release-ui
 
+ifeq ($(PROTON_ENABLED),1)
 release-proton-image:
 	@make/build.sh release-proton
+endif
 
 release-nc-image:
 	@make/build.sh release-nc
@@ -181,11 +183,13 @@ push-ui-rc:
 push-ui-release:
 	@make/build.sh push-ui-release
 
+ifeq ($(PROTON_ENABLED),1)
 push-proton-rc: release-proton-image quay-login
 	@make/build.sh push-proton-rc
 
 push-proton-release: release-proton-image quay-login
 	@make/build.sh push-proton-release
+endif
 
 push-nc-rc: release-nc-image quay-login
 	@make/build.sh push-nc-rc
@@ -193,8 +197,13 @@ push-nc-rc: release-nc-image quay-login
 push-nc-release: release-nc-image quay-login
 	@make/build.sh push-nc-release
 
+ifeq ($(PROTON_ENABLED),1)
 push-tag: release-image release-ui-image release-proton-image release-nc-image quay-login
 	@make/build.sh push-tag $(PUSH_TAG)
+else
+push-tag: release-image release-ui-image release-nc-image quay-login
+	@make/build.sh push-tag $(PUSH_TAG)
+endif
 
 ssh:
 	@ssh-keygen -R town-os.local 2>/dev/null; true

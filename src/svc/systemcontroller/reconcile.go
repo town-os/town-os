@@ -361,17 +361,8 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			}
 		}
 
-		// Proton app extraction: extract from app_image into empty volumes.
-		if compiled.Proton != nil {
-			volPath := packageVolumePath(repoName, pi.Name, pi.Version, compiled.Proton.Volume)
-			targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
-			entries, err := os.ReadDir(targetPath)
-			if err == nil && len(entries) == 0 {
-				if err := reconcileExtractFromImage(ctx, compiled.Proton.AppImage, compiled.Proton.AppDirectory, targetPath); err != nil {
-					slog.Debug(fmt.Sprintf("reconcile proton app-extract %s -> %s: %v", compiled.Proton.AppImage, compiled.Proton.Volume, err))
-				}
-			}
-		}
+		// Proton app extraction (no-op when proton is not built in).
+		reconcileProtonApp(ctx, compiled, cfg.BtrfsBasePath, repoName, pi.Name, pi.Version)
 
 		// Git seed: clone git repositories into empty volumes.
 		for volName, vol := range compiled.Volumes {
@@ -409,10 +400,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		return nil, nil //nolint:nilnil // nothing to start when systemd manager is absent
 	}
 
-	image := compiled.Image
-	if image == "" && compiled.Proton != nil {
-		image = reconcileProtonImage(cfg.SettingsMgr)
-	}
+	image := resolveReconcileImage(compiled, cfg.SettingsMgr)
 	unitCfg := systemd.PackageUnitConfig{
 		RepoName:               repoName,
 		PkgName:                pi.Name,
@@ -559,21 +547,6 @@ func installUnitIfChanged(ctx context.Context, sd systemd.Manager, name, content
 		slog.Error(fmt.Sprintf("reconcile: install unit %s: %v", name, err))
 	}
 	return changed
-}
-
-// reconcileProtonImage returns the system-wide proton runner image from the
-// settings manager. Returns an empty string if not configured.
-func reconcileProtonImage(mgr account.SettingsManager) string {
-	if mgr == nil {
-		return ""
-	}
-
-	val, err := mgr.Get("proton_image")
-	if err != nil {
-		return ""
-	}
-
-	return val
 }
 
 // reconcileDNSTLD returns the current TLD from settings, defaulting to "home".

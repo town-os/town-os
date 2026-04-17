@@ -227,13 +227,8 @@ func (s *SystemControllerHandlers) seedVolumeData(ctx context.Context, ip *packa
 		}
 	}
 
-	// Proton app extraction: extract from app_image into the designated volume.
-	if compiled.Proton != nil {
-		volPath := packageVolumePath(repoName, effectiveName, version, compiled.Proton.Volume)
-		if err := s.extractFromContainerImage(ctx, compiled.Proton.AppImage, compiled.Proton.AppDirectory, volPath); err != nil {
-			slog.Debug(fmt.Sprintf("proton app-extract %s -> %s: %v", compiled.Proton.AppImage, compiled.Proton.Volume, err))
-		}
-	}
+	// Proton app extraction (no-op when proton is not built in).
+	s.seedProtonApp(ctx, compiled, repoName, effectiveName, version)
 
 	for volName, vol := range compiled.Volumes {
 		if vol.Git == "" {

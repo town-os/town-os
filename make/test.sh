@@ -4,10 +4,16 @@
 set -e
 . make/lib.sh
 
+: "${GO_BUILD_TAGS:=}"
+GO_TAGS_ARG=()
+if [[ -n "${GO_BUILD_TAGS}" ]]; then
+  GO_TAGS_ARG=(-tags "${GO_BUILD_TAGS}")
+fi
+
 case "$1" in
   unit)
     step "Running Go unit tests"
-    go test -v -timeout 60m ./src/...
+    go test "${GO_TAGS_ARG[@]}" -v -timeout 60m ./src/...
     step "Running UI unit tests"
     cd ui && bun install && bun run test
     ;;

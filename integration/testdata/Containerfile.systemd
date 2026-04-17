@@ -7,7 +7,10 @@ COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
 COPY . /src
-RUN CGO_ENABLED=1 go test -c -o /integration-test ./integration/...
+# TOWN_OS_GO_TAGS is forwarded by the make pipeline. Empty by default;
+# PROTON_ENABLED=1 sets it to "proton" so proton-tagged tests compile in.
+ARG TOWN_OS_GO_TAGS=
+RUN CGO_ENABLED=1 go test -tags "${TOWN_OS_GO_TAGS}" -c -o /integration-test ./integration/...
 
 FROM debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y \

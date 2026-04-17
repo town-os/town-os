@@ -69,6 +69,17 @@ export default function SystemSettings() {
     [refreshKey],
   )
 
+  // Backend build feature flag: true when the systemcontroller was built
+  // with `-tags proton`. When false the Proton runner image card is hidden
+  // and the `proton_image` setting is not seeded into the DB.
+  const [ping] = usePolling(
+    () => getClient().ping().catch(() => ({})),
+    {},
+    [],
+    60000,
+  )
+  const protonEnabled = !!ping?.proton_enabled
+
   // --- Language ---
   const [localeData, setLocaleData] = useState(null)
   const [showExtended, setShowExtended] = useState(false)
@@ -495,30 +506,32 @@ export default function SystemSettings() {
         </form>
       </div>
 
-      <div className="rounded-lg border p-6 space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold">{t('settings.proton_image_title')}</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t('settings.proton_image_description')}{' '}
-            {t('settings.current_value', { value: '' })}<strong>{currentProtonImage || t('settings.proton_image_current_not_set')}</strong>
-          </p>
-        </div>
-
-        <form onSubmit={handleSaveProtonImage} className="flex items-end gap-3">
-          <div className="space-y-2">
-            <Label htmlFor="proton-image-value">{t('settings.proton_image_label')}</Label>
-            <Input
-              id="proton-image-value"
-              type="text"
-              value={protonImageInput}
-              onChange={(e) => setProtonImageInput(e.target.value)}
-              placeholder={t('settings.proton_image_placeholder')}
-              className="w-96"
-            />
+      {protonEnabled && (
+        <div className="rounded-lg border p-6 space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold">{t('settings.proton_image_title')}</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t('settings.proton_image_description')}{' '}
+              {t('settings.current_value', { value: '' })}<strong>{currentProtonImage || t('settings.proton_image_current_not_set')}</strong>
+            </p>
           </div>
-          <Button type="submit">{t('settings.save_btn')}</Button>
-        </form>
-      </div>
+
+          <form onSubmit={handleSaveProtonImage} className="flex items-end gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="proton-image-value">{t('settings.proton_image_label')}</Label>
+              <Input
+                id="proton-image-value"
+                type="text"
+                value={protonImageInput}
+                onChange={(e) => setProtonImageInput(e.target.value)}
+                placeholder={t('settings.proton_image_placeholder')}
+                className="w-96"
+              />
+            </div>
+            <Button type="submit">{t('settings.save_btn')}</Button>
+          </form>
+        </div>
+      )}
 
       <div className="rounded-lg border p-6 space-y-6">
         <div>

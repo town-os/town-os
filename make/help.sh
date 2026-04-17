@@ -5,6 +5,8 @@
 
 set -e
 
+: "${PROTON_ENABLED:=0}"
+
 cat <<'EOF'
 Town OS — make targets
 
@@ -45,10 +47,9 @@ Local infrastructure
   gitea-stop              Stop the local Gitea server.
 
 Release
-  release-build           Build all release images (sc, ui, proton, nc).
+  release-build           Build all release images (sc, ui, nc; proton when PROTON_ENABLED=1).
   release-image           Build the system controller release image.
   release-ui-image        Build the UI release image.
-  release-proton-image    Build the Proton runner release image.
   release-nc-image        Build the network controller release image.
   push-rc                 Push all release images with the rc.latest tag.
   push-release            Push all release images with the latest tag.
@@ -66,3 +67,19 @@ Cleanup
 
 Run `make <target>` to invoke one. See CLAUDE.md and README.md for details.
 EOF
+
+if [[ "${PROTON_ENABLED}" = "1" ]]; then
+  cat <<'EOF'
+
+Proton (opt-in; built because PROTON_ENABLED=1)
+  release-proton-image    Build the Proton runner release image.
+  push-proton-rc          Push the Proton runner image with the rc.latest tag.
+  push-proton-release     Push the Proton runner image with the latest tag.
+EOF
+else
+  cat <<'EOF'
+
+Note: Proton/Wine runner support is OFF. Rebuild with `make PROTON_ENABLED=1 ...`
+(or `go build -tags proton`) to opt in. See README.md for the full story.
+EOF
+fi

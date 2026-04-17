@@ -7,7 +7,10 @@ WORKDIR /src
 RUN go mod download
 COPY . /src
 ARG TOWN_OS_TAG=rc.latest
-RUN CGO_ENABLED=1 go build -ldflags "-s -w -X main.Version=${TOWN_OS_TAG}" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
+# TOWN_OS_GO_TAGS is the comma-separated list of Go build tags forwarded by
+# the make pipeline. Empty by default; PROTON_ENABLED=1 sets it to "proton".
+ARG TOWN_OS_GO_TAGS=
+RUN CGO_ENABLED=1 go build -tags "${TOWN_OS_GO_TAGS}" -ldflags "-s -w -X main.Version=${TOWN_OS_TAG}" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
 FROM oven/bun:latest AS ui-builder

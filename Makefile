@@ -14,6 +14,18 @@ export VITE_API_URL
 TOWN_OS_TAG ?= rc.latest
 export TOWN_OS_TAG
 
+# Opt-in build of the Proton/Wine runner. Default off — see CLAUDE.md and the
+# README for the reasoning. PROTON_ENABLED=1 turns on the `proton` Go build
+# tag, includes the proton runner image in the release pipeline, and exposes
+# the proton settings card in the UI (via /status/ping).
+PROTON_ENABLED ?= 0
+ifeq ($(PROTON_ENABLED),1)
+GO_BUILD_TAGS := proton
+else
+GO_BUILD_TAGS :=
+endif
+export PROTON_ENABLED GO_BUILD_TAGS
+
 # Unique instance ID from working directory path.
 INSTANCE_ID := $(shell echo -n "$(CURDIR)" | md5sum | cut -c1-8)
 export INSTANCE_ID
@@ -89,7 +101,10 @@ include make/include.mk
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
-.PHONY: release-build release-image release-ui-image release-proton-image release-nc-image push push-rc push-release push-ui-rc push-ui-release push-proton-rc push-proton-release push-nc-rc push-nc-release push-tag quay-login
+.PHONY: release-build release-image release-ui-image release-nc-image push push-rc push-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-tag quay-login
+ifeq ($(PROTON_ENABLED),1)
+.PHONY: release-proton-image push-proton-rc push-proton-release
+endif
 .PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
@@ -127,10 +142,16 @@ clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
 release-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-nc-image: check-podman check-runc $(STATE_DIR)/.images-pulled
+ifeq ($(PROTON_ENABLED),1)
+release-proton-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image
+push-rc: release-image release-ui-image release-proton-image release-nc-image quay-login
+else
+release-build: pull-images test-full release-image release-ui-image release-nc-image
+push-rc: release-image release-ui-image release-nc-image quay-login
+endif
 # Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build
-push-rc: release-image release-ui-image release-proton-image release-nc-image quay-login
 push-release: release-build quay-login
 push-ui-rc: release-ui-image quay-login
 push-ui-release: release-ui-image quay-login

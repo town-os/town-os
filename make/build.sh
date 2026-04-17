@@ -5,12 +5,19 @@
 set -e
 . make/lib.sh
 
+# PROTON_ENABLED / GO_BUILD_TAGS — controls the `proton` Go build tag and the
+# Containerfile.proton release pipeline. Default off; set PROTON_ENABLED=1 in
+# the environment (or via `make PROTON_ENABLED=1 ...`) to opt in.
+: "${PROTON_ENABLED:=0}"
+: "${GO_BUILD_TAGS:=}"
+
 case "$1" in
   production)
     step "Building production image"
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
       --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
+      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${PODMAN_IMAGE}" -f Containerfile .
@@ -20,6 +27,7 @@ case "$1" in
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
       --build-arg "TOWN_OS_IMAGE=${PODMAN_IMAGE}" \
+      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${PODMAN_TEST_IMAGE}" -f integration/testdata/Containerfile.systemd .
@@ -48,6 +56,7 @@ case "$1" in
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
       --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
+      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_IMAGE}" -f Containerfile .
@@ -58,6 +67,10 @@ case "$1" in
       -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
     ;;
   release-proton)
+    if [[ "${PROTON_ENABLED}" != "1" ]]; then
+      echo "release-proton requires PROTON_ENABLED=1 (build tag and runner image are off by default)" >&2
+      exit 1
+    fi
     step "Building Proton runner image"
     ${SUDO} podman build \
       -t "${RELEASE_PROTON_IMAGE}" -f Containerfile.proton .
@@ -84,6 +97,7 @@ case "$1" in
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
       --build-arg "TOWN_OS_TAG=rc.${DATE_TAG}" \
+      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_IMAGE}:rc.${DATE_TAG}" -f Containerfile .
@@ -103,15 +117,17 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
-    # Proton runner image.
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
+    # Proton runner image — only when PROTON_ENABLED=1.
+    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
+    fi
 
     # Network controller image.
     substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
@@ -135,6 +151,7 @@ case "$1" in
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
       --build-arg "TOWN_OS_TAG=release.${DATE_TAG}" \
+      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_IMAGE}:release.${DATE_TAG}" -f Containerfile .
@@ -155,15 +172,17 @@ case "$1" in
     substep "Pushing ${RELEASE_UI_IMAGE}:latest"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
 
-    # Proton runner image.
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
+    # Proton runner image — only when PROTON_ENABLED=1.
+    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:latest"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
+    fi
 
     # Network controller image.
     substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
@@ -203,6 +222,10 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
     ;;
   push-proton-rc)
+    if [[ "${PROTON_ENABLED}" != "1" ]]; then
+      echo "push-proton-rc requires PROTON_ENABLED=1" >&2
+      exit 1
+    fi
     require_registry_login quay.io
     step "Pushing Proton runner release candidate"
     DATE_TAG="$(date +%Y%m%d)"
@@ -216,6 +239,10 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
     ;;
   push-proton-release)
+    if [[ "${PROTON_ENABLED}" != "1" ]]; then
+      echo "push-proton-release requires PROTON_ENABLED=1" >&2
+      exit 1
+    fi
     require_registry_login quay.io
     step "Pushing Proton runner release"
     DATE_TAG="$(date +%Y%m%d)"
@@ -268,6 +295,7 @@ case "$1" in
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --pull=never \
       --build-arg "TOWN_OS_TAG=${TAG}" \
+      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_IMAGE}:${TAG}" -f Containerfile .
@@ -280,11 +308,13 @@ case "$1" in
     substep "Pushing ${RELEASE_UI_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:${TAG}"
 
-    # Proton runner image.
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:${TAG}"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:${TAG}"
+    # Proton runner image — only when PROTON_ENABLED=1.
+    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:${TAG}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:${TAG}"
+    fi
 
     # Network controller image.
     substep "Tagging ${RELEASE_NC_IMAGE}:${TAG}"

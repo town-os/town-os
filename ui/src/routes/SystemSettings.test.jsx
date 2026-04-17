@@ -254,6 +254,8 @@ const mockGetLocales = vi.fn(() => Promise.resolve({
   extended_locales: [],
 }))
 
+const mockPing = vi.fn(() => Promise.resolve({ proton_enabled: true }))
+
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     getSettings: mockGetSettings,
@@ -261,6 +263,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     getSetting: mockGetSetting,
     getLocales: mockGetLocales,
     monitoringStatus: mockMonitoringStatus,
+    ping: mockPing,
   }),
 }))
 
@@ -614,7 +617,7 @@ describe('SystemSettings Proton Runner Image', () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(5)
+      expect(buttons).toHaveLength(6)
     })
     await waitFor(() => {
       const input = screen.getByLabelText('Image')
@@ -634,6 +637,16 @@ describe('SystemSettings Proton Runner Image', () => {
     await waitFor(() => {
       expect(screen.getByText(/Proton compatibility layer/)).toBeTruthy()
     })
+  })
+
+  it('hides the proton card when ping reports proton_enabled=false', async () => {
+    mockPing.mockResolvedValueOnce({ proton_enabled: false })
+    renderSystemSettings()
+    // Wait for something else to render so we know the page has loaded.
+    await waitFor(() => {
+      expect(screen.getByText(/Default Volume Quota/i)).toBeTruthy()
+    })
+    expect(screen.queryByLabelText('Image')).toBeNull()
   })
 })
 

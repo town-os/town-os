@@ -5,6 +5,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -214,7 +215,7 @@ func diskstatsDevicesMatchingUpstreamDefault(t *testing.T) []string {
 		t.Skipf("/proc/diskstats unavailable: %v", err)
 	}
 	var out []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
@@ -268,7 +269,7 @@ func scrapeNodeExporterMetrics(ctx context.Context, t *testing.T, metricsURL str
 			continue
 		}
 		if len(body) == 0 {
-			lastErr = fmt.Errorf("empty body")
+			lastErr = errors.New("empty body")
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
@@ -283,7 +284,7 @@ var diskReadDeviceLine = regexp.MustCompile(`^node_disk_read_bytes_total\{[^}]*d
 // exposition body.
 func parseDiskReadBytesDevices(body string) []string {
 	seen := map[string]struct{}{}
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		m := diskReadDeviceLine.FindStringSubmatch(line)
 		if m != nil {
 			seen[m[1]] = struct{}{}

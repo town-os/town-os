@@ -156,11 +156,11 @@ func TestRepositoryLoadAllPackagesMultipleRepos(t *testing.T) {
 		t.Fatalf("failed to load all packages: %v", err)
 	}
 
-	if len(pkgs) != 6 {
-		t.Fatalf("expected 6 package names (app-with-cache, demo-nginx, nginx, redis, postgres, mosquitto), got %d", len(pkgs))
+	if len(pkgs) != 7 {
+		t.Fatalf("expected 7 package names (app-with-cache, demo-nginx, nginx, redis, postgres, mosquitto, underscore-questions), got %d", len(pkgs))
 	}
 
-	for _, name := range []string{"app-with-cache", "demo-nginx", "nginx", "redis", "postgres", "mosquitto"} {
+	for _, name := range []string{"app-with-cache", "demo-nginx", "nginx", "redis", "postgres", "mosquitto", "underscore-questions"} {
 		if _, ok := pkgs[name]; !ok {
 			t.Fatalf("expected package %s", name)
 		}
