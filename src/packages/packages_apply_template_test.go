@@ -289,8 +289,8 @@ func TestStrToPort(t *testing.T) {
 }
 
 func TestConvert(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		pm, err := convert(map[string]string{"80": "8080", "443": "8443"})
+	t.Run("valid numeric", func(t *testing.T) {
+		pm, names, err := convert(map[string]string{"80": "8080", "443": "8443"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -298,36 +298,88 @@ func TestConvert(t *testing.T) {
 		if !reflect.DeepEqual(pm, expected) {
 			t.Fatalf("expected %v, got %v", expected, pm)
 		}
+		if names != nil {
+			t.Fatalf("expected nil names for pure-numeric map, got %v", names)
+		}
 	})
 
 	t.Run("empty", func(t *testing.T) {
-		pm, err := convert(map[string]string{})
+		pm, names, err := convert(map[string]string{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(pm) != 0 {
 			t.Fatalf("expected empty PortMap, got %v", pm)
 		}
-	})
-
-	t.Run("invalid forward port", func(t *testing.T) {
-		_, err := convert(map[string]string{"bad": "80"})
-		if err == nil {
-			t.Fatal("expected error for invalid forward port")
+		if names != nil {
+			t.Fatalf("expected nil names for empty map, got %v", names)
 		}
 	})
 
-	t.Run("invalid host port", func(t *testing.T) {
-		_, err := convert(map[string]string{"80": "bad"})
+	t.Run("named form only", func(t *testing.T) {
+		pm, names, err := convert(map[string]string{"sql": "5432"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(pm, PortMap{5432: 5432}) {
+			t.Fatalf("expected host=container=5432, got %v", pm)
+		}
+		if !reflect.DeepEqual(names, PortNameMap{5432: "sql"}) {
+			t.Fatalf("expected name sql on port 5432, got %v", names)
+		}
+	})
+
+	t.Run("mixed named and numeric", func(t *testing.T) {
+		pm, names, err := convert(map[string]string{"sql": "5432", "8080": "80"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expectedPM := PortMap{5432: 5432, 8080: 80}
+		if !reflect.DeepEqual(pm, expectedPM) {
+			t.Fatalf("expected %v, got %v", expectedPM, pm)
+		}
+		// Numeric-keyed entries contribute no name, so the only name
+		// comes from "sql".
+		if !reflect.DeepEqual(names, PortNameMap{5432: "sql"}) {
+			t.Fatalf("expected name sql on port 5432, got %v", names)
+		}
+	})
+
+	t.Run("name preserves case", func(t *testing.T) {
+		_, names, err := convert(map[string]string{"MySql": "5432"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if names[5432] != "MySql" {
+			t.Fatalf("expected name preserved as-written, got %q", names[5432])
+		}
+	})
+
+	t.Run("invalid name with dash", func(t *testing.T) {
+		_, _, err := convert(map[string]string{"bad-name": "80"})
 		if err == nil {
-			t.Fatal("expected error for invalid host port")
+			t.Fatal("expected error for name containing dash")
+		}
+	})
+
+	t.Run("invalid container port", func(t *testing.T) {
+		_, _, err := convert(map[string]string{"80": "bad"})
+		if err == nil {
+			t.Fatal("expected error for non-numeric container port")
 		}
 	})
 
 	t.Run("zero port rejected", func(t *testing.T) {
-		_, err := convert(map[string]string{"0": "80"})
+		_, _, err := convert(map[string]string{"0": "80"})
 		if err == nil {
 			t.Fatal("expected error for port 0")
+		}
+	})
+
+	t.Run("duplicate container port with different names", func(t *testing.T) {
+		_, _, err := convert(map[string]string{"sql": "5432", "primary": "5432"})
+		if err == nil {
+			t.Fatal("expected error for two names mapping to same container port")
 		}
 	})
 }

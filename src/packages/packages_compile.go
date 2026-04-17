@@ -183,24 +183,53 @@ func (i *InputPackage) iterateFields(iv, response string) {
 	}
 }
 
-func convert(p map[string]string) (PortMap, error) {
+// convert translates the YAML network map (host → container port strings)
+// into a PortMap and a parallel PortNameMap that records any semantic
+// names declared via non-numeric keys.
+//
+// The YAML key may be either:
+//
+//   - A numeric port string (legacy form): "5432" → host port 5432,
+//     container port = value. No name is recorded.
+//   - A semantic name matching PortNameRegexp (named form):
+//     e.g. "sql" → the container port (value) is used as the host port
+//     too, and the name is recorded in the returned PortNameMap keyed by
+//     container port. Parent packages can then reference the dep's port
+//     by name via `@dep_<KEY>_port_<NAME>@` in addition to the numeric
+//     `@dep_<KEY>_port_<N>@` form.
+//
+// An empty YAML map yields an empty PortMap and nil PortNameMap.
+func convert(p map[string]string) (PortMap, PortNameMap, error) {
 	pm := PortMap{}
+	var names PortNameMap
 
-	for forward, host := range p {
-		out_f, err := strToPort(forward)
+	for key, value := range p {
+		containerPort, err := strToPort(value)
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("port value %q: %w", value, err)
 		}
 
-		out_h, err := strToPort(host)
-		if err != nil {
-			return nil, err
+		hostPort, perr := strToPort(key)
+		if perr != nil {
+			// Key is not a numeric port; try to interpret as a semantic
+			// name. Names and numeric keys may coexist in the same map.
+			if !PortNameRegexp.MatchString(key) {
+				return nil, nil, fmt.Errorf("%w: %q", ErrInvalidPortName, key)
+			}
+			if names == nil {
+				names = PortNameMap{}
+			}
+			if prev, dup := names[containerPort]; dup {
+				return nil, nil, fmt.Errorf("%w: container port %d has both names %q and %q", ErrInvalidPortName, containerPort, prev, key)
+			}
+			names[containerPort] = key
+			hostPort = containerPort
 		}
 
-		pm[out_f] = out_h
+		pm[hostPort] = containerPort
 	}
 
-	return pm, nil
+	return pm, names, nil
 }
 
 func strToPort(input string) (uint16, error) {
@@ -221,6 +250,12 @@ func strToPort(input string) (uint16, error) {
 // template substitution so that the raw spec (including template markers) is
 // validated.
 func (i *InputPackage) Validate() error {
+	// Reject packages that declare a proton block in a build without the
+	// `proton` tag. When proton is enabled this is a no-op.
+	if err := checkProtonAllowed(i); err != nil {
+		return err
+	}
+
 	if err := ValidateImageType(i.Image.Type); err != nil {
 		return err
 	}
@@ -370,10 +405,8 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
-	if i.Proton != nil {
-		if err := ValidateProtonSpec(*i.Proton, i.Volumes); err != nil {
-			return nil, fmt.Errorf("proton: %w", err)
-		}
+	if err := validateProtonCompile(i); err != nil {
+		return nil, err
 	}
 
 	var verrs []ResponseValidationError
@@ -428,12 +461,12 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, &ValidationError{Errors: verrs}
 	}
 
-	external, err := convert(i.Network.External)
+	external, externalNames, err := convert(i.Network.External)
 	if err != nil {
 		return nil, err
 	}
 
-	internal, err := convert(i.Network.Internal)
+	internal, internalNames, err := convert(i.Network.Internal)
 	if err != nil {
 		return nil, err
 	}
@@ -493,21 +526,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
-	command := i.Command
-	var proton *PackageProton
-
-	if i.Proton != nil {
-		// Auto-generate command: ["proton", "run", exe, ...args]
-		command = append([]string{"proton", "run", i.Proton.Exe}, i.Proton.Args...)
-		appImage := NormalizeImageURL(i.Proton.AppImage)
-		proton = &PackageProton{
-			AppImage:     appImage,
-			AppDirectory: i.Proton.AppDirectory,
-			Volume:       i.Proton.Volume,
-			Exe:          i.Proton.Exe,
-			Args:         i.Proton.Args,
-		}
-	}
+	command, proton := compileProton(i, i.Command)
 
 	notes, err := i.CompileNotes(response)
 	if err != nil {
@@ -548,7 +567,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		ImageType:    imageType,
 		Command:      command,
 		Environment:  i.Environment,
-		Network:      PackageNetwork{External: external, Internal: internal, Domains: i.Network.Domains},
+		Network:      PackageNetwork{External: external, Internal: internal, ExternalNames: externalNames, InternalNames: internalNames, Domains: i.Network.Domains},
 		Volumes:      volumes,
 		Templates:    templates,
 		Notes:        notes,

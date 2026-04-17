@@ -33,6 +33,14 @@ func TestExtractDepKeyRefs(t *testing.T) {
 		{"numeric key", "@dep_svc1_host@", []string{"svc1"}},
 		{"incomplete", "@dep_db@", nil},
 		{"non-dep template", "@PACKAGE_DNS@", nil},
+		{"named port", "@dep_db_port_sql@", []string{"db"}},
+		{"named port with underscore", "@dep_cache_port_main_channel@", []string{"cache"}},
+		{"mixed numeric and named", "@dep_db_port_5432@ then @dep_db_port_sql@", []string{"db", "db"}},
+		{"underscore key and named port", "@dep_my_service_port_http@", []string{"my_service"}},
+		// Port identifiers must be either all-digits or start with a
+		// letter; a mixed "1sql" matches neither alternation and the
+		// whole template is left unresolved (no ref extracted).
+		{"port name with leading digit rejected", "@dep_db_port_1sql@", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -238,6 +246,27 @@ func TestOrderDependencies(t *testing.T) {
 		}
 		if !reflect.DeepEqual(order, []string{"a"}) {
 			t.Fatalf("order = %v, want [a]", order)
+		}
+	})
+
+	t.Run("named-port reference orders predecessor first", func(t *testing.T) {
+		// b references a via @dep_a_port_sql@ (named form). The topo
+		// sort must recognize the named suffix and put a before b.
+		deps := map[string]packages.InputPackageDependency{
+			"b": {
+				Package: "svcb",
+				Responses: map[string]string{
+					"dburl": "@dep_a_host@:@dep_a_port_sql@",
+				},
+			},
+			"a": {Package: "svca"},
+		}
+		order, err := orderDependencies(deps)
+		if err != nil {
+			t.Fatalf("orderDependencies: %v", err)
+		}
+		if !reflect.DeepEqual(order, []string{"a", "b"}) {
+			t.Fatalf("order = %v, want [a b]", order)
 		}
 	})
 

@@ -780,13 +780,15 @@ Parent packages receive environment variables for reaching their dependencies on
 
 - `TOWNOS_DEP_{KEY}_HOST` -- the dependency's podman container name (resolvable via podman DNS on the shared network).
 - `TOWNOS_DEP_{KEY}_PORT_{containerPort}` -- the container-side port number (since parent and dep are on the same network, no host port mapping is needed).
+- `TOWNOS_DEP_{KEY}_PORT_{NAME}` -- emitted in addition to the numeric form when the dep declared a semantic port name in `network.external` / `network.internal` (see **Named Ports** below). The name is uppercased so `sql` in the dep becomes `TOWNOS_DEP_DB_PORT_SQL` on the parent. Both the numeric and named forms coexist and always carry the same value.
 
 ### Dependency Template Variables
 
 In addition to the runtime environment variables above, dependency host and port values are also available as `@variable@` template markers during package compilation. This allows parent packages to reference dependencies in their `environment` field values at compile time, and also allows **sibling dependencies** to reference each other in the `dependencies.<key>.responses` block.
 
 - `@dep_KEY_host@` -- resolves to the dependency's podman container name (resolvable via podman DNS on the shared network).
-- `@dep_KEY_port_N@` -- resolves to port N for the dependency.
+- `@dep_KEY_port_N@` -- resolves to numeric container port N for the dependency.
+- `@dep_KEY_port_NAME@` -- resolves to the container port the dep tagged with the semantic name `NAME` (see **Named Ports** below). Lower-case in the template; matches the env-var suffix case-insensitively. Coexists with `@dep_KEY_port_N@` for the same port.
 
 Template keys are derived from the `TOWNOS_DEP_*` runtime environment variable names by stripping the `TOWNOS_` prefix and lowercasing the remainder. For example, `TOWNOS_DEP_DB_HOST` becomes template key `dep_db_host`, and `TOWNOS_DEP_DB_PORT_5432` becomes `dep_db_port_5432`.
 
@@ -825,6 +827,49 @@ dependencies:
       xmpphost: "@dep_prosody_host@"
       xmppport: "@dep_prosody_port_5222@"
 ```
+
+### Named Ports
+
+Dependency port references can use a semantic name instead of a container-port number. A dep declares the name as a YAML key in `network.external` / `network.internal`; parents reference the same port via `@dep_KEY_port_NAME@`. This keeps the raw port number in exactly one place (the dep that owns it) and lets the parent talk about roles (`sql`, `http`, `admin`) rather than protocol trivia.
+
+**Canonical shape.** The dep owns the port number — ideally as a `type: port` question default so auto-generation and override both work normally:
+
+```yaml
+# dep: named-db/1.0.yaml
+environment:
+  PGPORT: "@port@"
+network:
+  internal:
+    sql: "@port@"
+questions:
+  port:
+    query: "What port should PostgreSQL listen on?"
+    type: port
+    default: "5432"
+```
+
+```yaml
+# parent: named-parent/1.0.yaml
+environment:
+  DB_HOST: "@dep_db_host@"
+  DB_PORT: "@dep_db_port_sql@"   # no "5432" anywhere in the parent
+dependencies:
+  db:
+    package: named-db
+```
+
+**Map schema.** A port entry in `network.external` or `network.internal` has a YAML key that is either:
+
+- A numeric port string (legacy form): `"5432": "5432"` → host port 5432 → container port 5432. No name is recorded.
+- A semantic name matching `PortNameRegexp` (`^[a-zA-Z][a-zA-Z0-9_]*$`): `sql: "5432"` → the container port (value) doubles as the host port, and the name `sql` is stored in `PackageNetwork.{External,Internal}Names[containerPort]`. Names must start with a letter (to avoid ambiguity with numeric parsing) and may contain alphanumerics and underscores.
+
+Both forms coexist in the same map; the parser branches on the key. A name mapping two different container ports, or two names mapping to the same container port, is a compile-time error. The compiled `Package` type gains two optional `PortNameMap` fields alongside the existing `PortMap`s; consumers that only care about numeric ports (unit generation, network-state serialization) see no change.
+
+**Env var and template emission.** For every port in the compiled dep, the installer emits `TOWNOS_DEP_<KEY>_PORT_<N>=<N>` (always). If the port has a name, it additionally emits `TOWNOS_DEP_<KEY>_PORT_<UPPER_NAME>=<N>` with the same value. The template resolver strips the `TOWNOS_` prefix and lowercases the rest, so both `@dep_db_port_5432@` and `@dep_db_port_sql@` resolve to the same value. The `depKeyRefRegex` in `controller_install_dependencies.go` accepts both forms; sibling-dep topo sort recognizes named references when building the DAG.
+
+**Back-compat.** Existing packages using the numeric form keep working unchanged — no migration is forced. Parents can mix numeric and named references to the same dep in the same file. Reconcile rebuilds both forms during startup so surviving existing installs never regress.
+
+**When to use a name.** Whenever a parent references a dep's port. A name is the single fact the parent can cite; the dep owns the number. Use names for internal ports first (that's where parent-dep traffic lives on the shared podman network); external named ports are allowed but uncommon since parents don't usually dial deps through host bindings.
 
 ## DNS Management (Rolodex)
 

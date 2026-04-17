@@ -11,6 +11,13 @@ import (
 var (
 	HostnameRegexp = regexp.MustCompile("^[a-z][a-z0-9-]*$")
 	VolumeRegexp   = regexp.MustCompile("^[a-zA-Z0-9-_]+$")
+	// PortNameRegexp constrains semantic port names used in
+	// network.external / network.internal YAML keys. A name must start
+	// with an ASCII letter so it is unambiguous relative to a numeric
+	// port and may contain alphanumerics and underscores. Names are
+	// case-insensitive in the emitted TOWNOS_DEP_*_PORT_<NAME> env var
+	// (uppercased) but preserved as-written in the compiled output.
+	PortNameRegexp = regexp.MustCompile("^[a-zA-Z][a-zA-Z0-9_]*$")
 )
 
 type OutputType string
@@ -20,6 +27,7 @@ var (
 	ErrVolume          = errors.New("invalid volume name")
 	ErrInvalidType     = errors.New("invalid output type")
 	ErrInvalidPort     = errors.New("invalid port")
+	ErrInvalidPortName = errors.New("invalid port name (must start with a letter and contain only letters, digits, and underscores)")
 	ErrBytes           = errors.New("invalid byte size")
 	ErrInvalidDuration = errors.New("invalid duration")
 )

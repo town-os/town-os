@@ -3,7 +3,6 @@ package systemcontroller
 import (
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -54,12 +53,8 @@ func buildDepEnvVarsFromRecords(
 
 		upperKey := strings.ToUpper(depKey)
 		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = systemd.ContainerName(rec.Repo, rec.EffectiveName, rec.Version)
-		for _, containerPort := range depCompiled.Network.External {
-			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
-		}
-		for _, containerPort := range depCompiled.Network.Internal {
-			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
-		}
+		emitDepPortEnv(envVars, upperKey, depCompiled.Network.External, depCompiled.Network.ExternalNames)
+		emitDepPortEnv(envVars, upperKey, depCompiled.Network.Internal, depCompiled.Network.InternalNames)
 	}
 
 	return envVars

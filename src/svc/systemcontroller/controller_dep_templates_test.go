@@ -101,4 +101,44 @@ func TestApplyDepTemplates(t *testing.T) {
 			t.Fatalf("expected %q, got %q", "http://svc-container:8080/api", env["URL"])
 		}
 	})
+
+	t.Run("named port resolves alongside numeric", func(t *testing.T) {
+		// When the dep declares a semantic name for a container port,
+		// both TOWNOS_DEP_<KEY>_PORT_<N> and TOWNOS_DEP_<KEY>_PORT_<NAME>
+		// are emitted and the parent can use either form interchangeably.
+		env := map[string]string{
+			"NUMERIC": "@dep_db_host@:@dep_db_port_5432@",
+			"NAMED":   "@dep_db_host@:@dep_db_port_sql@",
+		}
+		depEnvVars := map[string]string{
+			"TOWNOS_DEP_DB_HOST":      "db-container",
+			"TOWNOS_DEP_DB_PORT_5432": "5432",
+			"TOWNOS_DEP_DB_PORT_SQL":  "5432",
+		}
+
+		applyDepTemplates(env, depEnvVars)
+
+		if env["NUMERIC"] != "db-container:5432" {
+			t.Fatalf("expected numeric form resolved, got %q", env["NUMERIC"])
+		}
+		if env["NAMED"] != "db-container:5432" {
+			t.Fatalf("expected named form resolved, got %q", env["NAMED"])
+		}
+	})
+
+	t.Run("named port with underscore", func(t *testing.T) {
+		env := map[string]string{
+			"URL": "http://@dep_svc_host@:@dep_svc_port_admin_ui@/",
+		}
+		depEnvVars := map[string]string{
+			"TOWNOS_DEP_SVC_HOST":          "svc-container",
+			"TOWNOS_DEP_SVC_PORT_ADMIN_UI": "9001",
+		}
+
+		applyDepTemplates(env, depEnvVars)
+
+		if env["URL"] != "http://svc-container:9001/" {
+			t.Fatalf("expected underscore-name resolved, got %q", env["URL"])
+		}
+	})
 }

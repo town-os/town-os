@@ -15,13 +15,18 @@ import (
 )
 
 // depKeyRefRegex matches sibling dependency references of the form
-// @dep_KEY_host@ or @dep_KEY_port_N@. Capture group 1 is the key; the
-// port number (if any) is not captured separately because callers need
-// only the key for topological ordering. The key character class permits
-// underscores so multi-word dep keys are handled; greedy matching combined
-// with the required _(host|port_\d+)@ suffix yields the longest key that
-// still allows the suffix to match.
-var depKeyRefRegex = regexp.MustCompile(`@dep_([a-zA-Z0-9_]+)_(?:host|port_\d+)@`)
+// @dep_KEY_host@, @dep_KEY_port_N@ (numeric container port), or
+// @dep_KEY_port_NAME@ (semantic port name declared in the dep's
+// network.external / network.internal YAML keys). Capture group 1 is
+// the key; the port identifier (if any) is not captured separately
+// because callers need only the key for topological ordering.
+//
+// The port suffix alternation distinguishes numeric (`\d+`) from named
+// (`[a-zA-Z][a-zA-Z0-9_]*`) forms so the key's greedy `[a-zA-Z0-9_]+`
+// cannot bleed into the port name — a name must start with a letter,
+// which forces the regex engine to end the key at the last `_` before a
+// letter-started port token.
+var depKeyRefRegex = regexp.MustCompile(`@dep_([a-zA-Z0-9_]+)_(?:host|port_(?:\d+|[a-zA-Z][a-zA-Z0-9_]*))@`)
 
 // extractDepKeyRefs returns the sibling dep keys referenced in a string
 // via @dep_KEY_host@ or @dep_KEY_port_N@ template markers. Duplicates are
@@ -274,14 +279,14 @@ func (s *SystemControllerHandlers) installDependencies(
 		// Inject environment variables for the parent. Dependencies share
 		// the parent's podman network, so the host is the container name
 		// (resolvable via podman DNS) and ports use container-side values.
+		// Both forms are emitted: TOWNOS_DEP_<KEY>_PORT_<N> (numeric) and
+		// TOWNOS_DEP_<KEY>_PORT_<NAME> (uppercased semantic name) when the
+		// dep declared a name for the port. Numeric form is always emitted
+		// for back-compat with existing parents.
 		upperKey := strings.ToUpper(depKey)
 		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = systemd.ContainerName(depRepo, effectiveName, depVersion)
-		for _, containerPort := range depCompiled.Network.External {
-			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
-		}
-		for _, containerPort := range depCompiled.Network.Internal {
-			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = strconv.FormatUint(uint64(containerPort), 10)
-		}
+		emitDepPortEnv(envVars, upperKey, depCompiled.Network.External, depCompiled.Network.ExternalNames)
+		emitDepPortEnv(envVars, upperKey, depCompiled.Network.Internal, depCompiled.Network.InternalNames)
 	}
 
 	return records, envVars, nil
@@ -330,6 +335,22 @@ func (s *SystemControllerHandlers) uninstallDependencies(ctx context.Context, re
 
 		if err := inst.Uninstall(rec.Repo, rec.EffectiveName, rec.Version); err != nil {
 			slog.Debug(fmt.Sprintf("uninstall dep %q record: %v", depKey, err))
+		}
+	}
+}
+
+// emitDepPortEnv populates envVars with TOWNOS_DEP_<KEY>_PORT_* entries
+// for each container port in ports. The numeric form
+// TOWNOS_DEP_<KEY>_PORT_<N> is always emitted for back-compat. When a
+// port has a semantic name in names, TOWNOS_DEP_<KEY>_PORT_<NAME>
+// (uppercased) is also emitted with the same value, letting parents
+// reference the dep's port by role in addition to by number.
+func emitDepPortEnv(envVars map[string]string, upperKey string, ports packages.PortMap, names packages.PortNameMap) {
+	for _, containerPort := range ports {
+		val := strconv.FormatUint(uint64(containerPort), 10)
+		envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%d", upperKey, containerPort)] = val
+		if name, ok := names[containerPort]; ok && name != "" {
+			envVars[fmt.Sprintf("TOWNOS_DEP_%s_PORT_%s", upperKey, strings.ToUpper(name))] = val
 		}
 	}
 }

@@ -250,10 +250,21 @@ type PackageProton struct {
 	Args         []string `json:"args,omitempty"`
 }
 
+// PortNameMap maps a container port number to an optional semantic name
+// (e.g. "sql", "http"). Names originate from the YAML keys of
+// network.external / network.internal when the key is not itself a port
+// number. They are used to emit named TOWNOS_DEP_<KEY>_PORT_<NAME> env
+// vars on parent packages so siblings can reference dep ports by role
+// (`@dep_db_port_sql@`) instead of by the raw container port number
+// (`@dep_db_port_5432@`). A missing entry means the port has no name.
+type PortNameMap map[uint16]string
+
 type PackageNetwork struct {
-	External PortMap
-	Internal PortMap
-	Domains  []string
+	External      PortMap
+	Internal      PortMap
+	ExternalNames PortNameMap
+	InternalNames PortNameMap
+	Domains       []string
 }
 
 type Package struct {
