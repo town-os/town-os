@@ -698,6 +698,14 @@ func (ts *TestServer) SetExternalIP(ip string) {
 	ts.externalIP.Store(ip)
 }
 
+// SetInternalIP stores an internal (LAN) IP for testing. Parallel to
+// SetExternalIP — lets integration tests pin a known value that feeds
+// leaf-cert SANs, DNS records, and anything else keyed on
+// GetInternalIP without depending on the host's live interface list.
+func (ts *TestServer) SetInternalIP(ip string) {
+	ts.internalIP.Store(ip)
+}
+
 func (ts *TestServer) Run() error {
 	ts.Server.Start()
 	return nil

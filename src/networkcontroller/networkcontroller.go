@@ -378,13 +378,13 @@ func (c *Controller) reconcile(desired *PackageNetworkState) {
 	// written, so this is safe to call unconditionally on every
 	// reconcile. When there are no TLS ports we shut caddy down so the
 	// child process does not linger with an empty config.
-	sites := collectCaddySites([]*PackageNetworkState{desired})
+	sites := CollectCaddySites([]*PackageNetworkState{desired})
 	if len(sites) == 0 {
 		if err := c.caddy.Shutdown(); err != nil {
 			slog.Warn(fmt.Sprintf("caddy shutdown: %v", err))
 		}
 	} else {
-		content := renderCaddyfile(sites)
+		content := RenderCaddyfile(sites)
 		if err := c.caddy.Reload(content); err != nil {
 			slog.Error(fmt.Sprintf("caddy reload: %v", err))
 		}

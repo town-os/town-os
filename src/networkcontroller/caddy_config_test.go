@@ -57,7 +57,7 @@ func TestCollectCaddySitesSortsAndFiltersNonTLS(t *testing.T) {
 		},
 	}
 
-	sites := collectCaddySites([]*PackageNetworkState{plex, gitea, inert})
+	sites := CollectCaddySites([]*PackageNetworkState{plex, gitea, inert})
 	if len(sites) != 2 {
 		t.Fatalf("expected 2 sites, got %d: %+v", len(sites), sites)
 	}
@@ -84,7 +84,7 @@ func TestRenderCaddyfileHasOneSitePerPort(t *testing.T) {
 		{ExternalPort: 12000, Target: "gitea", InternalPort: 3000, CertPath: "/etc/town-os/tls/leaves/default/gitea/1.0", CertHash: "deadbeef"},
 		{ExternalPort: 21305, Target: "plex", InternalPort: 32400, CertPath: "/etc/town-os/tls/leaves/default/plex/1.0", CertHash: "cafef00d"},
 	}
-	out := string(renderCaddyfile(sites))
+	out := string(RenderCaddyfile(sites))
 
 	// Global stanza.
 	if !strings.Contains(out, "auto_https off") {
@@ -129,7 +129,7 @@ func TestRenderCaddyfileDisablesH3(t *testing.T) {
 	sites := []CaddySite{
 		{ExternalPort: 12000, Target: "gitea", InternalPort: 3000, CertPath: "/x"},
 	}
-	out := string(renderCaddyfile(sites))
+	out := string(RenderCaddyfile(sites))
 	if !strings.Contains(out, "protocols h1 h2") {
 		t.Fatalf("expected `protocols h1 h2` in global servers block:\n%s", out)
 	}
@@ -142,7 +142,7 @@ func TestRenderCaddyfileSkipsMissingCertPath(t *testing.T) {
 	sites := []CaddySite{
 		{ExternalPort: 12000, Target: "gitea", InternalPort: 3000, CertPath: ""},
 	}
-	out := string(renderCaddyfile(sites))
+	out := string(RenderCaddyfile(sites))
 	if strings.Contains(out, "https://:12000") {
 		t.Fatalf("expected site with empty CertPath to be skipped:\n%s", out)
 	}
@@ -152,9 +152,9 @@ func TestRenderCaddyfileChangesWhenCertHashChanges(t *testing.T) {
 	sites := []CaddySite{
 		{ExternalPort: 12000, Target: "gitea", InternalPort: 3000, CertPath: "/tls/gitea", CertHash: "aaa"},
 	}
-	a := renderCaddyfile(sites)
+	a := RenderCaddyfile(sites)
 	sites[0].CertHash = "bbb"
-	b := renderCaddyfile(sites)
+	b := RenderCaddyfile(sites)
 	if string(a) == string(b) {
 		t.Fatal("expected Caddyfile bytes to change when cert hash changes, but they were identical")
 	}

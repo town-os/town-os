@@ -25,12 +25,15 @@ type CaddySite struct {
 	CertHash     string // sha256 of cert.pem content; empty means "do not embed"
 }
 
-// collectCaddySites walks a set of PackageNetworkState values and returns
+// CollectCaddySites walks a set of PackageNetworkState values and returns
 // one CaddySite per port where TLS=true. Non-TLS ports are left for socat.
 // The resulting slice is sorted by external port so the rendered Caddyfile
 // is deterministic across reconciles — stable output is what lets the NC
 // decide "no change, no reload needed" by comparing the file content.
-func collectCaddySites(states []*PackageNetworkState) []CaddySite {
+// Exported so integration tests in other packages can drive the renderer
+// end-to-end without spinning up an NC container; production callers
+// inside this package go through it via the shared receiver.
+func CollectCaddySites(states []*PackageNetworkState) []CaddySite {
 	var sites []CaddySite
 	for _, st := range states {
 		if st == nil || st.ContainerName == "" {
@@ -72,7 +75,7 @@ func hashCertFile(certDir string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// renderCaddyfile produces a complete Caddyfile for the given site list.
+// RenderCaddyfile produces a complete Caddyfile for the given site list.
 // The top stanza disables Caddy's automatic HTTPS (we manage certs
 // ourselves via the Town OS CA) and its admin API (we reload by invoking
 // the caddy CLI, not by poking the admin socket). Each site block hard-
@@ -84,7 +87,7 @@ func hashCertFile(certDir string) string {
 // the NC's Caddyfile-change detector fires a caddy reload. Without this
 // line Caddy would keep serving the cached (old) cert until the process
 // restarted, because Caddy does not re-read file-based certs per handshake.
-func renderCaddyfile(sites []CaddySite) []byte {
+func RenderCaddyfile(sites []CaddySite) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("{\n")
 	buf.WriteString("\tauto_https off\n")
