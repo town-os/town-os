@@ -111,6 +111,17 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		i.Environment[k] = applyTemplate(v, iv, response)
 	}
 
+	// Command and Entrypoint args are also user-facing template positions.
+	// Without these substitutions a yaml like
+	// `command: ["redis-server", "--port", "@port@"]` writes a literal
+	// `@port@` into the systemd unit and the container fails on startup.
+	for idx := range i.Command {
+		i.Command[idx] = applyTemplate(i.Command[idx], iv, response)
+	}
+	for idx := range i.Entrypoint {
+		i.Entrypoint[idx] = applyTemplate(i.Entrypoint[idx], iv, response)
+	}
+
 	out := map[string]string{}
 
 	for s, d := range i.Network.External {
@@ -566,12 +577,23 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
-	// Resolve @@ escapes in environment values. The per-key applyTemplate
-	// preserves @@ across passes to avoid corruption; now that all passes
-	// are done, collapse @@ → @ for the final output.
+	// Resolve @@ escapes. The per-key applyTemplate preserves @@ across
+	// passes to avoid corruption; now that all passes are done, collapse
+	// @@ → @ for the final output. Same treatment for Command and
+	// Entrypoint args, which iterateFields now substitutes too.
 	for k, v := range i.Environment {
 		if strings.Contains(v, "@@") {
 			i.Environment[k] = strings.ReplaceAll(v, "@@", "@")
+		}
+	}
+	for idx, arg := range i.Command {
+		if strings.Contains(arg, "@@") {
+			i.Command[idx] = strings.ReplaceAll(arg, "@@", "@")
+		}
+	}
+	for idx, arg := range i.Entrypoint {
+		if strings.Contains(arg, "@@") {
+			i.Entrypoint[idx] = strings.ReplaceAll(arg, "@@", "@")
 		}
 	}
 

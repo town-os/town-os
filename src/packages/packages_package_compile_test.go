@@ -1466,6 +1466,70 @@ func TestCompileEntrypointPassesThrough(t *testing.T) {
 	}
 }
 
+// TestCompileCommandTemplateSubstitution is the regression for the redis
+// dep that landed with `command: ["redis-server", "--port", "@port@"]`
+// and a `port` question with default "6379": the resolved Command MUST
+// have @port@ replaced with the question response, otherwise the literal
+// `@port@` is emitted into the systemd unit's ExecStart and redis exits
+// with "bad arguments" on first start.
+func TestCompileCommandTemplateSubstitution(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image:   InputPackageImage{URL: "redis:latest"},
+		Command: []string{"redis-server", "--port", "@port@"},
+		Questions: map[string]Question{
+			"port": {Query: "Port?", Type: Port, Default: "6379"},
+		},
+	}
+	p, err := ip.Compile(Responses{"port": "6390"})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	want := []string{"redis-server", "--port", "6390"}
+	if !equalStrings(p.Command, want) {
+		t.Fatalf("Command = %v, want %v", p.Command, want)
+	}
+}
+
+func TestCompileEntrypointTemplateSubstitution(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image:      InputPackageImage{URL: "alpine:3.20"},
+		Entrypoint: []string{"/wrap.sh", "@mode@"},
+		Command:    []string{"app"},
+		Questions: map[string]Question{
+			"mode": {Query: "Mode?"},
+		},
+	}
+	p, err := ip.Compile(Responses{"mode": "fast"})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	want := []string{"/wrap.sh", "fast"}
+	if !equalStrings(p.Entrypoint, want) {
+		t.Fatalf("Entrypoint = %v, want %v", p.Entrypoint, want)
+	}
+}
+
+// TestCompileCommandPreservesAtEscape verifies the `@@ → @` collapse
+// runs over Command after iterateFields is done, so an arg like
+// "user@@host" lands as "user@host" in the final Command.
+func TestCompileCommandPreservesAtEscape(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image:   InputPackageImage{URL: "alpine:3.20"},
+		Command: []string{"echo", "user@@host"},
+	}
+	p, err := ip.Compile(Responses{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	want := []string{"echo", "user@host"}
+	if !equalStrings(p.Command, want) {
+		t.Fatalf("Command = %v, want %v", p.Command, want)
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
