@@ -458,14 +458,19 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, " \\\n  %s", arg)
 	}
 
-	// Environment variables, sorted by key.
+	// Environment variables, sorted by key. The KEY=VALUE form must be a
+	// single argv element to podman, so any value containing whitespace
+	// (e.g. POSTGRES_INITDB_ARGS="--encoding=UTF8 --lc-collate=C ...")
+	// gets quoted at the KEY=VALUE level — that way systemd does not
+	// split the value into separate argv tokens that podman then sees
+	// as runaway flags ("unknown flag: --lc-collate").
 	envKeys := make([]string, 0, len(cfg.Environment))
 	for k := range cfg.Environment {
 		envKeys = append(envKeys, k)
 	}
 	sort.Strings(envKeys)
 	for _, k := range envKeys {
-		fmt.Fprintf(&b, " \\\n  -e %s=%s", k, cfg.Environment[k])
+		b.WriteString(" \\\n  -e " + quoteCommandArg(k+"="+cfg.Environment[k]))
 	}
 
 	// Volume mounts. Dependency pkg names translate to the nested

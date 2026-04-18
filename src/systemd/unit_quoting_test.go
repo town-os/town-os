@@ -116,6 +116,38 @@ func TestGeneratePackageUnitsEntrypointOmittedWhenUnset(t *testing.T) {
 	}
 }
 
+// TestGeneratePackageUnitsEnvWithSpaces is the regression for the
+// "unknown flag: --lc-collate" failure mode: setting
+// POSTGRES_INITDB_ARGS="--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+// in a package's environment used to render as
+// `-e POSTGRES_INITDB_ARGS=--encoding=UTF8 --lc-collate=C --lc-ctype=C`,
+// which systemd splits on whitespace. podman then treated `--lc-collate=C`
+// as an unknown podman-run flag and the container never started.
+func TestGeneratePackageUnitsEnvWithSpaces(t *testing.T) {
+	t.Parallel()
+	cfg := PackageUnitConfig{
+		RepoName: "test-repo",
+		PkgName:  "postgres",
+		Version:  "1.0",
+		Image:    "docker.io/library/postgres:latest",
+		Environment: map[string]string{
+			"POSTGRES_INITDB_ARGS": "--encoding=UTF8 --lc-collate=C --lc-ctype=C",
+			"PG_PASSWORD":          "simple",
+		},
+	}
+	svc := GeneratePackageUnits(cfg).Service.Content
+
+	const wantQuoted = `-e 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --lc-collate=C --lc-ctype=C'`
+	if !strings.Contains(svc, wantQuoted) {
+		t.Fatalf("expected %q in unit, got:\n%s", wantQuoted, svc)
+	}
+	// Simple values without whitespace must not be quoted, so existing
+	// units stay byte-stable.
+	if !strings.Contains(svc, "-e PG_PASSWORD=simple") {
+		t.Fatalf("simple value must not be quoted; got:\n%s", svc)
+	}
+}
+
 func TestGeneratePackageUnitsEntrypointSingleArg(t *testing.T) {
 	t.Parallel()
 	cfg := PackageUnitConfig{
