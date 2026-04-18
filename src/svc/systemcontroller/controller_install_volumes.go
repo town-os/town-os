@@ -64,7 +64,7 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		return nil
 	}
 
-	if suppliesHTTP(supplies) && hasHTTPPort(&state) {
+	if suppliesHTTP(supplies) && hasHTTPPort(&state, compiled) {
 		packageDNS := pkgName + "." + repoName + "." + s.dnsTLD()
 		certPath, err := issueLeafForPackage(
 			s.Controller.GetTLSCA(),
@@ -76,7 +76,7 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 			return fmt.Errorf("issue tls leaf: %w", err)
 		}
 		if certPath != "" {
-			applyTLSToPorts(&state, certPath)
+			applyTLSToPorts(&state, certPath, compiled)
 		}
 	}
 

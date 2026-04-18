@@ -801,7 +801,7 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 		})
 	}
 
-	if suppliesHTTP(supplies) && hasHTTPPort(&state) {
+	if suppliesHTTP(supplies) && hasHTTPPort(&state, compiled) {
 		packageDNS := pkgName + "." + repoName + "." + reconcileDNSTLD(cfg.SettingsMgr)
 		certPath, err := issueLeafForPackage(
 			cfg.TLSCA,
@@ -813,7 +813,7 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 			return fmt.Errorf("issue tls leaf: %w", err)
 		}
 		if certPath != "" {
-			applyTLSToPorts(&state, certPath)
+			applyTLSToPorts(&state, certPath, compiled)
 		}
 	}
 

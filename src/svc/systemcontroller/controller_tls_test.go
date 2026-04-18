@@ -105,7 +105,7 @@ func TestApplyTLSToPortsWrapsHTTPOnly(t *testing.T) {
 			{ExternalPort: 2222, InternalPort: 22, Forward: true},
 		},
 	}
-	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/gitea/1.0")
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/gitea/1.0", nil)
 
 	var httpPort, sshPort *networkcontroller.PortConfig
 	for i := range state.Ports {
@@ -136,9 +136,69 @@ func TestApplyTLSToPortsWrapsImmichPort(t *testing.T) {
 			{ExternalPort: 56510, InternalPort: 2283, Forward: true},
 		},
 	}
-	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/immich/1.0")
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/immich/1.0", nil)
 	if !state.Ports[0].TLS || state.Ports[0].CertPath == "" {
 		t.Fatalf("immich port 2283 must be TLS-wrapped, got %+v", state.Ports[0])
+	}
+}
+
+// TestApplyTLSToPortsWrapsByPortName is the regression for the gitea
+// "browser shows SSL error" report. Gitea's yaml declares
+// `network.internal: { http: "@httpport@" }` with a user-settable
+// @httpport@ that auto-generates into the 10000–60000 range — any
+// numeric allowlist inevitably misses it. Using the `http` port-name
+// hint lets the NC TLS-wrap the right port on every install.
+func TestApplyTLSToPortsWrapsByPortName(t *testing.T) {
+	pkg := &packages.Package{
+		Network: packages.PackageNetwork{
+			Internal:      packages.PortMap{38895: 38895, 38883: 38883},
+			InternalNames: packages.PortNameMap{38895: "http", 38883: "ssh"},
+		},
+	}
+	state := networkcontroller.PackageNetworkState{
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 38895, InternalPort: 38895, Forward: true},
+			{ExternalPort: 38883, InternalPort: 38883, Forward: true},
+		},
+	}
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/gitea/1.0", pkg)
+
+	var httpPort, sshPort *networkcontroller.PortConfig
+	for i := range state.Ports {
+		switch state.Ports[i].InternalPort {
+		case 38895:
+			httpPort = &state.Ports[i]
+		case 38883:
+			sshPort = &state.Ports[i]
+		}
+	}
+	if httpPort == nil || !httpPort.TLS || httpPort.CertPath == "" {
+		t.Errorf("named http port 38895 must be TLS-wrapped: %+v", httpPort)
+	}
+	if sshPort == nil || sshPort.TLS || sshPort.CertPath != "" {
+		t.Errorf("named ssh port 38883 must stay plaintext: %+v", sshPort)
+	}
+}
+
+// TestApplyTLSToPortsExternalNamesAlsoWrap pins that the name check
+// looks at both ExternalNames and InternalNames — a package that puts
+// the http name under `network.external` (the more common pattern)
+// must still get TLS.
+func TestApplyTLSToPortsExternalNamesAlsoWrap(t *testing.T) {
+	pkg := &packages.Package{
+		Network: packages.PackageNetwork{
+			External:      packages.PortMap{56510: 2283},
+			ExternalNames: packages.PortNameMap{2283: "http"},
+		},
+	}
+	state := networkcontroller.PackageNetworkState{
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 56510, InternalPort: 2283, Forward: true},
+		},
+	}
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/x/1.0", pkg)
+	if !state.Ports[0].TLS {
+		t.Fatalf("external-named http port must be TLS-wrapped: %+v", state.Ports[0])
 	}
 }
 
@@ -149,7 +209,7 @@ func TestHasHTTPPort(t *testing.T) {
 			{InternalPort: 5432},
 		},
 	}
-	if hasHTTPPort(&nonHTTP) {
+	if hasHTTPPort(&nonHTTP, nil) {
 		t.Error("ssh/postgres-only package should not have HTTP ports")
 	}
 	http := networkcontroller.PackageNetworkState{
@@ -158,7 +218,7 @@ func TestHasHTTPPort(t *testing.T) {
 			{InternalPort: 3000},
 		},
 	}
-	if !hasHTTPPort(&http) {
+	if !hasHTTPPort(&http, nil) {
 		t.Error("package with port 3000 should have HTTP port")
 	}
 }

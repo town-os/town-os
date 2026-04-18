@@ -3,11 +3,23 @@ package systemcontroller
 import (
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	townostls "gitea.com/town-os/town-os/src/tls"
 )
+
+// httpPortNames is the set of semantic port-name labels (lowercased,
+// from the yaml `network.{external,internal}` map key) that mark a port
+// as an HTTP service the NC should TLS-terminate. Package authors who
+// name a port "http" get TLS regardless of the numeric container port
+// they picked — this matters for any package whose port is chosen at
+// install time (gitea's @httpport@ auto-generates into the 10000–60000
+// range, which no fixed allowlist can cover).
+var httpPortNames = map[string]bool{
+	"http": true,
+}
 
 // TLSSubvolume is the btrfs subvolume under the root that holds the local
 // CA and every per-package leaf certificate. It is pre-created by reconcile
@@ -92,13 +104,34 @@ var httpContainerPorts = map[uint16]bool{
 	32400: true, // plex
 }
 
-// hasHTTPPort reports whether any port in the state file has an HTTP
-// container-side port. Used before issuing a leaf cert so we don't mint
-// certs for packages whose only ports are non-HTTP (e.g. a package that
-// supplies http but exposes SSH on a funky container port).
-func hasHTTPPort(state *networkcontroller.PackageNetworkState) bool {
+// isHTTPPort reports whether a single container-side port should be
+// TLS-wrapped. It prefers the semantic yaml name (`http` in network.
+// external/internal) over the numeric allowlist — so a package that
+// declares `network.internal: { http: "@httpport@" }` gets TLS whether
+// @httpport@ lands on 3000 (the default), 8443 (user-picked), or an
+// auto-generated 38895. Packages that didn't migrate to semantic names
+// still get TLS via the numeric fallback below for canonical container
+// ports (80, 2283, 3000, 8008, 8065, 32400, …).
+func isHTTPPort(containerPort uint16, compiled *packages.Package) bool {
+	if compiled != nil {
+		if name, ok := compiled.Network.ExternalNames[containerPort]; ok && httpPortNames[strings.ToLower(name)] {
+			return true
+		}
+		if name, ok := compiled.Network.InternalNames[containerPort]; ok && httpPortNames[strings.ToLower(name)] {
+			return true
+		}
+	}
+	return httpContainerPorts[containerPort]
+}
+
+// hasHTTPPort reports whether any port in the state file is an HTTP
+// port per isHTTPPort. Used before issuing a leaf cert so we don't
+// mint certs for packages whose only ports are non-HTTP (e.g. a
+// package that supplies http but exposes SSH on a funky container
+// port).
+func hasHTTPPort(state *networkcontroller.PackageNetworkState, compiled *packages.Package) bool {
 	for _, p := range state.Ports {
-		if httpContainerPorts[p.InternalPort] {
+		if isHTTPPort(p.InternalPort, compiled) {
 			return true
 		}
 	}
@@ -106,13 +139,14 @@ func hasHTTPPort(state *networkcontroller.PackageNetworkState) bool {
 }
 
 // applyTLSToPorts mutates state.Ports in place, turning on TLS for every
-// port whose container-side InternalPort is an HTTP port and setting
-// CertPath to the container-side leaf directory. Non-HTTP ports (SSH,
-// raw TCP, etc.) are left as plaintext socat forwarders. The caller must
-// have issued the leaf before calling this function.
-func applyTLSToPorts(state *networkcontroller.PackageNetworkState, certPath string) {
+// port whose container-side InternalPort is an HTTP port (per
+// isHTTPPort) and setting CertPath to the container-side leaf
+// directory. Non-HTTP ports (SSH, raw TCP, etc.) are left as plaintext
+// socat forwarders. The caller must have issued the leaf before
+// calling this function.
+func applyTLSToPorts(state *networkcontroller.PackageNetworkState, certPath string, compiled *packages.Package) {
 	for i := range state.Ports {
-		if !httpContainerPorts[state.Ports[i].InternalPort] {
+		if !isHTTPPort(state.Ports[i].InternalPort, compiled) {
 			continue
 		}
 		state.Ports[i].TLS = true
