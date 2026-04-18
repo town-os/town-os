@@ -332,8 +332,11 @@ func (s *SystemControllerHandlers) autoGenerateResponses(responses *packages.Res
 // applyPackageTemplates renders Go text/template files into the appropriate
 // volume directories. Templates are applied after volume seeding (archives,
 // git clones) but before the service is started. Existing files are not
-// overwritten, ensuring user-uploaded data is preserved.
-func (s *SystemControllerHandlers) applyPackageTemplates(compiled *packages.Package, responses packages.Responses, repoName, effectiveName, version, description string) {
+// overwritten, ensuring user-uploaded data is preserved. The deps map
+// exposes already-installed dependencies (host + ports) under .Dep in the
+// template data; pass nil for packages with no deps or when rendering runs
+// before deps are installed.
+func (s *SystemControllerHandlers) applyPackageTemplates(compiled *packages.Package, responses packages.Responses, repoName, effectiveName, version, description string, deps map[string]packages.TemplateDep) {
 	btrfsBase := s.Controller.GetBtrfsBasePath()
 	data := packages.TemplateData{
 		Responses: responses,
@@ -348,6 +351,7 @@ func (s *SystemControllerHandlers) applyPackageTemplates(compiled *packages.Pack
 			ExternalIP: s.Controller.GetExternalIP(),
 			InternalIP: s.Controller.GetInternalIP(),
 		},
+		Dep: deps,
 	}
 
 	hostname, err := os.Hostname()

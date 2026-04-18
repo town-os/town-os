@@ -319,9 +319,13 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 
 	// Rebuild dependency environment variables for parent packages so the
 	// generated unit includes TOWNOS_DEP_* vars and @dep_KEY_host@ templates
-	// are resolved. Without this, reconcile would drop dep env vars.
+	// are resolved. Without this, reconcile would drop dep env vars. The
+	// parallel depMap is plumbed into reconcileApplyTemplates below so any
+	// missing file templates re-render with .Dep populated.
+	var depMap map[string]packages.TemplateDep
 	if len(depRecs) > 0 {
-		depEnvVars := buildDepEnvVarsFromRecords(depRecs, cfg.RepositoryRoot, cfg.Installer, cfg.SettingsMgr, cfg.ExternalIP, cfg.InternalIP)
+		depEnvVars, deps := buildDepEnvVarsFromRecords(depRecs, cfg.RepositoryRoot, cfg.Installer, cfg.SettingsMgr, cfg.ExternalIP, cfg.InternalIP)
+		depMap = deps
 		if len(depEnvVars) > 0 {
 			if compiled.Environment == nil {
 				compiled.Environment = map[string]string{}
@@ -380,9 +384,11 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			}
 		}
 
-		// Apply file templates after volume seeding.
+		// Apply file templates after volume seeding. depMap (built above
+		// from dep records) is threaded in so any missing file templates
+		// re-render with .Dep populated just like install-time.
 		if len(compiled.Templates) > 0 {
-			reconcileApplyTemplates(cfg, compiled, responses, pi, ip.Description)
+			reconcileApplyTemplates(cfg, compiled, responses, pi, ip.Description, depMap)
 		}
 	}
 
@@ -777,7 +783,7 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 // reconcileApplyTemplates renders Go text/template files into volume
 // directories during reconciliation. Uses the same logic as the install
 // flow: existing files are not overwritten.
-func reconcileApplyTemplates(cfg ReconcileConfig, compiled *packages.Package, responses packages.Responses, pi packages.PackageIdentity, description string) {
+func reconcileApplyTemplates(cfg ReconcileConfig, compiled *packages.Package, responses packages.Responses, pi packages.PackageIdentity, description string, deps map[string]packages.TemplateDep) {
 	data := packages.TemplateData{
 		Responses: responses,
 		Package: packages.TemplatePackageInfo{
@@ -788,6 +794,7 @@ func reconcileApplyTemplates(cfg ReconcileConfig, compiled *packages.Package, re
 			Description: description,
 		},
 		System: packages.TemplateSystemInfo{},
+		Dep:    deps,
 	}
 
 	hostname, err := os.Hostname()

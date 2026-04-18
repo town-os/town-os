@@ -158,6 +158,64 @@ db_password: {{.Responses.dbpass}}`
 			t.Fatalf("expected 'h=', got %q", result)
 		}
 	})
+
+	t.Run("dep host and ports", func(t *testing.T) {
+		data := TemplateData{
+			Dep: map[string]TemplateDep{
+				"db": {
+					Host:  "town-os-package--default-matrix--dep--db-1.0",
+					Ports: map[string]string{"5432": "5432", "sql": "5432"},
+				},
+			},
+		}
+		tmpl := `host: {{.Dep.db.Host}}
+port_named: {{index .Dep.db.Ports "sql"}}
+port_numeric: {{index .Dep.db.Ports "5432"}}`
+		result, err := ExecuteTemplate("test", tmpl, data)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := "host: town-os-package--default-matrix--dep--db-1.0\nport_named: 5432\nport_numeric: 5432"
+		if result != expected {
+			t.Fatalf("expected %q, got %q", expected, result)
+		}
+	})
+
+	t.Run("dep host on nil Dep renders <no value>", func(t *testing.T) {
+		// A package with no deps has Dep=nil. Go templates render missing
+		// map keys as "<no value>" (same behavior as .Responses for an
+		// unset key, see the earlier test). This is deliberately loud so
+		// a yaml template that references a dep that isn't declared
+		// shows up in the rendered file rather than silently emitting ""
+		// and masking a config error. (The stricter `index .Dep.X.Ports "y"`
+		// form errors for the same reason.)
+		data := TemplateData{}
+		result, err := ExecuteTemplate("test", `host:{{.Dep.db.Host}}`, data)
+		if err != nil {
+			t.Fatalf("unexpected error on nil Dep: %v", err)
+		}
+		if result != "host:<no value>" {
+			t.Fatalf("expected 'host:<no value>' for nil Dep, got %q", result)
+		}
+	})
+
+	t.Run("dep key with underscore", func(t *testing.T) {
+		data := TemplateData{
+			Dep: map[string]TemplateDep{
+				"my_db": {
+					Host:  "c-my-db",
+					Ports: map[string]string{"sql": "5432"},
+				},
+			},
+		}
+		result, err := ExecuteTemplate("test", `{{index .Dep "my_db" | printf "%+v"}}`, data)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result == "" {
+			t.Fatalf("expected non-empty render for dep key with underscore")
+		}
+	})
 }
 
 func TestApplyPackageTemplates(t *testing.T) {

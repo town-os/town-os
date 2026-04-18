@@ -27,15 +27,30 @@ type TemplateSystemInfo struct {
 	InternalIP string // Internal/LAN IP address (if known)
 }
 
+// TemplateDep exposes a single dependency's runtime coordinates to Go
+// text/template rendering. Host is the podman container name (resolvable
+// via podman DNS on the parent's shared network). Ports is keyed by both
+// the numeric container port (e.g. "5432") and any semantic port name
+// declared on the dep's network entry (e.g. "sql"), lowercased; the value
+// is the container-side port value — identical under current single-network
+// wiring, but the map permits future remapping without API churn.
+type TemplateDep struct {
+	Host  string
+	Ports map[string]string
+}
+
 // TemplateData is the top-level data object passed to Go text/template
 // execution for package file templates. It provides access to:
 //   - Responses: all package question responses (the @foo@ template variables)
 //   - Package: package metadata (name, version, repo, image, description)
 //   - System: system-level information (hostname, IPs; extensible facility)
+//   - Dep: installed dependencies keyed by dep key (e.g. .Dep.db.Host,
+//     {{index .Dep.db.Ports "sql"}}). The map is nil for packages with no deps.
 type TemplateData struct {
-	Responses Responses           // All question responses (accessible as .Responses.key)
-	Package   TemplatePackageInfo // Package metadata (accessible as .Package.Name, etc.)
-	System    TemplateSystemInfo  // System info (accessible as .System.Hostname, etc.)
+	Responses Responses              // All question responses (accessible as .Responses.key)
+	Package   TemplatePackageInfo    // Package metadata (accessible as .Package.Name, etc.)
+	System    TemplateSystemInfo     // System info (accessible as .System.Hostname, etc.)
+	Dep       map[string]TemplateDep // Dependencies by key (accessible as .Dep.KEY.Host / .Dep.KEY.Ports)
 }
 
 // ExecuteTemplate parses and executes a Go text/template string with the
@@ -46,6 +61,7 @@ type TemplateData struct {
 //   - {{.Responses.key}} for question response values
 //   - {{.Package.Name}} for package metadata
 //   - {{.System.Hostname}} for system information
+//   - {{.Dep.key.Host}} / {{index .Dep.key.Ports "sql"}} for dependency coords
 func ExecuteTemplate(name, content string, data TemplateData) (string, error) {
 	tmpl, err := template.New(name).Parse(content)
 	if err != nil {

@@ -298,13 +298,11 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	pw.Step("seeding_data")
 	s.seedVolumeData(ctx, &ip, compiled, repoName, parentName, effectiveName, req.Version)
 
-	// Apply file templates after volume seeding but before service boot.
-	if len(compiled.Templates) > 0 {
-		pw.Step("applying_templates")
-		s.applyPackageTemplates(compiled, req.Responses, repoName, effectiveName, req.Version, ip.Description)
-	}
-
-	// Install dependencies before the parent package.
+	// Install dependencies before the parent's file templates render so
+	// they can reference dep host/ports via {{.Dep.key.Host}} /
+	// {{index .Dep.key.Ports "sql"}}. depMap is passed to applyPackageTemplates
+	// below; for packages with no deps the map is nil and .Dep renders empty.
+	var depMap map[string]packages.TemplateDep
 	if len(compiled.Dependencies) > 0 {
 		pw.Step("installing_dependencies")
 		// Compute parent NC unit name so deps can wait for the network.
@@ -312,11 +310,12 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		if len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0 {
 			parentNCUnitName = systemd.NetworkControllerUnitName(repoName, effectiveName, req.Version)
 		}
-		depRecords, depEnvVars, err := s.installDependencies(ctx, repoName, effectiveName, req.Version, parentNCUnitName, compiled.Dependencies)
+		depRecords, depEnvVars, deps, err := s.installDependencies(ctx, repoName, effectiveName, req.Version, parentNCUnitName, compiled.Dependencies)
 		if err != nil {
 			pw.Err(fmt.Errorf("install dependencies: %w", err))
 			return nil
 		}
+		depMap = deps
 
 		// Inject dependency connection environment variables into the parent
 		// and resolve @dep_KEY_host@ / @dep_KEY_port_N@ template variables.
@@ -335,6 +334,13 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 				return nil
 			}
 		}
+	}
+
+	// Apply file templates after volume seeding AND after dep install so
+	// file templates can substitute .Dep.KEY.Host / .Dep.KEY.Ports values.
+	if len(compiled.Templates) > 0 {
+		pw.Step("applying_templates")
+		s.applyPackageTemplates(compiled, req.Responses, repoName, effectiveName, req.Version, ip.Description, depMap)
 	}
 
 	pw.Step("saving_install")

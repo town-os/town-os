@@ -296,15 +296,16 @@ post_update:
 
 Templates are named objects in the package YAML with three fields: `volume` (target volume name), `path` (file path within the volume), and `content` (Go text/template string).
 
-The template data context provides three namespaces:
+The template data context provides four namespaces:
 
 - `.Responses.key` -- question response values (keyed by question name).
 - `.Package.Name`, `.Package.Version`, `.Package.Repo`, `.Package.Image`, `.Package.Description` -- package metadata.
 - `.System.Hostname`, `.System.ExternalIP`, `.System.InternalIP` -- system-level information.
+- `.Dep.KEY.Host` and `.Dep.KEY.Ports` -- installed-dependency runtime coordinates, keyed by the same dep key the parent YAML declares under `dependencies:`. `Host` is the podman container name (resolvable via podman DNS on the shared network); `Ports` is `map[string]string` keyed by both the numeric container port (e.g. `"5432"`) and any semantic name declared on the dep's network entry (lowercased, e.g. `"sql"`). Access a named port with `{{index .Dep.db.Ports "sql"}}`. The map is nil for packages with no deps; `{{.Dep.db.Host}}` on an absent dep renders `<no value>` (like any other missing map key) and `index` on nil `Ports` deliberately errors so misconfigured templates fail loudly.
 
-The `volume` and `path` fields support `@variable@` substitution (the same mechanism used by environment, network, and volume fields). The `content` field uses Go `text/template` syntax with `{{.Responses.key}}`, `{{.Package.Name}}`, etc.
+The `volume` and `path` fields support `@variable@` substitution (the same mechanism used by environment, network, and volume fields). The `content` field uses Go `text/template` syntax with `{{.Responses.key}}`, `{{.Package.Name}}`, `{{.Dep.KEY.Host}}`, etc. The `@dep_*@` marker form is NOT honoured inside `content` — use the Go-template `.Dep` namespace instead; `@dep_*@` remains the right form in `environment:` values and in dep `responses:` blocks.
 
-Templates are applied after volume seeding (archives, git clones) but before service boot. During reconcile, templates are re-rendered but existing files are never overwritten, preserving data from archive uploads or previous runs.
+Templates are applied after volume seeding (archives, git clones) **and after any dependencies install**, so `.Dep` is populated by the time the parent's content renders. During reconcile, templates are re-rendered but existing files are never overwritten, preserving data from archive uploads or previous runs; the dep map is rebuilt from persisted dependency records so `.Dep` still resolves when reconcile actually writes a missing template.
 
 Validation enforces: template names follow the volume naming convention (alphanumeric with dots, dashes, and underscores), paths must be relative with no directory traversal, the volume must reference a defined package volume (unless the volume field contains template variables), and content must parse as valid Go `text/template`.
 
@@ -791,6 +792,8 @@ In addition to the runtime environment variables above, dependency host and port
 - `@dep_KEY_port_NAME@` -- resolves to the container port the dep tagged with the semantic name `NAME` (see **Named Ports** below). Lower-case in the template; matches the env-var suffix case-insensitively. Coexists with `@dep_KEY_port_N@` for the same port.
 
 Template keys are derived from the `TOWNOS_DEP_*` runtime environment variable names by stripping the `TOWNOS_` prefix and lowercasing the remainder. For example, `TOWNOS_DEP_DB_HOST` becomes template key `dep_db_host`, and `TOWNOS_DEP_DB_PORT_5432` becomes `dep_db_port_5432`.
+
+The `@dep_*@` form is honoured only where `@variable@` substitution already runs — `environment` values and dep `responses`. Inside file-template `content`, use the Go-template `.Dep` namespace instead (see **File Templates** above): `{{.Dep.KEY.Host}}` and `{{index .Dep.KEY.Ports "sql"}}` carry the same values. `.Dep` is populated from the same `TOWNOS_DEP_*` computation and surfaces every port under both its numeric key (`"5432"`) and its lowercased semantic name (`"sql"`) when one was declared.
 
 On the **parent** side, these variables are resolved after dependency installation, when the dependency's container name and ports are known. They are applied to parent environment values during unit generation. Reconcile also rebuilds dependency environment variables so that systemd units stay correct across restarts and version changes.
 

@@ -124,16 +124,18 @@ func orderDependencies(deps map[string]packages.InputPackageDependency) ([]strin
 // share the parent's podman network and have systemd PartOf/Before
 // ordering relative to the parent.
 //
-// The function returns dependency records for persistence and a map of
-// environment variables to inject into the parent package.
+// Returns: dependency records for persistence, a flat env-var map for the
+// parent's systemd unit (TOWNOS_DEP_*), and a structured map[string]TemplateDep
+// keyed by dep key for the parent's file-template renderer so package YAML
+// can reference dep coordinates via {{.Dep.key.Host}} / {{index .Dep.key.Ports "sql"}}.
 func (s *SystemControllerHandlers) installDependencies(
 	ctx context.Context,
 	parentRepoName, parentEffectiveName, parentVersion string,
 	parentNCUnitName string,
 	deps map[string]packages.InputPackageDependency,
-) (map[string]packages.DependencyRecord, map[string]string, error) {
+) (map[string]packages.DependencyRecord, map[string]string, map[string]packages.TemplateDep, error) {
 	if len(deps) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	// Order siblings so any dep that references another via @dep_KEY_host@
@@ -145,13 +147,14 @@ func (s *SystemControllerHandlers) installDependencies(
 	// install-time failures.
 	order, err := orderDependencies(deps)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	rr := s.Controller.GetRepositoryRoot()
 	inst := s.Controller.GetInstaller()
 	records := make(map[string]packages.DependencyRecord, len(deps))
 	envVars := map[string]string{}
+	depMap := map[string]packages.TemplateDep{}
 
 	for _, depKey := range order {
 		dep := deps[depKey]
@@ -168,7 +171,7 @@ func (s *SystemControllerHandlers) installDependencies(
 		if depVersion == "" {
 			_, latestVersion, err := rr.LatestPackage(dep.Package)
 			if err != nil {
-				return nil, nil, fmt.Errorf("dependency %q: resolve latest version of %q: %w", depKey, dep.Package, err)
+				return nil, nil, nil, fmt.Errorf("dependency %q: resolve latest version of %q: %w", depKey, dep.Package, err)
 			}
 			depVersion = latestVersion
 
@@ -176,7 +179,7 @@ func (s *SystemControllerHandlers) installDependencies(
 			if dep.Repo == "" {
 				foundRepo, err := rr.FindRepoForPackage(dep.Package, depVersion)
 				if err != nil {
-					return nil, nil, fmt.Errorf("dependency %q: find repo for %q@%s: %w", depKey, dep.Package, depVersion, err)
+					return nil, nil, nil, fmt.Errorf("dependency %q: find repo for %q@%s: %w", depKey, dep.Package, depVersion, err)
 				}
 				depRepo = foundRepo
 			}
@@ -185,7 +188,7 @@ func (s *SystemControllerHandlers) installDependencies(
 		// Load the dependency's InputPackage.
 		depIP, err := rr.LoadPackage(depRepo, dep.Package, depVersion)
 		if err != nil {
-			return nil, nil, fmt.Errorf("dependency %q: load package %s/%s@%s: %w", depKey, depRepo, dep.Package, depVersion, err)
+			return nil, nil, nil, fmt.Errorf("dependency %q: load package %s/%s@%s: %w", depKey, depRepo, dep.Package, depVersion, err)
 		}
 
 		// Build responses from dependency declaration.
@@ -204,7 +207,7 @@ func (s *SystemControllerHandlers) installDependencies(
 
 		// Auto-generate missing responses (ports, hostnames, secrets).
 		if err := s.autoGenerateResponses(&depResponses, depIP.Questions, effectiveName); err != nil { //nolint:contextcheck // autoGenerateResponses does not accept context; pre-existing pattern
-			return nil, nil, fmt.Errorf("dependency %q: auto-generate responses: %w", depKey, err)
+			return nil, nil, nil, fmt.Errorf("dependency %q: auto-generate responses: %w", depKey, err)
 		}
 
 		// Compile the dependency.
@@ -214,39 +217,42 @@ func (s *SystemControllerHandlers) installDependencies(
 			PackageDNS:   effectiveName + "." + depRepo + "." + s.getDNSTLDValue(),
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("dependency %q: compile: %w", depKey, err)
+			return nil, nil, nil, fmt.Errorf("dependency %q: compile: %w", depKey, err)
 		}
 
 		// Recursively install sub-dependencies first (depth-first).
 		if len(depCompiled.Dependencies) > 0 {
-			subRecords, _, err := s.installDependencies(ctx, depRepo, effectiveName, depVersion, parentNCUnitName, depCompiled.Dependencies)
+			subRecords, _, _, err := s.installDependencies(ctx, depRepo, effectiveName, depVersion, parentNCUnitName, depCompiled.Dependencies)
 			if err != nil {
-				return nil, nil, fmt.Errorf("dependency %q: sub-dependencies: %w", depKey, err)
+				return nil, nil, nil, fmt.Errorf("dependency %q: sub-dependencies: %w", depKey, err)
 			}
 			// Sub-dependency records are saved under the sub-dependency's own name.
 			if len(subRecords) > 0 {
 				if err := inst.SaveDependencies(depRepo, effectiveName, subRecords); err != nil {
-					return nil, nil, fmt.Errorf("dependency %q: save sub-dependencies: %w", depKey, err)
+					return nil, nil, nil, fmt.Errorf("dependency %q: save sub-dependencies: %w", depKey, err)
 				}
 			}
 		}
 
 		// Provision volumes.
 		if err := s.provisionVolumes(depRepo, effectiveName, depVersion, "", false, depCompiled); err != nil {
-			return nil, nil, fmt.Errorf("dependency %q: provision volumes: %w", depKey, err)
+			return nil, nil, nil, fmt.Errorf("dependency %q: provision volumes: %w", depKey, err)
 		}
 
 		// Seed volume data.
 		s.seedVolumeData(ctx, &depIP, depCompiled, depRepo, dep.Package, effectiveName, depVersion)
 
-		// Apply file templates.
+		// Apply file templates. The current depMap exposes already-installed
+		// siblings (topologically ordered before this dep) via .Dep in the
+		// template data, mirroring the @dep_KEY_*@ substitution the dep's
+		// Responses got earlier.
 		if len(depCompiled.Templates) > 0 {
-			s.applyPackageTemplates(depCompiled, depResponses, depRepo, effectiveName, depVersion, depIP.Description)
+			s.applyPackageTemplates(depCompiled, depResponses, depRepo, effectiveName, depVersion, depIP.Description, depMap)
 		}
 
 		// Create install record.
 		if err := inst.Install(depRepo, effectiveName, dep.Package, depVersion, depResponses); err != nil {
-			return nil, nil, fmt.Errorf("dependency %q: install record: %w", depKey, err)
+			return nil, nil, nil, fmt.Errorf("dependency %q: install record: %w", depKey, err)
 		}
 
 		// Dependencies share the parent's NC — no network state file needed.
@@ -261,7 +267,7 @@ func (s *SystemControllerHandlers) installDependencies(
 			cfg.ParentNCUnitName = parentNCUnitName
 			units := systemd.GeneratePackageUnits(cfg)
 			if err := s.installPackageUnits(ctx, sd, units); err != nil {
-				return nil, nil, fmt.Errorf("dependency %q: install units: %w", depKey, err)
+				return nil, nil, nil, fmt.Errorf("dependency %q: install units: %w", depKey, err)
 			}
 		}
 
@@ -283,13 +289,15 @@ func (s *SystemControllerHandlers) installDependencies(
 		// TOWNOS_DEP_<KEY>_PORT_<NAME> (uppercased semantic name) when the
 		// dep declared a name for the port. Numeric form is always emitted
 		// for back-compat with existing parents.
+		containerName := systemd.ContainerName(depRepo, effectiveName, depVersion)
 		upperKey := strings.ToUpper(depKey)
-		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = systemd.ContainerName(depRepo, effectiveName, depVersion)
+		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = containerName
 		emitDepPortEnv(envVars, upperKey, depCompiled.Network.External, depCompiled.Network.ExternalNames)
 		emitDepPortEnv(envVars, upperKey, depCompiled.Network.Internal, depCompiled.Network.InternalNames)
+		depMap[depKey] = buildTemplateDepEntry(containerName, depCompiled)
 	}
 
-	return records, envVars, nil
+	return records, envVars, depMap, nil
 }
 
 // uninstallDependencies removes metadata for every dependency of a parent
