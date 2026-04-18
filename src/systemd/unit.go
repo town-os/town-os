@@ -453,9 +453,12 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	}
 	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
 
-	// Extra podman args (e.g. --pid host, --cap-add).
+	// Extra podman args (e.g. --pid host, --cap-add). Each element is
+	// one argv token to podman, so any caller that passes a value with
+	// whitespace — e.g. `--mount type=bind,source=/a b/c` — gets the
+	// whole token single-quoted rather than split by systemd.
 	for _, arg := range cfg.ExtraArgs {
-		fmt.Fprintf(&b, " \\\n  %s", arg)
+		b.WriteString(" \\\n  " + quoteCommandArg(arg))
 	}
 
 	// Environment variables, sorted by key. The KEY=VALUE form must be a
@@ -475,11 +478,14 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 
 	// Volume mounts. Dependency pkg names translate to the nested
 	// storage path so the podman -v source matches what the install
-	// manager created on disk.
+	// manager created on disk. The full `host:container:opts` triplet
+	// is one argv token to podman, so quote the whole thing in case a
+	// host or container path contains whitespace — systemd would
+	// otherwise split it and podman would see a stray -v value.
 	for _, name := range volNames {
 		vol := cfg.Volumes[name]
 		hostPath := fmt.Sprintf("%s/installed/%s/%s/%s/%s", cfg.BtrfsBase, cfg.RepoName, packages.StoragePath(cfg.PkgName), cfg.Version, name)
-		fmt.Fprintf(&b, " \\\n  -v %s:%s:rw,z", hostPath, vol.Mountpoint)
+		b.WriteString(" \\\n  -v " + quoteCommandArg(fmt.Sprintf("%s:%s:rw,z", hostPath, vol.Mountpoint)))
 	}
 
 	// Host volume mounts (arbitrary host paths, not btrfs-managed).
@@ -488,7 +494,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		if opts == "" {
 			opts = "rw,z"
 		}
-		fmt.Fprintf(&b, " \\\n  -v %s:%s:%s", hv.HostPath, hv.ContainerPath, opts)
+		b.WriteString(" \\\n  -v " + quoteCommandArg(fmt.Sprintf("%s:%s:%s", hv.HostPath, hv.ContainerPath, opts)))
 	}
 
 	// Entrypoint override. Encoded as a JSON array and single-quoted so
@@ -718,11 +724,11 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 		b.WriteString(" \\\n  --pull=never")
 	}
 	for _, arg := range cfg.Args {
-		fmt.Fprintf(&b, " \\\n  %s", arg)
+		b.WriteString(" \\\n  " + quoteCommandArg(arg))
 	}
 	fmt.Fprintf(&b, " \\\n  %s", cfg.Image)
 	for _, cmd := range cfg.Command {
-		fmt.Fprintf(&b, " \\\n  %s", quoteCommandArg(cmd))
+		b.WriteString(" \\\n  " + quoteCommandArg(cmd))
 	}
 	b.WriteString("\n")
 
