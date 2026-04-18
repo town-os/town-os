@@ -634,16 +634,51 @@ type ReconcileDNSConfig struct {
 	InternalIP     string
 }
 
+// RebuildDNS tears the authoritative zone down and rebuilds it from
+// installed-package records. Use this ONLY for events where a clean slate
+// is the whole point: systemcontroller startup (rolodex persists records
+// across restarts but the systemcontroller is the source of truth, so any
+// drift accumulated while it was down must be discarded) and a confirmed
+// local-IP change (every A record's value is wrong and needs to flip).
+// Hourly reconciliation and install/uninstall paths must not go through
+// here — those need to stay non-disruptive and use ReconcileDNS / the
+// per-package helpers instead.
+func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
+	tld := reconcileDNSTLD(cfg.SettingsMgr)
+
+	// Teardown first so AddRecord (which appends, not upserts) does not
+	// create duplicate SOA/NS/A records on each rebuild.
+	if err := rolodex.TeardownTLD(ctx, cfg.Client, tld); err != nil {
+		slog.Debug(fmt.Sprintf("rebuild DNS teardown %s: %v", tld, err))
+		// Non-fatal: zone may not exist yet on first boot.
+	}
+
+	if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, ""); err != nil {
+		return fmt.Errorf("setup TLD %s: %w", tld, err)
+	}
+
+	for _, pkg := range collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot) {
+		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, "", pkg.Domains); err != nil {
+			slog.Debug(fmt.Sprintf("rebuild DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
+			continue
+		}
+	}
+
+	return nil
+}
+
 // ReconcileDNS converges the authoritative zone toward the desired state
 // in-place: add package A records that are missing, remove A records that
 // no longer correspond to an installed package, leave everything else
-// untouched. Used to be a teardown-then-rebuild which dropped every .home
-// record on each systemcontroller restart and re-added them one by one in
-// Go-map-random order — any client (or rolodex's own negative cache, or a
-// browser) that caught an NXDOMAIN during that sub-second gap then hid the
-// package for up to the SOA's minimum TTL (3600s here). The diff approach
-// means a restart with no package changes touches zero records in rolodex,
-// and a package install/uninstall touches only that package's records.
+// untouched. Used on the hourly drift-repair poller and whenever the
+// systemcontroller wants to push DB state without disrupting live
+// resolutions. A teardown-then-rebuild here (see RebuildDNS for the one
+// case where that's still the right call) dropped every .home record in
+// Go-map-random order on each restart — any client that caught an
+// NXDOMAIN during that sub-second gap then hid the package for up to the
+// SOA's minimum TTL (3600s here). The diff approach means a restart-era
+// reconcile with no package changes touches zero records in rolodex, so
+// live resolutions stay live.
 //
 // Errors on individual records are logged and skipped so a transient
 // rolodex hiccup on one record never aborts the whole reconcile.

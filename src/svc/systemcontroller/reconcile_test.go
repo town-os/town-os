@@ -1378,6 +1378,101 @@ func TestReconcileDNS(t *testing.T) {
 	}
 }
 
+// TestRebuildDNS pins the startup / IP-change contract: RebuildDNS
+// always tears down the zone and re-registers every installed package.
+// Callers that want non-disruptive drift repair should use ReconcileDNS
+// instead — this one WILL drop resolutions mid-rebuild.
+func TestRebuildDNS(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\nnetwork:\n  domains:\n    - www\n",
+		"redis/7.0": "image: redis:7.0\n",
+	})
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+	if err := inst.Install("repo-a", "redis", "redis", "7.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install redis: %v", err)
+	}
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+
+	if err := RebuildDNS(context.Background(), ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+	}); err != nil {
+		t.Fatalf("RebuildDNS: %v", err)
+	}
+
+	var addAuth, removeAuth, addRecord, listRecords int
+	for _, c := range mock.GetCalls() {
+		switch c.Method {
+		case "AddAuthoritativeZone":
+			addAuth++
+		case "RemoveAuthoritativeZone":
+			removeAuth++
+		case "AddRecord":
+			addRecord++
+		case "ListRecords":
+			listRecords++
+		}
+	}
+	// Teardown: ListRecords (empty on first rebuild) + RemoveAuthoritativeZone.
+	if listRecords != 1 {
+		t.Errorf("expected 1 ListRecords, got %d", listRecords)
+	}
+	if removeAuth != 1 {
+		t.Errorf("expected 1 RemoveAuthoritativeZone, got %d", removeAuth)
+	}
+	if addAuth != 1 {
+		t.Errorf("expected 1 AddAuthoritativeZone, got %d", addAuth)
+	}
+	// SOA + NS + A(ns1) + A(nginx) + A(www.nginx) + A(redis) = 6
+	if addRecord != 6 {
+		t.Errorf("expected 6 AddRecord, got %d", addRecord)
+	}
+}
+
+// TestRebuildDNSRunTwiceKeepsRecordCountStable confirms the teardown
+// step actually cleans up before the rebuild — a regression here would
+// double-add SOA/NS records on every startup.
+func TestRebuildDNSRunTwiceKeepsRecordCountStable(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\n",
+	})
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+	cfg := ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+	}
+	for i := range 2 {
+		if err := RebuildDNS(context.Background(), cfg); err != nil {
+			t.Fatalf("RebuildDNS run %d: %v", i+1, err)
+		}
+	}
+	records, err := mock.ListRecords(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) = 4
+	if len(records) != 4 {
+		for _, r := range records {
+			t.Logf("record: name=%s type=%v value=%s", r.Name, r.RecordType, r.Value)
+		}
+		t.Fatalf("expected 4 records after two rebuilds, got %d", len(records))
+	}
+}
+
 // TestReconcileDNSSecondRunMakesNoChanges is the regression for the
 // "services flap after systemcontroller restart" report. The first
 // reconcile creates records; the second must touch nothing, so that

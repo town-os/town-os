@@ -38,6 +38,11 @@ const (
 	defaultPollerInternalIPInterval = 5 * time.Minute
 	defaultPollerExternalEvery      = 12
 	defaultPollerStableTicks        = 3
+	// DNS drift-repair tick. ReconcileDNS is a diff against rolodex — the
+	// normal case is a no-op, so polling hourly is cheap and catches any
+	// drift introduced by a rolodex restart or a dropped install/uninstall
+	// DNS call without waiting for the next systemcontroller restart.
+	defaultPollerDNSInterval = 1 * time.Hour
 
 	// externalIPFetchTimeout bounds a single ipinfo.io request (DNS + TCP
 	// connect + TLS handshake + body read). 30s is deliberately generous:
@@ -84,8 +89,13 @@ type serverBase struct {
 	pollerInternalIPInterval time.Duration
 	pollerExternalEvery      int
 	pollerStableTicks        int
+	pollerDNSInterval        time.Duration
 	pollerInternalDiscoverer func() string
 	pollerReconcileDNS       func(ctx context.Context, oldIP, newIP string) error
+	// pollerDNSReconciler is nil in production (the tick calls ReconcileDNS
+	// via rolodex); tests inject a fake to observe invocations without
+	// wiring up a full rolodex.
+	pollerDNSReconciler func(ctx context.Context) error
 
 	// externalIPURL overrides defaultExternalIPURL; tests set it to an
 	// httptest.Server URL. externalIPStartupBackoffs overrides
@@ -249,6 +259,42 @@ func (s *serverBase) pollerInternalIntervalValue() time.Duration {
 	return defaultPollerInternalIPInterval
 }
 
+func (s *serverBase) pollerDNSIntervalValue() time.Duration {
+	if s.pollerDNSInterval > 0 {
+		return s.pollerDNSInterval
+	}
+	return defaultPollerDNSInterval
+}
+
+// tickDNSPoll runs one iteration of the hourly DNS drift-repair loop. It
+// builds a ReconcileDNSConfig from the live server state and calls the
+// idempotent diff-based ReconcileDNS — the common case is zero mutations
+// in rolodex, so polling has essentially no cost at steady state. Tests
+// inject pollerDNSReconciler to observe invocations without dialling
+// rolodex.
+func (s *serverBase) tickDNSPoll(ctx context.Context) {
+	if s.pollerDNSReconciler != nil {
+		if err := s.pollerDNSReconciler(ctx); err != nil {
+			slog.Debug("hourly DNS reconcile (injected)", "error", err)
+		}
+		return
+	}
+	rolClient := s.GetRolodexClient() //nolint:contextcheck // GetRolodexClient uses its own short-lived dial context; see onInternalIPChange.
+	if rolClient == nil {
+		slog.Debug("hourly DNS reconcile: rolodex client unavailable")
+		return
+	}
+	if err := ReconcileDNS(ctx, ReconcileDNSConfig{
+		Client:         rolClient,
+		Installer:      s.Installer,
+		RepositoryRoot: s.RepositoryRoot,
+		SettingsMgr:    s.SettingsMgr,
+		InternalIP:     s.GetInternalIP(),
+	}); err != nil {
+		slog.Debug("hourly DNS reconcile", "error", err)
+	}
+}
+
 // tickNetworkPoll runs one cycle of the network poller. It discovers the
 // current internal IPv4, applies "stable for N consecutive ticks" debouncing
 // to changes, fires onInternalIPChange when a change is confirmed, and
@@ -332,7 +378,7 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		return
 	}
 
-	slog.Info("internal IP changed; reconciling DNS", "old", oldIP, "new", newIP)
+	slog.Info("internal IP changed; rebuilding DNS", "old", oldIP, "new", newIP)
 
 	// GetRolodexClient establishes its own short-lived dial context
 	// internally; all other callers (controller_dns.go) use the same
@@ -344,18 +390,21 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		return
 	}
 
-	if err := ReconcileDNS(ctx, ReconcileDNSConfig{
+	// IP change means every A record's value is wrong — full wipe+rebuild
+	// rather than an incremental diff (which would still update records,
+	// but one-by-one in map-random order with an NXDOMAIN blip per name).
+	if err := RebuildDNS(ctx, ReconcileDNSConfig{
 		Client:         rolClient,
 		Installer:      s.Installer,
 		RepositoryRoot: s.RepositoryRoot,
 		SettingsMgr:    s.SettingsMgr,
 		InternalIP:     newIP,
 	}); err != nil {
-		slog.Error("reconcile DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
+		slog.Error("rebuild DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
 		return
 	}
 
-	slog.Info("re-registered package DNS records after internal IP change", "old", oldIP, "new", newIP)
+	slog.Info("rebuilt package DNS records after internal IP change", "old", oldIP, "new", newIP)
 }
 
 // externalIPURLValue returns the configured external-IP URL or the default.
@@ -513,6 +562,22 @@ func (s *serverBase) startNetworkPoller(ctx context.Context) {
 				return
 			case <-ticker.C:
 				s.tickNetworkPoll(ctx)
+			}
+		}
+	}()
+
+	// Hourly DNS drift-repair tick. Runs on its own goroutine so a
+	// slow rolodex round-trip can't delay the internal-IP tick (and
+	// vice versa). Cheap at steady state — ReconcileDNS is a diff.
+	go func() {
+		ticker := time.NewTicker(s.pollerDNSIntervalValue())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.tickDNSPoll(ctx)
 			}
 		}
 	}()

@@ -429,7 +429,10 @@ func run() (err error) {
 			time.Sleep(500 * time.Millisecond)
 		}
 		if rolClient != nil {
-			dnsErr := systemcontroller.ReconcileDNS(ctx, systemcontroller.ReconcileDNSConfig{
+			// Startup: wipe and rebuild rolodex so any drift from a crashed
+			// or out-of-sync prior run is discarded. The hourly drift-repair
+			// poller (ReconcileDNS) takes over once the HTTP server is up.
+			dnsErr := systemcontroller.RebuildDNS(ctx, systemcontroller.ReconcileDNSConfig{
 				Client:         rolClient,
 				Installer:      inst,
 				RepositoryRoot: rr,
@@ -437,7 +440,7 @@ func run() (err error) {
 				InternalIP:     getInternalIP(),
 			})
 			if dnsErr != nil {
-				fmt.Fprintf(os.Stderr, "reconcile DNS: %v\n", dnsErr)
+				fmt.Fprintf(os.Stderr, "rebuild DNS: %v\n", dnsErr)
 			}
 			if closeErr := rolClient.Close(); closeErr != nil {
 				fmt.Fprintf(os.Stderr, "close rolodex client: %v\n", closeErr)
