@@ -28,6 +28,7 @@ var (
 	ErrNoRuntime           = errors.New("package must specify either image (container) or vm")
 	ErrInvalidVMConfig          = errors.New("invalid vm configuration")
 	ErrPostUpdateVMNotSupported = errors.New("post_update is not supported for VM packages")
+	ErrEntrypointVMNotSupported = errors.New("entrypoint is not supported for VM packages")
 	ErrEmptyPostUpdateCommand   = errors.New("post_update command must not be empty")
 )
 
@@ -268,8 +269,17 @@ type PackageNetwork struct {
 }
 
 type Package struct {
-	Image        string
-	ImageType    string
+	Image     string
+	ImageType string
+	// Entrypoint, when non-empty, replaces the container image's built-in
+	// ENTRYPOINT (container runtime only; rejected for VM and Proton).
+	// Required for images whose upstream ENTRYPOINT is a wrapper script
+	// that rejects arbitrary Command args — e.g. matrixdotorg/synapse's
+	// /start.py interprets the first arg as a "mode" and errors on any
+	// unknown value, so a package that wants to run synapse via
+	// `command: [sh, -c, "..."]` must also set `entrypoint: [sh, -c]` to
+	// replace /start.py outright.
+	Entrypoint   []string
 	Command      []string
 	Environment  map[string]string
 	Network      PackageNetwork
@@ -297,6 +307,7 @@ type Question struct {
 
 type InputPackage struct {
 	Image        InputPackageImage                         `yaml:"image"`
+	Entrypoint   []string                                  `yaml:"entrypoint,omitempty"`
 	Command      []string                                  `yaml:"command"`
 	Environment  map[string]string                         `yaml:"environment"`
 	Network      InputPackageNetwork                       `yaml:"network"`

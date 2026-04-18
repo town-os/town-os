@@ -289,6 +289,19 @@ func (i *InputPackage) Validate() error {
 		return fmt.Errorf("%w: cannot specify both command and proton", ErrInvalidProtonSpec)
 	}
 
+	// Entrypoint overrides the image's ENTRYPOINT at podman-run time and
+	// only makes sense for the container runtime. Proton auto-generates a
+	// `proton run ...` command (plus a known entrypoint); VM packages are
+	// launched via qemu-system-x86_64 with no container concept at all.
+	if len(i.Entrypoint) > 0 {
+		if hasVM {
+			return ErrEntrypointVMNotSupported
+		}
+		if i.Proton != nil {
+			return fmt.Errorf("%w: cannot specify both entrypoint and proton", ErrInvalidProtonSpec)
+		}
+	}
+
 	for key := range i.Environment {
 		if err := ValidateEnvironmentKey(key); err != nil {
 			return err
@@ -565,6 +578,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	p := &Package{
 		Image:        image,
 		ImageType:    imageType,
+		Entrypoint:   i.Entrypoint,
 		Command:      command,
 		Environment:  i.Environment,
 		Network:      PackageNetwork{External: external, Internal: internal, ExternalNames: externalNames, InternalNames: internalNames, Domains: i.Network.Domains},

@@ -4,6 +4,7 @@
 package systemd
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -11,6 +12,49 @@ import (
 
 	"gitea.com/town-os/town-os/src/packages"
 )
+
+// encodeEntrypointJSON renders args as a JSON array for podman's
+// --entrypoint flag. Since a []string cannot produce a json.Marshal error
+// (unlike struct types with Marshaler interfaces), the error branch is
+// unreachable; on the impossible path we fall back to an empty array so
+// podman still sees a valid value and the caller's unit remains valid.
+func encodeEntrypointJSON(args []string) string {
+	b, err := json.Marshal(args)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+// quoteCommandArg wraps arg in single quotes when it contains whitespace or
+// shell metacharacters that systemd would otherwise tokenize — systemd's
+// ExecStart parser splits on whitespace unless text is inside balanced "..."
+// or '...' pairs (systemd.syntax(5)). Without this, a compiled package
+// command like `["sh", "-c", "python foo && exec python bar"]` would emit
+// the third element as three separate argv tokens to podman. Embedded
+// single quotes are escaped POSIX-style as '\'' so a caller can pass any
+// string verbatim. Unchanged args pass through so existing unit files
+// stay byte-for-byte stable.
+func quoteCommandArg(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	needsQuote := false
+	for _, r := range arg {
+		switch r {
+		case ' ', '\t', '\n', '"', '\'', '\\', '$', '&', ';', '|',
+			'<', '>', '(', ')', '*', '?', '!', '#', '~', '`', '[', ']', '{', '}':
+			needsQuote = true
+		}
+		if needsQuote {
+			break
+		}
+	}
+	if !needsQuote {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
+}
 
 // HostVolumeMount describes an arbitrary host-path to container-path volume
 // mount (as opposed to btrfs-managed package volumes). When both UID and GID
@@ -33,6 +77,13 @@ type PackageUnitConfig struct {
 	Version                  string
 	Description              string // package description; used in the service unit Description line
 	Image                    string
+	// Entrypoint, when non-empty, is emitted as `--entrypoint=<json-array>`
+	// before the image so podman fully replaces the image's built-in
+	// ENTRYPOINT. This is required for images that wrap a launcher script
+	// around the real command (e.g. matrixdotorg/synapse's /start.py) and
+	// reject arbitrary first-arg modes. Command remains the argv that
+	// runs AFTER the entrypoint (i.e. the container CMD).
+	Entrypoint               []string
 	Command                  []string
 	Environment              map[string]string
 	External                 packages.PortMap
@@ -435,10 +486,18 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		fmt.Fprintf(&b, " \\\n  -v %s:%s:%s", hv.HostPath, hv.ContainerPath, opts)
 	}
 
+	// Entrypoint override. Encoded as a JSON array and single-quoted so
+	// systemd forwards it verbatim to podman; the JSON form covers both
+	// single- and multi-arg entrypoints (podman accepts ["sh","-c"] as
+	// an array and treats a single-element array as a single-arg entrypoint).
+	if len(cfg.Entrypoint) > 0 {
+		b.WriteString(" \\\n  --entrypoint=" + quoteCommandArg(encodeEntrypointJSON(cfg.Entrypoint)))
+	}
+
 	if len(cfg.Command) > 0 {
 		b.WriteString(" \\\n  " + cfg.Image)
 		for _, arg := range cfg.Command {
-			b.WriteString(" \\\n  " + arg)
+			b.WriteString(" \\\n  " + quoteCommandArg(arg))
 		}
 		b.WriteString("\n")
 	} else {
@@ -658,7 +717,7 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	}
 	fmt.Fprintf(&b, " \\\n  %s", cfg.Image)
 	for _, cmd := range cfg.Command {
-		fmt.Fprintf(&b, " \\\n  %s", cmd)
+		fmt.Fprintf(&b, " \\\n  %s", quoteCommandArg(cmd))
 	}
 	b.WriteString("\n")
 

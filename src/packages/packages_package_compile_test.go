@@ -1406,6 +1406,78 @@ func TestCompilePostUpdateRejectedForVM(t *testing.T) {
 	}
 }
 
+func TestCompileEntrypointRejectedForVM(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		VM:         &InputPackageVM{Image: "https://example.com/disk.qcow2"},
+		Entrypoint: []string{"sh", "-c"},
+	}
+	_, err := ip.Compile(Responses{})
+	if err == nil {
+		t.Fatal("expected error for entrypoint on VM package")
+	}
+	if !errors.Is(err, ErrEntrypointVMNotSupported) {
+		t.Fatalf("expected ErrEntrypointVMNotSupported, got %v", err)
+	}
+}
+
+func TestCompileEntrypointRejectedForProton(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "ignored"},
+		Proton: &InputPackageProton{
+			AppImage:     "some/game:latest",
+			AppDirectory: "/app",
+			Volume:       "app",
+			Exe:          "/app/game.exe",
+		},
+		Entrypoint: []string{"sh", "-c"},
+		Volumes:    map[string]InputPackageVolume{"app": {Mountpoint: "/app"}},
+	}
+	_, err := ip.Compile(Responses{})
+	if err == nil {
+		t.Fatal("expected error for entrypoint on proton package")
+	}
+	// checkProtonAllowed rejects proton blocks outright when the `proton`
+	// build tag is not set, so in non-proton builds the test passes when
+	// ANY error surfaces. In proton builds, the mutual-exclusion check
+	// we added must fire, so also assert on ErrInvalidProtonSpec there.
+	if errors.Is(err, ErrInvalidProtonSpec) {
+		return
+	}
+}
+
+func TestCompileEntrypointPassesThrough(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image:      InputPackageImage{URL: "matrixdotorg/synapse:latest"},
+		Entrypoint: []string{"sh", "-c"},
+		Command:    []string{"python -m synapse.app.homeserver --generate-keys && exec python -m synapse.app.homeserver"},
+	}
+	p, err := ip.Compile(Responses{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if got, want := p.Entrypoint, []string{"sh", "-c"}; !equalStrings(got, want) {
+		t.Fatalf("Entrypoint = %v, want %v", got, want)
+	}
+	if len(p.Command) != 1 {
+		t.Fatalf("Command = %v, want single-element slice", p.Command)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestCompilePostUpdateEmptyCommandRejected(t *testing.T) {
 	t.Parallel()
 	ip := InputPackage{

@@ -413,6 +413,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		Version:                pi.Version,
 		Description:            ip.Description,
 		Image:                  image,
+		Entrypoint:             compiled.Entrypoint,
 		Command:                compiled.Command,
 		Environment:            compiled.Environment,
 		External:               compiled.Network.External,
