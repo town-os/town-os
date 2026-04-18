@@ -124,6 +124,24 @@ func TestApplyTLSToPortsWrapsHTTPOnly(t *testing.T) {
 	}
 }
 
+// TestApplyTLSToPortsWrapsImmichPort is the regression for the
+// "TLS termination issue on immich @ town-os.local" report: immich's
+// container-side HTTP port is 2283 (not one of the canonical 80/3000/
+// 8008/8065/32400), and when 2283 wasn't in httpContainerPorts the NC
+// never applied TLS — the socat forwarder passed ClientHellos through
+// as plain TCP and every HTTPS probe ended in "Connection reset by peer".
+func TestApplyTLSToPortsWrapsImmichPort(t *testing.T) {
+	state := networkcontroller.PackageNetworkState{
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 56510, InternalPort: 2283, Forward: true},
+		},
+	}
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/immich/1.0")
+	if !state.Ports[0].TLS || state.Ports[0].CertPath == "" {
+		t.Fatalf("immich port 2283 must be TLS-wrapped, got %+v", state.Ports[0])
+	}
+}
+
 func TestHasHTTPPort(t *testing.T) {
 	nonHTTP := networkcontroller.PackageNetworkState{
 		Ports: []networkcontroller.PortConfig{

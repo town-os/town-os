@@ -74,21 +74,22 @@ func collectTLSSans(packageDNS string, extraDomains []string) []string {
 // httpContainerPorts is the allowlist of container-side ports the NC will
 // TLS-wrap when a package supplies "http". It must stay permissive enough
 // to cover every default HTTP-supplying package (nginx → 80, gitea →
-// 3000, matrix → 8008, mattermost → 8065, plex → 32400, etc.) while
-// excluding non-HTTP ports that a mixed package might also expose — most
-// importantly SSH (22), which would break if wrapped in TLS. Packages
-// whose HTTP port is not in this set will stay plaintext until the set
-// is extended or a per-port opt-in annotation is added.
+// 3000, matrix → 8008, mattermost → 8065, plex → 32400, immich → 2283,
+// etc.) while excluding non-HTTP ports that a mixed package might also
+// expose — most importantly SSH (22), which would break if wrapped in
+// TLS. Packages whose HTTP port is not in this set will stay plaintext
+// until the set is extended or a per-port opt-in annotation is added.
 var httpContainerPorts = map[uint16]bool{
 	80:    true,
-	3000:  true,
+	2283:  true, // immich
+	3000:  true, // gitea (default)
 	5000:  true,
 	8000:  true,
-	8008:  true,
-	8065:  true,
+	8008:  true, // matrix / synapse
+	8065:  true, // mattermost
 	8080:  true,
 	8888:  true,
-	32400: true,
+	32400: true, // plex
 }
 
 // hasHTTPPort reports whether any port in the state file has an HTTP
