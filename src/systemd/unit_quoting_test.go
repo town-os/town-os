@@ -148,6 +148,50 @@ func TestGeneratePackageUnitsEnvWithSpaces(t *testing.T) {
 	}
 }
 
+// TestGeneratePackageUnitsNetworkAlias checks that each NetworkAliases
+// entry lands as `--network-alias <name>` right after `--net <network>`
+// so a dep container is reachable by its short dep-key hostname on the
+// shared podman network — the workaround for immich's URL validator
+// rejecting hostnames with consecutive hyphens.
+func TestGeneratePackageUnitsNetworkAlias(t *testing.T) {
+	t.Parallel()
+	cfg := PackageUnitConfig{
+		RepoName:       "test-repo",
+		PkgName:        "parent--dep--db",
+		Version:        "1.0",
+		Image:          "docker.io/library/postgres:latest",
+		ParentNetwork:  "town-os-net--test-repo-parent-1.0",
+		NetworkAliases: []string{"db"},
+	}
+	svc := GeneratePackageUnits(cfg).Service.Content
+
+	if !strings.Contains(svc, "--network-alias db") {
+		t.Fatalf("expected --network-alias db in unit:\n%s", svc)
+	}
+	netIdx := strings.Index(svc, "--net town-os-net--test-repo-parent-1.0")
+	aliasIdx := strings.Index(svc, "--network-alias db")
+	if netIdx < 0 || aliasIdx < 0 || aliasIdx < netIdx {
+		t.Fatalf("--network-alias must appear after --net; unit:\n%s", svc)
+	}
+}
+
+// TestGeneratePackageUnitsNetworkAliasOmittedWhenUnset asserts the flag
+// is only emitted for deps — a standalone package (no parent network, no
+// aliases) must not get a stray --network-alias.
+func TestGeneratePackageUnitsNetworkAliasOmittedWhenUnset(t *testing.T) {
+	t.Parallel()
+	cfg := PackageUnitConfig{
+		RepoName: "test-repo",
+		PkgName:  "standalone",
+		Version:  "1.0",
+		Image:    "docker.io/library/nginx:latest",
+	}
+	svc := GeneratePackageUnits(cfg).Service.Content
+	if strings.Contains(svc, "--network-alias") {
+		t.Fatalf("--network-alias must be omitted when NetworkAliases is nil:\n%s", svc)
+	}
+}
+
 func TestGeneratePackageUnitsEntrypointSingleArg(t *testing.T) {
 	t.Parallel()
 	cfg := PackageUnitConfig{

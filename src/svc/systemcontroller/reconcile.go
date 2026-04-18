@@ -162,6 +162,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 						netInfo.ParentUnitName = systemd.UnitName(pi.Repo, parentName, parentPI.Version)
 						netInfo.ParentNCUnitName = systemd.NetworkControllerUnitName(pi.Repo, parentName, parentPI.Version)
 					}
+					netInfo.NetworkAlias = packages.DepKey(pi.Name)
 				} else if deps := allDeps[repoNameKey{pi.Repo, pi.Name}]; len(deps) > 0 {
 					// Parent: collect dependency unit names for ordering.
 					for _, rec := range deps {
@@ -280,6 +281,9 @@ type reconcilePackageNetworkInfo struct {
 	ParentNCUnitName string
 	// DependencyUnitNames lists dep service unit names (empty for deps).
 	DependencyUnitNames []string
+	// NetworkAlias is the short dep-key hostname this dep's container
+	// should respond to on the shared network (empty for parents).
+	NetworkAlias string
 }
 
 // reconcilePackage restores a single installed package: compiles it with
@@ -435,6 +439,9 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	unitCfg.ParentUnitName = netInfo.ParentUnitName
 	unitCfg.ParentNCUnitName = netInfo.ParentNCUnitName
 	unitCfg.DependencyUnitNames = netInfo.DependencyUnitNames
+	if netInfo.NetworkAlias != "" {
+		unitCfg.NetworkAliases = []string{netInfo.NetworkAlias}
+	}
 
 	units := systemd.GeneratePackageUnits(unitCfg)
 

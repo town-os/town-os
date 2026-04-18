@@ -265,6 +265,10 @@ func (s *SystemControllerHandlers) installDependencies(
 			cfg.ParentNetwork = systemd.NetworkName(parentRepoName, parentEffectiveName, parentVersion)
 			cfg.ParentUnitName = systemd.UnitName(parentRepoName, parentEffectiveName, parentVersion)
 			cfg.ParentNCUnitName = parentNCUnitName
+			// Dep is reachable from the parent at the short dep-key
+			// hostname via podman DNS on the shared network — see
+			// PackageUnitConfig.NetworkAliases for the full rationale.
+			cfg.NetworkAliases = []string{depKey}
 			units := systemd.GeneratePackageUnits(cfg)
 			if err := s.installPackageUnits(ctx, sd, units); err != nil {
 				return nil, nil, nil, fmt.Errorf("dependency %q: install units: %w", depKey, err)

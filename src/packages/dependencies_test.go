@@ -41,6 +41,26 @@ func TestParentName(t *testing.T) {
 	}
 }
 
+func TestDepKey(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"myapp", ""},
+		{"myapp-db", ""},
+		{"myapp--dep--db", "db"},
+		{"myapp--dep--db--dep--backup", "backup"},
+		{"a--dep--b--dep--c--dep--d", "d"},
+	}
+
+	for _, tt := range tests {
+		got := DepKey(tt.name)
+		if got != tt.want {
+			t.Errorf("DepKey(%q) = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestIsDependency(t *testing.T) {
 	tests := []struct {
 		name string

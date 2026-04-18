@@ -61,6 +61,21 @@ func ParentName(name string) string {
 	return name[:idx]
 }
 
+// DepKey returns the dep key segment for a dependency effective name —
+// i.e. the piece after the last DependencySeparator. For "myapp--dep--db"
+// it returns "db"; for nested "myapp--dep--db--dep--backup" it returns
+// "backup". For non-dependency names (no separator) it returns "".
+// Callers use this to tag a dep container with its short network alias
+// so parent packages can reach it by role instead of by full container
+// name on the shared podman network.
+func DepKey(name string) string {
+	idx := strings.LastIndex(name, DependencySeparator)
+	if idx < 0 {
+		return ""
+	}
+	return name[idx+len(DependencySeparator):]
+}
+
 // StoragePath translates a flat effective name such as
 // "parent--dep--key--dep--sub" into the nested on-disk form
 // "parent/subpackages/key/subpackages/sub". Standalone package names (no

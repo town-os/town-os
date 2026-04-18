@@ -96,6 +96,16 @@ type PackageUnitConfig struct {
 	VM                       *packages.PackageVM
 	VMImagePath              string // resolved path to the raw VM disk image
 
+	// NetworkAliases are additional hostnames to attach to the container
+	// on its podman network (emitted as one --network-alias per entry).
+	// Used for dependency packages: the systemcontroller sets the alias
+	// to the short dep key (e.g. "db", "ml") so parent packages can reach
+	// the dep via an RFC-valid short hostname rather than the full
+	// container name, which contains consecutive hyphens (reserved by
+	// validator.js for IDN punycode) and is rejected by some strict URL
+	// validators — notably the one in immich's SystemConfig Dto.
+	NetworkAliases []string
+
 	// ParentNetwork is the podman network name to join (for dependencies).
 	// When set, the dependency joins this network instead of creating its own.
 	// The dependency creates the network idempotently (in case it starts
@@ -452,6 +462,9 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		b.WriteString(" \\\n  --pull=never")
 	}
 	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
+	for _, alias := range cfg.NetworkAliases {
+		b.WriteString(" \\\n  --network-alias " + quoteCommandArg(alias))
+	}
 
 	// Extra podman args (e.g. --pid host, --cap-add). Each element is
 	// one argv token to podman, so any caller that passes a value with
