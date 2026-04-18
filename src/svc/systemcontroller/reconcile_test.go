@@ -20,6 +20,7 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	upstream "gitea.com/town-os/rolodex-dns/go"
 )
 
 // setupReconcileRepo creates a temp directory with a repository containing the
@@ -1321,18 +1322,15 @@ func TestReconcileDNS(t *testing.T) {
 
 	calls := mock.GetCalls()
 
-	// Expect teardown first (ListRecords + RemoveAuthoritativeZone, no
-	// RemoveRecord calls because the zone is empty before the first setup),
-	// then setup: AddAuthoritativeZone, AddRecord(SOA), AddRecord(NS),
-	// AddRecord(A for ns1).
-	// Then for each package: AddRecord(A for pkg.repo.tld.)
-	// nginx has an extra domain "www", so: AddRecord(A for nginx.repo-a.lan.) + AddRecord(A for www.nginx.repo-a.lan.)
-	// redis: AddRecord(A for redis.repo-a.lan.)
+	// On a first run (zone absent, no existing records) the diff-based
+	// ReconcileDNS creates the zone via SetupTLD (AddAuthoritativeZone +
+	// SOA + NS + A for ns1) and then adds one A record per desired
+	// package FQDN. Teardown/RemoveAuthoritativeZone must NOT appear —
+	// the old teardown-then-rebuild pattern caused the .home domains to
+	// briefly NXDOMAIN on every systemcontroller restart.
 
-	var addAuthZoneCalls int
-	var addRecordCalls int
-	var listRecordsCalls int
-	var removeAuthZoneCalls int
+	var addAuthZoneCalls, addRecordCalls, listRecordsCalls,
+		listAuthZonesCalls, removeAuthZoneCalls, removeRecordCalls int
 	for _, c := range calls {
 		switch c.Method {
 		case "AddAuthoritativeZone":
@@ -1348,26 +1346,133 @@ func TestReconcileDNS(t *testing.T) {
 			addRecordCalls++
 		case "ListRecords":
 			listRecordsCalls++
+		case "ListAuthoritativeZones":
+			listAuthZonesCalls++
 		case "RemoveAuthoritativeZone":
 			removeAuthZoneCalls++
+		case "RemoveRecord":
+			removeRecordCalls++
 		}
 	}
 
-	// Teardown calls: ListRecords + RemoveAuthoritativeZone
+	// Must not tear down the zone on a reconcile — that would break the
+	// whole point of the diff-based approach.
+	if removeAuthZoneCalls != 0 {
+		t.Fatalf("expected 0 RemoveAuthoritativeZone calls (diff-based), got %d", removeAuthZoneCalls)
+	}
+	if removeRecordCalls != 0 {
+		t.Fatalf("expected 0 RemoveRecord calls on first run, got %d", removeRecordCalls)
+	}
+	if listAuthZonesCalls != 1 {
+		t.Fatalf("expected 1 ListAuthoritativeZones call, got %d", listAuthZonesCalls)
+	}
 	if listRecordsCalls != 1 {
-		t.Fatalf("expected 1 ListRecords call (teardown), got %d", listRecordsCalls)
+		t.Fatalf("expected 1 ListRecords call, got %d", listRecordsCalls)
 	}
-	if removeAuthZoneCalls != 1 {
-		t.Fatalf("expected 1 RemoveAuthoritativeZone call (teardown), got %d", removeAuthZoneCalls)
-	}
-
 	if addAuthZoneCalls != 1 {
-		t.Fatalf("expected 1 AddAuthoritativeZone call, got %d", addAuthZoneCalls)
+		t.Fatalf("expected 1 AddAuthoritativeZone call (first-time zone setup), got %d", addAuthZoneCalls)
 	}
-
 	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) + A(www.nginx.repo-a.lan.) + A(redis.repo-a.lan.) = 6
 	if addRecordCalls != 6 {
 		t.Fatalf("expected 6 AddRecord calls, got %d", addRecordCalls)
+	}
+}
+
+// TestReconcileDNSSecondRunMakesNoChanges is the regression for the
+// "services flap after systemcontroller restart" report. The first
+// reconcile creates records; the second must touch nothing, so that
+// .home domains stay continuously resolvable across restarts (no
+// NXDOMAIN gap for clients/browsers to cache).
+func TestReconcileDNSSecondRunMakesNoChanges(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\n",
+	})
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+	cfg := ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+	}
+
+	if err := ReconcileDNS(context.Background(), cfg); err != nil {
+		t.Fatalf("first ReconcileDNS: %v", err)
+	}
+	preRunCalls := len(mock.GetCalls())
+
+	if err := ReconcileDNS(context.Background(), cfg); err != nil {
+		t.Fatalf("second ReconcileDNS: %v", err)
+	}
+
+	// Second run must only READ (ListAuthoritativeZones + ListRecords).
+	// Any Add/Remove here would re-introduce the DNS flap on restart.
+	var added, removed, addZone, removeZone int
+	for _, c := range mock.GetCalls()[preRunCalls:] {
+		switch c.Method {
+		case "AddRecord":
+			added++
+		case "RemoveRecord":
+			removed++
+		case "AddAuthoritativeZone":
+			addZone++
+		case "RemoveAuthoritativeZone":
+			removeZone++
+		}
+	}
+	if added != 0 || removed != 0 || addZone != 0 || removeZone != 0 {
+		t.Fatalf("second reconcile mutated rolodex: add=%d remove=%d addZone=%d removeZone=%d", added, removed, addZone, removeZone)
+	}
+}
+
+// TestReconcileDNSRemovesStaleRecords: when a package is uninstalled
+// out-of-band (its record lingers in rolodex), the next reconcile must
+// garbage-collect it instead of letting it resolve to a wrong IP forever.
+func TestReconcileDNSRemovesStaleRecords(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\n",
+	})
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+
+	// Seed rolodex with a stale record for a package that's no longer installed.
+	aType := upstream.RecordTypeA
+	if err := mock.AddRecord(context.Background(), &upstream.DnsRecord{
+		Name:       "ghost.repo-a.lan.",
+		RecordType: aType,
+		Value:      "192.168.1.100",
+		Ttl:        300,
+	}); err != nil {
+		t.Fatalf("seed stale record: %v", err)
+	}
+
+	if err := ReconcileDNS(context.Background(), ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+	}); err != nil {
+		t.Fatalf("ReconcileDNS: %v", err)
+	}
+
+	records, err := mock.ListRecords(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+	for _, r := range records {
+		if r.Name == "ghost.repo-a.lan." {
+			t.Fatalf("stale record still present after reconcile")
+		}
 	}
 }
 
@@ -1437,10 +1542,10 @@ func TestReconcileDNSNoPackages(t *testing.T) {
 
 	calls := mock.GetCalls()
 
-	// Teardown (ListRecords + RemoveAuthoritativeZone) then TLD setup:
-	// AddAuthoritativeZone + SOA + NS + A(ns1)
-	var addAuthZoneCalls int
-	var removeAuthZoneCalls int
+	// First-time setup with no packages: the diff-based ReconcileDNS
+	// creates the default zone (home.) via SetupTLD and adds no A
+	// records beyond the zone's own SOA/NS/ns1. No teardown, ever.
+	var addAuthZoneCalls, removeAuthZoneCalls int
 	for _, c := range calls {
 		switch c.Method {
 		case "AddAuthoritativeZone":
@@ -1458,8 +1563,8 @@ func TestReconcileDNSNoPackages(t *testing.T) {
 		}
 	}
 
-	if removeAuthZoneCalls != 1 {
-		t.Fatalf("expected 1 RemoveAuthoritativeZone call (teardown), got %d", removeAuthZoneCalls)
+	if removeAuthZoneCalls != 0 {
+		t.Fatalf("expected 0 RemoveAuthoritativeZone calls (diff-based), got %d", removeAuthZoneCalls)
 	}
 	if addAuthZoneCalls != 1 {
 		t.Fatalf("expected 1 AddAuthoritativeZone call, got %d", addAuthZoneCalls)

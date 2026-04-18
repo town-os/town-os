@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -18,6 +20,7 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 	townostls "gitea.com/town-os/town-os/src/tls"
+	upstream "gitea.com/town-os/rolodex-dns/go"
 )
 
 // ReconcileConfig holds the dependencies needed to reconcile installed packages
@@ -631,29 +634,95 @@ type ReconcileDNSConfig struct {
 	InternalIP     string
 }
 
-// ReconcileDNS tears down any stale zone records, sets up the TLD zone, and
-// registers DNS records for all installed packages. The teardown-then-setup
-// pattern prevents duplicate SOA/NS/A records from accumulating across
-// reboots. Errors for individual packages are logged and skipped.
+// ReconcileDNS converges the authoritative zone toward the desired state
+// in-place: add package A records that are missing, remove A records that
+// no longer correspond to an installed package, leave everything else
+// untouched. Used to be a teardown-then-rebuild which dropped every .home
+// record on each systemcontroller restart and re-added them one by one in
+// Go-map-random order — any client (or rolodex's own negative cache, or a
+// browser) that caught an NXDOMAIN during that sub-second gap then hid the
+// package for up to the SOA's minimum TTL (3600s here). The diff approach
+// means a restart with no package changes touches zero records in rolodex,
+// and a package install/uninstall touches only that package's records.
+//
+// Errors on individual records are logged and skipped so a transient
+// rolodex hiccup on one record never aborts the whole reconcile.
 func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	zone := tld + "."
 
-	// Tear down first so AddRecord (which appends, not upserts) does not
-	// create duplicate SOA/NS/A records on every boot.
-	if err := rolodex.TeardownTLD(ctx, cfg.Client, tld); err != nil {
-		slog.Debug(fmt.Sprintf("reconcile DNS teardown %s: %v", tld, err))
-		// Non-fatal: zone may not exist yet on first boot.
+	// Ensure the authoritative zone and its SOA/NS/ns1 records exist.
+	// SetupTLD is a no-op if the zone is already present because AddRecord
+	// errors out on duplicates — so we only call SetupTLD on first boot
+	// (or a rolodex re-init), not on every systemcontroller restart.
+	zones, err := cfg.Client.ListAuthoritativeZones(ctx)
+	if err != nil {
+		return fmt.Errorf("list authoritative zones: %w", err)
+	}
+	if !slices.Contains(zones, zone) {
+		if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, ""); err != nil {
+			return fmt.Errorf("setup TLD %s: %w", tld, err)
+		}
 	}
 
-	if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, ""); err != nil {
-		return fmt.Errorf("setup TLD %s: %w", tld, err)
-	}
-
+	// Build the desired set of package A records.
+	type recKey struct{ name, value string }
+	desired := map[recKey]struct{}{}
 	pkgs := collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot)
-	for _, pkg := range pkgs {
-		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, "", pkg.Domains); err != nil {
-			slog.Debug(fmt.Sprintf("reconcile DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
+	if cfg.InternalIP != "" {
+		for _, pkg := range pkgs {
+			baseName := pkg.Name + "." + pkg.Repo + "." + zone
+			desired[recKey{name: baseName, value: cfg.InternalIP}] = struct{}{}
+			for _, d := range pkg.Domains {
+				desired[recKey{name: d + "." + baseName, value: cfg.InternalIP}] = struct{}{}
+			}
+		}
+	}
+
+	// List current records and index only the A records we own.
+	// ns1.<zone> is owned by SetupTLD — leave it alone. SOA/NS records
+	// likewise stay put so we never stop answering as the zone owner.
+	current, err := cfg.Client.ListRecords(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("list records: %w", err)
+	}
+	ns1Name := "ns1." + zone
+	currentByKey := map[recKey]*upstream.DnsRecord{}
+	for _, r := range current {
+		if !strings.HasSuffix(r.Name, zone) || r.RecordType != upstream.RecordTypeA || r.Name == ns1Name {
 			continue
+		}
+		currentByKey[recKey{name: r.Name, value: r.Value}] = r
+	}
+
+	// Add records in desired-but-not-current first, so every query during
+	// the reconcile sees at least the correct answer (possibly alongside
+	// a soon-to-be-removed duplicate).
+	aType := upstream.RecordTypeA
+	for k := range desired {
+		if _, ok := currentByKey[k]; ok {
+			continue
+		}
+		if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
+			Name:       k.name,
+			RecordType: aType,
+			Value:      k.value,
+			Ttl:        300,
+		}); err != nil {
+			slog.Debug(fmt.Sprintf("reconcile DNS add %s: %v", k.name, err))
+		}
+	}
+
+	// Remove records in current-but-not-desired.
+	for k, r := range currentByKey {
+		if _, ok := desired[k]; ok {
+			continue
+		}
+		if _, err := cfg.Client.RemoveRecord(ctx, r.Name, &upstream.RemoveRecordOptions{
+			RecordType: &aType,
+			Value:      r.Value,
+		}); err != nil {
+			slog.Debug(fmt.Sprintf("reconcile DNS remove %s: %v", r.Name, err))
 		}
 	}
 
