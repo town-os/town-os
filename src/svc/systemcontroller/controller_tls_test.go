@@ -1,7 +1,9 @@
 package systemcontroller
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,7 +54,7 @@ func TestSuppliesHTTP(t *testing.T) {
 }
 
 func TestCollectTLSSans(t *testing.T) {
-	sans := collectTLSSans("nginx.default.home", []string{"nginx.alt.home"})
+	sans := collectTLSSans("nginx.default.home", []string{"nginx.alt.home"}, "")
 	want := []string{"nginx.default.home", "nginx.alt.home", "localhost", "127.0.0.1"}
 	if len(sans) != len(want) {
 		t.Fatalf("len=%d, want %d", len(sans), len(want))
@@ -64,8 +66,26 @@ func TestCollectTLSSans(t *testing.T) {
 	}
 }
 
+// TestCollectTLSSansIncludesInternalIP guards the "LAN IP SAN" behaviour:
+// a browser on the home network that types the raw IP instead of the
+// .home name needs the cert to list that IP or it gets a name-mismatch
+// warning. Empty internalIP means "skip" so boots that can't discover
+// the LAN IP don't churn the cert SAN set on every reconcile.
+func TestCollectTLSSansIncludesInternalIP(t *testing.T) {
+	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88")
+	want := []string{"nginx.default.home", "localhost", "127.0.0.1", "192.168.1.88"}
+	if len(sans) != len(want) {
+		t.Fatalf("len=%d, want %d", len(sans), len(want))
+	}
+	for i, w := range want {
+		if sans[i] != w {
+			t.Errorf("sans[%d]=%q, want %q", i, sans[i], w)
+		}
+	}
+}
+
 func TestIssueLeafForPackageNoOpWithoutCA(t *testing.T) {
-	path, err := issueLeafForPackage(nil, "/town-os", "default", "nginx", "1.0", &packages.Package{}, "nginx.default.home")
+	path, err := issueLeafForPackage(nil, "/town-os", "default", "nginx", "1.0", &packages.Package{}, "nginx.default.home", "")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -83,7 +103,7 @@ func TestIssueLeafForPackageWritesAndReturnsContainerPath(t *testing.T) {
 	compiled := &packages.Package{
 		Network: packages.PackageNetwork{Domains: []string{"custom.example"}},
 	}
-	path, err := issueLeafForPackage(ca, dir, "default", "nginx", "1.0", compiled, "nginx.default.home")
+	path, err := issueLeafForPackage(ca, dir, "default", "nginx", "1.0", compiled, "nginx.default.home", "192.168.1.88")
 	if err != nil {
 		t.Fatalf("issueLeafForPackage: %v", err)
 	}
@@ -93,6 +113,32 @@ func TestIssueLeafForPackageWritesAndReturnsContainerPath(t *testing.T) {
 	leafCert := filepath.Join(dir, "tls", "leaves", "default", "nginx", "1.0", "cert.pem")
 	if _, err := os.Stat(leafCert); err != nil {
 		t.Errorf("leaf cert not written: %v", err)
+	}
+
+	// Walk the issued cert and verify the internal IP landed in SANs —
+	// the whole point of threading internalIP through the issuance path
+	// is that LAN-IP browser access matches the cert.
+	data, err := os.ReadFile(leafCert) //nolint:gosec // G304 -- test temp path
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		t.Fatal("cert PEM decode failed")
+	}
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("ParseCertificate: %v", err)
+	}
+	foundIP := false
+	for _, ip := range parsed.IPAddresses {
+		if ip.String() == "192.168.1.88" {
+			foundIP = true
+			break
+		}
+	}
+	if !foundIP {
+		t.Fatalf("internal IP 192.168.1.88 not in cert IP SANs: %v", parsed.IPAddresses)
 	}
 }
 

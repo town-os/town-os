@@ -807,7 +807,7 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 			cfg.TLSCA,
 			cfg.BtrfsBasePath,
 			repoName, pkgName, version,
-			compiled, packageDNS,
+			compiled, packageDNS, cfg.InternalIP,
 		)
 		if err != nil {
 			return fmt.Errorf("issue tls leaf: %w", err)

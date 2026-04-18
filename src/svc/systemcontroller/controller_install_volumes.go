@@ -70,7 +70,7 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 			s.Controller.GetTLSCA(),
 			s.Controller.GetBtrfsBasePath(),
 			repoName, pkgName, version,
-			compiled, packageDNS,
+			compiled, packageDNS, s.Controller.GetInternalIP(),
 		)
 		if err != nil {
 			return fmt.Errorf("issue tls leaf: %w", err)

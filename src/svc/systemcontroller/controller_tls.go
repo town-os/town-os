@@ -70,16 +70,28 @@ func suppliesHTTP(supplies []string) bool {
 }
 
 // collectTLSSans builds the SAN list for a package's leaf cert. The list
-// always includes the computed PACKAGE_DNS, any domains the package
-// declared via `network.domains`, and `localhost`/`127.0.0.1` so the NC
-// can be hit from the host even when DNS is not configured yet.
-func collectTLSSans(packageDNS string, extraDomains []string) []string {
-	sans := make([]string, 0, 3+len(extraDomains))
+// always includes:
+//   - the computed PACKAGE_DNS (e.g. gitea.default.home)
+//   - any extra domains the package declared via `network.domains`
+//   - `localhost` + `127.0.0.1` for host-loopback probes
+//   - the systemcontroller's current internal (LAN) IP so a browser on
+//     the home network hitting `https://192.168.1.88:<port>` directly
+//     matches the cert, not just the mDNS/rolodex name
+//
+// The internal IP is optional (empty string skips it) because the SAN
+// set feeds IssueLeaf's idempotency check — a boot that can't discover
+// the LAN IP would otherwise churn the cert from "with IP" → "without
+// IP" and back on every reconcile.
+func collectTLSSans(packageDNS string, extraDomains []string, internalIP string) []string {
+	sans := make([]string, 0, 4+len(extraDomains))
 	if packageDNS != "" {
 		sans = append(sans, packageDNS)
 	}
 	sans = append(sans, extraDomains...)
 	sans = append(sans, "localhost", "127.0.0.1")
+	if internalIP != "" {
+		sans = append(sans, internalIP)
+	}
 	return sans
 }
 
@@ -157,8 +169,11 @@ func applyTLSToPorts(state *networkcontroller.PackageNetworkState, certPath stri
 // issueLeafForPackage issues (or refreshes) a leaf cert for the given
 // package identity. Returns the container-internal path the NC will see
 // the directory at, so the caller can stamp it into the state file. When
-// ca is nil the function is a no-op and returns "".
-func issueLeafForPackage(ca *townostls.CA, btrfsBase, repoName, pkgName, version string, compiled *packages.Package, packageDNS string) (string, error) {
+// ca is nil the function is a no-op and returns "". internalIP may be
+// empty when the caller can't discover a LAN address (boot-time race);
+// see collectTLSSans for why that's treated as "skip that SAN" rather
+// than "fail".
+func issueLeafForPackage(ca *townostls.CA, btrfsBase, repoName, pkgName, version string, compiled *packages.Package, packageDNS, internalIP string) (string, error) {
 	if ca == nil || btrfsBase == "" {
 		return "", nil
 	}
@@ -166,7 +181,7 @@ func issueLeafForPackage(ca *townostls.CA, btrfsBase, repoName, pkgName, version
 	if compiled != nil {
 		domains = compiled.Network.Domains
 	}
-	sans := collectTLSSans(packageDNS, domains)
+	sans := collectTLSSans(packageDNS, domains, internalIP)
 	hostDir := hostTLSLeafDir(btrfsBase, repoName, pkgName, version)
 	if err := ca.IssueLeaf(hostDir, sans); err != nil {
 		return "", err
