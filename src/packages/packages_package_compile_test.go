@@ -1466,6 +1466,47 @@ func TestCompileEntrypointPassesThrough(t *testing.T) {
 	}
 }
 
+// TestCompileEnvPreservesAtEscapeForRuntimeDepTemplate pins the compile-
+// time handling that lets a runtime @dep_*@ template survive alongside
+// a literal @ escape. Mattermost's DSN — postgres://user:<pwd>@<host>/db —
+// needs the pattern `@dbpass@@@@dep_db_host@` in YAML so that after
+// applyTemplate resolves `@dbpass@` the remaining `@@@dep_db_host@`
+// reaches the systemcontroller's applyDepTemplates step intact (that
+// step then collapses `@@` → `@` and substitutes the dep host). A
+// compile-time `@@` → `@` pass here would eat the escape one stage too
+// early and land the DSN as `<pwd><host>` with no separator, which is
+// what the mattermost "failed to ping DB" regression was.
+func TestCompileEnvPreservesAtEscapeForRuntimeDepTemplate(t *testing.T) {
+	t.Parallel()
+	ip := InputPackage{
+		Image: InputPackageImage{URL: "mm:latest"},
+		Environment: map[string]string{
+			"DSN": "postgres://u:@dbpass@@@@dep_db_host@:@dep_db_port_sql@/d",
+		},
+		Questions: map[string]Question{
+			"dbpass": {Query: "?", Type: Secret, Default: "auto"},
+		},
+	}
+	p, err := ip.Compile(Responses{"dbpass": "PASS"})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	// compile substitutes @dbpass@, preserves the remaining @@ escape and
+	// the @dep_db_host@ / @dep_db_port_sql@ template markers so the
+	// runtime substitution can see them.
+	if got, want := p.Environment["DSN"], "postgres://u:PASS@@@dep_db_host@:@dep_db_port_sql@/d"; got != want {
+		t.Fatalf("compile DSN = %q, want %q", got, want)
+	}
+	// Simulate the runtime applyDepTemplates step.
+	final := ApplyTemplates(p.Environment["DSN"], Responses{
+		"dep_db_host":     "HOST",
+		"dep_db_port_sql": "5432",
+	})
+	if got, want := final, "postgres://u:PASS@HOST:5432/d"; got != want {
+		t.Fatalf("runtime DSN = %q, want %q", got, want)
+	}
+}
+
 // TestCompileCommandTemplateSubstitution is the regression for the redis
 // dep that landed with `command: ["redis-server", "--port", "@port@"]`
 // and a `port` question with default "6379": the resolved Command MUST

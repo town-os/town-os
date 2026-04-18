@@ -577,15 +577,23 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
-	// Resolve @@ escapes. The per-key applyTemplate preserves @@ across
-	// passes to avoid corruption; now that all passes are done, collapse
-	// @@ → @ for the final output. Same treatment for Command and
-	// Entrypoint args, which iterateFields now substitutes too.
-	for k, v := range i.Environment {
-		if strings.Contains(v, "@@") {
-			i.Environment[k] = strings.ReplaceAll(v, "@@", "@")
-		}
-	}
+	// Resolve @@ escapes for Command and Entrypoint: these don't pass
+	// through the systemcontroller's runtime applyDepTemplates, so the
+	// collapse has to happen here.
+	//
+	// Environment values are deliberately NOT collapsed here. The
+	// systemcontroller runs applyDepTemplates (→ ApplyTemplates) on
+	// every env value at install/reconcile time, and that pass already
+	// collapses `@@` → `@` as part of its walk — doing it again here
+	// would consume the literal `@` that a downstream @dep_*@ template
+	// needs to resolve next to. Concrete case: `@dbpass@@@dep_db_host@`
+	// must survive compile as `<pass>@@@dep_db_host@` so that the runtime
+	// ApplyTemplates pass can emit `@` for the `@@` and substitute
+	// `<host>` for `@dep_db_host@`, landing on `<pass>@<host>`. A
+	// compile-end collapse turns it into `<pass>@dep_db_host@`, at which
+	// point the runtime pass treats the whole `@dep_db_host@` as a
+	// template on a bare `@` and substitutes with no leading `@` — so
+	// the URL becomes `<pass><host>` and connects to nowhere.
 	for idx, arg := range i.Command {
 		if strings.Contains(arg, "@@") {
 			i.Command[idx] = strings.ReplaceAll(arg, "@@", "@")

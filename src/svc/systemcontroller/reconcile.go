@@ -327,16 +327,23 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	// parallel depMap is plumbed into reconcileApplyTemplates below so any
 	// missing file templates re-render with .Dep populated.
 	var depMap map[string]packages.TemplateDep
+	var depEnvVars map[string]string
 	if len(depRecs) > 0 {
-		depEnvVars, deps := buildDepEnvVarsFromRecords(depRecs, cfg.RepositoryRoot, cfg.Installer, cfg.SettingsMgr, cfg.ExternalIP, cfg.InternalIP)
+		envVars, deps := buildDepEnvVarsFromRecords(depRecs, cfg.RepositoryRoot, cfg.Installer, cfg.SettingsMgr, cfg.ExternalIP, cfg.InternalIP)
 		depMap = deps
+		depEnvVars = envVars
 		if len(depEnvVars) > 0 {
 			if compiled.Environment == nil {
 				compiled.Environment = map[string]string{}
 			}
 			maps.Copy(compiled.Environment, depEnvVars)
-			applyDepTemplates(compiled.Environment, depEnvVars)
 		}
+	}
+	// applyDepTemplates also collapses `@@` escapes, so run it even when
+	// there are no dep env vars — otherwise Environment values that use
+	// `@@` would render with the literal `@@` in the final unit.
+	if len(compiled.Environment) > 0 {
+		applyDepTemplates(compiled.Environment, depEnvVars)
 	}
 
 	if cfg.Storage != nil {

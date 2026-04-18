@@ -320,11 +320,16 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 		// Inject dependency connection environment variables into the parent
 		// and resolve @dep_KEY_host@ / @dep_KEY_port_N@ template variables.
+		// applyDepTemplates runs ApplyTemplates over every env value, which
+		// also collapses `@@` escapes — so we always call it even when
+		// depEnvVars is empty, otherwise @@ would survive into the unit.
 		if len(depEnvVars) > 0 {
 			if compiled.Environment == nil {
 				compiled.Environment = map[string]string{}
 			}
 			maps.Copy(compiled.Environment, depEnvVars)
+		}
+		if len(compiled.Environment) > 0 {
 			applyDepTemplates(compiled.Environment, depEnvVars)
 		}
 
