@@ -42,6 +42,33 @@ func (c *SystemdClient) SetUnitStatus(ctx context.Context, name string, action s
 	return c.postClient(ctx, "systemd/status", pr)
 }
 
+// ListUnitsTree returns package service units grouped into a dependency tree.
+func (c *SystemdClient) ListUnitsTree(ctx context.Context, params ListParams) (_ *UnitTreeResponse, err error) {
+	resp, err := c.getClient(ctx, "systemd/units-tree"+params.QueryString())
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListUnitsTree: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "GET", "systemd/units-tree")
+	}
+
+	var out UnitTreeResponse
+	return &out, json.NewDecoder(resp.Body).Decode(&out)
+}
+
+// SetUnitStatusTree cascades a status action across a package and all its
+// installed dependencies.
+func (c *SystemdClient) SetUnitStatusTree(ctx context.Context, repo, name, version string, action systemd.StatusAction) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, TreeStatusRequest{Repo: repo, Name: name, Version: version, Action: action})
+
+	return c.postClient(ctx, "systemd/status/tree", pr)
+}
+
 // LogReplay streams historical journal entries for a unit via server-sent
 // events. The returned channel is closed when the replay completes.
 func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {

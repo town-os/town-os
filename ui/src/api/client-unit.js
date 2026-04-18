@@ -97,3 +97,35 @@ SystemControllerClient.prototype.logTail = async function (unit, lines = 100, be
 SystemControllerClient.prototype.setUnitStatus = async function (name, action) {
   await this.post('/systemd/status', { name, action })
 }
+
+/**
+ * Fetch package service units grouped into a dependency tree.
+ * @param {string} [sortBy]
+ * @param {string} [sortOrder]
+ * @param {number} [limit]
+ * @param {number} [offset]
+ * @param {string} [search]
+ * @returns {Promise<{entries: any[], has_more: boolean, total_pages: number, total_count: number}>}
+ */
+SystemControllerClient.prototype.listUnitsTree = async function (sortBy, sortOrder, limit, offset, search) {
+  const params = new URLSearchParams()
+  if (sortBy) params.set('sort_by', sortBy)
+  if (sortOrder) params.set('sort_order', sortOrder)
+  if (limit) params.set('limit', String(limit))
+  if (offset) params.set('offset', String(offset))
+  if (search) params.set('search', search)
+  const qs = params.toString()
+  return this.getJSON(`/systemd/units-tree${qs ? `?${qs}` : ''}`)
+}
+
+/**
+ * Cascade a status action across a package and all its installed dependencies.
+ * @param {string} repo
+ * @param {string} name - Raw effective package name (may contain "--dep--").
+ * @param {string} version
+ * @param {StatusAction} action - "start", "stop", or "restart".
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.setUnitStatusTree = async function (repo, name, version, action) {
+  await this.post('/systemd/status/tree', { repo, name, version, action })
+}

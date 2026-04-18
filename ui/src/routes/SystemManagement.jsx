@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { useRequireAuth, usePolling } from '@/lib/hooks.js'
-import { PAGE_SIZE } from '@/lib/utils.js'
-import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import JournalViewer from '@/components/JournalViewer.jsx'
+import PackageServiceTree from '@/components/system/PackageServiceTree.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
@@ -50,9 +49,8 @@ export default function SystemManagement() {
   const [refreshDialog, setRefreshDialog] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const pollRef = useRef(null)
-  const [page, setPage] = useState(0)
-  const [sortKey, setSortKey] = useState('package_identifier')
-  const [sortDirection, setSortDirection] = useState('asc')
+  const [sortKey] = useState('package_identifier')
+  const [sortDirection] = useState('asc')
   const [journalUnit, setJournalUnit] = useState(null)
   const [journalPriority, setJournalPriority] = useState(0)
 
@@ -118,12 +116,29 @@ export default function SystemManagement() {
 
   const effectiveSearch = searchTerm
 
-  const [unitData, , unitsLoading] = usePolling(
-    () => getClient().listUnits(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, effectiveSearch),
-    { entries: [], has_more: false, total_pages: 1 },
-    [refreshKey, sortKey, sortDirection, page, effectiveSearch],
+  // Tree view: roots are top-level packages, children nest dep-by-dep. The
+  // flat list is still fetched (lower volume now — only used for the
+  // JournalViewer unit dropdown and cascading action polling).
+  const [treeData, , unitsLoading] = usePolling(
+    () => getClient().listUnitsTree(sortKey, sortDirection, undefined, undefined, effectiveSearch),
+    { entries: [], has_more: false, total_pages: 1, total_count: 0 },
+    [refreshKey, sortKey, sortDirection, effectiveSearch],
   )
-  const units = unitData.entries || []
+  const roots = useMemo(() => treeData.entries || [], [treeData])
+
+  // Flattened unit list (roots + all descendants) for the JournalViewer's
+  // unit-list prop and for polling state on cascaded actions.
+  const units = useMemo(() => {
+    const out = []
+    function walk(nodes) {
+      for (const n of nodes) {
+        out.push(n)
+        if (n.children && n.children.length) walk(n.children)
+      }
+    }
+    walk(roots)
+    return out
+  }, [roots])
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
@@ -178,9 +193,31 @@ export default function SystemManagement() {
     })
   }
 
+  function handleTreeCascadeAction(node, action) {
+    setActionConfirm({
+      name: node.display_identifier || node.package_identifier,
+      action,
+      cascade: true,
+      node,
+    })
+  }
+
+  function handleTreeUnitAction(node, action) {
+    setActionConfirm({ name: node.Name, action })
+  }
+
+  function handleTreeViewLogs(node) {
+    openJournal(node.Name)
+  }
+
+  function handleTreeViewNetworkLogs(node) {
+    const ncUnit = node.Name.replace('.service', '-network.service')
+    openJournal(ncUnit)
+  }
+
   async function handleAction() {
     if (!actionConfirm) return
-    const { name, action } = actionConfirm
+    const { name, action, cascade, node } = actionConfirm
     const targetState = action === 'stop' ? 'inactive' : 'active'
     const capitalAction = `${action[0].toUpperCase()}${action.slice(1)}`
 
@@ -188,10 +225,17 @@ export default function SystemManagement() {
     toast.loading(t(toastKeyByAction[action], { name }), { id: actionToastId.current })
 
     try {
-      await getClient().setUnitStatus(name, action)
+      if (cascade) {
+        // Tree-scoped cascade: backend walks deps and applies the action
+        // to every unit in the correct order.
+        await getClient().setUnitStatusTree(node.repo, node.name, node.version, action)
+      } else {
+        await getClient().setUnitStatus(name, action)
+      }
       toast.loading(t('system.toast_action_waiting', { state: targetState }), { id: actionToastId.current })
 
-      const reached = await pollUnitState('package', name, targetState)
+      const pollTarget = cascade ? node.Name : name
+      const reached = await pollUnitState('package', pollTarget, targetState)
       toast.dismiss(actionToastId.current)
 
       if (reached) {
@@ -237,92 +281,6 @@ export default function SystemManagement() {
       doRefresh()
     }
   }
-
-  const columns = [
-    {
-      key: 'package_identifier',
-      label: t('system.col_package'),
-      transform: (v) => (
-        <span className="font-mono text-sm">
-          {v || '—'}
-        </span>
-      ),
-    },
-    { key: 'package_description', label: t('system.col_description') },
-    {
-      key: 'ActiveState',
-      label: t('system.col_status'),
-      sortValues: ['active', 'inactive', 'failed'],
-      transform: (v, row) => {
-        const variant =
-          v === 'active'
-            ? 'default'
-            : v === 'failed'
-              ? 'destructive'
-              : 'secondary'
-        const label = row.nc_failed ? t('system.status_failed_nc') : v
-        return <Badge variant={variant}>{label}</Badge>
-      },
-    },
-    {
-      key: '_actions',
-      label: t('system.col_actions'),
-      sortable: false,
-      transform: (_, row) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" aria-label={t('system.actions_label')}>
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem
-              disabled={actionInProgress}
-              onClick={() =>
-                setActionConfirm({ name: row.Name, action: 'start' })
-              }
-            >
-              <Play className="h-3 w-3 mr-2" />
-              {t('system.action_start')}
-            </DropdownMenuItem>
-            {row.Name !== 'town-os-systemcontroller.service' && (
-              <DropdownMenuItem
-                disabled={actionInProgress}
-                onClick={() =>
-                  setActionConfirm({ name: row.Name, action: 'stop' })
-                }
-              >
-                <Square className="h-3 w-3 mr-2" />
-                {t('system.action_stop')}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              disabled={actionInProgress}
-              onClick={() =>
-                setActionConfirm({ name: row.Name, action: 'restart' })
-              }
-            >
-              <RotateCcw className="h-3 w-3 mr-2" />
-              {t('system.action_restart')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => openJournal(row.Name)}>
-              <FileText className="h-3 w-3 mr-2" />
-              {t('system.action_service_logs')}
-            </DropdownMenuItem>
-            {row.nc_active && (
-              <DropdownMenuItem onClick={() => {
-                const ncUnit = row.Name.replace('.service', '-network.service')
-                openJournal(ncUnit)
-              }}>
-                <FileText className="h-3 w-3 mr-2" />
-                {t('system.action_network_logs')}
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
-    },
-  ]
 
   return (
     <div className="space-y-6">
@@ -438,32 +396,22 @@ export default function SystemManagement() {
         <div className="text-center py-8 text-muted-foreground animate-pulse">{t('system.loading')}</div>
       )}
 
-      <DataTable
-        data={units}
-        columns={columns}
-        entryKey="Name"
-        page={page}
-        setPage={setPage}
-        hasMore={unitData.has_more}
-        totalPages={unitData.total_pages}
-        totalCount={unitData.total_count}
-        sortKey={sortKey}
-        sortDirection={sortDirection}
-        onSortChange={(key, dir) => {
-          setSortKey(key)
-          setSortDirection(dir)
-          setPage(0)
-        }}
-        onReset={() => {
-          setSortKey('package_identifier')
-          setSortDirection('asc')
-          setSearchTerm('')
-          setPage(0)
-        }}
-        onSearchChange={(s) => {
-          setSearchTerm(s)
-          setPage(0)
-        }}
+      <div className="flex items-center gap-2">
+        <Input
+          placeholder={t('system.search_placeholder') || 'Search services...'}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="max-w-xs"
+        />
+      </div>
+
+      <PackageServiceTree
+        roots={units.length > 0 ? roots : []}
+        onCascadeAction={handleTreeCascadeAction}
+        onUnitAction={handleTreeUnitAction}
+        onViewLogs={handleTreeViewLogs}
+        onViewNetworkLogs={handleTreeViewNetworkLogs}
+        actionInProgress={actionInProgress}
       />
 
       <div className="flex justify-end">

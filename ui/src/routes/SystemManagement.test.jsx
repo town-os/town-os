@@ -3,32 +3,52 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import SystemManagement from './SystemManagement.jsx'
 
+const fooUnit = {
+  Name: 'town-os-foo.service',
+  ActiveState: 'active',
+  SubState: 'running',
+  package_identifier: 'foo',
+  display_identifier: 'foo',
+  package_description: 'Foo service',
+  nc_failed: false,
+  nc_active: true,
+  repo: 'core',
+  name: 'foo',
+  version: '1.0',
+}
+
+const barUnit = {
+  Name: 'town-os-bar.service',
+  ActiveState: 'inactive',
+  SubState: 'dead',
+  package_identifier: 'bar',
+  display_identifier: 'bar',
+  package_description: 'Bar service',
+  nc_failed: false,
+  repo: 'core',
+  name: 'bar',
+  version: '1.0',
+}
+
 const mockListUnits = vi.fn(() =>
   Promise.resolve({
-    entries: [
-      {
-        Name: 'town-os-foo.service',
-        ActiveState: 'active',
-        SubState: 'running',
-        package_identifier: 'foo',
-        package_description: 'Foo service',
-        nc_failed: false,
-        nc_active: true,
-      },
-      {
-        Name: 'town-os-bar.service',
-        ActiveState: 'inactive',
-        SubState: 'dead',
-        package_identifier: 'bar',
-        package_description: 'Bar service',
-        nc_failed: false,
-      },
-    ],
+    entries: [fooUnit, barUnit],
     has_more: false,
     total_pages: 1,
     total_count: 2,
   }),
 )
+
+const mockListUnitsTree = vi.fn(() =>
+  Promise.resolve({
+    entries: [fooUnit, barUnit],
+    has_more: false,
+    total_pages: 1,
+    total_count: 2,
+  }),
+)
+
+const mockSetUnitStatusTree = vi.fn(() => Promise.resolve())
 
 const mockLogTail = vi.fn(() =>
   Promise.resolve({ entries: [], cursor: '', end_cursor: '' }),
@@ -73,8 +93,10 @@ const mockPing = vi.fn(() => Promise.resolve({ username: 'admin' }))
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     listUnits: mockListUnits,
+    listUnitsTree: mockListUnitsTree,
     logTail: mockLogTail,
     setUnitStatus: vi.fn(() => Promise.resolve()),
+    setUnitStatusTree: mockSetUnitStatusTree,
     listSystemServices: mockListSystemServices,
     setSystemServiceStatus: mockSetSystemServiceStatus,
     refreshSystemServices: mockRefreshSystemServices,

@@ -128,6 +128,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/clear-last-responses", s.clearLastResponses, s.requireAdmin)
 
 	e.Add("GET", "/systemd/units", s.listUnits, s.localhostOrAuth)
+	e.Add("GET", "/systemd/units-tree", s.listUnitsTree, s.localhostOrAuth)
 	e.Add("GET", "/systemd/logs", s.logReplay, s.localhostOrAuth)
 	e.Add("GET", "/systemd/logs/tail", s.logTail, s.localhostOrAuth)
 
@@ -151,6 +152,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/disable", s.disablePackage, s.requireAdmin)
 	e.Add("POST", "/packages/enable", s.enablePackage, s.requireAdmin)
 	e.Add("POST", "/systemd/status", s.setUnitStatus, s.requireAdmin)
+	e.Add("POST", "/systemd/status/tree", s.setUnitStatusTree, s.requireAdmin)
 	e.Add("POST", "/account/disable", s.disableAccount, s.requireAdmin)
 	e.Add("POST", "/account/enable", s.enableAccount, s.requireAdmin)
 	e.Add("POST", "/audit/log", s.listAuditLog, s.localhostOrAuth)

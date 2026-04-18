@@ -215,6 +215,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/packages/uninstalled-volumes": true,
 			"/packages/upgrades":            true,
 			"/systemd/units":                true,
+			"/systemd/units-tree":           true,
 			"/systemd/logs":                 true,
 			"/systemd/logs/tail":            true,
 			"/account":                      true,

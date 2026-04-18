@@ -237,6 +237,11 @@ const enUS = {
   'system.refresh_toast_started': 'Refreshing core services...',
   'system.refresh_toast_complete': 'System controller is back online.',
   'system.refresh_in_progress': 'Refreshing services, waiting for the system controller to restart...',
+  'system.tree_title': 'Package Services',
+  'system.tree_root_action_tooltip': 'Applies to {name} and all its dependencies',
+  'system.tree_dep_count': '{count} dep',
+  'system.tree_dep_count_plural': '{count} deps',
+  'system.tree_no_packages': 'No package services installed.',
 
   // --- Package Management ---
   'packages.page_title': 'Town OS - Packages',
