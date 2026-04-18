@@ -259,6 +259,23 @@ func (m *MockManager) InstallUnit(ctx context.Context, name string, content stri
 
 	m.InstalledUnits[name] = content
 
+	// Mirror real systemd: a freshly-installed unit is visible to
+	// `list-units --all` as loaded/inactive immediately, and
+	// SetStatus(Start) flips it to active. Tests that go through the
+	// install handler and then query /systemd/units-tree rely on this:
+	// without it, ListUnits returns [] and the tree looks empty.
+	for _, u := range m.Units {
+		if u.Name == name {
+			return nil
+		}
+	}
+	m.Units = append(m.Units, UnitStatus{
+		Name:        name,
+		LoadState:   "loaded",
+		ActiveState: "inactive",
+		SubState:    "dead",
+	})
+
 	return nil
 }
 
@@ -284,6 +301,14 @@ func (m *MockManager) UninstallUnit(ctx context.Context, name string) error {
 	}
 
 	delete(m.InstalledUnits, name)
+	// Keep m.Units in sync with the install state so a test that uninstalls
+	// a package sees ListUnits drop the entry, mirroring real systemd.
+	for i, u := range m.Units {
+		if u.Name == name {
+			m.Units = append(m.Units[:i], m.Units[i+1:]...)
+			break
+		}
+	}
 
 	return nil
 }
