@@ -56,4 +56,21 @@ describe('Dashboard sidebar pages gating', () => {
       expect(screen.getByText('Pages')).toBeTruthy()
     })
   })
+
+  // Regression: without `min-w-0` on the right-pane flex column, a wide
+  // child (e.g. a wide packages table) pushes the flex column past its
+  // allocated share and the downstream overflow-x-auto wrappers never
+  // engage — the packages list ends up wider than the dashboard "container"
+  // the rest of the UI assumes. This test locks the class in place so a
+  // future layout refactor can't strip it silently.
+  it('right-pane flex column has min-w-0 so wide tables stay contained', async () => {
+    const { container } = renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('child')).toBeTruthy()
+    })
+    const rightPane = container.querySelector('main')?.parentElement
+    expect(rightPane).toBeTruthy()
+    expect(rightPane.className).toMatch(/\bmin-w-0\b/)
+    expect(rightPane.className).toMatch(/\bflex-1\b/)
+  })
 })

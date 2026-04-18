@@ -87,7 +87,7 @@ export default function Dashboard({ children }) {
           })}
         </nav>
       </aside>
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-50 flex h-14 items-center justify-end border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6 gap-3">
           {loading && !ping && (
             <div className="flex items-center rounded-full border border-muted-foreground/30 px-3 py-1.5 animate-pulse">
