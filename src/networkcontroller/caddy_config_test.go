@@ -115,6 +115,29 @@ func TestRenderCaddyfileHasOneSitePerPort(t *testing.T) {
 	}
 }
 
+// TestRenderCaddyfileDisablesH3 pins the fix for the "browser hangs on
+// gitea URL" report: Caddy's default config advertises
+// `Alt-Svc: h3=":<port>"` on every response and tries to listen on UDP
+// <port>, but podman's `-p NNN:NNN` only forwards TCP — the UDP
+// listener lives inside the container netns and is unreachable from
+// the host. Browsers cache the Alt-Svc header, switch to H3 on the
+// next request, and hang waiting for UDP that will never arrive. The
+// `protocols h1 h2` line in the global servers block both turns off
+// the UDP listener (nothing to wait for) and drops the Alt-Svc header
+// (nothing to cache).
+func TestRenderCaddyfileDisablesH3(t *testing.T) {
+	sites := []CaddySite{
+		{ExternalPort: 12000, Target: "gitea", InternalPort: 3000, CertPath: "/x"},
+	}
+	out := string(renderCaddyfile(sites))
+	if !strings.Contains(out, "protocols h1 h2") {
+		t.Fatalf("expected `protocols h1 h2` in global servers block:\n%s", out)
+	}
+	if strings.Contains(out, "h3") {
+		t.Fatalf("rendered Caddyfile must not mention h3:\n%s", out)
+	}
+}
+
 func TestRenderCaddyfileSkipsMissingCertPath(t *testing.T) {
 	sites := []CaddySite{
 		{ExternalPort: 12000, Target: "gitea", InternalPort: 3000, CertPath: ""},

@@ -89,6 +89,17 @@ func renderCaddyfile(sites []CaddySite) []byte {
 	buf.WriteString("{\n")
 	buf.WriteString("\tauto_https off\n")
 	buf.WriteString("\tadmin off\n")
+	// H3 is disabled: our podman port mapping only forwards TCP
+	// (`-p NNN:NNN` defaults to /tcp in podman), so UDP 38895 etc. on
+	// the host are unreachable. Without this, Caddy advertises
+	// `Alt-Svc: h3=":NNN"` on every response, the browser caches it,
+	// switches to H3 on the next request, and hangs on the missing UDP
+	// listener. For LAN-only traffic H3's connection-migration upside
+	// is not worth the cross-netns UDP plumbing — disable the protocol
+	// entirely rather than half-advertise it.
+	buf.WriteString("\tservers {\n")
+	buf.WriteString("\t\tprotocols h1 h2\n")
+	buf.WriteString("\t}\n")
 	buf.WriteString("}\n")
 	for _, s := range sites {
 		if s.CertPath == "" {
