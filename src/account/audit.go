@@ -79,6 +79,7 @@ var RouteActionKeys = map[string]string{
 	"/dns/tld":                             i18n.MsgAuditSetDNSTLD,
 	"/dns/setup":                           i18n.MsgAuditSetupDNS,
 	"/storage/remove-package-volume":       i18n.MsgAuditRemovePackageVolume,
+	"/storage/remove-package-volume-group": i18n.MsgAuditRemovePackageVolumeGroup,
 	"/packages/clear-last-responses":       i18n.MsgAuditClearLastResponses,
 	"/system-services/status":              i18n.MsgAuditSetSystemServiceStatus,
 	"/system-services/refresh":             i18n.MsgAuditRefreshSystemServices,

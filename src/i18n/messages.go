@@ -191,6 +191,11 @@ const (
 	// MsgAuditRemovePackageVolume is the audit action for removing a single
 	// package volume via /storage/remove-package-volume.
 	MsgAuditRemovePackageVolume = "audit.action.remove_package_volume"
+	// MsgAuditRemovePackageVolumeGroup is the audit action for cascading
+	// removal of a whole package's (or a single version's) volumes via
+	// /storage/remove-package-volume-group. The handler also stops every
+	// systemd unit in the package's dependency tree before deleting.
+	MsgAuditRemovePackageVolumeGroup = "audit.action.remove_package_volume_group"
 	// MsgAuditClearLastResponses is the audit action for clearing the
 	// cached last-install responses for a package via
 	// /packages/clear-last-responses.

@@ -172,6 +172,7 @@ const mockListFilesystems = vi.fn(() =>
 
 const mockListPackageVolumes = vi.fn(() => Promise.resolve([]))
 const mockRemovePackageVolume = vi.fn(() => Promise.resolve())
+const mockRemovePackageVolumeGroup = vi.fn(() => Promise.resolve())
 const mockCreateFilesystem = vi.fn(() => Promise.resolve())
 const mockModifyFilesystem = vi.fn(() => Promise.resolve())
 const mockRemoveFilesystem = vi.fn(() => Promise.resolve())
@@ -181,6 +182,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     listFilesystems: mockListFilesystems,
     listPackageVolumes: mockListPackageVolumes,
     removePackageVolume: mockRemovePackageVolume,
+    removePackageVolumeGroup: mockRemovePackageVolumeGroup,
     createFilesystem: mockCreateFilesystem,
     modifyFilesystem: mockModifyFilesystem,
     removeFilesystem: mockRemoveFilesystem,
@@ -205,6 +207,7 @@ describe('StorageManagement component', () => {
     mockListFilesystems.mockClear()
     mockListPackageVolumes.mockClear()
     mockRemovePackageVolume.mockClear()
+    mockRemovePackageVolumeGroup.mockClear()
     mockCreateFilesystem.mockClear()
     mockModifyFilesystem.mockClear()
     mockRemoveFilesystem.mockClear()
@@ -371,6 +374,7 @@ describe('StorageManagement component', () => {
     mockListPackageVolumes.mockResolvedValue([
       {
         package: 'nginx',
+        effective_name: 'nginx',
         repo: 'core',
         volumes: [
           { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
@@ -378,14 +382,17 @@ describe('StorageManagement component', () => {
       },
     ])
     renderStorageManagement()
-    // Expand the package tree to see individual volumes
+    // Expand the package tree to see version rows
     await waitFor(() => {
       expect(screen.getByText('Package Volumes')).toBeTruthy()
     })
-    // Click the package row to expand it
-    const pkgRow = screen.getByText('nginx')
-    fireEvent.click(pkgRow)
-    // Now click the Modify button on the volume row
+    fireEvent.click(screen.getByText('nginx'))
+    // Version row appears; expand it to see leaves.
+    await waitFor(() => {
+      expect(screen.getByText('Version 1.0')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Version 1.0'))
+    // Now click the Modify button on the leaf row
     await waitFor(() => {
       const modifyButtons = screen.getAllByRole('button', { name: /Modify/ })
       expect(modifyButtons.length).toBeGreaterThanOrEqual(1)
@@ -426,10 +433,11 @@ describe('StorageManagement component', () => {
     })
   })
 
-  it('renders delete button for package volumes', async () => {
+  it('renders delete button at every level of the package volumes tree', async () => {
     mockListPackageVolumes.mockResolvedValue([
       {
         package: 'nginx',
+        effective_name: 'nginx',
         repo: 'core',
         volumes: [
           { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
@@ -440,23 +448,44 @@ describe('StorageManagement component', () => {
     await waitFor(() => {
       expect(screen.getByText('Package Volumes')).toBeTruthy()
     })
-    // Expand the package
-    fireEvent.click(screen.getByText('nginx'))
-    await waitFor(() => {
-      expect(screen.getByText('1.0/data')).toBeTruthy()
-    })
-    // Should have a delete button in the package volume row
-    const deleteButtons = screen.getAllByRole('button').filter(
+    // Package row is visible from the start; it must already carry a
+    // destructive delete button even before expansion (so the top-level
+    // cascade is reachable without drilling in).
+    const topLevelDestructive = screen.getAllByRole('button').filter(
       (btn) => btn.classList.contains('text-destructive'),
     )
-    // At least 2: one for user filesystem, one for package volume
-    expect(deleteButtons.length).toBeGreaterThanOrEqual(2)
+    // user filesystem (1) + package-level (1) = at least 2
+    expect(topLevelDestructive.length).toBeGreaterThanOrEqual(2)
+
+    // Expand the package → version row appears with its own delete button
+    fireEvent.click(screen.getByText('nginx'))
+    await waitFor(() => {
+      expect(screen.getByText('Version 1.0')).toBeTruthy()
+    })
+    const afterPkgExpand = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    // user + package + version = at least 3
+    expect(afterPkgExpand.length).toBeGreaterThanOrEqual(3)
+
+    // Expand the version → leaf row appears with its own delete button
+    fireEvent.click(screen.getByText('Version 1.0'))
+    await waitFor(() => {
+      expect(screen.getByText('data')).toBeTruthy()
+    })
+    const afterVerExpand = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    // user + package + version + leaf = at least 4
+    expect(afterVerExpand.length).toBeGreaterThanOrEqual(4)
   })
 
-  it('clicking delete on package volume shows confirm dialog and calls removePackageVolume', async () => {
+  it('non-leaf package rows do not render Modify / Upload / Download actions', async () => {
+    mockListFilesystems.mockResolvedValue({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
     mockListPackageVolumes.mockResolvedValue([
       {
         package: 'nginx',
+        effective_name: 'nginx',
         repo: 'core',
         volumes: [
           { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
@@ -467,26 +496,215 @@ describe('StorageManagement component', () => {
     await waitFor(() => {
       expect(screen.getByText('Package Volumes')).toBeTruthy()
     })
-    // Expand the package
+    // Only the package row is visible — no Modify/Upload/Download should exist yet.
+    expect(screen.queryByRole('button', { name: /Modify/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Download archive' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upload archive' })).toBeNull()
+
     fireEvent.click(screen.getByText('nginx'))
     await waitFor(() => {
-      expect(screen.getByText('1.0/data')).toBeTruthy()
+      expect(screen.getByText('Version 1.0')).toBeTruthy()
     })
-    // Find all destructive buttons; the last one should be in the package volume row
-    const deleteButtons = screen.getAllByRole('button').filter(
+    // Version row visible, leaves still hidden — still no leaf-only actions.
+    expect(screen.queryByRole('button', { name: /Modify/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Download archive' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upload archive' })).toBeNull()
+
+    fireEvent.click(screen.getByText('Version 1.0'))
+    await waitFor(() => {
+      expect(screen.getByText('data')).toBeTruthy()
+    })
+    // Leaf expanded → leaf-only actions appear.
+    expect(screen.getAllByRole('button', { name: /Modify/ }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByRole('button', { name: 'Download archive' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Upload archive' })).toBeTruthy()
+  })
+
+  it('clicking delete on package volume (leaf) calls removePackageVolume', async () => {
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        effective_name: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('nginx'))
+    await waitFor(() => {
+      expect(screen.getByText('Version 1.0')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Version 1.0'))
+    await waitFor(() => {
+      expect(screen.getByText('data')).toBeTruthy()
+    })
+    // Leaf delete = the last destructive button in the DOM.
+    const destructive = screen.getAllByRole('button').filter(
       (btn) => btn.classList.contains('text-destructive'),
     )
-    // Click the last destructive button (the package volume delete)
-    fireEvent.click(deleteButtons[deleteButtons.length - 1])
-    // Confirm dialog should appear with package volume title
+    fireEvent.click(destructive[destructive.length - 1])
     await waitFor(() => {
       expect(screen.getByText('Delete Package Volume')).toBeTruthy()
     })
-    // Click the confirm button
-    const confirmButton = screen.getByRole('button', { name: 'Delete' })
-    fireEvent.click(confirmButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     await waitFor(() => {
       expect(mockRemovePackageVolume).toHaveBeenCalledWith('installed/core/nginx/1.0/data')
+    })
+  })
+
+  it('clicking delete at the package level cascades via removePackageVolumeGroup', async () => {
+    mockListFilesystems.mockResolvedValue({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        effective_name: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+          { name: '2.0/data', internal_name: 'installed/core/nginx/2.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    // Click the destructive button on the package row (the only destructive
+    // button in the DOM right now because there are no user filesystems).
+    const destructive = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    expect(destructive.length).toBe(1)
+    fireEvent.click(destructive[0])
+    await waitFor(() => {
+      expect(screen.getByText('Delete Package Volumes')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => {
+      expect(mockRemovePackageVolumeGroup).toHaveBeenCalledWith({
+        repo: 'core',
+        name: 'nginx',
+        version: '',
+        includeUninstalled: false,
+      })
+    })
+  })
+
+  it('clicking delete at the version level cascades with that version', async () => {
+    mockListFilesystems.mockResolvedValue({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        effective_name: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+          { name: '2.0/data', internal_name: 'installed/core/nginx/2.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('nginx'))
+    await waitFor(() => {
+      expect(screen.getByText('Version 1.0')).toBeTruthy()
+    })
+    // Two version rows are visible now. Destructive buttons in the DOM:
+    // [package-level, version 1.0, version 2.0]. Click version 2.0 (index 2).
+    const destructive = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    expect(destructive.length).toBe(3)
+    fireEvent.click(destructive[2])
+    await waitFor(() => {
+      expect(screen.getByText('Delete Package Volumes')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => {
+      expect(mockRemovePackageVolumeGroup).toHaveBeenCalledWith({
+        repo: 'core',
+        name: 'nginx',
+        version: '2.0',
+        includeUninstalled: false,
+      })
+    })
+  })
+
+  it('cascade delete forwards the Show-uninstalled toggle as include_uninstalled', async () => {
+    mockListFilesystems.mockResolvedValue({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'nginx',
+        effective_name: 'nginx',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/nginx/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    // Flip the Show uninstalled toggle.
+    fireEvent.click(screen.getByText('Show uninstalled volumes'))
+    // Package-level delete.
+    const destructive = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    fireEvent.click(destructive[0])
+    await waitFor(() => {
+      expect(screen.getByText('Delete Package Volumes')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => {
+      expect(mockRemovePackageVolumeGroup).toHaveBeenCalledWith({
+        repo: 'core',
+        name: 'nginx',
+        version: '',
+        includeUninstalled: true,
+      })
+    })
+  })
+
+  it('cascade delete addresses dep packages by their effective (--dep--) name', async () => {
+    mockListFilesystems.mockResolvedValue({ entries: [], has_more: false, total_pages: 1, total_count: 0 })
+    mockListPackageVolumes.mockResolvedValue([
+      {
+        package: 'jitsi/prosody',
+        effective_name: 'jitsi--dep--prosody',
+        repo: 'core',
+        volumes: [
+          { name: '1.0/data', internal_name: 'installed/core/jitsi/subpackages/prosody/1.0/data', repo: 'core', quota: 0, state: 'installed' },
+        ],
+      },
+    ])
+    renderStorageManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Package Volumes')).toBeTruthy()
+    })
+    const destructive = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('text-destructive'),
+    )
+    fireEvent.click(destructive[0])
+    await waitFor(() => {
+      expect(screen.getByText('Delete Package Volumes')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => {
+      expect(mockRemovePackageVolumeGroup).toHaveBeenCalledWith({
+        repo: 'core',
+        name: 'jitsi--dep--prosody',
+        version: '',
+        includeUninstalled: false,
+      })
     })
   })
 })

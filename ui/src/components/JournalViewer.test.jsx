@@ -11,9 +11,10 @@ const sampleEntries = Array.from({ length: 20 }, (_, i) => ({
 }))
 
 const mockLogTail = vi.fn()
+const mockLogTailTree = vi.fn()
 
 vi.mock('@/lib/client-instance.js', () => ({
-  default: () => ({ logTail: mockLogTail }),
+  default: () => ({ logTail: mockLogTail, logTailTree: mockLogTailTree }),
 }))
 
 function renderViewer() {
@@ -36,6 +37,12 @@ describe('JournalViewer', () => {
   beforeEach(() => {
     mockLogTail.mockReset()
     mockLogTail.mockResolvedValue({
+      entries: sampleEntries,
+      cursor: '',
+      end_cursor: 'end',
+    })
+    mockLogTailTree.mockReset()
+    mockLogTailTree.mockResolvedValue({
       entries: sampleEntries,
       cursor: '',
       end_cursor: 'end',
@@ -111,5 +118,82 @@ describe('JournalViewer', () => {
     await waitFor(() => {
       expect(scrollTopValue).toBe(5000)
     })
+  })
+
+  // --- Tree-group (synthetic "tree:<repo>/<name>@<version>") viewing ---
+  //
+  // SystemManagement builds the synthetic key on click and feeds it into
+  // the existing `journalUnit` prop so the viewer's hook wiring doesn't
+  // need a parallel code path. These tests pin the dispatch: a tree key
+  // must route through logTailTree (never logTail) and surface the
+  // package identity in the dialog title.
+
+  it('routes a tree:<repo>/<name>@<version> key through logTailTree', async () => {
+    render(
+      <I18nProvider>
+        <JournalViewer
+          journalUnit="tree:core/gitea@1.0"
+          onClose={() => {}}
+          units={[]}
+        />
+      </I18nProvider>,
+    )
+    await waitFor(() => {
+      expect(mockLogTailTree).toHaveBeenCalled()
+    })
+    expect(mockLogTail).not.toHaveBeenCalled()
+    // First three args are (repo, name, version); we do not pin the
+    // trailing filter slots since the code defaults them to undefined.
+    const args = mockLogTailTree.mock.calls[0]
+    expect(args[0]).toBe('core')
+    expect(args[1]).toBe('gitea')
+    expect(args[2]).toBe('1.0')
+  })
+
+  it('preserves the raw dep--separator when a dep node opens a group view', async () => {
+    render(
+      <I18nProvider>
+        <JournalViewer
+          journalUnit="tree:core/gitea--dep--postgres@15.0"
+          onClose={() => {}}
+          units={[]}
+        />
+      </I18nProvider>,
+    )
+    await waitFor(() => {
+      expect(mockLogTailTree).toHaveBeenCalled()
+    })
+    const args = mockLogTailTree.mock.calls[0]
+    expect(args[1]).toBe('gitea--dep--postgres')
+    expect(args[2]).toBe('15.0')
+  })
+
+  it('renders the group title with the parsed package identity', async () => {
+    render(
+      <I18nProvider>
+        <JournalViewer
+          journalUnit="tree:core/gitea@1.0"
+          onClose={() => {}}
+          units={[]}
+        />
+      </I18nProvider>,
+    )
+    await screen.findByText(/core\/gitea@1\.0/)
+  })
+
+  it('still uses logTail for a regular single-unit key', async () => {
+    render(
+      <I18nProvider>
+        <JournalViewer
+          journalUnit="town-os-package--core-gitea-1.0.service"
+          onClose={() => {}}
+          units={[{ Name: 'town-os-package--core-gitea-1.0.service', ActiveState: 'active', SubState: 'running' }]}
+        />
+      </I18nProvider>,
+    )
+    await waitFor(() => {
+      expect(mockLogTail).toHaveBeenCalled()
+    })
+    expect(mockLogTailTree).not.toHaveBeenCalled()
   })
 })

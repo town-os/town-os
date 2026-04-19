@@ -75,3 +75,29 @@ SystemControllerClient.prototype.listPackageVolumes = async function (includeUni
 SystemControllerClient.prototype.removePackageVolume = async function (internalName) {
   await this.post('/storage/remove-package-volume', { internal_name: internalName })
 }
+
+/**
+ * Cascade-remove every volume under a package (and optionally a single
+ * version). The server stops every service unit in the package's dependency
+ * tree before the btrfs delete, so a container holding a mount cannot race
+ * the delete.
+ *
+ * @param {Object} opts
+ * @param {string} opts.repo - Repository name (e.g. "core").
+ * @param {string} opts.name - Effective package name (may contain "--dep--").
+ * @param {string} [opts.version] - Version to scope the delete to; omit to
+ *     delete every installed version of (repo, name).
+ * @param {boolean} [opts.includeUninstalled] - Also sweep the matching
+ *     uninstalled/ subtree. Defaults to false so a cascade invoked while
+ *     "Show uninstalled" is off does not nuke archived volumes the UI
+ *     isn't currently showing.
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.removePackageVolumeGroup = async function ({ repo, name, version, includeUninstalled }) {
+  await this.post('/storage/remove-package-volume-group', {
+    repo,
+    name,
+    version: version || '',
+    include_uninstalled: !!includeUninstalled,
+  })
+}

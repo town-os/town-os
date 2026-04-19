@@ -107,3 +107,21 @@ func (c *SystemdClient) RemovePackageVolume(ctx context.Context, internalName st
 
 	return c.postClient(ctx, "storage/remove-package-volume", pr)
 }
+
+// RemovePackageVolumeGroup cascades the delete down a whole package (or a
+// single version when version != ""). The server stops every systemd unit
+// in the package's dependency tree before removing any btrfs subvolume,
+// so a container holding a mount cannot race the delete. When
+// includeUninstalled is true the matching uninstalled/ subtree is swept
+// as well.
+func (c *SystemdClient) RemovePackageVolumeGroup(ctx context.Context, repo, name, version string, includeUninstalled bool) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, RemovePackageVolumeGroupRequest{
+		Repo:               repo,
+		Name:               name,
+		Version:            version,
+		IncludeUninstalled: includeUninstalled,
+	})
+
+	return c.postClient(ctx, "storage/remove-package-volume-group", pr)
+}

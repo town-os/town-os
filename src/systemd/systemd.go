@@ -91,7 +91,12 @@ type JournalEntry struct {
 
 // LogTailParams configures a paginated journal log query.
 //
-//   - Unit: the systemd unit name to query (required).
+//   - Unit: the systemd unit name to query. Ignored when Units is non-empty.
+//   - Units: the systemd unit names to OR-match. When non-empty takes
+//     precedence over Unit; repeated `_SYSTEMD_UNIT=` matches are OR'd by
+//     sdjournal so the returned stream interleaves all named units in
+//     chronological order. An empty slice plus an empty Unit returns
+//     system-wide entries (no unit filter).
 //   - Lines: maximum number of entries to return.
 //   - BeforeCursor: return entries before this opaque cursor (for backward paging).
 //   - AfterCursor: return entries after this opaque cursor (for forward paging).
@@ -103,6 +108,7 @@ type JournalEntry struct {
 //     (e.g. 3 returns emergency, alert, critical, and error).
 type LogTailParams struct {
 	Unit         string
+	Units        []string
 	Lines        int
 	BeforeCursor string
 	AfterCursor  string
@@ -141,9 +147,12 @@ type Manager interface {
 	// SetStatus applies a [StatusAction] to the named unit. Valid actions are
 	// [Start], [Stop], [Restart], [Enable], and [Disable].
 	SetStatus(ctx context.Context, unit string, action StatusAction) error
-	// LogReplay streams historical journal entries for the named unit. The
-	// returned channel is closed when all matching entries have been sent.
-	LogReplay(ctx context.Context, unit string) (<-chan JournalEntry, error)
+	// LogReplay streams historical journal entries for the named units.
+	// Passing no units returns system-wide entries; passing two or more
+	// OR-combines matches so a single subscription receives entries from
+	// every listed unit interleaved chronologically. The returned channel
+	// is closed when all matching entries have been sent.
+	LogReplay(ctx context.Context, units ...string) (<-chan JournalEntry, error)
 	// LogTail returns a page of journal entries for the named unit with
 	// cursor-based pagination. See [LogTailParams] for filtering options.
 	LogTail(ctx context.Context, params LogTailParams) (LogTailResult, error)

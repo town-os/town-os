@@ -129,3 +129,76 @@ SystemControllerClient.prototype.listUnitsTree = async function (sortBy, sortOrd
 SystemControllerClient.prototype.setUnitStatusTree = async function (repo, name, version, action) {
   await this.post('/systemd/status/tree', { repo, name, version, action })
 }
+
+/**
+ * Stream historical journal entries for every systemd unit in a package's
+ * dependency tree as a single SSE stream. Entries from the parent and
+ * every dependency arrive interleaved in chronological order.
+ * @param {string} repo
+ * @param {string} name - Raw effective package name (may contain "--dep--").
+ * @param {string} version
+ * @returns {AsyncGenerator<JournalEntry>}
+ */
+SystemControllerClient.prototype.logReplayTree = async function* (repo, name, version) {
+  /** @type {HeadersInit} */
+  const headers = {}
+  if (this.token) {
+    headers['Authorization'] = `Bearer ${this.token}`
+  }
+  const params = new URLSearchParams({ repo, name, version })
+  const resp = await fetch(`${this.baseURL}/systemd/logs/tree?${params.toString()}`, { headers })
+  if (resp.status !== 200) {
+    const text = await resp.text().catch(() => '')
+    throw new ApiError('GET', '/systemd/logs/tree', resp.status, text)
+  }
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        yield JSON.parse(line.slice(6))
+      }
+    }
+  }
+
+  if (buffer.startsWith('data: ')) {
+    yield JSON.parse(buffer.slice(6))
+  }
+}
+
+/**
+ * Fetch a page of journal entries covering every systemd unit in a
+ * package's dependency tree. Filters and cursors behave identically to
+ * logTail; the unit set is derived server-side from the install records.
+ * @param {string} repo
+ * @param {string} name - Raw effective package name (may contain "--dep--").
+ * @param {string} version
+ * @param {number} [lines=100]
+ * @param {string} [beforeCursor]
+ * @param {string} [afterCursor]
+ * @param {string} [grep]
+ * @param {number} [since]
+ * @param {number} [until]
+ * @param {number} [priority]
+ * @returns {Promise<{entries: JournalEntry[], cursor: string, end_cursor: string}>}
+ */
+SystemControllerClient.prototype.logTailTree = async function (repo, name, version, lines = 100, beforeCursor, afterCursor, grep, since, until, priority) {
+  const params = new URLSearchParams({ repo, name, version, lines: String(lines) })
+  if (beforeCursor) params.set('before', beforeCursor)
+  if (afterCursor) params.set('after', afterCursor)
+  if (grep) params.set('grep', grep)
+  if (since) params.set('since', String(since))
+  if (until) params.set('until', String(until))
+  if (priority) params.set('priority', String(priority))
+  return this.getJSON(`/systemd/logs/tree/tail?${params.toString()}`)
+}

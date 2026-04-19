@@ -219,11 +219,24 @@ func (m *MockManager) LogTail(_ context.Context, p LogTailParams) (LogTailResult
 	return LogTailResult{Entries: page, Cursor: cursor, EndCursor: endCursor}, nil
 }
 
-func (m *MockManager) LogReplay(ctx context.Context, unit string) (<-chan JournalEntry, error) {
+func (m *MockManager) LogReplay(ctx context.Context, units ...string) (<-chan JournalEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.Calls = append(m.Calls, MockCall{Method: "LogReplay", Args: []any{unit}})
+	// Normalize the recorded args so tests can assert a single-unit call
+	// as `Args[0] == "foo.service"` while multi-unit calls inspect the
+	// slice. Mirrors how SetStatus records its unit name.
+	argsCopy := append([]string(nil), units...)
+	var arg any
+	switch len(argsCopy) {
+	case 0:
+		arg = ""
+	case 1:
+		arg = argsCopy[0]
+	default:
+		arg = argsCopy
+	}
+	m.Calls = append(m.Calls, MockCall{Method: "LogReplay", Args: []any{arg}})
 
 	if m.LogErr != nil {
 		return nil, m.LogErr

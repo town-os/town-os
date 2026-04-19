@@ -218,6 +218,8 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/systemd/units-tree":           true,
 			"/systemd/logs":                 true,
 			"/systemd/logs/tail":            true,
+			"/systemd/logs/tree":            true,
+			"/systemd/logs/tree/tail":       true,
 			"/account":                      true,
 			"/settings":                     true,
 			"/settings/get":                 true,

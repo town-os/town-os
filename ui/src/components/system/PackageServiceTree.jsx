@@ -49,6 +49,7 @@ function TreeRow({
   onCascadeAction,
   onUnitAction,
   onViewLogs,
+  onViewGroupLogs,
   onViewNetworkLogs,
   expanded,
   onToggle,
@@ -56,7 +57,7 @@ function TreeRow({
 }) {
   const { t } = useI18n()
   const hasChildren = node.children && node.children.length > 0
-  const isExpanded = expanded[node.package_identifier] !== false
+  const isExpanded = expanded[node.package_identifier] === true
   const isRoot = depth === 0
   const descendantCount = countDescendants(node)
   const paddingLeft = 8 + depth * 20
@@ -157,6 +158,17 @@ function TreeRow({
                 <FileText className="h-3 w-3 mr-2" />
                 {t('system.action_service_logs')}
               </DropdownMenuItem>
+              {isRoot && node.children && node.children.length > 0 && onViewGroupLogs && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onViewGroupLogs(node)
+                  }}
+                >
+                  <FileText className="h-3 w-3 mr-2" />
+                  {t('system.action_group_logs')}
+                </DropdownMenuItem>
+              )}
               {node.nc_active && (
                 <DropdownMenuItem
                   onClick={(e) => {
@@ -180,6 +192,7 @@ function TreeRow({
             onCascadeAction={onCascadeAction}
             onUnitAction={onUnitAction}
             onViewLogs={onViewLogs}
+            onViewGroupLogs={onViewGroupLogs}
             onViewNetworkLogs={onViewNetworkLogs}
             expanded={expanded}
             onToggle={onToggle}
@@ -196,6 +209,7 @@ export default function PackageServiceTree({
   onCascadeAction,
   onUnitAction,
   onViewLogs,
+  onViewGroupLogs,
   onViewNetworkLogs,
   actionInProgress,
 }) {
@@ -203,7 +217,7 @@ export default function PackageServiceTree({
   const [expanded, setExpanded] = useState({})
 
   function toggle(key) {
-    setExpanded((prev) => ({ ...prev, [key]: prev[key] === false ? true : false }))
+    setExpanded((prev) => ({ ...prev, [key]: prev[key] !== true }))
   }
 
   if (!roots || roots.length === 0) {
@@ -235,6 +249,7 @@ export default function PackageServiceTree({
                 onCascadeAction={onCascadeAction}
                 onUnitAction={onUnitAction}
                 onViewLogs={onViewLogs}
+                onViewGroupLogs={onViewGroupLogs}
                 onViewNetworkLogs={onViewNetworkLogs}
                 expanded={expanded}
                 onToggle={toggle}

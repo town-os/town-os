@@ -78,15 +78,22 @@ describe('PackageServiceTree', () => {
     expect(screen.getByText(/no package services installed/i)).toBeTruthy()
   })
 
-  it('renders root and expanded dep with pretty display identifier', () => {
-    renderTree()
+  it('renders root collapsed by default and expands dep on click', () => {
+    const { container } = renderTree()
     expect(screen.getByText('core/gitea@1.0')).toBeTruthy()
-    // Dep renders as pretty form "core/gitea/postgres@15.0".
+    // Dep is hidden by default — roots render collapsed.
+    expect(screen.queryByText('core/gitea/postgres@15.0')).toBeFalsy()
+    // Clicking the root row expands it, revealing the pretty dep form.
+    const rootRow = container.querySelector('[data-testid="service-tree-row-core/gitea@1.0"]')
+    fireEvent.click(rootRow)
     expect(screen.getByText('core/gitea/postgres@15.0')).toBeTruthy()
   })
 
   it('shows active status badge for running services', () => {
-    renderTree()
+    const { container } = renderTree()
+    // Expand the root so the dep badge is visible too.
+    const rootRow = container.querySelector('[data-testid="service-tree-row-core/gitea@1.0"]')
+    fireEvent.click(rootRow)
     // Two "active" badges — one per unit in the tree.
     const activeBadges = screen.getAllByText('active')
     expect(activeBadges.length).toBeGreaterThanOrEqual(2)
@@ -110,12 +117,13 @@ describe('PackageServiceTree', () => {
     expect(screen.getByText(/failed \(NC\)/i)).toBeTruthy()
   })
 
-  it('collapses children when root chevron is clicked', () => {
+  it('toggles children visibility when root chevron is clicked', () => {
     const { container } = renderTree()
-    // Dep is expanded by default.
-    expect(screen.queryByText('core/gitea/postgres@15.0')).toBeTruthy()
-    // Click root row (has the chevron) to collapse.
+    // Roots default to collapsed: dep is hidden.
+    expect(screen.queryByText('core/gitea/postgres@15.0')).toBeFalsy()
     const rootRow = container.querySelector('[data-testid="service-tree-row-core/gitea@1.0"]')
+    fireEvent.click(rootRow)
+    expect(screen.queryByText('core/gitea/postgres@15.0')).toBeTruthy()
     fireEvent.click(rootRow)
     expect(screen.queryByText('core/gitea/postgres@15.0')).toBeFalsy()
   })
@@ -204,6 +212,9 @@ describe('PackageServiceTree', () => {
         />
       </I18nProvider>,
     )
+    // Roots default to collapsed; expand the root so the dep row (and its
+    // dropdown trigger) render.
+    fireEvent.click(container.querySelector('[data-testid="service-tree-row-core/gitea@1.0"]'))
     openDropdown(container, 1) // dep row's dropdown
     const restartItem = await screen.findByText('Restart')
     fireEvent.click(restartItem)
@@ -317,7 +328,112 @@ describe('PackageServiceTree', () => {
     expect(screen.getByText(/\(1 dep\)/)).toBeTruthy()
   })
 
-  it('renders three-level dep chain and expands all by default', () => {
+  // --- Group logs action ---
+  //
+  // The "Group Logs" entry is the user-facing counterpart to the new
+  // /systemd/logs/tree/tail endpoint. It only surfaces on root rows that
+  // actually own a dep subtree — asking for "group" logs on a single-
+  // unit root would be identical to the existing per-service log view
+  // and just clutters the menu.
+
+  it('dispatches onViewGroupLogs from a root row with deps', async () => {
+    const onGroup = vi.fn()
+    const { container } = render(
+      <I18nProvider>
+        <PackageServiceTree
+          roots={giteaTree()}
+          onCascadeAction={vi.fn()}
+          onUnitAction={vi.fn()}
+          onViewLogs={vi.fn()}
+          onViewGroupLogs={onGroup}
+          onViewNetworkLogs={vi.fn()}
+        />
+      </I18nProvider>,
+    )
+    openDropdown(container, 0)
+    const groupItem = await screen.findByText('Group Logs')
+    fireEvent.click(groupItem)
+
+    expect(onGroup).toHaveBeenCalledTimes(1)
+    const node = onGroup.mock.calls[0][0]
+    // The handler receives the full tree node so the route can build the
+    // "tree:<repo>/<name>@<version>" key the JournalViewer parses.
+    expect(node.repo).toBe('core')
+    expect(node.name).toBe('gitea')
+    expect(node.version).toBe('1.0')
+    expect(node.package_identifier).toBe('core/gitea@1.0')
+  })
+
+  it('hides Group Logs on a standalone root (no children) even if the prop is provided', async () => {
+    const onGroup = vi.fn()
+    const standalone = [
+      {
+        Name: 'town-os-package--repo-nginx-1.0.service',
+        ActiveState: 'active',
+        package_identifier: 'repo/nginx@1.0',
+        display_identifier: 'repo/nginx@1.0',
+        repo: 'repo',
+        name: 'nginx',
+        version: '1.0',
+        children: [],
+      },
+    ]
+    const { container } = render(
+      <I18nProvider>
+        <PackageServiceTree
+          roots={standalone}
+          onCascadeAction={vi.fn()}
+          onUnitAction={vi.fn()}
+          onViewLogs={vi.fn()}
+          onViewGroupLogs={onGroup}
+          onViewNetworkLogs={vi.fn()}
+        />
+      </I18nProvider>,
+    )
+    openDropdown(container, 0)
+    await screen.findByText('Service Logs')
+    expect(screen.queryByText('Group Logs')).toBeFalsy()
+  })
+
+  it('hides Group Logs on dep rows — only roots aggregate', async () => {
+    const onGroup = vi.fn()
+    const { container } = render(
+      <I18nProvider>
+        <PackageServiceTree
+          roots={giteaTree()}
+          onCascadeAction={vi.fn()}
+          onUnitAction={vi.fn()}
+          onViewLogs={vi.fn()}
+          onViewGroupLogs={onGroup}
+          onViewNetworkLogs={vi.fn()}
+        />
+      </I18nProvider>,
+    )
+    // Expand root so the dep row's dropdown trigger renders.
+    fireEvent.click(container.querySelector('[data-testid="service-tree-row-core/gitea@1.0"]'))
+    openDropdown(container, 1) // dep row
+    await screen.findByText('Service Logs')
+    expect(screen.queryByText('Group Logs')).toBeFalsy()
+  })
+
+  it('omits Group Logs entirely when the prop is not supplied', async () => {
+    const { container } = render(
+      <I18nProvider>
+        <PackageServiceTree
+          roots={giteaTree()}
+          onCascadeAction={vi.fn()}
+          onUnitAction={vi.fn()}
+          onViewLogs={vi.fn()}
+          onViewNetworkLogs={vi.fn()}
+        />
+      </I18nProvider>,
+    )
+    openDropdown(container, 0)
+    await screen.findByText('Service Logs')
+    expect(screen.queryByText('Group Logs')).toBeFalsy()
+  })
+
+  it('renders three-level dep chain collapsed by default and expands level by level on click', () => {
     const trees = [
       {
         Name: 'town-os-package--core-app-1.0.service',
@@ -352,7 +468,7 @@ describe('PackageServiceTree', () => {
         ],
       },
     ]
-    render(
+    const { container } = render(
       <I18nProvider>
         <PackageServiceTree
           roots={trees}
@@ -363,10 +479,15 @@ describe('PackageServiceTree', () => {
         />
       </I18nProvider>,
     )
-    // All three rows render simultaneously because each level defaults
-    // to expanded.
+    // Roots default to collapsed; only the top-level row is visible.
     expect(screen.getByText('core/app@1.0')).toBeTruthy()
+    expect(screen.queryByText('core/app/db@15.0')).toBeFalsy()
+    expect(screen.queryByText('core/app/db/backup@2.0')).toBeFalsy()
+    // Expand root → db becomes visible; backup still hidden until db is expanded.
+    fireEvent.click(container.querySelector('[data-testid="service-tree-row-core/app@1.0"]'))
     expect(screen.getByText('core/app/db@15.0')).toBeTruthy()
+    expect(screen.queryByText('core/app/db/backup@2.0')).toBeFalsy()
+    fireEvent.click(container.querySelector('[data-testid="service-tree-row-core/app--dep--db@15.0"]'))
     expect(screen.getByText('core/app/db/backup@2.0')).toBeTruthy()
   })
 })

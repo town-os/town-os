@@ -109,6 +109,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/storage", s.listFilesystems, s.requireAuth)
 	e.Add("POST", "/storage/package-volumes", s.listPackageVolumes, s.requireAuth)
 	e.Add("POST", "/storage/remove-package-volume", s.removePackageVolume, s.requireAdmin)
+	e.Add("POST", "/storage/remove-package-volume-group", s.removePackageVolumeGroup, s.requireAdmin)
 
 	e.Add("POST", "/repository/add", s.addRepository, s.requireAuth)
 	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAuth)
@@ -131,6 +132,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/systemd/units-tree", s.listUnitsTree, s.localhostOrAuth)
 	e.Add("GET", "/systemd/logs", s.logReplay, s.localhostOrAuth)
 	e.Add("GET", "/systemd/logs/tail", s.logTail, s.localhostOrAuth)
+	e.Add("GET", "/systemd/logs/tree", s.treeLogReplay, s.localhostOrAuth)
+	e.Add("GET", "/systemd/logs/tree/tail", s.treeLogTail, s.localhostOrAuth)
 
 	e.Add("POST", "/account/create", s.createAccount)
 	e.Add("POST", "/account", s.getAccount, s.requireAuth)

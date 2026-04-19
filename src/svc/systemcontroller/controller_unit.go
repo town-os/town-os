@@ -169,7 +169,11 @@ func (s *SystemControllerHandlers) setUnitStatus(c *echo.Context) error {
 func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 	unit := c.QueryParam("unit")
 
-	ch, err := s.Controller.GetSystemdManager().LogReplay(c.Request().Context(), unit)
+	var units []string
+	if unit != "" {
+		units = []string{unit}
+	}
+	ch, err := s.Controller.GetSystemdManager().LogReplay(c.Request().Context(), units...)
 	if err != nil {
 		return err
 	}
@@ -215,20 +219,36 @@ func (s *SystemControllerHandlers) logReplay(c *echo.Context) error {
 }
 
 func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
-	unit := c.QueryParam("unit")
+	params, err := s.parseLogTailQuery(c)
+	if err != nil {
+		return err
+	}
+	params.Unit = c.QueryParam("unit")
 
+	result, err := s.Controller.GetSystemdManager().LogTail(c.Request().Context(), params)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(200, result)
+}
+
+// parseLogTailQuery parses the shared filter and pagination query params
+// used by both /systemd/logs/tail and /systemd/logs/tree/tail. Unit
+// selection (single `unit` or tree-expanded `units`) is applied by the
+// caller since only one of the two endpoints knows which mode it is in.
+func (s *SystemControllerHandlers) parseLogTailQuery(c *echo.Context) (systemd.LogTailParams, error) {
 	locale := s.getLocale()
 	lines := 100
 	if v := c.QueryParam("lines"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidLines), err)
+			return systemd.LogTailParams{}, fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidLines), err)
 		}
 		lines = n
 	}
 
 	params := systemd.LogTailParams{
-		Unit:         unit,
 		Lines:        lines,
 		BeforeCursor: c.QueryParam("before"),
 		AfterCursor:  c.QueryParam("after"),
@@ -238,7 +258,7 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	if v := c.QueryParam("since"); v != "" {
 		sinceUnix, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidSince), err)
+			return systemd.LogTailParams{}, fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidSince), err)
 		}
 		params.Since = time.Unix(sinceUnix, 0)
 	}
@@ -246,7 +266,7 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	if v := c.QueryParam("until"); v != "" {
 		untilUnix, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidUntil), err)
+			return systemd.LogTailParams{}, fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidUntil), err)
 		}
 		params.Until = time.Unix(untilUnix, 0)
 	}
@@ -254,15 +274,10 @@ func (s *SystemControllerHandlers) logTail(c *echo.Context) error {
 	if v := c.QueryParam("priority"); v != "" {
 		pri, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidPriority), err)
+			return systemd.LogTailParams{}, fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgUnitInvalidPriority), err)
 		}
 		params.Priority = pri
 	}
 
-	result, err := s.Controller.GetSystemdManager().LogTail(c.Request().Context(), params)
-	if err != nil {
-		return err
-	}
-
-	return c.JSON(200, result)
+	return params, nil
 }

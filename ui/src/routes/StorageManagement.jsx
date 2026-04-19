@@ -32,6 +32,7 @@ export default function StorageManagement() {
   const [uploadDialog, setUploadDialog] = useState({ open: false })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [deletePkgVolume, setDeletePkgVolume] = useState(null)
+  const [deletePkgGroup, setDeletePkgGroup] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState('name')
@@ -131,6 +132,24 @@ export default function StorageManagement() {
     } catch (err) {
       toast.error(err.detail || err.message)
       setDeletePkgVolume(null)
+    }
+  }
+
+  async function handleDeletePkgGroup() {
+    if (!deletePkgGroup) return
+    try {
+      await getClient().removePackageVolumeGroup({
+        repo: deletePkgGroup.repo,
+        name: deletePkgGroup.effectiveName,
+        version: deletePkgGroup.version || '',
+        includeUninstalled: showAll,
+      })
+      toast.success(t('storage.toast_pkg_group_removed'))
+      setDeletePkgGroup(null)
+      doRefresh()
+    } catch (err) {
+      toast.error(err.detail || err.message)
+      setDeletePkgGroup(null)
     }
   }
 
@@ -379,6 +398,18 @@ export default function StorageManagement() {
         onDownloadVolume={(vol) => openDownloadDialog(vol)}
         onUploadVolume={(vol) => openUploadDialog(vol)}
         onDeleteVolume={(internalName) => setDeletePkgVolume(internalName)}
+        onDeletePackage={(group) => setDeletePkgGroup({
+          repo: group.repo,
+          effectiveName: group.effective_name || group.package,
+          displayName: group.package,
+          version: '',
+        })}
+        onDeleteVersion={(group, version) => setDeletePkgGroup({
+          repo: group.repo,
+          effectiveName: group.effective_name || group.package,
+          displayName: group.package,
+          version,
+        })}
       />
 
       {/* Create/Modify user filesystem dialog */}
@@ -469,6 +500,19 @@ export default function StorageManagement() {
         variant="destructive"
       >
         {t('storage.delete_pkg_volume_message', { name: deletePkgVolume })}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!deletePkgGroup}
+        title={t('storage.delete_pkg_group_title')}
+        onConfirm={handleDeletePkgGroup}
+        onCancel={() => setDeletePkgGroup(null)}
+        confirmLabel={t('storage.delete_confirm_btn')}
+        variant="destructive"
+      >
+        {deletePkgGroup?.version
+          ? t('storage.delete_pkg_group_message_version', { name: deletePkgGroup.displayName, version: deletePkgGroup.version })
+          : t('storage.delete_pkg_group_message_package', { name: deletePkgGroup?.displayName || '' })}
       </ConfirmDialog>
 
       <DownloadArchiveDialog

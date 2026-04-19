@@ -71,8 +71,82 @@ func (c *SystemdClient) SetUnitStatusTree(ctx context.Context, repo, name, versi
 
 // LogReplay streams historical journal entries for a unit via server-sent
 // events. The returned channel is closed when the replay completes.
-func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan systemd.JournalEntry, err error) {
-	resp, err := c.getClient(ctx, "systemd/logs?unit="+url.QueryEscape(name)) //nolint:bodyclose // closed in goroutine below
+func (c *SystemdClient) LogReplay(ctx context.Context, name string) (<-chan systemd.JournalEntry, error) {
+	return c.streamLogReplay(ctx, "systemd/logs?unit="+url.QueryEscape(name), "systemd/logs")
+}
+
+// LogTail returns a page of recent journal entries with cursor-based pagination.
+func (c *SystemdClient) LogTail(ctx context.Context, p systemd.LogTailParams) (_ systemd.LogTailResult, err error) {
+	q := fmt.Sprintf("systemd/logs/tail?unit=%s&lines=%d", url.QueryEscape(p.Unit), p.Lines)
+	return c.fetchLogTail(ctx, appendLogTailQuery(q, p), "systemd/logs/tail")
+}
+
+// LogReplayTree streams the merged journal history for every systemd unit
+// in a package's dependency tree.
+func (c *SystemdClient) LogReplayTree(ctx context.Context, repo, name, version string) (_ <-chan systemd.JournalEntry, err error) {
+	q := fmt.Sprintf("systemd/logs/tree?repo=%s&name=%s&version=%s",
+		url.QueryEscape(repo), url.QueryEscape(name), url.QueryEscape(version))
+	return c.streamLogReplay(ctx, q, "systemd/logs/tree")
+}
+
+// LogTailTree returns a page of journal entries drawn from every unit in a
+// package's dependency tree.
+func (c *SystemdClient) LogTailTree(ctx context.Context, repo, name, version string, p systemd.LogTailParams) (systemd.LogTailResult, error) {
+	q := fmt.Sprintf("systemd/logs/tree/tail?repo=%s&name=%s&version=%s&lines=%d",
+		url.QueryEscape(repo), url.QueryEscape(name), url.QueryEscape(version), p.Lines)
+	return c.fetchLogTail(ctx, appendLogTailQuery(q, p), "systemd/logs/tree/tail")
+}
+
+// appendLogTailQuery attaches the shared filter and pagination params onto
+// the caller's base query string. The base string must already contain the
+// unit selector (either `unit=` for the single-unit endpoint or
+// `repo=&name=&version=` for the tree endpoint) plus `lines=`.
+func appendLogTailQuery(q string, p systemd.LogTailParams) string {
+	if p.BeforeCursor != "" {
+		q = fmt.Sprintf("%s&before=%s", q, url.QueryEscape(p.BeforeCursor))
+	}
+	if p.AfterCursor != "" {
+		q = fmt.Sprintf("%s&after=%s", q, url.QueryEscape(p.AfterCursor))
+	}
+	if p.Grep != "" {
+		q = fmt.Sprintf("%s&grep=%s", q, url.QueryEscape(p.Grep))
+	}
+	if !p.Since.IsZero() {
+		q = fmt.Sprintf("%s&since=%d", q, p.Since.Unix())
+	}
+	if !p.Until.IsZero() {
+		q = fmt.Sprintf("%s&until=%d", q, p.Until.Unix())
+	}
+	if p.Priority > 0 {
+		q = fmt.Sprintf("%s&priority=%d", q, p.Priority)
+	}
+	return q
+}
+
+// fetchLogTail is the shared transport for the tail endpoints: it issues
+// the GET, decodes the JSON body, and surfaces problem-detail errors on
+// non-200 responses.
+func (c *SystemdClient) fetchLogTail(ctx context.Context, q, pathForErr string) (_ systemd.LogTailResult, err error) {
+	resp, err := c.getClient(ctx, q)
+	if err != nil {
+		return systemd.LogTailResult{}, fmt.Errorf("%w: LogTail: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return systemd.LogTailResult{}, readProblemDetail(resp, "GET", pathForErr)
+	}
+
+	var result systemd.LogTailResult
+	return result, json.NewDecoder(resp.Body).Decode(&result)
+}
+
+// streamLogReplay is the shared SSE transport for the single-unit and
+// tree replay endpoints.
+func (c *SystemdClient) streamLogReplay(ctx context.Context, q, pathForErr string) (_ <-chan systemd.JournalEntry, err error) {
+	resp, err := c.getClient(ctx, q) //nolint:bodyclose // closed in goroutine below
 	if err != nil {
 		if resp != nil {
 			err = errors.Join(err, resp.Body.Close())
@@ -81,7 +155,7 @@ func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan sy
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, readProblemDetailAndClose(resp, "GET", "systemd/logs")
+		return nil, readProblemDetailAndClose(resp, "GET", pathForErr)
 	}
 
 	ch := make(chan systemd.JournalEntry)
@@ -111,42 +185,4 @@ func (c *SystemdClient) LogReplay(ctx context.Context, name string) (_ <-chan sy
 	}()
 
 	return ch, nil
-}
-
-// LogTail returns a page of recent journal entries with cursor-based pagination.
-func (c *SystemdClient) LogTail(ctx context.Context, p systemd.LogTailParams) (_ systemd.LogTailResult, err error) {
-	q := fmt.Sprintf("systemd/logs/tail?unit=%s&lines=%d", url.QueryEscape(p.Unit), p.Lines)
-	if p.BeforeCursor != "" {
-		q = fmt.Sprintf("%s&before=%s", q, url.QueryEscape(p.BeforeCursor))
-	}
-	if p.AfterCursor != "" {
-		q = fmt.Sprintf("%s&after=%s", q, url.QueryEscape(p.AfterCursor))
-	}
-	if p.Grep != "" {
-		q = fmt.Sprintf("%s&grep=%s", q, url.QueryEscape(p.Grep))
-	}
-	if !p.Since.IsZero() {
-		q = fmt.Sprintf("%s&since=%d", q, p.Since.Unix())
-	}
-	if !p.Until.IsZero() {
-		q = fmt.Sprintf("%s&until=%d", q, p.Until.Unix())
-	}
-	if p.Priority > 0 {
-		q = fmt.Sprintf("%s&priority=%d", q, p.Priority)
-	}
-
-	resp, err := c.getClient(ctx, q)
-	if err != nil {
-		return systemd.LogTailResult{}, fmt.Errorf("%w: LogTail: %w", ErrHTTPRequest, err)
-	}
-	defer func() {
-		err = errors.Join(err, resp.Body.Close())
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return systemd.LogTailResult{}, readProblemDetail(resp, "GET", "systemd/logs/tail")
-	}
-
-	var result systemd.LogTailResult
-	return result, json.NewDecoder(resp.Body).Decode(&result)
 }

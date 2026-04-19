@@ -120,8 +120,71 @@ function httpsNotes(info) {
   return out
 }
 
-function ServicesPanel({ units, notesMap, t }) {
-  if (!units || units.length === 0) return null
+// ServiceTreeRow is one row in the dashboard services panel — parent or
+// dep — rendered with depth-based left padding so the tree shape mirrors
+// the storage volume tree on /dashboard/storage. The panel is read-only
+// (no action dropdowns): clicks take you to /dashboard/system for the
+// real controls. Only root rows display the package's HTTPS notes (URL
+// links) because that's the entry point an operator wants at a glance;
+// dep rows show name + status only.
+function ServiceTreeRow({ node, depth, notesMap, t }) {
+  const displayId = node.display_identifier || node.package_identifier
+  const displayParsed = parsePackageIdentifier(displayId)
+  const displayName = displayParsed ? displayParsed.name : displayId
+  const links = depth === 0 ? httpsNotes(notesMap[node.package_identifier]) : []
+  const paddingLeft = 12 + depth * 20
+  return (
+    <>
+      <div
+        className="flex items-center gap-3 rounded-md py-1.5 hover:bg-accent/50 transition-colors min-w-0"
+        style={{ paddingLeft, paddingRight: 12 }}
+      >
+        <Link
+          to="/dashboard/system"
+          aria-label={t('dashboard.services_status_label', { name: displayName, state: node.ActiveState })}
+          className="shrink-0"
+        >
+          <StatusIcon state={node.ActiveState} />
+        </Link>
+        <Link
+          to="/dashboard/packages"
+          className="font-mono text-sm font-medium underline-offset-2 hover:underline shrink-0"
+        >
+          {displayName}
+        </Link>
+        {links.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 min-w-0">
+            {links.map(({ label, value }) => (
+              <a
+                key={label}
+                href={value}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 min-w-0"
+              >
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="text-muted-foreground shrink-0">{label}:</span>
+                <span className="font-mono truncate">{value}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+      {node.children && node.children.map((child) => (
+        <ServiceTreeRow
+          key={child.package_identifier}
+          node={child}
+          depth={depth + 1}
+          notesMap={notesMap}
+          t={t}
+        />
+      ))}
+    </>
+  )
+}
+
+function ServicesPanel({ roots, notesMap, t }) {
+  if (!roots || roots.length === 0) return null
 
   return (
     <Card>
@@ -130,52 +193,15 @@ function ServicesPanel({ units, notesMap, t }) {
       </CardHeader>
       <CardContent className="pt-0">
         <div className="space-y-1">
-          {units.map((unit) => {
-            // Prefer the server-provided pretty identifier when present.
-            // It's the same as package_identifier for standalone packages
-            // and reflects the nested dep structure (parent/key) for deps.
-            const displayId = unit.display_identifier || unit.package_identifier
-            const displayParsed = parsePackageIdentifier(displayId)
-            const displayName = displayParsed ? displayParsed.name : displayId
-            const links = httpsNotes(notesMap[unit.package_identifier])
-            return (
-              <div
-                key={unit.Name}
-                className="flex items-center gap-3 rounded-md px-3 py-1.5 hover:bg-accent/50 transition-colors min-w-0"
-              >
-                <Link
-                  to="/dashboard/system"
-                  aria-label={t('dashboard.services_status_label', { name: displayName, state: unit.ActiveState })}
-                  className="shrink-0"
-                >
-                  <StatusIcon state={unit.ActiveState} />
-                </Link>
-                <Link
-                  to="/dashboard/packages"
-                  className="font-mono text-sm font-medium underline-offset-2 hover:underline shrink-0"
-                >
-                  {displayName}
-                </Link>
-                {links.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 min-w-0">
-                    {links.map(({ label, value }) => (
-                      <a
-                        key={label}
-                        href={value}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 min-w-0"
-                      >
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                        <span className="text-muted-foreground shrink-0">{label}:</span>
-                        <span className="font-mono truncate">{value}</span>
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          {roots.map((node) => (
+            <ServiceTreeRow
+              key={node.package_identifier}
+              node={node}
+              depth={0}
+              notesMap={notesMap}
+              t={t}
+            />
+          ))}
         </div>
       </CardContent>
     </Card>
@@ -214,25 +240,22 @@ export default function DashboardHome() {
   useEffect(() => { document.title = t('dashboard.page_title') }, [t])
   const [ping, , loading] = usePolling(() => getClient().ping(), null, [], 60000)
   const [unitData] = usePolling(
-    () => getClient().listUnits('package_identifier', 'asc', 100, 0),
+    () => getClient().listUnitsTree('package_identifier', 'asc', undefined, undefined, undefined),
     { entries: [] },
     [],
     60000,
   )
-  const units = useMemo(() => {
-    const all = unitData.entries || []
-    // Dependency services are rolled up under their parent on the
-    // dashboard — the server tells us which ones are deps via the
-    // is_dependency flag so we don't have to string-match the identifier
-    // or mirror the separator constant here.
-    return all.filter((unit) => !unit.is_dependency)
-  }, [unitData.entries])
+  // The tree endpoint already nests dependency services under their parent;
+  // roots are the top-level packages. No client-side filter needed.
+  const roots = useMemo(() => unitData.entries || [], [unitData.entries])
   const [notesMap, setNotesMap] = useState({})
   const notesFetchedRef = useRef(new Set())
 
   useEffect(() => {
-    for (const unit of units) {
-      const id = unit.package_identifier
+    // Only root packages render HTTPS notes on the dashboard, so only
+    // fetch notes for roots — deps never show links.
+    for (const node of roots) {
+      const id = node.package_identifier
       if (!id || notesFetchedRef.current.has(id)) continue
       notesFetchedRef.current.add(id)
       const parsed = parsePackageIdentifier(id)
@@ -245,7 +268,7 @@ export default function DashboardHome() {
         })
         .catch(() => {})
     }
-  }, [units])
+  }, [roots])
 
   const [dismissing, setDismissing] = useState(false)
   const lastDismissedRef = useRef(null)
@@ -309,7 +332,7 @@ export default function DashboardHome() {
         </div>
       )}
 
-      <ServicesPanel units={units} notesMap={notesMap} t={t} />
+      <ServicesPanel roots={roots} notesMap={notesMap} t={t} />
 
       {loading && !ping && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">{t('dashboard.loading')}</div>

@@ -58,6 +58,30 @@ function formatMessage(text) {
   })
 }
 
+/**
+ * Parse a synthetic tree-group journal key. The rest of the viewer passes
+ * a single string identifier around (state key, effect dep, cache
+ * invalidator); encoding a tree as "tree:<repo>/<name>@<version>" keeps
+ * the existing single-unit plumbing intact while letting the fetch layer
+ * branch on whether the user asked for a whole package group. Returns
+ * null for regular unit names, `__system__`, and malformed tree keys so
+ * callers can treat the result as a discriminator.
+ */
+function parseTreeKey(key) {
+  if (typeof key !== 'string' || !key.startsWith('tree:')) return null
+  const rest = key.slice('tree:'.length)
+  const atIdx = rest.lastIndexOf('@')
+  if (atIdx === -1) return null
+  const version = rest.slice(atIdx + 1)
+  const repoName = rest.slice(0, atIdx)
+  const slashIdx = repoName.indexOf('/')
+  if (slashIdx === -1) return null
+  const repo = repoName.slice(0, slashIdx)
+  const name = repoName.slice(slashIdx + 1)
+  if (!repo || !name || !version) return null
+  return { repo, name, version }
+}
+
 export default function JournalViewer({ journalUnit, onClose, units, initialPriority, initialTimestamp }) {
   const { t } = useI18n()
   const [journalEntries, setJournalEntries] = useState([])
@@ -154,9 +178,15 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
 
   const loadEntries = useCallback(async (unitName, beforeCursor, grep, since, until, priority) => {
     setJournalLoading(true)
-    const apiUnit = unitName === '__system__' ? '' : unitName
     try {
-      const result = await getClient().logTail(apiUnit, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined, priority || undefined)
+      // Tree-keyed viewers hit /systemd/logs/tree/tail which expands the
+      // package's dep records server-side; single-unit viewers stay on
+      // the legacy /systemd/logs/tail. The filter and cursor shape is
+      // identical, so only the dispatch branches.
+      const tree = parseTreeKey(unitName)
+      const result = tree
+        ? await getClient().logTailTree(tree.repo, tree.name, tree.version, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined, priority || undefined)
+        : await getClient().logTail(unitName === '__system__' ? '' : unitName, 200, beforeCursor, undefined, grep || undefined, since || undefined, until || undefined, priority || undefined)
       const entries = result.entries || []
       if (beforeCursor) {
         setJournalEntries((prev) => [...entries, ...prev])
@@ -227,10 +257,13 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
   // Follow mode: poll for new entries.
   useEffect(() => {
     if (!journalUnit || !followMode || !journalEndCursor) return
+    const tree = parseTreeKey(journalUnit)
     const apiUnit = journalUnit === '__system__' ? '' : journalUnit
     const timer = setInterval(async () => {
       try {
-        const result = await getClient().logTail(apiUnit, 200, undefined, journalEndCursor, searchQuery || undefined, undefined, undefined, journalPriority || undefined)
+        const result = tree
+          ? await getClient().logTailTree(tree.repo, tree.name, tree.version, 200, undefined, journalEndCursor, searchQuery || undefined, undefined, undefined, journalPriority || undefined)
+          : await getClient().logTail(apiUnit, 200, undefined, journalEndCursor, searchQuery || undefined, undefined, undefined, journalPriority || undefined)
         const entries = result.entries || []
         if (entries.length > 0) {
           const el = scrollRef.current
@@ -275,8 +308,17 @@ export default function JournalViewer({ journalUnit, onClose, units, initialPrio
       <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <span>{journalUnit === '__system__' ? (journalPriority > 0 ? t('journal.title_journal_errors') : t('journal.title_system_logs')) : journalUnit?.replace('.service', '')}</span>
-            {journalUnit && (() => {
+            <span>
+              {(() => {
+                const tree = parseTreeKey(journalUnit)
+                if (tree) return t('journal.title_group_logs', { name: `${tree.repo}/${tree.name}@${tree.version}` })
+                if (journalUnit === '__system__') {
+                  return journalPriority > 0 ? t('journal.title_journal_errors') : t('journal.title_system_logs')
+                }
+                return journalUnit?.replace('.service', '')
+              })()}
+            </span>
+            {journalUnit && !parseTreeKey(journalUnit) && (() => {
               const unit = units.find((u) => u.Name === journalUnit)
               if (!unit) return null
               const variant =

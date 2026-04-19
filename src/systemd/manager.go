@@ -34,6 +34,42 @@ func clampUint64(v int64) uint64 {
 	return uint64(v)
 }
 
+// logTailUnits returns the deduplicated list of unit names a LogTail query
+// should OR-match on `_SYSTEMD_UNIT`. Units takes precedence over the
+// single-valued Unit field; both empty means a system-wide query (no
+// match is added).
+func logTailUnits(p LogTailParams) []string {
+	if len(p.Units) > 0 {
+		return dedupeNonEmpty(p.Units)
+	}
+	if p.Unit != "" {
+		return []string{p.Unit}
+	}
+	return nil
+}
+
+// dedupeNonEmpty returns names with empties dropped and duplicates removed,
+// preserving first-seen order. Stable ordering keeps sdjournal match
+// ordering deterministic across platforms so test output doesn't flap.
+func dedupeNonEmpty(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(names))
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if n == "" {
+			continue
+		}
+		if _, dup := seen[n]; dup {
+			continue
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	return out
+}
+
 type SystemdManager struct{}
 
 func NewManager() *SystemdManager {
@@ -315,9 +351,8 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 		err = errors.Join(err, j.Close())
 	}()
 
-	if p.Unit != "" {
-		err = j.AddMatch("_SYSTEMD_UNIT=" + p.Unit)
-		if err != nil {
+	for _, u := range logTailUnits(p) {
+		if err := j.AddMatch("_SYSTEMD_UNIT=" + u); err != nil {
 			return LogTailResult{}, err
 		}
 	}
@@ -444,15 +479,14 @@ func (m *SystemdManager) LogTail(ctx context.Context, p LogTailParams) (_ LogTai
 	return LogTailResult{Entries: entries, Cursor: cursor, EndCursor: endCursor}, nil
 }
 
-func (m *SystemdManager) LogReplay(ctx context.Context, unit string) (_ <-chan JournalEntry, err error) {
+func (m *SystemdManager) LogReplay(ctx context.Context, units ...string) (_ <-chan JournalEntry, err error) {
 	j, err := sdjournal.NewJournal()
 	if err != nil {
 		return nil, err
 	}
 
-	if unit != "" {
-		err = j.AddMatch("_SYSTEMD_UNIT=" + unit)
-		if err != nil {
+	for _, u := range dedupeNonEmpty(units) {
+		if err := j.AddMatch("_SYSTEMD_UNIT=" + u); err != nil {
 			return nil, errors.Join(err, j.Close())
 		}
 	}

@@ -126,6 +126,13 @@ const enUS = {
   'storage.delete_pkg_volume_title': 'Delete Package Volume',
   'storage.delete_pkg_volume_message': 'Are you sure you want to delete volume {name}? This cannot be undone.',
   'storage.toast_pkg_volume_removed': 'Package volume removed',
+  'storage.toast_pkg_group_removed': 'Package volumes removed',
+  'storage.delete_pkg_group_title': 'Delete Package Volumes',
+  'storage.delete_pkg_group_message_package': 'Are you sure you want to delete every volume under {name}? Any running services for this package — and every dependency it installed — will be stopped first. This cannot be undone.',
+  'storage.delete_pkg_group_message_version': 'Are you sure you want to delete every volume for {name} version {version}? Its service and every dependency service it installed will be stopped first. This cannot be undone.',
+  'storage.col_versions': 'Versions',
+  'storage.col_volumes': 'Volumes',
+  'storage.version_row_label': 'Version {version}',
 
   // --- User Management ---
   'users.page_title': 'Town OS - Users',
@@ -205,6 +212,7 @@ const enUS = {
   'system.action_restart': 'Restart',
   'system.action_service_logs': 'Service Logs',
   'system.action_network_logs': 'Network Logs',
+  'system.action_group_logs': 'Group Logs',
   'system.actions_label': 'Service actions',
   'system.advanced_logs_btn': 'Advanced Logs',
   'system.advanced_logs_title': 'Advanced Logs',
@@ -464,6 +472,7 @@ const enUS = {
   // --- Journal Viewer ---
   'journal.title_system_logs': 'System Logs',
   'journal.title_journal_errors': 'Journal Errors',
+  'journal.title_group_logs': 'Group Logs — {name}',
   'journal.description': 'View and search journal log entries.',
   'journal.search_placeholder': 'Search logs...',
   'journal.time_filter_tooltip': 'Time range filter',

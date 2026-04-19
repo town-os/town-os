@@ -210,6 +210,13 @@ export default function SystemManagement() {
     openJournal(node.Name)
   }
 
+  function handleTreeViewGroupLogs(node) {
+    // The JournalViewer parses "tree:<repo>/<name>@<version>" and
+    // dispatches to /systemd/logs/tree/tail so the user sees the parent's
+    // journal interleaved with every descendant dep's journal.
+    openJournal(`tree:${node.repo}/${node.name}@${node.version}`)
+  }
+
   function handleTreeViewNetworkLogs(node) {
     const ncUnit = node.Name.replace('.service', '-network.service')
     openJournal(ncUnit)
@@ -410,6 +417,7 @@ export default function SystemManagement() {
         onCascadeAction={handleTreeCascadeAction}
         onUnitAction={handleTreeUnitAction}
         onViewLogs={handleTreeViewLogs}
+        onViewGroupLogs={handleTreeViewGroupLogs}
         onViewNetworkLogs={handleTreeViewNetworkLogs}
         actionInProgress={actionInProgress}
       />

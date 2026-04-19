@@ -130,6 +130,17 @@ type Client interface {
 	// cursor-based pagination. See [systemd.LogTailParams] for available
 	// filter and pagination options including grep, time range, and priority.
 	LogTail(ctx context.Context, params systemd.LogTailParams) (systemd.LogTailResult, error)
+	// LogReplayTree streams historical journal entries for every systemd
+	// unit in a package's dependency tree as a single SSE stream. The
+	// (repo, name, version) triple identifies the root package; dependency
+	// units are expanded server-side from the installed records.
+	LogReplayTree(ctx context.Context, repo, name, version string) (<-chan systemd.JournalEntry, error)
+	// LogTailTree returns a page of recent journal entries covering every
+	// systemd unit in a package's dependency tree. Filters and cursors
+	// carried on [systemd.LogTailParams] behave identically to LogTail;
+	// the Unit and Units fields are ignored (the unit set is derived from
+	// the install records for the named package).
+	LogTailTree(ctx context.Context, repo, name, version string, params systemd.LogTailParams) (systemd.LogTailResult, error)
 
 	// CreateAccount creates a new user account. The password must be at least
 	// 8 characters. Email, phone, and realName are required fields. When admin

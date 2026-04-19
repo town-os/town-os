@@ -376,9 +376,13 @@ type PackageVolume struct {
 }
 
 type PackageVolumeGroup struct {
-	Package string          `json:"package"` // display name, e.g. "nginx" or "repo-a/nginx" on collision
-	Repo    string          `json:"repo"`    // always present for API calls
-	Volumes []PackageVolume `json:"volumes"`
+	Package string `json:"package"` // display name, e.g. "nginx" or "repo-a/nginx" on collision
+	// EffectiveName is the flat --dep-- form (e.g. "jitsi--dep--prosody")
+	// the cascade-delete endpoint expects. Emitted so the UI can round-trip
+	// the same identity it renders without re-encoding prettyName.
+	EffectiveName string          `json:"effective_name"`
+	Repo          string          `json:"repo"` // always present for API calls
+	Volumes       []PackageVolume `json:"volumes"`
 }
 
 type PackageVolumesRequest struct {
@@ -413,6 +417,10 @@ func (s *SystemControllerHandlers) listPackageVolumes(c *echo.Context) error {
 		name string // pretty display form
 	}
 	groups := map[groupKey][]PackageVolume{}
+	// effectiveFor preserves the flat `--dep--` form alongside the pretty
+	// display form so the cascade-delete API can be addressed without
+	// re-encoding `/` → `--dep--` on the client.
+	effectiveFor := map[groupKey]string{}
 	nameToRepos := map[string]map[string]bool{} // pretty name → set of repos
 
 	for _, f := range list {
@@ -440,6 +448,7 @@ func (s *SystemControllerHandlers) listPackageVolumes(c *echo.Context) error {
 			Quota:        f.Quota,
 			State:        p.state,
 		})
+		effectiveFor[key] = p.effectiveName
 
 		if nameToRepos[p.prettyName] == nil {
 			nameToRepos[p.prettyName] = map[string]bool{}
@@ -462,9 +471,10 @@ func (s *SystemControllerHandlers) listPackageVolumes(c *echo.Context) error {
 		})
 
 		result = append(result, PackageVolumeGroup{
-			Package: displayName,
-			Repo:    key.repo,
-			Volumes: vols,
+			Package:       displayName,
+			EffectiveName: effectiveFor[key],
+			Repo:          key.repo,
+			Volumes:       vols,
 		})
 	}
 

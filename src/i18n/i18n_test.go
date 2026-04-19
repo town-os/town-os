@@ -168,6 +168,7 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 		MsgAuditSetDNSTLD,
 		MsgAuditSetupDNS,
 		MsgAuditRemovePackageVolume,
+		MsgAuditRemovePackageVolumeGroup,
 		MsgAuditClearLastResponses,
 		MsgAuditSetSystemServiceStatus,
 		MsgAuditRefreshSystemServices,

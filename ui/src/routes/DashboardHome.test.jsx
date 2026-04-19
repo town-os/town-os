@@ -7,14 +7,14 @@ let mockUnitsResponse = { entries: [] }
 
 const mockPing = vi.fn(() => Promise.resolve(mockPingResponse))
 const mockDismissUpgrades = vi.fn(() => Promise.resolve())
-const mockListUnits = vi.fn(() => Promise.resolve(mockUnitsResponse))
+const mockListUnitsTree = vi.fn(() => Promise.resolve(mockUnitsResponse))
 const mockGetInstalledInfo = vi.fn(() => Promise.resolve({ notes: {}, note_types: {} }))
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     ping: mockPing,
     dismissUpgrades: mockDismissUpgrades,
-    listUnits: mockListUnits,
+    listUnitsTree: mockListUnitsTree,
     getInstalledInfo: mockGetInstalledInfo,
   }),
 }))
@@ -33,10 +33,10 @@ describe('DashboardHome', () => {
   beforeEach(() => {
     mockPing.mockReset()
     mockDismissUpgrades.mockReset()
-    mockListUnits.mockReset()
+    mockListUnitsTree.mockReset()
     mockGetInstalledInfo.mockReset()
     mockUnitsResponse = { entries: [] }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     mockGetInstalledInfo.mockImplementation(() => Promise.resolve({ notes: {}, note_types: {} }))
     mockPingResponse = {
       status: 'ok',
@@ -223,7 +223,7 @@ describe('DashboardHome', () => {
         { Name: 'town-os-package--default-redis-2.0.service', package_identifier: 'default/redis@2.0', ActiveState: 'failed', package_description: 'Cache server' },
       ],
     }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('nginx')).toBeTruthy()
@@ -233,7 +233,7 @@ describe('DashboardHome', () => {
 
   it('does not show services panel when no units', async () => {
     mockUnitsResponse = { entries: [] }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('Dashboard')).toBeTruthy()
@@ -294,7 +294,7 @@ describe('DashboardHome', () => {
         { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
       ],
     }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
       notes: { 'Web UI': 'https://myapp.example.com' },
       note_types: { 'Web UI': 'url' },
@@ -315,7 +315,7 @@ describe('DashboardHome', () => {
         { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
       ],
     }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
       notes: { 'Web UI': 'http://myapp.example.com' },
       note_types: { 'Web UI': 'url' },
@@ -333,7 +333,7 @@ describe('DashboardHome', () => {
         { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
       ],
     }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
       notes: { 'Support': 'help@example.com', 'Hotline': '+1-555-0100' },
       note_types: { 'Support': 'email', 'Hotline': 'phone' },
@@ -352,7 +352,7 @@ describe('DashboardHome', () => {
         { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
       ],
     }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('nginx')).toBeTruthy()
@@ -368,50 +368,83 @@ describe('DashboardHome', () => {
         { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
       ],
     }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     renderDashboard()
     const statusLink = await screen.findByRole('link', { name: 'nginx status: active' })
     expect(statusLink.getAttribute('href')).toBe('/dashboard/system')
   })
 
-  it('hides dependency sub-packages from the services panel', async () => {
+  it('nests dependency sub-packages under the parent in the services panel', async () => {
     mockUnitsResponse = {
       entries: [
         {
           Name: 'town-os-package--default-jitsi-1.0.service',
           package_identifier: 'default/jitsi@1.0',
           display_identifier: 'default/jitsi@1.0',
-          is_dependency: false,
           ActiveState: 'active',
           package_description: '',
-        },
-        {
-          Name: 'town-os-package--default-jitsi--dep--prosody-1.0.service',
-          package_identifier: 'default/jitsi--dep--prosody@1.0',
-          display_identifier: 'default/jitsi/prosody@1.0',
-          is_dependency: true,
-          ActiveState: 'active',
-          package_description: '',
-        },
-        {
-          Name: 'town-os-package--default-jitsi--dep--jicofo-1.0.service',
-          package_identifier: 'default/jitsi--dep--jicofo@1.0',
-          display_identifier: 'default/jitsi/jicofo@1.0',
-          is_dependency: true,
-          ActiveState: 'active',
-          package_description: '',
+          children: [
+            {
+              Name: 'town-os-package--default-jitsi--dep--prosody-1.0.service',
+              package_identifier: 'default/jitsi--dep--prosody@1.0',
+              display_identifier: 'default/jitsi/prosody@1.0',
+              ActiveState: 'active',
+              package_description: '',
+              children: [],
+            },
+            {
+              Name: 'town-os-package--default-jitsi--dep--jicofo-1.0.service',
+              package_identifier: 'default/jitsi--dep--jicofo@1.0',
+              display_identifier: 'default/jitsi/jicofo@1.0',
+              ActiveState: 'active',
+              package_description: '',
+              children: [],
+            },
+          ],
         },
       ],
     }
-    mockListUnits.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
     renderDashboard()
+    // Root and both deps render, using their pretty display identifiers.
     await waitFor(() => {
       expect(screen.getByText('jitsi')).toBeTruthy()
     })
-    // Neither the flat nor pretty dependency identifier should render.
-    expect(screen.queryByText('jitsi/prosody')).toBeNull()
-    expect(screen.queryByText('jitsi/jicofo')).toBeNull()
+    expect(screen.getByText('jitsi/prosody')).toBeTruthy()
+    expect(screen.getByText('jitsi/jicofo')).toBeTruthy()
+    // Raw flat dep identifiers must never leak into the UI.
     expect(screen.queryByText('jitsi--dep--prosody')).toBeNull()
     expect(screen.queryByText('jitsi--dep--jicofo')).toBeNull()
+  })
+
+  it('indents dep rows deeper than their parent row', async () => {
+    mockUnitsResponse = {
+      entries: [
+        {
+          Name: 'town-os-package--default-jitsi-1.0.service',
+          package_identifier: 'default/jitsi@1.0',
+          display_identifier: 'default/jitsi@1.0',
+          ActiveState: 'active',
+          package_description: '',
+          children: [
+            {
+              Name: 'town-os-package--default-jitsi--dep--prosody-1.0.service',
+              package_identifier: 'default/jitsi--dep--prosody@1.0',
+              display_identifier: 'default/jitsi/prosody@1.0',
+              ActiveState: 'active',
+              package_description: '',
+              children: [],
+            },
+          ],
+        },
+      ],
+    }
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    renderDashboard()
+    const parentRow = (await screen.findByText('jitsi')).closest('div[style]')
+    const depRow = (await screen.findByText('jitsi/prosody')).closest('div[style]')
+    const parentPad = parseInt(parentRow.style.paddingLeft, 10)
+    const depPad = parseInt(depRow.style.paddingLeft, 10)
+    expect(depPad).toBeGreaterThan(parentPad)
   })
 })

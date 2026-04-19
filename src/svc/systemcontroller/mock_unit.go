@@ -104,3 +104,67 @@ func (m *MockClient) LogTail(_ context.Context, p systemd.LogTailParams) (system
 
 	return systemd.LogTailResult{Entries: page, Cursor: cursor}, nil
 }
+
+// LogReplayTree records the call identity as (repo, name, version) and
+// otherwise replays the same recorded JournalEntries the single-unit
+// variant replays. Tests that need multi-unit filtering can inspect the
+// captured Args to confirm the client reached the tree endpoint.
+func (m *MockClient) LogReplayTree(ctx context.Context, repo, name, version string) (<-chan systemd.JournalEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "LogReplayTree", Args: []any{repo, name, version}})
+
+	if m.LogReplayErr != nil {
+		return nil, m.LogReplayErr
+	}
+
+	entries := make([]systemd.JournalEntry, len(m.JournalEntries))
+	copy(entries, m.JournalEntries)
+
+	ch := make(chan systemd.JournalEntry)
+	go func() {
+		defer close(ch)
+		for _, e := range entries {
+			select {
+			case ch <- e:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, nil
+}
+
+// LogTailTree captures the tree identity and reuses the same paging logic
+// as LogTail against the mock's shared JournalEntries, so test fixtures
+// populate entries once and drive either endpoint.
+func (m *MockClient) LogTailTree(_ context.Context, repo, name, version string, p systemd.LogTailParams) (systemd.LogTailResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "LogTailTree", Args: []any{repo, name, version, p}})
+
+	if m.LogReplayErr != nil {
+		return systemd.LogTailResult{}, m.LogReplayErr
+	}
+
+	entries := make([]systemd.JournalEntry, len(m.JournalEntries))
+	copy(entries, m.JournalEntries)
+
+	endIdx := len(entries)
+	if p.BeforeCursor != "" {
+		for i, e := range entries {
+			if e.Cursor == p.BeforeCursor {
+				endIdx = i
+				break
+			}
+		}
+	}
+	startIdx := max(endIdx-p.Lines, 0)
+	page := entries[startIdx:endIdx]
+
+	var cursor string
+	if len(page) > 0 {
+		cursor = page[0].Cursor
+	}
+	return systemd.LogTailResult{Entries: page, Cursor: cursor}, nil
+}

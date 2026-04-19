@@ -17,6 +17,7 @@ func TestRouteActionKeysPopulated(t *testing.T) {
 	// any future regression into a test failure.
 	required := []string{
 		"/storage/remove-package-volume",
+		"/storage/remove-package-volume-group",
 		"/packages/clear-last-responses",
 		"/system-services/status",
 		"/system-services/refresh",

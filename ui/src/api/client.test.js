@@ -307,6 +307,155 @@ describe('SystemControllerClient', () => {
     })
   })
 
+  describe('setUnitStatusTree', () => {
+    it('cascades an action across the whole dependency tree', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.setUnitStatusTree('core', 'gitea', '1.0', 'restart')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/systemd/status/tree',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({ repo: 'core', name: 'gitea', version: '1.0', action: 'restart' }),
+        },
+      )
+    })
+
+    it('passes raw effective dep names straight through (dep--separator preserved)', async () => {
+      mockFetchEmpty()
+      client.setToken('tok')
+
+      await client.setUnitStatusTree('core', 'gitea--dep--postgres', '15.0', 'start')
+      const call = globalThis.fetch.mock.calls[0]
+      expect(call[0]).toBe('http://localhost:5309/systemd/status/tree')
+      expect(JSON.parse(call[1].body)).toEqual({
+        repo: 'core',
+        name: 'gitea--dep--postgres',
+        version: '15.0',
+        action: 'start',
+      })
+    })
+  })
+
+  describe('logTailTree', () => {
+    it('sends repo/name/version and default lines=100', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTailTree('core', 'gitea', '1.0')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/systemd/logs/tree/tail?repo=core&name=gitea&version=1.0&lines=100',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('url-encodes identity fields so dep--separators and % survive', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTailTree('co re', 'app--dep--x', '1.0-alpha')
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('repo=co+re')
+      expect(url).toContain('name=app--dep--x')
+      expect(url).toContain('version=1.0-alpha')
+    })
+
+    it('threads filter and cursor parameters onto the tree URL', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTailTree(
+        'core',
+        'gitea',
+        '1.0',
+        50,
+        'cursor-before',
+        'cursor-after',
+        'error',
+        1700000000,
+        1700003600,
+        3,
+      )
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).toContain('lines=50')
+      expect(url).toContain('before=cursor-before')
+      expect(url).toContain('after=cursor-after')
+      expect(url).toContain('grep=error')
+      expect(url).toContain('since=1700000000')
+      expect(url).toContain('until=1700003600')
+      expect(url).toContain('priority=3')
+    })
+
+    it('omits optional filters when not provided', async () => {
+      mockFetch({ entries: [], cursor: '', end_cursor: '' })
+      client.setToken('tok')
+
+      await client.logTailTree('core', 'gitea', '1.0', 100)
+      const url = globalThis.fetch.mock.calls[0][0]
+      expect(url).not.toContain('before=')
+      expect(url).not.toContain('after=')
+      expect(url).not.toContain('grep=')
+      expect(url).not.toContain('since=')
+      expect(url).not.toContain('until=')
+      expect(url).not.toContain('priority=')
+    })
+  })
+
+  describe('logReplayTree', () => {
+    it('streams SSE entries from the tree replay endpoint', async () => {
+      // Build a ReadableStream with two SSE frames so the async generator
+      // yields real JournalEntry objects.
+      const encoder = new TextEncoder()
+      const frames = [
+        `data: ${JSON.stringify({ Message: 'parent log', Cursor: 'c1' })}\n`,
+        `data: ${JSON.stringify({ Message: 'dep log', Cursor: 'c2' })}\n`,
+      ]
+      const stream = new ReadableStream({
+        start(controller) {
+          for (const f of frames) controller.enqueue(encoder.encode(f))
+          controller.close()
+        },
+      })
+      globalThis.fetch = vi.fn().mockResolvedValue({ status: 200, body: stream })
+      client.setToken('tok')
+
+      /** @type {any[]} */
+      const received = []
+      for await (const entry of client.logReplayTree('core', 'gitea', '1.0')) {
+        received.push(entry)
+      }
+      expect(received.map((e) => e.Message)).toEqual(['parent log', 'dep log'])
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/systemd/logs/tree?repo=core&name=gitea&version=1.0',
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+      )
+    })
+
+    it('throws ApiError on non-200 status', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        status: 400,
+        text: () => Promise.resolve('bad request'),
+      })
+      client.setToken('tok')
+
+      try {
+        // Consume the generator to force the initial fetch to surface.
+        for await (const _entry of client.logReplayTree('', 'gitea', '1.0')) {
+          void _entry
+        }
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        return
+      }
+      throw new Error('expected ApiError')
+    })
+  })
+
   describe('createAccount', () => {
     it('sends full request body', async () => {
       const acct = {
