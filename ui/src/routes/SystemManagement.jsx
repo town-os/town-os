@@ -405,7 +405,7 @@ export default function SystemManagement() {
 
       <div className="flex items-center gap-2">
         <Input
-          placeholder={t('system.search_placeholder') || 'Search services...'}
+          placeholder={t('system.search_placeholder')}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="max-w-xs"
