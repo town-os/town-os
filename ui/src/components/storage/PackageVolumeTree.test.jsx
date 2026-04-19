@@ -121,6 +121,43 @@ describe('PackageVolumeTree', () => {
     expect(props.onDeleteVersion).not.toHaveBeenCalled()
   })
 
+  it('nests sub-packages under their parent using effective_name', () => {
+    // Parent gitea (effective_name "gitea") and a dep postgres
+    // (effective_name "gitea--dep--postgres") — the backend emits both as
+    // top-level PackageVolumeGroup entries; the tree should fold the dep
+    // under gitea.
+    const parent = makeGroup({ pkg: 'gitea', effective: 'gitea', versions: { '1.0': ['data'] } })
+    const dep = makeGroup({ pkg: 'gitea/postgres', effective: 'gitea--dep--postgres', versions: { '15.0': ['data'] } })
+    renderTree({ packageGroups: [parent, dep] })
+
+    // Only the parent row is visible on first render (roots default to
+    // collapsed). The dep is hidden because its parent is collapsed.
+    expect(screen.getByText('gitea')).toBeTruthy()
+    expect(screen.queryByText('gitea/postgres')).toBeFalsy()
+
+    // Parent advertises "1 sub-package" in its summary without needing
+    // to be expanded.
+    expect(screen.getByText(/1 sub-package/)).toBeTruthy()
+
+    // Expand parent → dep row becomes visible, but its own versions are
+    // still collapsed (the cascade is independent per package).
+    fireEvent.click(screen.getByText('gitea'))
+    expect(screen.getByText('gitea/postgres')).toBeTruthy()
+    expect(screen.queryByText('Version 15.0')).toBeFalsy()
+
+    // Expand the dep → its version row appears.
+    fireEvent.click(screen.getByText('gitea/postgres'))
+    expect(screen.getByText('Version 15.0')).toBeTruthy()
+  })
+
+  it('promotes orphaned dep groups to roots when the parent is missing', () => {
+    // Parent gitea is absent from the response; the dep should not be
+    // swallowed — it surfaces as its own root instead of being lost.
+    const dep = makeGroup({ pkg: 'gitea/postgres', effective: 'gitea--dep--postgres', versions: { '15.0': ['data'] } })
+    renderTree({ packageGroups: [dep] })
+    expect(screen.getByText('gitea/postgres')).toBeTruthy()
+  })
+
   it('leaf modify / upload / download fire the matching callbacks with the volume', () => {
     const group = makeGroup({ versions: { '1.0': ['data'] } })
     const { props } = renderTree({ packageGroups: [group] })
