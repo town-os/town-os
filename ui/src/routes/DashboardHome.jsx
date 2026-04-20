@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -120,71 +121,19 @@ function httpsNotes(info) {
   return out
 }
 
-// ServiceTreeRow is one row in the dashboard services panel — parent or
-// dep — rendered with depth-based left padding so the tree shape mirrors
-// the storage volume tree on /dashboard/storage. The panel is read-only
-// (no action dropdowns): clicks take you to /dashboard/system for the
-// real controls. Only root rows display the package's HTTPS notes (URL
-// links) because that's the entry point an operator wants at a glance;
-// dep rows show name + status only.
-function ServiceTreeRow({ node, depth, notesMap, t }) {
-  const displayId = node.display_identifier || node.package_identifier
-  const displayParsed = parsePackageIdentifier(displayId)
-  const displayName = displayParsed ? displayParsed.name : displayId
-  const links = depth === 0 ? httpsNotes(notesMap[node.package_identifier]) : []
-  const paddingLeft = 12 + depth * 20
-  return (
-    <>
-      <div
-        className="flex items-center gap-3 rounded-md py-1.5 hover:bg-accent/50 transition-colors min-w-0"
-        style={{ paddingLeft, paddingRight: 12 }}
-      >
-        <Link
-          to="/dashboard/system"
-          aria-label={t('dashboard.services_status_label', { name: displayName, state: node.ActiveState })}
-          className="shrink-0"
-        >
-          <StatusIcon state={node.ActiveState} />
-        </Link>
-        <Link
-          to="/dashboard/packages"
-          className="font-mono text-sm font-medium underline-offset-2 hover:underline shrink-0"
-        >
-          {displayName}
-        </Link>
-        {links.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 min-w-0">
-            {links.map(({ label, value }) => (
-              <a
-                key={label}
-                href={value}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 min-w-0"
-              >
-                <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="text-muted-foreground shrink-0">{label}:</span>
-                <span className="font-mono truncate">{value}</span>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-      {node.children && node.children.map((child) => (
-        <ServiceTreeRow
-          key={child.package_identifier}
-          node={child}
-          depth={depth + 1}
-          notesMap={notesMap}
-          t={t}
-        />
-      ))}
-    </>
-  )
-}
-
+// ServicesPanel renders a flat table of services that expose at least
+// one HTTPS URL note — status icon on the left, package name in the
+// middle, clickable URLs on the right. Services without links (and
+// dependency sub-packages, which are internal) are filtered out
+// entirely so the dashboard stays focused on user-reachable entry
+// points. Clicking the status icon jumps to /dashboard/system for the
+// full service controls; clicking the name jumps to /dashboard/packages.
 function ServicesPanel({ roots, notesMap, t }) {
-  if (!roots || roots.length === 0) return null
+  const rows = (roots || [])
+    .map((node) => ({ node, links: httpsNotes(notesMap[node.package_identifier]) }))
+    .filter(({ links }) => links.length > 0)
+
+  if (rows.length === 0) return null
 
   return (
     <Card>
@@ -192,17 +141,52 @@ function ServicesPanel({ roots, notesMap, t }) {
         <CardTitle className="text-sm font-medium">{t('dashboard.services_title')}</CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="space-y-1">
-          {roots.map((node) => (
-            <ServiceTreeRow
-              key={node.package_identifier}
-              node={node}
-              depth={0}
-              notesMap={notesMap}
-              t={t}
-            />
-          ))}
-        </div>
+        <Table>
+          <TableBody>
+            {rows.map(({ node, links }) => {
+              const displayId = node.display_identifier || node.package_identifier
+              const parsed = parsePackageIdentifier(displayId)
+              const displayName = parsed ? parsed.name : displayId
+              return (
+                <TableRow key={node.package_identifier}>
+                  <TableCell className="w-8 py-2">
+                    <Link
+                      to="/dashboard/system"
+                      aria-label={t('dashboard.services_status_label', { name: displayName, state: node.ActiveState })}
+                    >
+                      <StatusIcon state={node.ActiveState} />
+                    </Link>
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <Link
+                      to="/dashboard/packages"
+                      className="font-mono text-sm font-medium underline-offset-2 hover:underline"
+                    >
+                      {displayName}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="py-2 text-right">
+                    <div className="flex flex-col items-end gap-0.5">
+                      {links.map(({ label, value }) => (
+                        <a
+                          key={label}
+                          href={value}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2"
+                        >
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                          <span className="text-muted-foreground">{label}:</span>
+                          <span className="font-mono">{value}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   )

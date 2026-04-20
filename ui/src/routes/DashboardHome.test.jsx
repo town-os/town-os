@@ -216,7 +216,7 @@ describe('DashboardHome', () => {
     })
   })
 
-  it('displays installed services panel with service names', async () => {
+  it('displays installed services panel listing services with URL notes', async () => {
     mockUnitsResponse = {
       entries: [
         { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: 'Web server' },
@@ -224,11 +224,32 @@ describe('DashboardHome', () => {
       ],
     }
     mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation((_repo, name) => {
+      if (name === 'nginx') return Promise.resolve({ notes: { 'Web UI': 'https://nginx.example.com' }, note_types: { 'Web UI': 'url' } })
+      if (name === 'redis') return Promise.resolve({ notes: { 'Admin': 'https://redis.example.com' }, note_types: { 'Admin': 'url' } })
+      return Promise.resolve({ notes: {}, note_types: {} })
+    })
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('nginx')).toBeTruthy()
       expect(screen.getByText('redis')).toBeTruthy()
     })
+  })
+
+  it('hides services that have no URL notes', async () => {
+    mockUnitsResponse = {
+      entries: [
+        { Name: 'town-os-package--default-nolinks-1.0.service', package_identifier: 'default/nolinks@1.0', ActiveState: 'active', package_description: 'Headless service' },
+      ],
+    }
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({ notes: {}, note_types: {} }))
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Dashboard')).toBeTruthy()
+    })
+    expect(screen.queryByText('Installed Services')).toBeNull()
+    expect(screen.queryByText('nolinks')).toBeNull()
   })
 
   it('does not show services panel when no units', async () => {
@@ -309,7 +330,7 @@ describe('DashboardHome', () => {
     expect(link.getAttribute('target')).toBe('_blank')
   })
 
-  it('hides non-https URL notes from the dashboard row', async () => {
+  it('hides services whose only notes are non-https URLs', async () => {
     mockUnitsResponse = {
       entries: [
         { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
@@ -322,12 +343,13 @@ describe('DashboardHome', () => {
     }))
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText('myapp')).toBeTruthy()
+      expect(screen.getByText('Dashboard')).toBeTruthy()
     })
+    expect(screen.queryByText('myapp')).toBeNull()
     expect(screen.queryByText('http://myapp.example.com')).toBeNull()
   })
 
-  it('hides non-URL notes (email, phone) from the dashboard row', async () => {
+  it('hides services whose only notes are non-URL (email, phone)', async () => {
     mockUnitsResponse = {
       entries: [
         { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
@@ -340,8 +362,9 @@ describe('DashboardHome', () => {
     }))
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText('myapp')).toBeTruthy()
+      expect(screen.getByText('Dashboard')).toBeTruthy()
     })
+    expect(screen.queryByText('myapp')).toBeNull()
     expect(screen.queryByText('help@example.com')).toBeNull()
     expect(screen.queryByText('+1-555-0100')).toBeNull()
   })
@@ -353,6 +376,10 @@ describe('DashboardHome', () => {
       ],
     }
     mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
+      notes: { 'Web UI': 'https://nginx.example.com' },
+      note_types: { 'Web UI': 'url' },
+    }))
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('nginx')).toBeTruthy()
@@ -369,12 +396,20 @@ describe('DashboardHome', () => {
       ],
     }
     mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
+      notes: { 'Web UI': 'https://nginx.example.com' },
+      note_types: { 'Web UI': 'url' },
+    }))
     renderDashboard()
     const statusLink = await screen.findByRole('link', { name: 'nginx status: active' })
     expect(statusLink.getAttribute('href')).toBe('/dashboard/system')
   })
 
-  it('nests dependency sub-packages under the parent in the services panel', async () => {
+  it('omits dependency sub-packages from the services panel', async () => {
+    // Deps are internal plumbing — the dashboard panel only surfaces
+    // user-visible root services that expose a URL. Even when a dep has
+    // its own URL notes (rare but possible), the panel must not list it
+    // separately from its parent root.
     mockUnitsResponse = {
       entries: [
         {
@@ -392,59 +427,46 @@ describe('DashboardHome', () => {
               package_description: '',
               children: [],
             },
-            {
-              Name: 'town-os-package--default-jitsi--dep--jicofo-1.0.service',
-              package_identifier: 'default/jitsi--dep--jicofo@1.0',
-              display_identifier: 'default/jitsi/jicofo@1.0',
-              ActiveState: 'active',
-              package_description: '',
-              children: [],
-            },
           ],
         },
       ],
     }
     mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation((_repo, name) => {
+      if (name === 'jitsi') return Promise.resolve({ notes: { 'Web UI': 'https://jitsi.example.com' }, note_types: { 'Web UI': 'url' } })
+      return Promise.resolve({ notes: {}, note_types: {} })
+    })
     renderDashboard()
-    // Root and both deps render, using their pretty display identifiers.
     await waitFor(() => {
       expect(screen.getByText('jitsi')).toBeTruthy()
     })
-    expect(screen.getByText('jitsi/prosody')).toBeTruthy()
-    expect(screen.getByText('jitsi/jicofo')).toBeTruthy()
-    // Raw flat dep identifiers must never leak into the UI.
+    // Dep row must not appear in the panel — not as pretty form, not as
+    // the raw --dep-- form.
+    expect(screen.queryByText('jitsi/prosody')).toBeNull()
     expect(screen.queryByText('jitsi--dep--prosody')).toBeNull()
-    expect(screen.queryByText('jitsi--dep--jicofo')).toBeNull()
   })
 
-  it('indents dep rows deeper than their parent row', async () => {
+  it('renders each URL on the right of its service row', async () => {
     mockUnitsResponse = {
       entries: [
-        {
-          Name: 'town-os-package--default-jitsi-1.0.service',
-          package_identifier: 'default/jitsi@1.0',
-          display_identifier: 'default/jitsi@1.0',
-          ActiveState: 'active',
-          package_description: '',
-          children: [
-            {
-              Name: 'town-os-package--default-jitsi--dep--prosody-1.0.service',
-              package_identifier: 'default/jitsi--dep--prosody@1.0',
-              display_identifier: 'default/jitsi/prosody@1.0',
-              ActiveState: 'active',
-              package_description: '',
-              children: [],
-            },
-          ],
-        },
+        { Name: 'town-os-package--default-myapp-1.0.service', package_identifier: 'default/myapp@1.0', ActiveState: 'active', package_description: '' },
       ],
     }
     mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
+      notes: { 'Web UI': 'https://myapp.example.com', 'Admin': 'https://admin.myapp.example.com' },
+      note_types: { 'Web UI': 'url', 'Admin': 'url' },
+    }))
     renderDashboard()
-    const parentRow = (await screen.findByText('jitsi')).closest('div[style]')
-    const depRow = (await screen.findByText('jitsi/prosody')).closest('div[style]')
-    const parentPad = parseInt(parentRow.style.paddingLeft, 10)
-    const depPad = parseInt(depRow.style.paddingLeft, 10)
-    expect(depPad).toBeGreaterThan(parentPad)
+    // Both URLs render, each as its own anchor pointing at the note
+    // value. Row order is irrelevant — we only assert both links
+    // belong to the same myapp row.
+    await waitFor(() => {
+      expect(screen.getByText('myapp')).toBeTruthy()
+    })
+    const webLink = screen.getByText('https://myapp.example.com').closest('a')
+    const adminLink = screen.getByText('https://admin.myapp.example.com').closest('a')
+    expect(webLink.getAttribute('href')).toBe('https://myapp.example.com')
+    expect(adminLink.getAttribute('href')).toBe('https://admin.myapp.example.com')
   })
 })
