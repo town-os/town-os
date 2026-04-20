@@ -499,11 +499,25 @@ describe('SystemManagement', () => {
     delete window.location
     window.location = { ...origLocation, reload: reloadSpy, href: 'http://localhost/' }
 
-    const fetchSpy = vi.fn()
-    // First call during poll: UI not back yet.
-    fetchSpy.mockRejectedValueOnce(new Error('network error'))
-    // Second call during poll: UI back.
-    fetchSpy.mockResolvedValueOnce({ ok: true })
+    // Route fetch by URL. The refresh flow mounts BootStatusStepper,
+    // which hits /boot-status and reconnects indefinitely; those
+    // requests must not consume the staged UI-container probes.
+    let uiProbeCall = 0
+    const fetchSpy = vi.fn().mockImplementation(async (url) => {
+      const u = typeof url === 'string' ? url : url?.url ?? ''
+      if (u.includes('/boot-status')) {
+        // BootStatusStepper subscription — always reject so the
+        // stepper stays in "reconnecting" state; it has its own retry
+        // loop and does not affect the reload decision.
+        throw new Error('boot-status unavailable in test')
+      }
+      if (u === 'http://localhost/') {
+        uiProbeCall += 1
+        if (uiProbeCall === 1) throw new Error('network error')
+        return { ok: true }
+      }
+      throw new Error('unexpected fetch URL: ' + u)
+    })
     const origFetch = globalThis.fetch
     globalThis.fetch = fetchSpy
 

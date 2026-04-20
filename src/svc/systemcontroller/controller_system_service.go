@@ -15,6 +15,13 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// RestartPendingMarkerFilename is the sentinel file the refresh handler
+// writes into <btrfsBase> right before scheduling the systemcontroller's
+// own self-restart. On the next boot the systemcontroller reads, acts
+// on, and removes it. The act is: restart every installed package unit
+// serially so the new systemcontroller inherits a fresh set of children.
+const RestartPendingMarkerFilename = "town-os-restart-pending"
+
 // SystemServiceEntry is a system service enriched with live unit status.
 type SystemServiceEntry struct {
 	systemd.UnitStatus
@@ -169,7 +176,11 @@ func (s *SystemControllerHandlers) listSystemServices(c *echo.Context) error {
 // pullImage pulls a container image using podman. CONTAINER_HOST is
 // set at systemcontroller startup so the pull hits the host's podman
 // socket instead of the systemcontroller container's isolated storage.
-func pullImage(ctx context.Context, image string) error {
+//
+// Declared as a package-level variable so integration tests can
+// substitute a no-op implementation and drive refreshSystemServices
+// without needing a live podman daemon in the test environment.
+var pullImage = func(ctx context.Context, image string) error {
 	out, err := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from system service config
 	if err != nil {
 		return fmt.Errorf("podman pull %s: %w: %s", image, err, string(out))
@@ -241,6 +252,19 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 				}
 			}
 		}
+	}
+
+	// Drop the freshness marker BEFORE scheduling self-restart. On the
+	// next boot RunFreshnessStage reads this marker and restarts every
+	// installed package serially so the new process inherits a freshly
+	// started child set. Writing after the delayed restart would race
+	// the restart — the old process could exit with the file not yet
+	// on disk.
+	if err := WriteRestartPendingMarker(s.Controller.GetBtrfsBasePath()); err != nil {
+		// Non-fatal: the refresh still happens, just without the
+		// freshness restart on next boot.
+		slog.Warn("write restart-pending marker",
+			slog.String("err", err.Error()))
 	}
 
 	// Schedule systemcontroller restart in a goroutine with 1s delay.

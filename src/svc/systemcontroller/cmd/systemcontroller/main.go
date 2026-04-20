@@ -78,6 +78,29 @@ func run() (err error) {
 		}
 	}
 
+	// Bind :5309 immediately with a minimal boot-status handler so the
+	// UI can observe the boot sequence as it runs. The handler is
+	// swapped to the full Echo router at the very end of this function;
+	// the listener socket itself is never closed across the swap, so
+	// in-flight SSE subscribers on /boot-status survive the handoff.
+	bs := systemcontroller.NewBootStatus()
+	defer bs.Done() // safety net — if bootPhase fails below, close the stream cleanly
+	rootHandler := systemcontroller.NewRootHandler(systemcontroller.NewBootHandler(bs))
+	srv := &http.Server{
+		Addr:              *listenAddr,
+		Handler:           rootHandler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	listenErrCh := make(chan error, 1)
+	go func() {
+		listenErr := srv.ListenAndServe()
+		if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
+			listenErrCh <- listenErr
+		}
+		close(listenErrCh)
+	}()
+
+	bs.Step("setup_temp_dir")
 	dir, err := os.MkdirTemp("", "systemcontroller-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -90,6 +113,7 @@ func run() (err error) {
 	}()
 
 	// Ensure required directories exist.
+	bs.Step("create_dirs")
 	for _, d := range []string{*btrfsPath, *networkStatePath} {
 		if d != "" {
 			if err := os.MkdirAll(d, 0750); err != nil {
@@ -116,6 +140,7 @@ func run() (err error) {
 		}
 	}
 
+	bs.Step("open_db")
 	db, err := account.OpenDB(dbFile)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
@@ -124,11 +149,13 @@ func run() (err error) {
 		err = errors.Join(err, db.Close())
 	}()
 
+	bs.Step("init_account_mgr")
 	acctMgr, err := account.InitManager(db)
 	if err != nil {
 		return fmt.Errorf("init account manager: %w", err)
 	}
 
+	bs.Step("init_session_mgr")
 	signingKey, err := generateSigningKey()
 	if err != nil {
 		return fmt.Errorf("signing key: %w", err)
@@ -138,11 +165,13 @@ func run() (err error) {
 		return fmt.Errorf("init session manager: %w", err)
 	}
 
+	bs.Step("init_audit_mgr")
 	auditMgr, err := account.InitAuditManager(db)
 	if err != nil {
 		return fmt.Errorf("init audit manager: %w", err)
 	}
 
+	bs.Step("init_settings_mgr")
 	settingsMgr, err := account.InitSettingsManager(db)
 	if err != nil {
 		return fmt.Errorf("init settings manager: %w", err)
@@ -150,6 +179,7 @@ func run() (err error) {
 
 	var pagesMgr account.PagesManager
 	if os.Getenv("TOWN_OS_PAGES") != "" {
+		bs.Step("init_pages_mgr")
 		pagesMgr, err = account.InitPagesManager(db)
 		if err != nil {
 			return fmt.Errorf("init pages manager: %w", err)
@@ -165,6 +195,7 @@ func run() (err error) {
 		}
 	}
 
+	bs.Step("seed_repositories")
 	repoFile := filepath.Join(repoBase, packages.RepositoriesFile)
 	_, err = os.Stat(repoFile)
 	if os.IsNotExist(err) {
@@ -194,6 +225,7 @@ func run() (err error) {
 			return fmt.Errorf("write repositories file: %w", err)
 		}
 	}
+	bs.Step("init_repo_root")
 	rr, err := packages.RepositoryRootFromBase(repoBase)
 	if err != nil {
 		return fmt.Errorf("init repository root: %w", err)
@@ -253,6 +285,7 @@ func run() (err error) {
 		rolImage = "quay.io/town/rolodex:" + tag
 	}
 
+	bs.Step("write_rolodex_config")
 	rolDataDir := filepath.Join(*btrfsPath, "rolodex")
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
@@ -278,6 +311,7 @@ func run() (err error) {
 	}
 
 	// Wait for DNS readiness.
+	bs.Step("wait_rolodex_dns")
 	if err := rolMgr.WaitForDNSReady(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
 	}
@@ -313,6 +347,7 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "btrfs disk device discovery: %v\n", diskErr)
 	}
 
+	bs.Step("pull_images")
 	// Pull container images in parallel (non-fatal). The NC image is
 	// included here so the systemd units that reference it have a loaded
 	// image ready before they start. Every package NC unit also includes
@@ -331,6 +366,7 @@ func run() (err error) {
 	}
 	parallelEnsureImages(ctx, coreImages)
 
+	bs.Step("start_monitoring")
 	// Start monitoring system services in parallel (all non-fatal). NC
 	// image is already loaded above, so the per-service NC units can come
 	// up without a race. Each StartX encapsulates its own NC unit install
@@ -383,6 +419,7 @@ func run() (err error) {
 	versionFile := filepath.Join(*btrfsPath, "town-os-version")
 	versionChanged := detectVersionChange(ctx, versionFile)
 
+	bs.Step("reconcile")
 	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
 		Installer:              inst,
 		RepositoryRoot:         rr,
@@ -414,6 +451,7 @@ func run() (err error) {
 	// Persist current image SHA so the next startup can detect changes.
 	persistVersion(ctx, versionFile)
 
+	bs.Step("reconcile_dns")
 	// Reconcile DNS state: set up TLD zone and register records for all
 	// installed packages. This runs after rolodex is started so the gRPC
 	// socket is available.
@@ -450,6 +488,7 @@ func run() (err error) {
 		}
 	}
 
+	bs.Step("start_ui_container")
 	// Start the UI container (Caddy web server). Skipped when UI_IMAGE
 	// is empty (dev mode — bun serves the UI directly).
 	var uiMgr *ui.Manager
@@ -463,6 +502,20 @@ func run() (err error) {
 		}
 	}
 
+	// Freshness stage: if the refresh handler left a marker in the
+	// previous process, restart every installed package unit serially
+	// so the new systemcontroller sees freshly-started children.
+	// Per-package events are emitted so the UI can render rolling
+	// progress. A stale marker left by a crash is harmless (worst case
+	// one extra restart cycle on next boot).
+	if failed, freshErr := systemcontroller.RunFreshnessStage(ctx, bs, inst, sd, *btrfsPath); freshErr != nil {
+		fmt.Fprintf(os.Stderr, "freshness stage: %v\n", freshErr)
+	} else if len(failed) > 0 {
+		fmt.Fprintf(os.Stderr, "freshness stage: %d package(s) failed to restart: %s\n",
+			len(failed), strings.Join(failed, ", "))
+	}
+
+	bs.Step("build_handler")
 	handler := systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{
 		Storage:                    st,
 		RepositoryRoot:             rr,
@@ -488,11 +541,14 @@ func run() (err error) {
 		SystemControllerListenAddr: *listenAddr,
 	})
 
-	srv := &http.Server{
-		Addr:              *listenAddr,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	// Atomically swap the root handler from the boot-status stub to the
+	// full Echo router. The listener socket has been bound the entire
+	// time, so no port flap occurs; SSE subscribers on /boot-status
+	// survive the swap and keep streaming until the BootStatus stream
+	// closes via Done below.
+	rootHandler.Swap(handler)
+	bs.Step("ready")
+	bs.Done()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
@@ -509,9 +565,12 @@ func run() (err error) {
 	}()
 
 	fmt.Fprintf(os.Stderr, "systemcontroller: listening on %s\n", *listenAddr)
-	err = srv.ListenAndServe()
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("listen: %w", err)
+	// The HTTP server was started in a goroutine at the top of run().
+	// Block here until it exits (normal shutdown via SIGINT closes the
+	// error channel with no value; a bind/listen failure sends a
+	// non-nil error).
+	if listenErr, ok := <-listenErrCh; ok && listenErr != nil {
+		return fmt.Errorf("listen: %w", listenErr)
 	}
 
 	return nil

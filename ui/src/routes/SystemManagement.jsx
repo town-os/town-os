@@ -5,6 +5,7 @@ import { useRequireAuth, usePolling } from '@/lib/hooks.js'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import JournalViewer from '@/components/JournalViewer.jsx'
 import PackageServiceTree from '@/components/system/PackageServiceTree.jsx'
+import BootStatusStepper from '@/components/system/BootStatusStepper.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
@@ -35,7 +36,6 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
-  Loader2,
 } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 
@@ -494,9 +494,9 @@ export default function SystemManagement() {
             <DialogDescription className="sr-only">{t('system.refresh_dialog_title')}</DialogDescription>
           </DialogHeader>
           {refreshing ? (
-            <div className="flex flex-col items-center gap-4 py-6">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="space-y-3 py-2">
               <p className="text-sm text-muted-foreground">{t('system.refresh_in_progress')}</p>
+              <BootStatusStepper baseURL={getClient().baseURL} />
             </div>
           ) : (
             <>

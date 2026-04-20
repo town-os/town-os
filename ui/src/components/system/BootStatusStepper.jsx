@@ -1,0 +1,163 @@
+import { useEffect, useRef, useState } from 'react'
+import { useI18n } from '@/i18n/I18nContext.jsx'
+import { CheckCircle2, Circle, Loader2, AlertTriangle } from 'lucide-react'
+import { observeBootStatus } from '@/api/client-boot.js'
+import { bootSteps } from './boot-steps.js'
+
+const REFRESH_PREFIX = 'refreshing_'
+const MDNS_HINT_DELAY_MS = 60_000
+
+/**
+ * Render a vertical stepper driven by a live /boot-status SSE stream.
+ *
+ * Props:
+ *   baseURL      — systemcontroller URL passed to observeBootStatus.
+ *   onComplete   — called once when the stream emits `{done:true}`.
+ *   onError      — called if the stream reports an error frame.
+ *   hostname     — hostname shown in the mDNS reconnect hint. Falls
+ *                  back to window.location.hostname.
+ *
+ * The stepper owns the subscription lifecycle: on mount it starts
+ * observing; on unmount it aborts. It also surfaces a "reconnecting
+ * in Ns" indicator while the stream is disconnected and a secondary
+ * mDNS-cache hint after MDNS_HINT_DELAY_MS of total disconnection
+ * (users on *.local hostnames sometimes see their browser staple to
+ * a stale address after a full hardware reboot — the only safe
+ * remedy from JS is reminding the user to reload).
+ */
+export default function BootStatusStepper({ baseURL, onComplete, onError, hostname }) {
+  const { t } = useI18n()
+  const [currentStep, setCurrentStep] = useState(null)
+  const [refreshingName, setRefreshingName] = useState(null)
+  const [errorMsg, setErrorMsg] = useState(null)
+  const [reconnectIn, setReconnectIn] = useState(null) // ms until retry, or null when connected
+  const [showMdnsHint, setShowMdnsHint] = useState(false)
+  const mdnsTimerRef = useRef(null)
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+
+    observeBootStatus({
+      baseURL,
+      signal: ctrl.signal,
+      onEvent: (evt) => {
+        if (evt.error) {
+          setErrorMsg(evt.error)
+          if (onError) onError(evt.error)
+          return
+        }
+        if (evt.done) {
+          setCurrentStep('ready')
+          if (onComplete) onComplete()
+          return
+        }
+        if (typeof evt.step === 'string') {
+          // Connected, cancel the "reconnecting" indicator.
+          setReconnectIn(null)
+          if (mdnsTimerRef.current) {
+            clearTimeout(mdnsTimerRef.current)
+            mdnsTimerRef.current = null
+          }
+          setShowMdnsHint(false)
+
+          if (evt.step.startsWith(REFRESH_PREFIX)) {
+            setRefreshingName(evt.step.slice(REFRESH_PREFIX.length))
+            setCurrentStep('refresh_packages')
+          } else {
+            setRefreshingName(null)
+            setCurrentStep(evt.step)
+          }
+        }
+      },
+      onDisconnect: (ms) => {
+        setReconnectIn(ms)
+        if (!mdnsTimerRef.current) {
+          mdnsTimerRef.current = setTimeout(() => setShowMdnsHint(true), MDNS_HINT_DELAY_MS)
+        }
+      },
+    })
+
+    return () => {
+      ctrl.abort()
+      if (mdnsTimerRef.current) {
+        clearTimeout(mdnsTimerRef.current)
+        mdnsTimerRef.current = null
+      }
+    }
+    // baseURL/callbacks are stable in practice; intentionally exclude
+    // to avoid resubscribing on every parent re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseURL])
+
+  const currentIndex = currentStep ? bootSteps.indexOf(currentStep) : -1
+
+  return (
+    <div className="space-y-3" data-testid="boot-status-stepper">
+      <ol className="space-y-1" aria-label="boot-progress">
+        {bootSteps.map((step, idx) => {
+          const state = stateFor(idx, currentIndex, Boolean(errorMsg))
+          const label = step === 'refresh_packages' && refreshingName
+            ? t('boot.label.refreshing_pkg', { name: refreshingName })
+            : t(`boot.label.${step}`)
+          return (
+            <li key={step} className="flex items-center gap-2 text-sm" data-step={step} data-state={state}>
+              <StepIcon state={state} />
+              <span className={state === 'pending' ? 'text-muted-foreground' : ''}>{label}</span>
+            </li>
+          )
+        })}
+      </ol>
+
+      {reconnectIn !== null && !errorMsg && (
+        <div
+          className="flex items-center gap-2 rounded-md bg-muted p-3 text-sm text-muted-foreground"
+          data-testid="boot-reconnect-banner"
+        >
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {t('boot.label.reconnecting', { seconds: Math.ceil(reconnectIn / 1000) })}
+        </div>
+      )}
+
+      {showMdnsHint && !errorMsg && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950"
+          data-testid="boot-mdns-hint"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>{t('boot.label.mdns_hint', { hostname: hostname || globalThis.location?.hostname || 'host' })}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-destructive bg-destructive/10 p-3 text-sm"
+          data-testid="boot-error-banner"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function stateFor(idx, currentIndex, hasError) {
+  if (hasError && idx === currentIndex) return 'error'
+  if (currentIndex < 0) return 'pending'
+  if (idx < currentIndex) return 'done'
+  if (idx === currentIndex) return 'in_progress'
+  return 'pending'
+}
+
+function StepIcon({ state }) {
+  switch (state) {
+    case 'done':
+      return <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" aria-label="done" />
+    case 'in_progress':
+      return <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" aria-label="in-progress" />
+    case 'error':
+      return <AlertTriangle className="h-4 w-4 text-destructive shrink-0" aria-label="error" />
+    default:
+      return <Circle className="h-4 w-4 text-muted-foreground shrink-0" aria-label="pending" />
+  }
+}
