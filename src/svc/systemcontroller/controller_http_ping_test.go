@@ -198,6 +198,68 @@ func TestHTTPPingNeedsSetup(t *testing.T) {
 	}
 }
 
+// TestHTTPPingAvoidsQuotaLookupsPerSubvolume pins the perf invariant: the
+// /status/ping handler must not call `btrfs qgroup show` (a fork+exec) per
+// subvolume. Prior to the FilesystemNames refactor, the handler used
+// ListFilesystems which invoked SubvolID + QGroupShow for every volume,
+// turning the endpoint into a 1.4–1.6 s wait on production hosts.
+func TestHTTPPingAvoidsQuotaLookupsPerSubvolume(t *testing.T) {
+	mock := storage.InitBtrFSMock()
+	ctrl, ok := mock.Controller.(*storage.MockBtrFSController)
+	if !ok {
+		t.Fatal("expected MockBtrFSController")
+	}
+
+	// Seed the subvolume list directly so the fixture contains only the
+	// leaf volumes we want to classify (CreateFilesystem would also create
+	// intermediate subvolumes, which just muddles the counts here).
+	ctrl.Lock.Lock()
+	ctrl.Filesystems = nil
+	for _, n := range []string{
+		"user/alice",
+		"user/bob",
+		"installed/default/nginx/1.0/data",
+		"installed/default/nginx/1.0/logs",
+		"uninstalled/default/redis/1.0/data",
+	} {
+		ctrl.NextID++
+		ctrl.Filesystems = append(ctrl.Filesystems, storage.SubvolInfo{Name: n, ID: ctrl.NextID})
+	}
+	ctrl.Call = nil
+	ctrl.Lock.Unlock()
+
+	ts := InitTestServer(ServerConfig{Storage: mock})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+
+	ping, err := c.Ping(context.TODO())
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	// Counts still correct.
+	if ping.Filesystems != 2 {
+		t.Errorf("Filesystems: want 2, got %d", ping.Filesystems)
+	}
+	if ping.InstalledVolumes != 2 {
+		t.Errorf("InstalledVolumes: want 2, got %d", ping.InstalledVolumes)
+	}
+	if ping.UninstalledVolumes != 1 {
+		t.Errorf("UninstalledVolumes: want 1, got %d", ping.UninstalledVolumes)
+	}
+
+	// Ping must not have triggered per-subvolume quota lookups.
+	for _, call := range ctrl.GetLog() {
+		if call.Operation == "QGroupShow" || call.Operation == "SubvolID" {
+			t.Errorf("/status/ping triggered %s (args=%v); quota lookups are forbidden on this hot path", call.Operation, call.Arguments)
+		}
+	}
+}
+
 func TestHTTPPingContinuesOnListFilesystemsError(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	ctrl, ok := mock.Controller.(*storage.MockBtrFSController)

@@ -503,6 +503,25 @@ func (b *BtrFS) ListFilesystems(prefix string) ([]Filesystem, error) {
 	return fs, nil
 }
 
+func (b *BtrFS) FilesystemNames(prefix string) ([]string, error) {
+	info, err := b.Controller.SubvolList(b.BasePath)
+	if err != nil {
+		if errors.Is(err, ErrMountNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	names := make([]string, 0, len(info))
+	for _, item := range info {
+		if prefix != "" && !strings.HasPrefix(item.Name, prefix) {
+			continue
+		}
+		names = append(names, item.Name)
+	}
+	return names, nil
+}
+
 func (b *BtrFS) DiskUsage() (_ DiskUsage, err error) {
 	if b.DiskUsageOverride != nil {
 		return *b.DiskUsageOverride, nil

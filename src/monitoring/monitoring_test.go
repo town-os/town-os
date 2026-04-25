@@ -689,6 +689,9 @@ func (f *failingStorage) RemoveFilesystem(_ string) error { return storage.ErrUn
 func (f *failingStorage) ListFilesystems(_ string) ([]storage.Filesystem, error) {
 	return nil, storage.ErrUnimplemented
 }
+func (f *failingStorage) FilesystemNames(_ string) ([]string, error) {
+	return nil, storage.ErrUnimplemented
+}
 func (f *failingStorage) RenameFilesystem(_, _ string) error   { return storage.ErrUnimplemented }
 func (f *failingStorage) SnapshotFilesystem(_, _ string) error { return storage.ErrUnimplemented }
 func (f *failingStorage) DiskUsage() (storage.DiskUsage, error) {

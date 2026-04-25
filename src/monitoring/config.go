@@ -5,12 +5,22 @@ import (
 	"strings"
 )
 
+// GrafanaDatasourceUID is the pinned uid of the provisioned Prometheus
+// datasource. Dashboard panel targets reference it via the object-form
+// datasource ref ({"type":"prometheus","uid":GrafanaDatasourceUID}); the
+// Grafana 13+ frontend cannot resolve legacy string-form refs like
+// "Prometheus" in panel targets, so pinning a stable uid here and in the
+// dashboard JSON is the single source of truth that keeps panel queries
+// wired to the datasource across restarts and reprovisioning.
+const GrafanaDatasourceUID = "townos-prometheus"
+
 // GrafanaDatasourceYAML returns the Grafana datasource provisioning YAML
 // that auto-configures Prometheus as the default data source.
 func GrafanaDatasourceYAML(prometheusHost string) string {
 	return `apiVersion: 1
 datasources:
   - name: Prometheus
+    uid: ` + GrafanaDatasourceUID + `
     type: prometheus
     access: proxy
     url: http://` + prometheusHost + `:9090
@@ -105,8 +115,8 @@ const townOSOverviewDashboardTemplate = `{
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
-        { "datasource": "Prometheus", "expr": "%s", "legendFormat": "Read", "refId": "A" },
-        { "datasource": "Prometheus", "expr": "%s", "legendFormat": "Write", "refId": "B" }
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "%s", "legendFormat": "Read", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "%s", "legendFormat": "Write", "refId": "B" }
       ],
       "title": "Disk I/O (/town-os)",
       "transparent": true,
@@ -136,8 +146,8 @@ const townOSOverviewDashboardTemplate = `{
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
-        { "datasource": "Prometheus", "expr": "(rate(node_network_receive_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) and on (device) (node_network_up == 1)) * 8", "legendFormat": "{{device}} Rx", "refId": "A" },
-        { "datasource": "Prometheus", "expr": "(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) and on (device) (node_network_up == 1)) * 8", "legendFormat": "{{device}} Tx", "refId": "B" }
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "(rate(node_network_receive_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) and on (device) (node_network_up == 1)) * 8", "legendFormat": "{{device}} Rx", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|podman.*|cni.*|tailscale.*|br-.*|docker.*\"}[$__rate_interval]) and on (device) (node_network_up == 1)) * 8", "legendFormat": "{{device}} Tx", "refId": "B" }
       ],
       "title": "Network (External)",
       "transparent": true,
@@ -178,8 +188,8 @@ const townOSOverviewDashboardTemplate = `{
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
-        { "datasource": "Prometheus", "expr": "sum by (mode) (rate(node_cpu_seconds_total{mode=~\"user|system|iowait|irq|softirq|steal|nice\"}[$__rate_interval])) * 100 / scalar(count(node_cpu_seconds_total{mode=\"user\"}))", "legendFormat": "{{mode}}", "refId": "A" },
-        { "datasource": "Prometheus", "expr": "(1 - sum(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])) / scalar(count(node_cpu_seconds_total{mode=\"user\"}))) * 100", "legendFormat": "Total", "refId": "B" }
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "sum by (mode) (rate(node_cpu_seconds_total{mode=~\"user|system|iowait|irq|softirq|steal|nice\"}[$__rate_interval])) * 100 / scalar(count(node_cpu_seconds_total{mode=\"user\"}))", "legendFormat": "{{mode}}", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "(1 - sum(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])) / scalar(count(node_cpu_seconds_total{mode=\"user\"}))) * 100", "legendFormat": "Total", "refId": "B" }
       ],
       "title": "CPU Usage",
       "transparent": true,
@@ -218,9 +228,9 @@ const townOSOverviewDashboardTemplate = `{
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
-        { "datasource": "Prometheus", "expr": "node_memory_MemTotal_bytes", "legendFormat": "Total", "refId": "A" },
-        { "datasource": "Prometheus", "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes", "legendFormat": "Used", "refId": "B" },
-        { "datasource": "Prometheus", "expr": "node_memory_MemAvailable_bytes", "legendFormat": "Available", "refId": "C" }
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "node_memory_MemTotal_bytes", "legendFormat": "Total", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes", "legendFormat": "Used", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "townos-prometheus" }, "expr": "node_memory_MemAvailable_bytes", "legendFormat": "Available", "refId": "C" }
       ],
       "title": "Memory Usage",
       "transparent": true,

@@ -65,14 +65,14 @@ export default function DNSManagement() {
     () => getClient().dnsStatus().catch(() => null),
     null,
     [refreshKey],
-    15000,
+    60000,
   )
 
   const [records, , recordsLoading] = usePolling(
     () => getClient().listDNSRecords().catch(() => []),
     [],
     [refreshKey],
-    15000,
+    60000,
   )
 
   const [removedRecords, setRemovedRecords] = useState([])

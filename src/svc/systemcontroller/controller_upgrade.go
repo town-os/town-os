@@ -22,13 +22,24 @@ type PackageUpgrade struct {
 
 func (s *SystemControllerHandlers) computeUpgrades() []PackageUpgrade {
 	inst := s.Controller.GetInstaller()
-	rr := s.Controller.GetRepositoryRoot()
-	if inst == nil || rr == nil {
+	if inst == nil {
 		return nil
 	}
-
 	installed, err := inst.ListInstalled()
 	if err != nil {
+		return nil
+	}
+	return s.computeUpgradesFromList(installed)
+}
+
+// computeUpgradesFromList is the same as computeUpgrades but skips the
+// inst.ListInstalled() call when the caller already has the list. The ping
+// handler reuses its own installed list here to avoid a second filesystem
+// walk per request.
+func (s *SystemControllerHandlers) computeUpgradesFromList(installed []string) []PackageUpgrade {
+	inst := s.Controller.GetInstaller()
+	rr := s.Controller.GetRepositoryRoot()
+	if inst == nil || rr == nil {
 		return nil
 	}
 

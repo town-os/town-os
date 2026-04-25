@@ -86,7 +86,7 @@ export function useRequireAuth() {
     }
 
     check()
-    const id = setInterval(check, 30000)
+    const id = setInterval(check, 60000)
     return () => clearInterval(id)
   }, [navigate])
 

@@ -36,6 +36,11 @@ type Storage interface {
 	ModifyFilesystem(string, Filesystem) error
 	RemoveFilesystem(string) error
 	ListFilesystems(string) ([]Filesystem, error)
+	// FilesystemNames returns just the names of every subvolume matching
+	// prefix. Unlike ListFilesystems it does not query per-subvolume quota,
+	// so it is the right call for hot paths (e.g. /status/ping) that only
+	// need to count or classify by name.
+	FilesystemNames(prefix string) ([]string, error)
 	RenameFilesystem(oldName, newName string) error
 	SnapshotFilesystem(src, dst string) error
 	DiskUsage() (DiskUsage, error)

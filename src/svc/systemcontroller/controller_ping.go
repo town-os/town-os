@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -53,14 +54,17 @@ type UnitCounts struct {
 func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp := PingResponse{Status: "ok"}
 
-	// NeedsSetup is true only when no enabled admin account exists.
+	// List accounts once; used for NeedsSetup, the total count, and the
+	// admin count. Previously this handler called am.List() twice.
+	var accounts []account.Account
 	if am := s.Controller.GetAccountManager(); am != nil {
-		accounts, err := am.List()
+		list, err := am.List()
 		if err != nil {
 			return err
 		}
+		accounts = list
 		hasAdmin := false
-		for _, a := range accounts {
+		for _, a := range list {
 			if !a.Disabled && a.Admin {
 				hasAdmin = true
 				break
@@ -88,15 +92,21 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	}
 
 	if st := s.Controller.GetStorage(); st != nil {
-		fs, err := st.ListFilesystems("")
+		// Use FilesystemNames, not ListFilesystems: the ping only needs to
+		// classify subvolumes by name. ListFilesystems invokes
+		// `btrfs qgroup show` once per subvolume (plus a rootid lookup),
+		// adding 2N fork+exec per call. At N ~= 30 that was ~1s of the
+		// ping's latency budget — entirely wasted since we never use the
+		// quota here.
+		names, err := st.FilesystemNames("")
 		if err != nil {
-			slog.Error("listing filesystems", "error", err)
+			slog.Error("listing filesystem names", "error", err)
 		}
 		userCount := 0
 		installedVols := 0
 		uninstalledVols := 0
-		for _, f := range fs {
-			state, _ := classifyFilesystem(f.Name)
+		for _, name := range names {
+			state, _ := classifyFilesystem(name)
 			switch state {
 			case "user":
 				userCount++
@@ -134,8 +144,8 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 	}
 
-	// Cache the installed-package list so we only read it once for both
-	// the count and the unit-name set below.
+	// Cache the installed-package list so we only read it once for the
+	// count, the unit-name set below, and computeUpgrades().
 	var installedPackages []string
 	if inst := s.Controller.GetInstaller(); inst != nil {
 		pkgs, err := inst.ListInstalled()
@@ -146,16 +156,10 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		resp.Installed = len(pkgs)
 	}
 
-	if am := s.Controller.GetAccountManager(); am != nil {
-		accounts, err := am.List()
-		if err != nil {
-			return err
-		}
-		resp.Accounts = len(accounts)
-		for _, a := range accounts {
-			if !a.Disabled && a.Admin {
-				resp.Admins++
-			}
+	resp.Accounts = len(accounts)
+	for _, a := range accounts {
+		if !a.Disabled && a.Admin {
+			resp.Admins++
 		}
 	}
 
@@ -229,8 +233,9 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp.PagesEnabled = s.Controller.GetPagesManager() != nil
 	resp.ProtonEnabled = packages.ProtonEnabled()
 
-	// Compute upgrade info.
-	upgrades := s.computeUpgrades()
+	// Compute upgrade info. Reuse the installed list gathered above to
+	// avoid a second fs walk.
+	upgrades := s.computeUpgradesFromList(installedPackages)
 	resp.UpgradesAvailable = len(upgrades)
 	if len(upgrades) > 0 {
 		if mgr := s.Controller.GetSettingsManager(); mgr != nil {

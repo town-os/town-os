@@ -12,7 +12,7 @@ export default function MonitoringDashboard() {
     () => getClient().monitoringStatus().catch(() => null),
     null,
     [],
-    15000,
+    60000,
   )
 
   const backend = status?.backend || 'uplot'

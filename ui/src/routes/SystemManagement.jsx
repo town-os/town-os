@@ -69,7 +69,7 @@ export default function SystemManagement() {
     () => getClient().listSystemServices().catch(() => []),
     [],
     [refreshKey],
-    15000,
+    60000,
   )
 
   useEffect(() => {
