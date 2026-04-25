@@ -832,6 +832,79 @@ dependencies:
       xmppport: "@dep_prosody_port_5222@"
 ```
 
+### Dependency Shared Volumes
+
+Packages in the same dependency tree can share btrfs subvolumes via two-sided opt-in. The dep author marks a volume `shareable: true`; the parent author then declares either an `expose:` block (mount the dep's volume into the parent's container) or a `consume:` block on a different dep (mount one sibling's volume into another sibling's container). Volumes without `shareable: true` cannot be cross-mounted — the install/reconcile pass rejects any reference to a non-shareable volume.
+
+The wiring is a thin layer over the existing `HostVolumeMount` infrastructure: the install path resolves each `expose`/`consume` entry into a podman `-v <hostpath>:<containerpath>:<options>` flag pointing at the producer dep's btrfs subvolume on disk. Reconcile rebuilds the same flags on every boot from the parent's persisted YAML, and `installUnitIfChanged` content-diffing picks up changes automatically — no special restart hook.
+
+**Dep-side opt-in.** A dep declares `shareable: true` per volume:
+
+```yaml
+# radarr/1.0.yaml
+volumes:
+  movies:
+    mountpoint: /movies
+    quota: "@moviesize@"
+    shareable: true     # opt-in: parent or sibling may mount this
+  config:
+    mountpoint: /config  # not shareable; rejected if any parent tries to expose it
+```
+
+**Parent → dep (`expose:`).** A parent's `dependencies.<key>.expose:` map names dep volumes to bind-mount into the parent's container. Each entry takes a container path and an optional `readonly` flag (default `true`, since parents typically just consume dep output):
+
+```yaml
+# plex/1.0.yaml
+dependencies:
+  radarr:
+    package: radarr
+    expose:
+      movies:                  # volume name in radarr's YAML
+        path: /data/movies     # in-container path on Plex
+        readonly: true
+  sonarr:
+    package: sonarr
+    expose:
+      tv:
+        path: /data/tv
+        readonly: true
+```
+
+**Sibling → sibling (`consume:`).** A `dependencies.<key>.consume:` list mounts one sibling dep's volume into THIS dep's container. Each entry takes a `from:` (sibling dep key in the same parent's `dependencies:` map), `volume:` (volume name in the sibling's YAML), `path:` (container path on the consuming dep), and optional `readonly` (default `false`, since sibling-to-sibling sharing typically needs writability — e.g. an *arr importing into a download client's `/downloads`):
+
+```yaml
+# media/1.0.yaml — parent that wires download client + arrs
+dependencies:
+  qbittorrent:
+    package: qbittorrent
+  radarr:
+    package: radarr
+    consume:
+      - from: qbittorrent
+        volume: downloads
+        path: /downloads
+  sonarr:
+    package: sonarr
+    consume:
+      - from: qbittorrent
+        volume: downloads
+        path: /downloads
+```
+
+**Topological install order.** `consume.from` references add edges to the install-time DAG built by `orderDependencies` alongside the existing `@dep_KEY_*@` response references. A dep B that consumes from sibling A is installed strictly after A so A's btrfs subvolume already exists when B's container starts. Cycles among consume edges (A consumes from B; B consumes from A) are a hard error and abort the install before any dep is provisioned. Self-consume (`from:` equals this dep's own key) is rejected at validation time.
+
+**Validation.** Compile-time validation rejects: relative or traversal-bearing mount paths, `consume.from` references to keys not declared in the same `dependencies:` map, self-consume, and duplicate consume paths within one dep. Cross-package validation (`shareable: true` on the producer's matching volume) happens at install/reconcile time when the producer's YAML is loaded — a parent that exposes or consumes a non-shareable volume fails install with `volume %q is not marked shareable on %s`.
+
+**Template path substitution.** `expose.<volname>.path` and `consume[].path` participate in `@question@` substitution exactly like regular volume mountpoints. `consume.from` and `consume.volume` (and `expose` map keys) are identifiers, not data, and are not substituted.
+
+**Permissions caveat — bind mounts pass UID/GID through.** A dep's btrfs subvolume on the host is owned by whatever uid:gid the dep's container created it as. If the dep runs as 1000:1000 (linuxserver/* default) and the consuming parent or sibling runs as a different uid, the consumer gets EACCES on read or write. The fix is in package YAML, not the platform: align `PUID`/`PGID` question defaults across packages that share volumes. The `HostVolumeMount.UID`/`GID` chown line is intentionally non-recursive and only applies when the dep author explicitly sets them on a writable mount; the shared-volume resolver never auto-chowns.
+
+**Template namespace.** A dep's shareable volumes also surface in the file-template `.Dep` namespace as `.Dep.<key>.Volumes.<volname>` (the value is the volume's mountpoint inside the dep's container). This is parallel to `.Dep.<key>.Ports`. Non-shareable volumes are deliberately omitted from the map so file templates cannot reach data the dep author did not opt in to expose.
+
+**Uninstall ordering.** Existing `Before=`/`PartOf=` directives already guarantee parent stops before deps and that deps stop before their producers, so when a parent uninstalls (cascade-uninstalling its deps) the consumer's container is gone before the producer's volume is touched. No new uninstall logic is needed.
+
+**Out of scope.** A dep belongs to exactly one parent (existing invariant); shared volumes do not make deps multi-tenant. Reverse-direction sharing (parent's volume → dep) is not supported in v1; the schema stays extensible if it becomes needed. System services (`town-os-system--*`) do not get this feature — `GenerateSystemServiceUnit` does not consult `expose`/`consume`.
+
 ### Named Ports
 
 Dependency port references can use a semantic name instead of a container-port number. A dep declares the name as a YAML key in `network.external` / `network.internal`; parents reference the same port via `@dep_KEY_port_NAME@`. This keeps the raw port number in exactly one place (the dep that owns it) and lets the parent talk about roles (`sql`, `http`, `admin`) rather than protocol trivia.

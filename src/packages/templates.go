@@ -33,10 +33,14 @@ type TemplateSystemInfo struct {
 // the numeric container port (e.g. "5432") and any semantic port name
 // declared on the dep's network entry (e.g. "sql"), lowercased; the value
 // is the container-side port value — identical under current single-network
-// wiring, but the map permits future remapping without API churn.
+// wiring, but the map permits future remapping without API churn. Volumes
+// maps each shared (`shareable: true`) volume name to its in-dep mountpoint;
+// non-shareable volumes are omitted so file templates cannot reach data the
+// dep author did not opt in to expose.
 type TemplateDep struct {
-	Host  string
-	Ports map[string]string
+	Host    string
+	Ports   map[string]string
+	Volumes map[string]string
 }
 
 // TemplateData is the top-level data object passed to Go text/template

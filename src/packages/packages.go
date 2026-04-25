@@ -164,6 +164,12 @@ type InputPackageVolume struct {
 	Git        string  `yaml:"git,omitempty"`
 	UID        *uint32 `yaml:"uid,omitempty"`
 	GID        *uint32 `yaml:"gid,omitempty"`
+	// Shareable opts the volume in to being bind-mounted into another
+	// package's container in the same dependency tree (parent via
+	// `dependencies.<key>.expose:`, sibling via `dependencies.<key>.consume:`).
+	// Volumes without this flag cannot be referenced as a shared-mount
+	// source — the cross-package install/reconcile pass rejects them.
+	Shareable bool `yaml:"shareable,omitempty"`
 }
 
 type PackageVolume struct {
@@ -173,6 +179,7 @@ type PackageVolume struct {
 	Git        string  `json:"git,omitempty"`
 	UID        *uint32 `json:"uid,omitempty"`
 	GID        *uint32 `json:"gid,omitempty"`
+	Shareable  bool    `json:"shareable,omitempty"`
 }
 
 type InputPackageArchive struct {

@@ -133,6 +133,43 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 			}
 		}
 
+		// Precompute each parent's compiled Dependencies block once
+		// (sequentially, before the parallel per-package loop). The
+		// block carries Expose/Consume specs that drive shared-volume
+		// mounts on both parent and dep units. Compiling here and
+		// reusing the result avoids races between dep and parent
+		// goroutines that would otherwise both want to load the parent.
+		parentDepBlocks := map[repoNameKey]map[string]packages.InputPackageDependency{}
+		tldForCompile := reconcileDNSTLD(cfg.SettingsMgr)
+		for parentKey := range allDeps {
+			pi, ok := byRepoName[parentKey]
+			if !ok {
+				continue
+			}
+			ip, err := cfg.RepositoryRoot.LoadPackage(pi.Repo, pi.Name, pi.Version)
+			if err != nil {
+				slog.Debug(fmt.Sprintf("reconcile: load parent %s/%s@%s for shared volumes: %v", pi.Repo, pi.Name, pi.Version, err))
+				continue
+			}
+			responses, err := cfg.Installer.GetResponses(pi.Repo, pi.Name, pi.Version)
+			if err != nil {
+				slog.Debug(fmt.Sprintf("reconcile: parent responses %s/%s@%s: %v", pi.Repo, pi.Name, pi.Version, err))
+				continue
+			}
+			parentCompiled, err := ip.CompileWithContext(responses, packages.CompileContext{
+				ExternalHost: cfg.ExternalIP,
+				InternalHost: cfg.InternalIP,
+				PackageDNS:   pi.Name + "." + pi.Repo + "." + tldForCompile,
+			})
+			if err != nil {
+				slog.Debug(fmt.Sprintf("reconcile: compile parent %s/%s@%s: %v", pi.Repo, pi.Name, pi.Version, err))
+				continue
+			}
+			if len(parentCompiled.Dependencies) > 0 {
+				parentDepBlocks[parentKey] = parentCompiled.Dependencies
+			}
+		}
+
 		var changedUnits reconcileChangedUnits
 
 		// Phase 1: install and enable every package's units in parallel.
@@ -166,6 +203,17 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 						netInfo.ParentNCUnitName = systemd.NetworkControllerUnitName(pi.Repo, parentName, parentPI.Version)
 					}
 					netInfo.NetworkAlias = packages.DepKey(pi.Name)
+					// Pull this dep's consume[] block from the parent's
+					// compiled Dependencies map (precomputed above).
+					// SiblingDepRecs covers all of the parent's deps so
+					// the dep's reconcile can resolve consume.From keys.
+					if block, ok := parentDepBlocks[parentKey]; ok {
+						myKey := packages.DepKey(pi.Name)
+						if entry, ok := block[myKey]; ok && len(entry.Consume) > 0 {
+							netInfo.MyConsume = entry.Consume
+							netInfo.SiblingDepRecs = allDeps[parentKey]
+						}
+					}
 				} else if deps := allDeps[repoNameKey{pi.Repo, pi.Name}]; len(deps) > 0 {
 					// Parent: collect dependency unit names for ordering.
 					for _, rec := range deps {
@@ -287,6 +335,15 @@ type reconcilePackageNetworkInfo struct {
 	// NetworkAlias is the short dep-key hostname this dep's container
 	// should respond to on the shared network (empty for parents).
 	NetworkAlias string
+	// MyConsume is this dep's compiled consume[] block taken from the
+	// parent's YAML — used to rebuild HostVolumeMounts on the dep so a
+	// reconcile after a reboot still bind-mounts sibling volumes. Nil
+	// for parents and for deps without a consume: block.
+	MyConsume []packages.InputDepConsume
+	// SiblingDepRecs is the parent's full set of persisted dep records
+	// (keyed by dep key). Used to resolve consume.From → host path for
+	// deps. Nil for parents and for deps that don't consume from siblings.
+	SiblingDepRecs map[string]packages.DependencyRecord
 }
 
 // reconcilePackage restores a single installed package: compiles it with
@@ -451,6 +508,45 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	unitCfg.DependencyUnitNames = netInfo.DependencyUnitNames
 	if netInfo.NetworkAlias != "" {
 		unitCfg.NetworkAliases = []string{netInfo.NetworkAlias}
+	}
+
+	// Resolve shared-volume bind mounts from the parent's compiled
+	// Dependencies block. For parents we walk Expose: entries; for deps
+	// we walk this dep's MyConsume slice (passed in via netInfo).
+	// loadProducerPkg loads + compiles a producer dep so its volumes
+	// can be checked for `shareable: true` before emitting a mount.
+	loadProducerPkg := func(rec packages.DependencyRecord) (*packages.Package, error) {
+		ip, err := cfg.RepositoryRoot.LoadPackage(rec.Repo, rec.Package, rec.Version)
+		if err != nil {
+			ip, err = cfg.RepositoryRoot.LoadInstalledPackage(rec.Repo, rec.EffectiveName, rec.Version)
+			if err != nil {
+				return nil, err
+			}
+		}
+		responses, err := cfg.Installer.GetResponses(rec.Repo, rec.EffectiveName, rec.Version)
+		if err != nil {
+			return nil, err
+		}
+		return ip.CompileWithContext(responses, packages.CompileContext{
+			ExternalHost: cfg.ExternalIP,
+			InternalHost: cfg.InternalIP,
+			PackageDNS:   rec.EffectiveName + "." + rec.Repo + "." + reconcileDNSTLD(cfg.SettingsMgr),
+		})
+	}
+
+	if !packages.IsDependency(pi.Name) && len(compiled.Dependencies) > 0 && len(depRecs) > 0 {
+		exposeMounts, err := resolveExposeMounts(cfg.BtrfsBasePath, compiled.Dependencies, depRecs, loadProducerPkg)
+		if err != nil {
+			return nil, fmt.Errorf("resolve expose mounts: %w", err)
+		}
+		unitCfg.HostVolumeMounts = append(unitCfg.HostVolumeMounts, exposeMounts...)
+	}
+	if packages.IsDependency(pi.Name) && len(netInfo.MyConsume) > 0 && len(netInfo.SiblingDepRecs) > 0 {
+		consumeMounts, err := resolveConsumeMounts(cfg.BtrfsBasePath, packages.DepKey(pi.Name), netInfo.MyConsume, netInfo.SiblingDepRecs, loadProducerPkg)
+		if err != nil {
+			return nil, fmt.Errorf("resolve consume mounts: %w", err)
+		}
+		unitCfg.HostVolumeMounts = append(unitCfg.HostVolumeMounts, consumeMounts...)
 	}
 
 	units := systemd.GeneratePackageUnits(unitCfg)

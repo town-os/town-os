@@ -24,6 +24,7 @@ var (
 	ErrInvalidProtonSpec     = errors.New("invalid proton spec")
 	ErrInvalidDependencyName = errors.New("invalid dependency name")
 	ErrInvalidDependencySpec = errors.New("invalid dependency spec")
+	ErrInvalidSharedMount    = errors.New("invalid shared volume mount")
 )
 
 var (
@@ -315,6 +316,72 @@ func ValidateDependencyName(name string) error {
 func ValidateDependencySpec(dep InputPackageDependency) error {
 	if dep.Package == "" {
 		return fmt.Errorf("%w: package must not be empty", ErrInvalidDependencySpec)
+	}
+	return nil
+}
+
+// validateSharedMountPath checks that a container mountpoint declared in an
+// expose: or consume: block is an absolute path with no traversal segments.
+// Mount paths share the absolute-path requirement of regular volume mounts
+// (ValidateMountpoint) but additionally reject `..` segments because they
+// pass directly to podman -v unmodified — a relative or traversal-bearing
+// value would resolve unpredictably inside the container.
+func validateSharedMountPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("%w: path must not be empty", ErrInvalidSharedMount)
+	}
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("%w: %q (must start with /)", ErrInvalidSharedMount, path)
+	}
+	if slices.Contains(strings.Split(path, "/"), "..") {
+		return fmt.Errorf("%w: %q (must not contain directory traversal)", ErrInvalidSharedMount, path)
+	}
+	return nil
+}
+
+// ValidateDependencyExpose checks an expose entry on a dependency declaration.
+// Volume name (the map key) must match the volume name regex; the mount path
+// must be an absolute, traversal-free path. Cross-package validation
+// (whether the dep actually defines a `shareable: true` volume by that name)
+// happens at install/reconcile time when the producer's YAML is loaded.
+func ValidateDependencyExpose(volName string, e InputDepExpose) error {
+	if err := ValidateVolumeName(volName); err != nil {
+		return fmt.Errorf("%w: volume key %q: %w", ErrInvalidSharedMount, volName, err)
+	}
+	if err := validateSharedMountPath(e.Path); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateDependencyConsume checks a consume entry on a dependency
+// declaration. The From key must match a sibling dep key declared in the
+// same dependencies: map (caller-supplied set), Volume must match the volume
+// name regex, Path must be an absolute traversal-free path, and self-consume
+// (From == this dep's own key) is rejected. Cross-package validation
+// (whether the producer declares the volume as `shareable: true`) happens at
+// install/reconcile time.
+func ValidateDependencyConsume(thisDepKey string, c InputDepConsume, siblings map[string]bool) error {
+	if c.From == "" {
+		return fmt.Errorf("%w: from must not be empty", ErrInvalidSharedMount)
+	}
+	if err := ValidateDependencyName(c.From); err != nil {
+		return fmt.Errorf("%w: from %q: %w", ErrInvalidSharedMount, c.From, err)
+	}
+	if c.From == thisDepKey {
+		return fmt.Errorf("%w: dep %q cannot consume from itself", ErrInvalidSharedMount, thisDepKey)
+	}
+	if !siblings[c.From] {
+		return fmt.Errorf("%w: from %q is not a sibling dep key", ErrInvalidSharedMount, c.From)
+	}
+	if c.Volume == "" {
+		return fmt.Errorf("%w: volume must not be empty", ErrInvalidSharedMount)
+	}
+	if err := ValidateVolumeName(c.Volume); err != nil {
+		return fmt.Errorf("%w: volume %q: %w", ErrInvalidSharedMount, c.Volume, err)
+	}
+	if err := validateSharedMountPath(c.Path); err != nil {
+		return err
 	}
 	return nil
 }

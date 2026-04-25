@@ -72,11 +72,16 @@ func buildDepEnvVarsFromRecords(
 // with both numeric container ports (e.g. "5432") and any semantic port
 // names (lowercased, e.g. "sql") declared on the dep's network entries.
 // Under current wiring the value is always the container-side port; the
-// map keeps room for future remapping without API churn.
+// map keeps room for future remapping without API churn. Volumes is
+// populated with the in-dep mountpoint of every volume the dep author
+// opted in to share (`shareable: true`); non-shareable volumes are
+// omitted so parent file templates cannot reach data that was not
+// declared as cross-package data.
 func buildTemplateDepEntry(containerName string, depCompiled *packages.Package) packages.TemplateDep {
 	entry := packages.TemplateDep{
-		Host:  containerName,
-		Ports: map[string]string{},
+		Host:    containerName,
+		Ports:   map[string]string{},
+		Volumes: map[string]string{},
 	}
 	addPorts := func(ports packages.PortMap, names packages.PortNameMap) {
 		for _, containerPort := range ports {
@@ -89,6 +94,11 @@ func buildTemplateDepEntry(containerName string, depCompiled *packages.Package) 
 	}
 	addPorts(depCompiled.Network.External, depCompiled.Network.ExternalNames)
 	addPorts(depCompiled.Network.Internal, depCompiled.Network.InternalNames)
+	for volName, vol := range depCompiled.Volumes {
+		if vol.Shareable {
+			entry.Volumes[volName] = vol.Mountpoint
+		}
+	}
 	return entry
 }
 

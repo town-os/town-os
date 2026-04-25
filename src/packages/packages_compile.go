@@ -2,6 +2,7 @@ package packages
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"text/template"
@@ -186,6 +187,17 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		for rk, rv := range dep.Responses {
 			dep.Responses[rk] = applyTemplate(rv, iv, response)
 		}
+		// Apply substitution to expose/consume mount paths so they can
+		// reference question responses (e.g. path: "/data/@dirname@").
+		// The map keys (volume names) and consume.From / consume.Volume
+		// are identifiers, not data, and are not substituted.
+		for volName, exp := range dep.Expose {
+			exp.Path = applyTemplate(exp.Path, iv, response)
+			dep.Expose[volName] = exp
+		}
+		for idx := range dep.Consume {
+			dep.Consume[idx].Path = applyTemplate(dep.Consume[idx].Path, iv, response)
+		}
 		i.Dependencies[key] = dep
 	}
 
@@ -347,12 +359,31 @@ func (i *InputPackage) Validate() error {
 		}
 	}
 
+	siblings := make(map[string]bool, len(i.Dependencies))
+	for key := range i.Dependencies {
+		siblings[key] = true
+	}
 	for key, dep := range i.Dependencies {
 		if err := ValidateDependencyName(key); err != nil {
 			return fmt.Errorf("dependency %q: %w", key, err)
 		}
 		if err := ValidateDependencySpec(dep); err != nil {
 			return fmt.Errorf("dependency %q: %w", key, err)
+		}
+		for volName, exp := range dep.Expose {
+			if err := ValidateDependencyExpose(volName, exp); err != nil {
+				return fmt.Errorf("dependency %q expose %q: %w", key, volName, err)
+			}
+		}
+		seenConsumePaths := map[string]bool{}
+		for idx, cons := range dep.Consume {
+			if err := ValidateDependencyConsume(key, cons, siblings); err != nil {
+				return fmt.Errorf("dependency %q consume[%d]: %w", key, idx, err)
+			}
+			if seenConsumePaths[cons.Path] {
+				return fmt.Errorf("dependency %q consume[%d]: %w: duplicate path %q", key, idx, ErrInvalidSharedMount, cons.Path)
+			}
+			seenConsumePaths[cons.Path] = true
 		}
 	}
 
@@ -529,7 +560,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 			}
 		}
 
-		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, Git: vol.Git, UID: vol.UID, GID: vol.GID}
+		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, Git: vol.Git, UID: vol.UID, GID: vol.GID, Shareable: vol.Shareable}
 	}
 
 	// Compile templates: validate volume references, paths, and content syntax.
@@ -572,6 +603,17 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 				for rk, rv := range dep.Responses {
 					resolved.Responses[rk] = ApplyTemplates(rv, response)
 				}
+			}
+			// Carry Expose/Consume forward into the compiled package.
+			// Paths were already substituted in iterateFields. Copy the
+			// maps/slices so callers cannot mutate the input package.
+			if len(dep.Expose) > 0 {
+				resolved.Expose = make(map[string]InputDepExpose, len(dep.Expose))
+				maps.Copy(resolved.Expose, dep.Expose)
+			}
+			if len(dep.Consume) > 0 {
+				resolved.Consume = make([]InputDepConsume, len(dep.Consume))
+				copy(resolved.Consume, dep.Consume)
 			}
 			compiledDeps[key] = resolved
 		}

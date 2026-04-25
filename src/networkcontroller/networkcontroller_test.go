@@ -1237,6 +1237,13 @@ func TestForwarderRetryBackoffResetsOnSuccess(t *testing.T) {
 
 	runner := newMockRunner()
 	ctrl := NewControllerWithRunnerAndTarget(nil, runner, "town-os-package--default-mattermost-1.0")
+	// Override the production successThreshold (5s) with a tiny value
+	// so the test does not have to sleep five seconds. The threshold
+	// gates "this proc has been alive long enough to count as success",
+	// so it must still be longer than the time between Start and
+	// runner.GetProcs()[1].Exit below — 100ms is comfortably enough
+	// for a synchronous mock-runner test.
+	ctrl.SetSuccessThreshold(100 * time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1250,14 +1257,28 @@ func TestForwarderRetryBackoffResetsOnSuccess(t *testing.T) {
 	waitForCalls(t, runner, 1)
 	runner.GetProcs()[0].Exit(errors.New("DNS fail"))
 
-	// Second start succeeds (retry after ~1s). Backoff should reset.
+	// Second start happens after ~1s backoff. The success watchdog
+	// then waits successThreshold before clearing retryBackoff.
 	waitForCalls(t, runner, 2)
+
+	// Wait for the success watchdog to fire; it runs in a goroutine
+	// so polling is the only way to observe the reset deterministically.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		ctrl.mu.Lock()
+		_, hasBackoff := ctrl.retryBackoff[8065]
+		ctrl.mu.Unlock()
+		if !hasBackoff {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	ctrl.mu.Lock()
 	_, hasBackoff := ctrl.retryBackoff[8065]
 	ctrl.mu.Unlock()
 	if hasBackoff {
-		t.Fatal("expected backoff to be reset after successful forwarder start")
+		t.Fatal("expected backoff to be reset after success threshold elapsed")
 	}
 
 	// Kill again — next retry should be ~1s, not ~2s (backoff was reset).

@@ -304,6 +304,11 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	// {{index .Dep.key.Ports "sql"}}. depMap is passed to applyPackageTemplates
 	// below; for packages with no deps the map is nil and .Dep renders empty.
 	var depMap map[string]packages.TemplateDep
+	// depRecordsForExpose / depCompiledForExpose feed the parent's
+	// Expose: shared-volume resolver below; both are populated when
+	// the parent declares any deps.
+	var depRecordsForExpose map[string]packages.DependencyRecord
+	var depCompiledForExpose map[string]*packages.Package
 	if len(compiled.Dependencies) > 0 {
 		pw.Step("installing_dependencies")
 		// Compute parent NC unit name so deps can wait for the network.
@@ -311,12 +316,14 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		if len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0 {
 			parentNCUnitName = systemd.NetworkControllerUnitName(repoName, effectiveName, req.Version)
 		}
-		depRecords, depEnvVars, deps, err := s.installDependencies(ctx, repoName, effectiveName, req.Version, parentNCUnitName, compiled.Dependencies)
+		depRecords, depEnvVars, deps, depCompiled, err := s.installDependencies(ctx, repoName, effectiveName, req.Version, parentNCUnitName, compiled.Dependencies)
 		if err != nil {
 			pw.Err(fmt.Errorf("install dependencies: %w", err))
 			return nil
 		}
 		depMap = deps
+		depRecordsForExpose = depRecords
+		depCompiledForExpose = depCompiled
 
 		// Inject dependency connection environment variables into the parent
 		// and resolve @dep_KEY_host@ / @dep_KEY_port_N@ template variables.
@@ -399,6 +406,24 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 				cfg.DependencyUnitNames = append(cfg.DependencyUnitNames, systemd.UnitName(rec.Repo, rec.EffectiveName, rec.Version))
 			}
 			sort.Strings(cfg.DependencyUnitNames)
+		}
+
+		// Resolve Expose: shared volume mounts the parent imports from
+		// its just-installed deps. depRecordsForExpose / depCompiledForExpose
+		// are populated above when len(compiled.Dependencies) > 0.
+		if len(depRecordsForExpose) > 0 {
+			exposeMounts, err := resolveExposeMounts(s.Controller.GetBtrfsBasePath(), compiled.Dependencies, depRecordsForExpose, func(rec packages.DependencyRecord) (*packages.Package, error) {
+				key := packages.DepKey(rec.EffectiveName)
+				if pkg, ok := depCompiledForExpose[key]; ok {
+					return pkg, nil
+				}
+				return nil, fmt.Errorf("compiled package not cached for %s", rec.EffectiveName)
+			})
+			if err != nil {
+				pw.Err(fmt.Errorf("resolve expose mounts: %w", err))
+				return nil
+			}
+			cfg.HostVolumeMounts = append(cfg.HostVolumeMounts, exposeMounts...)
 		}
 
 		units := systemd.GeneratePackageUnits(cfg)

@@ -122,6 +122,30 @@ type Controller struct {
 	retryCh         chan uint16              // dead forwarder notification (ext port)
 	reconcileCh     chan struct{}            // delayed re-reconcile trigger
 	retryBackoff    map[uint16]time.Duration // per-port exponential backoff
+	// successThreshold is how long a forwarder must run before its
+	// retry backoff is reset. Resetting on every Start() — the previous
+	// behaviour — defeats exponential backoff entirely because every
+	// retry would clear the entry before the death handler could read
+	// it. Resetting after the proc has stayed alive for this duration
+	// implements the intended "reset on a healthy run" semantics.
+	// Tests override this to a small value via SetSuccessThreshold.
+	successThreshold time.Duration
+}
+
+// defaultSuccessThreshold is how long a forwarder must run before
+// retry backoff resets in production. 5s is short enough that a
+// human-noticed restart still resets, but long enough that the
+// rapid death-restart-death cycle of a misconfigured target never
+// crosses the boundary and so backoff actually grows.
+const defaultSuccessThreshold = 5 * time.Second
+
+// SetSuccessThreshold overrides successThreshold for tests that need
+// the reset to happen quickly (or, conversely, want to verify the
+// threshold gates the reset). Must be called before Run.
+func (c *Controller) SetSuccessThreshold(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.successThreshold = d
 }
 
 // NewController creates a new Controller with the given UPnP manager.
@@ -206,6 +230,9 @@ func (c *Controller) Run(ctx context.Context, statePath string) error {
 	c.retryCh = make(chan uint16, 16)
 	c.reconcileCh = make(chan struct{}, 1)
 	c.retryBackoff = make(map[uint16]time.Duration)
+	if c.successThreshold == 0 {
+		c.successThreshold = defaultSuccessThreshold
+	}
 
 	c.reconcile(state)
 
@@ -408,10 +435,26 @@ func (c *Controller) startForwarderLocked(extPort, intPort uint16) {
 	}
 
 	c.forwarders[extPort] = &activeForwarder{proc: proc, intPort: intPort}
-	if c.retryBackoff != nil {
-		delete(c.retryBackoff, extPort)
-	}
 	slog.Info(fmt.Sprintf("started socat forwarder %d->%s:%d (pid %d)", extPort, target, intPort, proc.Pid()))
+
+	// Reset retry backoff only after the proc has been alive for the
+	// success threshold — never on Start itself, otherwise a tight
+	// death-restart-death cycle would clear the backoff entry before
+	// the death handler doubles it, and exponential backoff would
+	// degenerate to a constant 1s.
+	if c.retryBackoff != nil && c.successThreshold > 0 {
+		threshold := c.successThreshold
+		go func() {
+			timer := time.NewTimer(threshold)
+			defer timer.Stop()
+			<-timer.C
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if current, ok := c.forwarders[extPort]; ok && current.proc == proc {
+				delete(c.retryBackoff, extPort)
+			}
+		}()
+	}
 
 	// Reap the child process in the background. If socat exits unexpectedly
 	// (e.g. DNS resolution failure on boot), remove the dead entry from the

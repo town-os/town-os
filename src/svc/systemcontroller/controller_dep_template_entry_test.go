@@ -22,8 +22,9 @@ func TestBuildTemplateDepEntry(t *testing.T) {
 			},
 		})
 		want := packages.TemplateDep{
-			Host:  "c-db",
-			Ports: map[string]string{"5432": "5432"},
+			Host:    "c-db",
+			Ports:   map[string]string{"5432": "5432"},
+			Volumes: map[string]string{},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %+v, want %+v", got, want)
@@ -38,8 +39,9 @@ func TestBuildTemplateDepEntry(t *testing.T) {
 			},
 		})
 		want := packages.TemplateDep{
-			Host:  "c-db",
-			Ports: map[string]string{"5432": "5432", "sql": "5432"},
+			Host:    "c-db",
+			Ports:   map[string]string{"5432": "5432", "sql": "5432"},
+			Volumes: map[string]string{},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %+v, want %+v", got, want)
@@ -61,6 +63,7 @@ func TestBuildTemplateDepEntry(t *testing.T) {
 				"5222": "5222", "xmpp": "5222",
 				"5347": "5347", "component": "5347",
 			},
+			Volumes: map[string]string{},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %+v, want %+v", got, want)
@@ -75,8 +78,9 @@ func TestBuildTemplateDepEntry(t *testing.T) {
 			},
 		})
 		want := packages.TemplateDep{
-			Host:  "c-db",
-			Ports: map[string]string{"5432": "5432"},
+			Host:    "c-db",
+			Ports:   map[string]string{"5432": "5432"},
+			Volumes: map[string]string{},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %+v, want %+v", got, want)
@@ -95,6 +99,38 @@ func TestBuildTemplateDepEntry(t *testing.T) {
 		}
 		if len(got.Ports) != 0 {
 			t.Fatalf("Ports = %v, want empty", got.Ports)
+		}
+		// Same invariant applies to .Volumes — file templates that
+		// `range .Dep.KEY.Volumes` must see an empty-but-non-nil map.
+		if got.Volumes == nil {
+			t.Fatal("Volumes is nil, want empty but non-nil")
+		}
+		if len(got.Volumes) != 0 {
+			t.Fatalf("Volumes = %v, want empty", got.Volumes)
+		}
+	})
+
+	t.Run("shareable volumes surface under their YAML name", func(t *testing.T) {
+		got := buildTemplateDepEntry("c-radarr", &packages.Package{
+			Volumes: map[string]packages.PackageVolume{
+				"movies":    {Mountpoint: "/movies", Shareable: true},
+				"downloads": {Mountpoint: "/downloads", Shareable: true},
+				"config":    {Mountpoint: "/config"},
+			},
+		})
+		// Only shareable volumes are exposed; non-shareable volumes
+		// (config) must NOT leak into the parent's template namespace
+		// because the dep author did not opt them in.
+		want := packages.TemplateDep{
+			Host:  "c-radarr",
+			Ports: map[string]string{},
+			Volumes: map[string]string{
+				"movies":    "/movies",
+				"downloads": "/downloads",
+			},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %+v, want %+v", got, want)
 		}
 	})
 }

@@ -30,11 +30,65 @@ type DependencyRecord struct {
 // InputPackageDependency declares a dependency on another package in the
 // repository system. It appears in the package YAML under the "dependencies"
 // map.
+//
+// Expose declares dep volumes that should be bind-mounted into the parent's
+// container. Each map key is a volume name in the dep's package YAML; the
+// value declares where to mount it inside the parent and whether the parent
+// gets read-only access (default true).
+//
+// Consume declares sibling dep volumes that should be bind-mounted into THIS
+// dep's container. Each entry references another dep key declared in the same
+// dependencies: map. The producer dep must have the named volume marked
+// `shareable: true`.
 type InputPackageDependency struct {
-	Package   string            `yaml:"package" json:"package"`
-	Repo      string            `yaml:"repo,omitempty" json:"repo,omitempty"`
-	Version   string            `yaml:"version,omitempty" json:"version,omitempty"`
-	Responses map[string]string `yaml:"responses,omitempty" json:"responses,omitempty"`
+	Package   string                    `yaml:"package" json:"package"`
+	Repo      string                    `yaml:"repo,omitempty" json:"repo,omitempty"`
+	Version   string                    `yaml:"version,omitempty" json:"version,omitempty"`
+	Responses map[string]string         `yaml:"responses,omitempty" json:"responses,omitempty"`
+	Expose    map[string]InputDepExpose `yaml:"expose,omitempty" json:"expose,omitempty"`
+	Consume   []InputDepConsume         `yaml:"consume,omitempty" json:"consume,omitempty"`
+}
+
+// InputDepExpose is a single entry in a parent's `dependencies.<key>.expose:`
+// block. The map key in `expose:` names the dep volume to mount; this struct
+// carries the in-parent path and the readonly flag. ReadOnly is a pointer so
+// "absent" and "explicit false" are distinguishable; an absent value defaults
+// to true (the parent typically only reads dep content, e.g. Plex reading
+// Radarr's /movies).
+type InputDepExpose struct {
+	Path     string `yaml:"path" json:"path"`
+	ReadOnly *bool  `yaml:"readonly,omitempty" json:"readonly,omitempty"`
+}
+
+// InputDepConsume is a single entry in a parent's `dependencies.<key>.consume:`
+// list. From references another dep key declared in the same dependencies:
+// map; Volume is the volume name in that producer dep's package YAML; Path is
+// where to mount it in this dep's container. ReadOnly defaults to false
+// (sibling-to-sibling sharing typically needs writability — e.g. an *arr
+// importing into a download client's /downloads).
+type InputDepConsume struct {
+	From     string `yaml:"from" json:"from"`
+	Volume   string `yaml:"volume" json:"volume"`
+	Path     string `yaml:"path" json:"path"`
+	ReadOnly *bool  `yaml:"readonly,omitempty" json:"readonly,omitempty"`
+}
+
+// ExposeReadOnly returns the effective readonly flag for an expose entry,
+// defaulting to true when not set.
+func (e InputDepExpose) ExposeReadOnly() bool {
+	if e.ReadOnly == nil {
+		return true
+	}
+	return *e.ReadOnly
+}
+
+// ConsumeReadOnly returns the effective readonly flag for a consume entry,
+// defaulting to false when not set.
+func (c InputDepConsume) ConsumeReadOnly() bool {
+	if c.ReadOnly == nil {
+		return false
+	}
+	return *c.ReadOnly
 }
 
 // DependencyName constructs the namespaced effective name for a dependency
