@@ -234,16 +234,18 @@ describe('PackageManagement', () => {
     expect(lastHeader.className).toContain('text-right')
   })
 
-  it('gives all columns equal width', async () => {
+  it('uses the explicit 20/50/10/20 column widths', async () => {
     const { container } = renderPackageManagement()
     await waitFor(() => {
       expect(screen.getByText('Installed')).toBeTruthy()
     })
+    // Headers: name | description | actions | status
     const headers = container.querySelectorAll('th')
-    const expectedWidth = `${Math.floor(100 / headers.length)}%`
-    for (const th of headers) {
-      expect(th.style.width).toBe(expectedWidth)
-    }
+    expect(headers.length).toBe(4)
+    expect(headers[0].style.width).toBe('20%') // name
+    expect(headers[1].style.width).toBe('50%') // description
+    expect(headers[2].style.width).toBe('10%') // actions
+    expect(headers[3].style.width).toBe('20%') // status
   })
 
   it('shows actions dropdown for packages', async () => {

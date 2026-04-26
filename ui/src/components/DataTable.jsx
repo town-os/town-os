@@ -135,15 +135,27 @@ export default function DataTable({
   }
 
   const lastIdx = columns.length - 1
-  const equalWidth = `${Math.floor(100 / columns.length)}%`
 
-  // All columns get equal width so spacing is uniform across the table.
-  // With table-layout:auto the browser can still expand a column if its
-  // content requires more room.  Edge anchoring comes from the table
-  // primitives' first:pl-4 / last:pr-4 padding.
-  function colStyle() {
+  // Width allocation: columns with an explicit `width` (e.g. "10%") keep
+  // that value; the remaining columns split what's left equally. This
+  // lets callers shrink narrow columns (action dropdowns, status badges)
+  // so the description / name columns get the rest of the pane instead
+  // of every column being forced to the same 25%.
+  const totalExplicit = columns.reduce((sum, c) => {
+    if (typeof c.width === 'string' && c.width.endsWith('%')) {
+      return sum + (parseFloat(c.width) || 0)
+    }
+    return sum
+  }, 0)
+  const flexibleCount = columns.filter((c) => !c.width).length
+  const flexibleWidth = flexibleCount > 0
+    ? `${Math.max(0, Math.floor((100 - totalExplicit) / flexibleCount))}%`
+    : undefined
+
+  function colStyle(col) {
     if (columns.length <= 1) return undefined
-    return { width: equalWidth }
+    if (col.width) return { width: col.width }
+    return flexibleWidth ? { width: flexibleWidth } : undefined
   }
 
   function resolveClassName(col, idx) {
@@ -194,7 +206,17 @@ export default function DataTable({
         </span>
       </div>
       <div className="rounded-md border">
-        <Table>
+        <Table style={{ tableLayout: 'fixed' }}>
+          {/* <colgroup> + table-layout:fixed is the only way to make
+              column widths binding regardless of cell content. Without
+              this, browsers either fall back to equal distribution
+              (when the first row spans columns) or treat widths as
+              hints (table-layout:auto). */}
+          <colgroup>
+            {columns.map((col) => (
+              <col key={col.key} style={colStyle(col)} />
+            ))}
+          </colgroup>
           <TableHeader>
             <TableRow>
               {columns.map((col, idx) => {
@@ -203,7 +225,7 @@ export default function DataTable({
                   <TableHead
                     key={col.key}
                     className={cls}
-                    style={colStyle()}
+                    style={colStyle(col)}
                     onClick={() =>
                       col.sortable !== false &&
                       onSortChange &&
@@ -242,7 +264,7 @@ export default function DataTable({
                     <TableCell
                       key={col.key}
                       className={resolveClassName(col, idx)}
-                      style={colStyle()}
+                      style={colStyle(col)}
                     >
                       {col.transform
                         ? col.transform(row[col.key], row)

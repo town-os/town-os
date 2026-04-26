@@ -456,6 +456,7 @@ export default function PackageManagement() {
     {
       key: 'name',
       label: t('packages.col_name'),
+      width: '20%',
       transform: (v, row) => (
         <span className="inline-flex items-center gap-1">{v}{row.featured && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}</span>
       ),
@@ -464,12 +465,20 @@ export default function PackageManagement() {
       key: 'description',
       label: t('packages.col_description'),
       sortable: false,
-      transform: (v) => v ? <span className="text-sm text-muted-foreground">{v}</span> : null,
+      width: '50%',
+      // Override TableCell's default whitespace-nowrap so long
+      // descriptions wrap instead of forcing horizontal scroll. Without
+      // this, packages like Immich ("Self-hosted photo and video backup
+      // solution with AI-powered search") push the table wider than the
+      // dashboard's max-w-6xl pane.
+      className: 'whitespace-normal break-words text-sm text-muted-foreground',
+      transform: (v) => v || null,
     },
     {
       key: '_actions',
       label: t('packages.col_actions'),
       sortable: false,
+      width: '10%',
       transform: (_, row) => {
         const instVer = installedVersion(row)
         const isInst = instVer !== null
@@ -516,6 +525,7 @@ export default function PackageManagement() {
       key: '_status',
       label: t('packages.col_status'),
       sortable: false,
+      width: '20%',
       transform: (_, row) => {
         const instVer = installedVersion(row)
         const isInst = instVer !== null
@@ -736,7 +746,18 @@ export default function PackageManagement() {
                 const isExpanded = repoExpanded[group.repo] ?? (groupIdx === 0)
                 return (
                   <div key={group.repo} className="rounded-md border">
-                    <Table>
+                    <Table style={{ tableLayout: 'fixed' }}>
+                      {/* table-layout: fixed reads column widths from the
+                          FIRST row of cells. The first <TableRow> below is
+                          a single colSpan={3} repo header — useless for
+                          width info — so without <colgroup> the browser
+                          falls back to equal column distribution. <col>
+                          elements set widths independently of rows. */}
+                      <colgroup>
+                        <col style={{ width: '45%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '45%' }} />
+                      </colgroup>
                       <TableHeader>
                         <TableRow
                           className="cursor-pointer hover:bg-muted/50"
