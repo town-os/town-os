@@ -1,0 +1,29 @@
+[Unit]
+Description=Town OS System Service: Rolodex DNS
+After=network-online.target podman.socket
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/podman container cleanup town-os-system--rolodex
+ExecStartPre=-/usr/bin/podman stop -t 10 town-os-system--rolodex
+ExecStartPre=-/usr/bin/podman rm -f town-os-system--rolodex
+ExecStartPre=/bin/mkdir -p /town-os/rolodex
+ExecStart=/usr/bin/podman run --replace --name town-os-system--rolodex \
+  --net host \
+  -v /town-os/rolodex:/data:z \
+  quay.io/town/rolodex:rc.latest \
+  /usr/local/bin/rolodex-dns \
+  --config /data/rolodex.yml
+ExecStop=/usr/bin/podman stop -t 10 town-os-system--rolodex
+Restart=always
+# Wait 5s between restart attempts. The rolodex container image is
+# pulled into the dev container by `make dev` AFTER systemd has
+# already started multi-user.target, so the unit's first start
+# attempts fail until the image is loaded. RestartSec=5 keeps the
+# retry cost low (and the journal quiet) during that window.
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

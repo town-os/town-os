@@ -132,6 +132,8 @@ test-image: production-image
 dev-production-image: $(STATE_DIR)/.images-pulled
 dev-image: dev-production-image
 btrfs-dev: check-btrfs clean-btrfs-dev
+dev-stop:
+dev-image: dev-stop
 dev: check-podman check-runc check-bun check-btrfs dev-image dev-btrfs ensure-image-cache
 preflight-dev: ensure-image-cache $(STATE_DIR)/.integration-port
 clean-dev: dev-stop-all clean-cache
