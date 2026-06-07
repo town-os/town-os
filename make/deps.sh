@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
 # Install all host dependencies needed to build, test, and run Town OS.
-# Targets a fresh Arch or Ubuntu/Debian machine. Re-running on an already
-# provisioned machine is safe (apt and pacman skip already-installed packages,
-# the Go and tool installers overwrite cleanly).
+# Targets a fresh Arch, Fedora/RHEL (incl. Fedora Asahi Remix), or
+# Ubuntu/Debian machine. Re-running on an already provisioned machine is safe
+# (apt, pacman, and dnf skip already-installed packages, the Go and tool
+# installers overwrite cleanly).
 
 set -euo pipefail
 
@@ -20,15 +21,18 @@ DISTRO_LIKE="${ID_LIKE:-}"
 
 is_arch=false
 is_debian=false
+is_fedora=false
 case "$DISTRO_ID" in
   arch|manjaro|endeavouros|artix|cachyos) is_arch=true ;;
   ubuntu|debian|linuxmint|pop|elementary) is_debian=true ;;
+  fedora|fedora-asahi-remix|rhel|centos|rocky|almalinux) is_fedora=true ;;
   *)
     case " $DISTRO_LIKE " in
       *" arch "*) is_arch=true ;;
       *" debian "*|*" ubuntu "*) is_debian=true ;;
+      *" fedora "*|*" rhel "*) is_fedora=true ;;
       *)
-        echo "ERROR: unsupported distro '$DISTRO_ID' (ID_LIKE='$DISTRO_LIKE'). Only Arch and Ubuntu/Debian are supported." >&2
+        echo "ERROR: unsupported distro '$DISTRO_ID' (ID_LIKE='$DISTRO_LIKE'). Only Arch, Fedora/RHEL, and Ubuntu/Debian are supported." >&2
         exit 1
         ;;
     esac
@@ -81,6 +85,36 @@ install_debian_packages() {
     unzip \
     qemu-system-x86 \
     qemu-utils
+}
+
+install_fedora_packages() {
+  echo ">>> Installing Fedora/RHEL packages via dnf..."
+  # golangci-lint is intentionally NOT taken from dnf: check-golangci-lint and
+  # lint.sh look for it under $(go env GOPATH)/bin, so it is installed there by
+  # install_golangci_lint instead (the dnf package lands in /usr/bin).
+  # qemu-system-x86-core provides /usr/bin/qemu-system-x86_64 (the binary the
+  # VM runtime shells out to) on every arch, including aarch64 (Asahi) via TCG.
+  local pkgs=(
+    gcc
+    make
+    pkgconf-pkg-config
+    ca-certificates
+    systemd-devel
+    btrfs-progs
+    podman
+    runc
+    python3
+    git
+    unzip
+    qemu-system-x86-core
+    qemu-img
+  )
+  # Fedora's base image ships curl-minimal; only pull full curl when there is
+  # no curl at all, so we never trigger a curl-minimal -> curl swap prompt.
+  if ! command -v curl >/dev/null 2>&1; then
+    pkgs+=(curl)
+  fi
+  $SUDO dnf install -y "${pkgs[@]}"
 }
 
 install_go() {
@@ -160,6 +194,8 @@ enable_podman_socket() {
 
 if "$is_arch"; then
   install_arch_packages
+elif "$is_fedora"; then
+  install_fedora_packages
 else
   install_debian_packages
 fi
