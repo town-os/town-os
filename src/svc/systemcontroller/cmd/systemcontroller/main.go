@@ -471,11 +471,13 @@ func run() (err error) {
 			// or out-of-sync prior run is discarded. The hourly drift-repair
 			// poller (ReconcileDNS) takes over once the HTTP server is up.
 			dnsErr := systemcontroller.RebuildDNS(ctx, systemcontroller.ReconcileDNSConfig{
-				Client:         rolClient,
-				Installer:      inst,
-				RepositoryRoot: rr,
-				SettingsMgr:    settingsMgr,
-				InternalIP:     getInternalIP(),
+				Client:           rolClient,
+				Installer:        inst,
+				RepositoryRoot:   rr,
+				SettingsMgr:      settingsMgr,
+				InternalIP:       getInternalIP(),
+				NetworkStatePath: *networkStatePath,
+				BtrfsBasePath:    *btrfsPath,
 			})
 			if dnsErr != nil {
 				fmt.Fprintf(os.Stderr, "rebuild DNS: %v\n", dnsErr)

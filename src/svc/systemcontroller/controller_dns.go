@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -236,7 +237,7 @@ func (s *SystemControllerHandlers) registerPackageDNS(ctx context.Context, repoN
 	}
 
 	ipv4 := s.Controller.GetInternalIP()
-	if err := rolodex.RegisterPackageDNS(ctx, rc, repoName, effectiveName, tld, ipv4, "", domains); err != nil {
+	if err := rolodex.RegisterPackageDNS(ctx, rc, repoName, effectiveName, tld, ipv4, "", internalDomains(domains, tld)); err != nil {
 		slog.Debug(fmt.Sprintf("register DNS %s/%s: %v", repoName, effectiveName, err))
 	}
 }
@@ -262,12 +263,72 @@ func (s *SystemControllerHandlers) unregisterPackageDNS(ctx context.Context, rep
 		}
 	}
 
-	if err := rolodex.UnregisterPackageDNS(ctx, rc, repoName, effectiveName, tld, domains); err != nil {
+	if err := rolodex.UnregisterPackageDNS(ctx, rc, repoName, effectiveName, tld, internalDomains(domains, tld)); err != nil {
 		slog.Debug(fmt.Sprintf("unregister DNS %s/%s: %v", repoName, effectiveName, err))
+	}
+}
+
+// publishPackageTLSA publishes DANE TLSA records pinning the package's leaf
+// for each terminated (non-passthrough) port at the package's internal FQDNs.
+// It is a best-effort no-op when rolodex is unavailable, the TLD is empty, or
+// the package terminates no TLS ports. Must be called after the network state
+// file and leaf cert have been written.
+func (s *SystemControllerHandlers) publishPackageTLSA(ctx context.Context, repoName, effectiveName, version string, domains []string) {
+	rc := s.Controller.GetRolodexClient()
+	if rc == nil {
+		return
+	}
+	tld := s.getDNSTLDValue()
+	if tld == "" {
+		return
+	}
+	entries, err := buildTLSAEntries(
+		s.Controller.GetNetworkStatePath(), s.Controller.GetBtrfsBasePath(),
+		repoName, effectiveName, version, tld, domains,
+	)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("build TLSA %s/%s: %v", repoName, effectiveName, err))
+		return
+	}
+	if err := rolodex.RegisterPackageTLSA(ctx, rc, entries); err != nil {
+		slog.Debug(fmt.Sprintf("publish TLSA %s/%s: %v", repoName, effectiveName, err))
+	}
+}
+
+// unpublishPackageTLSA removes every TLSA record under the package's base name
+// (primary + subdomains, all ports). It lists records and filters by owner so
+// it works even though the package's network state file is removed before this
+// runs during uninstall.
+func (s *SystemControllerHandlers) unpublishPackageTLSA(ctx context.Context, repoName, effectiveName string) {
+	rc := s.Controller.GetRolodexClient()
+	if rc == nil {
+		return
+	}
+	tld := s.getDNSTLDValue()
+	if tld == "" {
+		return
+	}
+	records, err := rc.ListRecords(ctx, nil)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("list records for TLSA cleanup %s/%s: %v", repoName, effectiveName, err))
+		return
+	}
+	baseSuffix := effectiveName + "." + repoName + "." + tld + "."
+	tlsaType := upstream.RecordTypeTLSA
+	for _, r := range records {
+		if r.RecordType != upstream.RecordTypeTLSA || !strings.Contains(r.Name, "._tcp.") {
+			continue
+		}
+		if !strings.HasSuffix(r.Name, baseSuffix) {
+			continue
+		}
+		if _, err := rc.RemoveRecord(ctx, r.Name, &upstream.RemoveRecordOptions{RecordType: &tlsaType}); err != nil {
+			slog.Debug(fmt.Sprintf("remove TLSA %s: %v", r.Name, err))
+		}
 	}
 }
 
 // collectInstalledPackageDNSInfo returns DNS info for all installed packages.
 func (s *SystemControllerHandlers) collectInstalledPackageDNSInfo() []rolodex.PackageDNSInfo {
-	return collectInstalledDNSInfo(s.Controller.GetInstaller(), s.Controller.GetRepositoryRoot())
+	return collectInstalledDNSInfo(s.Controller.GetInstaller(), s.Controller.GetRepositoryRoot(), s.getDNSTLDValue())
 }

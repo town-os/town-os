@@ -30,6 +30,34 @@ var (
 	ErrPostUpdateVMNotSupported = errors.New("post_update is not supported for VM packages")
 	ErrEntrypointVMNotSupported = errors.New("entrypoint is not supported for VM packages")
 	ErrEmptyPostUpdateCommand   = errors.New("post_update command must not be empty")
+
+	// ErrUnknownNetworkPortRef is returned when network.direct or
+	// network.tls_mode references a port key that is not declared in
+	// network.external or network.internal.
+	ErrUnknownNetworkPortRef = errors.New("network port reference does not match any external/internal port")
+	// ErrInvalidTLSMode is returned when a network.tls_mode value is not one
+	// of the recognized modes ("terminate" or "passthrough").
+	ErrInvalidTLSMode = errors.New("invalid tls_mode (must be \"terminate\" or \"passthrough\")")
+	// ErrDirectPortTLSMode is returned when a port is listed in
+	// network.direct and also carries a network.tls_mode entry. A direct
+	// port is opaque TCP host-published by the service container itself, so
+	// the network controller never fronts it and TLS handling is the
+	// service's own concern.
+	ErrDirectPortTLSMode = errors.New("a direct port cannot also declare a tls_mode")
+)
+
+// TLSMode selects how the network controller handles TLS for a proxied port.
+type TLSMode string
+
+const (
+	// TLSModeTerminate (default) terminates TLS at the network controller
+	// using the package's local-CA leaf certificate and reverse-proxies
+	// plaintext to the backing service over the shared podman network.
+	TLSModeTerminate TLSMode = "terminate"
+	// TLSModePassthrough routes the connection to the backing service by
+	// SNI at layer 4 without decrypting it; the backing service presents
+	// its own certificate end to end.
+	TLSModePassthrough TLSMode = "passthrough"
 )
 
 // RuntimeType indicates whether a package runs as a container or a QEMU VM.
@@ -273,6 +301,16 @@ type PackageNetwork struct {
 	ExternalNames PortNameMap
 	InternalNames PortNameMap
 	Domains       []string
+	// DirectPorts marks host ports (keys of External/Internal) that the
+	// service container must host-publish itself with `-p`. The network
+	// controller leaves these ports alone — they are opaque TCP for a
+	// service "programmed to operate on a specific port". A nil/absent map
+	// means every port is fronted by the network controller (the default).
+	DirectPorts map[uint16]bool `json:"direct_ports,omitempty"`
+	// TLSModes carries the non-default TLS handling per host port. Only
+	// passthrough entries are recorded (terminate is the default and the
+	// zero value), so the map is sparse and nil for the common case.
+	TLSModes map[uint16]TLSMode `json:"tls_modes,omitempty"`
 }
 
 type Package struct {
@@ -304,6 +342,15 @@ type InputPackageNetwork struct {
 	External map[string]string `yaml:"external"`
 	Internal map[string]string `yaml:"internal"`
 	Domains  []string          `yaml:"domains,omitempty"`
+	// Direct lists port keys (the same numeric or semantic keys used in
+	// external/internal) whose host binding is published by the service
+	// container itself, bypassing the network controller proxy. Use this
+	// escape hatch for services programmed to operate on a fixed host port.
+	Direct []string `yaml:"direct,omitempty"`
+	// TLSMode maps a port key (as used in external/internal) to its TLS
+	// handling: "terminate" (default) or "passthrough". Absent keys
+	// terminate at the proxy.
+	TLSMode map[string]string `yaml:"tls_mode,omitempty"`
 }
 
 type Question struct {

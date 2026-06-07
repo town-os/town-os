@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -341,13 +342,13 @@ func TestHTTPLogReplayTreeHeartbeatWhenEmpty(t *testing.T) {
 func lastLogTailParams(t *testing.T, sd *systemd.MockManager) systemd.LogTailParams {
 	t.Helper()
 	calls := sd.GetCalls()
-	for i := len(calls) - 1; i >= 0; i-- {
-		if calls[i].Method != "LogTail" {
+	for _, call := range slices.Backward(calls) {
+		if call.Method != "LogTail" {
 			continue
 		}
-		p, ok := calls[i].Args[0].(systemd.LogTailParams)
+		p, ok := call.Args[0].(systemd.LogTailParams)
 		if !ok {
-			t.Fatalf("LogTail arg 0 = %T, want LogTailParams", calls[i].Args[0])
+			t.Fatalf("LogTail arg 0 = %T, want LogTailParams", call.Args[0])
 		}
 		return p
 	}

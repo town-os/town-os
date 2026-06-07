@@ -2,7 +2,6 @@ package systemcontroller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -14,7 +13,6 @@ import (
 	"sync"
 
 	"gitea.com/town-os/town-os/src/account"
-	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -489,6 +487,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		Environment:            compiled.Environment,
 		External:               compiled.Network.External,
 		Internal:               compiled.Network.Internal,
+		DirectPorts:            compiled.Network.DirectPorts,
 		Volumes:                compiled.Volumes,
 		BtrfsBase:              cfg.BtrfsBasePath,
 		NetworkControllerImage: cfg.NetworkControllerImage,
@@ -685,7 +684,7 @@ func reconcileDNSTLD(mgr account.SettingsManager) string {
 
 // collectInstalledDNSInfo returns DNS info for all installed packages using
 // the given installer and repository root.
-func collectInstalledDNSInfo(inst packages.Installer, rr *packages.RepositoryRoot) []rolodex.PackageDNSInfo {
+func collectInstalledDNSInfo(inst packages.Installer, rr *packages.RepositoryRoot, tld string) []rolodex.PackageDNSInfo {
 	if inst == nil {
 		return nil
 	}
@@ -706,7 +705,9 @@ func collectInstalledDNSInfo(inst packages.Installer, rr *packages.RepositoryRoo
 		if rr != nil {
 			ip, err := rr.LoadPackage(pi.Repo, pi.Name, pi.Version)
 			if err == nil {
-				domains = ip.Network.Domains
+				// Public FQDNs are resolved by the user's real DNS, not
+				// rolodex, so they must not become internal subdomains.
+				domains = internalDomains(ip.Network.Domains, tld)
 			}
 		}
 
@@ -728,6 +729,12 @@ type ReconcileDNSConfig struct {
 	RepositoryRoot *packages.RepositoryRoot
 	SettingsMgr    account.SettingsManager
 	InternalIP     string
+	// NetworkStatePath and BtrfsBasePath let RebuildDNS recompute and
+	// republish DANE TLSA records after a zone teardown (TeardownTLD wipes
+	// every record, TLSA included). Both are read-only here; empty values
+	// disable TLSA republishing.
+	NetworkStatePath string
+	BtrfsBasePath    string
 }
 
 // RebuildDNS tears the authoritative zone down and rebuilds it from
@@ -753,14 +760,56 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		return fmt.Errorf("setup TLD %s: %w", tld, err)
 	}
 
-	for _, pkg := range collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot) {
+	for _, pkg := range collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld) {
 		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, "", pkg.Domains); err != nil {
 			slog.Debug(fmt.Sprintf("rebuild DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
 			continue
 		}
 	}
 
+	// TeardownTLD wiped every record including DANE TLSA, so re-pin the leaf
+	// for each installed package's terminated ports.
+	if entries := collectInstalledTLSA(cfg, tld); len(entries) > 0 {
+		if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
+			slog.Debug(fmt.Sprintf("rebuild TLSA: %v", err))
+		}
+	}
+
 	return nil
+}
+
+// collectInstalledTLSA computes the DANE TLSA entries for every installed
+// package by reading its network state file and pinning the issued leaf. Used
+// by RebuildDNS to re-pin certs after a zone teardown. Returns nil when state
+// path / btrfs base are unset.
+func collectInstalledTLSA(cfg ReconcileDNSConfig, tld string) []rolodex.TLSAEntry {
+	if cfg.Installer == nil || cfg.NetworkStatePath == "" || cfg.BtrfsBasePath == "" {
+		return nil
+	}
+	installed, err := cfg.Installer.ListInstalled()
+	if err != nil {
+		return nil
+	}
+	var entries []rolodex.TLSAEntry
+	for _, pkg := range installed {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+		var domains []string
+		if cfg.RepositoryRoot != nil {
+			if ip, lerr := cfg.RepositoryRoot.LoadPackage(pi.Repo, pi.Name, pi.Version); lerr == nil {
+				domains = ip.Network.Domains
+			}
+		}
+		pkgEntries, err := buildTLSAEntries(cfg.NetworkStatePath, cfg.BtrfsBasePath, pi.Repo, pi.Name, pi.Version, tld, domains)
+		if err != nil {
+			slog.Debug(fmt.Sprintf("collect TLSA %s/%s: %v", pi.Repo, pi.Name, err))
+			continue
+		}
+		entries = append(entries, pkgEntries...)
+	}
+	return entries
 }
 
 // ReconcileDNS converges the authoritative zone toward the desired state
@@ -799,7 +848,7 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	// Build the desired set of package A records.
 	type recKey struct{ name, value string }
 	desired := map[recKey]struct{}{}
-	pkgs := collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot)
+	pkgs := collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld)
 	if cfg.InternalIP != "" {
 		for _, pkg := range pkgs {
 			baseName := pkg.Name + "." + pkg.Repo + "." + zone
@@ -868,70 +917,17 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 // contains "http" and cfg.TLSCA is set, a leaf cert is issued for the
 // package and every external port is marked TLS=true in the state file.
 func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version string, compiled *packages.Package, supplies []string) error {
-	isDep := packages.IsDependency(pkgName)
+	state := buildPackageNetworkState(repoName, pkgName, version, compiled)
 
-	state := networkcontroller.PackageNetworkState{
-		Repo:          repoName,
-		Package:       pkgName,
-		Version:       version,
-		ContainerName: systemd.ContainerName(repoName, pkgName, version),
+	if err := applyPackageTLS(
+		&state, cfg.TLSCA, cfg.BtrfsBasePath,
+		repoName, pkgName, version, cfg.InternalIP, reconcileDNSTLD(cfg.SettingsMgr),
+		compiled, supplies,
+	); err != nil {
+		return err
 	}
 
-	// All ports get Forward=true — the NC handles all host port exposure
-	// via socat from the host to the package container's private network IP.
-	for ext, int_ := range compiled.Network.External {
-		state.Ports = append(state.Ports, networkcontroller.PortConfig{
-			ExternalPort: ext,
-			InternalPort: int_,
-			UPnP:         !isDep,
-			Forward:      true,
-		})
-	}
-
-	for intHost, intContainer := range compiled.Network.Internal {
-		state.Ports = append(state.Ports, networkcontroller.PortConfig{
-			ExternalPort: intHost,
-			InternalPort: intContainer,
-			UPnP:         false,
-			Forward:      true,
-		})
-	}
-
-	if suppliesHTTP(supplies) && hasHTTPPort(&state, compiled) {
-		packageDNS := pkgName + "." + repoName + "." + reconcileDNSTLD(cfg.SettingsMgr)
-		certPath, err := issueLeafForPackage(
-			cfg.TLSCA,
-			cfg.BtrfsBasePath,
-			repoName, pkgName, version,
-			compiled, packageDNS, cfg.InternalIP,
-		)
-		if err != nil {
-			return fmt.Errorf("issue tls leaf: %w", err)
-		}
-		if certPath != "" {
-			applyTLSToPorts(&state, certPath, compiled)
-		}
-	}
-
-	sort.Slice(state.Ports, func(i, j int) bool {
-		return state.Ports[i].ExternalPort < state.Ports[j].ExternalPort
-	})
-
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal network state: %w", err)
-	}
-
-	if err := os.MkdirAll(cfg.NetworkStatePath, 0700); err != nil {
-		return fmt.Errorf("create network state dir: %w", err)
-	}
-
-	filePath := fmt.Sprintf("%s/%s-%s-%s.json", cfg.NetworkStatePath, repoName, pkgName, version)
-	if err := os.WriteFile(filePath, data, 0600); err != nil {
-		return fmt.Errorf("write network state: %w", err)
-	}
-
-	return nil
+	return writeNetworkStateFile(cfg.NetworkStatePath, repoName, pkgName, version, &state)
 }
 
 // reconcilePages ensures all existing pages have btrfs subvolumes, symlinks,

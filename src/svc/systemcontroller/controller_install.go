@@ -182,6 +182,7 @@ func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version,
 		Environment:            compiled.Environment,
 		External:               compiled.Network.External,
 		Internal:               compiled.Network.Internal,
+		DirectPorts:            compiled.Network.DirectPorts,
 		Volumes:                compiled.Volumes,
 		BtrfsBase:              s.Controller.GetBtrfsBasePath(),
 		NetworkControllerImage: s.Controller.GetNetworkControllerImage(),
@@ -439,6 +440,8 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	pw.Step("registering_dns")
 	s.registerPackageDNS(ctx, repoName, effectiveName, compiled.Network.Domains)
+	// Pin the proxy's leaf via DANE for any terminated TLS ports.
+	s.publishPackageTLSA(ctx, repoName, effectiveName, req.Version, compiled.Network.Domains)
 
 	pw.Done()
 	return nil
@@ -469,6 +472,7 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 
 	pw.Step("unregistering_dns")
 	s.unregisterPackageDNS(ctx, req.Repo, parentName, effectiveName, req.Version)
+	s.unpublishPackageTLSA(ctx, req.Repo, effectiveName)
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		pw.Step("stopping_services")

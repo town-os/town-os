@@ -3,10 +3,62 @@ package rolodex
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
 )
+
+// TLSAEntry describes one DANE TLSA record to publish: the association data
+// (RDATA, e.g. "3 1 1 <hex>") for a TLS service reachable at Name on Port/tcp.
+// Name is the base FQDN (e.g. gitea.default.home) without the RFC 6698
+// _<port>._tcp prefix, which RegisterPackageTLSA prepends.
+type TLSAEntry struct {
+	Name  string
+	Port  uint16
+	Value string
+}
+
+// tlsaName builds the RFC 6698 owner name for a TLSA record:
+// _<port>._tcp.<fqdn>. (always fully qualified with a trailing dot).
+func tlsaName(name string, port uint16) string {
+	return fmt.Sprintf("_%d._tcp.%s.", port, strings.TrimSuffix(name, "."))
+}
+
+// RegisterPackageTLSA publishes a TLSA record for each entry pinning the
+// proxy's leaf certificate so DANE-aware clients can validate the local-CA
+// cert without trusting the CA out of band. Entries with an empty Value are
+// skipped (the caller could not compute the association data).
+func RegisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) error {
+	for _, e := range entries {
+		if e.Value == "" {
+			continue
+		}
+		owner := tlsaName(e.Name, e.Port)
+		if err := c.AddRecord(ctx, &upstream.DnsRecord{
+			Name:       owner,
+			RecordType: upstream.RecordTypeTLSA,
+			Value:      e.Value,
+			Ttl:        300,
+		}); err != nil {
+			return fmt.Errorf("add TLSA record %s: %w", owner, err)
+		}
+	}
+	return nil
+}
+
+// UnregisterPackageTLSA removes the TLSA records for the given entries. The
+// Value field is ignored (removal is keyed by name + type).
+func UnregisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) error {
+	tlsaType := upstream.RecordTypeTLSA
+	for _, e := range entries {
+		owner := tlsaName(e.Name, e.Port)
+		if _, err := c.RemoveRecord(ctx, owner, &upstream.RemoveRecordOptions{RecordType: &tlsaType}); err != nil {
+			return fmt.Errorf("remove TLSA record %s: %w", owner, err)
+		}
+	}
+	return nil
+}
 
 // PackageDNSInfo holds the information needed to register or unregister
 // DNS records for a single installed package.

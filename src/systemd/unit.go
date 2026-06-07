@@ -88,6 +88,12 @@ type PackageUnitConfig struct {
 	Environment              map[string]string
 	External                 packages.PortMap
 	Internal                 packages.PortMap
+	// DirectPorts marks host ports the SERVICE container must publish itself
+	// with `-p host:container`, bypassing the network controller proxy. The
+	// NC skips these ports (it neither publishes nor forwards them) and, when
+	// every port is direct, no NC unit is generated at all. Only honored for
+	// standalone/parent packages — dependencies never host-publish.
+	DirectPorts              map[uint16]bool
 	Volumes                  map[string]packages.PackageVolume
 	BtrfsBase                string
 	NetworkControllerImage   string // container image for the network controller
@@ -291,10 +297,25 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	ports := allPorts(cfg.External, cfg.Internal)
 	hasPorts := len(ports) > 0
 
+	// Direct ports are host-published by the service container itself and the
+	// NC never touches them. The NC is only needed for the remaining
+	// (proxied) ports. Direct ports are ignored for dependencies, which never
+	// host-publish regardless.
+	isDep := cfg.ParentNCUnitName != ""
+	proxiedPorts := ports
+	if !isDep && len(cfg.DirectPorts) > 0 {
+		proxiedPorts = make([]uint16, 0, len(ports))
+		for _, p := range ports {
+			if cfg.DirectPorts[p] {
+				continue
+			}
+			proxiedPorts = append(proxiedPorts, p)
+		}
+	}
+
 	// Dependencies share the parent's NC — only standalone packages and
 	// parents generate their own NC and host-facing socket/firewall rules.
-	isDep := cfg.ParentNCUnitName != ""
-	needsNetworkController := hasPorts && !isDep
+	needsNetworkController := len(proxiedPorts) > 0 && !isDep
 
 	// --- Main service unit ---
 	units.Service = generateServiceUnit(cfg, ports, needsNetworkController)
@@ -308,12 +329,30 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	}
 
 	// --- Network controller unit (parent packages only) ---
+	// The NC binds and forwards only the proxied ports; direct ports are
+	// bound by the service container.
 	if needsNetworkController {
-		nc := generateNetworkControllerUnit(cfg, ports)
+		nc := generateNetworkControllerUnit(cfg, proxiedPorts)
 		units.NetworkController = &nc
 	}
 
 	return units
+}
+
+// directHostPorts returns the sorted subset of the given host ports that the
+// service container must publish itself. Empty for dependencies (which never
+// host-publish) and when no DirectPorts are configured.
+func (cfg PackageUnitConfig) directHostPorts(ports []uint16) []uint16 {
+	if cfg.ParentNCUnitName != "" || len(cfg.DirectPorts) == 0 {
+		return nil
+	}
+	out := make([]uint16, 0, len(cfg.DirectPorts))
+	for _, p := range ports {
+		if cfg.DirectPorts[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkController bool) UnitFile {
@@ -464,6 +503,20 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
 	for _, alias := range cfg.NetworkAliases {
 		b.WriteString(" \\\n  --network-alias " + quoteCommandArg(alias))
+	}
+
+	// Direct ports: the service container publishes them on the host itself,
+	// bypassing the NC proxy. The container port comes from the External /
+	// Internal map. (Dependencies never reach here — directHostPorts is empty
+	// for them.)
+	for _, p := range cfg.directHostPorts(ports) {
+		container := p
+		if cp, ok := cfg.External[p]; ok {
+			container = cp
+		} else if cp, ok := cfg.Internal[p]; ok {
+			container = cp
+		}
+		fmt.Fprintf(&b, " \\\n  -p %d:%d", p, container)
 	}
 
 	// Extra podman args (e.g. --pid host, --cap-add). Each element is

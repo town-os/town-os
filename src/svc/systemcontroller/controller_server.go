@@ -394,11 +394,13 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 	// rather than an incremental diff (which would still update records,
 	// but one-by-one in map-random order with an NXDOMAIN blip per name).
 	if err := RebuildDNS(ctx, ReconcileDNSConfig{
-		Client:         rolClient,
-		Installer:      s.Installer,
-		RepositoryRoot: s.RepositoryRoot,
-		SettingsMgr:    s.SettingsMgr,
-		InternalIP:     newIP,
+		Client:           rolClient,
+		Installer:        s.Installer,
+		RepositoryRoot:   s.RepositoryRoot,
+		SettingsMgr:      s.SettingsMgr,
+		InternalIP:       newIP,
+		NetworkStatePath: s.NetworkStatePath,
+		BtrfsBasePath:    s.BtrfsBasePath,
 	}); err != nil {
 		slog.Error("rebuild DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
 		return

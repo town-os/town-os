@@ -14,6 +14,7 @@ import (
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
+	townostls "gitea.com/town-os/town-os/src/tls"
 	"github.com/labstack/echo/v5"
 )
 
@@ -31,6 +32,26 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		return nil
 	}
 
+	state := buildPackageNetworkState(repoName, pkgName, version, compiled)
+	if len(state.Ports) == 0 {
+		return nil
+	}
+
+	if err := applyPackageTLS(
+		&state, s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(),
+		repoName, pkgName, version, s.Controller.GetInternalIP(), s.dnsTLD(),
+		compiled, supplies,
+	); err != nil {
+		return err
+	}
+
+	return writeNetworkStateFile(statePath, repoName, pkgName, version, &state)
+}
+
+// buildPackageNetworkState assembles the base network state (ports, UPnP,
+// Forward) for a package. Direct ports are skipped entirely: the service
+// container host-publishes them itself and the NC must never touch them.
+func buildPackageNetworkState(repoName, pkgName, version string, compiled *packages.Package) networkcontroller.PackageNetworkState {
 	isDep := packages.IsDependency(pkgName)
 
 	state := networkcontroller.PackageNetworkState{
@@ -40,9 +61,12 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		ContainerName: systemd.ContainerName(repoName, pkgName, version),
 	}
 
-	// All ports get Forward=true — the NC handles all host port exposure
-	// via socat from the host to the package container's private network IP.
+	// All proxied ports get Forward=true — the NC handles host port exposure
+	// (socat raw-forward, or Caddy TLS termination). Direct ports are omitted.
 	for ext, int_ := range compiled.Network.External {
+		if compiled.Network.DirectPorts[ext] {
+			continue
+		}
 		state.Ports = append(state.Ports, networkcontroller.PortConfig{
 			ExternalPort: ext,
 			InternalPort: int_,
@@ -52,6 +76,9 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 	}
 
 	for intHost, intContainer := range compiled.Network.Internal {
+		if compiled.Network.DirectPorts[intHost] {
+			continue
+		}
 		state.Ports = append(state.Ports, networkcontroller.PortConfig{
 			ExternalPort: intHost,
 			InternalPort: intContainer,
@@ -60,27 +87,30 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		})
 	}
 
-	if len(state.Ports) == 0 {
+	return state
+}
+
+// applyPackageTLS issues the package leaf (when it supplies http and exposes an
+// HTTP port) and marks the state's ports for TLS termination / passthrough via
+// applyTLSToPorts.
+func applyPackageTLS(state *networkcontroller.PackageNetworkState, ca *townostls.CA, btrfsBase, repoName, pkgName, version, internalIP, tld string, compiled *packages.Package, supplies []string) error {
+	if !suppliesHTTP(supplies) || !hasHTTPPort(state, compiled) {
 		return nil
 	}
-
-	if suppliesHTTP(supplies) && hasHTTPPort(&state, compiled) {
-		packageDNS := pkgName + "." + repoName + "." + s.dnsTLD()
-		certPath, err := issueLeafForPackage(
-			s.Controller.GetTLSCA(),
-			s.Controller.GetBtrfsBasePath(),
-			repoName, pkgName, version,
-			compiled, packageDNS, s.Controller.GetInternalIP(),
-		)
-		if err != nil {
-			return fmt.Errorf("issue tls leaf: %w", err)
-		}
-		if certPath != "" {
-			applyTLSToPorts(&state, certPath, compiled)
-		}
+	packageDNS := pkgName + "." + repoName + "." + tld
+	certPath, err := issueLeafForPackage(ca, btrfsBase, repoName, pkgName, version, compiled, packageDNS, internalIP)
+	if err != nil {
+		return fmt.Errorf("issue tls leaf: %w", err)
 	}
+	if certPath != "" {
+		applyTLSToPorts(state, certPath, compiled, tld)
+	}
+	return nil
+}
 
-	// Sort for deterministic output.
+// writeNetworkStateFile sorts the ports deterministically and writes the state
+// JSON to <statePath>/<repo>-<pkg>-<version>.json.
+func writeNetworkStateFile(statePath, repoName, pkgName, version string, state *networkcontroller.PackageNetworkState) error {
 	sort.Slice(state.Ports, func(i, j int) bool {
 		return state.Ports[i].ExternalPort < state.Ports[j].ExternalPort
 	})
@@ -90,14 +120,13 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		return fmt.Errorf("marshal network state: %w", err)
 	}
 
-	filePath := fmt.Sprintf("%s/%s-%s-%s.json", statePath, repoName, pkgName, version)
 	if err := os.MkdirAll(statePath, 0700); err != nil {
 		return fmt.Errorf("create network state dir: %w", err)
 	}
+	filePath := fmt.Sprintf("%s/%s-%s-%s.json", statePath, repoName, pkgName, version)
 	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("write network state: %w", err)
 	}
-
 	return nil
 }
 

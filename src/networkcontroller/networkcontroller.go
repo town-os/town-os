@@ -31,13 +31,30 @@ import (
 //
 // When TLS is false the NC spawns a socat child for the port, preserving
 // raw TCP forwarding for non-HTTP services (SSH, databases, etc.).
+//
+// Passthrough marks a TLS port that the NC must NOT terminate: it is raw
+// TCP-forwarded (via socat) so the TLS ClientHello — including its SNI —
+// rides through to the backing service, which presents its own certificate
+// end to end. The systemcontroller expresses this by leaving TLS=false on a
+// passthrough port (so it lands on the socat path) and setting Passthrough
+// for clarity; CollectCaddySites also skips Passthrough ports defensively.
+//
+// PublicDomain marks a terminated port whose SNINames are real public FQDNs,
+// so the NC renders a host-keyed Caddy site with an ACME issuer instead of
+// the file-pinned local-CA leaf. The local leaf at CertPath is still issued
+// as the DANE fallback. SNINames carries the hostnames a terminated site is
+// keyed by (required for ACME; optional for the DANE/local-CA path, which is
+// served port-keyed for any SNI).
 type PortConfig struct {
-	ExternalPort uint16 `json:"external_port"`
-	InternalPort uint16 `json:"internal_port"`
-	UPnP         bool   `json:"upnp"`
-	Forward      bool   `json:"forward"`
-	TLS          bool   `json:"tls,omitempty"`
-	CertPath     string `json:"cert_path,omitempty"`
+	ExternalPort uint16   `json:"external_port"`
+	InternalPort uint16   `json:"internal_port"`
+	UPnP         bool     `json:"upnp"`
+	Forward      bool     `json:"forward"`
+	TLS          bool     `json:"tls,omitempty"`
+	CertPath     string   `json:"cert_path,omitempty"`
+	Passthrough  bool     `json:"passthrough,omitempty"`
+	PublicDomain bool     `json:"public_domain,omitempty"`
+	SNINames     []string `json:"sni_names,omitempty"`
 }
 
 // PackageNetworkState is the per-package JSON state file written by the

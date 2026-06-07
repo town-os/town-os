@@ -5,6 +5,7 @@ package integration_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/storage"
@@ -94,9 +95,9 @@ func TestSystemControllerNestedSubvolumes(t *testing.T) {
 	// Clean up deepest first, including the auto-created intermediate.
 	allNames := append([]string{"sc-nest"}, names...)
 	t.Cleanup(func() {
-		for i := len(allNames) - 1; i >= 0; i-- {
-			if err := c.RemoveFilesystem(context.TODO(), allNames[i]); err != nil {
-				t.Errorf("cleanup RemoveFilesystem(%q): %v", allNames[i], err)
+		for _, name := range slices.Backward(allNames) {
+			if err := c.RemoveFilesystem(context.TODO(), name); err != nil {
+				t.Errorf("cleanup RemoveFilesystem(%q): %v", name, err)
 			}
 		}
 	})
@@ -224,9 +225,9 @@ func TestSystemControllerCreateMultipleNestedWithQuotas(t *testing.T) {
 	}
 	// Clean up deepest first, including the auto-created intermediate.
 	t.Cleanup(func() {
-		for i := len(filesystems) - 1; i >= 0; i-- {
-			if err := c.RemoveFilesystem(context.TODO(), filesystems[i].name); err != nil {
-				t.Errorf("cleanup %q: %v", filesystems[i].name, err)
+		for _, fs := range slices.Backward(filesystems) {
+			if err := c.RemoveFilesystem(context.TODO(), fs.name); err != nil {
+				t.Errorf("cleanup %q: %v", fs.name, err)
 			}
 		}
 		if err := c.RemoveFilesystem(context.TODO(), "sc-mnq"); err != nil {
@@ -275,8 +276,8 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 
 	// Safety net: if purge fails, clean up manually.
 	t.Cleanup(func() {
-		for i := len(children) - 1; i >= 0; i-- {
-			if err := btr.RemoveFilesystem(children[i]); err != nil {
+		for _, child := range slices.Backward(children) {
+			if err := btr.RemoveFilesystem(child); err != nil {
 				t.Logf("cleanup RemoveFilesystem: %v", err)
 			}
 		}
@@ -384,8 +385,8 @@ func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
-		for i := len(names) - 1; i >= 0; i-- {
-			if err := btr.RemoveFilesystem(names[i]); err != nil {
+		for _, name := range slices.Backward(names) {
+			if err := btr.RemoveFilesystem(name); err != nil {
 				t.Logf("cleanup RemoveFilesystem: %v", err)
 			}
 		}
@@ -450,8 +451,8 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
-		for i := len(children) - 1; i >= 0; i-- {
-			if err := btr.RemoveFilesystem(children[i].Name); err != nil {
+		for _, child := range slices.Backward(children) {
+			if err := btr.RemoveFilesystem(child.Name); err != nil {
 				t.Logf("cleanup RemoveFilesystem: %v", err)
 			}
 		}
@@ -504,8 +505,8 @@ func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
-		for i := len(names) - 1; i >= 0; i-- {
-			if err := btr.RemoveFilesystem(names[i]); err != nil {
+		for _, name := range slices.Backward(names) {
+			if err := btr.RemoveFilesystem(name); err != nil {
 				t.Logf("cleanup RemoveFilesystem: %v", err)
 			}
 		}

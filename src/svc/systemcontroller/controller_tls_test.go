@@ -151,7 +151,7 @@ func TestApplyTLSToPortsWrapsHTTPOnly(t *testing.T) {
 			{ExternalPort: 2222, InternalPort: 22, Forward: true},
 		},
 	}
-	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/gitea/1.0", nil)
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/gitea/1.0", nil, "home")
 
 	var httpPort, sshPort *networkcontroller.PortConfig
 	for i := range state.Ports {
@@ -182,7 +182,7 @@ func TestApplyTLSToPortsWrapsImmichPort(t *testing.T) {
 			{ExternalPort: 56510, InternalPort: 2283, Forward: true},
 		},
 	}
-	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/immich/1.0", nil)
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/immich/1.0", nil, "home")
 	if !state.Ports[0].TLS || state.Ports[0].CertPath == "" {
 		t.Fatalf("immich port 2283 must be TLS-wrapped, got %+v", state.Ports[0])
 	}
@@ -207,7 +207,7 @@ func TestApplyTLSToPortsWrapsByPortName(t *testing.T) {
 			{ExternalPort: 38883, InternalPort: 38883, Forward: true},
 		},
 	}
-	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/gitea/1.0", pkg)
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/gitea/1.0", pkg, "home")
 
 	var httpPort, sshPort *networkcontroller.PortConfig
 	for i := range state.Ports {
@@ -242,7 +242,7 @@ func TestApplyTLSToPortsExternalNamesAlsoWrap(t *testing.T) {
 			{ExternalPort: 56510, InternalPort: 2283, Forward: true},
 		},
 	}
-	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/x/1.0", pkg)
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/x/1.0", pkg, "home")
 	if !state.Ports[0].TLS {
 		t.Fatalf("external-named http port must be TLS-wrapped: %+v", state.Ports[0])
 	}
@@ -354,5 +354,200 @@ func TestReconcileWriteNetworkStateSkipsTLSWithoutSupplies(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(btrfs, "tls", "leaves", "default", "prometheus", "1.0")); !os.IsNotExist(err) {
 		t.Errorf("leaf cert should not exist for non-http package, err=%v", err)
+	}
+}
+
+func TestIsPublicFQDN(t *testing.T) {
+	cases := []struct {
+		name string
+		tld  string
+		want bool
+	}{
+		{"app.example.com", "home", true},
+		{"git", "home", false},               // bare label → internal subdomain
+		{"gitea.default.home", "home", false}, // under internal TLD
+		{"home", "home", false},
+		{"localhost", "home", false},
+		{"192.168.1.10", "home", false},
+		{"", "home", false},
+		{"app.example.com.", "home", true}, // trailing dot tolerated
+	}
+	for _, tc := range cases {
+		if got := isPublicFQDN(tc.name, tc.tld); got != tc.want {
+			t.Errorf("isPublicFQDN(%q, %q) = %v, want %v", tc.name, tc.tld, got, tc.want)
+		}
+	}
+}
+
+func TestApplyTLSToPortsPassthrough(t *testing.T) {
+	pkg := &packages.Package{
+		Network: packages.PackageNetwork{
+			Internal:      packages.PortMap{8443: 8443},
+			InternalNames: packages.PortNameMap{8443: "http"},
+			TLSModes:      map[uint16]packages.TLSMode{8443: packages.TLSModePassthrough},
+		},
+	}
+	state := networkcontroller.PackageNetworkState{
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 8443, InternalPort: 8443, Forward: true},
+		},
+	}
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/app/1.0", pkg, "home")
+	p := state.Ports[0]
+	if p.TLS {
+		t.Errorf("passthrough port must not be TLS-terminated: %+v", p)
+	}
+	if !p.Passthrough {
+		t.Errorf("passthrough port must be marked Passthrough: %+v", p)
+	}
+	if p.CertPath != "" {
+		t.Errorf("passthrough port must carry no cert path: %+v", p)
+	}
+}
+
+func TestApplyTLSToPortsPublicDomain(t *testing.T) {
+	pkg := &packages.Package{
+		Network: packages.PackageNetwork{
+			External: packages.PortMap{443: 8080},
+			Domains:  []string{"git", "app.example.com"}, // one internal label, one public FQDN
+		},
+	}
+	state := networkcontroller.PackageNetworkState{
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 443, InternalPort: 8080, Forward: true},
+		},
+	}
+	applyTLSToPorts(&state, "/etc/town-os/tls/leaves/default/app/1.0", pkg, "home")
+	p := state.Ports[0]
+	if !p.TLS || p.CertPath == "" {
+		t.Errorf("public-domain port must still terminate with the local leaf (DANE fallback): %+v", p)
+	}
+	if !p.PublicDomain {
+		t.Errorf("port with a public FQDN must be marked PublicDomain: %+v", p)
+	}
+	if len(p.SNINames) != 1 || p.SNINames[0] != "app.example.com" {
+		t.Errorf("SNINames should contain only the public FQDN, got %v", p.SNINames)
+	}
+}
+
+func TestBuildPackageNetworkStateSkipsDirectPorts(t *testing.T) {
+	compiled := &packages.Package{
+		Network: packages.PackageNetwork{
+			External:    packages.PortMap{2222: 22, 8080: 80},
+			DirectPorts: map[uint16]bool{2222: true},
+		},
+	}
+	state := buildPackageNetworkState("default", "app", "1.0", compiled)
+	if len(state.Ports) != 1 {
+		t.Fatalf("expected 1 proxied port (direct skipped), got %d: %+v", len(state.Ports), state.Ports)
+	}
+	if state.Ports[0].ExternalPort != 8080 {
+		t.Fatalf("expected proxied port 8080, got %d", state.Ports[0].ExternalPort)
+	}
+}
+
+func TestTLSAValue(t *testing.T) {
+	dir := t.TempDir()
+	ca, err := townostls.EnsureCA(filepath.Join(dir, TLSSubvolume))
+	if err != nil {
+		t.Fatalf("EnsureCA: %v", err)
+	}
+	leafDir := hostTLSLeafDir(dir, "default", "gitea", "1.0")
+	if err := ca.IssueLeaf(leafDir, []string{"gitea.default.home"}); err != nil {
+		t.Fatalf("IssueLeaf: %v", err)
+	}
+	val, err := tlsaValue(filepath.Join(leafDir, "cert.pem"))
+	if err != nil {
+		t.Fatalf("tlsaValue: %v", err)
+	}
+	// DANE-EE / SPKI / SHA-256 prefix and a 64-hex-char digest.
+	const prefix = "3 1 1 "
+	if len(val) != len(prefix)+64 || val[:len(prefix)] != prefix {
+		t.Fatalf("tlsaValue = %q, want %q + 64 hex chars", val, prefix)
+	}
+}
+
+func TestBuildTLSAEntriesFromStateFile(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ca, err := townostls.EnsureCA(filepath.Join(dir, TLSSubvolume))
+	if err != nil {
+		t.Fatalf("EnsureCA: %v", err)
+	}
+	leafDir := hostTLSLeafDir(dir, "default", "gitea", "1.0")
+	if err := ca.IssueLeaf(leafDir, []string{"gitea.default.home"}); err != nil {
+		t.Fatalf("IssueLeaf: %v", err)
+	}
+
+	// State with one terminated port and one passthrough port.
+	st := networkcontroller.PackageNetworkState{
+		Repo: "default", Package: "gitea", Version: "1.0",
+		ContainerName: "town-os-default-gitea-1.0",
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 443, InternalPort: 3000, Forward: true, TLS: true, CertPath: "/etc/town-os/tls/leaves/default/gitea/1.0"},
+			{ExternalPort: 8443, InternalPort: 8443, Forward: true, Passthrough: true},
+		},
+	}
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "default-gitea-1.0.json"), data, 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	entries, err := buildTLSAEntries(stateDir, dir, "default", "gitea", "1.0", "home", []string{"git", "app.example.com"})
+	if err != nil {
+		t.Fatalf("buildTLSAEntries: %v", err)
+	}
+	// Terminated port 443 × internal FQDNs (gitea.default.home + git subdomain).
+	// The passthrough port (8443) and the public FQDN (app.example.com) are excluded.
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 TLSA entries, got %d: %+v", len(entries), entries)
+	}
+	names := map[string]bool{}
+	for _, e := range entries {
+		if e.Port != 443 {
+			t.Errorf("unexpected port %d (passthrough must be excluded)", e.Port)
+		}
+		names[e.Name] = true
+	}
+	if !names["gitea.default.home"] || !names["git.gitea.default.home"] {
+		t.Fatalf("missing expected internal FQDNs: %v", names)
+	}
+	if names["app.example.com"] {
+		t.Fatal("public FQDN must not get a DANE TLSA entry")
+	}
+}
+
+func TestReconcileWriteNetworkStateOmitsDirectPort(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := ReconcileConfig{NetworkStatePath: stateDir}
+	compiled := &packages.Package{
+		Network: packages.PackageNetwork{
+			External:    packages.PortMap{2222: 22, 9000: 9000},
+			DirectPorts: map[uint16]bool{2222: true},
+		},
+	}
+	if err := reconcileWriteNetworkState(cfg, "default", "app", "1.0", compiled, nil); err != nil {
+		t.Fatalf("reconcileWriteNetworkState: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(stateDir, "default-app-1.0.json"))
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	var st networkcontroller.PackageNetworkState
+	if err := json.Unmarshal(data, &st); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(st.Ports) != 1 || st.Ports[0].ExternalPort != 9000 {
+		t.Fatalf("direct port must be absent from state, got %+v", st.Ports)
 	}
 }

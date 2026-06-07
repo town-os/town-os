@@ -1,12 +1,21 @@
 package systemcontroller
 
 import (
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"net"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/rolodex"
 	townostls "gitea.com/town-os/town-os/src/tls"
 )
 
@@ -150,20 +159,175 @@ func hasHTTPPort(state *networkcontroller.PackageNetworkState, compiled *package
 	return false
 }
 
-// applyTLSToPorts mutates state.Ports in place, turning on TLS for every
-// port whose container-side InternalPort is an HTTP port (per
-// isHTTPPort) and setting CertPath to the container-side leaf
-// directory. Non-HTTP ports (SSH, raw TCP, etc.) are left as plaintext
-// socat forwarders. The caller must have issued the leaf before
-// calling this function.
-func applyTLSToPorts(state *networkcontroller.PackageNetworkState, certPath string, compiled *packages.Package) {
+// isPublicFQDN reports whether name is a real public fully-qualified domain
+// (eligible for ACME) rather than an internal Town OS name. A name is treated
+// as internal when it is a bare subdomain label (no dot), ends in the internal
+// TLD, is localhost, or is an IP literal. Public FQDNs are resolved by the
+// user's real DNS (not rolodex), so they get an ACME-managed cert and no DANE
+// TLSA record.
+func isPublicFQDN(name, tld string) bool {
+	name = strings.TrimSuffix(strings.TrimSpace(name), ".")
+	if name == "" || strings.EqualFold(name, "localhost") {
+		return false
+	}
+	if net.ParseIP(name) != nil {
+		return false
+	}
+	if !strings.Contains(name, ".") {
+		return false // bare subdomain label → internal
+	}
+	if tld != "" && (strings.HasSuffix(name, "."+tld) || name == tld) {
+		return false
+	}
+	return true
+}
+
+// internalDomains returns the subset of domains that are internal subdomain
+// labels (not public FQDNs). Only these belong in rolodex — public FQDNs are
+// resolved by the user's real DNS and would otherwise be registered as bogus
+// `<public.fqdn>.<name>.<repo>.<tld>` internal records.
+func internalDomains(domains []string, tld string) []string {
+	if len(domains) == 0 {
+		return domains
+	}
+	out := make([]string, 0, len(domains))
+	for _, d := range domains {
+		if isPublicFQDN(d, tld) {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// publicDomains returns the package's network.domains entries that are public
+// FQDNs (per isPublicFQDN). These drive ACME host-keyed Caddy sites.
+func publicDomains(compiled *packages.Package, tld string) []string {
+	if compiled == nil {
+		return nil
+	}
+	var out []string
+	for _, d := range compiled.Network.Domains {
+		if isPublicFQDN(d, tld) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// applyTLSToPorts mutates state.Ports in place to set up TLS handling:
+//
+//   - A port marked passthrough (network.tls_mode: passthrough) is left as a
+//     raw socat forward (TLS=false) so the TLS stream — SNI included — reaches
+//     the backend untouched; Passthrough is set for clarity and so the NC's
+//     Caddy collector skips it.
+//   - An HTTP port (per isHTTPPort) that is not passthrough is TLS-terminated:
+//     TLS=true and CertPath points at the container-side leaf directory. When
+//     the package declares public-FQDN domains, the port is additionally
+//     marked PublicDomain with those names so the NC renders host-keyed ACME
+//     sites alongside the local-CA (DANE) catch-all.
+//   - Non-HTTP ports (SSH, raw TCP) are left as plaintext socat forwarders.
+//
+// The caller must have issued the leaf before calling this function.
+func applyTLSToPorts(state *networkcontroller.PackageNetworkState, certPath string, compiled *packages.Package, tld string) {
+	publicFQDNs := publicDomains(compiled, tld)
 	for i := range state.Ports {
+		host := state.Ports[i].ExternalPort
+		if compiled != nil && compiled.Network.TLSModes[host] == packages.TLSModePassthrough {
+			// Backend owns the cert end to end; NC raw-forwards via socat.
+			state.Ports[i].Passthrough = true
+			continue
+		}
 		if !isHTTPPort(state.Ports[i].InternalPort, compiled) {
 			continue
 		}
 		state.Ports[i].TLS = true
 		state.Ports[i].CertPath = certPath
+		if len(publicFQDNs) > 0 {
+			state.Ports[i].PublicDomain = true
+			state.Ports[i].SNINames = publicFQDNs
+		}
 	}
+}
+
+// tlsaValue computes the DANE TLSA RDATA pinning the leaf at certPEMPath.
+// The form is "3 1 1 <hex>": usage 3 (DANE-EE, the end-entity cert directly),
+// selector 1 (SubjectPublicKeyInfo, so a re-issue keeping the same key keeps
+// the record valid), matching 1 (SHA-256 of the SPKI). Returns "" with an
+// error if the cert cannot be read or parsed; callers treat a missing value
+// as "skip publishing TLSA for this port".
+func tlsaValue(certPEMPath string) (string, error) {
+	data, err := os.ReadFile(certPEMPath) //nolint:gosec // G304 -- path derived from the trusted TLS subvolume
+	if err != nil {
+		return "", err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return "", fmt.Errorf("no PEM block in %s", certPEMPath)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("parse leaf cert: %w", err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("marshal public key: %w", err)
+	}
+	sum := sha256.Sum256(spki)
+	return "3 1 1 " + hex.EncodeToString(sum[:]), nil
+}
+
+// buildTLSAEntries derives the DANE TLSA records for an installed package by
+// reading its on-disk network state file (the single source of truth for which
+// ports the NC terminates) and pinning the issued leaf. One entry is produced
+// per (internal FQDN × terminated, non-passthrough port). Public-FQDN domains
+// are excluded — those are served via ACME, not DANE. Returns nil when the
+// package has no terminated ports, no state file, or no leaf yet.
+func buildTLSAEntries(stateDir, btrfsBase, repo, name, version, tld string, domains []string) ([]rolodex.TLSAEntry, error) {
+	if stateDir == "" || btrfsBase == "" {
+		return nil, nil
+	}
+	statePath := filepath.Join(stateDir, fmt.Sprintf("%s-%s-%s.json", repo, name, version))
+	data, err := os.ReadFile(statePath) //nolint:gosec // G304 -- path derived from the trusted network-state dir
+	if err != nil {
+		return nil, err
+	}
+	var st networkcontroller.PackageNetworkState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return nil, fmt.Errorf("unmarshal state %s: %w", statePath, err)
+	}
+
+	var ports []uint16
+	for _, p := range st.Ports {
+		if p.TLS && !p.Passthrough {
+			ports = append(ports, p.ExternalPort)
+		}
+	}
+	if len(ports) == 0 {
+		return nil, nil
+	}
+
+	value, err := tlsaValue(filepath.Join(hostTLSLeafDir(btrfsBase, repo, name, version), "cert.pem"))
+	if err != nil {
+		return nil, err
+	}
+
+	base := name + "." + repo + "." + tld
+	fqdns := []string{base}
+	for _, d := range domains {
+		if isPublicFQDN(d, tld) {
+			continue
+		}
+		fqdns = append(fqdns, d+"."+base)
+	}
+
+	entries := make([]rolodex.TLSAEntry, 0, len(fqdns)*len(ports))
+	for _, fqdn := range fqdns {
+		for _, port := range ports {
+			entries = append(entries, rolodex.TLSAEntry{Name: fqdn, Port: port, Value: value})
+		}
+	}
+	return entries, nil
 }
 
 // issueLeafForPackage issues (or refreshes) a leaf cert for the given

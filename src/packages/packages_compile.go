@@ -143,6 +143,19 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		i.Network.Domains[idx] = applyTemplate(i.Network.Domains[idx], iv, response)
 	}
 
+	// direct/tls_mode reference the same port keys as external/internal, so
+	// they must see the same substitution (e.g. direct: ["@sshport@"]).
+	for idx := range i.Network.Direct {
+		i.Network.Direct[idx] = applyTemplate(i.Network.Direct[idx], iv, response)
+	}
+	if len(i.Network.TLSMode) > 0 {
+		tlsOut := make(map[string]string, len(i.Network.TLSMode))
+		for k, v := range i.Network.TLSMode {
+			tlsOut[applyTemplate(k, iv, response)] = applyTemplate(v, iv, response)
+		}
+		i.Network.TLSMode = tlsOut
+	}
+
 	for name := range i.Volumes {
 		pv := i.Volumes[name]
 		pv.Mountpoint = applyTemplate(pv.Mountpoint, iv, response)
@@ -222,14 +235,19 @@ func (i *InputPackage) iterateFields(iv, response string) {
 //     `@dep_<KEY>_port_<N>@` form.
 //
 // An empty YAML map yields an empty PortMap and nil PortNameMap.
-func convert(p map[string]string) (PortMap, PortNameMap, error) {
+//
+// The returned keyToHost map records the host port each original YAML key
+// resolved to, so callers (network.direct / network.tls_mode) can map a
+// port key back onto its compiled host port.
+func convert(p map[string]string) (PortMap, PortNameMap, map[string]uint16, error) {
 	pm := PortMap{}
 	var names PortNameMap
+	keyToHost := make(map[string]uint16, len(p))
 
 	for key, value := range p {
 		containerPort, err := strToPort(value)
 		if err != nil {
-			return nil, nil, fmt.Errorf("port value %q: %w", value, err)
+			return nil, nil, nil, fmt.Errorf("port value %q: %w", value, err)
 		}
 
 		hostPort, perr := strToPort(key)
@@ -237,22 +255,83 @@ func convert(p map[string]string) (PortMap, PortNameMap, error) {
 			// Key is not a numeric port; try to interpret as a semantic
 			// name. Names and numeric keys may coexist in the same map.
 			if !PortNameRegexp.MatchString(key) {
-				return nil, nil, fmt.Errorf("%w: %q", ErrInvalidPortName, key)
+				return nil, nil, nil, fmt.Errorf("%w: %q", ErrInvalidPortName, key)
 			}
 			if names == nil {
 				names = PortNameMap{}
 			}
 			if prev, dup := names[containerPort]; dup {
-				return nil, nil, fmt.Errorf("%w: container port %d has both names %q and %q", ErrInvalidPortName, containerPort, prev, key)
+				return nil, nil, nil, fmt.Errorf("%w: container port %d has both names %q and %q", ErrInvalidPortName, containerPort, prev, key)
 			}
 			names[containerPort] = key
 			hostPort = containerPort
 		}
 
 		pm[hostPort] = containerPort
+		keyToHost[key] = hostPort
 	}
 
-	return pm, names, nil
+	return pm, names, keyToHost, nil
+}
+
+// compileNetworkPortFlags resolves the network.direct and network.tls_mode
+// declarations (keyed by the same port keys as external/internal) onto
+// compiled host ports. It validates that every referenced key exists, that
+// tls_mode values are recognized, and that a direct port does not also carry
+// a tls_mode. Returns nil maps when nothing is declared.
+func compileNetworkPortFlags(n InputPackageNetwork, externalKeys, internalKeys map[string]uint16) (map[uint16]bool, map[uint16]TLSMode, error) {
+	resolve := func(key string) (uint16, bool) {
+		if hp, ok := externalKeys[key]; ok {
+			return hp, true
+		}
+		if hp, ok := internalKeys[key]; ok {
+			return hp, true
+		}
+		return 0, false
+	}
+
+	var directPorts map[uint16]bool
+	for _, key := range n.Direct {
+		hp, ok := resolve(key)
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: direct %q", ErrUnknownNetworkPortRef, key)
+		}
+		if directPorts == nil {
+			directPorts = map[uint16]bool{}
+		}
+		directPorts[hp] = true
+	}
+
+	var tlsModes map[uint16]TLSMode
+	for key, mode := range n.TLSMode {
+		hp, ok := resolve(key)
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: tls_mode %q", ErrUnknownNetworkPortRef, key)
+		}
+		switch TLSMode(mode) {
+		case "", TLSModeTerminate:
+			// Default handling — nothing to record (keeps the map sparse).
+		case TLSModePassthrough:
+			if tlsModes == nil {
+				tlsModes = map[uint16]TLSMode{}
+			}
+			tlsModes[hp] = TLSModePassthrough
+		default:
+			return nil, nil, fmt.Errorf("%w: %q", ErrInvalidTLSMode, mode)
+		}
+	}
+
+	// A direct port is opaque TCP owned by the service container, so it can
+	// never also be a proxied TLS port. Compare by resolved host port so a
+	// numeric `direct` key and a named `tls_mode` key for the same port
+	// still clash.
+	for key := range n.TLSMode {
+		if hp, ok := resolve(key); ok && directPorts[hp] {
+			return nil, nil, fmt.Errorf("%w: %q", ErrDirectPortTLSMode, key)
+		}
+	}
+
+	return directPorts, tlsModes, nil
 }
 
 func strToPort(input string) (uint16, error) {
@@ -516,12 +595,19 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, &ValidationError{Errors: verrs}
 	}
 
-	external, externalNames, err := convert(i.Network.External)
+	external, externalNames, externalKeys, err := convert(i.Network.External)
 	if err != nil {
 		return nil, err
 	}
 
-	internal, internalNames, err := convert(i.Network.Internal)
+	internal, internalNames, internalKeys, err := convert(i.Network.Internal)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve network.direct / network.tls_mode (keyed by the same port keys
+	// used in external/internal) onto compiled host ports.
+	directPorts, tlsModes, err := compileNetworkPortFlags(i.Network, externalKeys, internalKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -653,7 +739,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		Entrypoint:   i.Entrypoint,
 		Command:      command,
 		Environment:  i.Environment,
-		Network:      PackageNetwork{External: external, Internal: internal, ExternalNames: externalNames, InternalNames: internalNames, Domains: i.Network.Domains},
+		Network:      PackageNetwork{External: external, Internal: internal, ExternalNames: externalNames, InternalNames: internalNames, Domains: i.Network.Domains, DirectPorts: directPorts, TLSModes: tlsModes},
 		Volumes:      volumes,
 		Templates:    templates,
 		Notes:        notes,

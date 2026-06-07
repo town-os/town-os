@@ -160,6 +160,63 @@ func TestRenderCaddyfileChangesWhenCertHashChanges(t *testing.T) {
 	}
 }
 
+func TestCollectCaddySitesSkipsPassthrough(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "cert.pem"), []byte("c"), 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	st := &PackageNetworkState{
+		ContainerName: "town-os-default-app-1.0",
+		Ports: []PortConfig{
+			// Passthrough port is raw-forwarded by socat, never terminated.
+			{ExternalPort: 8443, InternalPort: 8443, Forward: true, TLS: true, Passthrough: true, CertPath: tmp},
+		},
+	}
+	sites := CollectCaddySites([]*PackageNetworkState{st})
+	if len(sites) != 0 {
+		t.Fatalf("expected passthrough port to be excluded from Caddy sites, got %+v", sites)
+	}
+}
+
+func TestCollectCaddySitesEmitsACMESiteForPublicDomain(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "cert.pem"), []byte("c"), 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	st := &PackageNetworkState{
+		ContainerName: "town-os-default-app-1.0",
+		Ports: []PortConfig{
+			{
+				ExternalPort: 443, InternalPort: 8080, Forward: true, TLS: true,
+				CertPath: tmp, PublicDomain: true, SNINames: []string{"app.example.com"},
+			},
+		},
+	}
+	sites := CollectCaddySites([]*PackageNetworkState{st})
+	// One port-keyed catch-all (DANE leaf) + one host-keyed ACME site.
+	if len(sites) != 2 {
+		t.Fatalf("expected 2 sites (catch-all + ACME), got %d: %+v", len(sites), sites)
+	}
+	if sites[0].Host != "" || sites[0].ACME {
+		t.Fatalf("first site should be the port-keyed catch-all, got %+v", sites[0])
+	}
+	if sites[1].Host != "app.example.com" || !sites[1].ACME {
+		t.Fatalf("second site should be the host-keyed ACME site, got %+v", sites[1])
+	}
+
+	out := string(RenderCaddyfile(sites))
+	if !strings.Contains(out, "https://app.example.com:443 {") {
+		t.Fatalf("missing host-keyed ACME site address:\n%s", out)
+	}
+	if !strings.Contains(out, "issuer acme") {
+		t.Fatalf("ACME site must declare an acme issuer:\n%s", out)
+	}
+	// The catch-all keeps the file cert; the ACME block must not reference one.
+	if strings.Count(out, "cert-hash") != 1 {
+		t.Fatalf("expected exactly one file-cert (catch-all) block:\n%s", out)
+	}
+}
+
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])

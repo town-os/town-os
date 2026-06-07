@@ -8,21 +8,31 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 )
 
-// CaddySite is one https vhost rendered into the Caddyfile. Exactly one
-// site per external TLS port. The target is the podman DNS name the NC
-// resolves upstream against, exactly like the old in-process TLS forwarder
-// did via its byte tunnel.
+// CaddySite is one https vhost rendered into the Caddyfile. The target is
+// the podman DNS name the NC resolves upstream against, exactly like the old
+// in-process TLS forwarder did via its byte tunnel.
+//
+// Each terminated TLS port yields a port-keyed (catch-all) site that serves
+// the local-CA leaf — this covers SNI access by the internal DNS name (DANE-
+// validated via the published TLSA record) as well as direct-by-IP HTTPS.
+// When the port also carries public FQDNs, one extra host-keyed site per
+// FQDN is emitted with ACME=true so Caddy obtains a publicly-trusted cert;
+// host-keyed sites win over the catch-all by SNI on the same port.
 type CaddySite struct {
 	ExternalPort uint16
 	Target       string
 	InternalPort uint16
-	CertPath     string // directory containing cert.pem + key.pem
+	CertPath     string // directory containing cert.pem + key.pem (file-cert sites only)
 	CertHash     string // sha256 of cert.pem content; empty means "do not embed"
+	Host         string // non-empty => host-keyed site; empty => port-keyed catch-all
+	ACME         bool   // true => manage the cert via an ACME issuer (ignores CertPath)
 }
 
 // CollectCaddySites walks a set of PackageNetworkState values and returns
@@ -40,9 +50,14 @@ func CollectCaddySites(states []*PackageNetworkState) []CaddySite {
 			continue
 		}
 		for _, p := range st.Ports {
-			if !p.Forward || !p.TLS {
+			// Passthrough ports are raw-forwarded by socat so the TLS
+			// stream reaches the backend untouched — they are never
+			// terminated by Caddy. Non-forwarded / non-TLS ports are
+			// likewise not Caddy's concern.
+			if !p.Forward || !p.TLS || p.Passthrough {
 				continue
 			}
+			// Port-keyed catch-all site serving the local-CA leaf (DANE).
 			sites = append(sites, CaddySite{
 				ExternalPort: p.ExternalPort,
 				Target:       st.ContainerName,
@@ -50,10 +65,30 @@ func CollectCaddySites(states []*PackageNetworkState) []CaddySite {
 				CertPath:     p.CertPath,
 				CertHash:     hashCertFile(p.CertPath),
 			})
+			// Extra host-keyed ACME sites for any public FQDNs on this port.
+			if p.PublicDomain {
+				for _, name := range p.SNINames {
+					if name == "" {
+						continue
+					}
+					sites = append(sites, CaddySite{
+						ExternalPort: p.ExternalPort,
+						Target:       st.ContainerName,
+						InternalPort: p.InternalPort,
+						Host:         name,
+						ACME:         true,
+					})
+				}
+			}
 		}
 	}
 	sort.Slice(sites, func(i, j int) bool {
-		return sites[i].ExternalPort < sites[j].ExternalPort
+		if sites[i].ExternalPort != sites[j].ExternalPort {
+			return sites[i].ExternalPort < sites[j].ExternalPort
+		}
+		// Port-keyed catch-all (empty Host) sorts before host-keyed sites;
+		// host-keyed sites sort by name for deterministic output.
+		return sites[i].Host < sites[j].Host
 	})
 	return sites
 }
@@ -105,17 +140,28 @@ func RenderCaddyfile(sites []CaddySite) []byte {
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n")
 	for _, s := range sites {
-		if s.CertPath == "" {
-			// A TLS-marked port without a cert path is a bug upstream —
+		if !s.ACME && s.CertPath == "" {
+			// A file-cert TLS port without a cert path is a bug upstream —
 			// skip it rather than write a site block that will make caddy
-			// refuse to reload the whole config.
+			// refuse to reload the whole config. ACME sites need no cert
+			// file (Caddy obtains one), so they are exempt.
 			continue
 		}
-		certPath := filepath.Join(s.CertPath, "cert.pem")
-		keyPath := filepath.Join(s.CertPath, "key.pem")
-		fmt.Fprintf(&buf, "\nhttps://:%d {\n", s.ExternalPort)
-		fmt.Fprintf(&buf, "\t# cert-hash: %s\n", s.CertHash)
-		fmt.Fprintf(&buf, "\ttls %s %s\n", certPath, keyPath)
+		// net.JoinHostPort yields ":443" for the empty-host catch-all and
+		// "app.example.com:443" for host-keyed sites.
+		addr := "https://" + net.JoinHostPort(s.Host, strconv.Itoa(int(s.ExternalPort)))
+		fmt.Fprintf(&buf, "\n%s {\n", addr)
+		if s.ACME {
+			// Caddy manages a publicly-trusted cert via ACME for this host,
+			// even with global auto_https off, because an explicit issuer is
+			// declared. No file cert and no cert-hash: rotation is Caddy's job.
+			buf.WriteString("\ttls {\n\t\tissuer acme\n\t}\n")
+		} else {
+			certPath := filepath.Join(s.CertPath, "cert.pem")
+			keyPath := filepath.Join(s.CertPath, "key.pem")
+			fmt.Fprintf(&buf, "\t# cert-hash: %s\n", s.CertHash)
+			fmt.Fprintf(&buf, "\ttls %s %s\n", certPath, keyPath)
+		}
 		fmt.Fprintf(&buf, "\treverse_proxy %s:%d\n", s.Target, s.InternalPort)
 		buf.WriteString("}\n")
 	}

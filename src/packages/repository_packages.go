@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -398,8 +399,7 @@ func (rr *RepositoryRoot) ListPackagesByRepo() ([]RepoPackageGroup, error) {
 	var groups []RepoPackageGroup
 
 	// Iterate in reverse so highest-precedence repo comes first.
-	for i := len(rr.Items) - 1; i >= 0; i-- {
-		repo := rr.Items[i]
+	for _, repo := range slices.Backward(rr.Items) {
 		pkgs, err := rr.cachedLoadPackages(&repo)
 		if err != nil {
 			return nil, fmt.Errorf("repository %s: %w", repo.Name, err)
