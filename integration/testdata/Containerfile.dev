@@ -17,7 +17,7 @@ COPY --from=town-os /town-os.tag /town-os.tag
 COPY --from=town-os /ui /ui
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 COPY integration/testdata/town-os-system--rolodex.service /etc/systemd/system/
-# The rolodex image is per-arch (latest-amd64 / latest-arm64); the build
+# The rolodex image is per-arch (rc.latest-x86_64 / rc.latest-aarch64); the build
 # injects the host's arch tag so the baked unit never references rc.latest.
 ARG ROLODEX_IMAGE
 RUN test -n "${ROLODEX_IMAGE}" && \

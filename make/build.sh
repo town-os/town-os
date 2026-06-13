@@ -11,10 +11,12 @@ set -e
 : "${PROTON_ENABLED:=0}"
 : "${GO_BUILD_TAGS:=}"
 
-# Registry arch name (amd64/arm64) for per-arch rc tags. rc tags are pushed
-# natively from each host as rc.<date>-<arch> / rc.latest-<arch>; manifest-rc
-# assembles the plain multi-arch manifest lists after every arch has pushed.
-ARCH="$(host_arch)"
+# Registry tag arch suffix (x86_64/aarch64, the uname -m form) for per-arch rc
+# tags. rc tags are pushed natively from each host as rc.<date>-<arch> /
+# rc.latest-<arch>; manifest-rc assembles the plain multi-arch manifest lists
+# after every arch has pushed. This is the tag suffix, not the OCI platform
+# name (host_arch) podman pulls with.
+ARCH="$(host_arch_tag)"
 
 case "$1" in
   production)

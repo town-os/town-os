@@ -24,13 +24,28 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
+// archTag maps Go's runtime.GOARCH (amd64/arm64) to the per-arch image tag
+// suffix used by the registry (x86_64/aarch64, the uname -m form). The tag
+// suffix deliberately differs from Go's GOARCH spelling.
+func archTag() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x86_64"
+	case "arm64":
+		return "aarch64"
+	default:
+		return runtime.GOARCH
+	}
+}
+
 func rolodexTestImage() string {
 	img := os.Getenv("ROLODEX_IMAGE")
 	if img == "" {
-		// Rolodex publishes per-arch release tags (latest-amd64 /
-		// latest-arm64); rc.latest must never be used for testing.
-		// runtime.GOARCH matches the tag suffix on both architectures.
-		img = "quay.io/town/rolodex:latest-" + runtime.GOARCH
+		// Internal Town OS pulls default to the host's per-arch rc tag
+		// (rc.latest-x86_64 / rc.latest-aarch64). The plain rc.latest
+		// (no arch suffix) is a multi-arch manifest and must never be
+		// used. archTag() maps the Go runtime arch to the tag suffix.
+		img = "quay.io/town/rolodex:rc.latest-" + archTag()
 	}
 	ensureImagePulled(img)
 	return img

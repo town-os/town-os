@@ -33,12 +33,27 @@ import (
 // Version is set at build time via ldflags (e.g. -ldflags "-X main.Version=v1.0.0").
 var Version string
 
+// archTag maps Go's runtime.GOARCH (amd64/arm64) to the per-arch image tag
+// suffix the make pipeline pushes (x86_64/aarch64, the uname -m form). The
+// registry tag suffix deliberately differs from Go's GOARCH spelling, so the
+// mapping must be explicit rather than using runtime.GOARCH directly.
+func archTag() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x86_64"
+	case "arm64":
+		return "aarch64"
+	default:
+		return runtime.GOARCH
+	}
+}
+
 // defaultVersionTag is the last-resort image tag when no tag was baked in at
-// build time. rc tags are partitioned per architecture (rc.latest-amd64 /
-// rc.latest-arm64, pushed natively from each host); runtime.GOARCH matches
-// the registry arch suffix on both supported architectures.
+// build time. rc tags are partitioned per architecture (rc.latest-x86_64 /
+// rc.latest-aarch64, pushed natively from each host); archTag() maps the Go
+// runtime arch to the registry tag suffix used on both supported architectures.
 func defaultVersionTag() string {
-	return "rc.latest-" + runtime.GOARCH
+	return "rc.latest-" + archTag()
 }
 
 // HostPodmanSocket is the unix socket URL of the host podman that the

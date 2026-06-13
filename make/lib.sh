@@ -50,14 +50,32 @@ warn() {
 # Per-arch image tags
 # ---------------------------------------------------------------------------
 
-# All architectures a release covers; manifest assembly iterates this list.
-: "${ARCHES:=amd64 arm64}"
+# All architectures a release covers, in registry-tag form (x86_64/aarch64);
+# manifest assembly iterates this list.
+: "${ARCHES:=x86_64 aarch64}"
 
-# host_arch — print the registry arch name (amd64/arm64) for the current host.
+# host_arch — print the OCI platform arch (amd64/arm64) for the current host.
+#   This is podman's `.Architecture` value and the `--platform linux/<arch>`
+#   form; it is NOT the image tag suffix (use host_arch_tag for that).
 host_arch() {
   case "$(uname -m)" in
     x86_64 | amd64) echo amd64 ;;
     aarch64 | arm64) echo arm64 ;;
+    *)
+      echo "unsupported host architecture: $(uname -m)" >&2
+      return 1
+      ;;
+  esac
+}
+
+# host_arch_tag — print the per-arch image tag suffix (x86_64/aarch64, the
+#   uname -m form) for the current host. Image tags are partitioned with this
+#   suffix (rc.latest-x86_64, rc.latest-aarch64, ...); it differs deliberately
+#   from host_arch, which is the OCI platform name podman pulls/inspects with.
+host_arch_tag() {
+  case "$(uname -m)" in
+    x86_64 | amd64) echo x86_64 ;;
+    aarch64 | arm64) echo aarch64 ;;
     *)
       echo "unsupported host architecture: $(uname -m)" >&2
       return 1

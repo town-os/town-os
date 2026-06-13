@@ -19,8 +19,9 @@ func uiTestImage(t *testing.T) string {
 	if img == "" {
 		// The UI test image is built locally from Containerfile.ui by the
 		// test harness (make ui-image) and injected via UI_IMAGE; the quay
-		// tags are production-only (and amd64-only), so there is no
-		// pullable fallback. rc.latest must never be used for testing.
+		// tags are production-only (per-arch latest-x86_64 / latest-aarch64),
+		// so there is no plain pullable fallback. rc.latest must never be
+		// used for testing.
 		t.Skip("UI_IMAGE not set; run via make test-integration")
 	}
 	ensureImagePulled(img)

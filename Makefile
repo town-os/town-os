@@ -11,13 +11,13 @@ export QUAY_USERNAME
 export QUAY_PASSWORD
 export VITE_API_URL
 
-# Host arch in registry form (amd64/arm64) for per-arch image tags. rc tags
-# are partitioned per arch (rc.latest-amd64 / rc.latest-arm64) and pushed
-# natively from each host; plain rc.latest exists only as a multi-arch
-# manifest list assembled by manifest-rc.
-HOST_ARCH := $(shell uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+# Host arch in registry tag form (x86_64/aarch64, the uname -m form) for
+# per-arch image tags. rc tags are partitioned per arch (rc.latest-x86_64 /
+# rc.latest-aarch64) and pushed natively from each host; plain rc.latest exists
+# only as a multi-arch manifest list assembled by manifest-rc.
+HOST_ARCH := $(shell uname -m | sed -e 's/amd64/x86_64/' -e 's/arm64/aarch64/')
 # All architectures a release covers (used by manifest assembly).
-ARCHES ?= amd64 arm64
+ARCHES ?= x86_64 aarch64
 export HOST_ARCH ARCHES
 
 TOWN_OS_TAG ?= rc.latest-$(HOST_ARCH)
@@ -80,10 +80,13 @@ export IMAGE_CACHE
 # Image lists.
 BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm docker.io/library/caddy:latest
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
-# Rolodex publishes per-arch tags (latest-amd64 / latest-arm64) pushed natively
-# from each host; tests pull the host's arch tag directly instead of rc.latest
-# so no multi-arch manifest assembly is needed for releases.
-ROLODEX_IMAGE_TAG ?= latest-$(HOST_ARCH)
+# Rolodex publishes per-arch tags (rc.latest-x86_64 / rc.latest-aarch64) pushed
+# natively from each host. Internal Town OS image pulls default to the host's
+# per-arch rc tag (rc.latest-<arch>) so the harness, dev, and the runtime all
+# track the rc channel by default. The plain rc.latest (no arch suffix) is a
+# multi-arch manifest list and must never be pulled directly. Override with
+# ROLODEX_IMAGE_TAG=... (e.g. latest-$(HOST_ARCH) for a released rolodex).
+ROLODEX_IMAGE_TAG ?= rc.latest-$(HOST_ARCH)
 ROLODEX_IMAGE := quay.io/town/rolodex:$(ROLODEX_IMAGE_TAG)
 # The UI image for tests is built locally from Containerfile.ui (ui-image
 # target) so it always matches the host arch and the in-repo UI source.
