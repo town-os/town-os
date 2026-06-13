@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,14 @@ import (
 
 // Version is set at build time via ldflags (e.g. -ldflags "-X main.Version=v1.0.0").
 var Version string
+
+// defaultVersionTag is the last-resort image tag when no tag was baked in at
+// build time. rc tags are partitioned per architecture (rc.latest-amd64 /
+// rc.latest-arm64, pushed natively from each host); runtime.GOARCH matches
+// the registry arch suffix on both supported architectures.
+func defaultVersionTag() string {
+	return "rc.latest-" + runtime.GOARCH
+}
 
 // HostPodmanSocket is the unix socket URL of the host podman that the
 // systemcontroller container bind-mounts in at /run/podman/podman.sock.
@@ -242,9 +251,11 @@ func run() (err error) {
 
 	// Read the tag baked into the image at push time. This lets us derive
 	// matching tags for sibling images (UI, rolodex, networkcontroller) at
-	// runtime. Fallback chain: TOWN_OS_TAG env var → compile-time Version
-	// ldflags → /town-os.tag file → "rc.latest".
-	tag := "rc.latest"
+	// runtime. Baked rc tags are per-arch (rc.<date>-<arch>), so derived
+	// sibling tags are per-arch too. Fallback chain: TOWN_OS_TAG env var →
+	// compile-time Version ldflags → /town-os.tag file →
+	// "rc.latest-<arch>" (defaultVersionTag).
+	tag := defaultVersionTag()
 	if envTag := os.Getenv("TOWN_OS_TAG"); envTag != "" {
 		tag = envTag
 	} else if Version != "" {

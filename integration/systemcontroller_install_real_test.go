@@ -186,7 +186,7 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 		Installer:                inst,
 		Systemd:                  sd,
 		BtrfsBasePath:            "/town-os",
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkControllerImage: ncTestImage(),
 		NetworkStatePath:       "/run/town-os",
 	})
 	t.Cleanup(func() { ts.Server.Close() })

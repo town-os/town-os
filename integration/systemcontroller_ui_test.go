@@ -13,10 +13,15 @@ import (
 	"gitea.com/town-os/town-os/src/ui"
 )
 
-func uiTestImage() string {
+func uiTestImage(t *testing.T) string {
+	t.Helper()
 	img := os.Getenv("UI_IMAGE")
 	if img == "" {
-		img = "quay.io/town/ui:rc.latest"
+		// The UI test image is built locally from Containerfile.ui by the
+		// test harness (make ui-image) and injected via UI_IMAGE; the quay
+		// tags are production-only (and amd64-only), so there is no
+		// pullable fallback. rc.latest must never be used for testing.
+		t.Skip("UI_IMAGE not set; run via make test-integration")
 	}
 	ensureImagePulled(img)
 	return img
@@ -27,7 +32,7 @@ func TestUIContainerRealStartAndAccessible(t *testing.T) {
 	sd := systemd.NewManager()
 	mgr := ui.NewManager(ui.Config{
 		Systemd: sd,
-		Image:   uiTestImage(),
+		Image:   uiTestImage(t),
 	})
 
 	ctx := context.Background()

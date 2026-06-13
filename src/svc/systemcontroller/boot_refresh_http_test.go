@@ -298,7 +298,9 @@ func TestRefreshSystemServicesDropsMarker(t *testing.T) {
 
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
-	uiMgr := ui.NewManager(ui.Config{Systemd: sd, Image: "quay.io/town/ui:rc.latest"})
+	// Mock systemd + no-op pull: the images are never pulled or run, so
+	// neutral fake tags are used. rc.latest must never be referenced in tests.
+	uiMgr := ui.NewManager(ui.Config{Systemd: sd, Image: "quay.io/town/ui:testtag"})
 
 	ts := InitTestServer(ServerConfig{
 		Storage:                    mock,
@@ -306,7 +308,7 @@ func TestRefreshSystemServicesDropsMarker(t *testing.T) {
 		MonitoringBackend:          monitoring.BackendUPlot,
 		UI:                         uiMgr,
 		BtrfsBasePath:              btrfsBase,
-		SystemControllerImage:      "quay.io/town/town:rc.latest",
+		SystemControllerImage:      "quay.io/town/town:testtag",
 		SystemControllerListenAddr: ":5309",
 	})
 	t.Cleanup(ts.Close)
@@ -359,7 +361,7 @@ func TestRefreshSystemServicesEmptyBaseSkipsMarker(t *testing.T) {
 
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
-	uiMgr := ui.NewManager(ui.Config{Systemd: sd, Image: "quay.io/town/ui:rc.latest"})
+	uiMgr := ui.NewManager(ui.Config{Systemd: sd, Image: "quay.io/town/ui:testtag"})
 
 	ts := InitTestServer(ServerConfig{
 		Storage:           mock,
@@ -367,7 +369,7 @@ func TestRefreshSystemServicesEmptyBaseSkipsMarker(t *testing.T) {
 		MonitoringBackend: monitoring.BackendUPlot,
 		UI:                uiMgr,
 		// Deliberately no BtrfsBasePath.
-		SystemControllerImage:      "quay.io/town/town:rc.latest",
+		SystemControllerImage:      "quay.io/town/town:testtag",
 		SystemControllerListenAddr: ":5309",
 	})
 	t.Cleanup(ts.Close)

@@ -11,9 +11,17 @@ case "$1" in
     remove_container "${GITEA_CONTAINER}"
     ${SUDO} podman load -i "${IMAGE_CACHE}/gitea-latest.tar"
     # --replace: ensure concurrent make test-full runs never conflict on container names
+    # --net host: bridge-network containers get broken DNS on captive networks
+    # (public resolvers blocked); Gitea needs outbound access for repository
+    # migration. HTTP binds the per-instance random port directly since there
+    # is no -p mapping; SSH is disabled so nothing tries to bind host port 22.
     ${SUDO} podman run -d --pull=never --replace --name "${GITEA_CONTAINER}" \
-      -p "$(cat "${STATE_DIR}/.gitea-port"):3000" \
+      --net host \
       -e GITEA__security__INSTALL_LOCK=true \
+      -e "GITEA__server__HTTP_PORT=$(cat "${STATE_DIR}/.gitea-port")" \
+      -e "GITEA__server__ROOT_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/" \
+      -e GITEA__server__DISABLE_SSH=true \
+      -e DISABLE_SSH=true \
       docker.io/gitea/gitea:latest
     substep "Waiting for Gitea to be ready"
     wait_for_url "http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/api/v1/version" 60

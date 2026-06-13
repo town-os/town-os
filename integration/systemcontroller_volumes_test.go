@@ -174,7 +174,9 @@ func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
 	t.Parallel()
 	c := initSystemControllerTest(t)
 
-	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-qname", Quota: 1024}); err != nil {
+	// Quotas must exceed the ~16KiB an empty subvolume already references;
+	// newer kernels reject qgroup limits below current usage with EDQUOT.
+	if err := c.CreateFilesystem(context.TODO(), storage.Filesystem{Name: "sc-qname", Quota: 1048576}); err != nil {
 		t.Fatalf("CreateFilesystem: %v", err)
 	}
 	t.Cleanup(func() {
@@ -184,7 +186,7 @@ func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
 	})
 
 	// Modify quota without changing name.
-	if err := c.ModifyFilesystem(context.TODO(), "sc-qname", storage.Filesystem{Name: "sc-qname", Quota: 8192}); err != nil {
+	if err := c.ModifyFilesystem(context.TODO(), "sc-qname", storage.Filesystem{Name: "sc-qname", Quota: 8388608}); err != nil {
 		t.Fatalf("ModifyFilesystem: %v", err)
 	}
 
@@ -198,8 +200,8 @@ func TestSystemControllerQuotaUpdatePreservesName(t *testing.T) {
 	if listResult.Entries[0].Name != "sc-qname" {
 		t.Fatalf("expected name %q, got %q", "sc-qname", listResult.Entries[0].Name)
 	}
-	if listResult.Entries[0].Quota != 8192 {
-		t.Fatalf("expected quota %d, got %d", 8192, listResult.Entries[0].Quota)
+	if listResult.Entries[0].Quota != 8388608 {
+		t.Fatalf("expected quota %d, got %d", 8388608, listResult.Entries[0].Quota)
 	}
 }
 

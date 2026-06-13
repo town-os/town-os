@@ -151,7 +151,9 @@ func TestSystemControllerModifyFilesystem(t *testing.T) {
 		}
 	})
 
-	if err := c.ModifyFilesystem(context.TODO(), "sc-modify", storage.Filesystem{Name: "sc-modify", Quota: 1024}); err != nil {
+	// Quota must exceed the ~16KiB an empty subvolume already references;
+	// newer kernels reject qgroup limits below current usage with EDQUOT.
+	if err := c.ModifyFilesystem(context.TODO(), "sc-modify", storage.Filesystem{Name: "sc-modify", Quota: 1048576}); err != nil {
 		t.Fatalf("ModifyFilesystem: %v", err)
 	}
 }
@@ -192,9 +194,11 @@ func TestSystemControllerModifyPackageVolumeQuotaAllowed(t *testing.T) {
 		}
 	})
 
+	// Quota must exceed the ~16KiB an empty subvolume already references;
+	// newer kernels reject qgroup limits below current usage with EDQUOT.
 	if err := c.ModifyFilesystem(context.TODO(), volPath, storage.Filesystem{
 		Name:  volPath,
-		Quota: 4096,
+		Quota: 4194304,
 	}); err != nil {
 		t.Fatalf("ModifyFilesystem quota on installed volume: %v", err)
 	}

@@ -19,6 +19,9 @@ Build & lint
   lint                    Run golangci-lint and the UI lint suite.
   production-image        Build the production systemcontroller container image.
   test-image              Build the integration-test container image.
+  ui-image                Build the local UI image used by tests (host arch).
+  nc-image                Build the local NC image used by tests (host arch).
+  nc-image-dev            Build the local NC image for the dev container.
   dev-image               Build the dev container image.
   build-networkcontroller Build the network controller binary into the image.
 
@@ -51,8 +54,14 @@ Release
   release-image           Build the system controller release image.
   release-ui-image        Build the UI release image.
   release-nc-image        Build the network controller release image.
-  push-rc                 Push all release images with the rc.latest tag.
-  push-release            Push all release images with the latest tag.
+  push-rc                 Push all release images with per-arch rc tags
+                          (rc.latest-<arch>, rc.<date>-<arch>).
+  manifest-rc             Assemble + push the plain rc.latest / rc.<date>
+                          multi-arch manifest lists from the per-arch tags.
+  push-release            Push all release images with per-arch release tags
+                          (latest-<arch>, release.<date>-<arch>).
+  manifest-release        Assemble + push the plain latest / release.<date>
+                          multi-arch manifest lists from the per-arch tags.
   push-tag PUSH_TAG=...   Push all release images with a specific tag.
 
 Cleanup
@@ -73,8 +82,8 @@ if [[ "${PROTON_ENABLED}" = "1" ]]; then
 
 Proton (opt-in; built because PROTON_ENABLED=1)
   release-proton-image    Build the Proton runner release image.
-  push-proton-rc          Push the Proton runner image with the rc.latest tag.
-  push-proton-release     Push the Proton runner image with the latest tag.
+  push-proton-rc          Push the Proton runner image with per-arch rc tags.
+  push-proton-release     Push the Proton runner image with per-arch release tags.
 EOF
 else
   cat <<'EOF'

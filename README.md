@@ -245,7 +245,7 @@ Dev and integration use separate production base images and build caches so conc
 
 ### Release and Push
 
-All release images are pushed to `quay.io/town/`. Push targets tag images with both a date stamp (`YYYYMMDD`) and a convenience alias (`rc.latest`, `latest`). The `TOWN_OS_TAG` is baked into the system controller binary at build time so sibling services (UI, Rolodex) use matching image tags.
+All release images are pushed to `quay.io/town/`. All push tags are partitioned per architecture: each host pushes its native arch as `rc.<date>-<arch>` / `rc.latest-<arch>` (release candidates) or `release.<date>-<arch>` / `latest-<arch>` (releases), where `<arch>` is `uname -m` mapped to `amd64`/`arm64`. The plain names (`rc.latest`, `latest`, and the date tags) exist only as multi-arch manifest lists assembled by `make manifest-rc` / `make manifest-release` after every architecture has pushed. The per-arch `TOWN_OS_TAG` is baked into the system controller binary at build time so sibling services (UI, Rolodex) use matching per-arch image tags.
 
 | Target                      | Description                                                                                                        |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -255,14 +255,16 @@ All release images are pushed to `quay.io/town/`. Push targets tag images with b
 | `make release-nc-image`     | Build the release network controller image (`quay.io/town/networkcontroller`).                                     |
 | `make release-build`        | Pull images, run `test-full`, then build the release images. Includes the Proton runner when `PROTON_ENABLED=1`.    |
 | `make push`                 | Alias for `push-rc`.                                                                                               |
-| `make push-rc`              | Push all images (system controller, UI, network controller; Proton when `PROTON_ENABLED=1`) as release candidates (`rc.<date>` + `rc.latest`). |
-| `make push-release`         | Run `release-build`, then push all images as a release (`release.<date>` + `latest`).                              |
-| `make push-ui-rc`           | Push only the UI image as a release candidate (`rc.<date>` + `rc.latest`).                                         |
-| `make push-ui-release`      | Push only the UI image as a release (`release.<date>` + `latest`).                                                 |
+| `make push-rc`              | Push all images (system controller, UI, network controller; Proton when `PROTON_ENABLED=1`) as per-arch release candidates (`rc.<date>-<arch>` + `rc.latest-<arch>`). |
+| `make manifest-rc`          | Assemble and push the plain `rc.<date>` / `rc.latest` multi-arch manifest lists from the per-arch tags. Run once after every arch has pushed. |
+| `make push-release`         | Run `release-build`, then push all images as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).        |
+| `make manifest-release`     | Assemble and push the plain `release.<date>` / `latest` multi-arch manifest lists from the per-arch tags. Run once after every arch has pushed. |
+| `make push-ui-rc`           | Push only the UI image as a per-arch release candidate (`rc.<date>-<arch>` + `rc.latest-<arch>`).                  |
+| `make push-ui-release`      | Push only the UI image as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).                          |
 | `make push-proton-rc`       | Push only the Proton runner image as a release candidate. **Requires `PROTON_ENABLED=1`**.                          |
 | `make push-proton-release`  | Push only the Proton runner image as a release. **Requires `PROTON_ENABLED=1`**.                                    |
-| `make push-nc-rc`           | Push only the network controller image as a release candidate (`rc.<date>` + `rc.latest`).                         |
-| `make push-nc-release`      | Push only the network controller image as a release (`release.<date>` + `latest`).                                 |
+| `make push-nc-rc`           | Push only the network controller image as a per-arch release candidate (`rc.<date>-<arch>` + `rc.latest-<arch>`).  |
+| `make push-nc-release`      | Push only the network controller image as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).          |
 | `make push-tag PUSH_TAG=x`  | Build and push all images with a custom tag `x`. Includes the Proton runner when `PROTON_ENABLED=1`.               |
 
 ### Registry Authentication

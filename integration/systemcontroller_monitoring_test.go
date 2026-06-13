@@ -463,7 +463,7 @@ func TestMonitoringPrometheusRealStart(t *testing.T) {
 	ctx := context.Background()
 	btrfsBase := t.TempDir()
 	networkStatePath := t.TempDir()
-	ncImage := "localhost/town-os-networkcontroller:local"
+	ncImage := ncTestImage()
 
 	// Unique per-test key + btrfsBase (t.TempDir) so multiple copies of
 	// this test can run in parallel against the shared system bus

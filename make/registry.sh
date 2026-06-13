@@ -11,8 +11,13 @@ case "$1" in
     remove_container "${REGISTRY_CONTAINER}"
     ${SUDO} podman load -i "${IMAGE_CACHE}/registry-2.tar"
     # --replace: ensure concurrent make test-full runs never conflict on container names
+    # --net host: bridge-network containers get broken DNS on captive networks
+    # (public resolvers blocked); the registry needs outbound access for its
+    # Docker Hub pull-through fallback. The listen address carries the
+    # per-instance random port directly since there is no -p mapping.
     ${SUDO} podman run -d --pull=never --replace --name "${REGISTRY_CONTAINER}" \
-      -p "$(cat "${STATE_DIR}/.registry-port"):5000" \
+      --net host \
+      -e "REGISTRY_HTTP_ADDR=127.0.0.1:$(cat "${STATE_DIR}/.registry-port")" \
       docker.io/library/registry:2
     substep "Registry running on port $(cat "${STATE_DIR}/.registry-port")"
     ;;

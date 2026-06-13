@@ -47,6 +47,43 @@ warn() {
 }
 
 # ---------------------------------------------------------------------------
+# Per-arch image tags
+# ---------------------------------------------------------------------------
+
+# All architectures a release covers; manifest assembly iterates this list.
+: "${ARCHES:=amd64 arm64}"
+
+# host_arch — print the registry arch name (amd64/arm64) for the current host.
+host_arch() {
+  case "$(uname -m)" in
+    x86_64 | amd64) echo amd64 ;;
+    aarch64 | arm64) echo arm64 ;;
+    *)
+      echo "unsupported host architecture: $(uname -m)" >&2
+      return 1
+      ;;
+  esac
+}
+
+# build_manifest IMAGE TAG — assemble and push the multi-arch manifest list
+#   IMAGE:TAG from the per-arch tags IMAGE:TAG-<arch> (one per entry in
+#   ARCHES). Every per-arch tag must already be pushed from its native host.
+build_manifest() {
+  local image="$1" list="$2"
+  local ref="${image}:${list}"
+  substep "Creating manifest ${ref}"
+  ${SUDO} podman manifest rm "${ref}" 2>/dev/null || true
+  ${SUDO} podman manifest create "${ref}"
+  local arch
+  for arch in ${ARCHES}; do
+    substep "Adding ${ref}-${arch}"
+    ${SUDO} podman manifest add "${ref}" "docker://${ref}-${arch}"
+  done
+  substep "Pushing ${ref}"
+  ${SUDO} podman manifest push --all "${ref}" "docker://${ref}"
+}
+
+# ---------------------------------------------------------------------------
 # Repository credential checks
 # ---------------------------------------------------------------------------
 

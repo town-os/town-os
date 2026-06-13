@@ -401,7 +401,14 @@ describe('DashboardHome', () => {
       note_types: { 'Web UI': 'url' },
     }))
     renderDashboard()
-    const statusLink = await screen.findByRole('link', { name: 'nginx status: active' })
+    // The services panel renders only after the units fetch and the
+    // per-service notes fetch both resolve; under full-suite CPU load that
+    // chain can exceed findByRole's default 1s timeout.
+    const statusLink = await screen.findByRole(
+      'link',
+      { name: 'nginx status: active' },
+      { timeout: 5000 },
+    )
     expect(statusLink.getAttribute('href')).toBe('/dashboard/system')
   })
 

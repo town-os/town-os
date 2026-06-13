@@ -6,13 +6,12 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
-	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
@@ -567,7 +566,7 @@ func TestReconcileNginxNetworkState(t *testing.T) {
 		RepositoryRoot:         rr,
 		Storage:                mock,
 		Systemd:                sd,
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkControllerImage: ncTestImage(),
 		NetworkStatePath:       netStateDir,
 	})
 	if err != nil {
@@ -832,63 +831,39 @@ func TestNetworkStateUpdatesOnReinstallWithDifferentPort(t *testing.T) {
 	}
 }
 
-// TestNCImageBuildProducesValidImage verifies that the NC container image can
-// be built from the binary baked into the systemcontroller image. The test
-// container has /town-os-networkcontroller and alpine:latest pre-loaded.
-func TestNCImageBuildProducesValidImage(t *testing.T) {
+// TestNCImageProvidesBinaryAndSocat verifies that the NC image injected by
+// the test harness (built on the host by the nc-image make target and loaded
+// into the test container) is present in podman storage and carries the NC
+// binary and socat. The image is never built inside the container:
+// in-container builds need working DNS, which captive networks break.
+func TestNCImageProvidesBinaryAndSocat(t *testing.T) {
 	t.Parallel()
-	const ncBinaryPath = "/town-os-networkcontroller"
 
-	// Unique image name so this test can coexist with future tests that
-	// also build NC images without clashing on the podman image store.
-	imageName := "town-os-networkcontroller:test-build-" + strconv.FormatUint(rand.Uint64(), 36)
-
-	// Verify the NC binary exists in the test container.
-	if _, err := os.Stat(ncBinaryPath); err != nil {
-		t.Skipf("NC binary not available at %s (not running in integration container): %v", ncBinaryPath, err)
+	imageName := os.Getenv("NC_IMAGE")
+	if imageName == "" {
+		t.Skip("NC_IMAGE not set; run via make test-integration")
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
-	// Build in a temp directory — same steps as buildNetworkControllerImage.
-	buildDir := t.TempDir()
-
-	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD [\"/town-os-networkcontroller\"]\n"
-	if err := os.WriteFile(filepath.Join(buildDir, "Containerfile"), []byte(containerfile), 0600); err != nil {
-		t.Fatalf("write Containerfile: %v", err)
+	// Verify the image is loaded.
+	if err := exec.CommandContext(ctx, "podman", "image", "exists", imageName).Run(); err != nil {
+		t.Fatalf("image %s should be loaded in the test container: %v", imageName, err)
 	}
 
-	// Copy the NC binary into the build context.
-	src, err := os.ReadFile(ncBinaryPath)
+	// Verify the NC binary and socat are inside the image. --network=host:
+	// bridge networking inside the test container has no working DNS and ls
+	// needs no network at all.
+	out, err := exec.CommandContext(ctx, "podman", "run", "--network=host", "--rm", imageName,
+		"ls", "/town-os-networkcontroller", "/usr/bin/socat").CombinedOutput()
 	if err != nil {
-		t.Fatalf("read NC binary: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(buildDir, "town-os-networkcontroller"), src, 0755); err != nil { //nolint:gosec // G306 -- binary must be executable
-		t.Fatalf("write NC binary: %v", err)
-	}
-
-	// Build the image.
-	out, err := exec.CommandContext(ctx, "podman","build", "--pull=never", "-t", imageName, "-f", "Containerfile", buildDir).CombinedOutput()
-	if err != nil {
-		t.Fatalf("podman build failed: %v\n%s", err, string(out))
-	}
-	t.Cleanup(func() {
-		if rmErr := exec.CommandContext(ctx, "podman","rmi", "-f", imageName).Run(); rmErr != nil {
-			t.Logf("cleanup image: %v", rmErr)
-		}
-	})
-
-	// Verify the image exists.
-	if err := exec.CommandContext(ctx, "podman","image", "exists", imageName).Run(); err != nil {
-		t.Fatalf("image %s should exist after build: %v", imageName, err)
-	}
-
-	// Verify the binary is inside the image.
-	out, err = exec.CommandContext(ctx, "podman","run", "--rm", imageName, "ls", "/town-os-networkcontroller").CombinedOutput()
-	if err != nil {
-		t.Fatalf("NC binary not found in image: %v\n%s", err, string(out))
+		t.Fatalf("NC binary or socat not found in image: %v\n%s", err, string(out))
 	}
 	if !strings.Contains(string(out), "/town-os-networkcontroller") {
 		t.Fatalf("expected /town-os-networkcontroller in output, got: %s", string(out))
+	}
+	if !strings.Contains(string(out), "/usr/bin/socat") {
+		t.Fatalf("expected /usr/bin/socat in output, got: %s", string(out))
 	}
 }

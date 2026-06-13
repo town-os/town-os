@@ -11,21 +11,27 @@ set -e
 : "${PROTON_ENABLED:=0}"
 : "${GO_BUILD_TAGS:=}"
 
+# Registry arch name (amd64/arm64) for per-arch rc tags. rc tags are pushed
+# natively from each host as rc.<date>-<arch> / rc.latest-<arch>; manifest-rc
+# assembles the plain multi-arch manifest lists after every arch has pushed.
+ARCH="$(host_arch)"
+
 case "$1" in
   production)
     step "Building production image"
-    mkdir -p .cache/go-mod .cache/go-build
-    ${SUDO} podman build --pull=never \
+    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
       -t "${PODMAN_IMAGE}" -f Containerfile .
     ;;
   test)
     step "Building test image"
     mkdir -p .cache/go-mod .cache/go-build
-    ${SUDO} podman build --pull=never \
+    ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_IMAGE=${PODMAN_IMAGE}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
@@ -34,36 +40,77 @@ case "$1" in
     ;;
   dev-base)
     step "Building dev base image"
-    mkdir -p .cache/dev-go-mod .cache/dev-go-build
-    ${SUDO} podman build --pull=never \
+    mkdir -p .cache/dev-go-mod .cache/dev-go-build .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
       --volume "$(pwd)/.cache/dev-go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/dev-go-build:/root/.cache/go-build:z" \
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
       -t "${PODMAN_DEV_BASE}" -f Containerfile .
     ;;
   dev)
     step "Building dev image"
-    ${SUDO} podman build --pull=never \
+    ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_IMAGE=${PODMAN_DEV_BASE}" \
+      --build-arg "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -t "${PODMAN_DEV_IMAGE}" -f integration/testdata/Containerfile.dev .
     ;;
   ui-integration)
     step "Building UI integration image"
-    ${SUDO} podman build --pull=never --no-cache \
+    # --no-cache reruns bun install on every build; the mounted bun cache
+    # keeps it off the network once warm.
+    mkdir -p .cache/bun
+    ${SUDO} podman build --network=host --pull=never --no-cache \
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
       -t "${PODMAN_UI_IMAGE}" -f integration/testdata/Containerfile.ui-integration .
+    ;;
+  # Local UI image for tests. Built from the in-repo UI source so it always
+  # matches the host arch; quay.io/town/ui tags are for production/release
+  # only and must never be used for testing. Saved to the image cache so
+  # load_images_into_container can copy it into test containers.
+  ui-local)
+    step "Building local UI test image"
+    mkdir -p .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      -t "${UI_IMAGE}" -f Containerfile.ui .
+    save_image_cache "${UI_IMAGE}"
+    ;;
+  # Local NC image for tests and dev. Built on the host (container-network
+  # DNS hardcoded to public resolvers breaks on captive networks that block
+  # them) and loaded into the test/dev containers from the image cache. The
+  # NC binary is extracted from the given source image (default: the
+  # production image) so it always matches the systemcontroller under test.
+  nc-local)
+    SRC_IMAGE="${2:-${PODMAN_IMAGE}}"
+    step "Building local NC test image from ${SRC_IMAGE}"
+    ensure_image docker.io/library/alpine:latest
+    builddir="$(mktemp -d "${TMPDIR:-/tmp}/town-os-nc-build.XXXXXX")"
+    cid="$(${SUDO} podman create "${SRC_IMAGE}")"
+    ${SUDO} podman cp "${cid}:/town-os-networkcontroller" "${builddir}/town-os-networkcontroller"
+    ${SUDO} podman rm "${cid}" >/dev/null
+    printf 'FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD ["/town-os-networkcontroller"]\n' \
+      > "${builddir}/Containerfile"
+    ${SUDO} podman build --network=host --pull=never \
+      -t "${NC_IMAGE}" -f "${builddir}/Containerfile" "${builddir}"
+    ${SUDO} rm -rf "${builddir}"
+    save_image_cache "${NC_IMAGE}"
     ;;
   release)
     step "Building release image"
-    mkdir -p .cache/go-mod .cache/go-build
-    ${SUDO} podman build --pull=never \
+    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
       -t "${RELEASE_IMAGE}" -f Containerfile .
     ;;
   release-ui)
     step "Building UI release image"
-    ${SUDO} podman build --pull=never \
+    mkdir -p .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
       -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
     ;;
   release-proton)
@@ -72,7 +119,7 @@ case "$1" in
       exit 1
     fi
     step "Building Proton runner image"
-    ${SUDO} podman build \
+    ${SUDO} podman build --network=host \
       -t "${RELEASE_PROTON_IMAGE}" -f Containerfile.proton .
     ;;
   release-nc)
@@ -81,145 +128,183 @@ case "$1" in
     # No --pull=never: alpine:latest is the runtime base and is not in
     # BASE_IMAGES, so the host image store may not have it yet on a
     # fresh checkout. Let podman pull it on demand.
-    ${SUDO} podman build \
+    ${SUDO} podman build --network=host \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_NC_IMAGE}" -f Containerfile.networkcontroller .
     ;;
   push-rc)
     require_registry_login quay.io
-    step "Pushing release candidate"
+    step "Pushing release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
 
-    # Rebuild systemcontroller with tag baked in.
+    # rc tags are per-arch: rc.<date>-<arch> / rc.latest-<arch>, pushed
+    # natively from each host. The plain rc.<date> / rc.latest names are
+    # multi-arch manifest lists assembled by manifest-rc once every arch
+    # has pushed; they are never pushed as single-arch tags.
+    # Rebuild systemcontroller with the per-arch tag baked in so the runtime
+    # derives matching per-arch sibling image tags (UI, rolodex, NC).
     # All quay.io/town/* images MUST use the same tag within a release.
-    substep "Building ${RELEASE_IMAGE} with tag rc.${DATE_TAG}"
-    mkdir -p .cache/go-mod .cache/go-build
-    ${SUDO} podman build --pull=never \
-      --build-arg "TOWN_OS_TAG=rc.${DATE_TAG}" \
+    substep "Building ${RELEASE_IMAGE} with tag rc.${DATE_TAG}-${ARCH}"
+    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
+      --build-arg "TOWN_OS_TAG=rc.${DATE_TAG}-${ARCH}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      -t "${RELEASE_IMAGE}:rc.${DATE_TAG}" -f Containerfile .
-    substep "Tagging ${RELEASE_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_IMAGE}:rc.${DATE_TAG}" "${RELEASE_IMAGE}:rc.latest"
-    substep "Pushing ${RELEASE_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_IMAGE}:rc.${DATE_TAG}"
-    substep "Pushing ${RELEASE_IMAGE}:rc.latest"
-    ${SUDO} podman push "${RELEASE_IMAGE}:rc.latest"
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      -t "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" -f Containerfile .
+    substep "Tagging ${RELEASE_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_IMAGE}:rc.latest-${ARCH}"
 
     # UI image — tagged to match (systemcontroller derives the tag at runtime).
-    substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest"
-    substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
     # Proton runner image — only when PROTON_ENABLED=1.
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
-      substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-      substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest"
-      substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-      substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
-      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
     fi
 
     # Network controller image.
-    substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest"
-    substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.latest"
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
 
+    ;;
+  manifest-rc)
+    require_registry_login quay.io
+    step "Assembling release candidate manifests"
+    DATE_TAG="$(date +%Y%m%d)"
+    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}"; do
+      build_manifest "${image}" "rc.${DATE_TAG}"
+      build_manifest "${image}" "rc.latest"
+    done
+    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+      build_manifest "${RELEASE_PROTON_IMAGE}" "rc.${DATE_TAG}"
+      build_manifest "${RELEASE_PROTON_IMAGE}" "rc.latest"
+    fi
     ;;
   push-release)
     require_registry_login quay.io
-    step "Pushing release"
+    step "Pushing release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
 
-    # Rebuild systemcontroller with tag baked in.
+    # Release tags are per-arch like rc tags: release.<date>-<arch> /
+    # latest-<arch>, pushed natively from each host. The plain
+    # release.<date> / latest names are multi-arch manifest lists assembled
+    # by manifest-release once every arch has pushed.
+    # Rebuild systemcontroller with the per-arch tag baked in so the runtime
+    # derives matching per-arch sibling image tags (UI, rolodex, NC).
     # All quay.io/town/* images MUST use the same tag within a release.
-    substep "Building ${RELEASE_IMAGE} with tag release.${DATE_TAG}"
-    mkdir -p .cache/go-mod .cache/go-build
-    ${SUDO} podman build --pull=never \
-      --build-arg "TOWN_OS_TAG=release.${DATE_TAG}" \
+    substep "Building ${RELEASE_IMAGE} with tag release.${DATE_TAG}-${ARCH}"
+    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
+      --build-arg "TOWN_OS_TAG=release.${DATE_TAG}-${ARCH}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      -t "${RELEASE_IMAGE}:release.${DATE_TAG}" -f Containerfile .
-    substep "Tagging ${RELEASE_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_IMAGE}:release.${DATE_TAG}" "${RELEASE_IMAGE}:latest"
-    substep "Pushing ${RELEASE_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_IMAGE}:release.${DATE_TAG}"
-    substep "Pushing ${RELEASE_IMAGE}:latest"
-    ${SUDO} podman push "${RELEASE_IMAGE}:latest"
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      -t "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" -f Containerfile .
+    substep "Tagging ${RELEASE_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_IMAGE}:latest-${ARCH}"
 
     # UI image — tagged to match (systemcontroller derives the tag at runtime).
-    substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    substep "Tagging ${RELEASE_UI_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest"
-    substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    substep "Pushing ${RELEASE_UI_IMAGE}:latest"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
+    substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest-${ARCH}"
 
     # Proton runner image — only when PROTON_ENABLED=1.
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
-      substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-      substep "Tagging ${RELEASE_PROTON_IMAGE}:latest"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest"
-      substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-      substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
-      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
     fi
 
     # Network controller image.
-    substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    substep "Tagging ${RELEASE_NC_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest"
-    substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    substep "Pushing ${RELEASE_NC_IMAGE}:latest"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest"
+    substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest-${ARCH}"
 
+    ;;
+  manifest-release)
+    require_registry_login quay.io
+    step "Assembling release manifests"
+    DATE_TAG="$(date +%Y%m%d)"
+    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}"; do
+      build_manifest "${image}" "release.${DATE_TAG}"
+      build_manifest "${image}" "latest"
+    done
+    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+      build_manifest "${RELEASE_PROTON_IMAGE}" "release.${DATE_TAG}"
+      build_manifest "${RELEASE_PROTON_IMAGE}" "latest"
+    fi
     ;;
   push-ui-rc)
     require_registry_login quay.io
-    step "Pushing UI release candidate"
+    step "Pushing UI release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest"
-    substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}"
-    substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
     ;;
   push-ui-release)
     require_registry_login quay.io
-    step "Pushing UI release"
+    step "Pushing UI release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    substep "Tagging ${RELEASE_UI_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest"
-    substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}"
-    substep "Pushing ${RELEASE_UI_IMAGE}:latest"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest"
+    substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest-${ARCH}"
     ;;
   push-proton-rc)
     if [[ "${PROTON_ENABLED}" != "1" ]]; then
@@ -227,16 +312,16 @@ case "$1" in
       exit 1
     fi
     require_registry_login quay.io
-    step "Pushing Proton runner release candidate"
+    step "Pushing Proton runner release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
     ;;
   push-proton-release)
     if [[ "${PROTON_ENABLED}" != "1" ]]; then
@@ -244,42 +329,42 @@ case "$1" in
       exit 1
     fi
     require_registry_login quay.io
-    step "Pushing Proton runner release"
+    step "Pushing Proton runner release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    substep "Tagging ${RELEASE_PROTON_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}"
-    substep "Pushing ${RELEASE_PROTON_IMAGE}:latest"
-    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
     ;;
   push-nc-rc)
     require_registry_login quay.io
-    step "Pushing network controller release candidate"
+    step "Pushing network controller release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest"
-    substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}"
-    substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.latest"
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
     ;;
   push-nc-release)
     require_registry_login quay.io
-    step "Pushing network controller release"
+    step "Pushing network controller release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
-    substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    substep "Tagging ${RELEASE_NC_IMAGE}:latest"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest"
-    substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}"
-    substep "Pushing ${RELEASE_NC_IMAGE}:latest"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest"
+    substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest-${ARCH}"
     ;;
   push-tag)
     TAG="$2"
@@ -292,12 +377,13 @@ case "$1" in
 
     # Systemcontroller — rebuild with tag baked in.
     substep "Building ${RELEASE_IMAGE}:${TAG}"
-    mkdir -p .cache/go-mod .cache/go-build
-    ${SUDO} podman build --pull=never \
+    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_TAG=${TAG}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
       -t "${RELEASE_IMAGE}:${TAG}" -f Containerfile .
     substep "Pushing ${RELEASE_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_IMAGE}:${TAG}"
@@ -327,7 +413,7 @@ case "$1" in
     CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
     ;;
   *)
-    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|networkcontroller|release|release-ui|release-proton|release-nc|push-rc|push-release|push-ui-rc|push-ui-release|push-proton-rc|push-proton-release|push-nc-rc|push-nc-release|push-tag <tag>}"
+    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|ui-local|nc-local [src-image]|networkcontroller|release|release-ui|release-proton|release-nc|push-rc|manifest-rc|push-release|manifest-release|push-ui-rc|push-ui-release|push-proton-rc|push-proton-release|push-nc-rc|push-nc-release|push-tag <tag>}"
     exit 1
     ;;
 esac

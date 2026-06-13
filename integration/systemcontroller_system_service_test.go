@@ -19,9 +19,11 @@ func initSystemServiceIntegrationTest(t *testing.T) (*systemcontroller.SystemdCl
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 
+	// Mock systemd: the image is never pulled or run, so a neutral fake tag
+	// is used. rc.latest must never be referenced in tests.
 	uiMgr := ui.NewManager(ui.Config{
 		Systemd: sd,
-		Image:   "quay.io/town/ui:rc.latest",
+		Image:   "quay.io/town/ui:testtag",
 	})
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
@@ -29,7 +31,7 @@ func initSystemServiceIntegrationTest(t *testing.T) (*systemcontroller.SystemdCl
 		Systemd:                    sd,
 		MonitoringBackend:          monitoring.BackendUPlot,
 		UI:                         uiMgr,
-		SystemControllerImage:      "quay.io/town/town:rc.latest",
+		SystemControllerImage:      "quay.io/town/town:testtag",
 		SystemControllerListenAddr: ":5309",
 	})
 	t.Cleanup(func() { ts.Server.Close() })

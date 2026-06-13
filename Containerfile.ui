@@ -1,4 +1,8 @@
 FROM oven/bun:latest AS ui-builder
+# Fixed cache path so the make pipeline can mount .cache/bun into the build
+# (same pattern as the go-mod/go-build volumes) and bun install stays offline
+# once the cache is warm.
+ENV BUN_INSTALL_CACHE_DIR=/bun-cache
 COPY ui/package.json ui/bun.lock /ui/
 WORKDIR /ui
 RUN bun install --frozen-lockfile

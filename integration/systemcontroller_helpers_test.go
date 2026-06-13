@@ -26,6 +26,18 @@ func scRepoCredentials() (string, string) {
 	return os.Getenv(packages.EnvRepoUsername), os.Getenv(packages.EnvRepoPassword)
 }
 
+// ncTestImage returns the network controller image injected by the test
+// harness (built on the host by the nc-image make target and loaded into the
+// test container). The tag is per-instance, so it must never be hardcoded.
+// The fallback only applies outside the harness, where no NC container can
+// actually start anyway (mock-systemd tests just need a stable string).
+func ncTestImage() string {
+	if img := os.Getenv("NC_IMAGE"); img != "" {
+		return img
+	}
+	return "localhost/town-os-networkcontroller:local"
+}
+
 func addRepoWithCreds(c *systemcontroller.SystemdClient, name, rawURL string) error {
 	user, pass := scRepoCredentials()
 	return c.AddRepository(context.TODO(), name, rawURL, user, pass)
@@ -426,7 +438,7 @@ func initSystemControllerInstallSystemdTestWithNetworkState(t *testing.T) (*syst
 		RepositoryRoot:         rr,
 		Installer:              inst,
 		Systemd:                sd,
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkControllerImage: ncTestImage(),
 		NetworkStatePath:       netStateDir,
 	})
 	t.Cleanup(func() { ts.Server.Close() })

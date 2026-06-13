@@ -17,6 +17,11 @@ COPY --from=town-os /town-os.tag /town-os.tag
 COPY --from=town-os /ui /ui
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 COPY integration/testdata/town-os-system--rolodex.service /etc/systemd/system/
+# The rolodex image is per-arch (latest-amd64 / latest-arm64); the build
+# injects the host's arch tag so the baked unit never references rc.latest.
+ARG ROLODEX_IMAGE
+RUN test -n "${ROLODEX_IMAGE}" && \
+    sed -i "s|@ROLODEX_IMAGE@|${ROLODEX_IMAGE}|" /etc/systemd/system/town-os-system--rolodex.service
 RUN printf 'nameserver 127.0.0.1\n' > /etc/resolv.conf
 RUN systemctl enable town-os-systemcontroller.service town-os-system--rolodex.service podman.socket
 EXPOSE 5309

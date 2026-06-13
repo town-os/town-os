@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,7 +27,10 @@ import (
 func rolodexTestImage() string {
 	img := os.Getenv("ROLODEX_IMAGE")
 	if img == "" {
-		img = "quay.io/town/rolodex:rc.latest"
+		// Rolodex publishes per-arch release tags (latest-amd64 /
+		// latest-arm64); rc.latest must never be used for testing.
+		// runtime.GOARCH matches the tag suffix on both architectures.
+		img = "quay.io/town/rolodex:latest-" + runtime.GOARCH
 	}
 	ensureImagePulled(img)
 	return img
@@ -82,6 +87,14 @@ func rolodexTestKey() string {
 // not manage units, so this helper installs the unit directly.
 func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 	t.Helper()
+	return initRolodexRealTestForwarders(t, nil)
+}
+
+// initRolodexRealTestForwarders is initRolodexRealTest with custom upstream
+// DNS forwarders written into rolodex.yml. Forwarding tests point this at a
+// local stub DNS server so they work without internet access.
+func initRolodexRealTestForwarders(t *testing.T, forwarders []string) (rolodex.Client, string) {
+	t.Helper()
 
 	dataDir := rolodexTempDir(t, "rolodex-data-*")
 	sd := systemd.NewManager()
@@ -96,6 +109,7 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 		UnixSocketPath: socketPath,
 		DNSPort:        dnsPort,
 		Key:            key,
+		Forwarders:     forwarders,
 	})
 
 	if _, err := mgr.WriteConfig(); err != nil {
@@ -354,14 +368,95 @@ func TestRolodexClientOperations(t *testing.T) {
 	}
 }
 
+// stubDNSAnswer builds a DNS response for a raw query packet, answering A
+// queries with 192.0.2.55 (TEST-NET-1) and AAAA queries with 2001:db8::55.
+// Other query types get an empty NOERROR response. Returns nil for packets
+// too short to be DNS queries.
+func stubDNSAnswer(query []byte) []byte {
+	if len(query) < 12 {
+		return nil
+	}
+	// Walk the QNAME labels to find the end of the question section.
+	i := 12
+	for i < len(query) && query[i] != 0 {
+		i += int(query[i]) + 1
+	}
+	qend := i + 5 // null byte + qtype(2) + qclass(2)
+	if qend > len(query) {
+		return nil
+	}
+	qtype := uint16(query[i+1])<<8 | uint16(query[i+2])
+
+	var rdata []byte
+	switch qtype {
+	case 1: // A
+		rdata = []byte{192, 0, 2, 55}
+	case 28: // AAAA
+		rdata = net.ParseIP("2001:db8::55").To16()
+	}
+
+	resp := make([]byte, 0, qend+16+len(rdata))
+	// Header: same ID; QR=1 RD=1 RA=1; QDCOUNT=1.
+	resp = append(resp, query[0], query[1], 0x81, 0x80, 0x00, 0x01)
+	if rdata == nil {
+		resp = append(resp, 0x00, 0x00) // ANCOUNT=0
+	} else {
+		resp = append(resp, 0x00, 0x01) // ANCOUNT=1
+	}
+	resp = append(resp, 0x00, 0x00, 0x00, 0x00) // NSCOUNT, ARCOUNT
+	resp = append(resp, query[12:qend]...)      // question section verbatim
+	if rdata != nil {
+		resp = append(resp, 0xC0, 0x0C)                              // name: pointer to QNAME
+		resp = append(resp, byte(qtype>>8), byte(qtype), 0x00, 0x01) // type, class IN
+		resp = append(resp, 0x00, 0x00, 0x00, 0x3C)                  // TTL 60
+		resp = append(resp, 0x00, byte(len(rdata)))                  // RDLENGTH
+		resp = append(resp, rdata...)
+	}
+	return resp
+}
+
+// startStubDNS starts a minimal UDP DNS server on a random loopback port and
+// returns its address. It lets forwarding tests run hermetically: captive
+// networks block direct queries to public resolvers, and the tests verify
+// rolodex's forwarding mechanics, not internet reachability.
+func startStubDNS(t *testing.T) string {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("listen udp for stub DNS: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Logf("close stub DNS: %v", err)
+		}
+	})
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, addr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return // listener closed by cleanup
+			}
+			resp := stubDNSAnswer(buf[:n])
+			if resp == nil {
+				continue
+			}
+			if _, err := conn.WriteToUDP(resp, addr); err != nil {
+				return
+			}
+		}
+	}()
+	return conn.LocalAddr().String()
+}
+
 func TestRolodexDNSQueryForwarding(t *testing.T) {
 	t.Parallel()
-	_, dnsPort := initRolodexRealTest(t)
 
-	// Use a short timeout — these tests query external domains via DNS
-	// forwarding (8.8.8.8), which requires outbound internet from the
-	// nested container. Fail fast rather than hanging for the full
-	// test timeout.
+	// Forward to a local stub upstream instead of public resolvers so the
+	// test is hermetic and works without internet access.
+	upstreamAddr := startStubDNS(t)
+	_, dnsPort := initRolodexRealTestForwarders(t, []string{upstreamAddr})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -388,10 +483,10 @@ func TestRolodexDNSQueryForwarding(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 		if resolveErr != nil {
-			t.Fatalf("LookupHost(%s): %v (DNS forwarding to 8.8.8.8 may be unreachable from nested container)", domain, resolveErr)
+			t.Fatalf("LookupHost(%s): %v (rolodex did not forward to the stub upstream)", domain, resolveErr)
 		}
-		if len(addrs) == 0 {
-			t.Fatalf("expected at least 1 address for %s", domain)
+		if !slices.Contains(addrs, "192.0.2.55") {
+			t.Fatalf("expected stub answer 192.0.2.55 for %s, got %v", domain, addrs)
 		}
 	}
 }

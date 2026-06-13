@@ -11,7 +11,16 @@ export QUAY_USERNAME
 export QUAY_PASSWORD
 export VITE_API_URL
 
-TOWN_OS_TAG ?= rc.latest
+# Host arch in registry form (amd64/arm64) for per-arch image tags. rc tags
+# are partitioned per arch (rc.latest-amd64 / rc.latest-arm64) and pushed
+# natively from each host; plain rc.latest exists only as a multi-arch
+# manifest list assembled by manifest-rc.
+HOST_ARCH := $(shell uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+# All architectures a release covers (used by manifest assembly).
+ARCHES ?= amd64 arm64
+export HOST_ARCH ARCHES
+
+TOWN_OS_TAG ?= rc.latest-$(HOST_ARCH)
 export TOWN_OS_TAG
 
 # Opt-in build of the Proton/Wine runner. Default off — see CLAUDE.md and the
@@ -71,15 +80,26 @@ export IMAGE_CACHE
 # Image lists.
 BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
-ROLODEX_IMAGE_TAG ?= rc.latest
+# Rolodex publishes per-arch tags (latest-amd64 / latest-arm64) pushed natively
+# from each host; tests pull the host's arch tag directly instead of rc.latest
+# so no multi-arch manifest assembly is needed for releases.
+ROLODEX_IMAGE_TAG ?= latest-$(HOST_ARCH)
 ROLODEX_IMAGE := quay.io/town/rolodex:$(ROLODEX_IMAGE_TAG)
-UI_IMAGE_TAG ?= rc.latest
-UI_IMAGE := quay.io/town/ui:$(UI_IMAGE_TAG)
-# The networkcontroller image is pulled from quay in production but test
-# and dev harnesses build it locally and inject NC_IMAGE=localhost/... at
-# container start, so the quay tag is intentionally NOT in ALL_IMAGES.
-ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE) $(UI_IMAGE)
-export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE_TAG UI_IMAGE
+# The UI image for tests is built locally from Containerfile.ui (ui-image
+# target) so it always matches the host arch and the in-repo UI source.
+# quay.io/town/ui tags are for production/release only — rc.latest must
+# never be used for testing.
+UI_IMAGE ?= localhost/town-os-ui:$(INSTANCE_ID)
+# The NC image for tests and dev is built locally on the host (nc-image /
+# nc-image-dev targets) and loaded into the containers. Building it inside
+# the test/dev containers required hardcoded public DNS (--dns 1.1.1.1),
+# which captive networks block.
+NC_IMAGE ?= localhost/town-os-networkcontroller:$(INSTANCE_ID)
+# The networkcontroller and UI images are pulled from quay in production but
+# test and dev harnesses build them locally and inject NC_IMAGE/UI_IMAGE at
+# container start, so their quay tags are intentionally NOT in ALL_IMAGES.
+ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE)
+export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE
 export TEST_RUN TEST_TIMEOUT PUSH_TAG
 
 .DEFAULT_GOAL := help
@@ -94,14 +114,14 @@ include make/include.mk
 .PHONY: help deps
 .PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
 .PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images
-.PHONY: ui-integration-image production-image test-image dev-production-image dev-image
+.PHONY: ui-image nc-image nc-image-dev ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
 .PHONY: test-ui-integration test-integration-build test-integration test-integration-rerun test-full
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
-.PHONY: release-build release-image release-ui-image release-nc-image push push-rc push-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-tag quay-login
+.PHONY: release-build release-image release-ui-image release-nc-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-tag quay-login
 ifeq ($(PROTON_ENABLED),1)
 .PHONY: release-proton-image push-proton-rc push-proton-release
 endif
@@ -112,6 +132,9 @@ test-ui-unit: check-bun
 test-ui-integration-local: check-bun
 $(STATE_DIR)/.images-pulled: ensure-image-cache docker-login
 pull-images: check-podman check-runc docker-login quay-login
+ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
+nc-image: check-podman check-runc production-image
+nc-image-dev: check-podman check-runc dev-production-image
 ui-integration-image: $(STATE_DIR)/.images-pulled
 production-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 $(STATE_DIR)/.integration-port: check-python3
@@ -123,8 +146,8 @@ $(STATE_DIR)/registries.conf: $(STATE_DIR)/.registry-port
 $(STATE_DIR)/.gitea-port: check-python3
 gitea: check-podman check-runc ensure-image-cache $(STATE_DIR)/.gitea-port
 gitea-populate: gitea
-test-ui-integration: test-image ui-integration-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
-test-integration-build: lint test-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
+test-ui-integration: test-image ui-image nc-image ui-integration-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
+test-integration-build: lint test-image ui-image nc-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration: test-integration-build
 test-full: test ui-integration-image
 test-full-log:
@@ -134,7 +157,7 @@ dev-image: dev-production-image
 btrfs-dev: check-btrfs clean-btrfs-dev
 dev-stop:
 dev-image: dev-stop
-dev: check-podman check-runc check-bun check-btrfs dev-image dev-btrfs ensure-image-cache
+dev: check-podman check-runc check-bun check-btrfs dev-image nc-image-dev dev-btrfs ensure-image-cache
 preflight-dev: ensure-image-cache $(STATE_DIR)/.integration-port
 clean-dev: dev-stop-all clean-cache
 clean-integration: registry-stop gitea-stop
@@ -154,6 +177,9 @@ push-rc: release-image release-ui-image release-nc-image quay-login
 endif
 # Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build
+# Manifest targets assemble remote per-arch tags; they build nothing locally.
+manifest-rc: check-podman quay-login
+manifest-release: check-podman quay-login
 push-release: release-build quay-login
 push-ui-rc: release-ui-image quay-login
 push-ui-release: release-ui-image quay-login

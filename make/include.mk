@@ -49,6 +49,15 @@ $(STATE_DIR)/.images-pulled:
 pull-images:
 	@make/images.sh pull
 
+ui-image:
+	@make/build.sh ui-local
+
+nc-image:
+	@make/build.sh nc-local
+
+nc-image-dev:
+	@make/build.sh nc-local $(PODMAN_DEV_BASE)
+
 ui-integration-image:
 	@make/build.sh ui-integration
 
@@ -174,8 +183,14 @@ push:
 push-rc:
 	@make/build.sh push-rc
 
+manifest-rc:
+	@make/build.sh manifest-rc
+
 push-release:
 	@make/build.sh push-release
+
+manifest-release:
+	@make/build.sh manifest-release
 
 push-ui-rc:
 	@make/build.sh push-ui-rc

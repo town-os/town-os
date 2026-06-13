@@ -159,8 +159,47 @@ func TestWriteConfigOverwritesStaleContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(data) != rolodexConfig(DefaultDNSPort) {
+	if string(data) != rolodexConfig(DefaultDNSPort, DefaultForwarders) {
 		t.Fatalf("expected canonical config, got:\n%s", data)
+	}
+}
+
+func TestRolodexConfigDefaultForwarders(t *testing.T) {
+	t.Parallel()
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders)
+	if !strings.Contains(cfg, "forwarders:\n  - \"8.8.8.8:53\"\n  - \"8.8.4.4:53\"\n") {
+		t.Fatalf("expected default forwarders in config, got:\n%s", cfg)
+	}
+}
+
+func TestRolodexConfigCustomForwarders(t *testing.T) {
+	t.Parallel()
+	dir := rolodexTestDir(t, "rolodex-fwd-*")
+	mgr := NewManager(Config{
+		Systemd:        systemd.InitMockManager(),
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+		Forwarders:     []string{"127.0.0.1:5353"},
+	})
+
+	written, err := mgr.WriteConfig()
+	if err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	if !written {
+		t.Fatal("expected config to be written")
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "rolodex.yml"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(data), "forwarders:\n  - \"127.0.0.1:5353\"\n") {
+		t.Fatalf("expected custom forwarder in config, got:\n%s", data)
+	}
+	if strings.Contains(string(data), "8.8.8.8") {
+		t.Fatalf("custom forwarders must replace the defaults, got:\n%s", data)
 	}
 }
 

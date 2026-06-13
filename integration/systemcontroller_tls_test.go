@@ -65,7 +65,7 @@ func initSystemControllerTLSTest(t *testing.T) (
 		RepositoryRoot:         rr,
 		Installer:              inst,
 		Systemd:                sd,
-		NetworkControllerImage: "localhost/town-os-networkcontroller:local",
+		NetworkControllerImage: ncTestImage(),
 		NetworkStatePath:       netStateDir,
 		BtrfsBasePath:          btrfsBase,
 		TLSCA:                  ca,

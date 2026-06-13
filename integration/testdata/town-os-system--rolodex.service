@@ -13,7 +13,7 @@ ExecStartPre=/bin/mkdir -p /town-os/rolodex
 ExecStart=/usr/bin/podman run --replace --name town-os-system--rolodex \
   --net host \
   -v /town-os/rolodex:/data:z \
-  quay.io/town/rolodex:rc.latest \
+  @ROLODEX_IMAGE@ \
   /usr/local/bin/rolodex-dns \
   --config /data/rolodex.yml
 ExecStop=/usr/bin/podman stop -t 10 town-os-system--rolodex

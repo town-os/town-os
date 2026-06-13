@@ -30,6 +30,14 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - **`--replace` on all `podman run --name`** — no exceptions, anywhere in the repo.
 
+- **No hardcoded public DNS in builds; podman builds use `--network=host`** — every `podman build` in the make pipeline runs with `--network=host` so name resolution goes through the host's resolver (systemd-resolved). Container-network builds get a public resolver substituted for the host's loopback stub, and captive networks (coffee shops, hotels) block direct queries to 1.1.1.1/8.8.8.8 — stalling `bun install`, `apt-get`, and `apk add` indefinitely. For the same reason the NC image used by tests and dev is built **on the host** (`nc-image` / `nc-image-dev` targets → `localhost/town-os-networkcontroller:<INSTANCE_ID>`, binary extracted from the production/dev-base image so it always matches the systemcontroller) and loaded into the containers via the image cache — never built inside them with `--dns`.
+
+- **All test-suite `podman run` containers use `--net host`** — test, UI backend, UI test runner, dev, registry, and gitea containers all run with host networking. Registry and gitea bind their per-instance random port directly via `REGISTRY_HTTP_ADDR` / `GITEA__server__HTTP_PORT` instead of `-p` mappings, and gitea SSH is disabled (`DISABLE_SSH=true`) so nothing tries to bind host port 22. Rationale: bridge-network containers get broken DNS on captive networks, and both registry (Docker Hub pull-through fallback) and gitea (repository migration) make their own outbound calls. The single deliberate exception is the `preflight-dev` nginx container, whose `-p` mapping exists precisely to verify bridge networking works.
+
+- **Image tags are partitioned per architecture** — every pushed tag carries an arch suffix (`<arch>` is `uname -m` mapped to `amd64`/`arm64`; Go code uses `runtime.GOARCH`, make uses `HOST_ARCH`, shell uses `host_arch` in `make/lib.sh`). `push-rc` pushes `rc.<date>-<arch>` / `rc.latest-<arch>`; `push-release` pushes `release.<date>-<arch>` / `latest-<arch>` — always the native arch of the host running the push. The plain names (`rc.latest`, `latest`, and the date tags) exist ONLY as multi-arch manifest lists assembled by `manifest-rc` / `manifest-release` after every arch in `ARCHES` has pushed; never push a plain name as a single-arch tag. The runtime fallback when no tag was baked in is `defaultVersionTag()` in `main.go` (`rc.latest-<GOARCH>`). Rationale: a plain single-arch tag pushed from one host fails on the other architecture with `exec format error` (or worse, spuriously passes status-poll tests while crash-looping under `Restart=always`).
+
+- **Plain convenience tags must NEVER be used for testing** — no test, test harness, dev container, or fixture may reference a `quay.io/town/*:rc.latest` or `:latest` image (they may not exist or may be stale manifests). Tests use: per-arch release tags for rolodex (`latest-<arch>`), a locally built UI image (`make ui-image` → `localhost/town-os-ui:<INSTANCE_ID>`), a locally built NC image (`make nc-image`), and neutral fake tags (e.g. `:testtag`) in mocked unit tests where the image is never pulled or run.
+
 - **Fail fast** — if any make subtask or script launched by a make subtask fails, stop immediately. Do not continue to the next phase.
 
 - **Never swallow exit codes** — scripts that run make/test commands must never swallow exit codes. No `|| rc=$?`, no `|| true` on test invocations. Let `set -e` do its job. Cleanup commands (podman rm, rm -f) are exempt.
@@ -98,7 +106,7 @@ The system controller startup in `src/svc/systemcontroller/cmd/systemcontroller/
 11. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
 12. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
 13. **Init install manager, btrfs storage, systemd manager**.
-14. **Read version tag** — from `/town-os.tag` file, or compile-time `Version` ldflags var, or fallback `rc.latest`. Used to derive image tags for sibling services.
+14. **Read version tag** — from `/town-os.tag` file, or compile-time `Version` ldflags var, or fallback `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH`). Used to derive image tags for sibling services; baked push tags are per-arch, so derived sibling tags are too.
 15. **Start background repo refresh** — goroutine polls every 5 minutes.
 16. **Write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if file is newer than the binary or content is unchanged) and restarts the service only when the file was written. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly (not via podman port mappings). The DNS port defaults to 53 but can be overridden via the `DNSPort` config field for tests.
 17. **Wait for Rolodex DNS readiness** **(non-fatal)** — polls until the DNS TCP port accepts connections.
@@ -963,6 +971,8 @@ Rolodex itself is a boot service installed and supervised by systemd — the sys
 
 The rolodex container runs with `--net host` and binds DNS to `DNSLoopback` (`127.0.0.2`) on the configured port (default `53`, overridable via `DNSPort` for tests). The image tag is derived from the system controller's release tag (`quay.io/town/rolodex:<tag>`), overridable via the `ROLODEX_IMAGE` environment variable.
 
+**Rolodex image is pulled per-arch in tests and dev** — the make harness pulls `quay.io/town/rolodex:latest-<arch>` (where `<arch>` is `uname -m` mapped to `amd64`/`arm64`), NOT `rc.latest`. Rolodex publishes per-arch tags pushed natively from each host (`make push-release` in the rolodex-dns repo), so no multi-arch manifest assembly is required for test hosts of any architecture; `rc.latest` is a plain single-arch manifest and crash-loops with `exec format error` on the other architecture. The Makefile computes `HOST_ARCH` and defaults `ROLODEX_IMAGE_TAG ?= latest-$(HOST_ARCH)`; `ROLODEX_IMAGE` derives from it and is injected into test/dev containers via env. Override with `make ROLODEX_IMAGE_TAG=<tag> ...` or the `ROLODEX_IMAGE` environment variable. Production/runtime behavior is unchanged — the systemcontroller still derives the tag from its release tag unless `ROLODEX_IMAGE` is set; the test and dev harnesses always set it. The dev container's baked rolodex unit (`integration/testdata/town-os-system--rolodex.service`) uses an `@ROLODEX_IMAGE@` placeholder substituted at image build time via the `ROLODEX_IMAGE` build arg in `integration/testdata/Containerfile.dev` (the build fails if the arg is empty), so the baked unit always matches the image the harness loads.
+
 ### DNS API
 
 - `GET /dns/status` (auth required) -- returns DNS status including enabled flag, running state, TLD, and record count.
@@ -1094,11 +1104,13 @@ System services are systemd-managed infrastructure containers (distinct from use
 
 An independent UI container image (`quay.io/town/ui`) is built from `Containerfile.ui`. It uses a two-stage build: `oven/bun:latest` builds the UI static files, then `docker.io/library/caddy:latest` serves them on port 80 with SPA routing (`try_files {path} /index.html`).
 
+**Tests never pull the quay UI image** — the `ui-image` make target builds `Containerfile.ui` locally as `localhost/town-os-ui:<INSTANCE_ID>` (always matching the host arch and the in-repo UI source), saves it to the image cache, and the test harness loads it into test containers and injects it via the `UI_IMAGE` env var. `test-integration-build` and `test-ui-integration` depend on `ui-image`. The quay.io/town/ui tags are for production/release pushes only. `uiTestImage` in `integration/systemcontroller_ui_test.go` skips its test when `UI_IMAGE` is unset rather than falling back to a quay tag.
+
 ## Proton Runner Image
 
 The Proton runner image (`quay.io/town/proton`) is built from `Containerfile.proton`. It uses a two-stage build: a downloader stage fetches the GE-Proton release tarball (pinned via `GE_PROTON_VERSION` build arg), and the runtime stage installs Wine/Proton dependencies (64-bit + 32-bit), Xvfb for headless operation, and a wrapper script at `/usr/local/bin/proton` that starts a virtual framebuffer and configures the Proton environment before executing the application.
 
-The make pipeline provides: `release-proton-image` (build), `push-proton-rc` (push release candidate with date tag + `rc.latest`), and `push-proton-release` (push release with date tag + `latest`). The proton image is also included in the full `push-rc` and `push-release` flows.
+The make pipeline provides: `release-proton-image` (build), `push-proton-rc` (push per-arch release candidate tags `rc.<date>-<arch>` + `rc.latest-<arch>`), and `push-proton-release` (push per-arch release tags `release.<date>-<arch>` + `latest-<arch>`). The proton image is also included in the full `push-rc` / `push-release` flows and the `manifest-rc` / `manifest-release` assembly when `PROTON_ENABLED=1`.
 
 ## Web UI API Client
 
@@ -1164,7 +1176,7 @@ Startup failures for monitoring, Rolodex config, the network controller image bu
 
 ### Version Tag Detection
 
-The system controller reads an optional `/town-os.tag` file at startup to derive matching image tags for sibling services (UI, Rolodex). The fallback chain is: `/town-os.tag` file, then compile-time `Version` variable (set via ldflags), then `rc.latest`. This tag constructs image references like `quay.io/town/ui:<tag>` and `quay.io/town/rolodex:<tag>`.
+The system controller reads an optional `/town-os.tag` file at startup to derive matching image tags for sibling services (UI, Rolodex). The fallback chain is: `TOWN_OS_TAG` env var, then compile-time `Version` variable (set via ldflags), then `/town-os.tag` file, then `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH`). This tag constructs image references like `quay.io/town/ui:<tag>` and `quay.io/town/rolodex:<tag>`; pushed tags are per-arch, so the baked tag and every derived sibling tag carry the arch suffix.
 
 ### Error Format
 

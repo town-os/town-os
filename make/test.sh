@@ -35,7 +35,7 @@ case "$1" in
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-extras.git" \
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=${UI_IMAGE}" \
-      -e "NC_IMAGE=localhost/town-os-networkcontroller:local" \
+      -e "NC_IMAGE=${NC_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -51,13 +51,10 @@ case "$1" in
     load_images_into_container "${PODMAN_CONTAINER}" ${UI_IMAGE}
     step "Loading alpine image into test container"
     load_images_into_container "${PODMAN_CONTAINER}" docker.io/library/alpine:latest
-    step "Building network controller image inside test container"
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c \
-      'cd /tmp && mkdir -p nc-build && cd nc-build && \
-       cp /town-os-networkcontroller . && \
-       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD [\"/town-os-networkcontroller\"]\n" > Containerfile && \
-       podman build --dns 1.1.1.1 --pull=never -t localhost/town-os-networkcontroller:local -f Containerfile . && \
-       cd /tmp && rm -rf nc-build'
+    # Built on the host by the nc-image make target; building inside the
+    # container needed hardcoded public DNS, which captive networks block.
+    step "Loading network controller image into test container"
+    load_images_into_container "${PODMAN_CONTAINER}" ${NC_IMAGE}
     step "Restarting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
@@ -117,7 +114,7 @@ case "$1" in
       -e "TOWN_OS_TEST_REPO_EXTRAS_URL=http://127.0.0.1:$(cat "${STATE_DIR}/.gitea-port")/town-os/test-packages-extras.git" \
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=${UI_IMAGE}" \
-      -e "NC_IMAGE=localhost/town-os-networkcontroller:local" \
+      -e "NC_IMAGE=${NC_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -133,13 +130,10 @@ case "$1" in
     load_images_into_container "${PODMAN_UI_BACKEND}" ${UI_IMAGE}
     step "Loading alpine image into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" docker.io/library/alpine:latest
-    step "Building network controller image inside UI integration container"
-    ${SUDO} podman exec "${PODMAN_UI_BACKEND}" /bin/sh -c \
-      'cd /tmp && mkdir -p nc-build && cd nc-build && \
-       cp /town-os-networkcontroller . && \
-       printf "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache socat\nCOPY town-os-networkcontroller /town-os-networkcontroller\nCMD [\"/town-os-networkcontroller\"]\n" > Containerfile && \
-       podman build --dns 1.1.1.1 --pull=never -t localhost/town-os-networkcontroller:local -f Containerfile . && \
-       cd /tmp && rm -rf nc-build'
+    # Built on the host by the nc-image make target; building inside the
+    # container needed hardcoded public DNS, which captive networks block.
+    step "Loading network controller image into UI integration container"
+    load_images_into_container "${PODMAN_UI_BACKEND}" ${NC_IMAGE}
     step "Restarting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl restart town-os-systemcontroller.service

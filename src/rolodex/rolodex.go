@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gitea.com/town-os/town-os/src/systemd"
@@ -27,6 +28,10 @@ const (
 	// and other services commonly bound to 127.0.0.1.
 	DNSLoopback = "127.0.0.2"
 )
+
+// DefaultForwarders are the upstream DNS forwarder addresses written to
+// rolodex.yml when Config.Forwarders is not set.
+var DefaultForwarders = []string{"8.8.8.8:53", "8.8.4.4:53"}
 
 // SystemService describes the rolodex system service metadata.
 type SystemService struct {
@@ -62,6 +67,12 @@ type Config struct {
 	// naming. Defaults to "rolodex". Tests should set a unique value to
 	// avoid colliding with a production rolodex service.
 	Key string
+	// Forwarders overrides the upstream DNS forwarder addresses
+	// ("host:port") written to rolodex.yml. Defaults to
+	// DefaultForwarders. Tests point this at a local stub DNS server so
+	// forwarding works without internet access (captive networks block
+	// direct queries to public resolvers).
+	Forwarders []string
 }
 
 // Manager provides rolodex configuration and status reporting. The Rolodex
@@ -102,10 +113,23 @@ func (m *Manager) dnsPort() string {
 	return DefaultDNSPort
 }
 
+// forwarders returns the configured upstream forwarder addresses, defaulting
+// to DefaultForwarders.
+func (m *Manager) forwarders() []string {
+	if len(m.cfg.Forwarders) > 0 {
+		return m.cfg.Forwarders
+	}
+	return DefaultForwarders
+}
+
 // rolodexConfig returns the canonical rolodex YAML configuration with the
-// given DNS port. The bind address is always DNSLoopback (127.0.0.2) because
-// the rolodex container runs with --net host.
-func rolodexConfig(port string) string {
+// given DNS port and upstream forwarders. The bind address is always
+// DNSLoopback (127.0.0.2) because the rolodex container runs with --net host.
+func rolodexConfig(port string, forwarders []string) string {
+	var fwd strings.Builder
+	for _, f := range forwarders {
+		fmt.Fprintf(&fwd, "  - %q\n", f)
+	}
 	return fmt.Sprintf(`database_path: /data/rolodex.db
 dns:
   bind:
@@ -116,12 +140,10 @@ grpc:
   unix_socket: /data/rolodex.sock
   shared_secret: ""
 forwarders:
-  - "8.8.8.8:53"
-  - "8.8.4.4:53"
-rbl:
+%srbl:
   enabled: false
   providers: []
-`, DNSLoopback, port, DNSLoopback, port)
+`, DNSLoopback, port, DNSLoopback, port, fwd.String())
 }
 
 // executableMtime is the function used to get the systemcontroller binary's
@@ -150,7 +172,7 @@ func (m *Manager) WriteConfig() (bool, error) {
 		return false, fmt.Errorf("create data dir: %w", err)
 	}
 
-	config := rolodexConfig(m.dnsPort())
+	config := rolodexConfig(m.dnsPort(), m.forwarders())
 	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
 
 	fi, statErr := os.Stat(configPath)
