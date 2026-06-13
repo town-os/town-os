@@ -1123,30 +1123,56 @@ describe('SystemControllerClient integration', () => {
       expect(lastResp).toEqual({})
     })
 
+    // Uses redis, not nginx: the heavy "package install creates systemd
+    // unit" block above installs and uninstalls nginx@1.0, and on
+    // filesystems where `btrfs subvolume delete`/`rename` is flaky (e.g.
+    // nested test containers) that churn can orphan nginx's volume
+    // subvolume at installed/core/nginx/1.0/<vol>. A later nginx@1.0
+    // install then fails at provision_volumes (subvolume already exists)
+    // *before* persisting responses, so last-responses never updates.
+    // redis is untouched elsewhere in this suite, so its volume path is
+    // pristine and the install->uninstall->last-responses cycle is
+    // deterministic regardless of suite ordering or btrfs cleanup quirks.
     it('returns last responses after uninstall', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
 
-      // Install, then uninstall to create last responses
-      await client.installPackage('core', 'nginx', '1.0', {
-        hostname: 'lasthost',
-        port: '8082',
-      })
-      await new Promise((r) => setTimeout(r, 1000))
-      await client.uninstallPackage('core', 'nginx', '1.0', false)
+      // Defensive cleanup in case of a reused test container.
+      try {
+        await client.uninstallPackage('core', 'redis', '7.0', true)
+      } catch {
+        // not installed — fine
+      }
+      await client.clearLastResponses('core', 'redis').catch(() => {})
 
-      const lastResp = await client.getLastResponses('core', 'nginx')
-      expect(lastResp.hostname).toBe('lasthost')
-      expect(lastResp.port).toBe('8082')
+      // Install, then uninstall to create last responses.
+      await client.installPackage('core', 'redis', '7.0', {
+        port: '16399',
+        password: 'lastpass',
+        maxmemory: '64mb',
+      })
+      // Confirm the install actually persisted the provided responses
+      // before relying on the uninstall to save them; a silently-failed
+      // install would otherwise leave stale state and mask the real cause.
+      const installed = await client.getResponses('core', 'redis', '7.0')
+      expect(installed.port).toBe('16399')
+
+      await client.uninstallPackage('core', 'redis', '7.0', false)
+
+      const lastResp = await client.getLastResponses('core', 'redis')
+      // Assert on port only: it is stored as the literal string, whereas
+      // bytes-typed answers (maxmemory) may be normalized on persistence.
+      expect(lastResp.port).toBe('16399')
     })
 
     it('clears last responses', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
 
-      await client.clearLastResponses('core', 'nginx')
+      // Clears the redis last-responses populated by the previous test.
+      await client.clearLastResponses('core', 'redis')
 
-      const lastResp = await client.getLastResponses('core', 'nginx')
+      const lastResp = await client.getLastResponses('core', 'redis')
       expect(lastResp).toEqual({})
     })
   })

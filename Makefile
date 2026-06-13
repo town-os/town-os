@@ -78,7 +78,7 @@ IMAGE_CACHE ?= /var/cache/town-os/images
 export IMAGE_CACHE
 
 # Image lists.
-BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest
+BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm docker.io/library/caddy:latest
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
 # Rolodex publishes per-arch tags (latest-amd64 / latest-arm64) pushed natively
 # from each host; tests pull the host's arch tag directly instead of rc.latest

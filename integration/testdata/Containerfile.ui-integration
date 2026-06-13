@@ -1,4 +1,4 @@
-FROM oven/bun:latest
+FROM docker.io/oven/bun:latest
 
 # Fixed cache path so the make pipeline can mount .cache/bun into the build
 # (same pattern as the go-mod/go-build volumes). This image is built with

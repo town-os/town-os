@@ -193,25 +193,59 @@ save_image_cache() {
   ${SUDO} podman save -o "${tar}" "$1"
 }
 
-# ensure_image IMAGE — make sure an image is in podman storage.
-#   Checks podman storage first, then the cache, then pulls.
+# image_arch_matches IMAGE WANT_ARCH — true if IMAGE is in storage AND its
+#   architecture equals WANT_ARCH. A wrong-arch image is worse than a missing
+#   one: `podman image exists` reports it present, but `podman build
+#   --pull=never` is platform-aware and fails with "image not known" because no
+#   image for the host platform is available. This catches that case.
+image_arch_matches() {
+  local img="$1" want="$2" have
+  have="$(${SUDO} podman image inspect "${img}" --format '{{.Architecture}}' 2>/dev/null)" || return 1
+  [ "${have}" = "${want}" ]
+}
+
+# ensure_image IMAGE — make sure a HOST-ARCH image is in podman storage.
+#   Checks podman storage first (validating architecture), then the cache,
+#   then pulls (pinned to the host platform). A wrong-architecture image found
+#   in storage or in the cache is purged and re-pulled so the host always ends
+#   up with an image podman can actually build FROM.
 #   Returns 1 if the pull fails (caller can decide to continue or abort).
 ensure_image() {
-  local img="$1" tar
+  local img="$1" tar arch
   tar="$(image_cache_tar "${img}")"
+  arch="$(host_arch)" || return 1
+
   if ${SUDO} podman image exists "${img}" 2>/dev/null; then
-    substep "${img}: already in podman storage"
-  elif [ -f "${tar}" ]; then
+    if image_arch_matches "${img}" "${arch}"; then
+      substep "${img}: already in podman storage (${arch})"
+      # Backfill the cache tar if the store has a correct image but the
+      # tar is missing — otherwise `ensure-cache` would see an incomplete
+      # cache and trigger a full pull-images on the next run.
+      [ -f "${tar}" ] || save_image_cache "${img}"
+      return 0
+    fi
+    warn "${img}: wrong architecture in storage (want ${arch}) — re-pulling"
+    ${SUDO} podman rmi -f "${img}" 2>/dev/null || true
+    ${SUDO} rm -f "${tar}"
+  fi
+
+  if [ -f "${tar}" ]; then
     substep "${img}: loading from cache"
     ${SUDO} podman load -i "${tar}"
-  else
-    substep "${img}: pulling"
-    if ! ${SUDO} podman pull "${img}"; then
-      return 1
+    if image_arch_matches "${img}" "${arch}"; then
+      return 0
     fi
-    substep "${img}: saving to cache"
-    save_image_cache "${img}"
+    warn "${img}: cached tar is wrong architecture (want ${arch}) — re-pulling"
+    ${SUDO} podman rmi -f "${img}" 2>/dev/null || true
+    ${SUDO} rm -f "${tar}"
   fi
+
+  substep "${img}: pulling (${arch})"
+  if ! ${SUDO} podman pull --platform "linux/${arch}" "${img}"; then
+    return 1
+  fi
+  substep "${img}: saving to cache"
+  save_image_cache "${img}"
 }
 
 # load_images_into_container CONTAINER IMAGE... — copy cached image tars into

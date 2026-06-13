@@ -1,4 +1,4 @@
-FROM golang:1.25-bookworm AS go-deps
+FROM docker.io/library/golang:1.25-bookworm AS go-deps
 RUN apt-get update && apt-get install -y libsystemd-dev
 
 FROM go-deps AS go-builder
@@ -16,7 +16,7 @@ ARG TOWN_OS_GO_TAGS=
 RUN CGO_ENABLED=1 go build -tags "${TOWN_OS_GO_TAGS}" -ldflags "-s -w -X main.Version=${TOWN_OS_TAG}" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
-FROM oven/bun:latest AS ui-builder
+FROM docker.io/oven/bun:latest AS ui-builder
 # Fixed cache path so the make pipeline can mount .cache/bun into the build
 # (same pattern as the go-mod/go-build volumes) and bun install stays offline
 # once the cache is warm.
@@ -27,7 +27,7 @@ RUN bun install --frozen-lockfile
 COPY ui/ /ui/
 RUN bun run build
 
-FROM debian:bookworm-slim AS runtime-deps
+FROM docker.io/library/debian:bookworm AS runtime-deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     btrfs-progs libsystemd0 podman runc socat \
     pigz lbzip2 xz-utils \

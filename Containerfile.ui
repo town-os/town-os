@@ -1,4 +1,4 @@
-FROM oven/bun:latest AS ui-builder
+FROM docker.io/oven/bun:latest AS ui-builder
 # Fixed cache path so the make pipeline can mount .cache/bun into the build
 # (same pattern as the go-mod/go-build volumes) and bun install stays offline
 # once the cache is warm.

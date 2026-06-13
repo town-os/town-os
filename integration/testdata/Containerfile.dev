@@ -1,5 +1,5 @@
 ARG TOWN_OS_IMAGE=town-os
-FROM debian:bookworm-slim AS runtime-deps
+FROM docker.io/library/debian:bookworm AS runtime-deps
 RUN apt-get update && apt-get install -y \
     btrfs-progs libsystemd0 podman runc socat \
     systemd systemd-sysv dbus curl git iptables \

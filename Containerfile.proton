@@ -8,8 +8,9 @@
 # script that sets up the environment so `proton run /path/to/app.exe`
 # works without a display server or Steam client.
 #
-# Build:
-#   podman build -f Containerfile.proton -t quay.io/town/proton:latest .
+# Build (rootful podman — the make pipeline does this via `make/build.sh`
+# with ${SUDO}; base images live in the root store, see CLAUDE.md):
+#   sudo podman build -f Containerfile.proton -t quay.io/town/proton:latest .
 #
 # Usage (by the package system, not directly):
 #   podman run --replace --name <unit> \
@@ -20,7 +21,7 @@
 
 ARG GE_PROTON_VERSION=GE-Proton10-32
 
-FROM debian:bookworm-slim AS downloader
+FROM docker.io/library/debian:bookworm AS downloader
 ARG GE_PROTON_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -35,7 +36,7 @@ RUN curl -fsSL \
               /opt/proton/files/share/info \
               /opt/proton/files/share/locale
 
-FROM debian:bookworm-slim
+FROM docker.io/library/debian:bookworm
 ARG GE_PROTON_VERSION
 
 LABEL org.opencontainers.image.title="Town OS Proton Runner" \

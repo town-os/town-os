@@ -1,5 +1,5 @@
 ARG TOWN_OS_IMAGE=town-os
-FROM golang:1.25-bookworm AS go-deps
+FROM docker.io/library/golang:1.25-bookworm AS go-deps
 RUN apt-get update && apt-get install -y libsystemd-dev
 
 FROM go-deps AS builder
@@ -12,7 +12,7 @@ COPY . /src
 ARG TOWN_OS_GO_TAGS=
 RUN CGO_ENABLED=1 go test -tags "${TOWN_OS_GO_TAGS}" -c -o /integration-test ./integration/...
 
-FROM debian:bookworm-slim AS runtime-deps
+FROM docker.io/library/debian:bookworm AS runtime-deps
 RUN apt-get update && apt-get install -y \
     btrfs-progs libsystemd0 podman runc socat \
     systemd systemd-sysv dbus curl git iptables \
