@@ -16,6 +16,30 @@ SUDO="sudo HOME=$HOME"
 mkdir -p "${STATE_DIR}" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
+# Disk-backed storage for loopback images (NEVER tmpfs — see CLAUDE.md)
+# ---------------------------------------------------------------------------
+# A loop device backed by a tmpfs file deadlocks the host kernel under memory
+# pressure (tmpfs pages can only be reclaimed to swap, but loop writeback must
+# allocate memory to drain them) and hard-reboots the machine. /tmp is tmpfs on
+# Arch/Manjaro/Fedora, so btrfs backing images must NOT live in STATE_DIR.
+BTRFS_IMAGE_DIR="${BTRFS_IMAGE_DIR:-${PWD}/.cache/btrfs}"
+
+# require_disk_backed DIR — create DIR and abort if it resolves to a tmpfs/
+# ramfs mount. Guards against re-introducing the loop-over-tmpfs host reboot
+# when BTRFS_IMAGE_DIR is overridden or the checkout itself sits on tmpfs.
+require_disk_backed() {
+  local dir="$1" fstype
+  mkdir -p "${dir}"
+  fstype="$(findmnt -nro FSTYPE -T "${dir}" 2>/dev/null || true)"
+  case "${fstype}" in
+    tmpfs|ramfs)
+      echo "ERROR: ${dir} is on ${fstype}; loopback images on RAM-backed filesystems deadlock and reboot the host. Set BTRFS_IMAGE_DIR to a disk-backed path." >&2
+      exit 1
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # Go module boundary for dev-repos
 # ---------------------------------------------------------------------------
 # dev-repos/ contains root-owned directories that Go tooling (go mod tidy,

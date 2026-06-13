@@ -39,10 +39,19 @@ export PROTON_ENABLED GO_BUILD_TAGS
 INSTANCE_ID := $(shell echo -n "$(CURDIR)" | md5sum | cut -c1-8)
 export INSTANCE_ID
 
-# Ephemeral state directory — all port files, btrfs volumes, dev data, and
-# per-run artifacts live here instead of the working directory.
+# Ephemeral state directory — per-run bookkeeping (port files, .disk/.loop/
+# .mount tracking files, dev metadata) lives here instead of the working
+# directory. Data-bearing artifacts do NOT: see BTRFS_IMAGE_DIR below.
 STATE_DIR := /tmp/town-os-$(INSTANCE_ID)
 export STATE_DIR
+
+# Disk-backed directory for btrfs loopback backing images. These MUST NOT live
+# on tmpfs: a loop device backed by tmpfs deadlocks the host kernel under
+# memory pressure and hard-reboots the machine. /tmp is tmpfs on Arch/Manjaro/
+# Fedora, so the images live in the gitignored .cache/ under the checkout
+# (a real disk) instead of STATE_DIR. Override with BTRFS_IMAGE_DIR=...
+BTRFS_IMAGE_DIR ?= $(CURDIR)/.cache/btrfs
+export BTRFS_IMAGE_DIR
 
 LOG_DIR := /tmp/town-os/log
 export LOG_DIR

@@ -8,7 +8,10 @@ case "$1" in
   create)
     set -e
     step "Creating btrfs volume"
-    BTRFS_IMAGE="${BTRFS_IMAGE:-$(mktemp "${STATE_DIR}/btrfs.XXXXXX")}"
+    # Backing image lives on a real disk, never tmpfs (loop-over-tmpfs
+    # deadlocks and reboots the host). require_disk_backed aborts otherwise.
+    require_disk_backed "${BTRFS_IMAGE_DIR}"
+    BTRFS_IMAGE="${BTRFS_IMAGE:-$(mktemp "${BTRFS_IMAGE_DIR}/btrfs.XXXXXX")}"
     echo "${BTRFS_IMAGE}" > "${STATE_DIR}/town-os.disk"
     truncate -s 50G "$(cat "${STATE_DIR}/town-os.disk")"
     substep "Formatting btrfs filesystem"
@@ -30,16 +33,21 @@ case "$1" in
       ${SUDO} losetup -j "$(cat "${STATE_DIR}/town-os.disk")" | awk -F: '{ print $1 }' | xargs -I{} ${SUDO} losetup -d {} 2>/dev/null || true
     fi
     # Safety net: detach any loop devices still backed by btrfs images in this directory.
-    ${SUDO} losetup -a 2>/dev/null | grep "${STATE_DIR}/btrfs\." | awk -F: '{ print $1 }' | while read dev; do
+    ${SUDO} losetup -a 2>/dev/null | grep "${BTRFS_IMAGE_DIR}/btrfs\." | awk -F: '{ print $1 }' | while read dev; do
       ${SUDO} umount "${dev}" 2>/dev/null || true
       ${SUDO} losetup -d "${dev}" 2>/dev/null || true
     done || true
-    rm -f "${STATE_DIR}"/btrfs.* "${STATE_DIR}/town-os.disk" "${STATE_DIR}/town-os.loop" "${STATE_DIR}/town-os.mount"
+    if [ -f "${STATE_DIR}/town-os.disk" ]; then
+      rm -f "$(cat "${STATE_DIR}/town-os.disk")" 2>/dev/null || true
+    fi
+    rm -f "${BTRFS_IMAGE_DIR}"/btrfs.* "${STATE_DIR}/town-os.disk" "${STATE_DIR}/town-os.loop" "${STATE_DIR}/town-os.mount"
     ;;
   create-dev)
     set -e
     step "Creating dev btrfs volume"
-    DEV_BTRFS_IMAGE="${DEV_BTRFS_IMAGE:-$(mktemp "${STATE_DIR}/btrfs-dev.XXXXXX")}"
+    # Backing image lives on a real disk, never tmpfs (see create above).
+    require_disk_backed "${BTRFS_IMAGE_DIR}"
+    DEV_BTRFS_IMAGE="${DEV_BTRFS_IMAGE:-$(mktemp "${BTRFS_IMAGE_DIR}/btrfs-dev.XXXXXX")}"
     echo "${DEV_BTRFS_IMAGE}" > "${STATE_DIR}/town-os-dev.disk"
     truncate -s 50G "$(cat "${STATE_DIR}/town-os-dev.disk")"
     substep "Formatting btrfs filesystem"
@@ -61,11 +69,14 @@ case "$1" in
       ${SUDO} losetup -j "$(cat "${STATE_DIR}/town-os-dev.disk")" | awk -F: '{ print $1 }' | xargs -I{} ${SUDO} losetup -d {} 2>/dev/null || true
     fi
     # Safety net: detach any loop devices still backed by btrfs-dev images in this directory.
-    ${SUDO} losetup -a 2>/dev/null | grep "${STATE_DIR}/btrfs-dev\." | awk -F: '{ print $1 }' | while read dev; do
+    ${SUDO} losetup -a 2>/dev/null | grep "${BTRFS_IMAGE_DIR}/btrfs-dev\." | awk -F: '{ print $1 }' | while read dev; do
       ${SUDO} umount "${dev}" 2>/dev/null || true
       ${SUDO} losetup -d "${dev}" 2>/dev/null || true
     done || true
-    rm -f "${STATE_DIR}"/btrfs-dev.* "${STATE_DIR}/town-os-dev.disk" "${STATE_DIR}/town-os-dev.loop" "${STATE_DIR}/town-os-dev.mount"
+    if [ -f "${STATE_DIR}/town-os-dev.disk" ]; then
+      rm -f "$(cat "${STATE_DIR}/town-os-dev.disk")" 2>/dev/null || true
+    fi
+    rm -f "${BTRFS_IMAGE_DIR}"/btrfs-dev.* "${STATE_DIR}/town-os-dev.disk" "${STATE_DIR}/town-os-dev.loop" "${STATE_DIR}/town-os-dev.mount"
     ;;
   ensure-dev)
     # Create the dev btrfs volume only if one isn't already mounted.
