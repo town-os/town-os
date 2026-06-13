@@ -889,7 +889,13 @@ describe('SystemSettings unchanged save is a no-op', () => {
 
   it('quota: clicking Save with unchanged value does not call setSetting', async () => {
     renderSystemSettings()
+    // Wait for the Language form to render (getLocales resolved) so all Save
+    // buttons exist and their indices are stable. The Quota field shows '50'
+    // by default even before settings load, so waiting on it alone can race
+    // ahead of the conditionally-rendered Language Save button and shift the
+    // saveButtons indices.
     await waitFor(() => {
+      expect(screen.getByLabelText('Language')).toBeTruthy()
       expect(screen.getByLabelText('Quota').value).toBe('50')
     })
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
@@ -928,7 +934,11 @@ describe('SystemSettings unchanged save is a no-op', () => {
 
   it('proton image: clicking Save with unchanged empty value does not call setSetting', async () => {
     renderSystemSettings()
+    // The Image field is empty by default before settings load, so wait for
+    // the Language form too (getLocales resolved) to keep the saveButtons
+    // indices stable.
     await waitFor(() => {
+      expect(screen.getByLabelText('Language')).toBeTruthy()
       expect(screen.getByLabelText('Image').value).toBe('')
     })
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
