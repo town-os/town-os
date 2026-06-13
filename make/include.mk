@@ -119,7 +119,7 @@ test-full:
 	@make/test.sh full
 
 test-full-log:
-	@bash -c 'mkdir -p "$(LOG_DIR)"; logfile="$(LOG_DIR)/test-full-$$(date +%s).log"; echo "Logging to: $$logfile"; rc=0; $(MAKE) test-full 2>&1 | tee "$$logfile" || rc=$$?; echo "Log file: $$logfile"; exit $$rc'
+	@bash -c 'set -o pipefail; mkdir -p "$(LOG_DIR)"; logfile="$(LOG_DIR)/test-full-$$(date +%s).log"; echo "Logging to: $$logfile"; rc=0; $(MAKE) test-full 2>&1 | tee "$$logfile" || rc=$$?; echo "Log file: $$logfile"; exit $$rc'
 
 test-image:
 	@make/build.sh test

@@ -63,8 +63,11 @@ install_arch_packages() {
     git \
     unzip \
     qemu-base \
-    qemu-img \
-    golangci-lint
+    qemu-img
+  # golangci-lint is intentionally NOT taken from pacman: check-golangci-lint
+  # and lint.sh look for it under $(go env GOPATH)/bin, but the pacman package
+  # lands in /usr/bin. install_golangci_lint installs it to GOPATH/bin instead
+  # (same reason the Fedora path skips the dnf package).
 }
 
 install_debian_packages() {
@@ -148,9 +151,6 @@ install_go() {
 }
 
 install_golangci_lint() {
-  if "$is_arch"; then
-    return # provided by pacman package above
-  fi
   GOPATH_BIN="$(PATH="/usr/local/go/bin:$PATH" go env GOPATH)/bin"
   if [ -x "$GOPATH_BIN/golangci-lint" ]; then
     echo ">>> golangci-lint already installed at $GOPATH_BIN/golangci-lint; skipping."
@@ -162,14 +162,65 @@ install_golangci_lint() {
     | sh -s -- -b "$GOPATH_BIN"
 }
 
+# bun_version PATH — print the version if PATH is a working bun binary, else
+# print nothing and return 1. A zero-filled or wrong-arch binary is still -x
+# but fails to exec ("exec format error"), so testing executability is NOT
+# enough — we must actually run it and require a non-empty version string.
+bun_version() {
+  local v
+  v="$("$1" --version 2>/dev/null)" || return 1
+  [ -n "$v" ] || return 1
+  printf '%s' "$v"
+}
+
 install_bun() {
-  if command -v bun >/dev/null 2>&1; then
-    echo ">>> bun already installed ($(bun --version)); skipping."
+  local src ver dst=/usr/local/bin/bun tmp
+
+  # The canonical source is the official installer's output at ~/.bun/bin/bun.
+  # NEVER source from `command -v bun`: when $dst is already broken (e.g. a
+  # zero-filled file left by a crash mid-copy) it is first on PATH, so
+  # `command -v bun` returns the broken binary and we would copy it onto
+  # itself and cement the breakage forever.
+  src="$HOME/.bun/bin/bun"
+  if ! ver="$(bun_version "$src")"; then
+    echo ">>> Installing bun via official installer..."
+    curl -fsSL https://bun.sh/install | bash
+    if ! ver="$(bun_version "$src")"; then
+      echo "ERROR: bun installer did not produce a working binary at $src" >&2
+      exit 1
+    fi
+  else
+    echo ">>> bun already installed ($ver) at $src."
+  fi
+
+  # Mirror onto the system PATH so non-login shells and make targets find it
+  # without a per-user shell rc edit. Skip only when $dst already *runs* and
+  # reports the same version — a $dst that exists but fails to exec
+  # (zeroed/corrupt/wrong arch) must be reinstalled, not skipped. (The old
+  # check compared two `--version` outputs that were both empty when the
+  # binaries were broken, so empty==empty made it skip a broken install.)
+  if [ "$(bun_version "$dst" 2>/dev/null || true)" = "$ver" ]; then
+    echo ">>> bun already on system PATH at $dst; skipping."
     return
   fi
-  echo ">>> Installing bun via official installer..."
-  curl -fsSL https://bun.sh/install | bash
-  echo ">>> NOTE: add ~/.bun/bin to your PATH (the bun installer writes this to your shell rc)."
+
+  echo ">>> Installing bun into $dst (system PATH)..."
+  # Atomic install: write to a temp file in the same directory, flush it to
+  # disk, then rename into place. `install` itself writes the destination in
+  # place (open/truncate/write), so a crash mid-write leaves a half-written or
+  # zero-filled binary directly on PATH. temp + sync + mv guarantees PATH only
+  # ever sees a complete, fsync'd binary.
+  tmp="$($SUDO mktemp /usr/local/bin/.bun.XXXXXX)"
+  $SUDO install -m 0755 "$src" "$tmp"
+  $SUDO sync "$tmp"
+  $SUDO mv -f "$tmp" "$dst"
+  $SUDO ln -sf bun /usr/local/bin/bunx
+
+  # Verify the binary we just installed actually executes.
+  if ! bun_version "$dst" >/dev/null; then
+    echo "ERROR: installed bun at $dst does not execute (wrong arch or corrupt)." >&2
+    exit 1
+  fi
 }
 
 install_ui_deps() {
