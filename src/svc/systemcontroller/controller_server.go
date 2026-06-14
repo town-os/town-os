@@ -289,6 +289,7 @@ func (s *serverBase) tickDNSPoll(ctx context.Context) {
 		Installer:      s.Installer,
 		RepositoryRoot: s.RepositoryRoot,
 		SettingsMgr:    s.SettingsMgr,
+		PagesManager:   s.PagesMgr,
 		InternalIP:     s.GetInternalIP(),
 	}); err != nil {
 		slog.Debug("hourly DNS reconcile", "error", err)
@@ -311,7 +312,10 @@ func (s *serverBase) tickNetworkPoll(ctx context.Context) {
 		fireChange   bool
 	)
 
-	cached, _ := s.internalIP.Load().(string)
+	cached := ""
+	if v, ok := s.internalIP.Load().(string); ok {
+		cached = v
+	}
 
 	switch {
 	case discovered == "":
@@ -398,6 +402,7 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		Installer:        s.Installer,
 		RepositoryRoot:   s.RepositoryRoot,
 		SettingsMgr:      s.SettingsMgr,
+		PagesManager:     s.PagesMgr,
 		InternalIP:       newIP,
 		NetworkStatePath: s.NetworkStatePath,
 		BtrfsBasePath:    s.BtrfsBasePath,
@@ -470,7 +475,10 @@ func (s *serverBase) fetchAndStoreExternalIP(ctx context.Context) bool {
 		slog.Debug("fetchExternalIP: endpoint returned empty ip field")
 		return false
 	}
-	old, _ := s.externalIP.Load().(string)
+	old := ""
+	if v, ok := s.externalIP.Load().(string); ok {
+		old = v
+	}
 	s.externalIP.Store(ip)
 	switch {
 	case old == "":
@@ -492,7 +500,7 @@ func (s *serverBase) fetchAndStoreExternalIP(ctx context.Context) bool {
 func (s *serverBase) logExternalIPFetchFailure(err error) {
 	// If we already have a stored IP, a single transient failure does not
 	// warrant a Warn — the dashboard still shows the last-known value.
-	if ip, _ := s.externalIP.Load().(string); ip != "" {
+	if ip, ok := s.externalIP.Load().(string); ok && ip != "" {
 		slog.Debug("fetchExternalIP: transient failure while cached IP still valid", "err", err, "cached_ip", ip)
 		return
 	}

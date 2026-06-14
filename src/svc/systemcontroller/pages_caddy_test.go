@@ -10,26 +10,50 @@ import (
 	"testing"
 )
 
-func TestGenerateCaddyfile(t *testing.T) {
-	content := GenerateCaddyfile("8080")
-	if !strings.Contains(content, ":8080") {
-		t.Fatalf("expected Caddyfile to contain :8080, got:\n%s", content)
+func TestGeneratePagesCaddyfileInternal(t *testing.T) {
+	content := GeneratePagesCaddyfile([]PageCaddySite{
+		{Name: "blog", Hostname: "blog.home", CertDir: "/etc/town-os/tls/leaves/pages/blog/current"},
+	})
+	for _, want := range []string{
+		"auto_https off",
+		"https://blog.home {",
+		"tls /etc/town-os/tls/leaves/pages/blog/current/cert.pem /etc/town-os/tls/leaves/pages/blog/current/key.pem",
+		"root * /srv/blog",
+		"file_server",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected Caddyfile to contain %q, got:\n%s", want, content)
+		}
 	}
-	if !strings.Contains(content, "root * /srv") {
-		t.Fatal("expected Caddyfile to contain root directive")
-	}
-	if !strings.Contains(content, "file_server") {
-		t.Fatal("expected Caddyfile to contain file_server directive")
-	}
-	if !strings.Contains(content, "respond / 404") {
-		t.Fatal("expected Caddyfile to contain respond / 404")
+	// Internal sites must never reach for ACME.
+	if strings.Contains(content, "issuer acme") {
+		t.Fatalf("internal site should not use ACME, got:\n%s", content)
 	}
 }
 
-func TestGenerateCaddyfileCustomPort(t *testing.T) {
-	content := GenerateCaddyfile("9090")
-	if !strings.Contains(content, ":9090") {
-		t.Fatalf("expected Caddyfile to contain :9090, got:\n%s", content)
+func TestGeneratePagesCaddyfilePublicUsesACME(t *testing.T) {
+	content := GeneratePagesCaddyfile([]PageCaddySite{
+		{Name: "site", Hostname: "site.example.com", ACME: true},
+	})
+	if !strings.Contains(content, "https://site.example.com {") {
+		t.Fatalf("expected public vhost, got:\n%s", content)
+	}
+	if !strings.Contains(content, "issuer acme") {
+		t.Fatalf("expected ACME issuer for public FQDN, got:\n%s", content)
+	}
+	if strings.Contains(content, "root * /srv/site") == false {
+		t.Fatalf("expected webroot for public site, got:\n%s", content)
+	}
+}
+
+func TestGeneratePagesCaddyfileSkipsUnprovisioned(t *testing.T) {
+	// An internal site with no issued leaf yet must be skipped rather than
+	// emit a tls directive with no cert path (which breaks the whole config).
+	content := GeneratePagesCaddyfile([]PageCaddySite{
+		{Name: "blog", Hostname: "blog.home", CertDir: ""},
+	})
+	if strings.Contains(content, "https://blog.home") {
+		t.Fatalf("expected unprovisioned site to be skipped, got:\n%s", content)
 	}
 }
 
@@ -37,7 +61,6 @@ func TestGeneratePagesUnit(t *testing.T) {
 	unit := GeneratePagesUnit(PagesUnitConfig{
 		BtrfsBasePath: "/data",
 		CaddyImage:    "docker.io/library/caddy:latest",
-		CaddyPort:     "8080",
 	})
 
 	if unit.Name != PagesUnitName {
@@ -62,6 +85,11 @@ func TestGeneratePagesUnit(t *testing.T) {
 
 	if !strings.Contains(unit.Content, "/data/pages-caddy/Caddyfile:/etc/caddy/Caddyfile:ro,z") {
 		t.Fatal("expected unit content to contain Caddyfile volume mount")
+	}
+
+	// The TLS subvolume must be mounted so Caddy can read per-page leaf certs.
+	if !strings.Contains(unit.Content, "/data/tls:/etc/town-os/tls:ro,z") {
+		t.Fatalf("expected unit content to contain TLS volume mount, got:\n%s", unit.Content)
 	}
 
 	if !strings.Contains(unit.Content, "Restart=on-failure") {
@@ -154,12 +182,16 @@ func TestRemovePageSymlinkNonexistent(t *testing.T) {
 	}
 }
 
-func TestWriteCaddyfile(t *testing.T) {
+func TestWritePagesCaddyfile(t *testing.T) {
 	dir := t.TempDir()
+	sites := []PageCaddySite{{Name: "blog", Hostname: "blog.home", CertDir: "/etc/town-os/tls/leaves/pages/blog/current"}}
 
-	path, err := WriteCaddyfile(dir, "8080")
+	path, changed, err := WritePagesCaddyfile(dir, sites)
 	if err != nil {
-		t.Fatalf("WriteCaddyfile: %v", err)
+		t.Fatalf("WritePagesCaddyfile: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true on first write")
 	}
 
 	expectedPath := filepath.Join(dir, PagesCaddyDir, "Caddyfile")
@@ -171,10 +203,17 @@ func TestWriteCaddyfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
+	if !strings.Contains(string(data), "https://blog.home {") {
+		t.Fatalf("expected Caddyfile to contain the vhost, got:\n%s", string(data))
+	}
 
-	content := string(data)
-	if !strings.Contains(content, ":8080") {
-		t.Fatalf("expected Caddyfile to contain :8080, got:\n%s", content)
+	// Re-writing identical content reports no change so callers don't bounce
+	// the running Caddy needlessly.
+	if _, changed, err = WritePagesCaddyfile(dir, sites); err != nil {
+		t.Fatalf("WritePagesCaddyfile (rewrite): %v", err)
+	}
+	if changed {
+		t.Fatal("expected changed=false when content is identical")
 	}
 }
 
@@ -214,21 +253,3 @@ func TestCaddyImageFromSettings(t *testing.T) {
 	}
 }
 
-func TestCaddyPortDefault(t *testing.T) {
-	s := &SystemControllerHandlers{Controller: &archiveTestBackend{}}
-	got := s.caddyPort()
-	if got != DefaultCaddyPort {
-		t.Fatalf("expected %q, got %q", DefaultCaddyPort, got)
-	}
-}
-
-func TestCaddyPortFromSettings(t *testing.T) {
-	mgr := &testSettingsManager{values: map[string]string{
-		"caddy_port": "9090",
-	}}
-	s := &SystemControllerHandlers{Controller: &archiveTestBackend{settingsMgr: mgr}}
-	got := s.caddyPort()
-	if got != "9090" {
-		t.Fatalf("expected %q, got %q", "9090", got)
-	}
-}

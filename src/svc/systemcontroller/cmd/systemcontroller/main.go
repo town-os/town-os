@@ -501,6 +501,7 @@ func run() (err error) {
 				Installer:        inst,
 				RepositoryRoot:   rr,
 				SettingsMgr:      settingsMgr,
+				PagesManager:     pagesMgr,
 				InternalIP:       getInternalIP(),
 				NetworkStatePath: *networkStatePath,
 				BtrfsBasePath:    *btrfsPath,

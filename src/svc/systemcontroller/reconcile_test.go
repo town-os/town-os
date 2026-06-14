@@ -1927,8 +1927,14 @@ func TestReconcileVersionChangedRestartsAllUnits(t *testing.T) {
 	restartedNC := false
 	for _, call := range sd.GetCalls() {
 		if call.Method == "SetStatus" {
-			name, _ := call.Args[0].(string)
-			action, _ := call.Args[1].(systemd.StatusAction)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				continue
+			}
+			action, ok := call.Args[1].(systemd.StatusAction)
+			if !ok {
+				continue
+			}
 			if action == systemd.Restart {
 				if name == svcUnit {
 					restartedSvc = true
@@ -1993,8 +1999,14 @@ func TestReconcileVersionChangedRestartsWhenContentDiffers(t *testing.T) {
 	restarted := false
 	for _, call := range sd.GetCalls() {
 		if call.Method == "SetStatus" {
-			name, _ := call.Args[0].(string)
-			action, _ := call.Args[1].(systemd.StatusAction)
+			name, ok := call.Args[0].(string)
+			if !ok {
+				continue
+			}
+			action, ok := call.Args[1].(systemd.StatusAction)
+			if !ok {
+				continue
+			}
 			if name == svcUnit && action == systemd.Restart {
 				restarted = true
 			}

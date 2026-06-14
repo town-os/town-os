@@ -19,25 +19,53 @@ const (
 	PagesWebrootDir    = "pages-webroot"
 	PagesCaddyDir      = "pages-caddy"
 	DefaultCaddyImage  = "docker.io/library/caddy:latest"
-	DefaultCaddyPort   = "8080"
 )
 
 // PagesUnitConfig holds the parameters needed to generate the Caddy systemd unit.
 type PagesUnitConfig struct {
 	BtrfsBasePath string
 	CaddyImage    string
-	CaddyPort     string
 	ContainerName string // defaults to PagesContainerName when empty
 }
 
-// GenerateCaddyfile returns the Caddyfile content for the pages web server.
-func GenerateCaddyfile(port string) string {
-	return fmt.Sprintf(`:%s {
-    root * /srv
-    file_server
-    respond / 404
+// PageCaddySite is one rendered page vhost: a hostname served over HTTPS from
+// the page's static webroot. Internal hostnames pin the local-CA leaf at
+// CertDir; public FQDNs (ACME=true) let Caddy obtain a publicly-trusted cert.
+type PageCaddySite struct {
+	Name     string // page name; content is served from /srv/<Name>
+	Hostname string // SNI host the site is keyed by
+	ACME     bool   // true => tls { issuer acme }; false => file-pinned local leaf
+	CertDir  string // container path to the leaf dir (cert.pem/key.pem); ACME ignores it
 }
-`, port)
+
+// GeneratePagesCaddyfile renders the pages Caddy config: one HTTPS vhost per
+// page on :443, keyed by hostname (SNI), serving static files from /srv/<name>.
+// auto_https is disabled because certs are managed explicitly — a file-pinned
+// local-CA leaf for internal names, an explicit ACME issuer for public FQDNs
+// (Caddy honors the issuer even with auto_https off). A site with no issued
+// leaf yet is skipped so a half-provisioned page never makes caddy reject the
+// whole config.
+func GeneratePagesCaddyfile(sites []PageCaddySite) string {
+	var b strings.Builder
+	b.WriteString("{\n\tauto_https off\n\tadmin off\n}\n")
+	for _, s := range sites {
+		if s.Hostname == "" || s.Name == "" {
+			continue
+		}
+		if !s.ACME && s.CertDir == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\nhttps://%s {\n", s.Hostname)
+		if s.ACME {
+			b.WriteString("\ttls {\n\t\tissuer acme\n\t}\n")
+		} else {
+			fmt.Fprintf(&b, "\ttls %s/cert.pem %s/key.pem\n", s.CertDir, s.CertDir)
+		}
+		fmt.Fprintf(&b, "\troot * /srv/%s\n", s.Name)
+		b.WriteString("\tfile_server\n")
+		b.WriteString("}\n")
+	}
+	return b.String()
 }
 
 // GeneratePagesUnit generates a systemd service unit for the Caddy container.
@@ -63,6 +91,10 @@ func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
 	fmt.Fprintf(&b, " \\\n  -v %s/%s:/data/pages:ro,z", cfg.BtrfsBasePath, PagesVolumePrefix)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s:/srv:ro,z", cfg.BtrfsBasePath, PagesWebrootDir)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s/Caddyfile:/etc/caddy/Caddyfile:ro,z", cfg.BtrfsBasePath, PagesCaddyDir)
+	// Per-page leaf certs live under the shared TLS subvolume (the same tree
+	// the network controller mounts); read-only because only the
+	// systemcontroller ever writes leaves there.
+	fmt.Fprintf(&b, " \\\n  -v %s/%s:%s:ro,z", cfg.BtrfsBasePath, TLSSubvolume, TLSContainerMount)
 	fmt.Fprintf(&b, " \\\n  %s\n", cfg.CaddyImage)
 	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName)
 	b.WriteString("Restart=on-failure\n")
@@ -77,21 +109,28 @@ func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
 	}
 }
 
-// WriteCaddyfile writes the Caddyfile to {btrfsBasePath}/pages-caddy/Caddyfile.
-// Returns the path to the written file.
-func WriteCaddyfile(btrfsBasePath, port string) (string, error) {
+// WritePagesCaddyfile renders the pages Caddyfile for the given sites and writes
+// it to {btrfsBasePath}/pages-caddy/Caddyfile. It returns the path written and
+// whether the on-disk content changed, so callers can restart Caddy (which does
+// not hot-reload a file-mounted config) only when the config actually changed.
+func WritePagesCaddyfile(btrfsBasePath string, sites []PageCaddySite) (string, bool, error) {
 	dir := filepath.Join(btrfsBasePath, PagesCaddyDir)
 	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // G301 -- caddy config directory
-		return "", fmt.Errorf("create caddy dir: %w", err)
+		return "", false, fmt.Errorf("create caddy dir: %w", err)
 	}
 
 	path := filepath.Join(dir, "Caddyfile")
-	content := GenerateCaddyfile(port)
+	content := GeneratePagesCaddyfile(sites)
+	prev, readErr := os.ReadFile(path) //nolint:gosec // G304 -- path under the trusted btrfs base
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return "", false, fmt.Errorf("read existing Caddyfile: %w", readErr)
+	}
+	changed := string(prev) != content
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil { //nolint:gosec // G306 -- caddy config readable by container
-		return "", fmt.Errorf("write Caddyfile: %w", err)
+		return "", false, fmt.Errorf("write Caddyfile: %w", err)
 	}
 
-	return path, nil
+	return path, changed, nil
 }
 
 // EnsurePagesWebroot creates the {btrfsBasePath}/pages-webroot/ directory.
@@ -142,21 +181,6 @@ func (s *SystemControllerHandlers) caddyImage() string {
 	val, err := mgr.Get("caddy_image")
 	if err != nil || val == "" {
 		return DefaultCaddyImage
-	}
-
-	return val
-}
-
-// caddyPort returns the configured Caddy listen port from settings.
-func (s *SystemControllerHandlers) caddyPort() string {
-	mgr := s.Controller.GetSettingsManager()
-	if mgr == nil {
-		return DefaultCaddyPort
-	}
-
-	val, err := mgr.Get("caddy_port")
-	if err != nil || val == "" {
-		return DefaultCaddyPort
 	}
 
 	return val

@@ -58,6 +58,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - please check all errors. do not underscore or skip error checking for any reason in any part of code ever
 
+- **Always check the `ok` of a comma-ok expression.** Any expression that returns a `value, ok` pair — type assertions (`v, ok := x.(T)`), map index (`v, ok := m[k]`), and channel receive (`v, ok := <-ch`) — must check `ok` before using `value`; never discard it with `_` and never assume the assertion/lookup succeeded. Prefer the comma-ok form over the single-value type assertion `v := x.(T)` (which panics on mismatch): use `v, ok := x.(T)` and handle `!ok` explicitly. This applies to test code too. (Cleanly-typed switch cases — `switch v := x.(type)` — and a deliberate `_ = m[k]` membership write are the only exceptions.)
+
 - Always use inline error syntax in if statements when possible (e.g., `if err := foo(); err != nil {`)
 
 - **Test services use random high ports** — integration tests that start network services (DNS, HTTP, gRPC, etc.) must bind to random high ports via `findFreePort`, never well-known ports like 53 or 80. This prevents conflicts when multiple test runs execute simultaneously.

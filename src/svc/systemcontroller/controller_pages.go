@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
+	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/storage"
@@ -37,6 +38,57 @@ type UpdatePageRequest struct {
 
 type PageNameRequest struct {
 	Name string `json:"name"`
+}
+
+// refreshPages re-renders the pages Caddyfile and (re)starts the pages Caddy
+// server so a created/updated/removed page is served immediately, mirroring how
+// package install applies its systemd changes inline rather than waiting for the
+// next reconcile. Errors are logged, not surfaced: the periodic reconcile is the
+// backstop and a transient failure must not fail the API call.
+func (s *SystemControllerHandlers) refreshPages(ctx context.Context) {
+	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	if err := applyPages(ctx, s.Controller.GetSystemdManager(), s.Controller.GetPagesManager(),
+		s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(), "", tld, s.Controller.GetInternalIP()); err != nil {
+		slog.Debug(fmt.Sprintf("refresh pages: %v", err))
+	}
+}
+
+// setPageDNS adds or removes the rolodex A record for an internal page's
+// hostname so it resolves immediately on create/remove. Public-FQDN pages are
+// resolved by the user's own DNS and are skipped. The periodic DNS reconcile
+// keeps records converged regardless, so errors here are only logged.
+func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain string, add bool) {
+	cl := s.Controller.GetRolodexClient()
+	if cl == nil {
+		return
+	}
+	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	if pageIsPublic(domain, tld) {
+		return
+	}
+	host := pageHostname(domain, tld)
+	if host == "" {
+		return
+	}
+	if add {
+		ip := s.Controller.GetInternalIP()
+		if ip == "" {
+			return
+		}
+		if err := cl.AddRecord(ctx, &upstream.DnsRecord{
+			Name:       host + ".",
+			RecordType: upstream.RecordTypeA,
+			Value:      ip,
+			Ttl:        300,
+		}); err != nil {
+			slog.Debug(fmt.Sprintf("page DNS add %s: %v", host, err))
+		}
+		return
+	}
+	aType := upstream.RecordTypeA
+	if _, err := cl.RemoveRecord(ctx, host+".", &upstream.RemoveRecordOptions{RecordType: &aType}); err != nil {
+		slog.Debug(fmt.Sprintf("page DNS remove %s: %v", host, err))
+	}
 }
 
 func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
@@ -131,6 +183,13 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		// via POST /pages/upload.
 	}
 
+	// Issue the leaf, render the vhost, and publish DNS so the page is reachable
+	// over HTTPS immediately (content for git/image sources streams in async,
+	// but the hostname, cert, and A record only depend on the page metadata).
+	ctx := c.Request().Context()
+	s.refreshPages(ctx)
+	s.setPageDNS(ctx, req.Domain, true)
+
 	return c.JSON(200, page)
 }
 
@@ -146,10 +205,26 @@ func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
 		return err
 	}
 
+	old, getErr := mgr.Get(req.Name)
+	if getErr != nil {
+		// Best effort: without the prior record we just skip retiring the old
+		// hostname's DNS below; the update itself still proceeds.
+		slog.Debug(fmt.Sprintf("pages get %s before update: %v", req.Name, getErr))
+	}
+
 	page, err := mgr.Update(req.Name, req.Fields)
 	if err != nil {
 		return err
 	}
+
+	// A domain change moves the page to a new hostname: retire the old A record,
+	// publish the new one, and re-render so the vhost (and its leaf) follow.
+	ctx := c.Request().Context()
+	if old != nil && pageDomain(*old) != pageDomain(*page) {
+		s.setPageDNS(ctx, pageDomain(*old), false)
+	}
+	s.setPageDNS(ctx, pageDomain(*page), true)
+	s.refreshPages(ctx)
 
 	return c.JSON(200, page)
 }
@@ -164,6 +239,12 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 	req := PageNameRequest{}
 	if err := de.Decode(&req); err != nil {
 		return err
+	}
+
+	// Capture the domain before removal so we can retire its DNS record.
+	removed, getErr := mgr.Get(req.Name)
+	if getErr != nil {
+		slog.Debug(fmt.Sprintf("pages get %s before remove: %v", req.Name, getErr))
 	}
 
 	if err := mgr.Remove(req.Name); err != nil {
@@ -184,6 +265,13 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 			slog.Debug(fmt.Sprintf("pages remove subvolume %s: %v", req.Name, err))
 		}
 	}
+
+	// Drop the page's vhost from the Caddyfile and its A record from DNS.
+	ctx := c.Request().Context()
+	if removed != nil {
+		s.setPageDNS(ctx, pageDomain(*removed), false)
+	}
+	s.refreshPages(ctx)
 
 	c.Response().WriteHeader(200)
 	return nil

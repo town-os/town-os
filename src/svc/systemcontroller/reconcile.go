@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -34,7 +35,6 @@ type ReconcileConfig struct {
 	NetworkControllerImage string
 	NetworkStatePath       string
 	CaddyImage             string
-	CaddyPort              string
 	ExternalIP             string
 	InternalIP             string
 	VersionChanged         bool // true when the systemcontroller version differs from last run
@@ -728,6 +728,7 @@ type ReconcileDNSConfig struct {
 	Installer      packages.Installer
 	RepositoryRoot *packages.RepositoryRoot
 	SettingsMgr    account.SettingsManager
+	PagesManager   account.PagesManager
 	InternalIP     string
 	// NetworkStatePath and BtrfsBasePath let RebuildDNS recompute and
 	// republish DANE TLSA records after a zone teardown (TeardownTLD wipes
@@ -767,9 +768,26 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		}
 	}
 
+	// Pages share the zone and resolve to the host IP, keyed by their internal
+	// hostname. Public-FQDN pages are excluded (resolved by the user's own DNS).
+	if cfg.InternalIP != "" {
+		for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
+			if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
+				Name:       host + ".",
+				RecordType: upstream.RecordTypeA,
+				Value:      cfg.InternalIP,
+				Ttl:        300,
+			}); err != nil {
+				slog.Debug(fmt.Sprintf("rebuild DNS page %s: %v", host, err))
+			}
+		}
+	}
+
 	// TeardownTLD wiped every record including DANE TLSA, so re-pin the leaf
-	// for each installed package's terminated ports.
-	if entries := collectInstalledTLSA(cfg, tld); len(entries) > 0 {
+	// for each installed package's terminated ports and each internal page.
+	entries := collectInstalledTLSA(cfg, tld)
+	entries = append(entries, collectPageTLSA(cfg.PagesManager, cfg.BtrfsBasePath, tld)...)
+	if len(entries) > 0 {
 		if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
 			slog.Debug(fmt.Sprintf("rebuild TLSA: %v", err))
 		}
@@ -856,6 +874,13 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 			for _, d := range pkg.Domains {
 				desired[recKey{name: d + "." + baseName, value: cfg.InternalIP}] = struct{}{}
 			}
+		}
+		// Pages resolve to the same host IP, keyed by their assigned internal
+		// hostname (e.g. blog.<tld>). They live in the same zone as packages,
+		// so they must be in the desired set or the remove pass below would
+		// delete them as orphan A records.
+		for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
+			desired[recKey{name: host + ".", value: cfg.InternalIP}] = struct{}{}
 		}
 	}
 
@@ -957,37 +982,87 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 		}
 	}
 
-	// Write Caddyfile and install the Caddy unit.
-	caddyPort := cfg.CaddyPort
-	if caddyPort == "" {
-		caddyPort = DefaultCaddyPort
+	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	return applyPages(ctx, cfg.Systemd, cfg.PagesManager, cfg.TLSCA, cfg.BtrfsBasePath, cfg.CaddyImage, tld, cfg.InternalIP)
+}
+
+// applyPages issues a leaf for each internal page, renders the pages Caddyfile,
+// and installs/(re)starts the pages Caddy unit — restarting only when the
+// rendered config changed so a no-op reconcile never bounces live sites. It is
+// shared by reconcile and the page CRUD handlers so a created/updated/removed
+// page is served without waiting for the next full reconcile. Subvolume and
+// symlink provisioning is the caller's job (it needs storage the handlers own).
+// A page whose internal leaf cannot be issued yet (e.g. CA not ready) is skipped
+// for this pass and picked up on a later one. A nil systemd manager renders the
+// Caddyfile but installs no unit (mock/test mode).
+func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesManager, ca *townostls.CA, btrfsBase, caddyImage, tld, internalIP string) error {
+	if pagesMgr == nil || btrfsBase == "" {
+		return nil
+	}
+	if err := EnsurePagesWebroot(btrfsBase); err != nil {
+		return fmt.Errorf("ensure pages webroot: %w", err)
+	}
+	pages, err := pagesMgr.List()
+	if err != nil {
+		return fmt.Errorf("list pages: %w", err)
 	}
 
-	if _, err := WriteCaddyfile(cfg.BtrfsBasePath, caddyPort); err != nil {
+	sites := make([]PageCaddySite, 0, len(pages))
+	for _, page := range pages {
+		domain := pageDomain(page)
+		hostname := pageHostname(domain, tld)
+		if hostname == "" {
+			continue
+		}
+		site := PageCaddySite{Name: page.Name, Hostname: hostname}
+		if pageIsPublic(domain, tld) {
+			// Public FQDN: served via ACME, resolved by the user's own DNS.
+			site.ACME = true
+		} else {
+			certDir, lerr := issuePageLeaf(ca, btrfsBase, page.Name, hostname, internalIP)
+			if lerr != nil {
+				slog.Debug(fmt.Sprintf("pages leaf %s: %v", page.Name, lerr))
+				continue
+			}
+			site.CertDir = certDir
+		}
+		sites = append(sites, site)
+	}
+
+	// Whether a Caddyfile already existed decides start-vs-restart below: a
+	// first install just starts the unit, while a config change to an already
+	// running server needs a restart (Caddy does not hot-reload a file-mounted
+	// config).
+	_, statErr := os.Stat(filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile"))
+	existedBefore := statErr == nil
+
+	_, changed, err := WritePagesCaddyfile(btrfsBase, sites)
+	if err != nil {
 		return fmt.Errorf("write Caddyfile: %w", err)
 	}
 
-	if cfg.Systemd != nil {
-		caddyImage := cfg.CaddyImage
-		if caddyImage == "" {
-			caddyImage = DefaultCaddyImage
-		}
-
-		unit := GeneratePagesUnit(PagesUnitConfig{
-			BtrfsBasePath: cfg.BtrfsBasePath,
-			CaddyImage:    caddyImage,
-			CaddyPort:     caddyPort,
-		})
-
-		if err := cfg.Systemd.InstallUnit(ctx, unit.Name, unit.Content); err != nil {
-			return fmt.Errorf("install pages unit: %w", err)
-		}
-
-		if err := cfg.Systemd.SetStatus(ctx, unit.Name, systemd.Start); err != nil {
-			return fmt.Errorf("start pages unit: %w", err)
-		}
+	if sd == nil {
+		return nil
 	}
-
+	if caddyImage == "" {
+		caddyImage = DefaultCaddyImage
+	}
+	unit := GeneratePagesUnit(PagesUnitConfig{
+		BtrfsBasePath: btrfsBase,
+		CaddyImage:    caddyImage,
+	})
+	if err := sd.InstallUnit(ctx, unit.Name, unit.Content); err != nil {
+		return fmt.Errorf("install pages unit: %w", err)
+	}
+	action := systemd.Start
+	if existedBefore && changed {
+		// The file-mounted Caddyfile of an already-running server changed;
+		// bounce the container to pick up the new vhost set.
+		action = systemd.Restart
+	}
+	if err := sd.SetStatus(ctx, unit.Name, action); err != nil {
+		return fmt.Errorf("start pages unit: %w", err)
+	}
 	return nil
 }
 

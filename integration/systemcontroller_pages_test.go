@@ -11,10 +11,13 @@ import (
 	"strings"
 	"testing"
 
+	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
+	townostls "gitea.com/town-os/town-os/src/tls"
 )
 
 // --- Pages integration tests ---
@@ -806,5 +809,199 @@ func TestPagesAuditUploadLogged(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected to find 'upload page archive' audit entry")
+	}
+}
+
+// initSystemControllerPagesTLSEnv builds a pages test server wired with a real
+// local CA and a recording rolodex client so the HTTPS-by-domain path (leaf
+// issuance + per-domain Caddyfile + DNS registration) can be exercised
+// end-to-end through the HTTP API. Returns the client, the rolodex mock, and
+// the btrfs base dir for on-disk assertions.
+func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdClient, *rolodex.MockClient, string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := account.InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	sessMgr, err := account.InitSessionManager(db, mgr, []byte("test-signing-key-for-sessions-32"))
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+	pagesMgr, err := account.InitPagesManager(db)
+	if err != nil {
+		t.Fatalf("InitPagesManager: %v", err)
+	}
+
+	ca, err := townostls.EnsureCA(filepath.Join(dir, "tls"))
+	if err != nil {
+		t.Fatalf("EnsureCA: %v", err)
+	}
+	rol := &rolodex.MockClient{}
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:       storage.InitBtrFSMock(),
+		AccountMgr:    mgr,
+		SessionMgr:    sessMgr,
+		AuditMgr:      auditMgr,
+		PagesMgr:      pagesMgr,
+		Git:           git.InitMockClient(),
+		BtrfsBasePath: dir,
+		TLSCA:         ca,
+		RolodexClient: rol,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+	ts.SetInternalIP("192.0.2.10")
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("ts.Client: %v", err)
+	}
+	if _, err := c.CreateAccount(context.TODO(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+		t.Fatalf("bootstrap CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "adminpass")
+	if err != nil {
+		t.Fatalf("bootstrap Authenticate: %v", err)
+	}
+	c.Token = resp.Token
+
+	return c, rol, dir
+}
+
+// pagesMockAddedA reports whether the rolodex mock recorded an AddRecord for an
+// A record with the given name and value.
+func pagesMockAddedA(rol *rolodex.MockClient, name, value string) bool {
+	for _, call := range rol.GetCalls() {
+		if call.Method != "AddRecord" || len(call.Args) == 0 {
+			continue
+		}
+		rec, ok := call.Args[0].(*upstream.DnsRecord)
+		if !ok {
+			continue
+		}
+		if rec.Name == name && rec.Value == value && rec.RecordType == upstream.RecordTypeA {
+			return true
+		}
+	}
+	return false
+}
+
+// pagesMockAddedAnyName reports whether the rolodex mock recorded an AddRecord
+// for any record with the given name (regardless of type/value).
+func pagesMockAddedAnyName(rol *rolodex.MockClient, name string) bool {
+	for _, call := range rol.GetCalls() {
+		if call.Method != "AddRecord" || len(call.Args) == 0 {
+			continue
+		}
+		rec, ok := call.Args[0].(*upstream.DnsRecord)
+		if !ok {
+			continue
+		}
+		if rec.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// pagesMockRemoved reports whether the rolodex mock recorded a RemoveRecord for
+// the given name.
+func pagesMockRemoved(rol *rolodex.MockClient, name string) bool {
+	for _, call := range rol.GetCalls() {
+		if call.Method != "RemoveRecord" || len(call.Args) == 0 {
+			continue
+		}
+		got, ok := call.Args[0].(string)
+		if !ok {
+			continue
+		}
+		if got == name {
+			return true
+		}
+	}
+	return false
+}
+
+// TestPagesServedOverHTTPSByDomain exercises the full HTTPS-by-domain path: an
+// internal page gets a local-CA leaf, a per-domain HTTPS vhost, and a rolodex A
+// record; a public-FQDN page gets an ACME vhost and no rolodex record; removal
+// retires both the vhost and the DNS record.
+func TestPagesServedOverHTTPSByDomain(t *testing.T) {
+	t.Parallel()
+	c, rol, dir := initSystemControllerPagesTLSEnv(t)
+	ctx := context.TODO()
+
+	caddyfile := filepath.Join(dir, "pages-caddy", "Caddyfile")
+	readCaddyfile := func() string {
+		data, err := os.ReadFile(caddyfile)
+		if err != nil {
+			t.Fatalf("read Caddyfile: %v", err)
+		}
+		return string(data)
+	}
+
+	// Internal page (bare label) → blog.home over the local CA leaf.
+	if _, err := c.CreatePage(ctx, "blog", "", "", "blog", account.PageSourceArchive, "", ""); err != nil {
+		t.Fatalf("CreatePage(blog): %v", err)
+	}
+
+	content := readCaddyfile()
+	for _, want := range []string{
+		"https://blog.home {",
+		"root * /srv/blog",
+		"file_server",
+		"/etc/town-os/tls/leaves/pages/blog/current/cert.pem",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("Caddyfile missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "issuer acme") {
+		t.Fatalf("internal page must not use ACME:\n%s", content)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tls", "leaves", "pages", "blog", "current", "cert.pem")); err != nil {
+		t.Fatalf("expected leaf cert for blog: %v", err)
+	}
+	if !pagesMockAddedA(rol, "blog.home.", "192.0.2.10") {
+		t.Fatalf("expected A record blog.home. -> 192.0.2.10, calls: %+v", rol.GetCalls())
+	}
+
+	// Public-FQDN page → ACME vhost, no rolodex record (resolved by user DNS).
+	if _, err := c.CreatePage(ctx, "shop", "", "", "shop.example.com", account.PageSourceArchive, "", ""); err != nil {
+		t.Fatalf("CreatePage(shop): %v", err)
+	}
+	content = readCaddyfile()
+	if !strings.Contains(content, "https://shop.example.com {") || !strings.Contains(content, "issuer acme") {
+		t.Fatalf("expected ACME vhost for public page:\n%s", content)
+	}
+	if pagesMockAddedAnyName(rol, "shop.example.com.") {
+		t.Fatal("public FQDN page must not get a rolodex A record")
+	}
+
+	// Removal drops the vhost and retires the DNS record.
+	if err := c.RemovePage(ctx, "blog"); err != nil {
+		t.Fatalf("RemovePage(blog): %v", err)
+	}
+	if strings.Contains(readCaddyfile(), "https://blog.home") {
+		t.Fatalf("blog vhost should be gone after removal:\n%s", readCaddyfile())
+	}
+	if !pagesMockRemoved(rol, "blog.home.") {
+		t.Fatalf("expected RemoveRecord for blog.home., calls: %+v", rol.GetCalls())
 	}
 }

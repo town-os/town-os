@@ -185,8 +185,14 @@ func TestHTTPUploadArchiveWithStopService(t *testing.T) {
 	found := false
 	for _, c := range calls {
 		if c.Method == "SetStatus" && len(c.Args) >= 2 {
-			unit, _ := c.Args[0].(string)
-			action, _ := c.Args[1].(systemd.StatusAction)
+			unit, ok := c.Args[0].(string)
+			if !ok {
+				continue
+			}
+			action, ok := c.Args[1].(systemd.StatusAction)
+			if !ok {
+				continue
+			}
 			if unit == "my-app.service" && action == systemd.Stop {
 				found = true
 				break
