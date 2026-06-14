@@ -7,7 +7,7 @@ import DataTable from '@/components/DataTable.jsx'
 import JournalViewer from '@/components/JournalViewer.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Check, CircleAlert, FileText, Clock } from 'lucide-react'
+import { Check, CircleAlert, FileText, Clock, Activity } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -144,7 +144,16 @@ export default function AuditLog() {
         </span>
       ),
     },
-    { key: 'action', label: t('audit.col_action') },
+    {
+      key: 'action',
+      label: t('audit.col_action'),
+      transform: (v) => (
+        <span className="flex items-center gap-2">
+          <Activity className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span>{v}</span>
+        </span>
+      ),
+    },
     {
       key: 'path',
       label: t('audit.col_endpoint'),
