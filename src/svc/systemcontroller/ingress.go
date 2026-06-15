@@ -26,12 +26,12 @@ func ingressCaddyfileExists(btrfsBase string) bool {
 }
 
 // ingressHostPorts returns the host-port keys (external/internal map keys) the
-// shared :443 ingress fronts for this package: ports explicitly named `http`
-// that the package supplies as http, excluding passthrough and direct ports.
-// Allowlisted-numeric HTTP ports are NOT included — they keep terminating on the
-// per-package NC. This matches exactly the ports applyTLSToPorts flags as
-// Ingress, so GeneratePackageUnits can drop them from the per-package NC's host
-// publishing (-p / sockets) — the ingress owns them on :443.
+// shared :443 ingress fronts for this package: every HTTP port (named `http`/
+// `https` or matching the numeric allowlist) the package supplies as http,
+// excluding passthrough and direct ports. This matches exactly the ports
+// applyTLSToPorts flags as Ingress, so GeneratePackageUnits drops them from the
+// per-package NC's host publishing (-p / sockets) — the ingress owns them on
+// :443. Raw / non-HTTP ports stay on the per-package NC at their own port.
 func ingressHostPorts(compiled *packages.Package, supplies []string) map[uint16]bool {
 	if compiled == nil || !suppliesHTTP(supplies) {
 		return nil
@@ -45,7 +45,7 @@ func ingressHostPorts(compiled *packages.Package, supplies []string) map[uint16]
 			if compiled.Network.TLSModes[host] == packages.TLSModePassthrough {
 				continue
 			}
-			if isHTTPNamedPort(container, compiled) {
+			if isHTTPPort(container, compiled) {
 				out[host] = true
 			}
 		}
