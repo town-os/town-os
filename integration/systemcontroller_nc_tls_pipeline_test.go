@@ -189,20 +189,32 @@ questions:
 		t.Fatalf("DNS name tlspkg.local.home missing from cert DNSNames: %v", cert.DNSNames)
 	}
 
-	// --- ecf6dd6 assertion: rendered Caddyfile disables H3 ---
-	sites := networkcontroller.CollectCaddySites([]*networkcontroller.PackageNetworkState{&state})
-	if len(sites) != 1 {
-		t.Fatalf("expected 1 caddy site, got %d", len(sites))
+	// The HTTP port is fronted by the shared :443 ingress, not the per-package
+	// NC, so the port is flagged Ingress and the per-package NC renders no site.
+	if !p.Ingress {
+		t.Fatalf("named-http port must be flagged Ingress: %+v", p)
 	}
-	caddyfile := string(networkcontroller.RenderCaddyfile(sites))
-	if !strings.Contains(caddyfile, "protocols h1 h2") {
-		t.Fatalf("rendered Caddyfile must pin protocols h1 h2:\n%s", caddyfile)
+	if sites := networkcontroller.CollectCaddySites([]*networkcontroller.PackageNetworkState{&state}); len(sites) != 0 {
+		t.Fatalf("per-package NC must render no site for an ingress port, got %d", len(sites))
 	}
-	if strings.Contains(caddyfile, "h3") {
-		t.Fatalf("rendered Caddyfile must not reference h3 (Alt-Svc would lie about a UDP listener):\n%s", caddyfile)
+
+	// The shared ingress Caddyfile terminates the package on :443 with its leaf,
+	// pins h1/h2 (no H3 over the TCP-only :443), and reverse-proxies to it.
+	ingressCaddy, err := os.ReadFile(filepath.Join(btrfsBase, systemcontroller.PagesCaddyDir, "Caddyfile"))
+	if err != nil {
+		t.Fatalf("read ingress Caddyfile: %v", err)
 	}
-	// Site block should exist and reference our leaf.
-	if !strings.Contains(caddyfile, "tls "+p.CertPath+"/cert.pem "+p.CertPath+"/key.pem") {
-		t.Fatalf("rendered Caddyfile missing tls line pointing at the leaf:\n%s", caddyfile)
+	ic := string(ingressCaddy)
+	for _, want := range []string{
+		"https://tlspkg.local.home {",
+		"tls " + p.CertPath + "/cert.pem " + p.CertPath + "/key.pem",
+		"protocols h1 h2",
+	} {
+		if !strings.Contains(ic, want) {
+			t.Fatalf("ingress Caddyfile missing %q:\n%s", want, ic)
+		}
+	}
+	if strings.Contains(ic, "h3") {
+		t.Fatalf("ingress Caddyfile must not reference h3:\n%s", ic)
 	}
 }

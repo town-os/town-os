@@ -55,6 +55,12 @@ type PortConfig struct {
 	Passthrough  bool     `json:"passthrough,omitempty"`
 	PublicDomain bool     `json:"public_domain,omitempty"`
 	SNINames     []string `json:"sni_names,omitempty"`
+	// Ingress marks an HTTP port served by the shared :443 ingress rather than
+	// host-published by this package's own NC. Such ports have Forward=false
+	// (the per-package NC ignores them) and ExternalPort=443 (so the DANE TLSA
+	// is pinned on _443._tcp.<fqdn>); the ingress reverse-proxies to
+	// InternalPort over the shared ingress network.
+	Ingress bool `json:"ingress,omitempty"`
 }
 
 // PackageNetworkState is the per-package JSON state file written by the

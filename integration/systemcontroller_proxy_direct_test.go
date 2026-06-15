@@ -174,10 +174,11 @@ questions:
 		t.Fatalf("missing A record directpkg.local.home.: %+v", env.records(upstream.RecordTypeA))
 	}
 
-	// DANE TLSA record at _8080._tcp.directpkg.local.home.
+	// DANE TLSA record at _443._tcp.directpkg.local.home.: the named `http` port
+	// is fronted by the shared :443 ingress, so the leaf is pinned on _443.
 	tlsa := env.records(upstream.RecordTypeTLSA)
-	if len(tlsa) != 1 || tlsa[0].Name != "_8080._tcp.directpkg.local.home." {
-		t.Fatalf("expected one TLSA record at _8080._tcp.directpkg.local.home., got %+v", tlsa)
+	if len(tlsa) != 1 || tlsa[0].Name != "_443._tcp.directpkg.local.home." {
+		t.Fatalf("expected one TLSA record at _443._tcp.directpkg.local.home., got %+v", tlsa)
 	}
 	if !strings.HasPrefix(tlsa[0].Value, "3 1 1 ") {
 		t.Fatalf("TLSA value must be DANE-EE/SPKI/SHA-256, got %q", tlsa[0].Value)

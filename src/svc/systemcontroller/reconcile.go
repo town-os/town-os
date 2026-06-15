@@ -499,6 +499,11 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	if compiled.Runtime == packages.RuntimeVM && compiled.VM != nil {
 		unitCfg.VMImagePath = resolveVMImagePath(cfg.BtrfsBasePath, compiled.VM.Image)
 	}
+	// Standalone HTTP packages are fronted by the shared :443 ingress, so their
+	// HTTP ports are not host-published here; dependencies are never fronted.
+	if !isDep {
+		unitCfg.IngressPorts = ingressHostPorts(compiled, ip.Supplies)
+	}
 
 	// Apply shared-network and systemd ordering info.
 	unitCfg.ParentNetwork = netInfo.ParentNetwork
@@ -983,7 +988,7 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 	}
 
 	tld := reconcileDNSTLD(cfg.SettingsMgr)
-	return applyPages(ctx, cfg.Systemd, cfg.PagesManager, cfg.TLSCA, cfg.BtrfsBasePath, cfg.CaddyImage, tld, cfg.InternalIP)
+	return applyPages(ctx, cfg.Systemd, cfg.PagesManager, cfg.Installer, cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath, cfg.CaddyImage, tld, cfg.InternalIP)
 }
 
 // applyPages issues a leaf for each internal page, renders the pages Caddyfile,
@@ -995,16 +1000,22 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 // A page whose internal leaf cannot be issued yet (e.g. CA not ready) is skipped
 // for this pass and picked up on a later one. A nil systemd manager renders the
 // Caddyfile but installs no unit (mock/test mode).
-func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesManager, ca *townostls.CA, btrfsBase, caddyImage, tld, internalIP string) error {
-	if pagesMgr == nil || btrfsBase == "" {
+func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, caddyImage, tld, internalIP string) error {
+	if btrfsBase == "" {
 		return nil
 	}
 	if err := EnsurePagesWebroot(btrfsBase); err != nil {
 		return fmt.Errorf("ensure pages webroot: %w", err)
 	}
-	pages, err := pagesMgr.List()
-	if err != nil {
-		return fmt.Errorf("list pages: %w", err)
+	// Pages are optional: the shared ingress also fronts HTTP packages, so it
+	// renders even when the pages feature is disabled (nil pages manager).
+	var pages []account.PageSite
+	if pagesMgr != nil {
+		var err error
+		pages, err = pagesMgr.List()
+		if err != nil {
+			return fmt.Errorf("list pages: %w", err)
+		}
 	}
 
 	sites := make([]PageCaddySite, 0, len(pages))
@@ -1036,12 +1047,19 @@ func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesM
 	_, statErr := os.Stat(filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile"))
 	existedBefore := statErr == nil
 
-	_, changed, err := WritePagesCaddyfile(btrfsBase, sites)
+	// HTTP packages are fronted by the same :443 ingress: one reverse_proxy
+	// vhost per package FQDN, terminating with the package's own leaf.
+	pkgSites := collectPackageIngressSites(installer, stateDir, tld)
+
+	_, changed, err := WriteIngressCaddyfile(btrfsBase, sites, pkgSites)
 	if err != nil {
 		return fmt.Errorf("write Caddyfile: %w", err)
 	}
 
-	if sd == nil {
+	// Only touch the ingress unit when the rendered config actually changed, so
+	// an unrelated (e.g. non-ingress package) install/uninstall/reconcile never
+	// reinstalls or bounces the ingress.
+	if sd == nil || !changed {
 		return nil
 	}
 	if caddyImage == "" {
@@ -1055,7 +1073,7 @@ func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesM
 		return fmt.Errorf("install pages unit: %w", err)
 	}
 	action := systemd.Start
-	if existedBefore && changed {
+	if existedBefore {
 		// The file-mounted Caddyfile of an already-running server changed;
 		// bounce the container to pick up the new vhost set.
 		action = systemd.Restart

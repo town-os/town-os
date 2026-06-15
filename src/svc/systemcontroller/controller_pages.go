@@ -48,7 +48,8 @@ type PageNameRequest struct {
 func (s *SystemControllerHandlers) refreshPages(ctx context.Context) {
 	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
 	if err := applyPages(ctx, s.Controller.GetSystemdManager(), s.Controller.GetPagesManager(),
-		s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(), "", tld, s.Controller.GetInternalIP()); err != nil {
+		s.Controller.GetInstaller(), s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(),
+		s.Controller.GetNetworkStatePath(), "", tld, s.Controller.GetInternalIP()); err != nil {
 		slog.Debug(fmt.Sprintf("refresh pages: %v", err))
 	}
 }

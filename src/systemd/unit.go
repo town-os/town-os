@@ -94,6 +94,11 @@ type PackageUnitConfig struct {
 	// every port is direct, no NC unit is generated at all. Only honored for
 	// standalone/parent packages — dependencies never host-publish.
 	DirectPorts              map[uint16]bool
+	// IngressPorts are host-port keys served by the shared :443 ingress instead
+	// of this package's own NC. They are dropped from the NC's host publishing
+	// (no -p, no socket) and the container joins the ingress network so the
+	// ingress can reverse_proxy to it by name. Only set for standalone packages.
+	IngressPorts             map[uint16]bool
 	Volumes                  map[string]packages.PackageVolume
 	BtrfsBase                string
 	NetworkControllerImage   string // container image for the network controller
@@ -284,6 +289,11 @@ func allPortMappings(external, internal packages.PortMap) []string {
 	return result
 }
 
+// IngressNetworkName is the shared podman network the :443 ingress Caddy and
+// every HTTP-fronted package container join, so the ingress can reverse_proxy to
+// each backend by container name via podman's built-in DNS.
+const IngressNetworkName = "town-os-ingress"
+
 // GeneratePackageUnits produces the full set of systemd unit files for a
 // package based on its configuration. For VM packages (Runtime == RuntimeVM),
 // it generates a QEMU service unit instead of a podman container unit.
@@ -302,11 +312,14 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	// (proxied) ports. Direct ports are ignored for dependencies, which never
 	// host-publish regardless.
 	isDep := cfg.ParentNCUnitName != ""
+	// Proxied ports are those the per-package NC binds/forwards on the host:
+	// everything except direct ports (the container host-publishes those) and
+	// ingress ports (the shared :443 ingress fronts those).
 	proxiedPorts := ports
-	if !isDep && len(cfg.DirectPorts) > 0 {
+	if !isDep && (len(cfg.DirectPorts) > 0 || len(cfg.IngressPorts) > 0) {
 		proxiedPorts = make([]uint16, 0, len(ports))
 		for _, p := range ports {
-			if cfg.DirectPorts[p] {
+			if cfg.DirectPorts[p] || cfg.IngressPorts[p] {
 				continue
 			}
 			proxiedPorts = append(proxiedPorts, p)
@@ -314,17 +327,24 @@ func GeneratePackageUnits(cfg PackageUnitConfig) PackageUnits {
 	}
 
 	// Dependencies share the parent's NC — only standalone packages and
-	// parents generate their own NC and host-facing socket/firewall rules.
-	needsNetworkController := len(proxiedPorts) > 0 && !isDep
+	// parents generate their own NC and host-facing socket/firewall rules. A
+	// package whose only ports are ingress ports still gets an NC: it owns the
+	// package's private podman network and lifecycle even though the shared
+	// :443 ingress, not the NC, terminates its HTTP traffic.
+	needsNetworkController := !isDep && (len(proxiedPorts) > 0 || len(cfg.IngressPorts) > 0)
 
 	// --- Main service unit ---
 	units.Service = generateServiceUnit(cfg, ports, needsNetworkController)
 
-	// --- Socket units (one per port, host-facing only) ---
+	// --- Socket units (one per host-published port) ---
+	// Ingress ports are not host-published by this package, so they get no
+	// socket-activation unit (the ingress owns :443).
 	if hasPorts && !isDep {
-		units.Sockets = make([]UnitFile, len(ports))
-		for i, port := range ports {
-			units.Sockets[i] = generateSocketUnit(cfg, port)
+		for _, port := range ports {
+			if cfg.IngressPorts[port] {
+				continue
+			}
+			units.Sockets = append(units.Sockets, generateSocketUnit(cfg, port))
 		}
 	}
 
@@ -494,6 +514,13 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	// service must be able to start if the NC hasn't created it yet (boot
 	// race). The NC also creates it — whoever gets there first wins.
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", networkName)
+	// Standalone packages with an ingress (HTTP) port also join the shared
+	// ingress network so the :443 ingress can reach them by container name.
+	// Created idempotently (the ingress unit creates it too — first one wins).
+	joinIngress := len(cfg.IngressPorts) > 0 && !isDep
+	if joinIngress {
+		fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", IngressNetworkName)
+	}
 
 	// ExecStart: podman run on the shared/private network.
 	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --systemd=true", containerName)
@@ -501,6 +528,9 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 		b.WriteString(" \\\n  --pull=never")
 	}
 	fmt.Fprintf(&b, " \\\n  --net %s", networkName)
+	if joinIngress {
+		fmt.Fprintf(&b, " \\\n  --network %s", IngressNetworkName)
+	}
 	for _, alias := range cfg.NetworkAliases {
 		b.WriteString(" \\\n  --network-alias " + quoteCommandArg(alias))
 	}

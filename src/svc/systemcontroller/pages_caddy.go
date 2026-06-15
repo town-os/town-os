@@ -38,32 +38,70 @@ type PageCaddySite struct {
 	CertDir  string // container path to the leaf dir (cert.pem/key.pem); ACME ignores it
 }
 
-// GeneratePagesCaddyfile renders the pages Caddy config: one HTTPS vhost per
-// page on :443, keyed by hostname (SNI), serving static files from /srv/<name>.
-// auto_https is disabled because certs are managed explicitly — a file-pinned
-// local-CA leaf for internal names, an explicit ACME issuer for public FQDNs
-// (Caddy honors the issuer even with auto_https off). A site with no issued
-// leaf yet is skipped so a half-provisioned page never makes caddy reject the
-// whole config.
+// PackageIngressSite is one package backend fronted by the shared ingress: an
+// HTTPS vhost keyed by the package's FQDN that reverse-proxies to the service
+// container's HTTP port. The ingress terminates TLS with the package's leaf (or
+// ACME for a public FQDN) so the package no longer needs to publish its own host
+// port — every HTTP package answers on the one :443 listener by SNI.
+type PackageIngressSite struct {
+	Hostname string // SNI host the site is keyed by (e.g. gitea.default.home)
+	ACME     bool   // true => tls { issuer acme }; false => file-pinned local leaf
+	CertDir  string // container path to the leaf dir (cert.pem/key.pem); ACME ignores it
+	Backend  string // reverse_proxy target, "container:port" on the ingress network
+}
+
+// ingressVHost writes one `https://<hostname>` site block: the TLS directive
+// (a file-pinned local-CA leaf, or an explicit ACME issuer for a public FQDN —
+// Caddy honors the issuer even with auto_https off) followed by the supplied
+// body lines (a file_server root for pages, a reverse_proxy for packages).
+func ingressVHost(b *strings.Builder, hostname string, acme bool, certDir, body string) {
+	fmt.Fprintf(b, "\nhttps://%s {\n", hostname)
+	if acme {
+		b.WriteString("\ttls {\n\t\tissuer acme\n\t}\n")
+	} else {
+		fmt.Fprintf(b, "\ttls %s/cert.pem %s/key.pem\n", certDir, certDir)
+	}
+	b.WriteString(body)
+	b.WriteString("}\n")
+}
+
+// GeneratePagesCaddyfile renders the ingress config for pages only. Retained for
+// callers/tests that don't front packages; see GenerateIngressCaddyfile.
 func GeneratePagesCaddyfile(sites []PageCaddySite) string {
+	return GenerateIngressCaddyfile(sites, nil)
+}
+
+// GenerateIngressCaddyfile renders the shared :443 ingress: one HTTPS vhost per
+// page (static file_server) and per HTTP package (reverse_proxy to its backend),
+// keyed by hostname (SNI). auto_https is disabled because certs are managed
+// explicitly. A site with no issued leaf yet (non-ACME, empty CertDir) is skipped
+// so a half-provisioned entry never makes caddy reject the whole config.
+func GenerateIngressCaddyfile(pages []PageCaddySite, pkgs []PackageIngressSite) string {
 	var b strings.Builder
-	b.WriteString("{\n\tauto_https off\n\tadmin off\n}\n")
-	for _, s := range sites {
+	// auto_https off: certs are managed explicitly. protocols h1 h2: the ingress
+	// only publishes TCP (-p 443:443), so H3/QUIC over UDP is unreachable —
+	// without this, Caddy advertises Alt-Svc h3 and clients hang on the missing
+	// UDP listener (same rationale as the network controller's Caddyfile).
+	b.WriteString("{\n\tauto_https off\n\tadmin off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n")
+	for _, s := range pages {
 		if s.Hostname == "" || s.Name == "" {
 			continue
 		}
 		if !s.ACME && s.CertDir == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "\nhttps://%s {\n", s.Hostname)
-		if s.ACME {
-			b.WriteString("\ttls {\n\t\tissuer acme\n\t}\n")
-		} else {
-			fmt.Fprintf(&b, "\ttls %s/cert.pem %s/key.pem\n", s.CertDir, s.CertDir)
+		ingressVHost(&b, s.Hostname, s.ACME, s.CertDir,
+			fmt.Sprintf("\troot * /srv/%s\n\tfile_server\n", s.Name))
+	}
+	for _, s := range pkgs {
+		if s.Hostname == "" || s.Backend == "" {
+			continue
 		}
-		fmt.Fprintf(&b, "\troot * /srv/%s\n", s.Name)
-		b.WriteString("\tfile_server\n")
-		b.WriteString("}\n")
+		if !s.ACME && s.CertDir == "" {
+			continue
+		}
+		ingressVHost(&b, s.Hostname, s.ACME, s.CertDir,
+			fmt.Sprintf("\treverse_proxy %s\n", s.Backend))
 	}
 	return b.String()
 }
@@ -87,7 +125,11 @@ func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
 	b.WriteString("Type=simple\n")
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman stop -t 10 %s\n", containerName)
 	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman rm -f %s\n", containerName)
-	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --net host", containerName)
+	// The ingress joins the shared network (to reach package backends by name)
+	// and publishes :443 on the host. Creating the network here is a boot-order
+	// safety net; package units create it too — whoever wins, the other no-ops.
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/podman network create %s\n", systemd.IngressNetworkName)
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/podman run --replace --name %s --net %s -p 443:443", containerName, systemd.IngressNetworkName)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s:/data/pages:ro,z", cfg.BtrfsBasePath, PagesVolumePrefix)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s:/srv:ro,z", cfg.BtrfsBasePath, PagesWebrootDir)
 	fmt.Fprintf(&b, " \\\n  -v %s/%s/Caddyfile:/etc/caddy/Caddyfile:ro,z", cfg.BtrfsBasePath, PagesCaddyDir)
@@ -109,18 +151,25 @@ func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
 	}
 }
 
-// WritePagesCaddyfile renders the pages Caddyfile for the given sites and writes
-// it to {btrfsBasePath}/pages-caddy/Caddyfile. It returns the path written and
-// whether the on-disk content changed, so callers can restart Caddy (which does
-// not hot-reload a file-mounted config) only when the config actually changed.
+// WritePagesCaddyfile renders a pages-only ingress Caddyfile. Retained for
+// callers/tests that don't front packages; see WriteIngressCaddyfile.
 func WritePagesCaddyfile(btrfsBasePath string, sites []PageCaddySite) (string, bool, error) {
+	return WriteIngressCaddyfile(btrfsBasePath, sites, nil)
+}
+
+// WriteIngressCaddyfile renders the shared ingress Caddyfile for the given page
+// and package sites and writes it to {btrfsBasePath}/pages-caddy/Caddyfile. It
+// returns the path written and whether the on-disk content changed, so callers
+// can restart Caddy (which does not hot-reload a file-mounted config) only when
+// the config actually changed.
+func WriteIngressCaddyfile(btrfsBasePath string, pages []PageCaddySite, pkgs []PackageIngressSite) (string, bool, error) {
 	dir := filepath.Join(btrfsBasePath, PagesCaddyDir)
 	if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // G301 -- caddy config directory
 		return "", false, fmt.Errorf("create caddy dir: %w", err)
 	}
 
 	path := filepath.Join(dir, "Caddyfile")
-	content := GeneratePagesCaddyfile(sites)
+	content := GenerateIngressCaddyfile(pages, pkgs)
 	prev, readErr := os.ReadFile(path) //nolint:gosec // G304 -- path under the trusted btrfs base
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return "", false, fmt.Errorf("read existing Caddyfile: %w", readErr)

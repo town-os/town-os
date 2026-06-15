@@ -303,7 +303,9 @@ func (s *SystemControllerHandlers) installDependencies(
 		// Install and start systemd units. Dependencies share the parent's
 		// podman network and have systemd ordering (PartOf/Before parent).
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
-			cfg := s.packageUnitConfig(depRepo, effectiveName, depVersion, depIP.Description, depCompiled)
+			// Dependencies are internal to the parent and never fronted by the
+			// shared ingress, so pass no supplies (IngressPorts stays empty).
+			cfg := s.packageUnitConfig(depRepo, effectiveName, depVersion, depIP.Description, depCompiled, nil)
 			cfg.ParentNetwork = systemd.NetworkName(parentRepoName, parentEffectiveName, parentVersion)
 			cfg.ParentUnitName = systemd.UnitName(parentRepoName, parentEffectiveName, parentVersion)
 			cfg.ParentNCUnitName = parentNCUnitName

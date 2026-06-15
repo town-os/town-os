@@ -145,6 +145,24 @@ func isHTTPPort(containerPort uint16, compiled *packages.Package) bool {
 	return httpContainerPorts[containerPort]
 }
 
+// isHTTPNamedPort reports whether a port is explicitly named `http` in the
+// package YAML (as opposed to merely matching the numeric allowlist). Only
+// named-http ports opt into the shared :443 ingress; numeric/allowlisted HTTP
+// ports keep terminating on the package's own network controller (legacy,
+// backward-compatible behavior).
+func isHTTPNamedPort(containerPort uint16, compiled *packages.Package) bool {
+	if compiled == nil {
+		return false
+	}
+	if name, ok := compiled.Network.ExternalNames[containerPort]; ok && httpPortNames[strings.ToLower(name)] {
+		return true
+	}
+	if name, ok := compiled.Network.InternalNames[containerPort]; ok && httpPortNames[strings.ToLower(name)] {
+		return true
+	}
+	return false
+}
+
 // hasHTTPPort reports whether any port in the state file is an HTTP
 // port per isHTTPPort. Used before issuing a leaf cert so we don't
 // mint certs for packages whose only ports are non-HTTP (e.g. a
@@ -243,6 +261,15 @@ func applyTLSToPorts(state *networkcontroller.PackageNetworkState, certPath stri
 		}
 		state.Ports[i].TLS = true
 		state.Ports[i].CertPath = certPath
+		// A port explicitly named `http` opts into the shared :443 ingress: flag
+		// Ingress and stop the per-package NC forwarding it (the ingress
+		// reverse-proxies to InternalPort over the shared network, and the DANE
+		// TLSA is pinned on _443; see buildTLSAEntries). An allowlisted-numeric
+		// HTTP port keeps terminating on the package's own NC (legacy behavior).
+		if isHTTPNamedPort(state.Ports[i].InternalPort, compiled) {
+			state.Ports[i].Ingress = true
+			state.Ports[i].Forward = false
+		}
 		if len(publicFQDNs) > 0 {
 			state.Ports[i].PublicDomain = true
 			state.Ports[i].SNINames = publicFQDNs
@@ -300,7 +327,14 @@ func buildTLSAEntries(stateDir, btrfsBase, repo, name, version, tld string, doma
 	var ports []uint16
 	for _, p := range st.Ports {
 		if p.TLS && !p.Passthrough {
-			ports = append(ports, p.ExternalPort)
+			// Ingress ports are served on :443 by the shared ingress, so their
+			// DANE TLSA is pinned on _443._tcp.<fqdn> regardless of the declared
+			// host port.
+			if p.Ingress {
+				ports = append(ports, PagesHTTPSPort)
+			} else {
+				ports = append(ports, p.ExternalPort)
+			}
 		}
 	}
 	if len(ports) == 0 {

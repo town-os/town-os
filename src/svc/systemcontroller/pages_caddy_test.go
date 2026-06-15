@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 func TestGeneratePagesCaddyfileInternal(t *testing.T) {
@@ -71,8 +73,14 @@ func TestGeneratePagesUnit(t *testing.T) {
 		t.Fatal("expected unit content to contain container name")
 	}
 
-	if !strings.Contains(unit.Content, "--net host") {
-		t.Fatal("expected unit content to contain --net host")
+	if !strings.Contains(unit.Content, "--net "+systemd.IngressNetworkName) {
+		t.Fatalf("expected ingress network %q, got:\n%s", systemd.IngressNetworkName, unit.Content)
+	}
+	if !strings.Contains(unit.Content, "-p 443:443") {
+		t.Fatalf("expected the ingress to publish :443, got:\n%s", unit.Content)
+	}
+	if !strings.Contains(unit.Content, "podman network create "+systemd.IngressNetworkName) {
+		t.Fatalf("expected the ingress network to be created, got:\n%s", unit.Content)
 	}
 
 	if !strings.Contains(unit.Content, "/data/pages:/data/pages:ro,z") {

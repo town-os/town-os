@@ -169,7 +169,7 @@ func (s *SystemControllerHandlers) uninstallPackageUnits(ctx context.Context, sd
 // packageUnitConfig builds a PackageUnitConfig from a compiled package and
 // backend configuration. When the package uses proton and has no explicit
 // image URL, the proton_image system setting is used.
-func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version, description string, compiled *packages.Package) systemd.PackageUnitConfig {
+func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version, description string, compiled *packages.Package, supplies []string) systemd.PackageUnitConfig {
 	image := s.resolveProtonImage(compiled)
 	cfg := systemd.PackageUnitConfig{
 		RepoName:               repoName,
@@ -183,6 +183,7 @@ func (s *SystemControllerHandlers) packageUnitConfig(repoName, pkgName, version,
 		External:               compiled.Network.External,
 		Internal:               compiled.Network.Internal,
 		DirectPorts:            compiled.Network.DirectPorts,
+		IngressPorts:           ingressHostPorts(compiled, supplies),
 		Volumes:                compiled.Volumes,
 		BtrfsBase:              s.Controller.GetBtrfsBasePath(),
 		NetworkControllerImage: s.Controller.GetNetworkControllerImage(),
@@ -398,7 +399,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	if sd := s.Controller.GetSystemdManager(); sd != nil {
 		pw.Step("installing_services")
-		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, ip.Description, compiled)
+		cfg := s.packageUnitConfig(repoName, effectiveName, req.Version, ip.Description, compiled, ip.Supplies)
 
 		// Set dependency unit names on the parent so systemd orders them.
 		depRecordsForUnits, err := inst.LoadDependencies(repoName, effectiveName)
@@ -442,6 +443,13 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	s.registerPackageDNS(ctx, repoName, effectiveName, compiled.Network.Domains)
 	// Pin the proxy's leaf via DANE for any terminated TLS ports.
 	s.publishPackageTLSA(ctx, repoName, effectiveName, req.Version, compiled.Network.Domains)
+
+	// Re-render the shared :443 ingress so an HTTP package's reverse_proxy vhost
+	// is served immediately (its leaf and DNS were set up above). Only HTTP
+	// packages touch the ingress; others leave it untouched.
+	if len(ingressHostPorts(compiled, ip.Supplies)) > 0 {
+		s.refreshPages(ctx)
+	}
 
 	pw.Done()
 	return nil
@@ -550,6 +558,14 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 				slog.Debug(fmt.Sprintf("preserve volumes: rename %s -> %s: %v", src, dst, err))
 			}
 		}
+	}
+
+	// Re-render the shared :443 ingress so the uninstalled package's vhost is
+	// dropped (its DNS and state were already removed above) — but only if the
+	// ingress is already in use, so removing a non-HTTP package never spins it
+	// up. applyPages no-ops on systemd when the rendered config is unchanged.
+	if ingressCaddyfileExists(s.Controller.GetBtrfsBasePath()) {
+		s.refreshPages(ctx)
 	}
 
 	pw.Done()
