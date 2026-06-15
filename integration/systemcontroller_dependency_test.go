@@ -322,9 +322,10 @@ func TestNCOwnsNetworkLifecycleForStandalonePackage(t *testing.T) {
 		t.Fatalf("NC must not use --net host, got:\n%s", ncContent)
 	}
 
-	// NC must have -p port mappings.
-	if !strings.Contains(ncContent, "-p 8080:8080") {
-		t.Fatalf("NC missing -p 8080:8080, got:\n%s", ncContent)
+	// nginx's HTTP port is fronted by the shared :443 ingress, not host-published
+	// by the NC.
+	if strings.Contains(ncContent, "-p 8080:8080") {
+		t.Fatalf("HTTP port 8080 must not be host-published by the NC (ingress fronts it):\n%s", ncContent)
 	}
 
 	// NC must use --target-container (not --target-host).
@@ -431,9 +432,14 @@ func TestNCMultiplePortMappings(t *testing.T) {
 		t.Fatalf("expected NC unit to be installed")
 	}
 
-	// Verify port mapping appears in NC unit.
-	if !strings.Contains(ncContent, "-p 8080:8080") {
-		t.Fatalf("NC missing -p 8080:8080, got:\n%s", ncContent)
+	// nginx's HTTP port is fronted by the shared :443 ingress, so the NC must
+	// not host-publish it; the service container joins the ingress network.
+	if strings.Contains(ncContent, "-p 8080:8080") {
+		t.Fatalf("HTTP port 8080 must not be host-published by the NC (ingress fronts it):\n%s", ncContent)
+	}
+	svcContent := findInstalledUnitContent(t, sd, systemd.UnitName("core", "nginx", "1.0"))
+	if !strings.Contains(svcContent, "--network "+systemd.IngressNetworkName) {
+		t.Fatalf("service must join the ingress network so the ingress can reach it:\n%s", svcContent)
 	}
 }
 

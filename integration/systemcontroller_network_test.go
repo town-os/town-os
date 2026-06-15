@@ -452,8 +452,8 @@ func TestSystemControllerInstallNginxNetworkLifecycle(t *testing.T) {
 	if !strings.Contains(ncContent, "--target-container town-os-package--core-nginx-1.0") {
 		t.Fatalf("NC unit missing --target-container, got:\n%s", ncContent)
 	}
-	if !strings.Contains(ncContent, "-p 8080:8080") {
-		t.Fatalf("NC unit missing -p port mapping, got:\n%s", ncContent)
+	if strings.Contains(ncContent, "-p 8080:8080") {
+		t.Fatalf("HTTP port 8080 must not be host-published by the NC (ingress fronts it):\n%s", ncContent)
 	}
 }
 
