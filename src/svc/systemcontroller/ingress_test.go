@@ -66,6 +66,30 @@ func TestGenerateIngressCaddyfilePagesAndPackages(t *testing.T) {
 	}
 }
 
+func TestGenerateIngressCaddyfileHTTPSBackend(t *testing.T) {
+	content := GenerateIngressCaddyfile(nil, []PackageIngressSite{
+		{Hostname: "sunshine.default.home", CertDir: "/leaf", Backend: "c:47990", BackendTLS: true},
+	})
+	if !strings.Contains(content, "reverse_proxy https://c:47990 {") {
+		t.Fatalf("expected https backend reverse_proxy:\n%s", content)
+	}
+	if !strings.Contains(content, "tls_insecure_skip_verify") {
+		t.Fatalf("expected internal-hop verification skipped:\n%s", content)
+	}
+}
+
+func TestIngressHostPortsHTTPSNamed(t *testing.T) {
+	compiled := &packages.Package{
+		Network: packages.PackageNetwork{
+			External:      packages.PortMap{47990: 47990},
+			InternalNames: packages.PortNameMap{47990: "https"},
+		},
+	}
+	if !ingressHostPorts(compiled, []string{"http"})[47990] {
+		t.Fatal("a port named \"https\" must be an ingress port")
+	}
+}
+
 func TestGenerateIngressCaddyfileSkipsBackendlessAndUnprovisioned(t *testing.T) {
 	content := GenerateIngressCaddyfile(nil, []PackageIngressSite{
 		{Hostname: "no-backend.home", CertDir: "/leaf"},                 // no Backend -> skip

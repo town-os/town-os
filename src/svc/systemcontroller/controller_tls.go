@@ -27,7 +27,28 @@ import (
 // install time (gitea's @httpport@ auto-generates into the 10000–60000
 // range, which no fixed allowlist can cover).
 var httpPortNames = map[string]bool{
-	"http": true,
+	"http":  true,
+	"https": true,
+}
+
+// httpsPortName is the semantic name marking an ingress port whose backend
+// itself speaks HTTPS (e.g. an app that only serves TLS). The ingress proxies to
+// such a backend over https with internal-hop verification disabled.
+const httpsPortName = "https"
+
+// isHTTPSNamedPort reports whether a port is explicitly named `https` — i.e. its
+// backend serves TLS and the ingress must reverse-proxy to it over https.
+func isHTTPSNamedPort(containerPort uint16, compiled *packages.Package) bool {
+	if compiled == nil {
+		return false
+	}
+	if name, ok := compiled.Network.ExternalNames[containerPort]; ok && strings.ToLower(name) == httpsPortName {
+		return true
+	}
+	if name, ok := compiled.Network.InternalNames[containerPort]; ok && strings.ToLower(name) == httpsPortName {
+		return true
+	}
+	return false
 }
 
 // TLSSubvolume is the btrfs subvolume under the root that holds the local
@@ -269,6 +290,7 @@ func applyTLSToPorts(state *networkcontroller.PackageNetworkState, certPath stri
 		if isHTTPNamedPort(state.Ports[i].InternalPort, compiled) {
 			state.Ports[i].Ingress = true
 			state.Ports[i].Forward = false
+			state.Ports[i].BackendTLS = isHTTPSNamedPort(state.Ports[i].InternalPort, compiled)
 		}
 		if len(publicFQDNs) > 0 {
 			state.Ports[i].PublicDomain = true

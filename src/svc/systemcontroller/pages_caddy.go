@@ -44,10 +44,11 @@ type PageCaddySite struct {
 // ACME for a public FQDN) so the package no longer needs to publish its own host
 // port — every HTTP package answers on the one :443 listener by SNI.
 type PackageIngressSite struct {
-	Hostname string // SNI host the site is keyed by (e.g. gitea.default.home)
-	ACME     bool   // true => tls { issuer acme }; false => file-pinned local leaf
-	CertDir  string // container path to the leaf dir (cert.pem/key.pem); ACME ignores it
-	Backend  string // reverse_proxy target, "container:port" on the ingress network
+	Hostname   string // SNI host the site is keyed by (e.g. gitea.default.home)
+	ACME       bool   // true => tls { issuer acme }; false => file-pinned local leaf
+	CertDir    string // container path to the leaf dir (cert.pem/key.pem); ACME ignores it
+	Backend    string // reverse_proxy target, "container:port" on the ingress network
+	BackendTLS bool   // true => backend speaks HTTPS (proxy over https, skip internal verify)
 }
 
 // ingressVHost writes one `https://<hostname>` site block: the TLS directive
@@ -100,8 +101,14 @@ func GenerateIngressCaddyfile(pages []PageCaddySite, pkgs []PackageIngressSite) 
 		if !s.ACME && s.CertDir == "" {
 			continue
 		}
-		ingressVHost(&b, s.Hostname, s.ACME, s.CertDir,
-			fmt.Sprintf("\treverse_proxy %s\n", s.Backend))
+		body := fmt.Sprintf("\treverse_proxy %s\n", s.Backend)
+		if s.BackendTLS {
+			// Backend serves HTTPS (e.g. a self-signed admin UI): proxy over
+			// https and skip verification on the internal hop — the browser
+			// still validates the ingress's trusted leaf.
+			body = fmt.Sprintf("\treverse_proxy https://%s {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n", s.Backend)
+		}
+		ingressVHost(&b, s.Hostname, s.ACME, s.CertDir, body)
 	}
 	return b.String()
 }

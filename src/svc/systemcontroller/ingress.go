@@ -102,9 +102,10 @@ func collectPackageIngressSites(installer FreshnessLister, stateDir, tld string)
 			// The package's internal FQDN is always served with its local-CA
 			// leaf (DANE-pinned in rolodex).
 			sites = append(sites, PackageIngressSite{
-				Hostname: fqdn,
-				CertDir:  port.CertPath,
-				Backend:  backend,
+				Hostname:   fqdn,
+				CertDir:    port.CertPath,
+				Backend:    backend,
+				BackendTLS: port.BackendTLS,
 			})
 			// Public FQDNs declared via network.domains get a publicly-trusted,
 			// ACME-issued cert on the same backend (resolved by the user's own
@@ -114,9 +115,10 @@ func collectPackageIngressSites(installer FreshnessLister, stateDir, tld string)
 					continue
 				}
 				sites = append(sites, PackageIngressSite{
-					Hostname: name,
-					ACME:     true,
-					Backend:  backend,
+					Hostname:   name,
+					ACME:       true,
+					Backend:    backend,
+					BackendTLS: port.BackendTLS,
 				})
 			}
 			// One backend per package; the first terminated port is the HTTP

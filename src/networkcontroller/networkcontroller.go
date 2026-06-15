@@ -61,6 +61,11 @@ type PortConfig struct {
 	// is pinned on _443._tcp.<fqdn>); the ingress reverse-proxies to
 	// InternalPort over the shared ingress network.
 	Ingress bool `json:"ingress,omitempty"`
+	// BackendTLS marks an Ingress port whose backend speaks HTTPS (the port was
+	// named `https`, e.g. an app that only serves TLS). The ingress proxies to
+	// it over https with internal-hop verification disabled — the browser still
+	// gets the ingress's trusted leaf.
+	BackendTLS bool `json:"backend_tls,omitempty"`
 }
 
 // PackageNetworkState is the per-package JSON state file written by the
