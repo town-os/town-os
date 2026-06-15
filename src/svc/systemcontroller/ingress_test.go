@@ -119,6 +119,45 @@ func TestCollectPackageIngressSites(t *testing.T) {
 	}
 }
 
+func TestCollectPackageIngressSitesPublicDomain(t *testing.T) {
+	dir := t.TempDir()
+	writeState(t, dir, "default", "gitea", "1.0", networkcontroller.PackageNetworkState{
+		Repo: "default", Package: "gitea", Version: "1.0",
+		ContainerName: "town-os-package--default-gitea-1.0",
+		Ports: []networkcontroller.PortConfig{
+			{
+				ExternalPort: 3000, InternalPort: 3000, TLS: true, Ingress: true,
+				CertPath:     "/etc/town-os/tls/leaves/default/gitea/1.0",
+				PublicDomain: true, SNINames: []string{"git.example.com"},
+			},
+		},
+	})
+
+	sites := collectPackageIngressSites(&stubLister{items: []string{"default/gitea@1.0"}}, dir, "home")
+	if len(sites) != 2 {
+		t.Fatalf("expected base + public-FQDN sites, got %d: %+v", len(sites), sites)
+	}
+
+	var base, pub *PackageIngressSite
+	for i := range sites {
+		switch sites[i].Hostname {
+		case "gitea.default.home":
+			base = &sites[i]
+		case "git.example.com":
+			pub = &sites[i]
+		}
+	}
+	if base == nil || base.ACME || base.CertDir == "" {
+		t.Fatalf("base FQDN must be served with the local-CA leaf (no ACME): %+v", base)
+	}
+	if pub == nil || !pub.ACME {
+		t.Fatalf("public FQDN must be served via ACME: %+v", pub)
+	}
+	if base.Backend != pub.Backend {
+		t.Fatalf("both vhosts must proxy the same backend: %q vs %q", base.Backend, pub.Backend)
+	}
+}
+
 func TestCollectPackageIngressSitesNilLister(t *testing.T) {
 	if got := collectPackageIngressSites(nil, "/x", "home"); got != nil {
 		t.Fatalf("expected nil for nil lister, got %v", got)

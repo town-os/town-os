@@ -1001,20 +1001,38 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 // for this pass and picked up on a later one. A nil systemd manager renders the
 // Caddyfile but installs no unit (mock/test mode).
 func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, caddyImage, tld, internalIP string) error {
-	if btrfsBase == "" {
+	changed, existedBefore, err := renderIngress(pagesMgr, installer, ca, btrfsBase, stateDir, tld, internalIP)
+	if err != nil {
+		return err
+	}
+	// Only touch the ingress unit when the rendered config actually changed, so
+	// an unrelated (e.g. non-ingress package) install/uninstall/reconcile never
+	// reinstalls or bounces the ingress.
+	if sd == nil || !changed {
 		return nil
 	}
-	if err := EnsurePagesWebroot(btrfsBase); err != nil {
-		return fmt.Errorf("ensure pages webroot: %w", err)
+	return installIngressUnit(ctx, sd, btrfsBase, caddyImage, existedBefore)
+}
+
+// renderIngress writes the shared ingress Caddyfile (page file_server vhosts +
+// HTTP-package reverse_proxy vhosts) and reports whether the on-disk config
+// changed and whether one already existed. It does no systemd work — callers
+// (re)start the unit via installIngressUnit (synchronously at reconcile, or in
+// the background from a request handler so CRUD never blocks on a container
+// restart). Pages are optional: the ingress also fronts packages, so it renders
+// even with the pages feature disabled (nil pages manager).
+func renderIngress(pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, tld, internalIP string) (changed, existedBefore bool, err error) {
+	if btrfsBase == "" {
+		return false, false, nil
 	}
-	// Pages are optional: the shared ingress also fronts HTTP packages, so it
-	// renders even when the pages feature is disabled (nil pages manager).
+	if eerr := EnsurePagesWebroot(btrfsBase); eerr != nil {
+		return false, false, fmt.Errorf("ensure pages webroot: %w", eerr)
+	}
 	var pages []account.PageSite
 	if pagesMgr != nil {
-		var err error
 		pages, err = pagesMgr.List()
 		if err != nil {
-			return fmt.Errorf("list pages: %w", err)
+			return false, false, fmt.Errorf("list pages: %w", err)
 		}
 	}
 
@@ -1040,26 +1058,24 @@ func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesM
 		sites = append(sites, site)
 	}
 
-	// Whether a Caddyfile already existed decides start-vs-restart below: a
-	// first install just starts the unit, while a config change to an already
-	// running server needs a restart (Caddy does not hot-reload a file-mounted
-	// config).
+	// Whether a Caddyfile already existed decides start-vs-restart: a first
+	// render just starts the unit, a later change restarts it (Caddy does not
+	// hot-reload a file-mounted config).
 	_, statErr := os.Stat(filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile"))
-	existedBefore := statErr == nil
+	existedBefore = statErr == nil
 
-	// HTTP packages are fronted by the same :443 ingress: one reverse_proxy
-	// vhost per package FQDN, terminating with the package's own leaf.
 	pkgSites := collectPackageIngressSites(installer, stateDir, tld)
 
-	_, changed, err := WriteIngressCaddyfile(btrfsBase, sites, pkgSites)
+	_, changed, err = WriteIngressCaddyfile(btrfsBase, sites, pkgSites)
 	if err != nil {
-		return fmt.Errorf("write Caddyfile: %w", err)
+		return false, existedBefore, fmt.Errorf("write Caddyfile: %w", err)
 	}
+	return changed, existedBefore, nil
+}
 
-	// Only touch the ingress unit when the rendered config actually changed, so
-	// an unrelated (e.g. non-ingress package) install/uninstall/reconcile never
-	// reinstalls or bounces the ingress.
-	if sd == nil || !changed {
+// installIngressUnit installs and (re)starts the shared ingress Caddy unit.
+func installIngressUnit(ctx context.Context, sd systemd.Manager, btrfsBase, caddyImage string, existedBefore bool) error {
+	if sd == nil {
 		return nil
 	}
 	if caddyImage == "" {
@@ -1074,8 +1090,6 @@ func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesM
 	}
 	action := systemd.Start
 	if existedBefore {
-		// The file-mounted Caddyfile of an already-running server changed;
-		// bounce the container to pick up the new vhost set.
 		action = systemd.Restart
 	}
 	if err := sd.SetStatus(ctx, unit.Name, action); err != nil {

@@ -67,6 +67,11 @@ type SystemControllerHandlers struct {
 	// state (e.g. old container still stopping while a new one tries to
 	// bind the same ports).
 	packageMu sync.Map // "repo/name" → *sync.Mutex
+
+	// ingressRestartMu serializes background restarts of the shared :443 ingress
+	// Caddy container so concurrent page/package CRUD never fires overlapping
+	// `systemctl restart` calls (the Caddyfile itself is written synchronously).
+	ingressRestartMu sync.Mutex
 }
 
 // lockPackage acquires a per-package mutex and returns an unlock function.

@@ -98,15 +98,29 @@ func collectPackageIngressSites(installer FreshnessLister, stateDir, tld string)
 			if !port.Ingress || st.ContainerName == "" {
 				continue
 			}
+			backend := fmt.Sprintf("%s:%d", st.ContainerName, port.InternalPort)
+			// The package's internal FQDN is always served with its local-CA
+			// leaf (DANE-pinned in rolodex).
 			sites = append(sites, PackageIngressSite{
 				Hostname: fqdn,
-				ACME:     port.PublicDomain,
 				CertDir:  port.CertPath,
-				Backend:  fmt.Sprintf("%s:%d", st.ContainerName, port.InternalPort),
+				Backend:  backend,
 			})
-			// One HTTPS vhost per package FQDN; the first terminated port is the
-			// package's HTTP endpoint. Additional terminated ports would collide
-			// on the same hostname, so stop after the first.
+			// Public FQDNs declared via network.domains get a publicly-trusted,
+			// ACME-issued cert on the same backend (resolved by the user's own
+			// DNS, so they are not in rolodex).
+			for _, name := range port.SNINames {
+				if name == "" || name == fqdn {
+					continue
+				}
+				sites = append(sites, PackageIngressSite{
+					Hostname: name,
+					ACME:     true,
+					Backend:  backend,
+				})
+			}
+			// One backend per package; the first terminated port is the HTTP
+			// endpoint. Additional terminated ports would collide, so stop.
 			break
 		}
 	}

@@ -40,18 +40,33 @@ type PageNameRequest struct {
 	Name string `json:"name"`
 }
 
-// refreshPages re-renders the pages Caddyfile and (re)starts the pages Caddy
-// server so a created/updated/removed page is served immediately, mirroring how
-// package install applies its systemd changes inline rather than waiting for the
-// next reconcile. Errors are logged, not surfaced: the periodic reconcile is the
-// backstop and a transient failure must not fail the API call.
-func (s *SystemControllerHandlers) refreshPages(ctx context.Context) {
+// refreshPages re-renders the shared ingress Caddyfile (pages + HTTP packages)
+// synchronously so a created/updated/removed entry is configured immediately,
+// then bounces the ingress Caddy container in the background. A CRUD request
+// must not block on a (slow) container restart, and concurrent CRUD must not
+// fire overlapping restarts — hence the serialized background goroutine. Errors
+// are logged, not surfaced: the periodic reconcile is the backstop.
+func (s *SystemControllerHandlers) refreshPages(_ context.Context) {
 	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
-	if err := applyPages(ctx, s.Controller.GetSystemdManager(), s.Controller.GetPagesManager(),
-		s.Controller.GetInstaller(), s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(),
-		s.Controller.GetNetworkStatePath(), "", tld, s.Controller.GetInternalIP()); err != nil {
-		slog.Debug(fmt.Sprintf("refresh pages: %v", err))
+	changed, existedBefore, err := renderIngress(s.Controller.GetPagesManager(), s.Controller.GetInstaller(),
+		s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(), s.Controller.GetNetworkStatePath(),
+		tld, s.Controller.GetInternalIP())
+	if err != nil {
+		slog.Debug(fmt.Sprintf("refresh ingress: %v", err))
+		return
 	}
+	sd := s.Controller.GetSystemdManager()
+	if sd == nil || !changed {
+		return
+	}
+	btrfsBase := s.Controller.GetBtrfsBasePath()
+	go func() {
+		s.ingressRestartMu.Lock()
+		defer s.ingressRestartMu.Unlock()
+		if rerr := installIngressUnit(s.ctx, sd, btrfsBase, "", existedBefore); rerr != nil {
+			slog.Debug(fmt.Sprintf("ingress restart: %v", rerr))
+		}
+	}()
 }
 
 // setPageDNS adds or removes the rolodex A record for an internal page's
