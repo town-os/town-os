@@ -7,6 +7,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -40,6 +41,8 @@ type systemControllerBackend interface {
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
+	GetIngress() *ingress.Manager
+	GetIngressClient() ingress.Client
 	GetUI() *ui.Manager
 	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
 	GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string)
@@ -231,6 +234,8 @@ type ServerConfig struct {
 	MonitoringBackend        string
 	Rolodex                  *rolodex.Manager
 	RolodexClient            rolodex.Client
+	Ingress                  *ingress.Manager
+	IngressClient            ingress.Client
 	UI                       *ui.Manager
 	ImageExtractFunc         func(ctx context.Context, image, directory, targetPath string) error
 	// ResolvedConfigurator is called after DNS reconcile or TLD change to

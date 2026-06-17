@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -439,6 +440,35 @@ func run() (err error) {
 		tlsCA = caVal
 	}
 
+	// Ingress: the shared :443 SNI router. Started here as a system service and
+	// programmed over gRPC (the reconcile_ingress step below, plus the
+	// per-package and page-CRUD handlers). Skipped when INGRESS_IMAGE is
+	// explicitly set to empty (dev mode).
+	ingressImage := os.Getenv("INGRESS_IMAGE")
+	if _, set := os.LookupEnv("INGRESS_IMAGE"); !set {
+		ingressImage = "quay.io/town/ingress:" + tag
+	}
+	var ingressMgr *ingress.Manager
+	if ingressImage != "" {
+		ingressMgr = ingress.NewManager(ingress.Config{
+			Systemd:    sd,
+			DataDir:    filepath.Join(*btrfsPath, "ingress"),
+			TLSHostDir: filepath.Join(*btrfsPath, systemcontroller.TLSSubvolume),
+			Image:      ingressImage,
+		})
+		bs.Step("start_ingress")
+		if startErr := ingressMgr.Start(ctx); startErr != nil {
+			fmt.Fprintf(os.Stderr, "ingress: %v\n", startErr)
+		}
+
+		// Pages: a standalone Caddy static-file service the ingress
+		// reverse-proxies to for every page FQDN. Started alongside the ingress.
+		bs.Step("start_pages")
+		if pErr := systemcontroller.StartPagesService(ctx, sd, *btrfsPath, systemcontroller.DefaultCaddyImage); pErr != nil {
+			fmt.Fprintf(os.Stderr, "pages service: %v\n", pErr)
+		}
+	}
+
 	// Detect whether the systemcontroller image changed since the last
 	// run. When it has, reconcile will restart all units whose generated
 	// content differs from what is on disk.
@@ -517,6 +547,27 @@ func run() (err error) {
 		}
 	}
 
+	// Program the shared :443 ingress with the full route set (HTTP packages +
+	// pages), at the same point in boot as rolodex. Push/declarative: on a
+	// fresh ingress this rebuilds everything (same model as RebuildDNS).
+	if ingressMgr != nil {
+		bs.Step("reconcile_ingress")
+		if rdyErr := ingressMgr.WaitForReady(ctx); rdyErr != nil {
+			fmt.Fprintf(os.Stderr, "ingress readiness: %v\n", rdyErr)
+		}
+		ic, dialErr := ingress.Dial(ctx, ingressMgr.SocketPath())
+		if dialErr != nil {
+			fmt.Fprintf(os.Stderr, "ingress dial: %v\n", dialErr)
+		} else {
+			if irErr := systemcontroller.RebuildIngress(ctx, ic, pagesMgr, inst, tlsCA, *btrfsPath, *networkStatePath, dnsTLD, getInternalIP()); irErr != nil {
+				fmt.Fprintf(os.Stderr, "rebuild ingress: %v\n", irErr)
+			}
+			if closeErr := ic.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "close ingress client: %v\n", closeErr)
+			}
+		}
+	}
+
 	bs.Step("start_ui_container")
 	// Start the UI container (Caddy web server). Skipped when UI_IMAGE
 	// is empty (dev mode — bun serves the UI directly).
@@ -564,6 +615,7 @@ func run() (err error) {
 		MonitoringBackend:          monBackend,
 		DiskDevices:                diskDevices,
 		Rolodex:                    rolMgr,
+		Ingress:                    ingressMgr,
 		UI:                         uiMgr,
 		ResolvedConfigurator:       rolodex.ConfigureResolvedRouting,
 		SystemControllerImage:      "quay.io/town/town:" + tag,

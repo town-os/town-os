@@ -58,6 +58,9 @@ nc-image:
 nc-image-dev:
 	@make/build.sh nc-local $(PODMAN_DEV_BASE)
 
+ingress-image:
+	@make/build.sh ingress-local
+
 ui-integration-image:
 	@make/build.sh ui-integration
 
@@ -177,6 +180,9 @@ endif
 release-nc-image:
 	@make/build.sh release-nc
 
+release-ingress-image:
+	@make/build.sh release-ingress
+
 push:
 	@$(MAKE) push-rc
 
@@ -211,6 +217,12 @@ push-nc-rc: release-nc-image quay-login
 
 push-nc-release: release-nc-image quay-login
 	@make/build.sh push-nc-release
+
+push-ingress-rc: release-ingress-image quay-login
+	@make/build.sh push-ingress-rc
+
+push-ingress-release: release-ingress-image quay-login
+	@make/build.sh push-ingress-release
 
 ifeq ($(PROTON_ENABLED),1)
 push-tag: release-image release-ui-image release-proton-image release-nc-image quay-login

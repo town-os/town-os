@@ -40,33 +40,17 @@ type PageNameRequest struct {
 	Name string `json:"name"`
 }
 
-// refreshPages re-renders the shared ingress Caddyfile (pages + HTTP packages)
-// synchronously so a created/updated/removed entry is configured immediately,
-// then bounces the ingress Caddy container in the background. A CRUD request
-// must not block on a (slow) container restart, and concurrent CRUD must not
-// fire overlapping restarts — hence the serialized background goroutine. Errors
-// are logged, not surfaced: the periodic reconcile is the backstop.
-func (s *SystemControllerHandlers) refreshPages(_ context.Context) {
-	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
-	changed, existedBefore, err := renderIngress(s.Controller.GetPagesManager(), s.Controller.GetInstaller(),
-		s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(), s.Controller.GetNetworkStatePath(),
-		tld, s.Controller.GetInternalIP())
-	if err != nil {
-		slog.Debug(fmt.Sprintf("refresh ingress: %v", err))
-		return
-	}
-	sd := s.Controller.GetSystemdManager()
-	if sd == nil || !changed {
-		return
-	}
-	btrfsBase := s.Controller.GetBtrfsBasePath()
-	go func() {
-		s.ingressRestartMu.Lock()
-		defer s.ingressRestartMu.Unlock()
-		if rerr := installIngressUnit(s.ctx, sd, btrfsBase, "", existedBefore); rerr != nil {
-			slog.Debug(fmt.Sprintf("ingress restart: %v", rerr))
-		}
-	}()
+// refreshPages reprograms the shared :443 ingress (pages + HTTP packages) over
+// gRPC so a created/updated/removed package or page is served immediately. The
+// push is synchronous — programming is a single fast SetRoutes gRPC call (no
+// container restart, unlike the legacy file-mounted ingress), and the mutex
+// serializes concurrent CRUD so two reconciles cannot interleave a stale set.
+// Errors are logged inside reprogramIngress, not surfaced: the periodic
+// reconcile is the backstop.
+func (s *SystemControllerHandlers) refreshPages(ctx context.Context) {
+	s.ingressRestartMu.Lock()
+	defer s.ingressRestartMu.Unlock()
+	s.reprogramIngress(ctx)
 }
 
 // setPageDNS adds or removes the rolodex A record for an internal page's

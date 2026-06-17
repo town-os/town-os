@@ -560,13 +560,11 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 		}
 	}
 
-	// Re-render the shared :443 ingress so the uninstalled package's vhost is
-	// dropped (its DNS and state were already removed above) — but only if the
-	// ingress is already in use, so removing a non-HTTP package never spins it
-	// up. applyPages no-ops on systemd when the rendered config is unchanged.
-	if ingressCaddyfileExists(s.Controller.GetBtrfsBasePath()) {
-		s.refreshPages(ctx)
-	}
+	// Re-program the shared :443 ingress so the uninstalled package's route is
+	// withdrawn (its DNS and state were already removed above). The push is a
+	// single idempotent SetRoutes rebuilt from the remaining installed
+	// packages, so it is safe to call unconditionally.
+	s.reprogramIngress(ctx)
 
 	pw.Done()
 	return nil

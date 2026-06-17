@@ -14,9 +14,11 @@ import (
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
+	"gitea.com/town-os/town-os/src/systemd"
 	townostls "gitea.com/town-os/town-os/src/tls"
 )
 
@@ -817,7 +819,7 @@ func TestPagesAuditUploadLogged(t *testing.T) {
 // issuance + per-domain Caddyfile + DNS registration) can be exercised
 // end-to-end through the HTTP API. Returns the client, the rolodex mock, and
 // the btrfs base dir for on-disk assertions.
-func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdClient, *rolodex.MockClient, string) {
+func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdClient, *rolodex.MockClient, *ingress.MockClient, string) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -853,6 +855,7 @@ func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdCli
 		t.Fatalf("EnsureCA: %v", err)
 	}
 	rol := &rolodex.MockClient{}
+	ing := &ingress.MockClient{}
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       storage.InitBtrFSMock(),
@@ -864,6 +867,7 @@ func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdCli
 		BtrfsBasePath: dir,
 		TLSCA:         ca,
 		RolodexClient: rol,
+		IngressClient: ing,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
 	ts.SetInternalIP("192.0.2.10")
@@ -881,7 +885,7 @@ func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdCli
 	}
 	c.Token = resp.Token
 
-	return c, rol, dir
+	return c, rol, ing, dir
 }
 
 // pagesMockAddedA reports whether the rolodex mock recorded an AddRecord for an
@@ -944,36 +948,31 @@ func pagesMockRemoved(rol *rolodex.MockClient, name string) bool {
 // retires both the vhost and the DNS record.
 func TestPagesServedOverHTTPSByDomain(t *testing.T) {
 	t.Parallel()
-	c, rol, dir := initSystemControllerPagesTLSEnv(t)
+	c, rol, ing, dir := initSystemControllerPagesTLSEnv(t)
 	ctx := context.TODO()
 
-	caddyfile := filepath.Join(dir, "pages-caddy", "Caddyfile")
-	readCaddyfile := func() string {
-		data, err := os.ReadFile(caddyfile)
-		if err != nil {
-			t.Fatalf("read Caddyfile: %v", err)
-		}
-		return string(data)
-	}
+	// Pages are no longer served by a file-mounted ingress Caddyfile: the
+	// shared :443 ingress is programmed over gRPC with one route per page FQDN,
+	// reverse-proxying to the standalone pages static-file service.
+	pagesBackend := systemd.SystemServiceContainerName(systemcontroller.PagesServiceKey) + ":80"
 
-	// Internal page (bare label) → blog.home over the local CA leaf.
+	// Internal page (bare label) → blog.home routed to the pages service,
+	// terminating TLS with the page's local-CA leaf.
 	if _, err := c.CreatePage(ctx, "blog", "", "", "blog", account.PageSourceArchive, "", ""); err != nil {
 		t.Fatalf("CreatePage(blog): %v", err)
 	}
-
-	content := readCaddyfile()
-	for _, want := range []string{
-		"https://blog.home {",
-		"root * /srv/blog",
-		"file_server",
-		"/etc/town-os/tls/leaves/pages/blog/current/cert.pem",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("Caddyfile missing %q:\n%s", want, content)
-		}
+	route := ing.RouteFor("blog.home")
+	if route == nil {
+		t.Fatalf("ingress not programmed with a route for blog.home; routes: %+v", ing.Routes)
 	}
-	if strings.Contains(content, "issuer acme") {
-		t.Fatalf("internal page must not use ACME:\n%s", content)
+	if route.GetBackend() != pagesBackend {
+		t.Fatalf("blog route backend = %q, want %q", route.GetBackend(), pagesBackend)
+	}
+	if route.GetAcme() {
+		t.Fatalf("internal page must not use ACME: %+v", route)
+	}
+	if route.GetCertDir() == "" {
+		t.Fatalf("internal page route must pin a local leaf: %+v", route)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "tls", "leaves", "pages", "blog", "current", "cert.pem")); err != nil {
 		t.Fatalf("expected leaf cert for blog: %v", err)
@@ -982,24 +981,24 @@ func TestPagesServedOverHTTPSByDomain(t *testing.T) {
 		t.Fatalf("expected A record blog.home. -> 192.0.2.10, calls: %+v", rol.GetCalls())
 	}
 
-	// Public-FQDN page → ACME vhost, no rolodex record (resolved by user DNS).
+	// Public-FQDN page → ACME ingress route, no rolodex record (resolved by user DNS).
 	if _, err := c.CreatePage(ctx, "shop", "", "", "shop.example.com", account.PageSourceArchive, "", ""); err != nil {
 		t.Fatalf("CreatePage(shop): %v", err)
 	}
-	content = readCaddyfile()
-	if !strings.Contains(content, "https://shop.example.com {") || !strings.Contains(content, "issuer acme") {
-		t.Fatalf("expected ACME vhost for public page:\n%s", content)
+	shop := ing.RouteFor("shop.example.com")
+	if shop == nil || !shop.GetAcme() {
+		t.Fatalf("expected an ACME ingress route for the public page; routes: %+v", ing.Routes)
 	}
 	if pagesMockAddedAnyName(rol, "shop.example.com.") {
 		t.Fatal("public FQDN page must not get a rolodex A record")
 	}
 
-	// Removal drops the vhost and retires the DNS record.
+	// Removal withdraws the ingress route and retires the DNS record.
 	if err := c.RemovePage(ctx, "blog"); err != nil {
 		t.Fatalf("RemovePage(blog): %v", err)
 	}
-	if strings.Contains(readCaddyfile(), "https://blog.home") {
-		t.Fatalf("blog vhost should be gone after removal:\n%s", readCaddyfile())
+	if r := ing.RouteFor("blog.home"); r != nil {
+		t.Fatalf("blog route should be gone after removal: %+v", r)
 	}
 	if !pagesMockRemoved(rol, "blog.home.") {
 		t.Fatalf("expected RemoveRecord for blog.home., calls: %+v", rol.GetCalls())

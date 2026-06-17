@@ -16,12 +16,30 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
+	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 	upstream "gitea.com/town-os/rolodex-dns/go"
 )
+
+// mockIngressClient records SetRoutes calls so reconcile/handler tests can
+// assert the ingress was programmed without a real gRPC server.
+type mockIngressClient struct {
+	setCalls [][]*ingresspb.Route
+}
+
+func (m *mockIngressClient) SetRoutes(_ context.Context, routes []*ingresspb.Route) error {
+	m.setCalls = append(m.setCalls, routes)
+	return nil
+}
+func (m *mockIngressClient) AddRoute(context.Context, *ingresspb.Route) error    { return nil }
+func (m *mockIngressClient) RemoveRoute(context.Context, string) error           { return nil }
+func (m *mockIngressClient) ListRoutes(context.Context) ([]*ingresspb.Route, error) {
+	return nil, nil
+}
+func (m *mockIngressClient) Close() error { return nil }
 
 // setupReconcileRepo creates a temp directory with a repository containing the
 // given packages. Each entry in pkgs maps "name/version" to the YAML content.
@@ -1111,7 +1129,10 @@ func TestReconcilePagesSubvolumesAndSymlinks(t *testing.T) {
 	}
 }
 
-func TestReconcilePagesInstallsCaddyUnit(t *testing.T) {
+// TestReconcileProgramsIngress verifies the periodic reconcile programs the
+// shared :443 ingress over gRPC (rather than the legacy file-mounted Caddy
+// unit it used to install) when an IngressClient is configured.
+func TestReconcileProgramsIngress(t *testing.T) {
 	rr, inst := setupReconcileRepo(t, nil)
 	sd := systemd.InitMockManager()
 	mock := storage.InitBtrFSMock()
@@ -1119,6 +1140,7 @@ func TestReconcilePagesInstallsCaddyUnit(t *testing.T) {
 	pagesMgr := account.InitMockPagesManager()
 
 	btrfsBase := t.TempDir()
+	ic := &mockIngressClient{}
 
 	err := Reconcile(context.Background(), ReconcileConfig{
 		Installer:      inst,
@@ -1127,41 +1149,24 @@ func TestReconcilePagesInstallsCaddyUnit(t *testing.T) {
 		Systemd:        sd,
 		PagesManager:   pagesMgr,
 		BtrfsBasePath:  btrfsBase,
+		IngressClient:  ic,
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	calls := sd.GetCalls()
+	if len(ic.setCalls) == 0 {
+		t.Fatal("expected Reconcile to program the ingress via SetRoutes")
+	}
 
-	// Should have InstallUnit + SetStatus(Start) for the Caddy unit.
-	var foundInstall, foundStart bool
-	for _, c := range calls {
+	// The legacy town-os-pages :443 Caddy unit must no longer be installed —
+	// the ingress is its own boot service now.
+	for _, c := range sd.GetCalls() {
 		if c.Method == "InstallUnit" {
-			name, ok := c.Args[0].(string)
-			if ok && name == PagesUnitName {
-				foundInstall = true
+			if name, ok := c.Args[0].(string); ok && name == PagesUnitName {
+				t.Fatalf("reconcile should not install the legacy %s unit anymore", PagesUnitName)
 			}
 		}
-		if c.Method == "SetStatus" {
-			name, ok := c.Args[0].(string)
-			if ok && name == PagesUnitName && c.Args[1] == systemd.Start {
-				foundStart = true
-			}
-		}
-	}
-
-	if !foundInstall {
-		t.Fatal("expected InstallUnit call for Caddy unit")
-	}
-	if !foundStart {
-		t.Fatal("expected SetStatus(Start) call for Caddy unit")
-	}
-
-	// Verify Caddyfile was written.
-	caddyPath := filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile")
-	if _, err := os.Stat(caddyPath); err != nil {
-		t.Fatalf("expected Caddyfile at %s: %v", caddyPath, err)
 	}
 }
 

@@ -68,7 +68,8 @@ RELEASE_IMAGE        := quay.io/town/town
 RELEASE_UI_IMAGE     := quay.io/town/ui
 RELEASE_PROTON_IMAGE := quay.io/town/proton
 RELEASE_NC_IMAGE     := quay.io/town/networkcontroller
-export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE RELEASE_PROTON_IMAGE RELEASE_NC_IMAGE
+RELEASE_INGRESS_IMAGE := quay.io/town/ingress
+export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE RELEASE_PROTON_IMAGE RELEASE_NC_IMAGE RELEASE_INGRESS_IMAGE
 
 # Container names (unique per working directory).
 PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
@@ -107,11 +108,12 @@ UI_IMAGE ?= localhost/town-os-ui:$(INSTANCE_ID)
 # the test/dev containers required hardcoded public DNS (--dns 1.1.1.1),
 # which captive networks block.
 NC_IMAGE ?= localhost/town-os-networkcontroller:$(INSTANCE_ID)
+INGRESS_IMAGE ?= localhost/town-os-ingress:$(INSTANCE_ID)
 # The networkcontroller and UI images are pulled from quay in production but
 # test and dev harnesses build them locally and inject NC_IMAGE/UI_IMAGE at
 # container start, so their quay tags are intentionally NOT in ALL_IMAGES.
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE)
-export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE
+export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE
 export TEST_RUN TEST_TIMEOUT PUSH_TAG
 
 .DEFAULT_GOAL := help
@@ -126,14 +128,14 @@ include make/include.mk
 .PHONY: help deps
 .PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
 .PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images
-.PHONY: ui-image nc-image nc-image-dev ui-integration-image production-image test-image dev-production-image dev-image
+.PHONY: ui-image nc-image nc-image-dev ingress-image ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
 .PHONY: test-ui-integration test-integration-build test-integration test-integration-rerun test-full
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
-.PHONY: release-build release-image release-ui-image release-nc-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-tag quay-login
+.PHONY: release-build release-image release-ui-image release-nc-image release-ingress-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-tag quay-login
 ifeq ($(PROTON_ENABLED),1)
 .PHONY: release-proton-image push-proton-rc push-proton-release
 endif
@@ -146,6 +148,7 @@ $(STATE_DIR)/.images-pulled: ensure-image-cache docker-login
 pull-images: check-podman check-runc docker-login quay-login
 ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 nc-image: check-podman check-runc production-image
+ingress-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 nc-image-dev: check-podman check-runc dev-production-image
 ui-integration-image: $(STATE_DIR)/.images-pulled
 production-image: check-podman check-runc $(STATE_DIR)/.images-pulled
@@ -158,8 +161,8 @@ $(STATE_DIR)/registries.conf: $(STATE_DIR)/.registry-port
 $(STATE_DIR)/.gitea-port: check-python3
 gitea: check-podman check-runc ensure-image-cache $(STATE_DIR)/.gitea-port
 gitea-populate: gitea
-test-ui-integration: test-image ui-image nc-image ui-integration-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
-test-integration-build: lint test-image ui-image nc-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
+test-ui-integration: test-image ui-image nc-image ingress-image ui-integration-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
+test-integration-build: lint test-image ui-image nc-image ingress-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration: test-integration-build
 test-full: test ui-integration-image
 test-full-log:
@@ -179,13 +182,14 @@ clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
 release-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-nc-image: check-podman check-runc $(STATE_DIR)/.images-pulled
+release-ingress-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 ifeq ($(PROTON_ENABLED),1)
 release-proton-image: check-podman check-runc $(STATE_DIR)/.images-pulled
-release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image
-push-rc: release-image release-ui-image release-proton-image release-nc-image quay-login
+release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image release-ingress-image
+push-rc: release-image release-ui-image release-proton-image release-nc-image release-ingress-image quay-login
 else
-release-build: pull-images test-full release-image release-ui-image release-nc-image
-push-rc: release-image release-ui-image release-nc-image quay-login
+release-build: pull-images test-full release-image release-ui-image release-nc-image release-ingress-image
+push-rc: release-image release-ui-image release-nc-image release-ingress-image quay-login
 endif
 # Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build
@@ -197,5 +201,7 @@ push-ui-rc: release-ui-image quay-login
 push-ui-release: release-ui-image quay-login
 push-nc-rc: release-nc-image quay-login
 push-nc-release: release-nc-image quay-login
+push-ingress-rc: release-ingress-image quay-login
+push-ingress-release: release-ingress-image quay-login
 lint: check-go check-golangci-lint check-libsystemd check-bun
 btrfs: check-btrfs clean-btrfs

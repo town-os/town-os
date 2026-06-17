@@ -13,18 +13,6 @@ import (
 	"gitea.com/town-os/town-os/src/packages"
 )
 
-// ingressCaddyfileExists reports whether the shared ingress Caddyfile has been
-// written yet — i.e. the ingress is already in use (pages or an HTTP package).
-// Used to avoid spinning the ingress up when uninstalling a package that never
-// had a vhost.
-func ingressCaddyfileExists(btrfsBase string) bool {
-	if btrfsBase == "" {
-		return false
-	}
-	_, err := os.Stat(filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile"))
-	return err == nil
-}
-
 // ingressHostPorts returns the host-port keys (external/internal map keys) the
 // shared :443 ingress fronts for this package: every HTTP port (named `http`/
 // `https` or matching the numeric allowlist) the package supplies as http,

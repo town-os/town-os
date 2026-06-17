@@ -36,6 +36,7 @@ case "$1" in
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=${UI_IMAGE}" \
       -e "NC_IMAGE=${NC_IMAGE}" \
+      -e "INGRESS_IMAGE=${INGRESS_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -55,6 +56,8 @@ case "$1" in
     # container needed hardcoded public DNS, which captive networks block.
     step "Loading network controller image into test container"
     load_images_into_container "${PODMAN_CONTAINER}" ${NC_IMAGE}
+    step "Loading ingress image into test container"
+    load_images_into_container "${PODMAN_CONTAINER}" ${INGRESS_IMAGE}
     step "Restarting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
@@ -115,6 +118,7 @@ case "$1" in
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=${UI_IMAGE}" \
       -e "NC_IMAGE=${NC_IMAGE}" \
+      -e "INGRESS_IMAGE=${INGRESS_IMAGE}" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -134,6 +138,8 @@ case "$1" in
     # container needed hardcoded public DNS, which captive networks block.
     step "Loading network controller image into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" ${NC_IMAGE}
+    step "Loading ingress image into UI integration container"
+    load_images_into_container "${PODMAN_UI_BACKEND}" ${INGRESS_IMAGE}
     step "Restarting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl restart town-os-systemcontroller.service

@@ -12,9 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
+	"strconv"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/networkcontroller"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -104,6 +105,7 @@ questions:
 	storageMock := storage.InitBtrFSMock()
 	sdMock := systemd.InitMockManager()
 	rolMock := &rolodex.MockClient{}
+	ingMock := &ingress.MockClient{}
 	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
 	ca, err := townostls.EnsureCA(filepath.Join(btrfsBase, systemcontroller.TLSSubvolume))
 	if err != nil {
@@ -117,6 +119,7 @@ questions:
 		Installer:        inst,
 		Systemd:          sdMock,
 		RolodexClient:    rolMock,
+		IngressClient:    ingMock,
 		SettingsMgr:      settings,
 		BtrfsBasePath:    btrfsBase,
 		NetworkStatePath: networkStateDir,
@@ -198,23 +201,22 @@ questions:
 		t.Fatalf("per-package NC must render no site for an ingress port, got %d", len(sites))
 	}
 
-	// The shared ingress Caddyfile terminates the package on :443 with its leaf,
-	// pins h1/h2 (no H3 over the TCP-only :443), and reverse-proxies to it.
-	ingressCaddy, err := os.ReadFile(filepath.Join(btrfsBase, systemcontroller.PagesCaddyDir, "Caddyfile"))
-	if err != nil {
-		t.Fatalf("read ingress Caddyfile: %v", err)
+	// The shared :443 ingress is programmed over gRPC (not a file-mounted
+	// Caddyfile): the install pushed a route for the package FQDN that
+	// reverse-proxies to its service container and terminates TLS with the
+	// issued leaf.
+	route := ingMock.RouteFor("tlspkg.local.home")
+	if route == nil {
+		t.Fatalf("ingress not programmed with a route for tlspkg.local.home; routes: %+v", ingMock.Routes)
 	}
-	ic := string(ingressCaddy)
-	for _, want := range []string{
-		"https://tlspkg.local.home {",
-		"tls " + p.CertPath + "/cert.pem " + p.CertPath + "/key.pem",
-		"protocols h1 h2",
-	} {
-		if !strings.Contains(ic, want) {
-			t.Fatalf("ingress Caddyfile missing %q:\n%s", want, ic)
-		}
+	wantBackend := state.ContainerName + ":" + strconv.Itoa(int(p.InternalPort))
+	if route.GetBackend() != wantBackend {
+		t.Fatalf("ingress route backend = %q, want %q", route.GetBackend(), wantBackend)
 	}
-	if strings.Contains(ic, "h3") {
-		t.Fatalf("ingress Caddyfile must not reference h3:\n%s", ic)
+	if route.GetCertDir() != p.CertPath {
+		t.Fatalf("ingress route cert dir = %q, want %q", route.GetCertDir(), p.CertPath)
+	}
+	if route.GetAcme() {
+		t.Fatalf("internal package route must not be ACME")
 	}
 }

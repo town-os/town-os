@@ -17,6 +17,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -151,6 +152,7 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath, s.DiskDevices)
 }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
+func (s *serverBase) GetIngress() *ingress.Manager           { return s.Ingress }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
 func (s *serverBase) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
 	return s.ResolvedConfigurator
@@ -183,6 +185,31 @@ func (s *serverBase) GetRolodexClient() rolodex.Client {
 		return nil
 	}
 	s.RolodexClient = c
+	return c
+}
+
+// GetIngressClient lazily dials the ingress gRPC socket the first time it is
+// needed and caches the connection, mirroring GetRolodexClient. Returns nil
+// when the ingress manager is unset or the socket cannot be dialed yet.
+func (s *serverBase) GetIngressClient() ingress.Client {
+	if s.IngressClient != nil {
+		return s.IngressClient
+	}
+	if s.Ingress == nil {
+		return nil
+	}
+	socketPath := s.Ingress.SocketPath()
+	if socketPath == "" {
+		return nil
+	}
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer dialCancel()
+	c, err := ingress.Dial(dialCtx, socketPath)
+	if err != nil {
+		slog.Debug(fmt.Sprintf("lazy ingress dial: %v", err))
+		return nil
+	}
+	s.IngressClient = c
 	return c
 }
 func (s *serverBase) GetExternalIP() string {

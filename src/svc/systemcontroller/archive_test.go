@@ -18,6 +18,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -162,6 +163,8 @@ func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ strin
 }
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
+func (b *archiveTestBackend) GetIngress() *ingress.Manager                       { return nil }
+func (b *archiveTestBackend) GetIngressClient() ingress.Client                   { return nil }
 func (b *archiveTestBackend) GetUI() *ui.Manager                    { return nil }
 func (b *archiveTestBackend) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
 	return nil

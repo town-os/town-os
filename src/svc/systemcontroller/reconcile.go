@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 	"sync"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -37,6 +37,10 @@ type ReconcileConfig struct {
 	CaddyImage             string
 	ExternalIP             string
 	InternalIP             string
+	// IngressClient programs the shared :443 ingress with the desired route
+	// set (packages + pages). nil disables ingress programming (tests / boot
+	// before the ingress is up); the reconcile is then a no-op for routing.
+	IngressClient ingress.Client
 	VersionChanged         bool // true when the systemcontroller version differs from last run
 
 	// TLSCA is the local CA used to mint per-package leaf certs for HTTP
@@ -308,10 +312,21 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 		}
 	}
 
-	// Reconcile pages: ensure subvolumes, symlinks, and the Caddy unit.
+	// Page provisioning (subvolumes + symlinks) only when pages are enabled.
 	if cfg.PagesManager != nil {
 		if err := reconcilePages(ctx, cfg); err != nil {
 			slog.Error(fmt.Sprintf("reconcile: pages: %v", err))
+		}
+	}
+
+	// Program the shared :443 ingress with the full route set (HTTP packages +
+	// pages). This runs independent of the pages feature — packages need the
+	// ingress even when no pages exist.
+	if cfg.IngressClient != nil {
+		tld := reconcileDNSTLD(cfg.SettingsMgr)
+		if err := RebuildIngress(ctx, cfg.IngressClient, cfg.PagesManager, cfg.Installer,
+			cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath, tld, cfg.InternalIP); err != nil {
+			slog.Error(fmt.Sprintf("reconcile: ingress: %v", err))
 		}
 	}
 
@@ -987,114 +1002,6 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 		}
 	}
 
-	tld := reconcileDNSTLD(cfg.SettingsMgr)
-	return applyPages(ctx, cfg.Systemd, cfg.PagesManager, cfg.Installer, cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath, cfg.CaddyImage, tld, cfg.InternalIP)
-}
-
-// applyPages issues a leaf for each internal page, renders the pages Caddyfile,
-// and installs/(re)starts the pages Caddy unit — restarting only when the
-// rendered config changed so a no-op reconcile never bounces live sites. It is
-// shared by reconcile and the page CRUD handlers so a created/updated/removed
-// page is served without waiting for the next full reconcile. Subvolume and
-// symlink provisioning is the caller's job (it needs storage the handlers own).
-// A page whose internal leaf cannot be issued yet (e.g. CA not ready) is skipped
-// for this pass and picked up on a later one. A nil systemd manager renders the
-// Caddyfile but installs no unit (mock/test mode).
-func applyPages(ctx context.Context, sd systemd.Manager, pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, caddyImage, tld, internalIP string) error {
-	changed, existedBefore, err := renderIngress(pagesMgr, installer, ca, btrfsBase, stateDir, tld, internalIP)
-	if err != nil {
-		return err
-	}
-	// Only touch the ingress unit when the rendered config actually changed, so
-	// an unrelated (e.g. non-ingress package) install/uninstall/reconcile never
-	// reinstalls or bounces the ingress.
-	if sd == nil || !changed {
-		return nil
-	}
-	return installIngressUnit(ctx, sd, btrfsBase, caddyImage, existedBefore)
-}
-
-// renderIngress writes the shared ingress Caddyfile (page file_server vhosts +
-// HTTP-package reverse_proxy vhosts) and reports whether the on-disk config
-// changed and whether one already existed. It does no systemd work — callers
-// (re)start the unit via installIngressUnit (synchronously at reconcile, or in
-// the background from a request handler so CRUD never blocks on a container
-// restart). Pages are optional: the ingress also fronts packages, so it renders
-// even with the pages feature disabled (nil pages manager).
-func renderIngress(pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, tld, internalIP string) (changed, existedBefore bool, err error) {
-	if btrfsBase == "" {
-		return false, false, nil
-	}
-	if eerr := EnsurePagesWebroot(btrfsBase); eerr != nil {
-		return false, false, fmt.Errorf("ensure pages webroot: %w", eerr)
-	}
-	var pages []account.PageSite
-	if pagesMgr != nil {
-		pages, err = pagesMgr.List()
-		if err != nil {
-			return false, false, fmt.Errorf("list pages: %w", err)
-		}
-	}
-
-	sites := make([]PageCaddySite, 0, len(pages))
-	for _, page := range pages {
-		domain := pageDomain(page)
-		hostname := pageHostname(domain, tld)
-		if hostname == "" {
-			continue
-		}
-		site := PageCaddySite{Name: page.Name, Hostname: hostname}
-		if pageIsPublic(domain, tld) {
-			// Public FQDN: served via ACME, resolved by the user's own DNS.
-			site.ACME = true
-		} else {
-			certDir, lerr := issuePageLeaf(ca, btrfsBase, page.Name, hostname, internalIP)
-			if lerr != nil {
-				slog.Debug(fmt.Sprintf("pages leaf %s: %v", page.Name, lerr))
-				continue
-			}
-			site.CertDir = certDir
-		}
-		sites = append(sites, site)
-	}
-
-	// Whether a Caddyfile already existed decides start-vs-restart: a first
-	// render just starts the unit, a later change restarts it (Caddy does not
-	// hot-reload a file-mounted config).
-	_, statErr := os.Stat(filepath.Join(btrfsBase, PagesCaddyDir, "Caddyfile"))
-	existedBefore = statErr == nil
-
-	pkgSites := collectPackageIngressSites(installer, stateDir, tld)
-
-	_, changed, err = WriteIngressCaddyfile(btrfsBase, sites, pkgSites)
-	if err != nil {
-		return false, existedBefore, fmt.Errorf("write Caddyfile: %w", err)
-	}
-	return changed, existedBefore, nil
-}
-
-// installIngressUnit installs and (re)starts the shared ingress Caddy unit.
-func installIngressUnit(ctx context.Context, sd systemd.Manager, btrfsBase, caddyImage string, existedBefore bool) error {
-	if sd == nil {
-		return nil
-	}
-	if caddyImage == "" {
-		caddyImage = DefaultCaddyImage
-	}
-	unit := GeneratePagesUnit(PagesUnitConfig{
-		BtrfsBasePath: btrfsBase,
-		CaddyImage:    caddyImage,
-	})
-	if err := sd.InstallUnit(ctx, unit.Name, unit.Content); err != nil {
-		return fmt.Errorf("install pages unit: %w", err)
-	}
-	action := systemd.Start
-	if existedBefore {
-		action = systemd.Restart
-	}
-	if err := sd.SetStatus(ctx, unit.Name, action); err != nil {
-		return fmt.Errorf("start pages unit: %w", err)
-	}
 	return nil
 }
 

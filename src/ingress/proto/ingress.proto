@@ -1,0 +1,64 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
+syntax = "proto3";
+
+package townos.ingress.v1;
+
+option go_package = "gitea.com/town-os/town-os/src/ingress/proto;ingresspb";
+
+// Ingress is the management API the systemcontroller uses to program the shared
+// :443 SNI ingress. The ingress service holds the desired route set in memory,
+// renders a Caddyfile, and reloads its caddy child zero-downtime on every
+// change. Programming is push/declarative: on a fresh ingress the
+// systemcontroller calls SetRoutes with the full desired state (the same
+// resilience model as rolodex RebuildDNS); AddRoute/RemoveRoute give CRUD
+// handlers immediate effect without a full resend.
+service Ingress {
+  // SetRoutes replaces the entire route set with the supplied list (idempotent
+  // reconcile). Any host not present is dropped.
+  rpc SetRoutes(SetRoutesRequest) returns (SetRoutesResponse);
+  // AddRoute upserts a single route keyed by hostname.
+  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse);
+  // RemoveRoute deletes the route for the given hostname (no error if absent).
+  rpc RemoveRoute(RemoveRouteRequest) returns (RemoveRouteResponse);
+  // ListRoutes returns the current route set (for debugging and tests).
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+}
+
+// Route is one https vhost the ingress terminates and reverse-proxies. It maps
+// 1:1 to the systemcontroller's PackageIngressSite.
+message Route {
+  // SNI host the vhost is keyed by (e.g. "gitea.asdf.home").
+  string hostname = 1;
+  // reverse_proxy target as "container:port" on the ingress network.
+  string backend = 2;
+  // Directory containing cert.pem + key.pem (a file-pinned local-CA leaf).
+  // Empty when acme is true.
+  string cert_dir = 3;
+  // When true the cert is obtained via an ACME issuer instead of cert_dir.
+  bool acme = 4;
+  // When true the backend speaks HTTPS: proxy over https and skip verification
+  // on the internal hop (the browser still validates the ingress leaf).
+  bool backend_tls = 5;
+}
+
+message SetRoutesRequest {
+  repeated Route routes = 1;
+}
+message SetRoutesResponse {}
+
+message AddRouteRequest {
+  Route route = 1;
+}
+message AddRouteResponse {}
+
+message RemoveRouteRequest {
+  string hostname = 1;
+}
+message RemoveRouteResponse {}
+
+message ListRoutesRequest {}
+message ListRoutesResponse {
+  repeated Route routes = 1;
+}

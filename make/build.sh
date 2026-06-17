@@ -97,6 +97,18 @@ case "$1" in
     ${SUDO} rm -rf "${builddir}"
     save_image_cache "${NC_IMAGE}"
     ;;
+  # Local ingress image for tests and dev. Self-contained via Containerfile.ingress
+  # (it bundles caddy + the ingress binary), built on the host and loaded into the
+  # test/dev containers from the image cache — same rationale as nc-local.
+  ingress-local)
+    step "Building local ingress test image"
+    mkdir -p .cache/go-mod .cache/go-build
+    ${SUDO} podman build --network=host \
+      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
+      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      -t "${INGRESS_IMAGE}" -f Containerfile.ingress .
+    save_image_cache "${INGRESS_IMAGE}"
+    ;;
   release)
     step "Building release image"
     mkdir -p .cache/go-mod .cache/go-build .cache/bun
@@ -134,6 +146,17 @@ case "$1" in
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_NC_IMAGE}" -f Containerfile.networkcontroller .
+    ;;
+  release-ingress)
+    step "Building ingress image"
+    mkdir -p .cache/go-mod .cache/go-build
+    # No --pull=never: alpine:latest is the runtime base and is not in
+    # BASE_IMAGES, so the host image store may not have it yet on a fresh
+    # checkout. Let podman pull it on demand.
+    ${SUDO} podman build --network=host \
+      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
+      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
+      -t "${RELEASE_INGRESS_IMAGE}" -f Containerfile.ingress .
     ;;
   push-rc)
     require_registry_login quay.io
@@ -194,12 +217,22 @@ case "$1" in
     substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
 
+    # Ingress image.
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+
     ;;
   manifest-rc)
     require_registry_login quay.io
     step "Assembling release candidate manifests"
     DATE_TAG="$(date +%Y%m%d)"
-    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}"; do
+    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}" "${RELEASE_INGRESS_IMAGE}"; do
       build_manifest "${image}" "rc.${DATE_TAG}"
       build_manifest "${image}" "rc.latest"
     done
@@ -367,6 +400,32 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    ;;
+  push-ingress-rc)
+    require_registry_login quay.io
+    step "Pushing ingress release candidate (${ARCH})"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    ;;
+  push-ingress-release)
+    require_registry_login quay.io
+    step "Pushing ingress release (${ARCH})"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
     ;;
   push-tag)
     TAG="$2"
