@@ -19,9 +19,12 @@ import (
 // Output is sorted by hostname so the bytes are deterministic across reconciles
 // — that is what lets the caddy supervisor no-op a Reload whose content has not
 // changed. A route with no issued leaf yet (non-ACME, empty cert dir) is skipped
-// so a half-provisioned entry never makes caddy reject the whole config. Globals
-// mirror the legacy ingress: auto_https off (we manage certs), admin off, and h1
-// h2 only (the ingress publishes TCP only, so H3/QUIC over UDP is unreachable).
+// so a half-provisioned entry never makes caddy reject the whole config. Globals:
+// auto_https off (we manage certs) and h1 h2 only (the ingress publishes TCP
+// only, so H3/QUIC over UDP is unreachable). The admin API is left enabled (the
+// default localhost:2019, container-local and unpublished) — the supervisor
+// programs new routes with `caddy reload`, which talks to that endpoint, so
+// `admin off` would break every route update after the first boot.
 //
 // httpsPort is the TCP port the vhosts bind. Production uses 443 (rendered as a
 // bare `https://host`); tests pass an ephemeral port (rendered as
@@ -33,7 +36,7 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort int) []byte {
 	})
 
 	var b strings.Builder
-	b.WriteString("{\n\tauto_https off\n\tadmin off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n")
+	b.WriteString("{\n\tauto_https off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n")
 	for _, r := range sorted {
 		host := r.GetHostname()
 		if host == "" || r.GetBackend() == "" {

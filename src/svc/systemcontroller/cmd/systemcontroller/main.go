@@ -21,6 +21,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/ingress"
+	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -448,9 +449,9 @@ func run() (err error) {
 	if _, set := os.LookupEnv("INGRESS_IMAGE"); !set {
 		ingressImage = "quay.io/town/ingress:" + tag
 	}
-	var ingressMgr *ingress.Manager
+	var ingressMgr *ingressctl.Manager
 	if ingressImage != "" {
-		ingressMgr = ingress.NewManager(ingress.Config{
+		ingressMgr = ingressctl.NewManager(ingressctl.Config{
 			Systemd:    sd,
 			DataDir:    filepath.Join(*btrfsPath, "ingress"),
 			TLSHostDir: filepath.Join(*btrfsPath, systemcontroller.TLSSubvolume),

@@ -18,6 +18,7 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/ingress"
+	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -152,7 +153,7 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath, s.DiskDevices)
 }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
-func (s *serverBase) GetIngress() *ingress.Manager           { return s.Ingress }
+func (s *serverBase) GetIngress() *ingressctl.Manager           { return s.Ingress }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
 func (s *serverBase) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
 	return s.ResolvedConfigurator

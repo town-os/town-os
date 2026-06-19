@@ -71,7 +71,10 @@ func TestRebuildIngressPushesRoutes(t *testing.T) {
 			{ExternalPort: 3000, InternalPort: 3000, TLS: true, Ingress: true, CertPath: "/c"},
 		},
 	}
-	data, _ := json.Marshal(st)
+	data, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(stateDir, "asdf-gitea-1.0.json"), data, 0o644); err != nil { //nolint:gosec // test fixture
 		t.Fatal(err)
 	}

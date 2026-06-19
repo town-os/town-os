@@ -1,7 +1,13 @@
 // IRON RULE: make test-full must always be able to run simultaneously in the
 // same repository without conflicting. Nothing else matters more than this.
 
-package ingress
+// Package ingressctl is the systemcontroller-side lifecycle controller for the
+// shared :443 ingress: it generates, installs, and (re)starts the ingress
+// systemd unit and exposes the gRPC socket path the systemcontroller dials to
+// program routes. It lives apart from the ingress package proper so the
+// in-container town-os-ingress binary — built CGO_ENABLED=0 — never imports
+// src/systemd (which pulls in cgo via sdjournal).
+package ingressctl
 
 import (
 	"context"

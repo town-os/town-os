@@ -11,4 +11,8 @@ FROM docker.io/library/alpine:latest
 RUN apk add --no-cache ca-certificates
 COPY --from=caddy /usr/bin/caddy /usr/bin/caddy
 COPY --from=builder /town-os-ingress /town-os-ingress
-CMD ["/town-os-ingress"]
+# ENTRYPOINT (not CMD): the systemd unit launches the container with flag-only
+# args (--socket … --port …) appended, matching how the manager builds the
+# command. With CMD those args would replace the binary and podman would try to
+# exec "--socket" itself; ENTRYPOINT makes them flags to /town-os-ingress.
+ENTRYPOINT ["/town-os-ingress"]

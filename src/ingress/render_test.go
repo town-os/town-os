@@ -22,8 +22,10 @@ func TestRenderCaddyfile(t *testing.T) {
 			name:      "empty routes render only the global block",
 			routes:    nil,
 			httpsPort: 443,
-			want:      []string{"auto_https off", "admin off", "protocols h1 h2"},
-			notWant:   []string{"https://"},
+			want:      []string{"auto_https off", "protocols h1 h2"},
+			// admin must stay enabled (default localhost:2019) so the supervisor's
+			// `caddy reload` can push route updates; `admin off` would break it.
+			notWant: []string{"https://", "admin off"},
 		},
 		{
 			name: "file-cert package route",

@@ -42,7 +42,8 @@ func run() error {
 	if err := os.Remove(*socket); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale socket %s: %w", *socket, err)
 	}
-	lis, err := net.Listen("unix", *socket)
+	var lc net.ListenConfig
+	lis, err := lc.Listen(context.Background(), "unix", *socket)
 	if err != nil {
 		return fmt.Errorf("listen unix %s: %w", *socket, err)
 	}

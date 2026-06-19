@@ -314,7 +314,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 
 	// Page provisioning (subvolumes + symlinks) only when pages are enabled.
 	if cfg.PagesManager != nil {
-		if err := reconcilePages(ctx, cfg); err != nil {
+		if err := reconcilePages(cfg); err != nil {
 			slog.Error(fmt.Sprintf("reconcile: pages: %v", err))
 		}
 	}
@@ -975,9 +975,10 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 	return writeNetworkStateFile(cfg.NetworkStatePath, repoName, pkgName, version, &state)
 }
 
-// reconcilePages ensures all existing pages have btrfs subvolumes, symlinks,
-// and that the Caddy web server unit is installed and started.
-func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
+// reconcilePages ensures all existing pages have btrfs subvolumes and webroot
+// symlinks. The shared :443 ingress that fronts them is programmed separately
+// over gRPC (see the ingress block in Reconcile and RebuildIngress).
+func reconcilePages(cfg ReconcileConfig) error {
 	if err := EnsurePagesWebroot(cfg.BtrfsBasePath); err != nil {
 		return fmt.Errorf("ensure pages webroot: %w", err)
 	}

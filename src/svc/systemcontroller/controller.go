@@ -8,6 +8,7 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/ingress"
+	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -41,7 +42,7 @@ type systemControllerBackend interface {
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
-	GetIngress() *ingress.Manager
+	GetIngress() *ingressctl.Manager
 	GetIngressClient() ingress.Client
 	GetUI() *ui.Manager
 	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
@@ -234,7 +235,7 @@ type ServerConfig struct {
 	MonitoringBackend        string
 	Rolodex                  *rolodex.Manager
 	RolodexClient            rolodex.Client
-	Ingress                  *ingress.Manager
+	Ingress                  *ingressctl.Manager
 	IngressClient            ingress.Client
 	UI                       *ui.Manager
 	ImageExtractFunc         func(ctx context.Context, image, directory, targetPath string) error

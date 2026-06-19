@@ -75,11 +75,11 @@ func TestIngressRoutesTLSToBackend(t *testing.T) {
 	// Poll until caddy is serving the route (reload + bind is near-instant but
 	// not guaranteed synchronous).
 	if !poll(t, func() bool {
-		resp, err := client.Get("https://test.local/")
+		resp, err := httpGet(t, client, "https://test.local/")
 		if err != nil {
 			return false
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode == http.StatusOK && string(b) == body
 	}) {
@@ -91,11 +91,11 @@ func TestIngressRoutesTLSToBackend(t *testing.T) {
 		t.Fatalf("RemoveRoute: %v", err)
 	}
 	if !poll(t, func() bool {
-		resp, err := client.Get("https://test.local/")
+		resp, err := httpGet(t, client, "https://test.local/")
 		if err != nil {
 			return true // connection refused once the port is released
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return resp.StatusCode != http.StatusOK
 	}) {
 		t.Fatal("route still served after RemoveRoute")
@@ -116,12 +116,27 @@ func findCaddy(t *testing.T) string {
 
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	l, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = l.Close() }()
-	return l.Addr().(*net.TCPAddr).Port
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("unexpected listener address type %T", l.Addr())
+	}
+	return addr.Port
+}
+
+// httpGet issues a context-aware GET (lint: noctx requires Do with a request).
+func httpGet(t *testing.T, client *http.Client, url string) (*http.Response, error) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return client.Do(req)
 }
 
 // caClient returns an HTTP client that trusts the given CA cert and always
@@ -150,7 +165,7 @@ func caClient(t *testing.T, caPath string, port int) *http.Client {
 
 func poll(t *testing.T, cond func() bool) bool {
 	t.Helper()
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if cond() {
 			return true
 		}
