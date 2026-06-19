@@ -356,12 +356,18 @@ func (b *BtrFS) CreateFilesystem(f Filesystem) error {
 	if len(parts) > 1 {
 		for i := 1; i < len(parts); i++ {
 			intermediate := filepath.Join(b.BasePath, strings.Join(parts[:i], "/"))
-			err := b.Controller.IsSubvolume(intermediate)
-			if err != nil {
-				err := b.Controller.SubvolCreate(intermediate)
-				if err != nil {
-					return fmt.Errorf("create intermediate subvolume %q: %w", intermediate, err)
+			if err := b.Controller.IsSubvolume(intermediate); err == nil {
+				continue // already a subvolume
+			}
+			if err := b.Controller.SubvolCreate(intermediate); err != nil {
+				// The intermediate may already exist as a plain directory
+				// (e.g. the pages service pre-creates /town-os/pages as a
+				// bind-mount source). A btrfs subvolume can be nested under a
+				// plain dir, so tolerate an existing path rather than fail.
+				if _, statErr := os.Stat(intermediate); statErr == nil {
+					continue
 				}
+				return fmt.Errorf("create intermediate subvolume %q: %w", intermediate, err)
 			}
 		}
 	}
