@@ -54,7 +54,7 @@ func TestSuppliesHTTP(t *testing.T) {
 }
 
 func TestCollectTLSSans(t *testing.T) {
-	sans := collectTLSSans("nginx.default.home", []string{"nginx.alt.home"}, "")
+	sans := collectTLSSans("nginx.default.home", []string{"nginx.alt.home"}, "", "")
 	want := []string{"nginx.default.home", "nginx.alt.home", "localhost", "127.0.0.1"}
 	if len(sans) != len(want) {
 		t.Fatalf("len=%d, want %d", len(sans), len(want))
@@ -72,10 +72,26 @@ func TestCollectTLSSans(t *testing.T) {
 // warning. Empty internalIP means "skip" so boots that can't discover
 // the LAN IP don't churn the cert SAN set on every reconcile.
 func TestCollectTLSSansIncludesInternalIP(t *testing.T) {
-	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88")
+	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88", "")
 	want := []string{"nginx.default.home", "localhost", "127.0.0.1", "192.168.1.88"}
 	if len(sans) != len(want) {
 		t.Fatalf("len=%d, want %d", len(sans), len(want))
+	}
+	for i, w := range want {
+		if sans[i] != w {
+			t.Errorf("sans[%d]=%q, want %q", i, sans[i], w)
+		}
+	}
+}
+
+// TestCollectTLSSansIncludesInternalIPv6 guards the AAAA-parity SAN: when the
+// host has a global IPv6, a direct https://[v6-literal] dial must match the
+// cert. A v4-only host (empty IPv6) gets the v4-only SAN set unchanged.
+func TestCollectTLSSansIncludesInternalIPv6(t *testing.T) {
+	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88", "2001:db8::1")
+	want := []string{"nginx.default.home", "localhost", "127.0.0.1", "192.168.1.88", "2001:db8::1"}
+	if len(sans) != len(want) {
+		t.Fatalf("len=%d, want %d (%v)", len(sans), len(want), sans)
 	}
 	for i, w := range want {
 		if sans[i] != w {

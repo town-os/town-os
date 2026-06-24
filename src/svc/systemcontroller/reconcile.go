@@ -750,6 +750,11 @@ type ReconcileDNSConfig struct {
 	SettingsMgr    account.SettingsManager
 	PagesManager   account.PagesManager
 	InternalIP     string
+	// InternalIPv6 is the host's global IPv6 address (from the same interface
+	// as InternalIP), used to publish AAAA records alongside the A records.
+	// Empty when the host has no globally routable IPv6 — AAAA is then skipped
+	// and behavior is identical to the IPv4-only path.
+	InternalIPv6 string
 	// NetworkStatePath and BtrfsBasePath let RebuildDNS recompute and
 	// republish DANE TLSA records after a zone teardown (TeardownTLD wipes
 	// every record, TLSA included). Both are read-only here; empty values
@@ -777,12 +782,12 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		// Non-fatal: zone may not exist yet on first boot.
 	}
 
-	if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, ""); err != nil {
+	if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, cfg.InternalIPv6); err != nil {
 		return fmt.Errorf("setup TLD %s: %w", tld, err)
 	}
 
 	for _, pkg := range collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld) {
-		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, "", pkg.Domains); err != nil {
+		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, cfg.InternalIPv6, pkg.Domains); err != nil {
 			slog.Debug(fmt.Sprintf("rebuild DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
 			continue
 		}
@@ -790,8 +795,9 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 
 	// Pages share the zone and resolve to the host IP, keyed by their internal
 	// hostname. Public-FQDN pages are excluded (resolved by the user's own DNS).
-	if cfg.InternalIP != "" {
-		for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
+	// An AAAA is added alongside the A when the host has a global IPv6.
+	for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
+		if cfg.InternalIP != "" {
 			if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
 				Name:       host + ".",
 				RecordType: upstream.RecordTypeA,
@@ -799,6 +805,16 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 				Ttl:        300,
 			}); err != nil {
 				slog.Debug(fmt.Sprintf("rebuild DNS page %s: %v", host, err))
+			}
+		}
+		if cfg.InternalIPv6 != "" {
+			if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
+				Name:       host + ".",
+				RecordType: upstream.RecordTypeAAAA,
+				Value:      cfg.InternalIPv6,
+				Ttl:        300,
+			}); err != nil {
+				slog.Debug(fmt.Sprintf("rebuild DNS page AAAA %s: %v", host, err))
 			}
 		}
 	}
@@ -878,33 +894,47 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		return fmt.Errorf("list authoritative zones: %w", err)
 	}
 	if !slices.Contains(zones, zone) {
-		if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, ""); err != nil {
+		if err := rolodex.SetupTLD(ctx, cfg.Client, tld, cfg.InternalIP, cfg.InternalIPv6); err != nil {
 			return fmt.Errorf("setup TLD %s: %w", tld, err)
 		}
 	}
 
-	// Build the desired set of package A records.
-	type recKey struct{ name, value string }
+	// Build the desired set of package address records. Each name gets an A
+	// record (the host IPv4) and, when the host has a global IPv6, a parallel
+	// AAAA record. The record type is part of the key so A and AAAA for the
+	// same name are reconciled independently — losing IPv6 removes only the
+	// AAAA, and vice versa.
+	type recKey struct {
+		name  string
+		value string
+		rtype upstream.RecordType
+	}
 	desired := map[recKey]struct{}{}
-	pkgs := collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld)
-	if cfg.InternalIP != "" {
-		for _, pkg := range pkgs {
-			baseName := pkg.Name + "." + pkg.Repo + "." + zone
-			desired[recKey{name: baseName, value: cfg.InternalIP}] = struct{}{}
-			for _, d := range pkg.Domains {
-				desired[recKey{name: d + "." + baseName, value: cfg.InternalIP}] = struct{}{}
-			}
+	addDesired := func(name string) {
+		if cfg.InternalIP != "" {
+			desired[recKey{name: name, value: cfg.InternalIP, rtype: upstream.RecordTypeA}] = struct{}{}
 		}
-		// Pages resolve to the same host IP, keyed by their assigned internal
-		// hostname (e.g. blog.<tld>). They live in the same zone as packages,
-		// so they must be in the desired set or the remove pass below would
-		// delete them as orphan A records.
-		for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
-			desired[recKey{name: host + ".", value: cfg.InternalIP}] = struct{}{}
+		if cfg.InternalIPv6 != "" {
+			desired[recKey{name: name, value: cfg.InternalIPv6, rtype: upstream.RecordTypeAAAA}] = struct{}{}
 		}
 	}
+	pkgs := collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld)
+	for _, pkg := range pkgs {
+		baseName := pkg.Name + "." + pkg.Repo + "." + zone
+		addDesired(baseName)
+		for _, d := range pkg.Domains {
+			addDesired(d + "." + baseName)
+		}
+	}
+	// Pages resolve to the same host, keyed by their assigned internal
+	// hostname (e.g. blog.<tld>). They live in the same zone as packages,
+	// so they must be in the desired set or the remove pass below would
+	// delete them as orphan records.
+	for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
+		addDesired(host + ".")
+	}
 
-	// List current records and index only the A records we own.
+	// List current records and index only the A/AAAA records we own.
 	// ns1.<zone> is owned by SetupTLD — leave it alone. SOA/NS records
 	// likewise stay put so we never stop answering as the zone owner.
 	current, err := cfg.Client.ListRecords(ctx, nil)
@@ -914,23 +944,25 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	ns1Name := "ns1." + zone
 	currentByKey := map[recKey]*upstream.DnsRecord{}
 	for _, r := range current {
-		if !strings.HasSuffix(r.Name, zone) || r.RecordType != upstream.RecordTypeA || r.Name == ns1Name {
+		if !strings.HasSuffix(r.Name, zone) || r.Name == ns1Name {
 			continue
 		}
-		currentByKey[recKey{name: r.Name, value: r.Value}] = r
+		if r.RecordType != upstream.RecordTypeA && r.RecordType != upstream.RecordTypeAAAA {
+			continue
+		}
+		currentByKey[recKey{name: r.Name, value: r.Value, rtype: r.RecordType}] = r
 	}
 
 	// Add records in desired-but-not-current first, so every query during
 	// the reconcile sees at least the correct answer (possibly alongside
 	// a soon-to-be-removed duplicate).
-	aType := upstream.RecordTypeA
 	for k := range desired {
 		if _, ok := currentByKey[k]; ok {
 			continue
 		}
 		if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
 			Name:       k.name,
-			RecordType: aType,
+			RecordType: k.rtype,
 			Value:      k.value,
 			Ttl:        300,
 		}); err != nil {
@@ -943,8 +975,9 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		if _, ok := desired[k]; ok {
 			continue
 		}
+		rtype := r.RecordType
 		if _, err := cfg.Client.RemoveRecord(ctx, r.Name, &upstream.RemoveRecordOptions{
-			RecordType: &aType,
+			RecordType: &rtype,
 			Value:      r.Value,
 		}); err != nil {
 			slog.Debug(fmt.Sprintf("reconcile DNS remove %s: %v", r.Name, err))

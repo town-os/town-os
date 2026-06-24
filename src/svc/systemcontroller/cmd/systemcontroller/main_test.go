@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 )
 
 func TestGenerateSigningKeyReturns32Bytes(t *testing.T) {
@@ -298,9 +300,9 @@ func TestIsVirtualInterface(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isVirtualInterface(tt.iface)
+			got := systemcontroller.IsVirtualInterface(tt.iface)
 			if got != tt.expect {
-				t.Fatalf("isVirtualInterface(%q) = %v, want %v", tt.iface, got, tt.expect)
+				t.Fatalf("IsVirtualInterface(%q) = %v, want %v", tt.iface, got, tt.expect)
 			}
 		})
 	}

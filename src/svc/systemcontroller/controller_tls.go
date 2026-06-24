@@ -104,16 +104,18 @@ func suppliesHTTP(supplies []string) bool {
 //   - the computed PACKAGE_DNS (e.g. gitea.default.home)
 //   - any extra domains the package declared via `network.domains`
 //   - `localhost` + `127.0.0.1` for host-loopback probes
-//   - the systemcontroller's current internal (LAN) IP so a browser on
-//     the home network hitting `https://192.168.1.88:<port>` directly
-//     matches the cert, not just the mDNS/rolodex name
+//   - the systemcontroller's current internal (LAN) IP, and its global IPv6
+//     when present, so a browser on the home network hitting
+//     `https://192.168.1.88:<port>` or `https://[2001:db8::1]:<port>`
+//     directly matches the cert, not just the mDNS/rolodex name
 //
-// The internal IP is optional (empty string skips it) because the SAN
-// set feeds IssueLeaf's idempotency check — a boot that can't discover
-// the LAN IP would otherwise churn the cert from "with IP" → "without
-// IP" and back on every reconcile.
-func collectTLSSans(packageDNS string, extraDomains []string, internalIP string) []string {
-	sans := make([]string, 0, 4+len(extraDomains))
+// Both IPs are optional (empty string skips them) because the SAN set feeds
+// IssueLeaf's idempotency check — a boot that can't discover an address would
+// otherwise churn the cert from "with IP" → "without IP" and back on every
+// reconcile. A v4-only host (internalIPv6 == "") gets the same SAN set as
+// before, so existing leaves are not re-issued.
+func collectTLSSans(packageDNS string, extraDomains []string, internalIP, internalIPv6 string) []string {
+	sans := make([]string, 0, 5+len(extraDomains))
 	if packageDNS != "" {
 		sans = append(sans, packageDNS)
 	}
@@ -121,6 +123,9 @@ func collectTLSSans(packageDNS string, extraDomains []string, internalIP string)
 	sans = append(sans, "localhost", "127.0.0.1")
 	if internalIP != "" {
 		sans = append(sans, internalIP)
+	}
+	if internalIPv6 != "" {
+		sans = append(sans, internalIPv6)
 	}
 	return sans
 }
@@ -383,7 +388,12 @@ func issueLeafForPackage(ca *townostls.CA, btrfsBase, repoName, pkgName, version
 	if compiled != nil {
 		domains = compiled.Network.Domains
 	}
-	sans := collectTLSSans(packageDNS, domains, internalIP)
+	// Pair the leaf's IPv6 SAN to the same interface that yields internalIP, so
+	// a direct https://[v6-literal] dial matches. Local lookup avoids threading
+	// the v6 through every install/reconcile signature; gated empty on v4-only
+	// hosts so the SAN set (and thus the issued cert) is unchanged there.
+	_, internalIPv6 := InternalInterfaceIPs()
+	sans := collectTLSSans(packageDNS, domains, internalIP, internalIPv6)
 	hostDir := hostTLSLeafDir(btrfsBase, repoName, pkgName, version)
 	if err := ca.IssueLeaf(hostDir, sans); err != nil {
 		return "", err

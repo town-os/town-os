@@ -35,6 +35,7 @@ type systemControllerBackend interface {
 	GetNetworkStatePath() string
 	GetExternalIP() string
 	GetInternalIP() string
+	GetInternalIPv6() string
 	GetGitCloner() packages.GitCloner
 	GetPagesManager() account.PagesManager
 	GetMonitoringBackend() string

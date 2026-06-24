@@ -157,6 +157,7 @@ func (b *archiveTestBackend) GetGitCloner() packages.GitCloner                  
 func (b *archiveTestBackend) GetPagesManager() account.PagesManager               { return nil }
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
+func (b *archiveTestBackend) GetInternalIPv6() string                             { return "" }
 func (b *archiveTestBackend) GetMonitoringBackend() string { return "" }
 func (b *archiveTestBackend) GetDiskDevices() []string     { return nil }
 func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ string) error {

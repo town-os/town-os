@@ -1383,6 +1383,139 @@ func TestReconcileDNS(t *testing.T) {
 	}
 }
 
+// TestReconcileDNSPublishesAAAA verifies that when the host has a global IPv6,
+// ReconcileDNS publishes a parallel AAAA record for every package FQDN (and
+// ns1), and that a second run is idempotent (no add/remove churn).
+func TestReconcileDNSPublishesAAAA(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{
+		"nginx/1.0": "image: nginx:1.0\nnetwork:\n  domains:\n    - www\n",
+		"redis/7.0": "image: redis:7.0\n",
+	})
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+	if err := inst.Install("repo-a", "redis", "redis", "7.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install redis: %v", err)
+	}
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+	cfg := ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+		InternalIPv6:   "2001:db8::50",
+	}
+
+	if err := ReconcileDNS(context.Background(), cfg); err != nil {
+		t.Fatalf("ReconcileDNS: %v", err)
+	}
+
+	// Count AAAA AddRecord calls and confirm each carries the host v6. Expect
+	// ns1 + nginx + www.nginx + redis = 4.
+	var aaaa int
+	for _, c := range mock.GetCalls() {
+		if c.Method != "AddRecord" {
+			continue
+		}
+		rec, ok := c.Args[0].(*upstream.DnsRecord)
+		if !ok {
+			t.Fatal("AddRecord arg is not *DnsRecord")
+		}
+		if rec.RecordType != upstream.RecordTypeAAAA {
+			continue
+		}
+		aaaa++
+		if rec.Value != "2001:db8::50" {
+			t.Errorf("AAAA %s value = %q, want 2001:db8::50", rec.Name, rec.Value)
+		}
+	}
+	if aaaa != 4 {
+		t.Fatalf("expected 4 AAAA AddRecord calls (ns1 + 3 package FQDNs), got %d", aaaa)
+	}
+
+	// Second run must be a no-op: every A and AAAA already exists, nothing is
+	// orphaned, so no AddRecord/RemoveRecord calls fire.
+	mock.Calls = nil
+	if err := ReconcileDNS(context.Background(), cfg); err != nil {
+		t.Fatalf("ReconcileDNS second run: %v", err)
+	}
+	for _, c := range mock.GetCalls() {
+		if c.Method == "AddRecord" || c.Method == "RemoveRecord" {
+			t.Errorf("second run made a %s call; expected idempotent no-op", c.Method)
+		}
+	}
+}
+
+// TestReconcileDNSRemovesStaleAAAAOnIPv6Change verifies the diff removes an
+// AAAA whose value no longer matches the host's current IPv6 and adds the new
+// one, leaving the A records alone.
+func TestReconcileDNSRemovesStaleAAAAOnIPv6Change(t *testing.T) {
+	rr, inst := setupReconcileRepo(t, map[string]string{"nginx/1.0": "image: nginx:1.0\n"})
+	if err := inst.Install("repo-a", "nginx", "nginx", "1.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install nginx: %v", err)
+	}
+
+	mock := &rolodex.MockClient{}
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
+
+	// First reconcile at an old IPv6.
+	cfg := ReconcileDNSConfig{
+		Client:         mock,
+		Installer:      inst,
+		RepositoryRoot: rr,
+		SettingsMgr:    settings,
+		InternalIP:     "192.168.1.100",
+		InternalIPv6:   "2001:db8::1",
+	}
+	if err := ReconcileDNS(context.Background(), cfg); err != nil {
+		t.Fatalf("ReconcileDNS first: %v", err)
+	}
+
+	// Second reconcile with a changed IPv6.
+	mock.Calls = nil
+	cfg.InternalIPv6 = "2001:db8::2"
+	if err := ReconcileDNS(context.Background(), cfg); err != nil {
+		t.Fatalf("ReconcileDNS second: %v", err)
+	}
+
+	var addedNew, removedOld, touchedA bool
+	for _, c := range mock.GetCalls() {
+		switch c.Method {
+		case "AddRecord":
+			rec, ok := c.Args[0].(*upstream.DnsRecord)
+			if !ok {
+				t.Fatal("AddRecord arg is not *DnsRecord")
+			}
+			if rec.RecordType == upstream.RecordTypeAAAA && rec.Value == "2001:db8::2" {
+				addedNew = true
+			}
+			if rec.RecordType == upstream.RecordTypeA {
+				touchedA = true
+			}
+		case "RemoveRecord":
+			opts, ok := c.Args[1].(*upstream.RemoveRecordOptions)
+			if ok && opts.RecordType != nil && *opts.RecordType == upstream.RecordTypeAAAA && opts.Value == "2001:db8::1" {
+				removedOld = true
+			}
+			if ok && opts.RecordType != nil && *opts.RecordType == upstream.RecordTypeA {
+				touchedA = true
+			}
+		}
+	}
+	if !addedNew {
+		t.Error("expected the new AAAA (2001:db8::2) to be added")
+	}
+	if !removedOld {
+		t.Error("expected the stale AAAA (2001:db8::1) to be removed")
+	}
+	if touchedA {
+		t.Error("A records must be untouched when only IPv6 changed")
+	}
+}
+
 // TestRebuildDNS pins the startup / IP-change contract: RebuildDNS
 // always tears down the zone and re-registers every installed package.
 // Callers that want non-disruptive drift repair should use ReconcileDNS

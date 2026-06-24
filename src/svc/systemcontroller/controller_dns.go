@@ -161,7 +161,8 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 	pkgs := s.collectInstalledPackageDNSInfo()
 
 	ipv4 := s.Controller.GetInternalIP()
-	if err := rolodex.ChangeTLD(ctx, rc, oldTLD, req.TLD, ipv4, "", pkgs); err != nil {
+	ipv6 := s.Controller.GetInternalIPv6()
+	if err := rolodex.ChangeTLD(ctx, rc, oldTLD, req.TLD, ipv4, ipv6, pkgs); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("change TLD: %v", err))
 	}
 
@@ -190,15 +191,16 @@ func (s *SystemControllerHandlers) setupDNS(c *echo.Context) error {
 	tld := s.getDNSTLDValue()
 	ctx := c.Request().Context()
 	ipv4 := s.Controller.GetInternalIP()
+	ipv6 := s.Controller.GetInternalIPv6()
 
-	if err := rolodex.SetupTLD(ctx, rc, tld, ipv4, ""); err != nil {
+	if err := rolodex.SetupTLD(ctx, rc, tld, ipv4, ipv6); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("setup TLD: %v", err))
 	}
 
 	pkgs := s.collectInstalledPackageDNSInfo()
 	registered := 0
 	for _, pkg := range pkgs {
-		if err := rolodex.RegisterPackageDNS(ctx, rc, pkg.Repo, pkg.Name, tld, ipv4, "", pkg.Domains); err != nil {
+		if err := rolodex.RegisterPackageDNS(ctx, rc, pkg.Repo, pkg.Name, tld, ipv4, ipv6, pkg.Domains); err != nil {
 			slog.Debug(fmt.Sprintf("register DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
 			continue
 		}
@@ -237,7 +239,8 @@ func (s *SystemControllerHandlers) registerPackageDNS(ctx context.Context, repoN
 	}
 
 	ipv4 := s.Controller.GetInternalIP()
-	if err := rolodex.RegisterPackageDNS(ctx, rc, repoName, effectiveName, tld, ipv4, "", internalDomains(domains, tld)); err != nil {
+	ipv6 := s.Controller.GetInternalIPv6()
+	if err := rolodex.RegisterPackageDNS(ctx, rc, repoName, effectiveName, tld, ipv4, ipv6, internalDomains(domains, tld)); err != nil {
 		slog.Debug(fmt.Sprintf("register DNS %s/%s: %v", repoName, effectiveName, err))
 	}
 }

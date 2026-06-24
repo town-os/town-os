@@ -71,8 +71,9 @@ var defaultExternalIPStartupBackoffs = []time.Duration{
 type serverBase struct {
 	ServerConfig
 
-	externalIP atomic.Value // stores string
-	internalIP atomic.Value // stores string
+	externalIP   atomic.Value // stores string
+	internalIP   atomic.Value // stores string
+	internalIPv6 atomic.Value // stores string (host's global IPv6, or "")
 
 	// Network-poller state. pollerMu guards the mutable fields below.
 	// pollerPendingInternal and pollerPendingTicks track an internal-IP
@@ -92,8 +93,9 @@ type serverBase struct {
 	pollerExternalEvery      int
 	pollerStableTicks        int
 	pollerDNSInterval        time.Duration
-	pollerInternalDiscoverer func() string
-	pollerReconcileDNS       func(ctx context.Context, oldIP, newIP string) error
+	pollerInternalDiscoverer   func() string
+	pollerInternalV6Discoverer func() string
+	pollerReconcileDNS         func(ctx context.Context, oldIP, newIP string) error
 	// pollerDNSReconciler is nil in production (the tick calls ReconcileDNS
 	// via rolodex); tests inject a fake to observe invocations without
 	// wiring up a full rolodex.
@@ -239,30 +241,55 @@ func (s *serverBase) GetInternalIP() string {
 	return ""
 }
 
-// discoverInternalIP returns the first non-loopback IPv4 address bound to
-// any local interface, or "" if none can be discovered. Tests inject a stub
-// via pollerInternalDiscoverer.
-func (s *serverBase) discoverInternalIP() string {
-	if s.pollerInternalDiscoverer != nil {
-		return s.pollerInternalDiscoverer()
-	}
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return ""
-	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			return ipnet.IP.String()
+// GetInternalIPv6 returns the host's global IPv6 address (from the same
+// interface as GetInternalIP), or "" when the host has no globally routable
+// IPv6. Lazily refreshes the cache on first read, mirroring GetInternalIP.
+func (s *serverBase) GetInternalIPv6() string {
+	v := s.internalIPv6.Load()
+	if v == nil {
+		s.RefreshInternalIP()
+		v = s.internalIPv6.Load()
+		if v == nil {
+			return ""
 		}
+	}
+	if ip, ok := v.(string); ok {
+		return ip
 	}
 	return ""
 }
 
-// RefreshInternalIP updates the cached internal IP address by querying
-// the system's network interfaces. Empty results leave the cache untouched.
+// discoverInternalIP returns the IPv4 address of the host's primary physical
+// interface, or "" if none can be discovered. Tests inject a stub via
+// pollerInternalDiscoverer.
+func (s *serverBase) discoverInternalIP() string {
+	if s.pollerInternalDiscoverer != nil {
+		return s.pollerInternalDiscoverer()
+	}
+	ipv4, _ := InternalInterfaceIPs()
+	return ipv4
+}
+
+// discoverInternalIPv6 returns the global IPv6 address of the same interface
+// discoverInternalIP selects, or "" if there is none. Tests inject a stub via
+// pollerInternalV6Discoverer.
+func (s *serverBase) discoverInternalIPv6() string {
+	if s.pollerInternalV6Discoverer != nil {
+		return s.pollerInternalV6Discoverer()
+	}
+	_, ipv6 := InternalInterfaceIPs()
+	return ipv6
+}
+
+// RefreshInternalIP updates the cached internal IPv4 and global IPv6 addresses
+// by querying the system's network interfaces. Empty results leave the
+// respective cache entry untouched.
 func (s *serverBase) RefreshInternalIP() {
 	if ip := s.discoverInternalIP(); ip != "" {
 		s.internalIP.Store(ip)
+	}
+	if ip6 := s.discoverInternalIPv6(); ip6 != "" {
+		s.internalIPv6.Store(ip6)
 	}
 }
 
@@ -319,6 +346,7 @@ func (s *serverBase) tickDNSPoll(ctx context.Context) {
 		SettingsMgr:    s.SettingsMgr,
 		PagesManager:   s.PagesMgr,
 		InternalIP:     s.GetInternalIP(),
+		InternalIPv6:   s.GetInternalIPv6(),
 	}); err != nil {
 		slog.Debug("hourly DNS reconcile", "error", err)
 	}
@@ -332,6 +360,13 @@ func (s *serverBase) tickDNSPoll(ctx context.Context) {
 // synchronously without spinning up the polling goroutine.
 func (s *serverBase) tickNetworkPoll(ctx context.Context) {
 	discovered := s.discoverInternalIP()
+
+	// Refresh the cached global IPv6 every tick (no debounce — AAAA drift is
+	// repaired by the hourly ReconcileDNS, which reads the cached value). Only
+	// store non-empty results so a transient interface read does not churn it.
+	if v6 := s.discoverInternalIPv6(); v6 != "" {
+		s.internalIPv6.Store(v6)
+	}
 
 	s.pollerMu.Lock()
 
@@ -432,6 +467,7 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		SettingsMgr:      s.SettingsMgr,
 		PagesManager:     s.PagesMgr,
 		InternalIP:       newIP,
+		InternalIPv6:     s.GetInternalIPv6(),
 		NetworkStatePath: s.NetworkStatePath,
 		BtrfsBasePath:    s.BtrfsBasePath,
 	}); err != nil {
@@ -742,6 +778,16 @@ func (ts *TestServer) SetExternalIP(ip string) {
 // GetInternalIP without depending on the host's live interface list.
 func (ts *TestServer) SetInternalIP(ip string) {
 	ts.internalIP.Store(ip)
+}
+
+// SetInternalIPv6 stores the host's global IPv6 for testing. Parallel to
+// SetInternalIP — lets integration tests pin a known value (or "" to model a
+// v4-only host) that feeds AAAA DNS records and leaf-cert SANs without
+// depending on the host's live interface list. Storing "" is meaningful:
+// GetInternalIPv6 sees a non-nil cache entry and returns "" without falling
+// back to live discovery, so a v4-only host can be modelled deterministically.
+func (ts *TestServer) SetInternalIPv6(ip string) {
+	ts.internalIPv6.Store(ip)
 }
 
 func (ts *TestServer) Run() error {

@@ -66,6 +66,12 @@ type Config struct {
 	// tests set an ephemeral port so a test ingress never collides with the
 	// production ingress (or another test) on the privileged :443 — IRON RULE.
 	HostPort int
+	// EnableIPv6 makes the ingress serve dual-stack: the podman network is
+	// created with --ipv6 and the HTTPS port is also published on [::] so AAAA
+	// clients reach the same caddy. Set by the systemcontroller only when the
+	// host has a global IPv6 (otherwise podman network create --ipv6 would fail
+	// and the unit would not start), so IPv4-only hosts emit today's unit.
+	EnableIPv6 bool
 }
 
 // Manager controls the lifecycle of the ingress container. Unlike rolodex (a
@@ -117,20 +123,31 @@ func (m *Manager) SocketPath() string {
 // ingress binary against the in-container socket.
 func (m *Manager) unitConfig() systemd.SystemServiceUnitConfig {
 	port := strconv.Itoa(m.hostPort())
+
+	// Dual-stack: create the network with --ipv6 and also publish on [::] so
+	// AAAA clients reach caddy. Gated on EnableIPv6 because `podman network
+	// create --ipv6` fails on a host without IPv6.
+	netCreate := "-/usr/bin/podman network create " + m.network()
+	args := []string{"-p", port + ":" + port}
+	if m.cfg.EnableIPv6 {
+		netCreate = "-/usr/bin/podman network create --ipv6 " + m.network()
+		args = append(args, "-p", "[::]:"+port+":"+port)
+	}
+	args = append(args,
+		"--net", m.network(),
+		"-v", m.cfg.DataDir+":"+containerDataDir+":z",
+		"-v", m.cfg.TLSHostDir+":"+containerTLSMount+":ro,z",
+	)
+
 	return systemd.SystemServiceUnitConfig{
 		Key:          m.key(),
 		Description:  "Ingress (shared :443 SNI router)",
 		Image:        m.cfg.Image,
 		PullNever:    m.cfg.PullNever,
 		VolumeDirs:   []string{m.cfg.DataDir},
-		ExecStartPre: []string{"-/usr/bin/podman network create " + m.network()},
-		Args: []string{
-			"-p", port + ":" + port,
-			"--net", m.network(),
-			"-v", m.cfg.DataDir + ":" + containerDataDir + ":z",
-			"-v", m.cfg.TLSHostDir + ":" + containerTLSMount + ":ro,z",
-		},
-		Command: []string{"--socket", containerSocketPath, "--port", port},
+		ExecStartPre: []string{netCreate},
+		Args:         args,
+		Command:      []string{"--socket", containerSocketPath, "--port", port},
 	}
 }
 

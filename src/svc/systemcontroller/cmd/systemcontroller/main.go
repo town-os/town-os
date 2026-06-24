@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -456,6 +455,9 @@ func run() (err error) {
 			DataDir:    filepath.Join(*btrfsPath, "ingress"),
 			TLSHostDir: filepath.Join(*btrfsPath, systemcontroller.TLSSubvolume),
 			Image:      ingressImage,
+			// Serve dual-stack only when the host has a global IPv6 (otherwise
+			// `podman network create --ipv6` fails and the unit won't start).
+			EnableIPv6: getInternalIPv6() != "",
 		})
 		bs.Step("start_ingress")
 		if startErr := ingressMgr.Start(ctx); startErr != nil {
@@ -534,6 +536,7 @@ func run() (err error) {
 				SettingsMgr:      settingsMgr,
 				PagesManager:     pagesMgr,
 				InternalIP:       getInternalIP(),
+				InternalIPv6:     getInternalIPv6(),
 				NetworkStatePath: *networkStatePath,
 				BtrfsBasePath:    *btrfsPath,
 			})
@@ -674,49 +677,21 @@ func generateSigningKey() ([]byte, error) {
 	return key, nil
 }
 
-// getInternalIP returns the first non-loopback IPv4 address on a physical
-// network interface, or "" if none found. Virtual interfaces (podman, veth,
-// cni, docker, br-, virbr, tailscale) are skipped to avoid returning container
-// bridge addresses like 10.88.0.1.
+// getInternalIP returns the IPv4 address of the host's primary physical
+// interface, or "" if none found. It delegates to the systemcontroller
+// package's InternalInterfaceIPs so the boot reconcile and the runtime poller
+// agree on which interface is authoritative for the host's address.
 func getInternalIP() string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		if iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-		if isVirtualInterface(iface.Name) {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
-			}
-		}
-	}
-	return ""
+	ipv4, _ := systemcontroller.InternalInterfaceIPs()
+	return ipv4
 }
 
-// isVirtualInterface returns true for interface names that belong to container
-// runtimes, virtual bridges, or VPN tunnels.
-func isVirtualInterface(name string) bool {
-	for _, prefix := range []string{
-		"podman", "veth", "cni", "docker", "br-", "virbr", "tailscale",
-	} {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-	return false
+// getInternalIPv6 returns the global IPv6 address of the same interface
+// getInternalIP selects, or "" when the host has no globally routable IPv6.
+// Used to publish AAAA records alongside the IPv4 A records.
+func getInternalIPv6() string {
+	_, ipv6 := systemcontroller.InternalInterfaceIPs()
+	return ipv6
 }
 
 // getContainerImageID returns the image digest of the container this process
