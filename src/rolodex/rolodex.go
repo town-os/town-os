@@ -131,6 +131,8 @@ func rolodexConfig(port string, forwarders []string) string {
 		fmt.Fprintf(&fwd, "  - %q\n", f)
 	}
 	return fmt.Sprintf(`database_path: /data/rolodex.db
+resolution:
+  mode: forward
 dns:
   bind:
     - udp: "%s:%s"

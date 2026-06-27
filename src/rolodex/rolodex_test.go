@@ -52,6 +52,7 @@ func TestWriteConfig(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"database_path: /data/rolodex.db",
+		"resolution:\n  mode: forward",
 		"dns:",
 		"bind:",
 		"- udp:",
