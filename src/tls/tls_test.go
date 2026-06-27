@@ -174,6 +174,7 @@ func TestIssueLeafReissuesOnSANChange(t *testing.T) {
 	block, _ := pem.Decode(certPEM2)
 	if block == nil {
 		t.Fatalf("decode cert: empty block")
+		return
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {

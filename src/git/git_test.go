@@ -278,14 +278,8 @@ func TestExtractAuth(t *testing.T) {
 
 	t.Run("with credentials", func(t *testing.T) {
 		url, auth := extractAuth("https://user:pass@github.com/user/repo.git")
-		if auth == nil {
-			t.Fatal("expected auth")
-		}
-		if auth.Username != "user" {
-			t.Fatalf("expected username user, got %s", auth.Username)
-		}
-		if auth.Password != "pass" {
-			t.Fatalf("expected password pass, got %s", auth.Password)
+		if auth == nil || auth.Username != "user" || auth.Password != "pass" {
+			t.Fatalf("expected user:pass auth, got %+v", auth)
 		}
 		if url != "https://github.com/user/repo.git" {
 			t.Fatalf("expected cleaned URL, got %s", url)
@@ -334,14 +328,8 @@ func TestExtractAuth(t *testing.T) {
 
 	t.Run("empty password", func(t *testing.T) {
 		url, auth := extractAuth("https://user:@github.com/repo.git")
-		if auth == nil {
-			t.Fatal("expected auth with empty password")
-		}
-		if auth.Username != "user" {
-			t.Fatalf("expected username user, got %s", auth.Username)
-		}
-		if auth.Password != "" {
-			t.Fatalf("expected empty password, got %s", auth.Password)
+		if auth == nil || auth.Username != "user" || auth.Password != "" {
+			t.Fatalf("expected user with empty password, got %+v", auth)
 		}
 		if url != "https://github.com/repo.git" {
 			t.Fatalf("expected cleaned URL, got %s", url)

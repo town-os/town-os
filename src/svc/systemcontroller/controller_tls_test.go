@@ -141,6 +141,7 @@ func TestIssueLeafForPackageWritesAndReturnsContainerPath(t *testing.T) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		t.Fatal("cert PEM decode failed")
+		return
 	}
 	parsed, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {

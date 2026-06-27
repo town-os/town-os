@@ -888,6 +888,7 @@ func TestHTTPListPackagesInstalledIndicator(t *testing.T) {
 
 	if nginxEntry == nil || redisEntry == nil {
 		t.Fatal("expected both nginx and redis in results")
+		return
 	}
 
 	// nginx 1.0 is installed; latest is 2.0 (upgrade available).

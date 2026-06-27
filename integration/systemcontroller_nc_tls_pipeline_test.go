@@ -173,6 +173,7 @@ questions:
 	block, _ := pem.Decode(leafBytes)
 	if block == nil {
 		t.Fatalf("leaf PEM decode failed")
+		return
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {

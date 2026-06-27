@@ -270,6 +270,7 @@ func TestExtractBasicAuth(t *testing.T) {
 			if tc.wantAuth {
 				if gotAuth == nil {
 					t.Fatal("expected auth, got nil")
+					return
 				}
 				if gotAuth.Username != tc.wantUser || gotAuth.Password != tc.wantPass {
 					t.Fatalf("auth: got %s:%s, want %s:%s", gotAuth.Username, gotAuth.Password, tc.wantUser, tc.wantPass)

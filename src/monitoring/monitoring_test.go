@@ -500,20 +500,14 @@ func TestGrafanaPackageConfig(t *testing.T) {
 			provMount = hv
 		}
 	}
-	if dataMount == nil {
-		t.Fatal("missing /var/lib/grafana host mount")
-	}
-	if provMount == nil {
-		t.Fatal("missing /etc/grafana/provisioning host mount")
-	}
-	if dataMount.UID == nil || *dataMount.UID != 472 {
-		t.Fatalf("data mount should declare UID=472, got %v", dataMount.UID)
+	if dataMount == nil || dataMount.UID == nil || *dataMount.UID != 472 {
+		t.Fatalf("data mount should declare UID=472, got %+v", dataMount)
 	}
 	if dataMount.GID == nil || *dataMount.GID != 472 {
 		t.Fatalf("data mount should declare GID=472, got %v", dataMount.GID)
 	}
-	if provMount.UID != nil || provMount.GID != nil {
-		t.Fatalf("provisioning mount should NOT declare UID/GID (it is read-only to Grafana), got UID=%v GID=%v", provMount.UID, provMount.GID)
+	if provMount == nil || provMount.UID != nil || provMount.GID != nil {
+		t.Fatalf("provisioning mount should NOT declare UID/GID (it is read-only to Grafana), got %+v", provMount)
 	}
 
 	if len(cfg.ExecStartPreExtra) != 0 {

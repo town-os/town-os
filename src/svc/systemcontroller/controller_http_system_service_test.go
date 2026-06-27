@@ -287,6 +287,7 @@ func TestHTTPListSystemServicesIncludesSystemController(t *testing.T) {
 	}
 	if sc == nil {
 		t.Fatal("expected systemcontroller entry in system services")
+		return
 	}
 	if sc.DisplayName != "System Controller" {
 		t.Fatalf("expected DisplayName 'System Controller', got %q", sc.DisplayName)

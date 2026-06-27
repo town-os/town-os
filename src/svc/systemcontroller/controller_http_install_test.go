@@ -114,6 +114,7 @@ questions:
 	}
 	if installCall == nil {
 		t.Fatal("expected an Install call")
+		return
 	}
 
 	resp, ok := installCall.Args[4].(packages.Responses)
@@ -180,6 +181,7 @@ questions:
 	}
 	if installCall == nil {
 		t.Fatal("expected an Install call")
+		return
 	}
 
 	resp, ok := installCall.Args[4].(packages.Responses)
@@ -1186,6 +1188,7 @@ func TestHTTPUninstallSavesLastResponsesWithCorrectData(t *testing.T) {
 	}
 	if saveCall == nil {
 		t.Fatal("expected SaveLastResponses call during uninstall")
+		return
 	}
 
 	savedResp, ok := saveCall.Args[2].(packages.Responses)
@@ -1393,6 +1396,7 @@ func TestHTTPInstallValidationErrors(t *testing.T) {
 	}
 	if installCall == nil {
 		t.Fatal("expected an Install call")
+		return
 	}
 
 	resp, ok := installCall.Args[4].(packages.Responses)
@@ -1430,6 +1434,7 @@ func TestHTTPInstallValidationErrorsEmptyResponse(t *testing.T) {
 	}
 	if installCall == nil {
 		t.Fatal("expected an Install call")
+		return
 	}
 
 	resp, ok := installCall.Args[4].(packages.Responses)
