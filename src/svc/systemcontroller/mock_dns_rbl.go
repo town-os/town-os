@@ -94,42 +94,6 @@ func (m *MockClient) RemoveLocalRblEntry(_ context.Context, name string) error {
 	return nil
 }
 
-// ListBlocklists returns the mock blocklist catalog/status.
-func (m *MockClient) ListBlocklists(_ context.Context) (*BlocklistsResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListBlocklists"})
-	if m.ListBlocklistsErr != nil {
-		return nil, m.ListBlocklistsErr
-	}
-	if m.Blocklists != nil {
-		return m.Blocklists, nil
-	}
-	return &BlocklistsResponse{Feeds: curatedBlocklists}, nil
-}
-
-// ApplyBlocklists records an apply request on the mock.
-func (m *MockClient) ApplyBlocklists(_ context.Context, req ApplyBlocklistsRequest) ([]string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ApplyBlocklists", Args: []any{req}})
-	if m.ApplyBlocklistsErr != nil {
-		return nil, m.ApplyBlocklistsErr
-	}
-	return m.ApplyBlocklistsFeeds, nil
-}
-
-// ClearBlocklists records a clear request on the mock.
-func (m *MockClient) ClearBlocklists(_ context.Context, keys []string) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ClearBlocklists", Args: []any{keys}})
-	if m.ClearBlocklistsErr != nil {
-		return 0, m.ClearBlocklistsErr
-	}
-	return m.ClearBlocklistsCount, nil
-}
-
 // ListDNSServices returns the mock DNS service entries.
 func (m *MockClient) ListDNSServices(_ context.Context) ([]DNSServiceEntry, error) {
 	m.mu.Lock()

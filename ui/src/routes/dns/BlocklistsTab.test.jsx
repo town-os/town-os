@@ -2,12 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
-const mockListBlocklists = vi.fn()
 const mockGetRBL = vi.fn()
 const mockGetDNSBL = vi.fn()
 const mockListLocalRBL = vi.fn()
-const mockApplyBlocklists = vi.fn(() => Promise.resolve({ status: 'started', feeds: [] }))
-const mockClearBlocklists = vi.fn(() => Promise.resolve({ removed: 0 }))
 const mockSetRBL = vi.fn(() => Promise.resolve())
 const mockSetDNSBL = vi.fn(() => Promise.resolve())
 const mockAddLocalRBL = vi.fn(() => Promise.resolve())
@@ -15,12 +12,9 @@ const mockRemoveLocalRBL = vi.fn(() => Promise.resolve())
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
-    listBlocklists: mockListBlocklists,
     getRBLConfig: mockGetRBL,
     getDNSBLConfig: mockGetDNSBL,
     listLocalRBL: mockListLocalRBL,
-    applyBlocklists: mockApplyBlocklists,
-    clearBlocklists: mockClearBlocklists,
     setRBLConfig: mockSetRBL,
     setDNSBLConfig: mockSetDNSBL,
     addLocalRBL: mockAddLocalRBL,
@@ -40,50 +34,46 @@ function renderTab(isAdmin = true) {
 
 describe('BlocklistsTab', () => {
   beforeEach(() => {
-    mockListBlocklists.mockReset()
     mockGetRBL.mockReset()
     mockGetDNSBL.mockReset()
     mockListLocalRBL.mockReset()
-    mockApplyBlocklists.mockClear()
-    mockClearBlocklists.mockClear()
     mockSetRBL.mockClear()
+    mockSetDNSBL.mockClear()
 
-    mockListBlocklists.mockResolvedValue({
-      feeds: [
-        { key: 'oisd', name: 'OISD', description: 'Balanced.', url: 'https://big.oisd.nl/' },
-        { key: 'hagezi', name: 'HaGeZi', description: 'Optimized.', url: 'https://example/hagezi' },
-      ],
-      running: false,
-      status: [],
-    })
     mockGetRBL.mockResolvedValue({ enabled: true, providers: [{ zone: 'zen.spamhaus.org', enabled: true }] })
     mockGetDNSBL.mockResolvedValue({ enabled: false, providers: [] })
-    mockListLocalRBL.mockResolvedValue([{ name: 'ads.example.com', reason: 'blocklist:oisd' }])
+    mockListLocalRBL.mockResolvedValue([{ name: 'ads.example.com', reason: 'manual' }])
   })
 
-  it('renders curated feeds, provider zones, and local entries', async () => {
+  it('renders provider zones, suggestions, and local entries', async () => {
     renderTab()
     await waitFor(() => {
-      expect(screen.getByText('OISD')).toBeTruthy()
-      expect(screen.getByText('HaGeZi')).toBeTruthy()
+      // Configured RBL zone.
       expect(screen.getByText('zen.spamhaus.org')).toBeTruthy()
+      // A suggested DNSBL zone (none configured yet) shows as a quick-add.
+      expect(screen.getByText('Spamhaus DBL')).toBeTruthy()
+      // Local entry.
       expect(screen.getByText('ads.example.com')).toBeTruthy()
     })
+    // No feed apply controls exist anymore.
+    expect(screen.queryByText('Apply all')).toBeNull()
   })
 
-  it('applies all feeds when "Apply all" is clicked', async () => {
+  it('adds a suggested DNSBL zone on demand (no caching)', async () => {
     renderTab()
-    await waitFor(() => expect(screen.getByText('OISD')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Spamhaus DBL')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Apply all'))
+    fireEvent.click(screen.getByText('Spamhaus DBL'))
     await waitFor(() => {
-      expect(mockApplyBlocklists).toHaveBeenCalledWith({ keys: ['oisd', 'hagezi'] })
+      expect(mockSetDNSBL).toHaveBeenCalledWith(false, [{ zone: 'dbl.spamhaus.org', enabled: true }])
     })
   })
 
   it('hides admin controls for non-admins', async () => {
     renderTab(false)
-    await waitFor(() => expect(screen.getByText('OISD')).toBeTruthy())
-    expect(screen.queryByText('Apply all')).toBeNull()
+    await waitFor(() => expect(screen.getByText('zen.spamhaus.org')).toBeTruthy())
+    // Suggestions / add-zone are admin-only.
+    expect(screen.queryByText('Spamhaus DBL')).toBeNull()
+    expect(screen.queryByText('Add zone')).toBeNull()
   })
 })

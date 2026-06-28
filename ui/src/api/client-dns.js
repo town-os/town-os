@@ -156,37 +156,6 @@ SystemControllerClient.prototype.removeLocalRBL = async function (name) {
   await this.postJSON('/dns/rbl/local/remove', { name })
 }
 
-// --- Curated blocklists ---
-
-/**
- * Lists the curated blocklist catalog and current apply status.
- * Calls GET /dns/blocklists.
- * @returns {Promise<{feeds: Array<{key: string, name: string, description: string, url: string}>, running: boolean, status: Array<{key: string, added: number, total: number, done: boolean, error?: string}>}>}
- */
-SystemControllerClient.prototype.listBlocklists = async function () {
-  return this.getJSON('/dns/blocklists')
-}
-
-/**
- * Starts a background apply of curated blocklist feeds (by key) or a custom URL.
- * Calls POST /dns/blocklists/apply.
- * @param {{keys?: string[], url?: string, name?: string}} req
- * @returns {Promise<{status: string, feeds: string[]}>}
- */
-SystemControllerClient.prototype.applyBlocklists = async function (req) {
-  return this.postJSON('/dns/blocklists/apply', req)
-}
-
-/**
- * Removes blocklist-sourced local RBL entries.
- * Calls POST /dns/blocklists/clear.
- * @param {string[]} [keys] - Specific feed keys to clear; empty clears all.
- * @returns {Promise<{status: string, removed: number}>}
- */
-SystemControllerClient.prototype.clearBlocklists = async function (keys) {
-  return this.postJSON('/dns/blocklists/clear', { keys: keys || [] })
-}
-
 // --- DNS services (publish toggle) ---
 
 /**

@@ -5,7 +5,6 @@ import getClient from '@/lib/client-instance.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -18,12 +17,29 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Plus, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
+
+// Well-known DNSBL (domain) blocklist zones, queried on demand by rolodex.
+const DNSBL_SUGGESTIONS = [
+  { zone: 'dbl.spamhaus.org', label: 'Spamhaus DBL' },
+  { zone: 'multi.surbl.org', label: 'SURBL' },
+  { zone: 'black.uribl.com', label: 'URIBL' },
+  { zone: 'dbl.nordspam.com', label: 'NordSpam DBL' },
+]
+
+// Well-known RBL (IP) blocklist zones, queried on demand by rolodex.
+const RBL_SUGGESTIONS = [
+  { zone: 'zen.spamhaus.org', label: 'Spamhaus ZEN' },
+  { zone: 'bl.spamcop.net', label: 'SpamCop' },
+  { zone: 'b.barracudacentral.org', label: 'Barracuda' },
+  { zone: 'dnsbl.sorbs.net', label: 'SORBS' },
+]
 
 // BlocklistProviders renders an RBL or DNSBL provider section: a global enable
-// switch and a list of provider zones. Mutations save the full config
-// immediately and refresh.
-function BlocklistProviders({ title, description, config, onSave, isAdmin }) {
+// switch, the configured provider zones, a quick-add list of well-known zones,
+// and a custom-zone form. Zones are queried on demand by rolodex — nothing is
+// fetched or cached. Mutations save the full config immediately and refresh.
+function BlocklistProviders({ title, description, config, suggestions, onSave, isAdmin }) {
   const { t } = useI18n()
   const [newZone, setNewZone] = useState('')
   const providers = config?.providers || []
@@ -37,17 +53,17 @@ function BlocklistProviders({ title, description, config, onSave, isAdmin }) {
     }
   }
 
-  function addZone(e) {
-    e.preventDefault()
-    const zone = newZone.trim().toLowerCase()
-    if (!zone) return
-    if (providers.some((p) => p.zone === zone)) {
+  function addZone(zone) {
+    const z = zone.trim().toLowerCase()
+    if (!z) return
+    if (providers.some((p) => p.zone === z)) {
       toast.error(t('dns.bl.duplicate_zone'))
       return
     }
-    setNewZone('')
-    save(enabled, [...providers, { zone, enabled: true }])
+    save(enabled, [...providers, { zone: z, enabled: true }])
   }
+
+  const unconfigured = suggestions.filter((s) => !providers.some((p) => p.zone === s.zone))
 
   return (
     <Card>
@@ -96,8 +112,30 @@ function BlocklistProviders({ title, description, config, onSave, isAdmin }) {
             )}
           </div>
         ))}
+
+        {isAdmin && unconfigured.length > 0 && (
+          <div className="pt-1">
+            <p className="text-xs text-muted-foreground mb-2">{t('dns.bl.suggested')}</p>
+            <div className="flex flex-wrap gap-2">
+              {unconfigured.map((s) => (
+                <Button key={s.zone} variant="outline" size="sm" onClick={() => addZone(s.zone)}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  {s.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {isAdmin && (
-          <form onSubmit={addZone} className="flex items-center gap-2 pt-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              addZone(newZone)
+              setNewZone('')
+            }}
+            className="flex items-center gap-2 pt-2"
+          >
             <Input
               value={newZone}
               onChange={(e) => setNewZone(e.target.value)}
@@ -155,29 +193,21 @@ function AddEntryDialog({ onSubmit, onCancel }) {
 export default function BlocklistsTab({ isAdmin }) {
   const { t } = useI18n()
   const [refreshKey, setRefreshKey] = useState(0)
-  const [selected, setSelected] = useState({}) // feed key -> bool
   const [addEntry, setAddEntry] = useState(false)
   const [removeEntry, setRemoveEntry] = useState(null)
-  const [clearConfirm, setClearConfirm] = useState(false)
 
   function doRefresh() {
     setRefreshKey((k) => k + 1)
   }
 
-  const [blocklists] = usePolling(
-    () => getClient().listBlocklists().catch(() => null),
-    null,
-    [refreshKey],
-    5000,
-  )
-  const [rbl] = usePolling(
-    () => getClient().getRBLConfig().catch(() => null),
+  const [dnsbl] = usePolling(
+    () => getClient().getDNSBLConfig().catch(() => null),
     null,
     [refreshKey],
     60000,
   )
-  const [dnsbl] = usePolling(
-    () => getClient().getDNSBLConfig().catch(() => null),
+  const [rbl] = usePolling(
+    () => getClient().getRBLConfig().catch(() => null),
     null,
     [refreshKey],
     60000,
@@ -188,36 +218,6 @@ export default function BlocklistsTab({ isAdmin }) {
     [refreshKey],
     30000,
   )
-
-  const feeds = blocklists?.feeds || []
-  const running = !!blocklists?.running
-  const statusByKey = Object.fromEntries((blocklists?.status || []).map((s) => [s.key, s]))
-  const selectedKeys = feeds.filter((f) => selected[f.key]).map((f) => f.key)
-
-  async function applyFeeds(keys) {
-    if (keys.length === 0) {
-      toast.error(t('dns.bl.select_one'))
-      return
-    }
-    try {
-      await getClient().applyBlocklists({ keys })
-      toast.success(t('dns.bl.apply_started'))
-      doRefresh()
-    } catch (err) {
-      toast.error(err.detail || err.message)
-    }
-  }
-
-  async function clearAll() {
-    setClearConfirm(false)
-    try {
-      const res = await getClient().clearBlocklists([])
-      toast.success(t('dns.bl.cleared', { count: res?.removed ?? 0 }))
-      doRefresh()
-    } catch (err) {
-      toast.error(err.detail || err.message)
-    }
-  }
 
   async function handleAddEntry(e) {
     e.preventDefault()
@@ -261,81 +261,25 @@ export default function BlocklistsTab({ isAdmin }) {
 
   return (
     <div className="space-y-6">
-      {/* Curated blocklist feeds */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <CardTitle className="text-base">{t('dns.bl.feeds_title')}</CardTitle>
-              <p className="text-sm text-muted-foreground">{t('dns.bl.feeds_description')}</p>
-            </div>
-            {isAdmin && (
-              <div className="flex items-center gap-2">
-                {running && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                <Button variant="outline" size="sm" disabled={running} onClick={() => applyFeeds(selectedKeys)}>
-                  {t('dns.bl.apply_selected')}
-                </Button>
-                <Button variant="outline" size="sm" disabled={running} onClick={() => applyFeeds(feeds.map((f) => f.key))}>
-                  {t('dns.bl.apply_all')}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setClearConfirm(true)}>
-                  {t('dns.bl.clear_all')}
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {feeds.map((f) => {
-            const st = statusByKey[f.key]
-            return (
-              <div key={f.key} className="flex items-start gap-3">
-                <Switch
-                  checked={!!selected[f.key]}
-                  disabled={!isAdmin}
-                  onCheckedChange={(v) => setSelected((s) => ({ ...s, [f.key]: v }))}
-                  aria-label={f.name}
-                  className="mt-1"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm">{f.name}</span>
-                    {st?.done && !st?.error && (
-                      <Badge variant="secondary">{t('dns.bl.loaded', { count: st.added })}</Badge>
-                    )}
-                    {st && !st.done && (
-                      <Badge variant="secondary">
-                        {t('dns.bl.loading_count', { added: st.added, total: st.total })}
-                      </Badge>
-                    )}
-                    {st?.error && <Badge variant="destructive">{t('dns.bl.failed')}</Badge>}
-                  </div>
-                  <p className="text-sm text-muted-foreground">{f.description}</p>
-                </div>
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
-
-      {/* RBL / DNSBL provider zones */}
-      <BlocklistProviders
-        title={t('dns.bl.rbl_title')}
-        description={t('dns.bl.rbl_description')}
-        config={rbl}
-        isAdmin={isAdmin}
-        onSave={async (enabled, providers) => {
-          await getClient().setRBLConfig(enabled, providers)
-          doRefresh()
-        }}
-      />
       <BlocklistProviders
         title={t('dns.bl.dnsbl_title')}
         description={t('dns.bl.dnsbl_description')}
         config={dnsbl}
+        suggestions={DNSBL_SUGGESTIONS}
         isAdmin={isAdmin}
         onSave={async (enabled, providers) => {
           await getClient().setDNSBLConfig(enabled, providers)
+          doRefresh()
+        }}
+      />
+      <BlocklistProviders
+        title={t('dns.bl.rbl_title')}
+        description={t('dns.bl.rbl_description')}
+        config={rbl}
+        suggestions={RBL_SUGGESTIONS}
+        isAdmin={isAdmin}
+        onSave={async (enabled, providers) => {
+          await getClient().setRBLConfig(enabled, providers)
           doRefresh()
         }}
       />
@@ -372,17 +316,6 @@ export default function BlocklistsTab({ isAdmin }) {
         variant="destructive"
       >
         {t('dns.bl.remove_entry_message', { name: removeEntry?.name || '' })}
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={clearConfirm}
-        title={t('dns.bl.clear_title')}
-        onConfirm={clearAll}
-        onCancel={() => setClearConfirm(false)}
-        confirmLabel={t('dns.bl.clear_all')}
-        variant="destructive"
-      >
-        {t('dns.bl.clear_message')}
       </ConfirmDialog>
     </div>
   )

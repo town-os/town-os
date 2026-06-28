@@ -1805,27 +1805,6 @@ describe('SystemControllerClient integration', () => {
       expect(entries.some((e) => e.name === name)).toBe(false)
     })
 
-    it('lists the curated blocklist catalog', async () => {
-      const resp = await client.authenticate('admin', 'adminpass')
-      client.setToken(resp.token)
-
-      const bl = await client.listBlocklists()
-      const keys = bl.feeds.map((f) => f.key)
-      expect(keys).toContain('oisd')
-      expect(keys).toContain('hagezi')
-      expect(keys).toContain('stevenblack')
-      expect(keys).toContain('adguard')
-    })
-
-    it('clearBlocklists returns a count', async () => {
-      const resp = await client.authenticate('admin', 'adminpass')
-      client.setToken(resp.token)
-      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
-
-      const res = await client.clearBlocklists([])
-      expect(typeof res.removed).toBe('number')
-    })
-
     it('lists dns services', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
@@ -1843,20 +1822,19 @@ describe('SystemControllerClient integration', () => {
       ).rejects.toThrow()
     })
 
-    it('rbl/dnsbl/blocklists/services reads require auth', async () => {
+    it('rbl/dnsbl/services reads require auth', async () => {
       const noAuth = new SystemControllerClient(baseURL)
       await expect(noAuth.getRBLConfig()).rejects.toThrow(/GET \/dns\/rbl:.*missing authorization token/)
       await expect(noAuth.getDNSBLConfig()).rejects.toThrow(/GET \/dns\/dnsbl:.*missing authorization token/)
       await expect(noAuth.listLocalRBL()).rejects.toThrow(/GET \/dns\/rbl\/local:.*missing authorization token/)
-      await expect(noAuth.listBlocklists()).rejects.toThrow(/GET \/dns\/blocklists:.*missing authorization token/)
       await expect(noAuth.listDNSServices()).rejects.toThrow(/GET \/dns\/services:.*missing authorization token/)
     })
 
     it('rbl/dnsbl/services writes require admin', async () => {
       const noAuth = new SystemControllerClient(baseURL)
       await expect(noAuth.setRBLConfig(true, [])).rejects.toThrow(/POST \/dns\/rbl:/)
+      await expect(noAuth.setDNSBLConfig(true, [])).rejects.toThrow(/POST \/dns\/dnsbl:/)
       await expect(noAuth.addLocalRBL('x.example.com', '')).rejects.toThrow(/POST \/dns\/rbl\/local\/add:/)
-      await expect(noAuth.applyBlocklists({ keys: ['oisd'] })).rejects.toThrow(/POST \/dns\/blocklists\/apply:/)
       await expect(noAuth.setDNSService('default', 'x', false)).rejects.toThrow(/POST \/dns\/services\/set:/)
     })
   })

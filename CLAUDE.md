@@ -996,25 +996,32 @@ The rolodex container runs with `--net host` and binds DNS to `DNSLoopback` (`12
 - `GET /dns/rbl/local` (auth required) -- list the local RBL blocklist entries (`{name, reason}`).
 - `POST /dns/rbl/local/add` (admin required) -- add a local RBL entry. Accepts a name (domain or IP) and an optional reason. The name is validated (domain or IP), lowercased, and trimmed.
 - `POST /dns/rbl/local/remove` (admin required) -- remove a local RBL entry by name.
-- `GET /dns/blocklists` (auth required) -- list the curated blocklist catalog (OISD, HaGeZi, StevenBlack, AdGuard) plus the current apply status (running flag and per-feed progress).
-- `POST /dns/blocklists/apply` (admin required) -- start a background apply of one or more blocklist feeds. Accepts curated feed `keys` (empty = all curated), or a custom feed `url` + `name`. Returns 202 with the started feed keys; rejects with 409 if an apply is already running. Progress is observable via `GET /dns/blocklists`.
-- `POST /dns/blocklists/clear` (admin required) -- remove blocklist-sourced local RBL entries (those with a `blocklist:` reason prefix). Accepts optional `keys` to clear specific feeds; empty clears all. Returns the count removed.
+- `GET /dns/services` (auth required) -- list installed package services with their published (in-DNS-zone) state (`{repo, name, version, fqdn, domains, published}`), deduplicated by repo/name.
+- `POST /dns/services/set` (admin required) -- publish or unpublish a package service in the DNS zone. Accepts `{repo, name, published}`. Persists the choice and immediately registers/unregisters the records.
 
-DNS read-only endpoints (`/dns/status`, `/dns/records`, `/dns/rbl/local`, `/dns/blocklists`, `GET /dns/tld`, `GET /dns/rbl`, `GET /dns/dnsbl`) are excluded from audit logging.
+DNS read-only endpoints (`/dns/status`, `/dns/records`, `/dns/rbl/local`, `/dns/services`, `GET /dns/tld`, `GET /dns/rbl`, `GET /dns/dnsbl`) are excluded from audit logging.
 
 ### RBL / DNSBL Blocklists
 
-Rolodex (0.2.4+) provides three complementary spam/malware/ad blocking mechanisms, all exposed through the DNS API and the `rolodex.Client` wrapper (`SetRblConfig`/`GetRblConfig`, `SetDnsblConfig`/`GetDnsblConfig`, `AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`):
+Rolodex (0.2.4+) provides three complementary spam/malware/ad blocking mechanisms, all exposed through the DNS API and the `rolodex.Client` wrapper (`SetRblConfig`/`GetRblConfig`, `SetDnsblConfig`/`GetDnsblConfig`, `AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`). All three are **queried on demand by rolodex** — Town OS never downloads, parses, or pre-caches blocklist feeds.
 
-- **RBL** (Realtime Blackhole List) -- reverse-IP blocklists queried with a reversed IP against a zone (e.g. `zen.spamhaus.org`). Checked against IPs found in reverse DNS queries.
-- **DNSBL** (domain blocklist) -- queried by prepending the looked-up domain to the zone (e.g. `googleadservices.com` + `dbl.spamhaus.org`). DNSBL listings take precedence over forwarded/iterative answers.
-- **Local RBL entries** -- a DB-backed list of names/IPs managed locally, checked before external providers. A **domain-name** local entry blocks forward A/AAAA lookups for that domain with `NXDOMAIN`, and takes effect immediately (rolodex updates an in-memory cache on add).
+- **RBL** (Realtime Blackhole List) -- reverse-IP blocklist zones queried on demand with a reversed IP against a zone (e.g. `zen.spamhaus.org`). Checked against IPs found in reverse DNS queries. Configured via `/dns/rbl` as a list of `{zone, enabled}` providers plus a global enabled flag.
+- **DNSBL** (domain blocklist) -- domain blocklist zones queried on demand by prepending the looked-up domain to the zone (e.g. `googleadservices.com` + `dbl.spamhaus.org`). DNSBL listings take precedence over forwarded/iterative answers. Configured via `/dns/dnsbl` with the same shape as RBL.
+- **Local RBL entries** -- a DB-backed list of names/IPs managed manually via `/dns/rbl/local*`, checked before external providers. A **domain-name** local entry blocks forward A/AAAA lookups for that domain with `NXDOMAIN`, and takes effect immediately (rolodex updates an in-memory cache on add).
 
-**Curated blocklists.** The four recommended feeds (OISD, HaGeZi, StevenBlack, AdGuard) are distributed as hosts-file / plain-domain / Adblock-syntax text, not as queryable DNS zones, so they are applied into rolodex's **local RBL list** rather than as DNSBL zone providers. `POST /dns/blocklists/apply` fetches a feed over HTTP, parses out domains (hosts `0.0.0.0 domain`, plain `domain`, and Adblock `||domain^` forms; comments, exceptions, cosmetic/regex rules, wildcards, and raw IPs are skipped), and loads each domain as a local RBL entry with reason `blocklist:<key>`. The apply runs in a background goroutine on the server-scoped context with per-feed status (added/total/done/error) surfaced via `GET /dns/blocklists`. The fetcher is an injectable seam (`blocklistManager.fetch`, defaulting to an HTTP GET) so tests serve a small local feed instead of reaching the internet. `POST /dns/blocklists/clear` removes only entries carrying the `blocklist:` reason prefix, leaving operator-added local entries intact.
+There is **no feed ingestion / pre-caching**: provider zones are the unit of configuration, and the UI offers a curated list of well-known DNSBL/RBL zones (Spamhaus DBL/ZEN, SURBL, URIBL, NordSpam, SpamCop, Barracuda, SORBS) as one-click quick-adds, but the user may add any zone. Provider-zone writes replace the whole config (validated, lowercased, de-duplicated).
+
+### Per-Service DNS Publishing
+
+Publishing is opt-out: every installed package service is published in the DNS zone unless its `repo/name` key is listed in the `dns_excluded_services` setting (a JSON array). `/dns/services/set` toggles membership and immediately registers/unregisters the records; `RebuildDNS` and `ReconcileDNS` filter excluded services (via `filterExcludedDNSInfo` + `loadDNSExcludedServices`) so the choice survives restarts and reconciliation. Unpublished services keep running but are not resolvable by name.
 
 ### DNS Management UI
 
-The DNS management screen displays DNS status (enabled, running, TLD, record count), a DNS records table, and provides dialogs for adding records (types: A, AAAA, CNAME, MX, TXT, SRV, PTR), removing records, changing the TLD, and initial DNS setup.
+The DNS management screen shows DNS status (enabled, running, TLD, record count) above three deep-linkable sub-tabs (`?tab=`):
+
+- **Records** -- the DNS records table with dialogs for adding records (types: A, AAAA, CNAME, MX, TXT, SRV, PTR), removing records, changing the TLD, and initial DNS setup.
+- **Blocklists** -- DNSBL and RBL provider-zone sections (global enable switch, per-zone enable/remove, suggested-zone quick-adds, custom-zone add — all queried on demand) plus a manual local-entry table (add/remove). No feeds, no apply, nothing cached.
+- **Services** -- installed package services with a publish switch (publish/unpublish in the DNS zone).
 
 ## Status Endpoint
 

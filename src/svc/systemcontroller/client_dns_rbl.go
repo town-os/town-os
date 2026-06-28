@@ -85,66 +85,6 @@ func (c *SystemdClient) RemoveLocalRblEntry(ctx context.Context, name string) er
 	return c.postClient(ctx, "dns/rbl/local/remove", pr)
 }
 
-// ListBlocklists returns the curated blocklist catalog and current apply status.
-func (c *SystemdClient) ListBlocklists(ctx context.Context) (_ *BlocklistsResponse, err error) {
-	resp, err := c.getClient(ctx, "dns/blocklists")
-	if err != nil {
-		return nil, fmt.Errorf("%w: ListBlocklists: %w", ErrHTTPRequest, err)
-	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, readProblemDetail(resp, "GET", "dns/blocklists")
-	}
-
-	var result BlocklistsResponse
-	return &result, json.NewDecoder(resp.Body).Decode(&result)
-}
-
-// ApplyBlocklists starts a background apply of the given curated feeds (or a
-// custom feed). It returns the keys of the feeds whose apply was started.
-func (c *SystemdClient) ApplyBlocklists(ctx context.Context, req ApplyBlocklistsRequest) (_ []string, err error) {
-	pr, pw := io.Pipe()
-	go pipeEncode(pw, req)
-
-	resp, err := c.postJSON(ctx, "dns/blocklists/apply", pr)
-	if err != nil {
-		return nil, fmt.Errorf("%w: ApplyBlocklists: %w", ErrHTTPRequest, err)
-	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return nil, readProblemDetail(resp, "POST", "dns/blocklists/apply")
-	}
-
-	var result struct {
-		Feeds []string `json:"feeds"`
-	}
-	return result.Feeds, json.NewDecoder(resp.Body).Decode(&result)
-}
-
-// ClearBlocklists removes local RBL entries that originated from blocklist
-// feeds. Empty keys clears all blocklist-sourced entries. Returns the count.
-func (c *SystemdClient) ClearBlocklists(ctx context.Context, keys []string) (_ int, err error) {
-	pr, pw := io.Pipe()
-	go pipeEncode(pw, ClearBlocklistsRequest{Keys: keys})
-
-	resp, err := c.postJSON(ctx, "dns/blocklists/clear", pr)
-	if err != nil {
-		return 0, fmt.Errorf("%w: ClearBlocklists: %w", ErrHTTPRequest, err)
-	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, readProblemDetail(resp, "POST", "dns/blocklists/clear")
-	}
-
-	var result struct {
-		Removed int `json:"removed"`
-	}
-	return result.Removed, json.NewDecoder(resp.Body).Decode(&result)
-}
-
 // ListDNSServices returns installed package services with their published state.
 func (c *SystemdClient) ListDNSServices(ctx context.Context) (_ []DNSServiceEntry, err error) {
 	resp, err := c.getClient(ctx, "dns/services")

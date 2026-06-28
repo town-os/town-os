@@ -117,19 +117,13 @@ type MockClient struct {
 	DnsblConfig          *RblConfigResponse
 	GetDnsblConfigErr    error
 	SetDnsblConfigErr    error
-	LocalRblEntries      []LocalRblEntryDTO
-	ListLocalRblErr      error
-	AddLocalRblErr       error
-	RemoveLocalRblErr    error
-	Blocklists           *BlocklistsResponse
-	ListBlocklistsErr    error
-	ApplyBlocklistsFeeds []string
-	ApplyBlocklistsErr   error
-	ClearBlocklistsCount int
-	ClearBlocklistsErr   error
-	DNSServices          []DNSServiceEntry
-	ListDNSServicesErr   error
-	SetDNSServiceErr     error
+	LocalRblEntries    []LocalRblEntryDTO
+	ListLocalRblErr    error
+	AddLocalRblErr     error
+	RemoveLocalRblErr  error
+	DNSServices        []DNSServiceEntry
+	ListDNSServicesErr error
+	SetDNSServiceErr   error
 }
 
 // MockCall records a single method invocation on [MockClient], including

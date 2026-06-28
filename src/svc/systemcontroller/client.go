@@ -307,20 +307,6 @@ type Client interface {
 	//
 	// Calls POST /dns/rbl/local/remove on the Control Plane Service.
 	RemoveLocalRblEntry(ctx context.Context, name string) error
-	// ListBlocklists returns the curated blocklist catalog and apply status.
-	//
-	// Calls GET /dns/blocklists on the Control Plane Service.
-	ListBlocklists(ctx context.Context) (*BlocklistsResponse, error)
-	// ApplyBlocklists starts a background apply of curated/custom feeds and
-	// returns the started feed keys.
-	//
-	// Calls POST /dns/blocklists/apply on the Control Plane Service.
-	ApplyBlocklists(ctx context.Context, req ApplyBlocklistsRequest) ([]string, error)
-	// ClearBlocklists removes blocklist-sourced local RBL entries and returns
-	// the count removed.
-	//
-	// Calls POST /dns/blocklists/clear on the Control Plane Service.
-	ClearBlocklists(ctx context.Context, keys []string) (int, error)
 	// ListDNSServices returns installed package services with their published
 	// (in-DNS-zone) state.
 	//
