@@ -1022,20 +1022,33 @@ func reconcilePages(cfg ReconcileConfig) error {
 		return fmt.Errorf("list pages: %w", err)
 	}
 
+	// Page storage is keyed by the served FQDN at the current TLD.
+	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	valid := make(map[string]struct{}, len(pages))
 	for _, page := range pages {
+		dir := pageHostname(pageDomain(page), tld)
+		if dir == "" {
+			continue
+		}
+		valid[dir] = struct{}{}
+
 		// Ensure subvolume exists.
 		if cfg.Storage != nil {
-			fsName := PagesVolumePrefix + "/" + page.Name
+			fsName := PagesVolumePrefix + "/" + dir
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: fsName}); err != nil {
-				slog.Debug(fmt.Sprintf("reconcile: pages subvolume %s: %v", page.Name, err))
+				slog.Debug(fmt.Sprintf("reconcile: pages subvolume %s: %v", dir, err))
 			}
 		}
 
 		// Ensure symlink exists.
-		if err := EnsurePageSymlink(cfg.BtrfsBasePath, page.Name); err != nil {
-			slog.Debug(fmt.Sprintf("reconcile: pages symlink %s: %v", page.Name, err))
+		if err := EnsurePageSymlink(cfg.BtrfsBasePath, dir); err != nil {
+			slog.Debug(fmt.Sprintf("reconcile: pages symlink %s: %v", dir, err))
 		}
 	}
+
+	// Prune webroot symlinks left behind by a TLD change or removed page so the
+	// static server never resolves a stale hostname to old content.
+	pruneStalePageSymlinks(cfg.BtrfsBasePath, valid)
 
 	return nil
 }

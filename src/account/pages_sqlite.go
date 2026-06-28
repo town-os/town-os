@@ -21,7 +21,7 @@ func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
 		repo_url        TEXT NOT NULL DEFAULT '',
 		branch          TEXT NOT NULL DEFAULT 'main',
 		domain          TEXT NOT NULL,
-		source_type     TEXT NOT NULL DEFAULT 'git',
+		source_type     TEXT NOT NULL DEFAULT 'archive',
 		image           TEXT NOT NULL DEFAULT '',
 		image_directory TEXT NOT NULL DEFAULT '',
 		status          TEXT NOT NULL DEFAULT 'pending',
@@ -37,7 +37,7 @@ func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
 		name string
 		def  string
 	}{
-		{"source_type", "TEXT NOT NULL DEFAULT 'git'"},
+		{"source_type", "TEXT NOT NULL DEFAULT 'archive'"},
 		{"image", "TEXT NOT NULL DEFAULT ''"},
 		{"image_directory", "TEXT NOT NULL DEFAULT ''"},
 	} {

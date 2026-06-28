@@ -577,13 +577,14 @@ func TestPagesCreateCreatesSymlink(t *testing.T) {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	linkPath := filepath.Join(webrootDir, "my-site")
+	// The webroot symlink is named by the served FQDN (the page's domain).
+	linkPath := filepath.Join(webrootDir, "site.example.com")
 	target, err := os.Readlink(linkPath)
 	if err != nil {
 		t.Fatalf("Readlink: %v", err)
 	}
 
-	expected := "/data/pages/my-site"
+	expected := "/data/pages/site.example.com"
 	if target != expected {
 		t.Fatalf("expected symlink target %q, got %q", expected, target)
 	}
@@ -604,8 +605,8 @@ func TestPagesRemoveRemovesSymlink(t *testing.T) {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	// Verify symlink exists.
-	linkPath := filepath.Join(webrootDir, "my-site")
+	// Verify symlink exists (named by the served FQDN / domain).
+	linkPath := filepath.Join(webrootDir, "site.example.com")
 	if _, err := os.Readlink(linkPath); err != nil {
 		t.Fatalf("expected symlink to exist: %v", err)
 	}

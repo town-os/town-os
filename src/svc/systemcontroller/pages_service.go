@@ -19,15 +19,14 @@ import (
 const PagesServeCaddyDir = "pages-serve-caddy"
 
 // pagesServeCaddyfile is the fixed config for the pages static-file service: a
-// single :80 site that serves /srv/<first-label-of-Host> via file_server. The
-// map directive extracts the leftmost DNS label of the request Host (the page
-// name) regardless of TLD depth, so the shared ingress can route every page
-// FQDN here without the pages service ever being reprogrammed per page.
+// single :80 site that serves /srv/<full-request-host> via file_server. Page
+// content directories (and the webroot symlinks under /srv) are named by the
+// page's served FQDN, so keying on the whole Host — not just the leftmost
+// label — means two pages whose first labels collide (blog.a.com vs
+// blog.b.com) resolve to distinct roots. The shared ingress preserves the
+// original Host when proxying here, so no per-page reprogramming is needed.
 const pagesServeCaddyfile = `:80 {
-	map {host} {page} {
-		~^([^.]+)\.  ${1}
-	}
-	root * /srv/{page}
+	root * /srv/{host}
 	file_server
 }
 `

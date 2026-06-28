@@ -1102,21 +1102,22 @@ func TestReconcilePagesSubvolumesAndSymlinks(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	// Verify subvolumes were created: 4 root + 2 page subvolumes = 6.
+	// Subvolumes and symlinks are keyed by the served FQDN (the page's domain),
+	// not its short name.
 	fs := controller.GetFilesystems()
 	fsNames := map[string]bool{}
 	for _, f := range fs {
 		fsNames[f.Name] = true
 	}
-	if !fsNames["pages/alpha-site"] {
-		t.Fatal("expected pages/alpha-site subvolume")
+	if !fsNames["pages/alpha.example.com"] {
+		t.Fatal("expected pages/alpha.example.com subvolume")
 	}
-	if !fsNames["pages/beta-site"] {
-		t.Fatal("expected pages/beta-site subvolume")
+	if !fsNames["pages/beta.example.com"] {
+		t.Fatal("expected pages/beta.example.com subvolume")
 	}
 
 	// Verify symlinks were created.
-	for _, name := range []string{"alpha-site", "beta-site"} {
+	for _, name := range []string{"alpha.example.com", "beta.example.com"} {
 		linkPath := filepath.Join(btrfsBase, PagesWebrootDir, name)
 		target, err := os.Readlink(linkPath)
 		if err != nil {

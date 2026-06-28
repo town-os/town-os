@@ -21,16 +21,20 @@ func TestStartPagesService(t *testing.T) {
 		t.Fatalf("StartPagesService: %v", err)
 	}
 
-	// The static Caddyfile maps the first Host label to the page dir.
+	// The static Caddyfile serves /srv/<full-request-host> so each page's
+	// FQDN-named directory is matched directly (no leftmost-label collision).
 	cf := filepath.Join(btrfsBase, PagesServeCaddyDir, "Caddyfile")
 	data, err := os.ReadFile(cf) //nolint:gosec // test-controlled path
 	if err != nil {
 		t.Fatalf("read Caddyfile: %v", err)
 	}
-	for _, want := range []string{"map {host} {page}", "root * /srv/{page}", "file_server"} {
+	for _, want := range []string{"root * /srv/{host}", "file_server"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("pages Caddyfile missing %q:\n%s", want, data)
 		}
+	}
+	if strings.Contains(string(data), "{page}") {
+		t.Errorf("pages Caddyfile should no longer use the leftmost-label map:\n%s", data)
 	}
 
 	// The unit is installed, enabled, and started, joins the ingress network,

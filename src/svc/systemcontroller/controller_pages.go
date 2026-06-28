@@ -118,10 +118,20 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		return err
 	}
 
+	// All page storage (content subvolume, webroot symlink, the host the static
+	// server matches) is keyed by the page's served FQDN, not its short name.
+	dir := s.pageDirName(req.Domain)
+	if dir == "" {
+		if rerr := mgr.Remove(req.Name); rerr != nil {
+			slog.Debug(fmt.Sprintf("pages rollback remove %s: %v", req.Name, rerr))
+		}
+		return fmt.Errorf("pages: could not derive directory for domain %q", req.Domain)
+	}
+
 	// Create the btrfs subvolume for this page's content.
 	st := s.Controller.GetStorage()
 	if st != nil {
-		fsName := PagesVolumePrefix + "/" + req.Name
+		fsName := PagesVolumePrefix + "/" + dir
 		if err := st.CreateFilesystem(storage.Filesystem{Name: fsName}); err != nil {
 			// Rollback: remove the page from the DB.
 			if rerr := mgr.Remove(req.Name); rerr != nil {
@@ -133,12 +143,12 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 
 	btrfsBase := s.Controller.GetBtrfsBasePath()
 	if btrfsBase != "" {
-		if err := EnsurePageSymlink(btrfsBase, req.Name); err != nil {
-			slog.Debug(fmt.Sprintf("pages symlink %s: %v", req.Name, err))
+		if err := EnsurePageSymlink(btrfsBase, dir); err != nil {
+			slog.Debug(fmt.Sprintf("pages symlink %s: %v", dir, err))
 		}
 	}
 
-	subvolPath := s.pagesSubvolumePath(req.Name)
+	subvolPath := s.pagesSubvolumePath(dir)
 
 	switch req.SourceType {
 	case account.PageSourceGit:
@@ -147,11 +157,14 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
 		if gitClient != nil && btrfsBase != "" {
 			go func() {
-				cloneErr := gitClient.Clone(s.ctx, pagesDir, req.RepoURL, req.Name)
+				cloneErr := gitClient.Clone(s.ctx, pagesDir, req.RepoURL, dir)
 
 				status := "active"
 				if cloneErr != nil {
-					slog.Debug(fmt.Sprintf("pages clone %s: %v", req.Name, cloneErr))
+					slog.Debug(fmt.Sprintf("pages clone %s: %v", dir, cloneErr))
+					// A failed clone can leave a partial/broken tree; reset the
+					// content so a later rebuild starts clean.
+					s.resetPageContent(dir)
 					status = "error"
 				}
 
@@ -169,7 +182,8 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 
 				status := "active"
 				if extractErr != nil {
-					slog.Debug(fmt.Sprintf("pages extract image %s: %v", req.Name, extractErr))
+					slog.Debug(fmt.Sprintf("pages extract image %s: %v", dir, extractErr))
+					s.resetPageContent(dir)
 					status = "error"
 				}
 
@@ -251,18 +265,25 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 		return err
 	}
 
+	// Resolve the FQDN directory from the captured record (falling back to the
+	// name when the record could not be read).
+	dir := s.pageDirName(req.Name)
+	if removed != nil {
+		dir = s.pageDirName(pageDomain(*removed))
+	}
+
 	btrfsBase := s.Controller.GetBtrfsBasePath()
 	if btrfsBase != "" {
-		if err := RemovePageSymlink(btrfsBase, req.Name); err != nil {
-			slog.Debug(fmt.Sprintf("pages remove symlink %s: %v", req.Name, err))
+		if err := RemovePageSymlink(btrfsBase, dir); err != nil {
+			slog.Debug(fmt.Sprintf("pages remove symlink %s: %v", dir, err))
 		}
 	}
 
 	st := s.Controller.GetStorage()
 	if st != nil {
-		fsName := PagesVolumePrefix + "/" + req.Name
+		fsName := PagesVolumePrefix + "/" + dir
 		if err := st.RemoveFilesystem(fsName); err != nil {
-			slog.Debug(fmt.Sprintf("pages remove subvolume %s: %v", req.Name, err))
+			slog.Debug(fmt.Sprintf("pages remove subvolume %s: %v", dir, err))
 		}
 	}
 
@@ -318,7 +339,8 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
 	}
 
-	targetDir := s.pagesSubvolumePath(page.Name)
+	dir := s.pageDirName(pageDomain(*page))
+	targetDir := s.pagesSubvolumePath(dir)
 	pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
 
 	switch page.SourceType {
@@ -331,8 +353,10 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		// Check if the directory exists and has a .git directory.
 		gitDir := targetDir + "/.git"
 		if _, err := os.Stat(gitDir); err != nil {
-			// Not cloned yet; do a fresh clone.
-			if err := gitClient.Clone(c.Request().Context(), pagesDir, page.RepoURL, page.Name); err != nil {
+			// Not cloned yet; do a fresh clone. A failed clone can leave a
+			// partial tree, so reset the content before reporting the error.
+			if err := gitClient.Clone(c.Request().Context(), pagesDir, page.RepoURL, dir); err != nil {
+				s.resetPageContent(dir)
 				status := "error"
 				if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 					slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
@@ -340,6 +364,8 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 				return fmt.Errorf("pages clone %s: %w", page.Name, err)
 			}
 		} else {
+			// A failed pull leaves the previously-working clone intact; do not
+			// reset it.
 			if err := gitClient.Pull(c.Request().Context(), targetDir); err != nil {
 				status := "error"
 				if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
@@ -351,6 +377,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 
 	case account.PageSourceContainerImage:
 		if err := s.Controller.GetImageExtractFunc()(c.Request().Context(), page.Image, page.ImageDirectory, targetDir); err != nil {
+			s.resetPageContent(dir)
 			status := "error"
 			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
@@ -415,7 +442,8 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 		}
 	}()
 
-	targetDir := s.pagesSubvolumePath(name)
+	dir := s.pageDirName(pageDomain(*page))
+	targetDir := s.pagesSubvolumePath(dir)
 	if targetDir == "" {
 		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
 	}
@@ -462,6 +490,8 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 	}
 
 	if unpackErr != nil {
+		// A failed unpack can leave a partial tree; reset the content.
+		s.resetPageContent(dir)
 		status := "error"
 		if _, uerr := mgr.Update(name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 			slog.Debug(fmt.Sprintf("pages update status %s: %v", name, uerr))
@@ -484,11 +514,81 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 	return c.JSON(200, updated)
 }
 
-// pagesSubvolumePath returns the filesystem path for a page's btrfs subvolume.
-func (s *SystemControllerHandlers) pagesSubvolumePath(name string) string {
+// pagesSubvolumePath returns the filesystem path for a page's btrfs subvolume,
+// given its directory name (the served FQDN — see pageDirName).
+func (s *SystemControllerHandlers) pagesSubvolumePath(dir string) string {
 	base := s.Controller.GetBtrfsBasePath()
 	if base == "" {
 		return ""
 	}
-	return filepath.Join(base, PagesVolumePrefix, name)
+	return filepath.Join(base, PagesVolumePrefix, dir)
+}
+
+// pageDirName returns the on-disk directory name for a page: its served FQDN at
+// the current TLD (e.g. "blog.home" for an internal page, or the public FQDN
+// verbatim). The content subvolume, webroot symlink, and the host the static
+// pages server matches are all keyed by this name, so two pages whose short
+// labels collide (e.g. blog.a.com and blog.b.com) never share a directory.
+func (s *SystemControllerHandlers) pageDirName(domain string) string {
+	return pageHostname(domain, reconcileDNSTLD(s.Controller.GetSettingsManager()))
+}
+
+// migratePageDirsForTLD renames each internal page's content subvolume and
+// webroot symlink from its old-TLD FQDN to the new-TLD FQDN when the DNS TLD
+// changes, so served content follows the new hostname. Public-FQDN pages are
+// unaffected (their directory name does not include the TLD, so oldDir ==
+// newDir and they are skipped). Best-effort: failures are logged and the
+// periodic reconcile (with pruneStalePageSymlinks) is the backstop.
+func (s *SystemControllerHandlers) migratePageDirsForTLD(oldTLD, newTLD string) {
+	mgr := s.Controller.GetPagesManager()
+	if mgr == nil || oldTLD == newTLD {
+		return
+	}
+	pages, err := mgr.List()
+	if err != nil {
+		slog.Debug(fmt.Sprintf("pages TLD migrate list: %v", err))
+		return
+	}
+	st := s.Controller.GetStorage()
+	base := s.Controller.GetBtrfsBasePath()
+	for _, p := range pages {
+		domain := pageDomain(p)
+		oldDir := pageHostname(domain, oldTLD)
+		newDir := pageHostname(domain, newTLD)
+		if oldDir == "" || newDir == "" || oldDir == newDir {
+			continue
+		}
+		if st != nil {
+			if err := st.RenameFilesystem(PagesVolumePrefix+"/"+oldDir, PagesVolumePrefix+"/"+newDir); err != nil {
+				slog.Debug(fmt.Sprintf("pages TLD rename %s -> %s: %v", oldDir, newDir, err))
+			}
+		}
+		if base != "" {
+			if err := RemovePageSymlink(base, oldDir); err != nil {
+				slog.Debug(fmt.Sprintf("pages TLD remove old symlink %s: %v", oldDir, err))
+			}
+			if err := EnsurePageSymlink(base, newDir); err != nil {
+				slog.Debug(fmt.Sprintf("pages TLD symlink %s: %v", newDir, err))
+			}
+		}
+	}
+}
+
+// resetPageContent empties a page's content subvolume so a failed clone,
+// image extract, or archive unpack never leaves a partial/broken tree (a half-
+// written .git, truncated files) that would corrupt a later rebuild. Best
+// effort: remove and recreate the subvolume so the directory exists but is
+// clean.
+func (s *SystemControllerHandlers) resetPageContent(dir string) {
+	st := s.Controller.GetStorage()
+	if st == nil || dir == "" {
+		return
+	}
+	fsName := PagesVolumePrefix + "/" + dir
+	if err := st.RemoveFilesystem(fsName); err != nil {
+		slog.Debug(fmt.Sprintf("pages reset remove %s: %v", dir, err))
+	}
+	if err := st.CreateFilesystem(storage.Filesystem{Name: fsName}); err != nil {
+		slog.Debug(fmt.Sprintf("pages reset create %s: %v", dir, err))
+	}
 }

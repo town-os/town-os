@@ -227,6 +227,33 @@ func RemovePageSymlink(btrfsBasePath, pageName string) error {
 	return err
 }
 
+// pruneStalePageSymlinks removes webroot symlinks whose name is not in the set
+// of currently-valid page directory names (the served FQDNs). It is the
+// convergence backstop for TLD changes and removed pages so the static server
+// never resolves a stale hostname to old content. Best-effort: only symlinks
+// are removed (the webroot only ever holds symlinks), and errors are logged.
+func pruneStalePageSymlinks(btrfsBasePath string, valid map[string]struct{}) {
+	dir := filepath.Join(btrfsBasePath, PagesWebrootDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Debug("prune page symlinks: read webroot", "error", err)
+		}
+		return
+	}
+	for _, e := range entries {
+		if _, ok := valid[e.Name()]; ok {
+			continue
+		}
+		if e.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			slog.Debug("prune stale page symlink", "name", e.Name(), "error", err)
+		}
+	}
+}
+
 // caddyImage returns the configured Caddy container image from settings.
 func (s *SystemControllerHandlers) caddyImage() string {
 	mgr := s.Controller.GetSettingsManager()

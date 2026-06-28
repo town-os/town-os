@@ -654,10 +654,12 @@ func TestHTTPCreatePageCreatesSubvolume(t *testing.T) {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
+	// The content subvolume is named by the served FQDN (the page's domain),
+	// not its short name.
 	fs := env.Storage.GetFilesystems()
 	found := false
 	for _, f := range fs {
-		if f.Name == "pages/my-site" {
+		if f.Name == "pages/site.example.com" {
 			found = true
 			break
 		}
@@ -667,7 +669,7 @@ func TestHTTPCreatePageCreatesSubvolume(t *testing.T) {
 		for i, f := range fs {
 			names[i] = f.Name
 		}
-		t.Fatalf("expected pages/my-site subvolume, got %v", names)
+		t.Fatalf("expected pages/site.example.com subvolume, got %v", names)
 	}
 }
 
@@ -685,8 +687,8 @@ func TestHTTPRemovePageRemovesSubvolume(t *testing.T) {
 
 	fs := env.Storage.GetFilesystems()
 	for _, f := range fs {
-		if f.Name == "pages/my-site" {
-			t.Fatal("expected pages/my-site subvolume to be removed")
+		if f.Name == "pages/site.example.com" {
+			t.Fatal("expected pages/site.example.com subvolume to be removed")
 		}
 	}
 }
@@ -704,13 +706,13 @@ func TestHTTPCreatePageSymlinkCreated(t *testing.T) {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	linkPath := filepath.Join(env.BtrfsBase, PagesWebrootDir, "my-site")
+	linkPath := filepath.Join(env.BtrfsBase, PagesWebrootDir, "site.example.com")
 	target, err := os.Readlink(linkPath)
 	if err != nil {
 		t.Fatalf("Readlink: %v", err)
 	}
 
-	expected := "/data/pages/my-site"
+	expected := "/data/pages/site.example.com"
 	if target != expected {
 		t.Fatalf("expected symlink target %q, got %q", expected, target)
 	}
@@ -729,8 +731,8 @@ func TestHTTPRemovePageRemovesSymlink(t *testing.T) {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	// Verify symlink was created.
-	linkPath := filepath.Join(env.BtrfsBase, PagesWebrootDir, "my-site")
+	// Verify symlink was created (named by the served FQDN / domain).
+	linkPath := filepath.Join(env.BtrfsBase, PagesWebrootDir, "site.example.com")
 	if _, err := os.Readlink(linkPath); err != nil {
 		t.Fatalf("expected symlink to exist after create: %v", err)
 	}
@@ -830,7 +832,8 @@ func TestHTTPUploadPageArchive(t *testing.T) {
 	}
 
 	// Create the target directory since mock btrfs doesn't create real dirs.
-	targetDir := filepath.Join(env.BtrfsBase, PagesVolumePrefix, "archive-site")
+	// Content is keyed by the served FQDN (the page's domain), not its name.
+	targetDir := filepath.Join(env.BtrfsBase, PagesVolumePrefix, "archive.example.com")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
