@@ -331,7 +331,9 @@ func (s *SystemControllerHandlers) unpublishPackageTLSA(ctx context.Context, rep
 	}
 }
 
-// collectInstalledPackageDNSInfo returns DNS info for all installed packages.
+// collectInstalledPackageDNSInfo returns DNS info for all installed packages
+// that are published in the DNS zone (excluded services are filtered out).
 func (s *SystemControllerHandlers) collectInstalledPackageDNSInfo() []rolodex.PackageDNSInfo {
-	return collectInstalledDNSInfo(s.Controller.GetInstaller(), s.Controller.GetRepositoryRoot(), s.getDNSTLDValue())
+	pkgs := collectInstalledDNSInfo(s.Controller.GetInstaller(), s.Controller.GetRepositoryRoot(), s.getDNSTLDValue())
+	return filterExcludedDNSInfo(pkgs, loadDNSExcludedServices(s.Controller.GetSettingsManager()))
 }

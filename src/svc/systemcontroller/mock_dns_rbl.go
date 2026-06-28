@@ -129,3 +129,30 @@ func (m *MockClient) ClearBlocklists(_ context.Context, keys []string) (int, err
 	}
 	return m.ClearBlocklistsCount, nil
 }
+
+// ListDNSServices returns the mock DNS service entries.
+func (m *MockClient) ListDNSServices(_ context.Context) ([]DNSServiceEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListDNSServices"})
+	if m.ListDNSServicesErr != nil {
+		return nil, m.ListDNSServicesErr
+	}
+	return m.DNSServices, nil
+}
+
+// SetDNSService records a publish/unpublish request and updates mock state.
+func (m *MockClient) SetDNSService(_ context.Context, repo, name string, published bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "SetDNSService", Args: []any{repo, name, published}})
+	if m.SetDNSServiceErr != nil {
+		return m.SetDNSServiceErr
+	}
+	for i := range m.DNSServices {
+		if m.DNSServices[i].Repo == repo && m.DNSServices[i].Name == name {
+			m.DNSServices[i].Published = published
+		}
+	}
+	return nil
+}

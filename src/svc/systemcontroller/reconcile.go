@@ -786,7 +786,8 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		return fmt.Errorf("setup TLD %s: %w", tld, err)
 	}
 
-	for _, pkg := range collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld) {
+	excluded := loadDNSExcludedServices(cfg.SettingsMgr)
+	for _, pkg := range filterExcludedDNSInfo(collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld), excluded) {
 		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, cfg.InternalIPv6, pkg.Domains); err != nil {
 			slog.Debug(fmt.Sprintf("rebuild DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
 			continue
@@ -918,7 +919,7 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 			desired[recKey{name: name, value: cfg.InternalIPv6, rtype: upstream.RecordTypeAAAA}] = struct{}{}
 		}
 	}
-	pkgs := collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld)
+	pkgs := filterExcludedDNSInfo(collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld), loadDNSExcludedServices(cfg.SettingsMgr))
 	for _, pkg := range pkgs {
 		baseName := pkg.Name + "." + pkg.Repo + "." + zone
 		addDesired(baseName)

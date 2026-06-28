@@ -221,6 +221,8 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/dns/blocklists", s.listBlocklists, s.requireAuth)
 	e.Add("POST", "/dns/blocklists/apply", s.applyBlocklists, s.requireAdmin)
 	e.Add("POST", "/dns/blocklists/clear", s.clearBlocklists, s.requireAdmin)
+	e.Add("GET", "/dns/services", s.listDNSServices, s.requireAuth)
+	e.Add("POST", "/dns/services/set", s.setDNSService, s.requireAdmin)
 }
 
 // --- Server infrastructure ---

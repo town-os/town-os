@@ -321,6 +321,15 @@ type Client interface {
 	//
 	// Calls POST /dns/blocklists/clear on the Control Plane Service.
 	ClearBlocklists(ctx context.Context, keys []string) (int, error)
+	// ListDNSServices returns installed package services with their published
+	// (in-DNS-zone) state.
+	//
+	// Calls GET /dns/services on the Control Plane Service.
+	ListDNSServices(ctx context.Context) ([]DNSServiceEntry, error)
+	// SetDNSService publishes or unpublishes a package service in the DNS zone.
+	//
+	// Calls POST /dns/services/set on the Control Plane Service.
+	SetDNSService(ctx context.Context, repo, name string, published bool) error
 
 	// ListVMImages returns all cached VM disk images in the vm-images
 	// subvolume. Each entry includes the image filename and size in bytes.

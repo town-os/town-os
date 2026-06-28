@@ -127,6 +127,9 @@ type MockClient struct {
 	ApplyBlocklistsErr   error
 	ClearBlocklistsCount int
 	ClearBlocklistsErr   error
+	DNSServices          []DNSServiceEntry
+	ListDNSServicesErr   error
+	SetDNSServiceErr     error
 }
 
 // MockCall records a single method invocation on [MockClient], including

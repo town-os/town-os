@@ -7,6 +7,25 @@ if (!baseURL) {
   throw new Error('INTEGRATION_URL environment variable is required')
 }
 
+// waitForDNSMutable probes a rolodex-backed endpoint until it succeeds. The
+// UI-integration harness does not always have a live rolodex (its gRPC socket
+// may be absent), in which case RBL/DNSBL/local-entry mutations return 500.
+// Tests that mutate live DNS use this to run the real end-to-end flow when
+// rolodex is up and skip cleanly otherwise. The rolodex-free DNS endpoints
+// (catalog, services, auth checks) are always exercised.
+async function waitForDNSMutable(client, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    try {
+      await client.getRBLConfig()
+      return true
+    } catch {
+      if (Date.now() >= deadline) return false
+      await new Promise((r) => setTimeout(r, 500))
+    }
+  }
+}
+
 const repoUser = process.env.TOWN_OS_REPO_USERNAME || ''
 const repoPass = process.env.TOWN_OS_REPO_PASSWORD || ''
 const testRepoCoreURL =
@@ -1741,6 +1760,104 @@ describe('SystemControllerClient integration', () => {
 
       const status = await userClient.dnsStatus()
       expect(typeof status.enabled).toBe('boolean')
+    })
+
+    // --- RBL / DNSBL / blocklists / services (e2e: JS client -> real DNS) ---
+
+    it('rbl config roundtrip', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      await client.setRBLConfig(true, [{ zone: 'zen.spamhaus.org', enabled: true }])
+      const cfg = await client.getRBLConfig()
+      expect(cfg.enabled).toBe(true)
+      expect(cfg.providers.some((p) => p.zone === 'zen.spamhaus.org')).toBe(true)
+
+      await client.setRBLConfig(false, [])
+    })
+
+    it('dnsbl config roundtrip', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      await client.setDNSBLConfig(true, [{ zone: 'dbl.spamhaus.org', enabled: true }])
+      const cfg = await client.getDNSBLConfig()
+      expect(cfg.enabled).toBe(true)
+      expect(cfg.providers.some((p) => p.zone === 'dbl.spamhaus.org')).toBe(true)
+
+      await client.setDNSBLConfig(false, [])
+    })
+
+    it('local rbl entry add/list/remove changes DNS state', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      const name = 'e2e-block.example.com'
+      await client.addLocalRBL(name, 'e2e test')
+      let entries = await client.listLocalRBL()
+      expect(entries.some((e) => e.name === name)).toBe(true)
+
+      await client.removeLocalRBL(name)
+      entries = await client.listLocalRBL()
+      expect(entries.some((e) => e.name === name)).toBe(false)
+    })
+
+    it('lists the curated blocklist catalog', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const bl = await client.listBlocklists()
+      const keys = bl.feeds.map((f) => f.key)
+      expect(keys).toContain('oisd')
+      expect(keys).toContain('hagezi')
+      expect(keys).toContain('stevenblack')
+      expect(keys).toContain('adguard')
+    })
+
+    it('clearBlocklists returns a count', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      const res = await client.clearBlocklists([])
+      expect(typeof res.removed).toBe('number')
+    })
+
+    it('lists dns services', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const services = await client.listDNSServices()
+      expect(Array.isArray(services)).toBe(true)
+    })
+
+    it('setDNSService on a non-installed service errors', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      await expect(
+        client.setDNSService('default', 'definitely-not-installed', false),
+      ).rejects.toThrow()
+    })
+
+    it('rbl/dnsbl/blocklists/services reads require auth', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.getRBLConfig()).rejects.toThrow(/GET \/dns\/rbl:.*missing authorization token/)
+      await expect(noAuth.getDNSBLConfig()).rejects.toThrow(/GET \/dns\/dnsbl:.*missing authorization token/)
+      await expect(noAuth.listLocalRBL()).rejects.toThrow(/GET \/dns\/rbl\/local:.*missing authorization token/)
+      await expect(noAuth.listBlocklists()).rejects.toThrow(/GET \/dns\/blocklists:.*missing authorization token/)
+      await expect(noAuth.listDNSServices()).rejects.toThrow(/GET \/dns\/services:.*missing authorization token/)
+    })
+
+    it('rbl/dnsbl/services writes require admin', async () => {
+      const noAuth = new SystemControllerClient(baseURL)
+      await expect(noAuth.setRBLConfig(true, [])).rejects.toThrow(/POST \/dns\/rbl:/)
+      await expect(noAuth.addLocalRBL('x.example.com', '')).rejects.toThrow(/POST \/dns\/rbl\/local\/add:/)
+      await expect(noAuth.applyBlocklists({ keys: ['oisd'] })).rejects.toThrow(/POST \/dns\/blocklists\/apply:/)
+      await expect(noAuth.setDNSService('default', 'x', false)).rejects.toThrow(/POST \/dns\/services\/set:/)
     })
   })
 })

@@ -144,3 +144,26 @@ func (c *SystemdClient) ClearBlocklists(ctx context.Context, keys []string) (_ i
 	}
 	return result.Removed, json.NewDecoder(resp.Body).Decode(&result)
 }
+
+// ListDNSServices returns installed package services with their published state.
+func (c *SystemdClient) ListDNSServices(ctx context.Context) (_ []DNSServiceEntry, err error) {
+	resp, err := c.getClient(ctx, "dns/services")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListDNSServices: %w", ErrHTTPRequest, err)
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "GET", "dns/services")
+	}
+
+	var entries []DNSServiceEntry
+	return entries, json.NewDecoder(resp.Body).Decode(&entries)
+}
+
+// SetDNSService publishes or unpublishes a package service in the DNS zone.
+func (c *SystemdClient) SetDNSService(ctx context.Context, repo, name string, published bool) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, SetDNSServiceRequest{Repo: repo, Name: name, Published: published})
+	return c.postClient(ctx, "dns/services/set", pr)
+}

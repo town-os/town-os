@@ -232,6 +232,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/dns/records":                  true,
 			"/dns/rbl/local":                true,
 			"/dns/blocklists":               true,
+			"/dns/services":                 true,
 			"/storage/package-volumes":      true,
 			"/tls/ca.crt":                   true,
 		}

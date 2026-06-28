@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import { useRequireAuth, usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
+import BlocklistsTab from '@/routes/dns/BlocklistsTab.jsx'
+import ServicesTab from '@/routes/dns/ServicesTab.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
@@ -60,6 +64,19 @@ export default function DNSManagement() {
   const [setupConfirm, setSetupConfirm] = useState(false)
   const [removeConfirm, setRemoveConfirm] = useState(null)
   const [addRecordType, setAddRecordType] = useState('')
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') || 'records'
+  function setActiveTab(v) {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('tab', v)
+        return p
+      },
+      { replace: true },
+    )
+  }
 
   const [status] = usePolling(
     () => getClient().dnsStatus().catch(() => null),
@@ -188,7 +205,7 @@ export default function DNSManagement() {
           <h1 className="text-3xl font-bold tracking-tight">{t('dns.title')}</h1>
           <p className="text-muted-foreground">{t('dns.description')}</p>
         </div>
-        {account?.admin && (
+        {account?.admin && activeTab === 'records' && (
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setSetupConfirm(true)}>
               {t('dns.setup_btn')}
@@ -236,19 +253,30 @@ export default function DNSManagement() {
         </div>
       )}
 
-      {/* Records table */}
+      {/* Sub-tabs: Records / Blocklists / Services */}
       {(!status || status.enabled) && (
-        <>
-          {recordsLoading && displayedRecords.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground animate-pulse">{t('dns.loading')}</div>
-          )}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="records">{t('dns.tab_records')}</TabsTrigger>
+            <TabsTrigger value="blocklists">{t('dns.tab_blocklists')}</TabsTrigger>
+            <TabsTrigger value="services">{t('dns.tab_services')}</TabsTrigger>
+          </TabsList>
 
-          <DataTable
-            data={displayedRecords}
-            columns={columns}
-            entryKey="name"
-          />
-        </>
+          <TabsContent value="records" className="mt-4 space-y-4">
+            {recordsLoading && displayedRecords.length === 0 && (
+              <div className="text-center py-8 text-muted-foreground animate-pulse">{t('dns.loading')}</div>
+            )}
+            <DataTable data={displayedRecords} columns={columns} entryKey="name" />
+          </TabsContent>
+
+          <TabsContent value="blocklists" className="mt-4">
+            <BlocklistsTab isAdmin={!!account?.admin} />
+          </TabsContent>
+
+          <TabsContent value="services" className="mt-4">
+            <ServicesTab isAdmin={!!account?.admin} />
+          </TabsContent>
+        </Tabs>
       )}
 
       {/* Add Record Dialog */}
