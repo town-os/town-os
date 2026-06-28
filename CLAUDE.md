@@ -976,6 +976,8 @@ Rolodex itself is a boot service installed and supervised by systemd — the sys
 
 The rolodex container runs with `--net host` and binds DNS to `DNSLoopback` (`127.0.0.2`) on the configured port (default `53`, overridable via `DNSPort` for tests). The image tag is derived from the system controller's release tag (`quay.io/town/rolodex:<tag>`), overridable via the `ROLODEX_IMAGE` environment variable.
 
+**Resolution mode.** `rolodex.yml` pins `resolution.mode` explicitly via `Config.ResolutionMode`, defaulting to `recursive` (`DefaultResolutionMode`) — Town OS resolves unmatched queries iteratively from the root servers rather than forwarding to an upstream resolver. The `forwarders:` list is still written but is only consulted in `forward` mode; the forwarding integration test opts into `ResolutionModeForward` and points the forwarders at a local stub. Rolodex 0.2.4 made `recursive` the upstream default, but Town OS pins it so behavior is independent of upstream default changes.
+
 **Rolodex image is pulled per-arch in tests and dev** — the make harness pulls the host's per-arch rc tag `quay.io/town/rolodex:rc.latest-<arch>` (where `<arch>` is the raw `uname -m` form `x86_64`/`aarch64`), NOT the plain no-arch `rc.latest`. Internal Town OS image pulls default to the rc channel so the harness, dev, and the runtime all track `rc.latest-<arch>`. Rolodex publishes per-arch tags pushed natively from each host (`make push-rc` / `make push-release` in the rolodex-dns repo), so no multi-arch manifest assembly is required for test hosts of any architecture; the *plain* `rc.latest` (no arch suffix) is a single-arch manifest and crash-loops with `exec format error` on the other architecture — only the suffixed `rc.latest-<arch>` is safe to pull directly. The Makefile computes `HOST_ARCH` (normalized to `x86_64`/`aarch64`) and defaults `ROLODEX_IMAGE_TAG ?= rc.latest-$(HOST_ARCH)`; `ROLODEX_IMAGE` derives from it and is injected into test/dev containers via env. Override with `make ROLODEX_IMAGE_TAG=<tag> ...` (e.g. `latest-$(HOST_ARCH)` for a released rolodex) or the `ROLODEX_IMAGE` environment variable. Production/runtime behavior matches — the systemcontroller derives the tag from its release tag (falling back to `rc.latest-<arch>` via `defaultVersionTag()`) unless `ROLODEX_IMAGE` is set; the test and dev harnesses always set it. The dev container's baked rolodex unit (`integration/testdata/town-os-system--rolodex.service`) uses an `@ROLODEX_IMAGE@` placeholder substituted at image build time via the `ROLODEX_IMAGE` build arg in `integration/testdata/Containerfile.dev` (the build fails if the arg is empty), so the baked unit always matches the image the harness loads.
 
 ### DNS API
@@ -987,8 +989,28 @@ The rolodex container runs with `--net host` and binds DNS to `DNSLoopback` (`12
 - `GET /dns/tld` (auth required) -- get the current top-level domain.
 - `POST /dns/tld` (admin required) -- set the TLD. Changes the existing TLD and re-registers all installed packages.
 - `POST /dns/setup` (admin required) -- initialize DNS and register all installed packages.
+- `GET /dns/rbl` (auth required) -- get the RBL (Realtime Blackhole List, reverse-IP) configuration: global enabled flag and provider zones.
+- `POST /dns/rbl` (admin required) -- replace the RBL configuration. Accepts an enabled flag and a list of `{zone, enabled}` providers. Zones are validated as fully-qualified hostnames, lowercased, trimmed, and de-duplicated.
+- `GET /dns/dnsbl` (auth required) -- get the DNSBL (domain blocklist, forward-name) configuration.
+- `POST /dns/dnsbl` (admin required) -- replace the DNSBL configuration (same shape and validation as `/dns/rbl`).
+- `GET /dns/rbl/local` (auth required) -- list the local RBL blocklist entries (`{name, reason}`).
+- `POST /dns/rbl/local/add` (admin required) -- add a local RBL entry. Accepts a name (domain or IP) and an optional reason. The name is validated (domain or IP), lowercased, and trimmed.
+- `POST /dns/rbl/local/remove` (admin required) -- remove a local RBL entry by name.
+- `GET /dns/blocklists` (auth required) -- list the curated blocklist catalog (OISD, HaGeZi, StevenBlack, AdGuard) plus the current apply status (running flag and per-feed progress).
+- `POST /dns/blocklists/apply` (admin required) -- start a background apply of one or more blocklist feeds. Accepts curated feed `keys` (empty = all curated), or a custom feed `url` + `name`. Returns 202 with the started feed keys; rejects with 409 if an apply is already running. Progress is observable via `GET /dns/blocklists`.
+- `POST /dns/blocklists/clear` (admin required) -- remove blocklist-sourced local RBL entries (those with a `blocklist:` reason prefix). Accepts optional `keys` to clear specific feeds; empty clears all. Returns the count removed.
 
-DNS read-only endpoints (`/dns/status`, `/dns/records`, `GET /dns/tld`) are excluded from audit logging.
+DNS read-only endpoints (`/dns/status`, `/dns/records`, `/dns/rbl/local`, `/dns/blocklists`, `GET /dns/tld`, `GET /dns/rbl`, `GET /dns/dnsbl`) are excluded from audit logging.
+
+### RBL / DNSBL Blocklists
+
+Rolodex (0.2.4+) provides three complementary spam/malware/ad blocking mechanisms, all exposed through the DNS API and the `rolodex.Client` wrapper (`SetRblConfig`/`GetRblConfig`, `SetDnsblConfig`/`GetDnsblConfig`, `AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`):
+
+- **RBL** (Realtime Blackhole List) -- reverse-IP blocklists queried with a reversed IP against a zone (e.g. `zen.spamhaus.org`). Checked against IPs found in reverse DNS queries.
+- **DNSBL** (domain blocklist) -- queried by prepending the looked-up domain to the zone (e.g. `googleadservices.com` + `dbl.spamhaus.org`). DNSBL listings take precedence over forwarded/iterative answers.
+- **Local RBL entries** -- a DB-backed list of names/IPs managed locally, checked before external providers. A **domain-name** local entry blocks forward A/AAAA lookups for that domain with `NXDOMAIN`, and takes effect immediately (rolodex updates an in-memory cache on add).
+
+**Curated blocklists.** The four recommended feeds (OISD, HaGeZi, StevenBlack, AdGuard) are distributed as hosts-file / plain-domain / Adblock-syntax text, not as queryable DNS zones, so they are applied into rolodex's **local RBL list** rather than as DNSBL zone providers. `POST /dns/blocklists/apply` fetches a feed over HTTP, parses out domains (hosts `0.0.0.0 domain`, plain `domain`, and Adblock `||domain^` forms; comments, exceptions, cosmetic/regex rules, wildcards, and raw IPs are skipped), and loads each domain as a local RBL entry with reason `blocklist:<key>`. The apply runs in a background goroutine on the server-scoped context with per-feed status (added/total/done/error) surfaced via `GET /dns/blocklists`. The fetcher is an injectable seam (`blocklistManager.fetch`, defaulting to an HTTP GET) so tests serve a small local feed instead of reaching the internet. `POST /dns/blocklists/clear` removes only entries carrying the `blocklist:` reason prefix, leaving operator-added local entries intact.
 
 ### DNS Management UI
 
