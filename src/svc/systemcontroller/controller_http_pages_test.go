@@ -1078,8 +1078,8 @@ func TestGetImageExtractFuncCustom(t *testing.T) {
 }
 
 func TestHTTPPagesDisabledWithoutManager(t *testing.T) {
-	// When PagesMgr is nil (TOWN_OS_PAGES not set), all pages endpoints
-	// should return "pages not configured".
+	// When PagesMgr is nil (the manager failed to init), all pages endpoints
+	// should return "pages not configured" via the defensive nil guard.
 	ts := InitTestServer(ServerConfig{
 		Storage:        storage.InitBtrFSMock(),
 		RepositoryRoot: emptyRepoRoot(t),

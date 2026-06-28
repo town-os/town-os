@@ -76,7 +76,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
-- **Pages feature requires `TOWN_OS_PAGES` env var** — the pages subsystem (static site hosting via Caddy) is disabled at runtime unless `TOWN_OS_PAGES` is set to a non-empty value. When unset, the pages manager is nil and all pages API endpoints return "pages not configured". The code and tests are not removed; tests configure pages directly via `ServerConfig.PagesMgr` and are unaffected by this gate. The env var is intended to be baked into the container image at build time via `ENV TOWN_OS_PAGES=1` in the Containerfile.
+- **Pages feature is always enabled** — the pages subsystem (static site hosting via Caddy) is initialized unconditionally at startup; there is no `TOWN_OS_PAGES` env gate. The pages manager is non-nil in a normal boot, so the pages API is always available. The handlers still keep a defensive nil-manager guard that returns "pages not configured" (exercised by tests that build a server without `ServerConfig.PagesMgr`), but real boots never hit it.
 
 - **Version change detection and unit restart** — the systemcontroller detects image upgrades by comparing the running container's image SHA (from `/proc/1/cgroup` → `podman inspect`) against a persisted version file at `<btrfsPath>/town-os-version`. On version change: (1) all container images are pulled, (2) the NC image is rebuilt, (3) reconcile regenerates all systemd units, (4) units whose content changed are restarted in order: NC units first (they own networks), then dependency services, then parent/standalone services, (5) post-update commands (`post_update` field) are executed via `podman exec` for container packages whose units changed. The version file is written after successful reconcile. Unit content is compared before/after via `ReadUnit()` to avoid unnecessary restarts when content hasn't changed.
 
@@ -107,7 +107,7 @@ The system controller startup in `src/svc/systemcontroller/cmd/systemcontroller/
 7. **Generate ephemeral JWT signing key** — 32 random bytes via `crypto/rand`, overridable with `TOWN_OS_SIGNING_KEY`. Init session manager, which clears all prior sessions (old tokens are invalid with the new key).
 8. **Init audit manager** — creates audit log table.
 9. **Init settings manager** — creates settings table with defaults (`default_quota`, `max_archive_size`, `locale`, etc.).
-10. **Init pages manager** — only if `TOWN_OS_PAGES` env var is set.
+10. **Init pages manager** — always (the pages subsystem is unconditionally enabled).
 11. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
 12. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
 13. **Init install manager, btrfs storage, systemd manager**.

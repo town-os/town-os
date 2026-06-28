@@ -202,13 +202,10 @@ func run() (err error) {
 		return fmt.Errorf("init settings manager: %w", err)
 	}
 
-	var pagesMgr account.PagesManager
-	if os.Getenv("TOWN_OS_PAGES") != "" {
-		bs.Step("init_pages_mgr")
-		pagesMgr, err = account.InitPagesManager(db)
-		if err != nil {
-			return fmt.Errorf("init pages manager: %w", err)
-		}
+	bs.Step("init_pages_mgr")
+	pagesMgr, err := account.InitPagesManager(db)
+	if err != nil {
+		return fmt.Errorf("init pages manager: %w", err)
 	}
 
 	repoBase := dir

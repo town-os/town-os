@@ -86,7 +86,6 @@ case "$1" in
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=" \
       -e "NC_IMAGE=${NC_IMAGE}" \
-      -e TOWN_OS_PAGES=1 \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os-dev.mount"):/town-os:z" \

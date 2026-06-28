@@ -27,7 +27,6 @@ case "$1" in
     remove_container "${PODMAN_CONTAINER}"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run -e "LOG_LEVEL=${LOG_LEVEL}" -e TOWN_OS_TEST=1 \
-      -e TOWN_OS_PAGES=1 \
       -e TOWN_OS_REPO_USERNAME=town-os \
       -e TOWN_OS_REPO_PASSWORD=town-os-test \
       -e "TOWN_OS_LISTEN=:$(cat "${STATE_DIR}/.integration-port")" \
@@ -109,7 +108,6 @@ case "$1" in
     remove_container "${PODMAN_UI_BACKEND}"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run -e LOG_LEVEL=debug -e DEBUG=1 -e TOWN_OS_TEST=1 \
-      -e TOWN_OS_PAGES=1 \
       -e TOWN_OS_REPO_USERNAME=town-os \
       -e TOWN_OS_REPO_PASSWORD=town-os-test \
       -e "TOWN_OS_LISTEN=:$(cat "${STATE_DIR}/.integration-port")" \
@@ -186,8 +184,8 @@ case "$1" in
       'btrfs subvolume list -o /town-os 2>/dev/null | awk "{print \$NF}" | sort -r | while read sv; do btrfs subvolume delete "/town-os/${sv}" 2>/dev/null; done; true'
     # Remove the DB so the systemcontroller re-initializes accounts/sessions.
     ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c 'rm -f /data/db/*.db'
-    # Set DEBUG+LOG_LEVEL+TOWN_OS_PAGES for UI tests.
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl set-environment DEBUG=1 LOG_LEVEL=debug TOWN_OS_PAGES=1
+    # Set DEBUG+LOG_LEVEL for UI tests.
+    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl set-environment DEBUG=1 LOG_LEVEL=debug
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
     wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
