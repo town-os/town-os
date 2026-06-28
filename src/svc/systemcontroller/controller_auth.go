@@ -230,6 +230,8 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/system-services":              true,
 			"/dns/status":                   true,
 			"/dns/records":                  true,
+			"/dns/rbl/local":                true,
+			"/dns/blocklists":               true,
 			"/storage/package-volumes":      true,
 			"/tls/ca.crt":                   true,
 		}
@@ -239,7 +241,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		}
 
 		// Exclude read-only endpoints that share a path with write endpoints.
-		if c.Request().Method == http.MethodGet && path == "/dns/tld" {
+		if c.Request().Method == http.MethodGet && (path == "/dns/tld" || path == "/dns/rbl" || path == "/dns/dnsbl") {
 			return next(c)
 		}
 

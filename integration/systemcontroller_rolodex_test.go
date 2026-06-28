@@ -125,6 +125,10 @@ func initRolodexRealTestForwarders(t *testing.T, forwarders []string) (rolodex.C
 		DNSPort:        dnsPort,
 		Key:            key,
 		Forwarders:     forwarders,
+		// This helper exists specifically to exercise forwarding to a stub
+		// upstream; rolodex's default is recursive-from-roots, so opt into
+		// forward mode here.
+		ResolutionMode: rolodex.ResolutionModeForward,
 	})
 
 	if _, err := mgr.WriteConfig(); err != nil {

@@ -227,13 +227,29 @@ install_ui_deps() {
   if [ ! -f ui/package.json ]; then
     return
   fi
-  if ! command -v bun >/dev/null 2>&1 && [ ! -x "$HOME/.bun/bin/bun" ]; then
-    echo ">>> WARNING: bun not found on PATH; skipping UI dependency install (eslint)." >&2
-    return
+  # bun is a hard dependency installed by install_bun just above, so it must be
+  # present here. eslint is NOT a host-global tool: it is a ui/package.json
+  # devDependency that `make lint` invokes via `bun run lint` -> `eslint .`,
+  # resolved from ui/node_modules/.bin. If this step is skipped, lint fails with
+  # a confusing "eslint: command not found", so treat a missing bun as fatal
+  # rather than warning and continuing.
+  BUN_BIN="$(command -v bun || true)"
+  if [ -z "$BUN_BIN" ] && [ -x "$HOME/.bun/bin/bun" ]; then
+    BUN_BIN="$HOME/.bun/bin/bun"
   fi
-  BUN_BIN="$(command -v bun || echo "$HOME/.bun/bin/bun")"
+  if [ -z "$BUN_BIN" ]; then
+    echo "ERROR: bun not found; cannot install UI dependencies (eslint). install_bun must run first." >&2
+    exit 1
+  fi
   echo ">>> Installing UI dependencies via bun (eslint, vite, vitest, ...)..."
   (cd ui && "$BUN_BIN" install)
+  # Verify the install actually produced the eslint binary that `make lint`
+  # expects, so a partial/broken install fails here instead of at lint time.
+  if [ ! -x ui/node_modules/.bin/eslint ]; then
+    echo "ERROR: bun install did not produce ui/node_modules/.bin/eslint." >&2
+    exit 1
+  fi
+  echo ">>> eslint installed at ui/node_modules/.bin/eslint."
 }
 
 enable_podman_socket() {

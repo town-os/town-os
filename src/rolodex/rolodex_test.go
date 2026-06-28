@@ -52,7 +52,7 @@ func TestWriteConfig(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"database_path: /data/rolodex.db",
-		"resolution:\n  mode: forward",
+		"resolution:\n  mode: recursive",
 		"dns:",
 		"bind:",
 		"- udp:",
@@ -160,16 +160,32 @@ func TestWriteConfigOverwritesStaleContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(data) != rolodexConfig(DefaultDNSPort, DefaultForwarders) {
+	if string(data) != rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode) {
 		t.Fatalf("expected canonical config, got:\n%s", data)
 	}
 }
 
 func TestRolodexConfigDefaultForwarders(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders)
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode)
 	if !strings.Contains(cfg, "forwarders:\n  - \"8.8.8.8:53\"\n  - \"8.8.4.4:53\"\n") {
 		t.Fatalf("expected default forwarders in config, got:\n%s", cfg)
+	}
+}
+
+func TestRolodexConfigDefaultsToRecursive(t *testing.T) {
+	t.Parallel()
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, "")
+	if !strings.Contains(cfg, "resolution:\n  mode: recursive\n") {
+		t.Fatalf("expected recursive resolution mode by default, got:\n%s", cfg)
+	}
+}
+
+func TestRolodexConfigForwardMode(t *testing.T) {
+	t.Parallel()
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, ResolutionModeForward)
+	if !strings.Contains(cfg, "resolution:\n  mode: forward\n") {
+		t.Fatalf("expected forward resolution mode, got:\n%s", cfg)
 	}
 }
 

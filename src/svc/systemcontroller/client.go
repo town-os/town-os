@@ -279,6 +279,49 @@ type Client interface {
 	// Calls POST /dns/setup on the Control Plane Service.
 	SetupDNS(ctx context.Context) error
 
+	// GetRblConfig returns the current RBL (reverse-IP blocklist) config.
+	//
+	// Calls GET /dns/rbl on the Control Plane Service.
+	GetRblConfig(ctx context.Context) (*RblConfigResponse, error)
+	// SetRblConfig replaces the RBL configuration.
+	//
+	// Calls POST /dns/rbl on the Control Plane Service.
+	SetRblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO) error
+	// GetDnsblConfig returns the current DNSBL (domain blocklist) config.
+	//
+	// Calls GET /dns/dnsbl on the Control Plane Service.
+	GetDnsblConfig(ctx context.Context) (*RblConfigResponse, error)
+	// SetDnsblConfig replaces the DNSBL configuration.
+	//
+	// Calls POST /dns/dnsbl on the Control Plane Service.
+	SetDnsblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO) error
+	// ListLocalRblEntries returns the local RBL blocklist entries.
+	//
+	// Calls GET /dns/rbl/local on the Control Plane Service.
+	ListLocalRblEntries(ctx context.Context) ([]LocalRblEntryDTO, error)
+	// AddLocalRblEntry adds a name or IP to the local RBL blocklist.
+	//
+	// Calls POST /dns/rbl/local/add on the Control Plane Service.
+	AddLocalRblEntry(ctx context.Context, name, reason string) error
+	// RemoveLocalRblEntry removes a name or IP from the local RBL blocklist.
+	//
+	// Calls POST /dns/rbl/local/remove on the Control Plane Service.
+	RemoveLocalRblEntry(ctx context.Context, name string) error
+	// ListBlocklists returns the curated blocklist catalog and apply status.
+	//
+	// Calls GET /dns/blocklists on the Control Plane Service.
+	ListBlocklists(ctx context.Context) (*BlocklistsResponse, error)
+	// ApplyBlocklists starts a background apply of curated/custom feeds and
+	// returns the started feed keys.
+	//
+	// Calls POST /dns/blocklists/apply on the Control Plane Service.
+	ApplyBlocklists(ctx context.Context, req ApplyBlocklistsRequest) ([]string, error)
+	// ClearBlocklists removes blocklist-sourced local RBL entries and returns
+	// the count removed.
+	//
+	// Calls POST /dns/blocklists/clear on the Control Plane Service.
+	ClearBlocklists(ctx context.Context, keys []string) (int, error)
+
 	// ListVMImages returns all cached VM disk images in the vm-images
 	// subvolume. Each entry includes the image filename and size in bytes.
 	//

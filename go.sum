@@ -1,7 +1,7 @@
 dario.cat/mergo v1.0.0 h1:AGCNq9Evsj31mOgNPcLyXc+4PNABt905YmuqPYYpBWk=
 dario.cat/mergo v1.0.0/go.mod h1:uNxQE+84aUszobStD9th8a29P2fMDhsBdgRYvZOxGmk=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260308045214-f6e1ac8bd38a h1:iPAbD/PVDjCvXB61J1pMf6bxETJmXPke3CpHcyefHF0=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260308045214-f6e1ac8bd38a/go.mod h1:T7JRiHx4C/Vf1ItevwjyzkhWhEPYfq/oCc2DAt0HWYk=
+gitea.com/town-os/rolodex-dns/go v0.0.0-20260628051532-a0248b66a249 h1:UrJEpUK6n0QFeL+fmY+kj5dGwt1fz4u/15UlLirtsKw=
+gitea.com/town-os/rolodex-dns/go v0.0.0-20260628051532-a0248b66a249/go.mod h1:T7JRiHx4C/Vf1ItevwjyzkhWhEPYfq/oCc2DAt0HWYk=
 github.com/Microsoft/go-winio v0.5.2/go.mod h1:WpS1mjBmmwHBEWmogvA2mj8546UReBk4v8QkMxJ6pZY=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=

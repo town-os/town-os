@@ -77,6 +77,11 @@ type SystemControllerHandlers struct {
 	// Caddy container so concurrent page/package CRUD never fires overlapping
 	// `systemctl restart` calls (the Caddyfile itself is written synchronously).
 	ingressRestartMu sync.Mutex
+
+	// blocklist tracks the state of curated DNS blocklist applies (OISD,
+	// HaGeZi, StevenBlack, AdGuard, …) which run in a background goroutine
+	// loading domains into rolodex's local RBL list.
+	blocklist blocklistManager
 }
 
 // lockPackage acquires a per-package mutex and returns an unlock function.
@@ -204,6 +209,18 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/dns/tld", s.getDNSTLD, s.requireAuth)
 	e.Add("POST", "/dns/tld", s.setDNSTLD, s.requireAdmin)
 	e.Add("POST", "/dns/setup", s.setupDNS, s.requireAdmin)
+
+	// DNS RBL / DNSBL (spam/malware/ad blocklists via rolodex)
+	e.Add("GET", "/dns/rbl", s.getRblConfig, s.requireAuth)
+	e.Add("POST", "/dns/rbl", s.setRblConfig, s.requireAdmin)
+	e.Add("GET", "/dns/dnsbl", s.getDnsblConfig, s.requireAuth)
+	e.Add("POST", "/dns/dnsbl", s.setDnsblConfig, s.requireAdmin)
+	e.Add("GET", "/dns/rbl/local", s.listLocalRblEntries, s.requireAuth)
+	e.Add("POST", "/dns/rbl/local/add", s.addLocalRblEntry, s.requireAdmin)
+	e.Add("POST", "/dns/rbl/local/remove", s.removeLocalRblEntry, s.requireAdmin)
+	e.Add("GET", "/dns/blocklists", s.listBlocklists, s.requireAuth)
+	e.Add("POST", "/dns/blocklists/apply", s.applyBlocklists, s.requireAdmin)
+	e.Add("POST", "/dns/blocklists/clear", s.clearBlocklists, s.requireAdmin)
 }
 
 // --- Server infrastructure ---

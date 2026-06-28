@@ -20,19 +20,34 @@ type MockCall struct {
 type MockClient struct {
 	mu sync.Mutex
 
-	Calls            []MockCall
-	Records          []*upstream.DnsRecord
-	AuthZones        []string
+	Calls     []MockCall
+	Records   []*upstream.DnsRecord
+	AuthZones []string
 
-	AddRecordErr            error
-	RemoveRecordErr         error
-	RemoveCount             uint32
-	ListRecordsErr          error
-	FlushCacheErr           error
-	CloseErr                error
-	AddAuthZoneErr          error
-	RemoveAuthZoneErr       error
-	ListAuthZonesErr        error
+	// RBL / DNSBL state.
+	RblEnabled    bool
+	RblProviders  []*upstream.RblConfig
+	DnsblEnabled  bool
+	DnsblProviders []*upstream.DnsblConfig
+	LocalRblEntries []*upstream.LocalRblEntry
+
+	AddRecordErr      error
+	RemoveRecordErr   error
+	RemoveCount       uint32
+	ListRecordsErr    error
+	FlushCacheErr     error
+	CloseErr          error
+	AddAuthZoneErr    error
+	RemoveAuthZoneErr error
+	ListAuthZonesErr  error
+
+	SetRblConfigErr        error
+	GetRblConfigErr        error
+	SetDnsblConfigErr      error
+	GetDnsblConfigErr      error
+	AddLocalRblEntryErr    error
+	RemoveLocalRblEntryErr error
+	ListLocalRblEntriesErr error
 }
 
 // GetCalls returns a snapshot of all recorded method calls.
@@ -145,6 +160,98 @@ func (m *MockClient) ListAuthoritativeZones(_ context.Context) ([]string, error)
 func (m *MockClient) FlushDnsCache(_ context.Context) error {
 	m.record("FlushDnsCache")
 	return m.FlushCacheErr
+}
+
+func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []*upstream.RblConfig) error {
+	m.record("SetRblConfig", enabled, providers)
+	if m.SetRblConfigErr != nil {
+		return m.SetRblConfigErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.RblEnabled = enabled
+	m.RblProviders = slices.Clone(providers)
+	return nil
+}
+
+func (m *MockClient) GetRblConfig(_ context.Context) (*upstream.RblStatus, error) {
+	m.record("GetRblConfig")
+	if m.GetRblConfigErr != nil {
+		return nil, m.GetRblConfigErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return &upstream.RblStatus{Enabled: m.RblEnabled, Providers: slices.Clone(m.RblProviders)}, nil
+}
+
+func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []*upstream.DnsblConfig) error {
+	m.record("SetDnsblConfig", enabled, providers)
+	if m.SetDnsblConfigErr != nil {
+		return m.SetDnsblConfigErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.DnsblEnabled = enabled
+	m.DnsblProviders = slices.Clone(providers)
+	return nil
+}
+
+func (m *MockClient) GetDnsblConfig(_ context.Context) (*upstream.DnsblStatus, error) {
+	m.record("GetDnsblConfig")
+	if m.GetDnsblConfigErr != nil {
+		return nil, m.GetDnsblConfigErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return &upstream.DnsblStatus{Enabled: m.DnsblEnabled, Providers: slices.Clone(m.DnsblProviders)}, nil
+}
+
+func (m *MockClient) AddLocalRblEntry(_ context.Context, entry *upstream.LocalRblEntry) error {
+	m.record("AddLocalRblEntry", entry)
+	if m.AddLocalRblEntryErr != nil {
+		return m.AddLocalRblEntryErr
+	}
+	if entry == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.LocalRblEntries {
+		if e.Name == entry.Name {
+			e.Reason = entry.Reason
+			return nil
+		}
+	}
+	m.LocalRblEntries = append(m.LocalRblEntries, entry)
+	return nil
+}
+
+func (m *MockClient) RemoveLocalRblEntry(_ context.Context, name string) error {
+	m.record("RemoveLocalRblEntry", name)
+	if m.RemoveLocalRblEntryErr != nil {
+		return m.RemoveLocalRblEntryErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, e := range m.LocalRblEntries {
+		if e.Name == name {
+			m.LocalRblEntries = append(m.LocalRblEntries[:i], m.LocalRblEntries[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *MockClient) ListLocalRblEntries(_ context.Context) ([]*upstream.LocalRblEntry, error) {
+	m.record("ListLocalRblEntries")
+	if m.ListLocalRblEntriesErr != nil {
+		return nil, m.ListLocalRblEntriesErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*upstream.LocalRblEntry, len(m.LocalRblEntries))
+	copy(out, m.LocalRblEntries)
+	return out, nil
 }
 
 func (m *MockClient) Close() error {

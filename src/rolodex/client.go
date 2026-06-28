@@ -16,6 +16,21 @@ type Client interface {
 	RemoveAuthoritativeZone(ctx context.Context, zone string) error
 	ListAuthoritativeZones(ctx context.Context) ([]string, error)
 	FlushDnsCache(ctx context.Context) error
+
+	// RBL (Realtime Blackhole List, reverse-IP) provider configuration.
+	SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig) error
+	GetRblConfig(ctx context.Context) (*upstream.RblStatus, error)
+
+	// DNSBL (domain blocklist, forward-name) provider configuration.
+	SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig) error
+	GetDnsblConfig(ctx context.Context) (*upstream.DnsblStatus, error)
+
+	// Local RBL blocklist entries (DB-backed names/IPs, checked before
+	// external providers; a name entry blocks forward domain lookups).
+	AddLocalRblEntry(ctx context.Context, entry *upstream.LocalRblEntry) error
+	RemoveLocalRblEntry(ctx context.Context, name string) error
+	ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error)
+
 	Close() error
 }
 
@@ -59,6 +74,34 @@ func (c *client) ListAuthoritativeZones(ctx context.Context) ([]string, error) {
 
 func (c *client) FlushDnsCache(ctx context.Context) error {
 	return c.c.FlushDnsCache(ctx)
+}
+
+func (c *client) SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig) error {
+	return c.c.SetRblConfig(ctx, enabled, providers)
+}
+
+func (c *client) GetRblConfig(ctx context.Context) (*upstream.RblStatus, error) {
+	return c.c.GetRblConfig(ctx)
+}
+
+func (c *client) SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig) error {
+	return c.c.SetDnsblConfig(ctx, enabled, providers)
+}
+
+func (c *client) GetDnsblConfig(ctx context.Context) (*upstream.DnsblStatus, error) {
+	return c.c.GetDnsblConfig(ctx)
+}
+
+func (c *client) AddLocalRblEntry(ctx context.Context, entry *upstream.LocalRblEntry) error {
+	return c.c.AddLocalRblEntry(ctx, entry)
+}
+
+func (c *client) RemoveLocalRblEntry(ctx context.Context, name string) error {
+	return c.c.RemoveLocalRblEntry(ctx, name)
+}
+
+func (c *client) ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error) {
+	return c.c.ListLocalRblEntries(ctx)
 }
 
 func (c *client) Close() error {

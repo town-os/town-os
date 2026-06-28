@@ -3,7 +3,7 @@ module gitea.com/town-os/town-os
 go 1.25.6
 
 require (
-	gitea.com/town-os/rolodex-dns/go v0.0.0-20260308045214-f6e1ac8bd38a
+	gitea.com/town-os/rolodex-dns/go v0.0.0-20260628051532-a0248b66a249
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-git/go-git/v5 v5.17.0

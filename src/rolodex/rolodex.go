@@ -27,6 +27,17 @@ const (
 	// Using 127.0.0.2 avoids conflicts with systemd-resolved (127.0.0.53)
 	// and other services commonly bound to 127.0.0.1.
 	DNSLoopback = "127.0.0.2"
+
+	// ResolutionModeRecursive resolves unmatched queries iteratively from the
+	// root servers (rolodex's own resolver), never contacting an upstream
+	// recursive resolver. This is Town OS's default.
+	ResolutionModeRecursive = "recursive"
+	// ResolutionModeForward forwards unmatched queries to the configured
+	// upstream forwarders (legacy behavior). Used by forwarding tests.
+	ResolutionModeForward = "forward"
+	// DefaultResolutionMode is the upstream resolution strategy written to
+	// rolodex.yml when Config.ResolutionMode is unset.
+	DefaultResolutionMode = ResolutionModeRecursive
 )
 
 // DefaultForwarders are the upstream DNS forwarder addresses written to
@@ -69,10 +80,16 @@ type Config struct {
 	Key string
 	// Forwarders overrides the upstream DNS forwarder addresses
 	// ("host:port") written to rolodex.yml. Defaults to
-	// DefaultForwarders. Tests point this at a local stub DNS server so
-	// forwarding works without internet access (captive networks block
-	// direct queries to public resolvers).
+	// DefaultForwarders. Only consulted when ResolutionMode is "forward";
+	// in recursive mode rolodex resolves from the roots and ignores them.
+	// Tests point this at a local stub DNS server so forwarding works
+	// without internet access (captive networks block direct queries to
+	// public resolvers).
 	Forwarders []string
+	// ResolutionMode selects how rolodex resolves unmatched queries:
+	// "recursive" (iterative from the root servers, the default) or
+	// "forward" (forward to Forwarders). Defaults to DefaultResolutionMode.
+	ResolutionMode string
 }
 
 // Manager provides rolodex configuration and status reporting. The Rolodex
@@ -113,6 +130,15 @@ func (m *Manager) dnsPort() string {
 	return DefaultDNSPort
 }
 
+// resolutionMode returns the configured upstream resolution mode, defaulting
+// to DefaultResolutionMode ("recursive").
+func (m *Manager) resolutionMode() string {
+	if m.cfg.ResolutionMode != "" {
+		return m.cfg.ResolutionMode
+	}
+	return DefaultResolutionMode
+}
+
 // forwarders returns the configured upstream forwarder addresses, defaulting
 // to DefaultForwarders.
 func (m *Manager) forwarders() []string {
@@ -123,16 +149,24 @@ func (m *Manager) forwarders() []string {
 }
 
 // rolodexConfig returns the canonical rolodex YAML configuration with the
-// given DNS port and upstream forwarders. The bind address is always
-// DNSLoopback (127.0.0.2) because the rolodex container runs with --net host.
-func rolodexConfig(port string, forwarders []string) string {
+// given DNS port, upstream forwarders, and resolution mode. The bind address
+// is always DNSLoopback (127.0.0.2) because the rolodex container runs with
+// --net host.
+//
+// resolution.mode defaults to "recursive": Town OS resolves unmatched queries
+// iteratively from the root servers rather than forwarding to an upstream
+// resolver. Rolodex 0.2.4 made "recursive" the upstream default, but we pin it
+// explicitly so the behavior is independent of upstream default changes. The
+// forwarders are still written (used only if the mode is "forward").
+func rolodexConfig(port string, forwarders []string, mode string) string {
+	if mode == "" {
+		mode = DefaultResolutionMode
+	}
 	var fwd strings.Builder
 	for _, f := range forwarders {
 		fmt.Fprintf(&fwd, "  - %q\n", f)
 	}
 	return fmt.Sprintf(`database_path: /data/rolodex.db
-resolution:
-  mode: forward
 dns:
   bind:
     - udp: "%s:%s"
@@ -142,10 +176,12 @@ grpc:
   unix_socket: /data/rolodex.sock
   shared_secret: ""
 forwarders:
-%srbl:
+%sresolution:
+  mode: %s
+rbl:
   enabled: false
   providers: []
-`, DNSLoopback, port, DNSLoopback, port, fwd.String())
+`, DNSLoopback, port, DNSLoopback, port, fwd.String(), mode)
 }
 
 // executableMtime is the function used to get the systemcontroller binary's
@@ -174,7 +210,7 @@ func (m *Manager) WriteConfig() (bool, error) {
 		return false, fmt.Errorf("create data dir: %w", err)
 	}
 
-	config := rolodexConfig(m.dnsPort(), m.forwarders())
+	config := rolodexConfig(m.dnsPort(), m.forwarders(), m.resolutionMode())
 	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
 
 	fi, statErr := os.Stat(configPath)
