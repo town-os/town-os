@@ -74,8 +74,19 @@ export async function observeBootStatus({
         credentials: 'same-origin',
       })
 
+      if (resp.status === 404) {
+        // Startup finished: once boot completes the systemcontroller swaps
+        // its root handler from the boot-status stub to the full router,
+        // which has no /boot-status route and returns 404. So a 404 is the
+        // *completion* signal (the early handler always serves /boot-status
+        // while it is active and never 404s it) — emit done and resolve
+        // instead of reconnecting forever on the provisioning screen.
+        if (onEvent) onEvent({ done: true })
+        return
+      }
+
       if (!resp.ok || !resp.body) {
-        // 4xx/5xx during boot means we hit the early handler *before*
+        // Other 4xx/5xx during boot means we hit the early handler *before*
         // it was even ready, OR the controller is up but /boot-status
         // is temporarily not routable. Treat both as reconnectable.
         throw new Error(`boot-status HTTP ${resp.status}`)

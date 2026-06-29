@@ -44,6 +44,28 @@ describe('observeBootStatus', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('treats a 404 as boot-complete and does not reconnect', async () => {
+    // After boot the systemcontroller swaps to the full router, which has no
+    // /boot-status route and returns 404. The observer must treat that as
+    // done (emit {done:true} and resolve) rather than reconnecting forever on
+    // the provisioning screen.
+    const events = []
+    const onDisconnect = vi.fn()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 404, body: null })
+
+    await observeBootStatus({
+      baseURL: 'http://h',
+      onEvent: (e) => events.push(e),
+      onDisconnect,
+      fetchImpl,
+      sleepImpl: () => Promise.resolve(),
+    })
+
+    expect(events).toEqual([{ done: true }])
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(onDisconnect).not.toHaveBeenCalled()
+  })
+
   it('appends a cache-busting query on every fetch', async () => {
     let call = 0
     const fetchImpl = vi.fn().mockImplementation(async () => {
