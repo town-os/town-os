@@ -75,6 +75,18 @@ func validateTarStream(ctx context.Context, r io.Reader) <-chan error {
 	ch := make(chan error, 1)
 	go func() {
 		defer close(ch)
+		// ALWAYS drain r to EOF before returning. The caller tees the *entire*
+		// unpack stream into r's pipe (io.TeeReader -> validPW), including the
+		// tar record padding and any bytes after the logical end-of-archive
+		// (real `tar czf` pads every archive to a 10 KiB record). archive/tar
+		// stops reading at the two zero blocks, so without this drain the bytes
+		// after them are never read: the unbuffered io.Pipe writer blocks
+		// forever, the unpack tar's stdin copier blocks, and unpackCmd.Wait()
+		// deadlocks -- hanging the whole page-provisioning request. Draining on
+		// every exit path (EOF, invalid tar, ctx cancel) keeps the writer
+		// unblocked so the unpack can finish. The defer runs before close(ch)
+		// (LIFO), and EOF arrives once the caller closes validPW after Wait().
+		defer func() { _, _ = io.Copy(io.Discard, r) }()
 		tr := tar.NewReader(r)
 		for {
 			if ctx.Err() != nil {
