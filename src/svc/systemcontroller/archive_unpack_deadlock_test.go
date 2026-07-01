@@ -2,52 +2,40 @@ package systemcontroller
 
 import (
 	"archive/tar"
-	"bufio"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
 	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
-// These integration tests exercise the real archive-unpack pipeline (pigz + tar
-// subprocesses) end to end. They are regression tests for a page-provisioning
-// deadlock: validateTarStream tees the *entire* unpack stream into an unbuffered
-// io.Pipe, but archive/tar stops reading at the two zero-blocks that mark the
-// logical end of archive. Real tarballs carry trailing bytes after that point
-// (GNU `tar czf` pads every archive to a 10 KiB record), so the validator used
-// to return while bytes were still queued for it -- the io.Pipe writer then
-// blocked forever, the unpack tar's stdin copier blocked, and unpackCmd.Wait()
-// never returned. The fix drains the reader on every exit path.
+// Regression tests for a page-provisioning deadlock, written as PURE Go so they
+// have no external dependencies (no pigz/tar subprocess) and run safely on the
+// build host.
 //
-// Each test runs the unpack under a wall-clock guard so the bug surfaces as a
-// fast failure rather than hanging the whole suite: the deadlock ignores the
-// unpack context timeout, so without the guard it would hang for the full
-// 10-minute DefaultUnpackTimeout and beyond.
+// The bug was entirely inside validateTarStream. The unpack pipeline tees the
+// *entire* archive stream into an unbuffered io.Pipe (io.TeeReader -> validPW)
+// while another reader (tar's stdin) drives it; validateTarStream consumes the
+// pipe's read end. archive/tar stops reading at the two zero blocks that mark
+// the logical end of archive, but real tarballs carry trailing bytes after that
+// (GNU `tar czf` pads every archive to a 10 KiB record). validateTarStream used
+// to return at logical EOF *without draining the rest of r*, so the leftover
+// bytes had no reader: the io.Pipe writer blocked forever, the unpack's stdin
+// copier blocked, and unpackCmd.Wait() never returned -- hanging the whole
+// page-create request (the GUI sat at "Provisioning..." indefinitely).
+//
+// These tests pin the fixed contract directly: validateTarStream MUST drain r to
+// EOF on every exit path (valid EOF, invalid tar, context cancel), so a paired
+// io.Pipe writer always unblocks. They reproduce the exact failure mode (an
+// io.Pipe writer that blocks when the validator stops early) without any
+// subprocess, and fail via a short timeout if the drain is removed.
 
-const deadlockGuard = 30 * time.Second
+const drainTimeout = 5 * time.Second
 
-// requireBins skips the test unless every named binary is on PATH, since these
-// drive the real pigz/tar subprocesses.
-func requireBins(t *testing.T, bins ...string) {
-	t.Helper()
-	for _, b := range bins {
-		if _, err := exec.LookPath(b); err != nil {
-			t.Skipf("integration test requires %q on PATH: %v", b, err)
-		}
-	}
-}
-
-// tarWithTrailingPadding builds a valid tar of files, then appends `pad` zero
-// bytes AFTER archive/tar's logical end-of-archive (its two zero blocks). This
-// reproduces the trailing record padding that real `tar czf` always emits and
-// that the validator must drain.
-func tarWithTrailingPadding(t *testing.T, files map[string]string, pad int) []byte {
+// validTarBytes builds a valid tar of files and returns the raw bytes. tar.Writer
+// emits the two zero blocks at Close; archive/tar's Reader stops there.
+func validTarBytes(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
@@ -59,148 +47,125 @@ func tarWithTrailingPadding(t *testing.T, files map[string]string, pad int) []by
 			t.Fatalf("tar body %s: %v", name, err)
 		}
 	}
-	if err := tw.Close(); err != nil { // writes the two zero blocks (logical EOF)
+	if err := tw.Close(); err != nil {
 		t.Fatalf("tar close: %v", err)
 	}
-	buf.Write(make([]byte, pad)) // trailing bytes after logical EOF
 	return buf.Bytes()
 }
 
-func gzipBytes(t *testing.T, b []byte) []byte {
-	t.Helper()
-	var out bytes.Buffer
-	gw := gzip.NewWriter(&out)
-	if _, err := gw.Write(b); err != nil {
-		t.Fatalf("gzip write: %v", err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatalf("gzip close: %v", err)
-	}
-	return out.Bytes()
+// withTrailingZeros returns a fresh slice holding src followed by n zero bytes,
+// mimicking the record padding that real `tar czf` appends after end-of-archive.
+func withTrailingZeros(src []byte, n int) []byte {
+	padded := make([]byte, len(src)+n)
+	copy(padded, src)
+	return padded
 }
 
-// guard runs fn and fails the test (instead of letting the suite hang) if it
-// does not return within deadlockGuard.
-func guard(t *testing.T, what string, fn func() error) error {
+// assertValidatorDrains feeds `payload` to validateTarStream through an io.Pipe,
+// exactly mirroring how the unpack pipeline tees the stream into validPW, and
+// asserts BOTH that the validator returns the expected error AND that the writer
+// fully drains (its blocking pw.Write completes). If validateTarStream returns
+// without draining, the trailing bytes leave pw.Write blocked forever and the
+// writer-drain wait times out -- reproducing the production deadlock with no
+// subprocess. `wantErr` is matched with errors.Is (nil means "no error").
+func assertValidatorDrains(t *testing.T, payload []byte, wantErr error) {
 	t.Helper()
-	done := make(chan error, 1)
-	go func() { done <- fn() }()
+
+	pr, pw := io.Pipe()
+	ch := validateTarStream(context.Background(), pr)
+
+	writerDone := make(chan error, 1)
+	go func() {
+		// One Write of the whole payload. io.Pipe Write blocks until every byte
+		// is consumed by reads, so it only returns once validateTarStream has
+		// drained the trailing padding. Close mirrors the caller closing validPW
+		// after the unpack finishes, giving the validator's drain its EOF.
+		_, werr := pw.Write(payload)
+		_ = pw.Close()
+		writerDone <- werr
+	}()
+
+	// 1) validateTarStream must return (its channel closes) with the right verdict.
 	select {
-	case err := <-done:
-		return err
-	case <-time.After(deadlockGuard):
-		t.Fatalf("%s did not return within %s: validateTarStream pipe deadlock "+
-			"(the io.Pipe writer blocks when the validator stops before draining trailing tar padding)",
-			what, deadlockGuard)
-		return nil
-	}
-}
-
-func newArchiveHandlers(t *testing.T) (*SystemControllerHandlers, string) {
-	t.Helper()
-	base := t.TempDir()
-	target := filepath.Join(base, "page")
-	if err := os.MkdirAll(target, 0o755); err != nil {
-		t.Fatalf("mkdir target: %v", err)
-	}
-	return &SystemControllerHandlers{Controller: &archiveTestBackend{btrfsBase: base}}, target
-}
-
-func assertExtracted(t *testing.T, target string, files map[string]string) {
-	t.Helper()
-	for name, want := range files {
-		got, err := os.ReadFile(filepath.Join(target, name))
-		if err != nil {
-			t.Fatalf("read extracted %s: %v", name, err)
+	case gotErr := <-ch:
+		if wantErr == nil && gotErr != nil {
+			t.Fatalf("validateTarStream: unexpected error %v", gotErr)
 		}
-		if string(got) != want {
-			t.Fatalf("extracted %s = %q, want %q", name, got, want)
+		if wantErr != nil && !errors.Is(gotErr, wantErr) {
+			t.Fatalf("validateTarStream: got err %v, want %v", gotErr, wantErr)
 		}
+	case <-time.After(drainTimeout):
+		t.Fatalf("validateTarStream did not return within %s", drainTimeout)
+	}
+
+	// 2) The writer must have fully drained. If validateTarStream stopped before
+	// reading the trailing bytes, pw.Write is still blocked -> deadlock.
+	select {
+	case werr := <-writerDone:
+		if werr != nil {
+			t.Fatalf("pipe writer: %v", werr)
+		}
+	case <-time.After(drainTimeout):
+		t.Fatalf("io.Pipe writer still blocked after %s: validateTarStream did not drain r "+
+			"(trailing tar padding left unread -> unpack stdin copier deadlock)", drainTimeout)
 	}
 }
 
-func TestStreamUnpackTarGzTrailingPaddingNoDeadlock(t *testing.T) {
-	requireBins(t, "tar", "pigz")
-
-	files := map[string]string{
+func TestValidateTarStreamDrainsTrailingPadding(t *testing.T) {
+	tarBytes := validTarBytes(t, map[string]string{
 		"index.html": "<html><body>hi from scarlett</body></html>\n",
 		"CNAME":      "scarlett.home\n",
-	}
-	// 10 KiB of trailing zeros mimics `tar czf` record padding after logical EOF.
-	gz := gzipBytes(t, tarWithTrailingPadding(t, files, 10*1024))
-
-	s, target := newArchiveHandlers(t)
-	err := guard(t, "streamUnpackToSubvolume(tar.gz)", func() error {
-		return s.streamUnpackToSubvolume(
-			context.Background(), bufio.NewReader(bytes.NewReader(gz)), "site.tar.gz", "page", "")
 	})
-	if err != nil {
-		t.Fatalf("unpack tar.gz with trailing padding: %v", err)
-	}
-	assertExtracted(t, target, files)
+	// Append 10 KiB of trailing zeros after the logical end-of-archive, mimicking
+	// the record padding that real `tar czf` always emits.
+	padded := withTrailingZeros(tarBytes, 10*1024)
+	assertValidatorDrains(t, padded, nil)
 }
 
-// Plain (uncompressed) tar exercises the unpackPlainTar path, which has the same
-// tee+validate structure as the gzip path. The magic-byte gate in
-// streamUnpackToSubvolume rejects header-less plain tar, so this drives
-// unpackPlainTar directly. WITHOUT the validateTarStream drain fix this
-// deadlocks and the guard fails the test; WITH it the files extract cleanly.
-func TestUnpackPlainTarTrailingPaddingNoDeadlock(t *testing.T) {
-	requireBins(t, "tar")
-
-	files := map[string]string{
-		"index.html": "<html>plain</html>\n",
-		"CNAME":      "plain.home\n",
-	}
-	raw := tarWithTrailingPadding(t, files, 10*1024) // plain tar + trailing padding
-
-	s, target := newArchiveHandlers(t)
-	cr := &countingReader{r: io.LimitReader(bytes.NewReader(raw), DefaultMaxArchiveSize+1)}
-	err := guard(t, "unpackPlainTar", func() error {
-		return s.unpackPlainTar(context.Background(), cr, target, DefaultMaxArchiveSize)
-	})
-	if err != nil {
-		t.Fatalf("unpackPlainTar with trailing padding: %v", err)
-	}
-	assertExtracted(t, target, files)
-}
-
-func TestStreamUnpackTarGzManyFilesNoDeadlock(t *testing.T) {
-	requireBins(t, "tar", "pigz")
-
+func TestValidateTarStreamDrainsManyFiles(t *testing.T) {
 	files := map[string]string{}
 	for i := range 64 {
-		files[filepath.Join("dir", "file"+itoa(i)+".txt")] = "content-" + itoa(i) + "\n"
+		files["dir/file"+itoa(i)+".txt"] = "content-" + itoa(i) + "\n"
 	}
-	gz := gzipBytes(t, tarWithTrailingPadding(t, files, 10*1024))
-
-	s, target := newArchiveHandlers(t)
-	err := guard(t, "streamUnpackToSubvolume(many)", func() error {
-		return s.streamUnpackToSubvolume(
-			context.Background(), bufio.NewReader(bytes.NewReader(gz)), "many.tar.gz", "page", "")
-	})
-	if err != nil {
-		t.Fatalf("unpack many-file tar.gz: %v", err)
-	}
-	assertExtracted(t, target, map[string]string{
-		filepath.Join("dir", "file7.txt"): "content-7\n",
-	})
+	padded := withTrailingZeros(validTarBytes(t, files), 10*1024)
+	assertValidatorDrains(t, padded, nil)
 }
 
-// An invalid tar (valid gzip wrapping non-tar bytes) must return ErrInvalidTar
-// promptly -- the error path must also drain the reader so it cannot deadlock.
-func TestStreamUnpackTarGzInvalidTarNoDeadlock(t *testing.T) {
-	requireBins(t, "tar", "pigz")
+// The error path must also drain: an invalid tar followed by trailing bytes must
+// return ErrInvalidTar AND leave no blocked writer.
+func TestValidateTarStreamDrainsOnInvalidTar(t *testing.T) {
+	payload := bytes.Repeat([]byte("this is definitely not a tar archive\n"), 512)
+	assertValidatorDrains(t, payload, ErrInvalidTar)
+}
 
-	gz := gzipBytes(t, bytes.Repeat([]byte("this is definitely not a tar archive\n"), 512))
+// Context cancel must also drain so a cancelled provisioning request can't wedge
+// the io.Pipe writer either.
+func TestValidateTarStreamDrainsOnCancel(t *testing.T) {
+	tarBytes := validTarBytes(t, map[string]string{"index.html": "<html>x</html>\n"})
+	padded := withTrailingZeros(tarBytes, 10*1024)
 
-	s, _ := newArchiveHandlers(t)
-	err := guard(t, "streamUnpackToSubvolume(invalid)", func() error {
-		return s.streamUnpackToSubvolume(
-			context.Background(), bufio.NewReader(bytes.NewReader(gz)), "bad.tar.gz", "page", "")
-	})
-	if !errors.Is(err, ErrInvalidTar) {
-		t.Fatalf("invalid archive: got err %v, want ErrInvalidTar", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before the validator starts
+
+	pr, pw := io.Pipe()
+	ch := validateTarStream(ctx, pr)
+
+	writerDone := make(chan error, 1)
+	go func() {
+		_, werr := pw.Write(padded)
+		_ = pw.Close()
+		writerDone <- werr
+	}()
+
+	select {
+	case <-ch:
+	case <-time.After(drainTimeout):
+		t.Fatalf("validateTarStream did not return on cancel within %s", drainTimeout)
+	}
+	select {
+	case <-writerDone:
+	case <-time.After(drainTimeout):
+		t.Fatalf("io.Pipe writer still blocked after cancel: validateTarStream did not drain r")
 	}
 }
 
