@@ -251,7 +251,7 @@ func TestValidateUnpackedPaths(t *testing.T) {
 func TestGitCloneIntoPath(t *testing.T) {
 	t.Run("invalid URL fails gracefully", func(t *testing.T) {
 		dir := t.TempDir()
-		err := gitCloneIntoPath(context.Background(), "https://invalid.example.com/nonexistent/repo.git", dir)
+		err := gitCloneIntoPath(context.Background(), &git.GoGitClient{}, "https://invalid.example.com/nonexistent/repo.git", dir)
 		if err == nil {
 			t.Fatal("expected error for invalid git URL")
 		}
@@ -259,7 +259,7 @@ func TestGitCloneIntoPath(t *testing.T) {
 
 	t.Run("error includes URL", func(t *testing.T) {
 		dir := t.TempDir()
-		err := gitCloneIntoPath(context.Background(), "https://invalid.example.com/nonexistent/repo.git", dir)
+		err := gitCloneIntoPath(context.Background(), &git.GoGitClient{}, "https://invalid.example.com/nonexistent/repo.git", dir)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -312,7 +312,7 @@ func TestGitCloneIntoPath(t *testing.T) {
 
 		// Clone into a fresh target using gitCloneIntoPath.
 		target := filepath.Join(t.TempDir(), "cloned")
-		err := gitCloneIntoPath(ctx, bare, target)
+		err := gitCloneIntoPath(ctx, &git.GoGitClient{}, bare, target)
 		if err != nil {
 			t.Fatalf("gitCloneIntoPath: %v", err)
 		}
@@ -331,7 +331,7 @@ func TestGitCloneIntoPath(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		dir := filepath.Join(t.TempDir(), "cloned")
-		err := gitCloneIntoPath(ctx, "https://example.com/repo.git", dir)
+		err := gitCloneIntoPath(ctx, &git.GoGitClient{}, "https://example.com/repo.git", dir)
 		if err == nil {
 			t.Fatal("expected error for cancelled context")
 		}

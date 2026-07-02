@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/monitoring"
@@ -489,6 +490,7 @@ func run() (err error) {
 		InternalIP:             getInternalIP(),
 		VersionChanged:         versionChanged,
 		TLSCA:                  tlsCA,
+		Git:                    &git.GoGitClient{},
 		PostUpdateExec: func(ctx context.Context, containerName string, command string) error {
 			execCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()

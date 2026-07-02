@@ -125,7 +125,12 @@ func (s *serverBase) GetAccountManager() account.Manager          { return s.Acc
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
 func (s *serverBase) GetSettingsManager() account.SettingsManager { return s.SettingsMgr }
-func (s *serverBase) GetGitClient() git.Client                    { return s.Git }
+func (s *serverBase) GetGitClient() git.Client {
+	if s.Git != nil {
+		return s.Git
+	}
+	return &git.GoGitClient{}
+}
 func (s *serverBase) GetAllowedHosts() []string                   { return s.AllowedHosts }
 func (s *serverBase) GetDefaultRepoCredentials() (string, string) {
 	return s.DefaultRepoUser, s.DefaultRepoPass

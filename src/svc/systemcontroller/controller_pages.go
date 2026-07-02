@@ -152,18 +152,20 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 
 	switch req.SourceType {
 	case account.PageSourceGit:
-		// Clone the git repository asynchronously in the background.
+		// Clone the git repository asynchronously in the background, through the
+		// shared git->storage primitive — the same clone code package and
+		// reconcile seeding use, just pointed at this page's subvolume.
 		gitClient := s.Controller.GetGitClient()
-		pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
-		if gitClient != nil && btrfsBase != "" {
+		if gitClient != nil && subvolPath != "" {
 			go func() {
-				cloneErr := gitClient.Clone(s.ctx, pagesDir, req.RepoURL, dir)
+				cloneErr := gitCloneIntoPath(s.ctx, gitClient, req.RepoURL, subvolPath)
 
 				status := "active"
 				if cloneErr != nil {
 					slog.Debug(fmt.Sprintf("pages clone %s: %v", dir, cloneErr))
 					// A failed clone can leave a partial/broken tree; reset the
-					// content so a later rebuild starts clean.
+					// content so a later rebuild starts clean. The reset leaves an
+					// empty subvolume, which the reconcile git-seed then retries.
 					s.resetPageContent(dir)
 					status = "error"
 				}

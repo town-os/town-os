@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -54,6 +55,21 @@ type ReconcileConfig struct {
 	// The function receives the container name and the shell command string.
 	// nil means post-update execution is disabled.
 	PostUpdateExec func(ctx context.Context, containerName string, command string) error
+
+	// Git is the client used to seed git-backed package volumes and pages into
+	// btrfs. nil falls back to a default go-git client (see gitClient); tests
+	// inject a mock.
+	Git git.Client
+}
+
+// gitClient returns the configured git client, defaulting to a go-git client
+// when unset so production callers and older tests that don't set Git keep
+// working.
+func (c ReconcileConfig) gitClient() git.Client {
+	if c.Git != nil {
+		return c.Git
+	}
+	return &git.GoGitClient{}
 }
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
@@ -312,9 +328,10 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 		}
 	}
 
-	// Page provisioning (subvolumes + symlinks) only when pages are enabled.
+	// Page provisioning (subvolumes + symlinks + git content) only when pages
+	// are enabled.
 	if cfg.PagesManager != nil {
-		if err := reconcilePages(cfg); err != nil {
+		if err := reconcilePages(ctx, cfg); err != nil {
 			slog.Error(fmt.Sprintf("reconcile: pages: %v", err))
 		}
 	}
@@ -459,11 +476,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			}
 			volPath := packageVolumePath(repoName, pi.Name, pi.Version, volName)
 			targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
-			entries, err := os.ReadDir(targetPath)
-			if err != nil || len(entries) > 0 {
-				continue
-			}
-			if err := gitCloneIntoPath(ctx, vol.Git, targetPath); err != nil {
+			if err := seedGitIfEmpty(ctx, cfg.gitClient(), vol.Git, targetPath); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile git-seed %s -> %s: %v", vol.Git, volName, err))
 			}
 		}
@@ -1012,7 +1025,7 @@ func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version 
 // reconcilePages ensures all existing pages have btrfs subvolumes and webroot
 // symlinks. The shared :443 ingress that fronts them is programmed separately
 // over gRPC (see the ingress block in Reconcile and RebuildIngress).
-func reconcilePages(cfg ReconcileConfig) error {
+func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 	if err := EnsurePagesWebroot(cfg.BtrfsBasePath); err != nil {
 		return fmt.Errorf("ensure pages webroot: %w", err)
 	}
@@ -1043,6 +1056,18 @@ func reconcilePages(cfg ReconcileConfig) error {
 		// Ensure symlink exists.
 		if err := EnsurePageSymlink(cfg.BtrfsBasePath, dir); err != nil {
 			slog.Debug(fmt.Sprintf("reconcile: pages symlink %s: %v", dir, err))
+		}
+
+		// Seed git-backed page content into the (empty) subvolume, using the
+		// same idempotent git->storage seeder as package volumes. This is what
+		// makes page content converge on btrfs and self-heal after a boot-time
+		// DNS failure: a populated site is skipped, an empty one (fresh, or left
+		// empty by a failed create-time clone) is (re)cloned on this reconcile.
+		if page.SourceType == account.PageSourceGit && page.RepoURL != "" {
+			targetPath := fmt.Sprintf("%s/%s/%s", cfg.BtrfsBasePath, PagesVolumePrefix, dir)
+			if err := seedGitIfEmpty(ctx, cfg.gitClient(), page.RepoURL, targetPath); err != nil {
+				slog.Debug(fmt.Sprintf("reconcile: pages git-seed %s: %v", dir, err))
+			}
 		}
 	}
 
