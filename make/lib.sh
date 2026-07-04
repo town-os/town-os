@@ -228,11 +228,17 @@ image_cache_tar() {
 }
 
 # save_image_cache IMAGE — save an image to the global cache, replacing any existing tar.
+# The write is atomic (temp file + mv) because IMAGE_CACHE is shared across concurrent
+# `make test-full` runs (which now always refresh it via the pull-images prerequisite):
+# a reader loading the tar must never observe a partial `podman save` mid-write. The
+# temp name is per-PID unique so concurrent writers don't collide, and `mv` on the same
+# filesystem atomically replaces the target — IRON RULE.
 save_image_cache() {
-  local tar
+  local tar tmp
   tar="$(image_cache_tar "$1")"
-  ${SUDO} rm -f "${tar}"
-  ${SUDO} podman save -o "${tar}" "$1"
+  tmp="${tar}.tmp.$$"
+  ${SUDO} podman save -o "${tmp}" "$1"
+  ${SUDO} mv -f "${tmp}" "${tar}"
 }
 
 # image_arch_matches IMAGE WANT_ARCH — true if IMAGE is in storage AND its

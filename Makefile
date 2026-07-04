@@ -164,7 +164,7 @@ gitea-populate: gitea
 test-ui-integration: test-image ui-image nc-image ingress-image ui-integration-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration-build: lint test-image ui-image nc-image ingress-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration: test-integration-build
-test-full: test ui-integration-image
+test-full: pull-images test ui-integration-image
 test-full-log:
 test-image: production-image
 dev-production-image: $(STATE_DIR)/.images-pulled
