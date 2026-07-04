@@ -118,21 +118,17 @@ func TestHTTPSettingsMonitoringBackendUPlotInstallsAndRestarts(t *testing.T) {
 		t.Fatalf("expected uPlot service unit to use socat, got:\n%s", content)
 	}
 
-	// The service unit and its NC must both be restarted so the switch
-	// takes effect without a reboot.
+	// The host-net monitoring UI is a plain system service (no NC): the
+	// service unit must be restarted so the switch takes effect without a
+	// reboot, and no -network unit should ever be installed.
 	calls := sd.GetCalls()
 	if !findRestart(calls, svcUnit) {
 		t.Fatalf("expected Restart call on %q, got calls: %v", svcUnit, calls)
 	}
-
-	// The network controller unit must also be restarted (new config may
-	// change port mappings and container command).
-	ncUnit := svcUnit[:len(svcUnit)-len(".service")] + "-network.service"
-	if _, ok := sd.InstalledUnits[ncUnit]; !ok {
-		t.Fatalf("expected NC unit %q installed", ncUnit)
-	}
-	if !findRestart(calls, ncUnit) {
-		t.Fatalf("expected Restart call on NC %q", ncUnit)
+	for name := range sd.InstalledUnits {
+		if strings.Contains(name, "-network.service") {
+			t.Fatalf("host-net monitoring-ui must not install an NC unit, got %q", name)
+		}
 	}
 
 	// The persisted setting round-trips.
@@ -182,14 +178,11 @@ func TestHTTPSettingsMonitoringBackendSwitchStopsAndRestartsServices(t *testing.
 		t.Fatalf("socat command should be gone after switch to Grafana, got:\n%s", grafanaContent)
 	}
 
-	// Both the NC and service unit must be restarted after the switch.
+	// The service unit must be restarted after the switch (no NC unit exists
+	// for the host-net monitoring UI).
 	calls := sd.GetCalls()
 	if !findRestart(calls, svcUnit) {
 		t.Fatalf("expected Restart on %q after backend switch, got calls: %v", svcUnit, calls)
-	}
-	ncUnit := svcUnit[:len(svcUnit)-len(".service")] + "-network.service"
-	if !findRestart(calls, ncUnit) {
-		t.Fatalf("expected Restart on NC %q after backend switch", ncUnit)
 	}
 
 	// Switch back to uPlot: Grafana unit should be replaced by socat.

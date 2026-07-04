@@ -312,14 +312,13 @@ func intersection(a, b []string) []string {
 	return out
 }
 
-func TestMonitoringPrometheusPackageUnits(t *testing.T) {
+func TestMonitoringPrometheusSystemServiceUnit(t *testing.T) {
 	t.Parallel()
 
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
-	networkStatePath := t.TempDir()
 
-	if err := monitoring.StartPrometheus(t.Context(), sd, btrfsBase, "", "nc:test", networkStatePath); err != nil {
+	if err := monitoring.StartPrometheus(t.Context(), sd, btrfsBase, ""); err != nil {
 		t.Fatalf("StartPrometheus: %v", err)
 	}
 
@@ -332,16 +331,11 @@ func TestMonitoringPrometheusPackageUnits(t *testing.T) {
 		t.Fatalf("prometheus unit should be a system service unit")
 	}
 
-	// NC unit should be installed.
-	ncInstalled := false
+	// Host-net system service: no NC unit.
 	for name := range sd.InstalledUnits {
-		if strings.Contains(name, "prometheus-network") {
-			ncInstalled = true
-			break
+		if strings.Contains(name, "-network.service") {
+			t.Fatalf("prometheus must not install an NC unit, got %s", name)
 		}
-	}
-	if !ncInstalled {
-		t.Fatal("expected NC unit to be installed")
 	}
 
 	if !strings.Contains(promContent, monitoring.PrometheusImage) {
@@ -350,15 +344,17 @@ func TestMonitoringPrometheusPackageUnits(t *testing.T) {
 	if !strings.Contains(promContent, "prometheus-config:/etc/prometheus") {
 		t.Fatalf("prometheus unit should mount config volume, got:\n%s", promContent)
 	}
+	if !strings.Contains(promContent, "127.0.0.1:9090") {
+		t.Fatalf("prometheus unit should listen on the host loopback, got:\n%s", promContent)
+	}
 }
 
-func TestMonitoringUIUPlotPackageUnits(t *testing.T) {
+func TestMonitoringUIUPlotSystemServiceUnit(t *testing.T) {
 	t.Parallel()
 
 	sd := systemd.InitMockManager()
-	networkStatePath := t.TempDir()
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), monitoring.BackendUPlot, "", "nc:test", networkStatePath, nil); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), monitoring.BackendUPlot, "", "nc:test", nil); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -377,36 +373,32 @@ func TestMonitoringUIUPlotPackageUnits(t *testing.T) {
 	if !strings.Contains(uiContent, "5308") {
 		t.Fatalf("monitoring-ui unit should expose port 5308, got:\n%s", uiContent)
 	}
-	if !strings.Contains(uiContent, "TCP:host.containers.internal:9090") {
-		t.Fatalf("socat must target host.containers.internal:9090 so the forwarder can reach Prometheus on the host, got:\n%s", uiContent)
+	// Prometheus is loopback-only on the host netns; the socat (also host
+	// netns) reaches it at 127.0.0.1, not the old cross-network gateway.
+	if !strings.Contains(uiContent, "TCP:127.0.0.1:9090") {
+		t.Fatalf("socat must target 127.0.0.1:9090 (loopback Prometheus), got:\n%s", uiContent)
 	}
-	if strings.Contains(uiContent, "TCP:127.0.0.1:9090") {
-		t.Fatalf("socat must not target 127.0.0.1:9090 (unreachable from inside the monitoring-ui container network), got:\n%s", uiContent)
+	if strings.Contains(uiContent, "host.containers.internal") {
+		t.Fatalf("socat must not use the host gateway hairpin, got:\n%s", uiContent)
 	}
 
-	// NC unit should be installed.
-	ncInstalled := false
+	// Host-net system service: no NC unit.
 	for name := range sd.InstalledUnits {
-		if strings.Contains(name, "monitoring-ui-network") {
-			ncInstalled = true
-			break
+		if strings.Contains(name, "-network.service") {
+			t.Fatalf("uPlot monitoring-ui must not install an NC unit, got %s", name)
 		}
-	}
-	if !ncInstalled {
-		t.Fatal("expected NC unit to be installed for uPlot monitoring-ui")
 	}
 }
 
-func TestMonitoringUIGrafanaPackageUnits(t *testing.T) {
+func TestMonitoringUIGrafanaSystemServiceUnit(t *testing.T) {
 	t.Parallel()
 
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
-	networkStatePath := t.TempDir()
 	ctrl := storage.InitBtrFSMockController()
 	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, st, monitoring.BackendGrafana, btrfsBase, "nc:test", networkStatePath, nil); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, st, monitoring.BackendGrafana, btrfsBase, "nc:test", nil); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -419,11 +411,16 @@ func TestMonitoringUIGrafanaPackageUnits(t *testing.T) {
 	if !strings.Contains(uiContent, monitoring.GrafanaImage) {
 		t.Fatalf("grafana monitoring-ui unit should use grafana image, got:\n%s", uiContent)
 	}
+	// Grafana binds :5308 directly (host netns), so the datasource can only
+	// reach the loopback Prometheus — never the old host gateway hairpin.
+	if !strings.Contains(uiContent, "GF_SERVER_HTTP_PORT="+monitoring.MonitoringExternalPort) {
+		t.Fatalf("grafana unit should bind :5308 directly via GF_SERVER_HTTP_PORT, got:\n%s", uiContent)
+	}
 
 	// The unit must chown the data directory to the Grafana uid or
 	// Grafana aborts with "GF_PATHS_DATA is not writable". The chown is
-	// non-recursive by design (commit d4fbc88): Grafana creates nested
-	// files as 472 itself, so only the top-level mount needs ownership.
+	// non-recursive by design: Grafana creates nested files as 472 itself,
+	// so only the top-level mount needs ownership.
 	if !strings.Contains(uiContent, "chown 472:472") {
 		t.Fatalf("grafana monitoring-ui unit should chown data dir to uid 472, got:\n%s", uiContent)
 	}
@@ -444,16 +441,11 @@ func TestMonitoringUIGrafanaPackageUnits(t *testing.T) {
 		t.Fatalf("expected %s subvolume to be created, got %v", provPath, names)
 	}
 
-	// NC unit should be installed.
-	ncInstalled := false
+	// Host-net system service: no NC unit.
 	for name := range sd.InstalledUnits {
-		if strings.Contains(name, "monitoring-ui-network") {
-			ncInstalled = true
-			break
+		if strings.Contains(name, "-network.service") {
+			t.Fatalf("grafana monitoring-ui must not install an NC unit, got %s", name)
 		}
-	}
-	if !ncInstalled {
-		t.Fatal("expected NC unit to be installed for grafana")
 	}
 }
 
@@ -462,36 +454,23 @@ func TestMonitoringPrometheusRealStart(t *testing.T) {
 	sd := systemd.NewManager()
 	ctx := context.Background()
 	btrfsBase := t.TempDir()
-	networkStatePath := t.TempDir()
-	ncImage := ncTestImage()
 
 	// Unique per-test key + btrfsBase (t.TempDir) so multiple copies of
 	// this test can run in parallel against the shared system bus
 	// without clobbering each other's unit names or bind-mount paths.
 	suffix := strconv.FormatUint(rand.Uint64(), 36)
-	cfg := monitoring.PrometheusPackageConfig(btrfsBase, ncImage, networkStatePath)
-	cfg.SystemServiceKey = "prometheus-test-" + suffix
-	unitSet := systemd.GeneratePackageUnits(cfg)
-	unitName := unitSet.Service.Name
+	cfg := monitoring.PrometheusUnitConfig(btrfsBase)
+	cfg.Key = "prometheus-test-" + suffix
+	uf := systemd.GenerateSystemServiceUnit(cfg)
+	unitName := uf.Name
 
-	// Install service, NC, and socket units and enable the service so
-	// it stays loaded in systemd's memory (multi-user.target Wants=
-	// prevents GC). We do not start anything — starting would pull
-	// the real Prometheus image and run the container. The integration
-	// value of this test is verifying that real systemd accepts the
-	// unit file format we generate.
-	if err := sd.InstallUnit(ctx, unitName, unitSet.Service.Content); err != nil {
+	// Install and enable the service so it stays loaded in systemd's memory
+	// (multi-user.target Wants= prevents GC). We do not start anything —
+	// starting would pull the real Prometheus image and run the container.
+	// The integration value of this test is verifying that real systemd
+	// accepts the unit file format we generate.
+	if err := sd.InstallUnit(ctx, unitName, uf.Content); err != nil {
 		t.Fatalf("InstallUnit service: %v", err)
-	}
-	if unitSet.NetworkController != nil {
-		if err := sd.InstallUnit(ctx, unitSet.NetworkController.Name, unitSet.NetworkController.Content); err != nil {
-			t.Fatalf("InstallUnit NC: %v", err)
-		}
-	}
-	for _, sock := range unitSet.Sockets {
-		if err := sd.InstallUnit(ctx, sock.Name, sock.Content); err != nil {
-			t.Fatalf("InstallUnit socket %s: %v", sock.Name, err)
-		}
 	}
 	if err := sd.SetStatus(ctx, unitName, systemd.Enable); err != nil {
 		t.Fatalf("Enable service: %v", err)
@@ -502,14 +481,6 @@ func TestMonitoringPrometheusRealStart(t *testing.T) {
 		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)    //nolint:errcheck // best-effort cleanup
 		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable) //nolint:errcheck // best-effort cleanup
 		_ = sd.UninstallUnit(cleanupCtx, unitName)              //nolint:errcheck // best-effort cleanup
-		if unitSet.NetworkController != nil {
-			_ = sd.SetStatus(cleanupCtx, unitSet.NetworkController.Name, systemd.Stop) //nolint:errcheck // best-effort cleanup
-			_ = sd.UninstallUnit(cleanupCtx, unitSet.NetworkController.Name)           //nolint:errcheck // best-effort cleanup
-		}
-		for _, sock := range unitSet.Sockets {
-			_ = sd.SetStatus(cleanupCtx, sock.Name, systemd.Stop) //nolint:errcheck // best-effort cleanup
-			_ = sd.UninstallUnit(cleanupCtx, sock.Name)           //nolint:errcheck // best-effort cleanup
-		}
 	})
 
 	units, err := sd.ListUnits(ctx)

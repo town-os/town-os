@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 )
@@ -22,77 +21,66 @@ const (
 	grafanaGID = 472
 )
 
-// grafanaUID32 / grafanaGID32 are pointer-friendly copies for embedding
-// in HostVolumeMount.UID / HostVolumeMount.GID, which the unit generator
-// turns into an ExecStartPre chown for the bind-mounted host path.
-var (
-	grafanaUID32 uint32 = grafanaUID
-	grafanaGID32 uint32 = grafanaGID
-)
-
-// UPlotPackageConfig returns the PackageUnitConfig for the uPlot socat
-// forwarder that exposes port 5308 and forwards to Prometheus on port 9090.
-// The NC image is used as both the socat container (it has socat
-// pre-installed) and the network controller image. Passing an empty
-// ncImage falls back to DefaultSocatImage.
-func UPlotPackageConfig(ncImage, networkStatePath string) systemd.PackageUnitConfig {
+// UPlotUnitConfig returns the system-service unit config for the uPlot socat
+// forwarder. It runs in the HOST network namespace so it can reach the
+// loopback-only Prometheus (127.0.0.1:9090) with no cross-podman-network
+// hairpin. socat binds host :5308 (the single LAN-exposed monitoring port,
+// where the browser queries the Prometheus API) and forwards to Prometheus.
+// The NC image is reused as the socat container (it has socat pre-installed);
+// an empty ncImage falls back to DefaultSocatImage.
+func UPlotUnitConfig(ncImage string) systemd.SystemServiceUnitConfig {
 	if ncImage == "" {
 		ncImage = DefaultSocatImage
 	}
-	return systemd.PackageUnitConfig{
-		SystemServiceKey:       "monitoring-ui",
-		Description:            "Monitoring UI (uPlot)",
-		Image:                  ncImage,
-		PullNever:              true,
-		External:               packages.PortMap{5308: 5308},
-		NetworkControllerImage: ncImage,
-		NetworkStatePath:       networkStatePath,
+	return systemd.SystemServiceUnitConfig{
+		Key:         "monitoring-ui",
+		Description: "Monitoring UI (uPlot)",
+		Image:       ncImage,
+		PullNever:   true,
+		Args:        []string{"--net", "host"},
 		Command: []string{
-			"socat", "TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr", "TCP:host.containers.internal:" + PrometheusPort,
+			"socat", "TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr", "TCP:127.0.0.1:" + PrometheusPort,
 		},
-		RestartAlways:          true,
-		StartLimitIntervalZero: true,
 	}
 }
 
-// GrafanaPackageConfig returns the PackageUnitConfig for Grafana so it gets a
-// proper NC, socket units, and private podman network. Only used when the
-// monitoring backend is "grafana".
-func GrafanaPackageConfig(btrfsBase, ncImage, networkStatePath string) systemd.PackageUnitConfig {
+// GrafanaUnitConfig returns the system-service unit config for Grafana. Only
+// used when the monitoring backend is "grafana". Like the uPlot forwarder it
+// runs in the HOST network namespace: Grafana listens directly on :5308
+// (GF_SERVER_HTTP_PORT) — the single LAN-exposed monitoring port — and its
+// datasource reaches the loopback-only Prometheus at 127.0.0.1:9090.
+func GrafanaUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
 	provisioningDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
 	dataDir := filepath.Join(btrfsBase, "monitoring", "grafana-data")
 
-	return systemd.PackageUnitConfig{
-		SystemServiceKey:       "monitoring-ui",
-		Description:            "Monitoring UI (Grafana)",
-		Image:                  GrafanaImage,
-		External:               packages.PortMap{5308: 3000},
-		NetworkControllerImage: ncImage,
-		NetworkStatePath:       networkStatePath,
-		Environment: map[string]string{
-			"GF_AUTH_ANONYMOUS_ENABLED":    "true",
-			"GF_AUTH_ANONYMOUS_ORG_ROLE":   "Viewer",
-			"GF_SECURITY_ALLOW_EMBEDDING": "true",
-			"GF_USERS_DEFAULT_THEME":       "light",
-			"GF_SERVER_ENABLE_GZIP":        "true",
-			"GF_SERVER_HTTP_PORT":          GrafanaPort,
+	return systemd.SystemServiceUnitConfig{
+		Key:         "monitoring-ui",
+		Description: "Monitoring UI (Grafana)",
+		Image:       GrafanaImage,
+		Args: []string{
+			"--net", "host",
+			"-e", "GF_AUTH_ANONYMOUS_ENABLED=true",
+			"-e", "GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer",
+			"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
+			"-e", "GF_USERS_DEFAULT_THEME=light",
+			"-e", "GF_SERVER_ENABLE_GZIP=true",
+			// Grafana binds :5308 directly (host netns), replacing the old
+			// -p 5308:3000 publish now that there is no podman network.
+			"-e", "GF_SERVER_HTTP_PORT=" + MonitoringExternalPort,
+			// Provisioning files are read-only from Grafana's perspective;
+			// 0755/0644 perms set in WriteGrafanaProvisioningFiles let uid
+			// 472 read them without owning them, so no chown is needed.
+			"-v", provisioningDir + ":/etc/grafana/provisioning",
+			"-v", dataDir + ":/var/lib/grafana",
 		},
-		HostVolumeMounts: []systemd.HostVolumeMount{
-			// Provisioning files are read-only from Grafana's
-			// perspective; 0755/0644 perms set in
-			// WriteGrafanaProvisioningFiles let uid 472 read them
-			// without owning them, so no chown is needed.
-			{HostPath: provisioningDir, ContainerPath: "/etc/grafana/provisioning"},
-			// Grafana writes plugins, sessions, and grafana.db
-			// into /var/lib/grafana, so it must own the top of
-			// this bind-mount. The chown is non-recursive:
-			// Grafana creates subdirectories itself as uid 472,
-			// so they stay correctly owned without any walk.
-			{HostPath: dataDir, ContainerPath: "/var/lib/grafana", UID: &grafanaUID32, GID: &grafanaGID32},
+		VolumeDirs: []string{provisioningDir, dataDir},
+		// Grafana writes plugins, sessions, and grafana.db into
+		// /var/lib/grafana, so it must own the top of this bind-mount. The
+		// chown is non-recursive: Grafana creates subdirectories itself as
+		// uid 472, so they stay correctly owned without any walk.
+		ExecStartPre: []string{
+			fmt.Sprintf("/bin/chown %d:%d %s", grafanaUID, grafanaGID, dataDir),
 		},
-		MkdirPaths:             []string{provisioningDir, dataDir},
-		RestartAlways:          true,
-		StartLimitIntervalZero: true,
 	}
 }
 
@@ -115,11 +103,11 @@ func grafanaStoragePaths(btrfsBase string) [][2]string {
 // StartPrometheus creates it via ExecStartPre mkdir before
 // StartMonitoringUI runs).
 //
-// Ownership is not set here. The generated monitoring-ui systemd unit
-// emits an ExecStartPre=/bin/chown -R for every HostVolumeMount whose
-// UID/GID fields are set (see GrafanaPackageConfig), and that is the
-// single declarative source of ownership for the bind-mounted host
-// paths. This function only has to make sure the paths exist.
+// Ownership is not set here. The generated monitoring-ui systemd unit emits a
+// single non-recursive ExecStartPre=/bin/chown of the grafana-data mount to
+// uid:gid 472 (see GrafanaUnitConfig), and that is the single source of
+// ownership for the bind-mounted data path. This function only has to make
+// sure the paths exist.
 func EnsureGrafanaStorage(st storage.Storage, btrfsBase string) error {
 	for _, p := range grafanaStoragePaths(btrfsBase) {
 		name, dir := p[0], p[1]
@@ -158,7 +146,9 @@ func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string) error
 	if err := os.MkdirAll(dsDir, 0755); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("create grafana datasources dir: %w", err)
 	}
-	dsYAML := GrafanaDatasourceYAML("host.containers.internal")
+	// Grafana runs --net host, so it reaches the loopback-only Prometheus
+	// at 127.0.0.1:9090 (not the old host.containers.internal gateway hop).
+	dsYAML := GrafanaDatasourceYAML("127.0.0.1")
 	if err := os.WriteFile(filepath.Join(dsDir, "prometheus.yml"), []byte(dsYAML), 0644); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("write grafana datasource: %w", err)
 	}
@@ -184,15 +174,14 @@ func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string) error
 	return nil
 }
 
-// StartMonitoringUI installs and starts the monitoring UI service. Both uPlot
-// and Grafana modes generate full package units (NC, sockets, private network).
+// StartMonitoringUI installs and starts the monitoring UI service as a plain
+// host-networked system service (no NC, no socket units, no private network).
 // In Grafana mode, the data and provisioning directories are created (btrfs
 // subvolume where possible, plain directory fallback otherwise) and the
-// provisioning files are written; ownership of both trees is then set by the
-// ExecStartPre chowns emitted by the generated unit from the HostVolumeMount
-// UID/GID fields.
-func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage, networkStatePath string, diskDevices []string) error {
-	var cfg systemd.PackageUnitConfig
+// provisioning files are written; ownership of the data tree is then set by the
+// non-recursive ExecStartPre chown emitted by the generated unit.
+func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage string, diskDevices []string) error {
+	var cfg systemd.SystemServiceUnitConfig
 
 	if backend == BackendGrafana {
 		if err := EnsureGrafanaStorage(st, btrfsBase); err != nil {
@@ -201,18 +190,12 @@ func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Stora
 		if err := WriteGrafanaProvisioningFiles(btrfsBase, diskDevices); err != nil {
 			return fmt.Errorf("write grafana provisioning: %w", err)
 		}
-		cfg = GrafanaPackageConfig(btrfsBase, ncImage, networkStatePath)
+		cfg = GrafanaUnitConfig(btrfsBase)
 	} else {
-		cfg = UPlotPackageConfig(ncImage, networkStatePath)
+		cfg = UPlotUnitConfig(ncImage)
 	}
 
-	units := systemd.GeneratePackageUnits(cfg)
-
-	if err := writeMonitoringNetworkState(cfg); err != nil {
-		return fmt.Errorf("write monitoring-ui network state: %w", err)
-	}
-
-	return installAndStartPackageUnits(ctx, sd, units)
+	return installAndStartSystemServiceUnit(ctx, sd, systemd.GenerateSystemServiceUnit(cfg))
 }
 
 // MonitoringUISystemService returns metadata for the monitoring UI system

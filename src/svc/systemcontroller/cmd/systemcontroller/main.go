@@ -392,10 +392,10 @@ func run() (err error) {
 	parallelEnsureImages(ctx, coreImages)
 
 	bs.Step("start_monitoring")
-	// Start monitoring system services in parallel (all non-fatal). NC
-	// image is already loaded above, so the per-service NC units can come
-	// up without a race. Each StartX encapsulates its own NC unit install
-	// and ordering, so concurrent calls do not interfere.
+	// Start monitoring system services in parallel (all non-fatal). All three
+	// run --net host: node-exporter and Prometheus bind 127.0.0.1 (private) and
+	// the monitoring UI forwards the single LAN port :5308 to Prometheus over
+	// the loopback — no podman networks, so concurrent starts cannot race.
 	var monWG sync.WaitGroup
 	monWG.Add(3)
 	go func() {
@@ -406,13 +406,13 @@ func run() (err error) {
 	}()
 	go func() {
 		defer monWG.Done()
-		if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, "", ncImage, *networkStatePath); err != nil {
+		if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, ""); err != nil {
 			fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
 		}
 	}()
 	go func() {
 		defer monWG.Done()
-		if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, *networkStatePath, diskDevices); err != nil {
+		if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, diskDevices); err != nil {
 			fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 		}
 	}()

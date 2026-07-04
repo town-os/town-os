@@ -157,7 +157,7 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 	if sd == nil {
 		return nil
 	}
-	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.NetworkStatePath, s.DiskDevices)
+	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.DiskDevices)
 }
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetIngress() *ingressctl.Manager           { return s.Ingress }

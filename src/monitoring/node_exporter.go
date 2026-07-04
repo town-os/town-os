@@ -39,7 +39,11 @@ func NodeExporterUnitConfig(port string) systemd.SystemServiceUnitConfig {
 		},
 		Command: []string{
 			"--path.rootfs=/host",
-			"--web.listen-address=:" + port,
+			// Bind to loopback only: node-exporter is on the host netns
+			// (required for host network metrics), but it is a private
+			// "back" service — only Prometheus (also host netns) scrapes it
+			// at localhost:9100. Nothing on the LAN should reach :9100.
+			"--web.listen-address=127.0.0.1:" + port,
 			"--collector.diskstats.device-exclude=" + DiskstatsDeviceExclude,
 		},
 	}
