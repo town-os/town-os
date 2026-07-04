@@ -1,10 +1,11 @@
 // IRON RULE: make test-full must always be able to run simultaneously in the
 // same repository without conflicting. Nothing else matters more than this.
 
-// Command town-os-ingress is the shared :443 SNI ingress sidecar: it supervises
-// a caddy child and serves a gRPC management API (on a Unix socket) the
-// systemcontroller uses to program routes. Caddy terminates TLS per-SNI with
-// each package/page leaf and reverse-proxies to backends on the ingress network.
+// Command town-os-ingress is the shared Host-router ingress sidecar: it
+// supervises a caddy child and serves a gRPC management API (on a Unix socket)
+// the systemcontroller uses to program routes. Caddy terminates TLS per-SNI on
+// :443 with each package/page leaf and Host-routes plain HTTP on :80, reverse-
+// proxying to backends on the ingress network.
 package main
 
 import (
@@ -28,6 +29,8 @@ import (
 func run() error {
 	socket := flag.String("socket", "/data/ingress.sock", "unix socket path for the gRPC management API")
 	port := flag.Int("port", 443, "TCP port the HTTPS vhosts bind (443 in production; ephemeral in tests)")
+	httpPort := flag.Int("http-port", 80, "TCP port the HTTP vhosts bind (80 in production; ephemeral in tests)")
+	defaultBackend := flag.String("default-backend", "", "container:port to reverse-proxy for hosts not matched by a route on :80 (the Town OS UI)")
 	caddyBin := flag.String("caddy", caddysup.DefaultCaddyBinary, "path to the caddy binary")
 	caddyCfg := flag.String("caddy-config", caddysup.DefaultCaddyConfigPath, "path to the rendered Caddyfile")
 	flag.Parse()
@@ -49,7 +52,7 @@ func run() error {
 	}
 
 	sup := caddysup.NewSupervisor(*caddyBin, *caddyCfg)
-	srv := ingress.NewServer(sup, *port)
+	srv := ingress.NewServer(sup, *port, *httpPort, *defaultBackend)
 	// Start caddy with the initial (empty) config so the supervisor is live
 	// before the first route arrives.
 	if err := srv.Bootstrap(); err != nil {
@@ -69,7 +72,7 @@ func run() error {
 		}
 	}()
 
-	slog.Info(fmt.Sprintf("ingress: serving gRPC on %s, https vhosts on :%d", *socket, *port))
+	slog.Info(fmt.Sprintf("ingress: serving gRPC on %s, https vhosts on :%d, http vhosts on :%d", *socket, *port, *httpPort))
 	return grpcServer.Serve(lis)
 }
 

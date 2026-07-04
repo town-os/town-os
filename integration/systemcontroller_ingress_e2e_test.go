@@ -88,8 +88,9 @@ func TestIntegrationIngressE2ERealContainer(t *testing.T) {
 	}
 	containerLeafDir := filepath.Join("/etc/town-os/tls/leaves/e2e", uniq)
 
-	// Real ingress container: unique key/unit, dedicated network, ephemeral port.
+	// Real ingress container: unique key/unit, dedicated network, ephemeral ports.
 	port := e2eFreePort(t)
+	httpPort := e2eFreePort(t)
 	dataDir := filepath.Join("/run/town-os/ingress-e2e", uniq)
 	if err := os.MkdirAll(dataDir, 0o755); err != nil { //nolint:gosec // holds the gRPC socket
 		t.Fatalf("mkdir data: %v", err)
@@ -103,6 +104,12 @@ func TestIntegrationIngressE2ERealContainer(t *testing.T) {
 		Key:         "ingress-e2e-" + uniq,
 		NetworkName: netName,
 		HostPort:    port,
+		// Ephemeral HTTP port so both listeners stay off the privileged
+		// :443/:80 and concurrent test-full runs never collide — IRON RULE. The
+		// default backend points at the same nginx so we can prove the :80
+		// catch-all (the bare-IP / UI-fallback path) serves over plain HTTP.
+		HTTPHostPort:   httpPort,
+		DefaultBackend: net.JoinHostPort(backendIP, "80"),
 	})
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("start ingress container: %v", err)
@@ -155,6 +162,32 @@ func TestIntegrationIngressE2ERealContainer(t *testing.T) {
 		t.Logf("serve poll exhausted: lastStatus=%d lastErr=%v", lastStatus, lastErr)
 		e2eDumpIngressDiag(t, systemd.SystemServiceContainerName(mgr.Key()), backendIP)
 		t.Fatal("ingress did not serve the backend over TLS through the programmed route")
+	}
+
+	// :80 default-backend path: a plain-HTTP request for a host with NO route
+	// falls through the ingress's :80 catch-all to the default backend (in
+	// production, the Town OS UI — this is the bare-IP login path). Dial the
+	// ephemeral HTTP port directly with an unmatched Host and expect the nginx
+	// backend to answer over plain HTTP.
+	httpClient := &http.Client{Transport: &http.Transport{
+		DialContext: func(dctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)))
+		},
+	}}
+	if !e2ePoll(func() bool {
+		resp, err := e2eGet(httpClient, "http://unmatched.e2e.invalid/")
+		if err != nil {
+			lastErr, lastStatus = err, 0
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		lastErr, lastStatus = nil, resp.StatusCode
+		return resp.StatusCode == http.StatusOK
+	}) {
+		t.Logf("default-backend poll exhausted: lastStatus=%d lastErr=%v", lastStatus, lastErr)
+		e2eDumpIngressDiag(t, systemd.SystemServiceContainerName(mgr.Key()), backendIP)
+		t.Fatal("ingress did not serve the default backend over plain HTTP on :80")
 	}
 
 	// Withdraw the route → the ingress stops serving the host.

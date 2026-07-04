@@ -2,11 +2,11 @@
 // same repository without conflicting. Nothing else matters more than this.
 
 // Package ingressctl is the systemcontroller-side lifecycle controller for the
-// shared :443 ingress: it generates, installs, and (re)starts the ingress
-// systemd unit and exposes the gRPC socket path the systemcontroller dials to
-// program routes. It lives apart from the ingress package proper so the
-// in-container town-os-ingress binary — built CGO_ENABLED=0 — never imports
-// src/systemd (which pulls in cgo via sdjournal).
+// shared ingress (:443 SNI + :80 Host router): it generates, installs, and
+// (re)starts the ingress systemd unit and exposes the gRPC socket path the
+// systemcontroller dials to program routes. It lives apart from the ingress
+// package proper so the in-container town-os-ingress binary — built
+// CGO_ENABLED=0 — never imports src/systemd (which pulls in cgo via sdjournal).
 package ingressctl
 
 import (
@@ -30,6 +30,14 @@ const (
 	SocketName = "ingress.sock"
 	// HTTPSPort is the host port the ingress publishes for HTTPS.
 	HTTPSPort = "443"
+	// HTTPPort is the host port the ingress publishes for HTTP (Host-routed:
+	// pages served directly, packages redirected to HTTPS, everything else to
+	// the default backend / UI).
+	HTTPPort = "80"
+	// DefaultUIKey is the system-service key of the UI container the ingress
+	// reverse-proxies to for hosts not matched by a route on :80. Kept here so
+	// the CGO-free town-os-ingress binary never has to import package naming.
+	DefaultUIKey = "ui"
 
 	// containerDataDir is where the host data dir (holding the socket) is mounted.
 	containerDataDir = "/data"
@@ -66,6 +74,14 @@ type Config struct {
 	// tests set an ephemeral port so a test ingress never collides with the
 	// production ingress (or another test) on the privileged :443 — IRON RULE.
 	HostPort int
+	// HTTPHostPort overrides the published HTTP port. Defaults to 80. Integration
+	// tests set an ephemeral port so a test ingress never collides on the
+	// privileged :80 — IRON RULE.
+	HTTPHostPort int
+	// DefaultBackend overrides the :80 fallback backend for unmatched hosts.
+	// Defaults to the UI container (town-os-system--ui:80). Tests that do not run
+	// a UI set it to "-" to disable the fallback vhost entirely.
+	DefaultBackend string
 	// EnableIPv6 makes the ingress serve dual-stack: the podman network is
 	// created with --ipv6 and the HTTPS port is also published on [::] so AAAA
 	// clients reach the same caddy. Set by the systemcontroller only when the
@@ -112,26 +128,51 @@ func (m *Manager) hostPort() int {
 	return 443
 }
 
+// httpHostPort returns the published HTTP port, defaulting to 80.
+func (m *Manager) httpHostPort() int {
+	if m.cfg.HTTPHostPort != 0 {
+		return m.cfg.HTTPHostPort
+	}
+	return 80
+}
+
+// defaultBackend returns the :80 fallback backend the ingress reverse-proxies
+// for unmatched hosts. Empty disables the fallback vhost (Config.DefaultBackend
+// set to "-"); the default is the UI container on port 80.
+func (m *Manager) defaultBackend() string {
+	switch m.cfg.DefaultBackend {
+	case "-":
+		return ""
+	case "":
+		return systemd.SystemServiceContainerName(DefaultUIKey) + ":80"
+	default:
+		return m.cfg.DefaultBackend
+	}
+}
+
 // SocketPath returns the host path to the ingress gRPC Unix socket.
 func (m *Manager) SocketPath() string {
 	return filepath.Join(m.cfg.DataDir, SocketName)
 }
 
 // unitConfig builds the systemd unit config for the ingress container: it joins
-// the ingress network (creating it if needed), publishes :443, mounts the data
-// dir (for the socket) read-write and the TLS subvolume read-only, and runs the
-// ingress binary against the in-container socket.
+// the ingress network (creating it if needed), publishes :443 and :80, mounts
+// the data dir (for the socket) read-write and the TLS subvolume read-only, and
+// runs the ingress binary against the in-container socket. The :80 listener is
+// Host-routed (pages served directly, packages redirected to HTTPS, everything
+// else to the default backend / UI).
 func (m *Manager) unitConfig() systemd.SystemServiceUnitConfig {
 	port := strconv.Itoa(m.hostPort())
+	httpPort := strconv.Itoa(m.httpHostPort())
 
 	// Dual-stack: create the network with --ipv6 and also publish on [::] so
 	// AAAA clients reach caddy. Gated on EnableIPv6 because `podman network
 	// create --ipv6` fails on a host without IPv6.
 	netCreate := "-/usr/bin/podman network create " + m.network()
-	args := []string{"-p", port + ":" + port}
+	args := []string{"-p", port + ":" + port, "-p", httpPort + ":" + httpPort}
 	if m.cfg.EnableIPv6 {
 		netCreate = "-/usr/bin/podman network create --ipv6 " + m.network()
-		args = append(args, "-p", "[::]:"+port+":"+port)
+		args = append(args, "-p", "[::]:"+port+":"+port, "-p", "[::]:"+httpPort+":"+httpPort)
 	}
 	args = append(args,
 		"--net", m.network(),
@@ -139,15 +180,20 @@ func (m *Manager) unitConfig() systemd.SystemServiceUnitConfig {
 		"-v", m.cfg.TLSHostDir+":"+containerTLSMount+":ro,z",
 	)
 
+	command := []string{"--socket", containerSocketPath, "--port", port, "--http-port", httpPort}
+	if db := m.defaultBackend(); db != "" {
+		command = append(command, "--default-backend", db)
+	}
+
 	return systemd.SystemServiceUnitConfig{
 		Key:          m.key(),
-		Description:  "Ingress (shared :443 SNI router)",
+		Description:  "Ingress (shared :443/:80 Host router)",
 		Image:        m.cfg.Image,
 		PullNever:    m.cfg.PullNever,
 		VolumeDirs:   []string{m.cfg.DataDir},
 		ExecStartPre: []string{netCreate},
 		Args:         args,
-		Command:      []string{"--socket", containerSocketPath, "--port", port},
+		Command:      command,
 	}
 }
 

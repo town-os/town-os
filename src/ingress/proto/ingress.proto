@@ -41,6 +41,11 @@ message Route {
   // When true the backend speaks HTTPS: proxy over https and skip verification
   // on the internal hop (the browser still validates the ingress leaf).
   bool backend_tls = 5;
+  // When true the ingress also serves this route over plain HTTP on :80,
+  // reverse-proxying to the backend (used for static pages, which carry
+  // nothing sensitive). When false (the default, used by packages) the :80
+  // vhost is an HTTP->HTTPS redirect so the route stays HTTPS-only.
+  bool serve_http = 6;
 }
 
 message SetRoutesRequest {

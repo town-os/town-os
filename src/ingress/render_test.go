@@ -12,11 +12,13 @@ import (
 
 func TestRenderCaddyfile(t *testing.T) {
 	tests := []struct {
-		name      string
-		routes    []*ingresspb.Route
-		httpsPort int
-		want      []string // substrings that must all be present
-		notWant   []string // substrings that must be absent
+		name           string
+		routes         []*ingresspb.Route
+		httpsPort      int
+		httpPort       int
+		defaultBackend string
+		want           []string // substrings that must all be present
+		notWant        []string // substrings that must be absent
 	}{
 		{
 			name:      "empty routes render only the global block",
@@ -25,7 +27,58 @@ func TestRenderCaddyfile(t *testing.T) {
 			want:      []string{"auto_https off", "protocols h1 h2"},
 			// admin must stay enabled (default localhost:2019) so the supervisor's
 			// `caddy reload` can push route updates; `admin off` would break it.
-			notWant: []string{"https://", "admin off"},
+			notWant: []string{"https://", "admin off", ":80 {"},
+		},
+		{
+			name: "page route serves over plain HTTP and HTTPS",
+			routes: []*ingresspb.Route{{
+				Hostname:  "blog.asdf.home",
+				Backend:   "town-os-system--pages:80",
+				CertDir:   "/etc/town-os/tls/leaves/pages/blog/current",
+				ServeHttp: true,
+			}},
+			httpsPort: 443,
+			want: []string{
+				"https://blog.asdf.home {",
+				"http://blog.asdf.home {",
+				"reverse_proxy town-os-system--pages:80",
+			},
+			// A page is served directly over HTTP, never redirected.
+			notWant: []string{"redir "},
+		},
+		{
+			name: "package route redirects HTTP to HTTPS on :80",
+			routes: []*ingresspb.Route{{
+				Hostname: "gitea.asdf.home",
+				Backend:  "town-os-package--asdf-gitea-1.0:3000",
+				CertDir:  "/etc/town-os/tls/leaves/asdf/gitea/1.0",
+			}},
+			httpsPort: 443,
+			want: []string{
+				"https://gitea.asdf.home {",
+				"http://gitea.asdf.home {",
+				"redir https://gitea.asdf.home{uri} permanent",
+			},
+		},
+		{
+			name:           "default backend catches unmatched hosts on :80",
+			routes:         nil,
+			httpsPort:      443,
+			defaultBackend: "town-os-system--ui:80",
+			want:           []string{":80 {", "reverse_proxy town-os-system--ui:80"},
+		},
+		{
+			name: "ephemeral http port is appended to the http site address",
+			routes: []*ingresspb.Route{{
+				Hostname:  "blog.asdf.home",
+				Backend:   "b:80",
+				CertDir:   "/c/blog",
+				ServeHttp: true,
+			}},
+			httpsPort:      8443,
+			httpPort:       8080,
+			defaultBackend: "ui:80",
+			want:           []string{"http://blog.asdf.home:8080 {", ":8080 {"},
 		},
 		{
 			name: "file-cert package route",
@@ -87,7 +140,7 @@ func TestRenderCaddyfile(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out := string(renderCaddyfile(tc.routes, tc.httpsPort))
+			out := string(renderCaddyfile(tc.routes, tc.httpsPort, tc.httpPort, tc.defaultBackend))
 			for _, w := range tc.want {
 				if !strings.Contains(out, w) {
 					t.Errorf("rendered config missing %q\n--- config ---\n%s", w, out)
@@ -102,18 +155,74 @@ func TestRenderCaddyfile(t *testing.T) {
 	}
 }
 
+// TestRenderCaddyfileHTTPBlocks pins the exact :80 behavior per route kind by
+// counting directives, so a package can never silently start serving content
+// over plain HTTP and a page can never be turned into a redirect.
+func TestRenderCaddyfileHTTPBlocks(t *testing.T) {
+	page := &ingresspb.Route{
+		Hostname: "blog.asdf.home", Backend: "town-os-system--pages:80",
+		CertDir: "/c/blog", ServeHttp: true,
+	}
+	pkg := &ingresspb.Route{
+		Hostname: "gitea.asdf.home", Backend: "town-os-package--asdf-gitea-1.0:3000",
+		CertDir: "/c/gitea",
+	}
+	unprovisioned := &ingresspb.Route{
+		Hostname: "pending.asdf.home", Backend: "town-os-package--asdf-pending-1.0:80",
+	}
+
+	// A page proxies on BOTH :443 and :80 (two reverse_proxy), and never redirects.
+	pageOut := string(renderCaddyfile([]*ingresspb.Route{page}, 443, 80, ""))
+	if n := strings.Count(pageOut, "reverse_proxy"); n != 2 {
+		t.Errorf("page: want 2 reverse_proxy (https + http), got %d\n%s", n, pageOut)
+	}
+	if strings.Contains(pageOut, "redir ") {
+		t.Errorf("page must never redirect on :80\n%s", pageOut)
+	}
+
+	// A package proxies ONLY on :443 (one reverse_proxy) and redirects on :80 —
+	// it must not serve content over plain HTTP.
+	pkgOut := string(renderCaddyfile([]*ingresspb.Route{pkg}, 443, 80, ""))
+	if n := strings.Count(pkgOut, "reverse_proxy"); n != 1 {
+		t.Errorf("package: want exactly 1 reverse_proxy (https only), got %d\n%s", n, pkgOut)
+	}
+	if n := strings.Count(pkgOut, "redir https://gitea.asdf.home{uri} permanent"); n != 1 {
+		t.Errorf("package: want exactly 1 :80->:443 redirect, got %d\n%s", n, pkgOut)
+	}
+
+	// A half-provisioned, non-page route (no cert, no acme, not ServeHttp) emits
+	// NO vhost at all: neither an HTTPS block (no cert) nor an HTTP one.
+	unOut := string(renderCaddyfile([]*ingresspb.Route{unprovisioned}, 443, 80, ""))
+	if strings.Contains(unOut, "pending.asdf.home") {
+		t.Errorf("unprovisioned route must emit no vhost\n%s", unOut)
+	}
+	if strings.Count(unOut, "reverse_proxy") != 0 || strings.Contains(unOut, "redir ") {
+		t.Errorf("unprovisioned route must emit no proxy/redirect\n%s", unOut)
+	}
+
+	// Without a default backend there is no bare :80 catch-all; with one there is
+	// exactly one extra reverse_proxy to the UI.
+	if strings.Contains(unOut, ":80 {") {
+		t.Errorf("no default backend must not emit a :80 catch-all\n%s", unOut)
+	}
+	defOut := string(renderCaddyfile(nil, 443, 80, "town-os-system--ui:80"))
+	if !strings.Contains(defOut, ":80 {") || strings.Count(defOut, "reverse_proxy town-os-system--ui:80") != 1 {
+		t.Errorf("default backend must emit one :80 catch-all to the UI\n%s", defOut)
+	}
+}
+
 func TestRenderCaddyfileDeterministicOrder(t *testing.T) {
 	routes := []*ingresspb.Route{
 		{Hostname: "zebra.asdf.home", Backend: "b:1", CertDir: "/c/z"},
 		{Hostname: "alpha.asdf.home", Backend: "b:2", CertDir: "/c/a"},
 	}
-	out := string(renderCaddyfile(routes, 443))
+	out := string(renderCaddyfile(routes, 443, 80, ""))
 	if a, z := strings.Index(out, "alpha.asdf.home"), strings.Index(out, "zebra.asdf.home"); a < 0 || z < 0 || a > z {
 		t.Fatalf("expected alpha before zebra (sorted), got:\n%s", out)
 	}
 	// Rendering the same routes in a different input order yields identical bytes.
 	reordered := []*ingresspb.Route{routes[1], routes[0]}
-	if string(renderCaddyfile(reordered, 443)) != out {
+	if string(renderCaddyfile(reordered, 443, 80, "")) != out {
 		t.Fatal("render is not order-independent")
 	}
 }

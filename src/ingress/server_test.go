@@ -44,7 +44,7 @@ func route(host, backend, cert string) *ingresspb.Route {
 
 func TestServerSetRoutes(t *testing.T) {
 	sup := &stubSupervisor{}
-	srv := NewServer(sup, 443)
+	srv := NewServer(sup, 443, 80, "")
 	ctx := context.Background()
 
 	_, err := srv.SetRoutes(ctx, &ingresspb.SetRoutesRequest{Routes: []*ingresspb.Route{
@@ -79,7 +79,7 @@ func TestServerSetRoutes(t *testing.T) {
 
 func TestServerAddRemoveRoute(t *testing.T) {
 	sup := &stubSupervisor{}
-	srv := NewServer(sup, 443)
+	srv := NewServer(sup, 443, 80, "")
 	ctx := context.Background()
 
 	if _, err := srv.AddRoute(ctx, &ingresspb.AddRouteRequest{Route: route("x.asdf.home", "bx:1", "/c/x")}); err != nil {
@@ -119,7 +119,7 @@ func TestServerAddRemoveRoute(t *testing.T) {
 
 func TestServerConcurrentMutations(t *testing.T) {
 	sup := &stubSupervisor{}
-	srv := NewServer(sup, 443)
+	srv := NewServer(sup, 443, 80, "")
 	ctx := context.Background()
 
 	var wg sync.WaitGroup

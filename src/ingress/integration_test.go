@@ -57,7 +57,7 @@ func TestIngressRoutesTLSToBackend(t *testing.T) {
 
 	port := freePort(t)
 	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
-	srv := NewServer(sup, port)
+	srv := NewServer(sup, port, freePort(t), "")
 	if err := srv.Bootstrap(); err != nil {
 		t.Fatalf("bootstrap caddy: %v", err)
 	}
@@ -99,6 +99,128 @@ func TestIngressRoutesTLSToBackend(t *testing.T) {
 		return resp.StatusCode != http.StatusOK
 	}) {
 		t.Fatal("route still served after RemoveRoute")
+	}
+}
+
+// TestIngressHTTPPortRouting boots the real ingress (Server + caddy child) with
+// both an HTTPS and an HTTP listener on ephemeral ports and a default backend,
+// then drives the full :80 Host-routing contract against real caddy:
+//
+//  1. a page route (ServeHttp) is served directly over plain HTTP,
+//  2. a package route (no ServeHttp) is redirected :80 -> :443 and never serves
+//     backend content over HTTP,
+//  3. a host with no route falls through to the default backend (the UI), and
+//  4. HTTPS still terminates TLS per host and proxies to the right backend.
+//
+// This is the test that proves the mixed `https://host` + `http://host` + bare
+// `:80` catch-all config actually loads in caddy (not just renders). Fully
+// isolated (ephemeral ports, temp CA) per the IRON RULE; skips without caddy.
+func TestIngressHTTPPortRouting(t *testing.T) {
+	caddyBin := findCaddy(t)
+
+	tlsDir := t.TempDir()
+	ca, err := townostls.EnsureCA(tlsDir)
+	if err != nil {
+		t.Fatalf("EnsureCA: %v", err)
+	}
+	issue := func(host string) string {
+		dir := filepath.Join(tlsDir, host)
+		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // test dir
+			t.Fatal(err)
+		}
+		if err := ca.IssueLeaf(dir, []string{host}); err != nil {
+			t.Fatalf("IssueLeaf %s: %v", host, err)
+		}
+		return dir
+	}
+	pageLeaf := issue("page.local")
+	pkgLeaf := issue("pkg.local")
+
+	mkBackend := func(body string) string {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, body)
+		}))
+		t.Cleanup(s.Close)
+		return strings.TrimPrefix(s.URL, "http://")
+	}
+	pageBackend := mkBackend("PAGE-BODY")
+	pkgBackend := mkBackend("PKG-BODY")
+	uiBackend := mkBackend("UI-BODY")
+
+	httpsPort := freePort(t)
+	httpPort := freePort(t)
+	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
+	srv := NewServer(sup, httpsPort, httpPort, uiBackend)
+	if err := srv.Bootstrap(); err != nil {
+		t.Fatalf("bootstrap caddy: %v", err)
+	}
+	defer func() { _ = sup.Shutdown() }()
+
+	ctx := context.Background()
+	if _, err := srv.SetRoutes(ctx, &ingresspb.SetRoutesRequest{Routes: []*ingresspb.Route{
+		{Hostname: "page.local", Backend: pageBackend, CertDir: pageLeaf, ServeHttp: true},
+		{Hostname: "pkg.local", Backend: pkgBackend, CertDir: pkgLeaf},
+	}}); err != nil {
+		t.Fatalf("SetRoutes: %v", err)
+	}
+
+	https := caClientSNI(t, filepath.Join(tlsDir, "ca.crt"), httpsPort)
+	plain := plainClientNoRedirect(t, httpPort)
+
+	// (1) Page served directly over plain HTTP on :80. Poll here gates readiness:
+	// all routes land in one SetRoutes/reload, so once this passes the package
+	// redirect and default backend are live too.
+	if !poll(t, func() bool {
+		resp, err := httpGet(t, plain, "http://page.local/")
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode == http.StatusOK && string(b) == "PAGE-BODY"
+	}) {
+		t.Fatal("page route not served over plain HTTP on :80")
+	}
+
+	// (2) Package on :80 is a redirect to HTTPS — it must not serve content.
+	resp, err := httpGet(t, plain, "http://pkg.local/")
+	if err != nil {
+		t.Fatalf("pkg http GET: %v", err)
+	}
+	pkgBody, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+		t.Fatalf("package :80 must redirect, got status %d body %q", resp.StatusCode, pkgBody)
+	}
+	if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "https://pkg.local") {
+		t.Fatalf("package :80 redirect Location = %q, want https://pkg.local...", loc)
+	}
+	if strings.Contains(string(pkgBody), "PKG-BODY") {
+		t.Fatalf("package :80 must not serve backend content, got %q", pkgBody)
+	}
+
+	// (3) Unmatched host on :80 falls through to the default backend (the UI).
+	uiResp, err := httpGet(t, plain, "http://unmatched.invalid/")
+	if err != nil {
+		t.Fatalf("default-backend http GET: %v", err)
+	}
+	uiBody, _ := io.ReadAll(uiResp.Body)
+	_ = uiResp.Body.Close()
+	if uiResp.StatusCode != http.StatusOK || string(uiBody) != "UI-BODY" {
+		t.Fatalf("unmatched host must hit default backend, got status %d body %q", uiResp.StatusCode, uiBody)
+	}
+
+	// (4) HTTPS still terminates TLS per host and proxies to the right backend.
+	for host, want := range map[string]string{"page.local": "PAGE-BODY", "pkg.local": "PKG-BODY"} {
+		resp, err := httpGet(t, https, "https://"+host+"/")
+		if err != nil {
+			t.Fatalf("https %s GET: %v", host, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || string(body) != want {
+			t.Fatalf("https %s: status %d body %q, want %q", host, resp.StatusCode, body, want)
+		}
 	}
 }
 
@@ -159,6 +281,50 @@ func caClient(t *testing.T, caPath string, port int) *http.Client {
 				return d.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 			},
 			TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "test.local", MinVersion: tls.VersionTLS12},
+		},
+	}
+}
+
+// caClientSNI is like caClient but derives SNI from each request's URL host
+// (ServerName unset), so one client can reach multiple ingress vhosts. It trusts
+// the given CA and always dials 127.0.0.1:port.
+func caClientSNI(t *testing.T, caPath string, port int) *http.Client {
+	t.Helper()
+	caPEM, err := os.ReadFile(caPath) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatalf("read CA: %v", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		t.Fatal("append CA cert failed")
+	}
+	return &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+			},
+			TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+		},
+	}
+}
+
+// plainClientNoRedirect returns a plain-HTTP client that always dials
+// 127.0.0.1:port and does NOT follow redirects, so a package's :80 -> :443
+// redirect can be asserted rather than transparently chased.
+func plainClientNoRedirect(t *testing.T, port int) *http.Client {
+	t.Helper()
+	return &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+			},
 		},
 	}
 }

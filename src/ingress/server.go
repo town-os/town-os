@@ -1,10 +1,13 @@
 // IRON RULE: make test-full must always be able to run simultaneously in the
 // same repository without conflicting. Nothing else matters more than this.
 
-// Package ingress is the shared :443 SNI ingress: a sidecar that supervises a
-// caddy child and exposes a gRPC management API the systemcontroller programs
-// (the same way it programs rolodex). It holds the desired route set in memory,
-// renders a Caddyfile on every change, and reloads caddy zero-downtime.
+// Package ingress is the shared Host router: a sidecar that supervises a caddy
+// child and exposes a gRPC management API the systemcontroller programs (the
+// same way it programs rolodex). It holds the desired route set in memory,
+// renders a Caddyfile on every change, and reloads caddy zero-downtime. It
+// terminates TLS per-SNI on :443 and Host-routes plain HTTP on :80 (pages
+// served directly, packages redirected to HTTPS, everything else to the default
+// backend / UI).
 package ingress
 
 import (
@@ -20,20 +23,26 @@ import (
 type Server struct {
 	ingresspb.UnimplementedIngressServer
 
-	mu        sync.Mutex
-	routes    map[string]*ingresspb.Route // keyed by hostname
-	sup       caddysup.CaddySupervisor
-	httpsPort int
+	mu             sync.Mutex
+	routes         map[string]*ingresspb.Route // keyed by hostname
+	sup            caddysup.CaddySupervisor
+	httpsPort      int
+	httpPort       int
+	defaultBackend string
 }
 
 // NewServer returns an ingress Server backed by the given caddy supervisor.
-// httpsPort is the TCP port the rendered vhosts bind (443 in production; an
-// ephemeral port in tests). A value of 0 is treated as 443.
-func NewServer(sup caddysup.CaddySupervisor, httpsPort int) *Server {
+// httpsPort/httpPort are the TCP ports the rendered vhosts bind (443/80 in
+// production; ephemeral ports in tests). A value of 0 is treated as the scheme
+// default. defaultBackend, when non-empty, is the :80 fallback for unmatched
+// hosts (the Town OS UI); empty means no fallback vhost is emitted.
+func NewServer(sup caddysup.CaddySupervisor, httpsPort, httpPort int, defaultBackend string) *Server {
 	return &Server{
-		routes:    make(map[string]*ingresspb.Route),
-		sup:       sup,
-		httpsPort: httpsPort,
+		routes:         make(map[string]*ingresspb.Route),
+		sup:            sup,
+		httpsPort:      httpsPort,
+		httpPort:       httpPort,
+		defaultBackend: defaultBackend,
 	}
 }
 
@@ -53,7 +62,7 @@ func (s *Server) applyLocked() error {
 	for _, r := range s.routes {
 		list = append(list, r)
 	}
-	return s.sup.Reload(renderCaddyfile(list, s.httpsPort))
+	return s.sup.Reload(renderCaddyfile(list, s.httpsPort, s.httpPort, s.defaultBackend))
 }
 
 // SetRoutes replaces the entire route set (idempotent reconcile).

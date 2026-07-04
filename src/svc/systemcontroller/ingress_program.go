@@ -67,7 +67,9 @@ func buildIngressRoutes(pagesMgr account.PagesManager, installer FreshnessLister
 		}
 		if pageIsPublic(domain, tld) {
 			// Public FQDN: served via ACME, resolved by the user's own DNS.
-			routes = append(routes, &ingresspb.Route{Hostname: hostname, Backend: backend, Acme: true})
+			// ServeHttp so a plain-HTTP visit is served directly (static content)
+			// rather than redirected — pages carry nothing sensitive.
+			routes = append(routes, &ingresspb.Route{Hostname: hostname, Backend: backend, Acme: true, ServeHttp: true})
 			continue
 		}
 		certDir, lerr := issuePageLeaf(ca, btrfsBase, page.Name, hostname, internalIP)
@@ -75,7 +77,7 @@ func buildIngressRoutes(pagesMgr account.PagesManager, installer FreshnessLister
 			slog.Debug(fmt.Sprintf("ingress: page leaf %s: %v", page.Name, lerr))
 			continue
 		}
-		routes = append(routes, &ingresspb.Route{Hostname: hostname, Backend: backend, CertDir: certDir})
+		routes = append(routes, &ingresspb.Route{Hostname: hostname, Backend: backend, CertDir: certDir, ServeHttp: true})
 	}
 	return routes
 }

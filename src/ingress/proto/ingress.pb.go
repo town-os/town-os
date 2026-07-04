@@ -39,7 +39,12 @@ type Route struct {
 	Acme bool `protobuf:"varint,4,opt,name=acme,proto3" json:"acme,omitempty"`
 	// When true the backend speaks HTTPS: proxy over https and skip verification
 	// on the internal hop (the browser still validates the ingress leaf).
-	BackendTls    bool `protobuf:"varint,5,opt,name=backend_tls,json=backendTls,proto3" json:"backend_tls,omitempty"`
+	BackendTls bool `protobuf:"varint,5,opt,name=backend_tls,json=backendTls,proto3" json:"backend_tls,omitempty"`
+	// When true the ingress also serves this route over plain HTTP on :80,
+	// reverse-proxying to the backend (used for static pages, which carry
+	// nothing sensitive). When false (the default, used by packages) the :80
+	// vhost is an HTTP->HTTPS redirect so the route stays HTTPS-only.
+	ServeHttp     bool `protobuf:"varint,6,opt,name=serve_http,json=serveHttp,proto3" json:"serve_http,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -105,6 +110,13 @@ func (x *Route) GetAcme() bool {
 func (x *Route) GetBackendTls() bool {
 	if x != nil {
 		return x.BackendTls
+	}
+	return false
+}
+
+func (x *Route) GetServeHttp() bool {
+	if x != nil {
+		return x.ServeHttp
 	}
 	return false
 }
@@ -433,14 +445,16 @@ var File_src_ingress_proto_ingress_proto protoreflect.FileDescriptor
 
 const file_src_ingress_proto_ingress_proto_rawDesc = "" +
 	"\n" +
-	"\x1fsrc/ingress/proto/ingress.proto\x12\x11townos.ingress.v1\"\x8d\x01\n" +
+	"\x1fsrc/ingress/proto/ingress.proto\x12\x11townos.ingress.v1\"\xac\x01\n" +
 	"\x05Route\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x18\n" +
 	"\abackend\x18\x02 \x01(\tR\abackend\x12\x19\n" +
 	"\bcert_dir\x18\x03 \x01(\tR\acertDir\x12\x12\n" +
 	"\x04acme\x18\x04 \x01(\bR\x04acme\x12\x1f\n" +
 	"\vbackend_tls\x18\x05 \x01(\bR\n" +
-	"backendTls\"D\n" +
+	"backendTls\x12\x1d\n" +
+	"\n" +
+	"serve_http\x18\x06 \x01(\bR\tserveHttp\"D\n" +
 	"\x10SetRoutesRequest\x120\n" +
 	"\x06routes\x18\x01 \x03(\v2\x18.townos.ingress.v1.RouteR\x06routes\"\x13\n" +
 	"\x11SetRoutesResponse\"A\n" +

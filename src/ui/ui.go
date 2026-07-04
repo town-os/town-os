@@ -108,14 +108,20 @@ func (m *Manager) SystemServices() []SystemService {
 	}
 }
 
-// unitConfigs returns the systemd unit configurations for the UI service.
+// unitConfigs returns the systemd unit configurations for the UI service. The
+// UI joins the shared ingress network (rather than host networking) and serves
+// its Caddy on the container's :80; the ingress reverse-proxies to it as the
+// default backend for hosts not matched by a page/package route, so bare-IP
+// login (http://<box-ip>/) still resolves to the UI. It no longer squats the
+// host's :80 directly, freeing that port for the ingress's Host router.
 func (m *Manager) unitConfigs() []systemd.SystemServiceUnitConfig {
 	return []systemd.SystemServiceUnitConfig{
 		{
-			Key:         "ui",
-			Description: "Town OS UI",
-			Image:       m.cfg.Image,
-			Args:        []string{"--net", "host"},
+			Key:          "ui",
+			Description:  "Town OS UI",
+			Image:        m.cfg.Image,
+			ExecStartPre: []string{"-/usr/bin/podman network create " + systemd.IngressNetworkName},
+			Args:         []string{"--net", systemd.IngressNetworkName},
 		},
 	}
 }
