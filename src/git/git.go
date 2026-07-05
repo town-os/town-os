@@ -21,8 +21,12 @@ import (
 type Client interface {
 	// Clone clones a repository into the given directory.
 	// The directory is the parent; the repository is cloned as a subdirectory
-	// named by the last argument.
+	// named by the last argument. The remote's default branch is checked out.
 	Clone(ctx context.Context, dir, url, name string) error
+	// CloneBranch is like Clone but checks out the named branch as a
+	// single-branch clone. An empty branch is equivalent to Clone (the remote's
+	// default branch).
+	CloneBranch(ctx context.Context, dir, url, name, branch string) error
 
 	// Pull runs git pull --rebase in the given directory.
 	Pull(ctx context.Context, dir string) error
@@ -100,6 +104,13 @@ func extractAuth(rawURL string) (string, *http.BasicAuth) {
 }
 
 func (c *GoGitClient) Clone(ctx context.Context, dir, url, name string) error {
+	return c.CloneBranch(ctx, dir, url, name, "")
+}
+
+// CloneBranch clones url into dir/name, checking out branch as a single-branch
+// clone when branch is non-empty. An empty branch clones the remote's default
+// branch (identical to Clone).
+func (c *GoGitClient) CloneBranch(ctx context.Context, dir, url, name, branch string) error {
 	target := filepath.Join(dir, name)
 	cleanURL, auth := extractAuth(url)
 
@@ -108,6 +119,10 @@ func (c *GoGitClient) Clone(ctx context.Context, dir, url, name string) error {
 	}
 	if auth != nil {
 		opts.Auth = auth
+	}
+	if branch != "" {
+		opts.ReferenceName = plumbing.NewBranchReferenceName(branch)
+		opts.SingleBranch = true
 	}
 
 	_, err := gogit.PlainCloneContext(ctx, target, false, opts)

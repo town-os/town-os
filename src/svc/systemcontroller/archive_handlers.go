@@ -198,14 +198,15 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 // client. The clone is run with a 5-minute timeout. This is the single
 // git->storage clone primitive shared by page and package seeding during
 // install and reconcile, mirroring reconcileExtractFromImage. The client is
-// injectable so callers can mock it in tests.
-func gitCloneIntoPath(ctx context.Context, client git.Client, gitURL, targetPath string) error {
+// injectable so callers can mock it in tests. A non-empty branch checks out
+// that branch (single-branch); an empty branch clones the remote default.
+func gitCloneIntoPath(ctx context.Context, client git.Client, gitURL, targetPath, branch string) error {
 	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	parent := filepath.Dir(targetPath)
 	name := filepath.Base(targetPath)
-	return client.Clone(cloneCtx, parent, gitURL, name)
+	return client.CloneBranch(cloneCtx, parent, gitURL, name, branch)
 }
 
 // seedGitIfEmpty clones gitURL into targetPath only when targetPath exists and
@@ -213,8 +214,10 @@ func gitCloneIntoPath(ctx context.Context, client git.Client, gitURL, targetPath
 // reconcile/install: safe to call every reconcile (a populated directory is
 // skipped, so there is no re-clone and no overwrite) and self-healing (an empty
 // directory left behind by a failed earlier clone is retried on the next
-// reconcile). Returns any clone error.
-func seedGitIfEmpty(ctx context.Context, client git.Client, gitURL, targetPath string) error {
+// reconcile). A non-empty branch checks out that branch; an empty branch (the
+// package-volume case, which has no branch concept) clones the remote default.
+// Returns any clone error.
+func seedGitIfEmpty(ctx context.Context, client git.Client, gitURL, targetPath, branch string) error {
 	entries, err := os.ReadDir(targetPath)
 	if os.IsNotExist(err) {
 		// Missing directory: nothing to seed.
@@ -227,7 +230,7 @@ func seedGitIfEmpty(ctx context.Context, client git.Client, gitURL, targetPath s
 		// Already populated: nothing to seed.
 		return nil
 	}
-	return gitCloneIntoPath(ctx, client, gitURL, targetPath)
+	return gitCloneIntoPath(ctx, client, gitURL, targetPath, branch)
 }
 
 // reconcileExtractFromImage is a standalone function for extracting data from

@@ -476,7 +476,8 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 			}
 			volPath := packageVolumePath(repoName, pi.Name, pi.Version, volName)
 			targetPath := fmt.Sprintf("%s/%s", cfg.BtrfsBasePath, volPath)
-			if err := seedGitIfEmpty(ctx, cfg.gitClient(), vol.Git, targetPath); err != nil {
+			// Package volumes have no branch concept; clone the remote default.
+			if err := seedGitIfEmpty(ctx, cfg.gitClient(), vol.Git, targetPath, ""); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile git-seed %s -> %s: %v", vol.Git, volName, err))
 			}
 		}
@@ -1065,7 +1066,7 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 		// empty by a failed create-time clone) is (re)cloned on this reconcile.
 		if page.SourceType == account.PageSourceGit && page.RepoURL != "" {
 			targetPath := fmt.Sprintf("%s/%s/%s", cfg.BtrfsBasePath, PagesVolumePrefix, dir)
-			if err := seedGitIfEmpty(ctx, cfg.gitClient(), page.RepoURL, targetPath); err != nil {
+			if err := seedGitIfEmpty(ctx, cfg.gitClient(), page.RepoURL, targetPath, page.Branch); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile: pages git-seed %s: %v", dir, err))
 			}
 		}

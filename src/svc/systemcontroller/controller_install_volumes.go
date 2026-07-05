@@ -265,7 +265,8 @@ func (s *SystemControllerHandlers) seedVolumeData(ctx context.Context, ip *packa
 		}
 		volPath := packageVolumePath(repoName, effectiveName, version, volName)
 		targetPath := filepath.Join(s.Controller.GetBtrfsBasePath(), volPath)
-		if err := seedGitIfEmpty(ctx, s.Controller.GetGitClient(), vol.Git, targetPath); err != nil {
+		// Package volumes have no branch concept; clone the remote default.
+		if err := seedGitIfEmpty(ctx, s.Controller.GetGitClient(), vol.Git, targetPath, ""); err != nil {
 			slog.Debug(fmt.Sprintf("git-seed %s -> %s: %v", vol.Git, volName, err))
 		}
 	}

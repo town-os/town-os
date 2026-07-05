@@ -57,6 +57,13 @@ func (m *MockClient) Clone(_ context.Context, dir, url, name string) error {
 	return m.CloneErr
 }
 
+func (m *MockClient) CloneBranch(_ context.Context, dir, url, name, branch string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.record("CloneBranch", dir, url, name, branch)
+	return m.CloneErr
+}
+
 func (m *MockClient) Pull(_ context.Context, dir string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

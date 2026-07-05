@@ -147,6 +147,72 @@ func TestGoGitClientCloneLocal(t *testing.T) {
 	}
 }
 
+// CloneBranch checks out the requested branch, not the remote default. The
+// source repo commits a placeholder on its default branch, then puts the real
+// payload on a second branch; a CloneBranch of that branch must yield the
+// payload. This is the unit-level regression for the pages gh-pages bug.
+func TestGoGitClientCloneBranch(t *testing.T) {
+	source, c := initTestRepoWithCommit(t)
+	ctx := context.Background()
+
+	// Default branch holds "data" (from initTestRepoWithCommit). Add a feature
+	// branch with different content.
+	if _, err := c.Run(ctx, source, "branch", "feature"); err != nil {
+		t.Fatalf("branch feature: %v", err)
+	}
+	if err := c.Checkout(ctx, source, "feature"); err != nil {
+		t.Fatalf("checkout feature: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "f.txt"), []byte("payload"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := c.Add(ctx, source, "."); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := c.Commit(ctx, source, "feature commit"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	target := t.TempDir()
+	if err := c.CloneBranch(ctx, target, source, "cloned", "feature"); err != nil {
+		t.Fatalf("CloneBranch: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, "cloned", "f.txt"))
+	if err != nil {
+		t.Fatalf("read cloned f.txt: %v", err)
+	}
+	if string(got) != "payload" {
+		t.Fatalf("expected feature-branch content %q, got %q", "payload", got)
+	}
+}
+
+// CloneBranch with an empty branch clones the remote default (identical to
+// Clone), so existing package-volume seeding keeps working unchanged.
+func TestGoGitClientCloneBranchEmptyUsesDefault(t *testing.T) {
+	source, c := initTestRepoWithCommit(t)
+	ctx := context.Background()
+
+	target := t.TempDir()
+	if err := c.CloneBranch(ctx, target, source, "cloned", ""); err != nil {
+		t.Fatalf("CloneBranch(empty): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "cloned", ".git")); err != nil {
+		t.Fatalf("expected .git in cloned repo: %v", err)
+	}
+}
+
+// CloneBranch of a branch that does not exist fails loudly rather than silently
+// falling back to the default branch.
+func TestGoGitClientCloneBranchMissingBranch(t *testing.T) {
+	source, c := initTestRepoWithCommit(t)
+	ctx := context.Background()
+
+	target := t.TempDir()
+	if err := c.CloneBranch(ctx, target, source, "cloned", "no-such-branch"); err == nil {
+		t.Fatal("expected error cloning a nonexistent branch, got nil")
+	}
+}
+
 func TestGoGitClientStash(t *testing.T) {
 	dir, c := initTestRepoWithCommit(t)
 	ctx := context.Background()

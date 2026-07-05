@@ -344,6 +344,9 @@ func TestMockClientCallLog(t *testing.T) {
 	if err := m.Clone(ctx, "/d", "url", "name"); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.CloneBranch(ctx, "/d", "url", "name", "gh-pages"); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.Pull(ctx, "/d"); err != nil {
 		t.Fatal(err)
 	}
@@ -379,12 +382,12 @@ func TestMockClientCallLog(t *testing.T) {
 	}
 
 	calls := m.GetCalls()
-	if len(calls) != 12 {
-		t.Fatalf("expected 12 calls, got %d", len(calls))
+	if len(calls) != 13 {
+		t.Fatalf("expected 13 calls, got %d", len(calls))
 	}
 
 	expected := []string{
-		"Clone", "Pull", "Diff", "Stash", "StashApply",
+		"Clone", "CloneBranch", "Pull", "Diff", "Stash", "StashApply",
 		"Fetch", "Checkout", "Init", "Add", "Commit",
 		"RevParse", "Run",
 	}

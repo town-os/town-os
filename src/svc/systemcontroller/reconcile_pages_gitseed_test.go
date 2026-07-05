@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -33,11 +34,13 @@ func gitPage(name string) account.PageSite {
 	}
 }
 
-// cloneCalls counts Clone invocations recorded by a mock git client.
+// cloneCalls counts CloneBranch invocations recorded by a mock git client.
+// Page seeding always goes through CloneBranch (branch-aware) so the configured
+// page branch is honored; a plain Clone would silently take the remote default.
 func cloneCalls(mc *git.MockClient) int {
 	n := 0
 	for _, c := range mc.GetCalls() {
-		if c.Method == "Clone" {
+		if c.Method == "CloneBranch" {
 			n++
 		}
 	}
@@ -85,19 +88,21 @@ func TestReconcilePagesGitSeedClonesEmptyPage(t *testing.T) {
 
 	var found bool
 	for _, c := range mc.GetCalls() {
-		if c.Method != "Clone" {
+		if c.Method != "CloneBranch" {
 			continue
 		}
 		parent, _ := c.Args[0].(string)
 		url, _ := c.Args[1].(string)
 		name, _ := c.Args[2].(string)
+		branch, _ := c.Args[3].(string)
 		if parent == filepath.Join(base, PagesVolumePrefix) &&
-			url == "https://example.com/scarlett.git" && name == "scarlett.home" {
+			url == "https://example.com/scarlett.git" && name == "scarlett.home" &&
+			branch == "main" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected Clone(parent=%s, url=.../scarlett.git, name=scarlett.home); got calls %+v",
+		t.Fatalf("expected CloneBranch(parent=%s, url=.../scarlett.git, name=scarlett.home, branch=main); got calls %+v",
 			filepath.Join(base, PagesVolumePrefix), mc.GetCalls())
 	}
 }
@@ -221,6 +226,33 @@ func TestReconcilePagesGitSeedRealCloneIdempotent(t *testing.T) {
 	}
 }
 
+// A page configured for a non-default branch is seeded from THAT branch, not
+// the remote default. This is the direct regression for the reported bug:
+// scarlett.home's content lived on gh-pages while the default branch held only a
+// placeholder, and the seed cloned the default — leaving the site empty.
+func TestReconcilePagesGitSeedClonesConfiguredBranch(t *testing.T) {
+	src := initPageSourceRepoTwoBranches(t, "gh-pages", "<h1>placeholder</h1>", "<h1>scarlett</h1>")
+	ctx, cfg, base := newPagesSeedEnv(t, &git.GoGitClient{}, account.PageSite{
+		Name:       "scarlett",
+		Domain:     "scarlett",
+		RepoURL:    src,
+		Branch:     "gh-pages",
+		SourceType: account.PageSourceGit,
+	})
+
+	if err := reconcilePages(ctx, cfg); err != nil {
+		t.Fatalf("reconcilePages: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(base, PagesVolumePrefix, "scarlett.home", "index.html"))
+	if err != nil {
+		t.Fatalf("expected index.html seeded from gh-pages: %v", err)
+	}
+	if string(got) != "<h1>scarlett</h1>" {
+		t.Fatalf("expected gh-pages content, got %q (a default-branch clone would give the placeholder)", got)
+	}
+}
+
 // initPageSourceRepo creates a local non-bare git repo containing index.html,
 // mirroring src/git/git_test.go's helper, and returns its path for use as a
 // page RepoURL. go-git clones a plain local path directly (no file:// needed).
@@ -251,6 +283,72 @@ func initPageSourceRepo(t *testing.T, indexContent string) string {
 	}
 	if err := c.Commit(ctx, dir, "init"); err != nil {
 		t.Fatalf("git commit: %v", err)
+	}
+	// go-git's PlainInit defaults to "master"; create "main" at the same commit
+	// so a single-branch clone of "main" (what the page requests) resolves.
+	if _, err := c.Run(ctx, dir, "branch", "main"); err != nil {
+		t.Fatalf("git branch main: %v", err)
+	}
+	return dir
+}
+
+// initPageSourceRepoTwoBranches builds a repo whose default branch holds
+// defaultContent in index.html and whose otherBranch holds otherContent,
+// mirroring the exact reported bug: erikh/fs kept a placeholder on its default
+// branch and the real site on gh-pages. HEAD is restored to the default branch
+// so a default-branch clone would pick up defaultContent — the seed must pick
+// otherBranch instead. Returns the repo path.
+func initPageSourceRepoTwoBranches(t *testing.T, otherBranch, defaultContent, otherContent string) string {
+	t.Helper()
+	dir := t.TempDir()
+	c := &git.GoGitClient{}
+	ctx := context.Background()
+
+	if err := c.Init(ctx, dir); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	for _, cfg := range [][2]string{
+		{"user.email", "test@test.com"},
+		{"user.name", "Test"},
+		{"commit.gpgSign", "false"},
+		{"tag.gpgSign", "false"},
+	} {
+		if _, err := c.Run(ctx, dir, "config", cfg[0], cfg[1]); err != nil {
+			t.Fatalf("git config %s: %v", cfg[0], err)
+		}
+	}
+
+	writeCommit := func(content, msg string) {
+		if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write index.html: %v", err)
+		}
+		if err := c.Add(ctx, dir, "."); err != nil {
+			t.Fatalf("git add: %v", err)
+		}
+		if err := c.Commit(ctx, dir, msg); err != nil {
+			t.Fatalf("git commit: %v", err)
+		}
+	}
+
+	// Commit the placeholder on the default branch and capture its name.
+	writeCommit(defaultContent, "default")
+	defBranch, err := c.Run(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		t.Fatalf("resolve default branch: %v", err)
+	}
+	defName := strings.TrimSpace(string(defBranch))
+
+	// Branch off, put the real site on otherBranch, then restore HEAD to the
+	// default so the default branch genuinely differs from otherBranch.
+	if _, err := c.Run(ctx, dir, "branch", otherBranch); err != nil {
+		t.Fatalf("git branch %s: %v", otherBranch, err)
+	}
+	if err := c.Checkout(ctx, dir, otherBranch); err != nil {
+		t.Fatalf("git checkout %s: %v", otherBranch, err)
+	}
+	writeCommit(otherContent, "site")
+	if err := c.Checkout(ctx, dir, defName); err != nil {
+		t.Fatalf("git checkout %s: %v", defName, err)
 	}
 	return dir
 }

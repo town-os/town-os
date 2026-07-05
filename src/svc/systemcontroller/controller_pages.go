@@ -158,7 +158,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		gitClient := s.Controller.GetGitClient()
 		if gitClient != nil && subvolPath != "" {
 			go func() {
-				cloneErr := gitCloneIntoPath(s.ctx, gitClient, req.RepoURL, subvolPath)
+				cloneErr := gitCloneIntoPath(s.ctx, gitClient, req.RepoURL, subvolPath, page.Branch)
 
 				status := "active"
 				if cloneErr != nil {
@@ -357,7 +357,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		if _, err := os.Stat(gitDir); err != nil {
 			// Not cloned yet; do a fresh clone. A failed clone can leave a
 			// partial tree, so reset the content before reporting the error.
-			if err := gitClient.Clone(c.Request().Context(), pagesDir, page.RepoURL, dir); err != nil {
+			if err := gitClient.CloneBranch(c.Request().Context(), pagesDir, page.RepoURL, dir, page.Branch); err != nil {
 				s.resetPageContent(dir)
 				status := "error"
 				if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
