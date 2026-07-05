@@ -392,6 +392,14 @@ func run() (err error) {
 	parallelEnsureImages(ctx, coreImages)
 
 	bs.Step("start_monitoring")
+	// Tear down obsolete monitoring units from the previous (NC + socket)
+	// design before starting the new host-net services. On an in-place
+	// upgrade the leftover NC containers still hold -p 9090:9090 / -p
+	// 5308:5308, so Prometheus and the socat would crash-loop with
+	// "address already in use" until these are removed. Best-effort and
+	// idempotent (a no-op on fresh installs).
+	monitoring.CleanupLegacyMonitoringUnits(ctx, sd)
+
 	// Start monitoring system services in parallel (all non-fatal). All three
 	// run --net host: node-exporter and Prometheus bind 127.0.0.1 (private) and
 	// the monitoring UI forwards the single LAN port :5308 to Prometheus over

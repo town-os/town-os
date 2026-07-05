@@ -498,3 +498,47 @@ func TestMonitoringPrometheusRealStart(t *testing.T) {
 		t.Fatalf("expected unit %s in unit list", unitName)
 	}
 }
+
+// TestMonitoringCleanupUnitsRemovesRealUnit exercises monitoring.CleanupUnits
+// against real systemd: it installs and enables a uniquely-named unit, then
+// confirms CleanupUnits stops, disables, and removes it end-to-end. This is the
+// mechanism CleanupLegacyMonitoringUnits relies on to tear down the obsolete NC
+// / socket units on an in-place upgrade. A unique per-run name keeps concurrent
+// test-full runs from colliding (IRON RULE); the fixed legacy names themselves
+// are covered by the mock unit test, since installing those shared global names
+// here would race across parallel runs.
+func TestMonitoringCleanupUnitsRemovesRealUnit(t *testing.T) {
+	t.Parallel()
+	sd := systemd.NewManager()
+	ctx := context.Background()
+
+	suffix := strconv.FormatUint(rand.Uint64(), 36)
+	unitName := "town-os-system--monitoring-cleanup-test-" + suffix + ".service"
+	unitPath := "/etc/systemd/system/" + unitName
+	content := "[Unit]\nDescription=Town OS monitoring cleanup test\n\n" +
+		"[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/bin/true\n\n" +
+		"[Install]\nWantedBy=multi-user.target\n"
+
+	if err := sd.InstallUnit(ctx, unitName, content); err != nil {
+		t.Fatalf("InstallUnit: %v", err)
+	}
+	if err := sd.SetStatus(ctx, unitName, systemd.Enable); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	t.Cleanup(func() {
+		// CleanupUnits should already have removed it; belt-and-suspenders in
+		// case the assertion below fails.
+		_ = sd.SetStatus(context.Background(), unitName, systemd.Stop) //nolint:errcheck // best-effort cleanup
+		_ = sd.UninstallUnit(context.Background(), unitName)           //nolint:errcheck // best-effort cleanup
+	})
+
+	if _, err := os.Stat(unitPath); err != nil {
+		t.Fatalf("expected unit file %s to exist before cleanup: %v", unitPath, err)
+	}
+
+	monitoring.CleanupUnits(ctx, sd, []string{unitName})
+
+	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
+		t.Fatalf("expected unit file %s removed after cleanup, stat err = %v", unitPath, err)
+	}
+}

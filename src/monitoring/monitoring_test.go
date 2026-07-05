@@ -857,3 +857,94 @@ func TestMonitoringUIGrafanaUnitIsSystemService(t *testing.T) {
 		t.Fatalf("monitoring-ui unit %q should be a system service unit", uf.Name)
 	}
 }
+
+// --- Legacy-unit cleanup tests ---
+
+func TestLegacyMonitoringUnits(t *testing.T) {
+	got := legacyMonitoringUnits()
+	want := []string{
+		"town-os-system--prometheus-network.service",
+		"town-os-system--prometheus-9090-tcp.socket",
+		"town-os-system--monitoring-ui-network.service",
+		"town-os-system--monitoring-ui-5308-tcp.socket",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d legacy units, got %v", len(want), got)
+	}
+	set := map[string]bool{}
+	for _, u := range got {
+		set[u] = true
+	}
+	for _, w := range want {
+		if !set[w] {
+			t.Errorf("missing legacy unit %q in %v", w, got)
+		}
+	}
+}
+
+// TestCleanupLegacyMonitoringUnits verifies every legacy NC/socket unit is
+// stopped (to free its published port), disabled, and removed. Stop must come
+// before Uninstall so the running NC releases :9090 / :5308 before the new
+// host-net services bind them.
+func TestCleanupLegacyMonitoringUnits(t *testing.T) {
+	sd := systemd.InitMockManager()
+	CleanupLegacyMonitoringUnits(t.Context(), sd)
+
+	stopped := map[string]bool{}
+	disabled := map[string]bool{}
+	uninstalled := map[string]bool{}
+	for _, c := range sd.GetCalls() {
+		switch c.Method {
+		case "SetStatus":
+			if len(c.Args) < 2 {
+				continue
+			}
+			name, ok := c.Args[0].(string)
+			if !ok {
+				continue
+			}
+			action, ok := c.Args[1].(systemd.StatusAction)
+			if !ok {
+				continue
+			}
+			switch action {
+			case systemd.Stop:
+				stopped[name] = true
+			case systemd.Disable:
+				disabled[name] = true
+			}
+		case "UninstallUnit":
+			if len(c.Args) < 1 {
+				continue
+			}
+			if name, ok := c.Args[0].(string); ok {
+				uninstalled[name] = true
+			}
+		}
+	}
+
+	for _, u := range legacyMonitoringUnits() {
+		if !stopped[u] {
+			t.Errorf("legacy unit %q was not stopped", u)
+		}
+		if !disabled[u] {
+			t.Errorf("legacy unit %q was not disabled", u)
+		}
+		if !uninstalled[u] {
+			t.Errorf("legacy unit %q was not uninstalled", u)
+		}
+	}
+}
+
+// TestCleanupUnitsBestEffort confirms cleanup does not panic or block when the
+// systemd manager reports errors for every operation (the absent-unit case on a
+// fresh install, where Stop/Disable say "not loaded" and Uninstall's os.Remove
+// says "not exist").
+func TestCleanupUnitsBestEffort(t *testing.T) {
+	sd := systemd.InitMockManager()
+	sd.StatusErr = os.ErrNotExist
+	sd.UninstallUnitErr = os.ErrNotExist
+
+	// Must return normally despite every call erroring.
+	CleanupUnits(t.Context(), sd, []string{"town-os-system--does-not-exist.service"})
+}
