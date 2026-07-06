@@ -1604,6 +1604,7 @@ describe('PackageManagement', () => {
         { hostname: 'cached-host', port: '9090' },
         false,
         undefined,
+        'home',
       )
     })
   })

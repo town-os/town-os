@@ -31,6 +31,20 @@ type Client interface {
 	RemoveLocalRblEntry(ctx context.Context, name string) error
 	ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error)
 
+	// Network scopes group DNS records and IP associations under a named,
+	// per-network view. Town OS pairs each network with a scope so records
+	// can eventually be resolved per-network; for now scoping is best-effort
+	// and non-fatal (server support may lag). See scope.go for helpers.
+	CreateNetworkScope(ctx context.Context, scope *upstream.NetworkScope) error
+	DeleteNetworkScope(ctx context.Context, name string) error
+	ListNetworkScopes(ctx context.Context) ([]*upstream.NetworkScope, error)
+	JoinNetwork(ctx context.Context, ipAddress, scopeName string, ttlSeconds uint64) error
+	LeaveNetwork(ctx context.Context, ipAddress string) error
+	GetNetworkAssociations(ctx context.Context, scopeName string) ([]*upstream.NetworkAssociation, error)
+	AddScopedRecord(ctx context.Context, scopeName string, record *upstream.DnsRecord) error
+	RemoveScopedRecord(ctx context.Context, scopeName, name string, opts *upstream.RemoveScopedRecordOptions) (uint32, error)
+	ListScopedRecords(ctx context.Context, scopeName string, opts *upstream.ListScopedRecordsOptions) ([]*upstream.DnsRecord, error)
+
 	Close() error
 }
 
@@ -102,6 +116,42 @@ func (c *client) RemoveLocalRblEntry(ctx context.Context, name string) error {
 
 func (c *client) ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error) {
 	return c.c.ListLocalRblEntries(ctx)
+}
+
+func (c *client) CreateNetworkScope(ctx context.Context, scope *upstream.NetworkScope) error {
+	return c.c.CreateNetworkScope(ctx, scope)
+}
+
+func (c *client) DeleteNetworkScope(ctx context.Context, name string) error {
+	return c.c.DeleteNetworkScope(ctx, name)
+}
+
+func (c *client) ListNetworkScopes(ctx context.Context) ([]*upstream.NetworkScope, error) {
+	return c.c.ListNetworkScopes(ctx)
+}
+
+func (c *client) JoinNetwork(ctx context.Context, ipAddress, scopeName string, ttlSeconds uint64) error {
+	return c.c.JoinNetwork(ctx, ipAddress, scopeName, ttlSeconds)
+}
+
+func (c *client) LeaveNetwork(ctx context.Context, ipAddress string) error {
+	return c.c.LeaveNetwork(ctx, ipAddress)
+}
+
+func (c *client) GetNetworkAssociations(ctx context.Context, scopeName string) ([]*upstream.NetworkAssociation, error) {
+	return c.c.GetNetworkAssociations(ctx, scopeName)
+}
+
+func (c *client) AddScopedRecord(ctx context.Context, scopeName string, record *upstream.DnsRecord) error {
+	return c.c.AddScopedRecord(ctx, scopeName, record)
+}
+
+func (c *client) RemoveScopedRecord(ctx context.Context, scopeName, name string, opts *upstream.RemoveScopedRecordOptions) (uint32, error) {
+	return c.c.RemoveScopedRecord(ctx, scopeName, name, opts)
+}
+
+func (c *client) ListScopedRecords(ctx context.Context, scopeName string, opts *upstream.ListScopedRecordsOptions) ([]*upstream.DnsRecord, error) {
+	return c.c.ListScopedRecords(ctx, scopeName, opts)
 }
 
 func (c *client) Close() error {

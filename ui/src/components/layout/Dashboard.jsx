@@ -19,6 +19,7 @@ import {
   Settings,
   Activity,
   Wifi,
+  Network,
   AlertTriangle,
 } from 'lucide-react'
 
@@ -30,6 +31,7 @@ const NAV_KEYS = [
   { to: '/dashboard/packages', key: 'nav.packages', icon: Package },
   { to: '/dashboard/pages', key: 'nav.pages', icon: Globe, pagesOnly: true },
   { to: '/dashboard/dns', key: 'nav.dns', icon: Wifi },
+  { to: '/dashboard/networks', key: 'nav.networks', icon: Network, adminOnly: true },
   { to: '/dashboard/monitoring', key: 'nav.monitoring', icon: Activity },
   { to: '/dashboard/log', key: 'nav.audit_log', icon: FileText },
   { to: '/dashboard/settings', key: 'nav.settings', icon: Settings, adminOnly: true },

@@ -341,6 +341,7 @@ export default function PackageManagement() {
     for (const key of Object.keys(questionsDialog.questions)) {
       responses[key] = form[key]?.value || ''
     }
+    const network = form['__network__']?.value || ''
 
     // Save dialog state before closing so we can restore it on validation errors.
     const savedDialog = { ...questionsDialog }
@@ -355,6 +356,7 @@ export default function PackageManagement() {
         responses,
         savedDialog.reuseVolumes || false,
         savedDialog.importFromVersion,
+        network,
       )
       await readProgressStream(resp, updateProgress)
       dismissProgress()

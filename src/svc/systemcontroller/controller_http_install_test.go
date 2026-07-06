@@ -27,8 +27,8 @@ func TestHTTPInstallPackage(t *testing.T) {
 	}
 
 	calls := inst.GetCalls()
-	if len(calls) != 4 {
-		t.Fatalf("expected 4 calls, got %d", len(calls))
+	if len(calls) != 5 {
+		t.Fatalf("expected 5 calls, got %d", len(calls))
 	}
 	if calls[0].Method != "GetInstalledVersion" {
 		t.Fatalf("expected GetInstalledVersion call, got %q", calls[0].Method)
@@ -62,6 +62,9 @@ func TestHTTPInstallPackage(t *testing.T) {
 	}
 	if calls[3].Method != "ClearLastResponses" {
 		t.Fatalf("expected ClearLastResponses call, got %q", calls[3].Method)
+	}
+	if calls[4].Method != "SaveNetwork" {
+		t.Fatalf("expected SaveNetwork call, got %q", calls[4].Method)
 	}
 }
 
@@ -241,26 +244,29 @@ func TestHTTPUninstallPackage(t *testing.T) {
 	}
 
 	calls := inst.GetCalls()
-	// Install phase: ListInstalled + ListInstalled + Install + ClearLastResponses = 4
-	// Uninstall phase: GetResponses + SaveLastResponses + SetDisabled + Uninstall + LoadDependencies + ListInstalled = 6
-	// Total = 10
-	if len(calls) != 10 {
-		t.Fatalf("expected 10 calls, got %d: %v", len(calls), calls)
+	// Install phase: GetInstalledVersion + ListInstalled + Install + ClearLastResponses + SaveNetwork = 5
+	// Uninstall phase: GetResponses + SaveLastResponses + SetDisabled + Uninstall + LoadDependencies + GetInstalledVersion = 6
+	// Total = 11
+	if len(calls) != 11 {
+		t.Fatalf("expected 11 calls, got %d: %v", len(calls), calls)
 	}
 	if calls[2].Method != "Install" {
 		t.Fatalf("expected Install call, got %q", calls[2].Method)
 	}
-	if calls[6].Method != "SetDisabled" {
-		t.Fatalf("expected SetDisabled call, got %q", calls[6].Method)
+	if calls[4].Method != "SaveNetwork" {
+		t.Fatalf("expected SaveNetwork call, got %q", calls[4].Method)
 	}
-	if calls[7].Method != "Uninstall" {
-		t.Fatalf("expected Uninstall call, got %q", calls[7].Method)
+	if calls[7].Method != "SetDisabled" {
+		t.Fatalf("expected SetDisabled call, got %q", calls[7].Method)
 	}
-	if calls[8].Method != "LoadDependencies" {
-		t.Fatalf("expected LoadDependencies call, got %q", calls[8].Method)
+	if calls[8].Method != "Uninstall" {
+		t.Fatalf("expected Uninstall call, got %q", calls[8].Method)
 	}
-	if calls[9].Method != "GetInstalledVersion" {
-		t.Fatalf("expected GetInstalledVersion call, got %q", calls[9].Method)
+	if calls[9].Method != "LoadDependencies" {
+		t.Fatalf("expected LoadDependencies call, got %q", calls[9].Method)
+	}
+	if calls[10].Method != "GetInstalledVersion" {
+		t.Fatalf("expected GetInstalledVersion call, got %q", calls[10].Method)
 	}
 }
 
@@ -1496,39 +1502,42 @@ func TestHTTPReinstallPackage(t *testing.T) {
 	}
 
 	calls := inst.GetCalls()
-	// First install: ListInstalled + ListInstalled + Install + ClearLastResponses = 4
-	// Reinstall: ListInstalled + ListInstalled + GetResponses + Uninstall + Install + ClearLastResponses = 6
-	// Total = 10
-	if len(calls) != 10 {
+	// First install: GetInstalledVersion + ListInstalled + Install + ClearLastResponses + SaveNetwork = 5
+	// Reinstall: GetInstalledVersion + ListInstalled + GetResponses + Uninstall + Install + ClearLastResponses + SaveNetwork = 7
+	// Total = 12
+	if len(calls) != 12 {
 		methods := make([]string, len(calls))
 		for i, c := range calls {
 			methods[i] = c.Method
 		}
-		t.Fatalf("expected 10 calls, got %d: %v", len(calls), methods)
+		t.Fatalf("expected 12 calls, got %d: %v", len(calls), methods)
 	}
 
-	// Reinstall phase starts at index 4.
-	if calls[4].Method != "GetInstalledVersion" {
-		t.Fatalf("call 4: expected GetInstalledVersion, got %q", calls[4].Method)
+	// Reinstall phase starts at index 5 (after the first install's SaveNetwork).
+	if calls[5].Method != "GetInstalledVersion" {
+		t.Fatalf("call 5: expected GetInstalledVersion, got %q", calls[5].Method)
 	}
-	if calls[5].Method != "ListInstalled" {
-		t.Fatalf("call 5: expected ListInstalled (port exclusion), got %q", calls[5].Method)
+	if calls[6].Method != "ListInstalled" {
+		t.Fatalf("call 6: expected ListInstalled (port exclusion), got %q", calls[6].Method)
 	}
-	if calls[6].Method != "GetResponses" {
-		t.Fatalf("call 6: expected GetResponses, got %q", calls[6].Method)
+	if calls[7].Method != "GetResponses" {
+		t.Fatalf("call 7: expected GetResponses, got %q", calls[7].Method)
 	}
-	if calls[7].Method != "Uninstall" {
-		t.Fatalf("call 7: expected Uninstall, got %q", calls[7].Method)
+	if calls[8].Method != "Uninstall" {
+		t.Fatalf("call 8: expected Uninstall, got %q", calls[8].Method)
 	}
-	if calls[8].Method != "Install" {
-		t.Fatalf("call 8: expected Install, got %q", calls[8].Method)
+	if calls[9].Method != "Install" {
+		t.Fatalf("call 9: expected Install, got %q", calls[9].Method)
 	}
-	if calls[9].Method != "ClearLastResponses" {
-		t.Fatalf("call 9: expected ClearLastResponses, got %q", calls[9].Method)
+	if calls[10].Method != "ClearLastResponses" {
+		t.Fatalf("call 10: expected ClearLastResponses, got %q", calls[10].Method)
+	}
+	if calls[11].Method != "SaveNetwork" {
+		t.Fatalf("call 11: expected SaveNetwork, got %q", calls[11].Method)
 	}
 
 	// Verify new responses were used.
-	newResp, ok := calls[8].Args[4].(packages.Responses)
+	newResp, ok := calls[9].Args[4].(packages.Responses)
 	if !ok {
 		t.Fatal("type assertion failed")
 	}

@@ -155,6 +155,7 @@ func (b *archiveTestBackend) GetNetworkControllerImage() string { return "" }
 func (b *archiveTestBackend) GetNetworkStatePath() string      { return "" }
 func (b *archiveTestBackend) GetGitCloner() packages.GitCloner                    { return nil }
 func (b *archiveTestBackend) GetPagesManager() account.PagesManager               { return nil }
+func (b *archiveTestBackend) GetNetworkManager() account.NetworkManager           { return nil }
 func (b *archiveTestBackend) GetExternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIP() string                               { return "" }
 func (b *archiveTestBackend) GetInternalIPv6() string                             { return "" }

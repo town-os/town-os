@@ -24,6 +24,11 @@ type MockClient struct {
 	Records   []*upstream.DnsRecord
 	AuthZones []string
 
+	// Network scope state.
+	Scopes        []*upstream.NetworkScope
+	ScopedRecords map[string][]*upstream.DnsRecord
+	Associations  map[string]string // ipAddress -> scopeName
+
 	// RBL / DNSBL state.
 	RblEnabled    bool
 	RblProviders  []*upstream.RblConfig
@@ -48,6 +53,16 @@ type MockClient struct {
 	AddLocalRblEntryErr    error
 	RemoveLocalRblEntryErr error
 	ListLocalRblEntriesErr error
+
+	CreateNetworkScopeErr      error
+	DeleteNetworkScopeErr      error
+	ListNetworkScopesErr       error
+	JoinNetworkErr             error
+	LeaveNetworkErr            error
+	GetNetworkAssociationsErr  error
+	AddScopedRecordErr         error
+	RemoveScopedRecordErr      error
+	ListScopedRecordsErr       error
 }
 
 // GetCalls returns a snapshot of all recorded method calls.
@@ -251,6 +266,145 @@ func (m *MockClient) ListLocalRblEntries(_ context.Context) ([]*upstream.LocalRb
 	defer m.mu.Unlock()
 	out := make([]*upstream.LocalRblEntry, len(m.LocalRblEntries))
 	copy(out, m.LocalRblEntries)
+	return out, nil
+}
+
+func (m *MockClient) CreateNetworkScope(_ context.Context, scope *upstream.NetworkScope) error {
+	m.record("CreateNetworkScope", scope)
+	if m.CreateNetworkScopeErr != nil {
+		return m.CreateNetworkScopeErr
+	}
+	if scope == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.Scopes {
+		if s.Name == scope.Name {
+			return nil
+		}
+	}
+	m.Scopes = append(m.Scopes, scope)
+	return nil
+}
+
+func (m *MockClient) DeleteNetworkScope(_ context.Context, name string) error {
+	m.record("DeleteNetworkScope", name)
+	if m.DeleteNetworkScopeErr != nil {
+		return m.DeleteNetworkScopeErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, s := range m.Scopes {
+		if s.Name == name {
+			m.Scopes = append(m.Scopes[:i], m.Scopes[i+1:]...)
+			break
+		}
+	}
+	delete(m.ScopedRecords, name)
+	return nil
+}
+
+func (m *MockClient) ListNetworkScopes(_ context.Context) ([]*upstream.NetworkScope, error) {
+	m.record("ListNetworkScopes")
+	if m.ListNetworkScopesErr != nil {
+		return nil, m.ListNetworkScopesErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*upstream.NetworkScope, len(m.Scopes))
+	copy(out, m.Scopes)
+	return out, nil
+}
+
+func (m *MockClient) JoinNetwork(_ context.Context, ipAddress, scopeName string, ttlSeconds uint64) error {
+	m.record("JoinNetwork", ipAddress, scopeName, ttlSeconds)
+	if m.JoinNetworkErr != nil {
+		return m.JoinNetworkErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Associations == nil {
+		m.Associations = map[string]string{}
+	}
+	m.Associations[ipAddress] = scopeName
+	return nil
+}
+
+func (m *MockClient) LeaveNetwork(_ context.Context, ipAddress string) error {
+	m.record("LeaveNetwork", ipAddress)
+	if m.LeaveNetworkErr != nil {
+		return m.LeaveNetworkErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.Associations, ipAddress)
+	return nil
+}
+
+func (m *MockClient) GetNetworkAssociations(_ context.Context, scopeName string) ([]*upstream.NetworkAssociation, error) {
+	m.record("GetNetworkAssociations", scopeName)
+	if m.GetNetworkAssociationsErr != nil {
+		return nil, m.GetNetworkAssociationsErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []*upstream.NetworkAssociation
+	for ip, scope := range m.Associations {
+		if scopeName != "" && scope != scopeName {
+			continue
+		}
+		out = append(out, &upstream.NetworkAssociation{IpAddress: ip, ScopeName: scope})
+	}
+	return out, nil
+}
+
+func (m *MockClient) AddScopedRecord(_ context.Context, scopeName string, record *upstream.DnsRecord) error {
+	m.record("AddScopedRecord", scopeName, record)
+	if m.AddScopedRecordErr != nil {
+		return m.AddScopedRecordErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ScopedRecords == nil {
+		m.ScopedRecords = map[string][]*upstream.DnsRecord{}
+	}
+	m.ScopedRecords[scopeName] = append(m.ScopedRecords[scopeName], record)
+	return nil
+}
+
+func (m *MockClient) RemoveScopedRecord(_ context.Context, scopeName, name string, opts *upstream.RemoveScopedRecordOptions) (uint32, error) {
+	m.record("RemoveScopedRecord", scopeName, name, opts)
+	if m.RemoveScopedRecordErr != nil {
+		return 0, m.RemoveScopedRecordErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var kept []*upstream.DnsRecord
+	var removed uint32
+	for _, r := range m.ScopedRecords[scopeName] {
+		if r.Name == name && (opts == nil || opts.RecordType == nil || *opts.RecordType == r.RecordType) {
+			removed++
+		} else {
+			kept = append(kept, r)
+		}
+	}
+	if m.ScopedRecords != nil {
+		m.ScopedRecords[scopeName] = kept
+	}
+	return removed, nil
+}
+
+func (m *MockClient) ListScopedRecords(_ context.Context, scopeName string, _ *upstream.ListScopedRecordsOptions) ([]*upstream.DnsRecord, error) {
+	m.record("ListScopedRecords", scopeName)
+	if m.ListScopedRecordsErr != nil {
+		return nil, m.ListScopedRecordsErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	src := m.ScopedRecords[scopeName]
+	out := make([]*upstream.DnsRecord, len(src))
+	copy(out, src)
 	return out, nil
 }
 

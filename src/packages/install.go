@@ -36,6 +36,8 @@ type Installer interface {
 	IsPackageChanged(repoName, pkgName, version string) (bool, error)
 	SaveDependencies(repoName, pkgName string, deps map[string]DependencyRecord) error
 	LoadDependencies(repoName, pkgName string) (map[string]DependencyRecord, error)
+	SaveNetwork(repoName, pkgName, network string) error
+	LoadNetwork(repoName, pkgName string) (string, error)
 }
 
 type InstallManager struct {
@@ -525,6 +527,60 @@ func (m *InstallManager) LoadChildren(repoName, parentName string) (_ []string, 
 		return nil, err
 	}
 	return children, nil
+}
+
+// NetworkFile records which network a package was installed onto. It lives in
+// the install record dir alongside dependencies.json/children.json so reconcile
+// can rebuild the package's overlay wiring after a reboot.
+const NetworkFile = "network.json"
+
+type networkAssignment struct {
+	Network string `json:"network"`
+}
+
+// SaveNetwork persists the network a package is installed onto. An empty value
+// is stored verbatim and interpreted by callers as the default network.
+func (m *InstallManager) SaveNetwork(repoName, pkgName, network string) (err error) {
+	lock, err := lockDir(m.BaseDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, lock.Unlock())
+	}()
+
+	dir := m.pkgDir(repoName, pkgName)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	return atomicWriteJSON(filepath.Join(dir, NetworkFile), networkAssignment{Network: network})
+}
+
+// LoadNetwork reads the network a package is installed onto. Returns "" (not an
+// error) when no assignment file exists, which callers treat as the default
+// network.
+func (m *InstallManager) LoadNetwork(repoName, pkgName string) (_ string, err error) {
+	fn, err := m.safePkgPath(repoName, pkgName, NetworkFile)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.Open(fn) //nolint:gosec // G304 -- fn from SafePath
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
+
+	var a networkAssignment
+	if err := json.NewDecoder(f).Decode(&a); err != nil {
+		return "", err
+	}
+	return a.Network, nil
 }
 
 // IsPackageChanged compares the inode of the installed package file with the

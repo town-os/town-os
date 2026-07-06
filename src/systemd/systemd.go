@@ -175,6 +175,20 @@ const PackageUnitPrefix = "town-os-package--"
 // SystemServiceUnitPrefix is the prefix for all system service systemd units.
 const SystemServiceUnitPrefix = "town-os-system--"
 
+// NetworkUnitPrefix is the prefix for per-network WireGuard interface units.
+const NetworkUnitPrefix = "town-os-network--"
+
+// NetworkUnitName returns the systemd unit name for a network's WireGuard
+// interface (e.g. "town-os-network--home.service").
+func NetworkUnitName(name string) string {
+	return fmt.Sprintf("%s%s.service", NetworkUnitPrefix, name)
+}
+
+// IsNetworkUnit reports whether the unit name is a per-network WireGuard unit.
+func IsNetworkUnit(name string) bool {
+	return strings.HasPrefix(name, NetworkUnitPrefix) && strings.HasSuffix(name, ".service")
+}
+
 // SystemControllerUnitName is the canonical systemd unit name of the
 // systemcontroller itself. It does not follow the town-os-system--
 // prefix convention because it predates the system-service pattern,

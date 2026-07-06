@@ -38,6 +38,7 @@ type systemControllerBackend interface {
 	GetInternalIPv6() string
 	GetGitCloner() packages.GitCloner
 	GetPagesManager() account.PagesManager
+	GetNetworkManager() account.NetworkManager
 	GetMonitoringBackend() string
 	GetDiskDevices() []string
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
@@ -215,6 +216,16 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/dns/rbl/local/remove", s.removeLocalRblEntry, s.requireAdmin)
 	e.Add("GET", "/dns/services", s.listDNSServices, s.requireAuth)
 	e.Add("POST", "/dns/services/set", s.setDNSService, s.requireAdmin)
+
+	// Networks (per-network WireGuard overlays paired with DNS)
+	e.Add("GET", "/networks", s.listNetworks, s.requireAuth)
+	e.Add("GET", "/networks/peers", s.listNetworkPeers, s.requireAuth)
+	e.Add("POST", "/networks/create", s.createNetwork, s.requireAdmin)
+	e.Add("POST", "/networks/remove", s.removeNetwork, s.requireAdmin)
+	e.Add("POST", "/networks/enable", s.enableNetwork, s.requireAdmin)
+	e.Add("POST", "/networks/disable", s.disableNetwork, s.requireAdmin)
+	e.Add("POST", "/networks/peers/add", s.addNetworkPeer, s.requireAdmin)
+	e.Add("POST", "/networks/peers/remove", s.removeNetworkPeer, s.requireAdmin)
 }
 
 // --- Server infrastructure ---
@@ -243,6 +254,7 @@ type ServerConfig struct {
 	// devices. Nil when discovery fails.
 	DiskDevices []string
 	PagesMgr                 account.PagesManager
+	NetworkMgr               account.NetworkManager
 	GitCloner                packages.GitCloner
 	MonitoringBackend        string
 	Rolodex                  *rolodex.Manager

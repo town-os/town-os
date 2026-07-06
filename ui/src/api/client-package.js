@@ -175,10 +175,11 @@ SystemControllerClient.prototype.installPreview = async function (repo, name, ve
  * @param {string} [importFromVersion] - When provided, import data from this prior installed version.
  * @returns {Promise<void>}
  */
-SystemControllerClient.prototype.installPackage = async function (repo, name, version, responses, reuseVolumes = false, importFromVersion) {
+SystemControllerClient.prototype.installPackage = async function (repo, name, version, responses, reuseVolumes = false, importFromVersion, network) {
   const body = { repo, name, version, responses }
   if (reuseVolumes) body.reuse_volumes = true
   if (importFromVersion) body.import_from_version = importFromVersion
+  if (network) body.network = network
   const resp = await this.post('/packages/install', body)
   // Drain the SSE stream so the request completes.
   await resp.text().catch(() => {})
@@ -188,10 +189,11 @@ SystemControllerClient.prototype.installPackage = async function (repo, name, ve
  * Install a package and return the raw SSE response for progress streaming.
  * @returns {Promise<Response>}
  */
-SystemControllerClient.prototype.installPackageStream = async function (repo, name, version, responses, reuseVolumes = false, importFromVersion) {
+SystemControllerClient.prototype.installPackageStream = async function (repo, name, version, responses, reuseVolumes = false, importFromVersion, network) {
   const body = { repo, name, version, responses }
   if (reuseVolumes) body.reuse_volumes = true
   if (importFromVersion) body.import_from_version = importFromVersion
+  if (network) body.network = network
   return this.post('/packages/install', body)
 }
 

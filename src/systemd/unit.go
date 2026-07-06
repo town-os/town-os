@@ -844,6 +844,47 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 	}
 }
 
+// NetworkUnitConfig configures a per-network WireGuard interface unit.
+type NetworkUnitConfig struct {
+	Name       string // network name (used in Description and unit name)
+	ConfigPath string // absolute host path to the <interface>.conf wg-quick config
+}
+
+// GenerateNetworkUnit produces a host-level systemd unit that brings a
+// WireGuard interface up via wg-quick. The interface is derived by wg-quick from
+// the config filename. The unit is oneshot + RemainAfterExit so systemctl
+// start/stop maps to interface up/down: stopping the unit (network disabled)
+// tears the interface down, cutting remote access while local DNS and the
+// containers keep running. The systemcontroller writes ConfigPath (0600, it
+// contains the private key) to the host-shared network-state dir before the
+// unit starts.
+func GenerateNetworkUnit(cfg NetworkUnitConfig) UnitFile {
+	var b strings.Builder
+
+	b.WriteString("[Unit]\n")
+	fmt.Fprintf(&b, "Description=Town OS Network: %s\n", cfg.Name)
+	b.WriteString("After=network-online.target\n")
+	b.WriteString("Wants=network-online.target\n")
+	b.WriteString("StartLimitIntervalSec=0\n")
+
+	b.WriteString("\n[Service]\n")
+	b.WriteString("Type=oneshot\n")
+	b.WriteString("RemainAfterExit=yes\n")
+	// Tear down any stale interface from a previous run before bringing it up.
+	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/wg-quick down %s\n", cfg.ConfigPath)
+	fmt.Fprintf(&b, "ExecStart=/usr/bin/wg-quick up %s\n", cfg.ConfigPath)
+	fmt.Fprintf(&b, "ExecStop=-/usr/bin/wg-quick down %s\n", cfg.ConfigPath)
+	b.WriteString("Restart=on-failure\n")
+
+	b.WriteString("\n[Install]\n")
+	b.WriteString("WantedBy=multi-user.target\n")
+
+	return UnitFile{
+		Name:    NetworkUnitName(cfg.Name),
+		Content: b.String(),
+	}
+}
+
 // PackageUnitNames returns the list of all systemd unit names that would be
 // generated for a package with the given port maps. This is used during
 // uninstall to know which units to tear down.

@@ -25,6 +25,10 @@ type InstallRequest struct {
 	ImportFromVersion string             `json:"import_from_version,omitempty"`
 	SkipResponseReuse bool               `json:"skip_response_reuse,omitempty"`
 	Instance          string             `json:"instance,omitempty"`
+	// Network is the network the package is installed onto (default "home").
+	// A package is served on this network's overlay; reinstalling after an
+	// uninstall-without-purge may target a different network.
+	Network string `json:"network,omitempty"`
 }
 
 type UninstallRequest struct {
@@ -246,6 +250,13 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	inst := s.Controller.GetInstaller()
 	ctx := c.Request().Context()
 
+	// Resolve and validate the target network (default "home") before any
+	// side effects. Returns an echo error when the network does not exist.
+	network, nerr := s.resolveInstallNetwork(req.Network)
+	if nerr != nil {
+		return nerr
+	}
+
 	activeVersion, err := findActiveVersion(inst, repoName, effectiveName)
 	if err != nil {
 		return err
@@ -368,6 +379,12 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		slog.Debug(fmt.Sprintf("clear last responses %s/%s: %v", repoName, effectiveName, err))
 	}
 
+	// Persist the network assignment so reconcile rebuilds the overlay wiring
+	// after a reboot. A reinstall (reuse_volumes) overwrites the prior value.
+	if err := inst.SaveNetwork(repoName, effectiveName, network); err != nil {
+		slog.Debug(fmt.Sprintf("save network %s/%s: %v", repoName, effectiveName, err))
+	}
+
 	if activeVersion != "" && activeVersion != req.Version {
 		if err := inst.Uninstall(repoName, effectiveName, activeVersion); err != nil {
 			slog.Debug(fmt.Sprintf("remove old install record %s/%s@%s: %v", repoName, effectiveName, activeVersion, err))
@@ -441,6 +458,9 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	pw.Step("registering_dns")
 	s.registerPackageDNS(ctx, repoName, effectiveName, compiled.Network.Domains)
+	// Best-effort per-network scoped records: peers on a non-default network
+	// resolve the package to its overlay address (served on that network).
+	s.registerScopedPackageDNS(ctx, network, repoName, effectiveName, compiled.Network.Domains)
 	// Pin the proxy's leaf via DANE for any terminated TLS ports.
 	s.publishPackageTLSA(ctx, repoName, effectiveName, req.Version, compiled.Network.Domains)
 

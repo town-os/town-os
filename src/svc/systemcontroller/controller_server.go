@@ -144,8 +144,9 @@ func (s *serverBase) GetGitCloner() packages.GitCloner {
 	}
 	return packages.DefaultGitCloner{}
 }
-func (s *serverBase) GetPagesManager() account.PagesManager { return s.PagesMgr }
-func (s *serverBase) GetMonitoringBackend() string          { return s.MonitoringBackend }
+func (s *serverBase) GetPagesManager() account.PagesManager       { return s.PagesMgr }
+func (s *serverBase) GetNetworkManager() account.NetworkManager   { return s.NetworkMgr }
+func (s *serverBase) GetMonitoringBackend() string                { return s.MonitoringBackend }
 func (s *serverBase) GetDiskDevices() []string              { return s.DiskDevices }
 
 // RefreshMonitoringBackend switches the monitoring UI to the given backend

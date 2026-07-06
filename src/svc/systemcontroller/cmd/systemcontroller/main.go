@@ -209,6 +209,12 @@ func run() (err error) {
 		return fmt.Errorf("init pages manager: %w", err)
 	}
 
+	bs.Step("init_network_mgr")
+	networkMgr, err := account.InitNetworkManager(db)
+	if err != nil {
+		return fmt.Errorf("init network manager: %w", err)
+	}
+
 	repoBase := dir
 	if *repoDir != "" {
 		repoBase = *repoDir
@@ -558,6 +564,16 @@ func run() (err error) {
 		}
 	}
 
+	// Ensure the default network exists and bring up every enabled network's
+	// WireGuard interface. Non-fatal: a WG failure must not block boot.
+	bs.Step("reconcile_networks")
+	systemcontroller.ReconcileNetworks(ctx, systemcontroller.ReconcileNetworksConfig{
+		NetworkMgr:       networkMgr,
+		Systemd:          sd,
+		NetworkStatePath: *networkStatePath,
+		SettingsMgr:      settingsMgr,
+	})
+
 	// Program the shared :443 ingress with the full route set (HTTP packages +
 	// pages), at the same point in boot as rolodex. Push/declarative: on a
 	// fresh ingress this rebuilds everything (same model as RebuildDNS).
@@ -617,6 +633,7 @@ func run() (err error) {
 		AuditMgr:                   auditMgr,
 		SettingsMgr:                settingsMgr,
 		PagesMgr:                   pagesMgr,
+		NetworkMgr:                 networkMgr,
 		DefaultRepoUser:            os.Getenv(packages.EnvRepoUsername),
 		DefaultRepoPass:            os.Getenv(packages.EnvRepoPassword),
 		BtrfsBasePath:              *btrfsPath,

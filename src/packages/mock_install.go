@@ -18,6 +18,7 @@ type MockInstallManager struct {
 	LastResponses       map[string]Responses
 	Children            map[string][]string
 	Dependencies        map[string]map[string]DependencyRecord
+	Networks            map[string]string
 	Disabled            map[string]bool
 	ChangedPackages     map[string]bool
 	Calls               []MockInstallCall
@@ -42,6 +43,7 @@ func InitMockInstallManager() *MockInstallManager {
 		LastResponses:   map[string]Responses{},
 		Children:        map[string][]string{},
 		Dependencies:    map[string]map[string]DependencyRecord{},
+		Networks:        map[string]string{},
 		Disabled:        map[string]bool{},
 		ChangedPackages: map[string]bool{},
 	}
@@ -281,4 +283,21 @@ func (m *MockInstallManager) LoadDependencies(repoName, pkgName string) (map[str
 		return nil, nil //nolint:nilnil // nil deps is the correct zero value when no dependencies are stored
 	}
 	return deps, nil
+}
+
+func (m *MockInstallManager) SaveNetwork(repoName, pkgName, network string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "SaveNetwork", Args: []any{repoName, pkgName, network}})
+
+	m.Networks[fmt.Sprintf("%s/%s", repoName, pkgName)] = network
+	return nil
+}
+
+func (m *MockInstallManager) LoadNetwork(repoName, pkgName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockInstallCall{Method: "LoadNetwork", Args: []any{repoName, pkgName}})
+
+	return m.Networks[fmt.Sprintf("%s/%s", repoName, pkgName)], nil
 }

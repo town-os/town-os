@@ -58,6 +58,7 @@ install_arch_packages() {
     btrfs-progs \
     podman \
     runc \
+    wireguard-tools \
     python \
     curl \
     git \
@@ -82,6 +83,7 @@ install_debian_packages() {
     btrfs-progs \
     podman \
     runc \
+    wireguard-tools \
     python3 \
     curl \
     git \
@@ -106,6 +108,7 @@ install_fedora_packages() {
     btrfs-progs
     podman
     runc
+    wireguard-tools
     python3
     git
     unzip

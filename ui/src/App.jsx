@@ -21,6 +21,7 @@ import AuditLog from '@/routes/AuditLog.jsx'
 import PagesManagement from '@/routes/PagesManagement.jsx'
 import SystemSettings from '@/routes/SystemSettings.jsx'
 import DNSManagement from '@/routes/DNSManagement.jsx'
+import Networks from '@/routes/Networks.jsx'
 import MonitoringDashboard from '@/routes/MonitoringDashboard.jsx'
 import { usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
@@ -120,6 +121,14 @@ export default function App() {
             element={
               <DashboardRoute>
                 <DNSManagement />
+              </DashboardRoute>
+            }
+          />
+          <Route
+            path="/dashboard/networks"
+            element={
+              <DashboardRoute>
+                <Networks />
               </DashboardRoute>
             }
           />

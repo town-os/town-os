@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
+import getClient from '@/lib/client-instance.js'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +21,24 @@ import { X } from 'lucide-react'
 
 export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onClearField }) {
   const { t } = useI18n()
+  const [networks, setNetworks] = useState([])
+
+  useEffect(() => {
+    if (!dialog.open) return
+    const client = getClient()
+    if (typeof client.listNetworks !== 'function') return
+    let cancelled = false
+    client
+      .listNetworks()
+      .then((list) => {
+        if (!cancelled) setNetworks((list || []).filter((n) => n.enabled))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [dialog.open])
+
   return (
     <Dialog
       open={dialog.open}
@@ -33,6 +53,22 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
         </DialogHeader>
         <form onSubmit={onSubmit}>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="__network__">{t('networks.install_label')}</Label>
+              <select
+                id="__network__"
+                name="__network__"
+                defaultValue="home"
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                {(networks.length ? networks : [{ name: 'home' }]).map((n) => (
+                  <option key={n.name} value={n.name}>
+                    {n.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{t('networks.install_help')}</p>
+            </div>
             {dialog.questions &&
               Object.entries(dialog.questions).map(
                 ([key, question]) => {
