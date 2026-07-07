@@ -39,6 +39,19 @@ func (s *SystemControllerHandlers) resolveInstallNetwork(requested string) (stri
 	return network, nil
 }
 
+// registerPackageDNSForNetwork plumbs a package's DNS into the one zone that
+// matches its install network: the global home zone (registerPackageDNS) for the
+// default network, or the network's scoped TLD zone (registerScopedPackageDNS)
+// for any other network. A package must appear in exactly one — a non-default
+// package leaking into the global home zone is the "resolves as .home" bug.
+func (s *SystemControllerHandlers) registerPackageDNSForNetwork(ctx context.Context, network, repo, name string, domains []string) {
+	if network == "" || network == account.DefaultNetworkName {
+		s.registerPackageDNS(ctx, repo, name, domains)
+		return
+	}
+	s.registerScopedPackageDNS(ctx, network, repo, name, domains)
+}
+
 // registerScopedPackageDNS best-effort registers scoped A records pointing a
 // package's FQDNs at the box's overlay address within a non-default network's
 // rolodex scope, so peers on that network resolve to the reachable overlay IP.

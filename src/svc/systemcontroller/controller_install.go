@@ -457,10 +457,12 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	pw.Step("registering_dns")
-	s.registerPackageDNS(ctx, repoName, effectiveName, compiled.Network.Domains)
-	// Best-effort per-network scoped records: peers on a non-default network
-	// resolve the package to its overlay address (served on that network).
-	s.registerScopedPackageDNS(ctx, network, repoName, effectiveName, compiled.Network.Domains)
+	// A package lives in exactly one DNS zone, chosen by its install network: the
+	// global home zone for the default network, or that network's scoped TLD zone
+	// otherwise. Always plumbing the global home zone (as this once did) is what
+	// made every networked package resolve as <name>.<repo>.home instead of its
+	// network's TLD.
+	s.registerPackageDNSForNetwork(ctx, network, repoName, effectiveName, compiled.Network.Domains)
 	// Pin the proxy's leaf via DANE for any terminated TLS ports.
 	s.publishPackageTLSA(ctx, repoName, effectiveName, req.Version, compiled.Network.Domains)
 

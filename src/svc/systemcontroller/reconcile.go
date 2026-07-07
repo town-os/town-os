@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/ingress"
@@ -20,7 +21,6 @@ import (
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
 	townostls "gitea.com/town-os/town-os/src/tls"
-	upstream "gitea.com/town-os/rolodex-dns/go"
 )
 
 // ReconcileConfig holds the dependencies needed to reconcile installed packages
@@ -41,8 +41,8 @@ type ReconcileConfig struct {
 	// IngressClient programs the shared :443 ingress with the desired route
 	// set (packages + pages). nil disables ingress programming (tests / boot
 	// before the ingress is up); the reconcile is then a no-op for routing.
-	IngressClient ingress.Client
-	VersionChanged         bool // true when the systemcontroller version differs from last run
+	IngressClient  ingress.Client
+	VersionChanged bool // true when the systemcontroller version differs from last run
 
 	// TLSCA is the local CA used to mint per-package leaf certs for HTTP
 	// endpoints. nil disables TLS termination entirely; the reconciler
@@ -732,6 +732,16 @@ func collectInstalledDNSInfo(inst packages.Installer, rr *packages.RepositoryRoo
 	for _, pkg := range installed {
 		pi, err := packages.ParsePackageIdentity(pkg)
 		if err != nil {
+			continue
+		}
+
+		// Packages installed into a non-default network live in that network's
+		// scoped TLD zone, not the global home zone. Excluding them here keeps the
+		// global reconcile from (re)creating <name>.<repo>.home for them, and lets
+		// its remove-pass delete any stale global record left behind by the old
+		// always-home install path.
+		if network, nerr := inst.LoadNetwork(pi.Repo, pi.Name); nerr == nil &&
+			network != "" && network != account.DefaultNetworkName {
 			continue
 		}
 
