@@ -212,6 +212,34 @@ func TestNetworkPeers(t *testing.T) {
 	}
 }
 
+func TestNetworkPeerRolodexFlag(t *testing.T) {
+	mgr := initNetworkTestDB(t)
+	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "ROL", AllowedIP: "10.90.12.2/32", Rolodex: true}); err != nil {
+		t.Fatalf("AddPeer rolodex: %v", err)
+	}
+	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "PLAIN", AllowedIP: "10.90.12.3/32"}); err != nil {
+		t.Fatalf("AddPeer plain: %v", err)
+	}
+
+	peers, err := mgr.ListPeers("office")
+	if err != nil {
+		t.Fatalf("ListPeers: %v", err)
+	}
+	got := map[string]bool{}
+	for _, p := range peers {
+		got[p.PublicKey] = p.Rolodex
+	}
+	if !got["ROL"] {
+		t.Errorf("expected ROL peer to have Rolodex=true")
+	}
+	if got["PLAIN"] {
+		t.Errorf("expected PLAIN peer to default Rolodex=false")
+	}
+}
+
 func TestNetworkRemoveCascadesPeers(t *testing.T) {
 	mgr := initNetworkTestDB(t)
 	if _, err := mgr.Create(sampleNetwork("office")); err != nil {

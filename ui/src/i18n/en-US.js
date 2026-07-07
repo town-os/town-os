@@ -513,6 +513,7 @@ const enUS = {
   'networks.peers_title': 'Peers — {name}',
   'networks.peers_description': 'Devices allowed on this network. Adding a peer generates a config you can import on the device.',
   'networks.peer_name': 'Device name',
+  'networks.peer_rolodex': 'Runs rolodex DNS',
   'networks.add_peer': 'Add Peer',
   'networks.remove_peer': 'Remove peer',
   'networks.no_peers': 'No peers yet.',

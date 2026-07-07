@@ -50,11 +50,17 @@ type Network struct {
 
 // NetworkPeer is a device permitted on a network's overlay.
 type NetworkPeer struct {
-	Network   string    `json:"network"`
-	PublicKey string    `json:"public_key"`
-	Name      string    `json:"name"`
-	AllowedIP string    `json:"allowed_ip"`
-	Endpoint  string    `json:"endpoint"`
+	Network   string `json:"network"`
+	PublicKey string `json:"public_key"`
+	Name      string `json:"name"`
+	AllowedIP string `json:"allowed_ip"`
+	Endpoint  string `json:"endpoint"`
+	// Rolodex reports whether this peer runs a rolodex DNS server on its overlay
+	// address. When true, the box registers the peer's overlay address as a
+	// per-TLD forwarder so names under the network's shared TLD that are
+	// authoritative on the peer resolve across the overlay. Non-rolodex peers
+	// (phones, laptops) leave this false.
+	Rolodex   bool      `json:"rolodex"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

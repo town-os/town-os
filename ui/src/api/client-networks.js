@@ -86,8 +86,8 @@ SystemControllerClient.prototype.listNetworkPeers = async function (network) {
  * @param {string} [endpoint] - The device's reachable endpoint (optional).
  * @returns {Promise<{peer: object, private_key?: string, config: string}>}
  */
-SystemControllerClient.prototype.addNetworkPeer = async function (network, name, publicKey, endpoint) {
-  return this.postJSON('/networks/peers/add', { network, name, public_key: publicKey, endpoint })
+SystemControllerClient.prototype.addNetworkPeer = async function (network, name, publicKey, endpoint, rolodex) {
+  return this.postJSON('/networks/peers/add', { network, name, public_key: publicKey, endpoint, rolodex: !!rolodex })
 }
 
 /**

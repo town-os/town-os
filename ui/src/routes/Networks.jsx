@@ -216,6 +216,7 @@ function PeersDialog({ network, isAdmin, onClose }) {
   const { t } = useI18n()
   const [refreshKey, setRefreshKey] = useState(0)
   const [peerName, setPeerName] = useState('')
+  const [peerRolodex, setPeerRolodex] = useState(false)
   const [generatedConfig, setGeneratedConfig] = useState('')
 
   const [peers] = usePolling(
@@ -227,9 +228,10 @@ function PeersDialog({ network, isAdmin, onClose }) {
 
   async function addPeer() {
     try {
-      const result = await getClient().addNetworkPeer(network.name, peerName.trim())
+      const result = await getClient().addNetworkPeer(network.name, peerName.trim(), undefined, undefined, peerRolodex)
       setGeneratedConfig(result.config || '')
       setPeerName('')
+      setPeerRolodex(false)
       setRefreshKey((k) => k + 1)
       toast.success(t('networks.toast_peer_added'))
     } catch (err) {
@@ -272,6 +274,10 @@ function PeersDialog({ network, isAdmin, onClose }) {
                 onChange={(e) => setPeerName(e.target.value)}
                 placeholder="laptop"
               />
+            </div>
+            <div className="flex items-center gap-2 pb-2">
+              <Switch id="peer-rolodex" checked={peerRolodex} onCheckedChange={setPeerRolodex} />
+              <Label htmlFor="peer-rolodex">{t('networks.peer_rolodex')}</Label>
             </div>
             <Button onClick={addPeer}>
               <Plus className="h-4 w-4 mr-2" />

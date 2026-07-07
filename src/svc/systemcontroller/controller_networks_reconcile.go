@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -139,7 +140,9 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 	statePath := s.Controller.GetNetworkStatePath()
 	sd := s.Controller.GetSystemdManager()
 
-	// Best-effort rolodex scope regardless of transport availability.
+	// Best-effort rolodex scope regardless of transport availability. The
+	// scope's home_domain carries the network TLD (set by EnsureNetworkScope),
+	// which rolodex treats as the network's authoritative owned zone.
 	if rc := s.Controller.GetRolodexClient(); rc != nil {
 		if err := rolodex.EnsureNetworkScope(ctx, rc, n.Name, n.TLD+"."); err != nil {
 			logNonFatal("ensure network scope", err)
@@ -150,6 +153,12 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 					logNonFatal("bind overlay address", err)
 				}
 			}
+			// Per-TLD peer forwarders: peers that run their own rolodex become
+			// forwarders for the shared network TLD, so records authoritative on
+			// a peer resolve across the overlay. We also bind each such peer's
+			// overlay IP into the scope (symmetric) so the peer's queries to us
+			// are answered rather than REFUSED.
+			s.reconcilePeerForwarders(ctx, rc, n)
 		}
 	}
 
@@ -276,6 +285,40 @@ func overlayIP(cidr string) (string, bool) {
 		return "", false
 	}
 	return p.Addr().String(), true
+}
+
+// reconcilePeerForwarders makes a network's per-TLD forwarder set equal the
+// overlay addresses of its peers that run rolodex, and binds each such peer's
+// overlay IP into the scope so cross-box resolution is symmetric. All steps are
+// best-effort/non-fatal: the persisted network + peer rows are the source of
+// truth and a later reconcile converges.
+func (s *SystemControllerHandlers) reconcilePeerForwarders(ctx context.Context, rc rolodex.Client, n *account.Network) {
+	nm := s.Controller.GetNetworkManager()
+	if nm == nil {
+		return
+	}
+	peers, err := nm.ListPeers(n.Name)
+	if err != nil {
+		logNonFatal("list network peers", err)
+		return
+	}
+	fwds := make([]string, 0, len(peers))
+	for _, p := range peers {
+		if !p.Rolodex {
+			continue
+		}
+		ip, ok := overlayIP(p.AllowedIP)
+		if !ok {
+			continue
+		}
+		fwds = append(fwds, net.JoinHostPort(ip, "53"))
+		if err := rolodex.BindOverlayAddress(ctx, rc, ip, n.Name); err != nil {
+			logNonFatal("bind peer overlay", err)
+		}
+	}
+	if err := rolodex.ReconcileTldForwarders(ctx, rc, n.Name, n.TLD+".", fwds); err != nil {
+		logNonFatal("reconcile tld forwarders", err)
+	}
 }
 
 // ensureDefaultNetwork creates the "home" network row if it does not exist,

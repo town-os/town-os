@@ -45,6 +45,18 @@ type Client interface {
 	RemoveScopedRecord(ctx context.Context, scopeName, name string, opts *upstream.RemoveScopedRecordOptions) (uint32, error)
 	ListScopedRecords(ctx context.Context, scopeName string, opts *upstream.ListScopedRecordsOptions) ([]*upstream.DnsRecord, error)
 
+	// Owned TLDs partition the DNS namespace per network: a name under a
+	// scope's TLD resolves only within that network and is never forwarded
+	// upstream. A scope's home_domain is its implicit primary TLD; these
+	// register/inspect additional ones. Per-TLD forwarders are the overlay
+	// addresses of other network members running rolodex, consulted for names
+	// under the TLD before an authoritative NXDOMAIN. See scope.go for helpers.
+	AddScopeTld(ctx context.Context, scopeName, tld string) error
+	RemoveScopeTld(ctx context.Context, scopeName, tld string) error
+	ListScopeTlds(ctx context.Context, scopeName string) ([]string, error)
+	SetScopeTldForwarders(ctx context.Context, scopeName, tld string, forwarders []string) error
+	ListScopeTldForwarders(ctx context.Context, scopeName, tld string) ([]string, error)
+
 	Close() error
 }
 
@@ -152,6 +164,26 @@ func (c *client) RemoveScopedRecord(ctx context.Context, scopeName, name string,
 
 func (c *client) ListScopedRecords(ctx context.Context, scopeName string, opts *upstream.ListScopedRecordsOptions) ([]*upstream.DnsRecord, error) {
 	return c.c.ListScopedRecords(ctx, scopeName, opts)
+}
+
+func (c *client) AddScopeTld(ctx context.Context, scopeName, tld string) error {
+	return c.c.AddScopeTld(ctx, scopeName, tld)
+}
+
+func (c *client) RemoveScopeTld(ctx context.Context, scopeName, tld string) error {
+	return c.c.RemoveScopeTld(ctx, scopeName, tld)
+}
+
+func (c *client) ListScopeTlds(ctx context.Context, scopeName string) ([]string, error) {
+	return c.c.ListScopeTlds(ctx, scopeName)
+}
+
+func (c *client) SetScopeTldForwarders(ctx context.Context, scopeName, tld string, forwarders []string) error {
+	return c.c.SetScopeTldForwarders(ctx, scopeName, tld, forwarders)
+}
+
+func (c *client) ListScopeTldForwarders(ctx context.Context, scopeName, tld string) ([]string, error) {
+	return c.c.ListScopeTldForwarders(ctx, scopeName, tld)
 }
 
 func (c *client) Close() error {

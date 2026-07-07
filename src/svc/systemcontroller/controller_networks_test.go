@@ -10,12 +10,75 @@ import (
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"github.com/labstack/echo/v5"
 )
 
 func newNetworksHandler(mock *account.MockNetworkManager) *SystemControllerHandlers {
 	sb := &serverBase{ServerConfig: ServerConfig{NetworkMgr: mock}}
 	return &SystemControllerHandlers{Controller: sb, ctx: context.Background()}
+}
+
+func newNetworksHandlerWithRolodex(mock *account.MockNetworkManager, rc rolodex.Client) *SystemControllerHandlers {
+	sb := &serverBase{ServerConfig: ServerConfig{NetworkMgr: mock, RolodexClient: rc}}
+	return &SystemControllerHandlers{Controller: sb, ctx: context.Background()}
+}
+
+func TestReconcilePeerForwarders(t *testing.T) {
+	mock := account.InitMockNetworkManager()
+	n := &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
+	if _, err := mock.Create(n); err != nil {
+		t.Fatalf("seed network: %v", err)
+	}
+	// One peer runs rolodex, one does not.
+	if _, err := mock.AddPeer(&account.NetworkPeer{Network: "office", PublicKey: "k-rol", AllowedIP: "10.90.12.2/32", Rolodex: true}); err != nil {
+		t.Fatalf("add rolodex peer: %v", err)
+	}
+	if _, err := mock.AddPeer(&account.NetworkPeer{Network: "office", PublicKey: "k-plain", AllowedIP: "10.90.12.3/32", Rolodex: false}); err != nil {
+		t.Fatalf("add plain peer: %v", err)
+	}
+
+	mc := &rolodex.MockClient{}
+	s := newNetworksHandlerWithRolodex(mock, mc)
+	s.reconcilePeerForwarders(context.Background(), mc, n)
+
+	// Only the rolodex peer becomes a per-TLD forwarder (on its overlay :53).
+	fwds, err := mc.ListScopeTldForwarders(context.Background(), "office", "office.")
+	if err != nil {
+		t.Fatalf("list forwarders: %v", err)
+	}
+	if len(fwds) != 1 || fwds[0] != "10.90.12.2:53" {
+		t.Fatalf("forwarders = %v, want [10.90.12.2:53]", fwds)
+	}
+
+	// The rolodex peer's overlay IP is bound into the scope (symmetric); the
+	// non-rolodex peer is not.
+	if mc.Associations["10.90.12.2"] != "office" {
+		t.Errorf("rolodex peer not bound into scope: %+v", mc.Associations)
+	}
+	if _, bound := mc.Associations["10.90.12.3"]; bound {
+		t.Errorf("non-rolodex peer should not be bound: %+v", mc.Associations)
+	}
+}
+
+func TestReconcilePeerForwardersNonePresent(t *testing.T) {
+	mock := account.InitMockNetworkManager()
+	n := &account.Network{Name: "solo", TLD: "solo", Subnet: "10.90.13.0/24", Address: "10.90.13.1/24", PublicKey: "PUB", ListenPort: 51821, Enabled: true}
+	if _, err := mock.Create(n); err != nil {
+		t.Fatalf("seed network: %v", err)
+	}
+	mc := &rolodex.MockClient{}
+	s := newNetworksHandlerWithRolodex(mock, mc)
+	s.reconcilePeerForwarders(context.Background(), mc, n)
+
+	// With no rolodex peers, the forwarder set is reconciled to empty.
+	fwds, err := mc.ListScopeTldForwarders(context.Background(), "solo", "solo.")
+	if err != nil {
+		t.Fatalf("list forwarders: %v", err)
+	}
+	if len(fwds) != 0 {
+		t.Fatalf("expected no forwarders, got %v", fwds)
+	}
 }
 
 func postJSONContext(e *echo.Echo, body string) (*echo.Context, *httptest.ResponseRecorder) {

@@ -50,3 +50,58 @@ func TestBindOverlayAddress(t *testing.T) {
 		t.Fatalf("unexpected associations: %+v", assocs)
 	}
 }
+
+func TestEnsureScopeTld(t *testing.T) {
+	ctx := context.Background()
+	mc := &MockClient{}
+
+	if err := EnsureScopeTld(ctx, mc, "office", "corp."); err != nil {
+		t.Fatalf("EnsureScopeTld: %v", err)
+	}
+	if got := mc.ScopeTlds["office"]; len(got) != 1 || got[0] != "corp." {
+		t.Fatalf("unexpected scope tlds: %+v", mc.ScopeTlds)
+	}
+
+	// Second call is a no-op (idempotent) — no extra AddScopeTld.
+	if err := EnsureScopeTld(ctx, mc, "office", "corp."); err != nil {
+		t.Fatalf("EnsureScopeTld again: %v", err)
+	}
+	var adds int
+	for _, c := range mc.GetCalls() {
+		if c.Method == "AddScopeTld" {
+			adds++
+		}
+	}
+	if adds != 1 {
+		t.Fatalf("expected exactly 1 AddScopeTld call, got %d", adds)
+	}
+}
+
+func TestReconcileTldForwarders(t *testing.T) {
+	ctx := context.Background()
+	mc := &MockClient{}
+
+	addrs := []string{"10.90.12.2:53", "10.90.12.3:53"}
+	if err := ReconcileTldForwarders(ctx, mc, "office", "office.", addrs); err != nil {
+		t.Fatalf("ReconcileTldForwarders: %v", err)
+	}
+	got, err := mc.ListScopeTldForwarders(ctx, "office", "office.")
+	if err != nil {
+		t.Fatalf("ListScopeTldForwarders: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d forwarders, want 2: %v", len(got), got)
+	}
+
+	// Replace-all: an empty set clears the forwarders.
+	if err := ReconcileTldForwarders(ctx, mc, "office", "office.", nil); err != nil {
+		t.Fatalf("ReconcileTldForwarders clear: %v", err)
+	}
+	got, err = mc.ListScopeTldForwarders(ctx, "office", "office.")
+	if err != nil {
+		t.Fatalf("ListScopeTldForwarders after clear: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected forwarders cleared, got %v", got)
+	}
+}

@@ -6,7 +6,10 @@ RUN apt-get update && apt-get install -y \
     pigz lbzip2 p7zip-full xz-utils unzip less \
     ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
+# Keep podman's per-network subnet allocation off 10.64.0.0/10, which town-os
+# reserves for WireGuard overlays (src/wireguard/ipam.go). 172.16.0.0/12 avoids
+# the overlap that otherwise exhausts the pool under load.
+RUN printf '[engine]\nruntime = "runc"\n\n[network]\ndefault_subnet_pools = [{"base" = "172.16.0.0/12", "size" = 24}]\n' > /etc/containers/containers.conf
 
 FROM ${TOWN_OS_IMAGE} AS town-os
 

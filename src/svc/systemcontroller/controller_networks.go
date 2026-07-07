@@ -49,6 +49,7 @@ type AddNetworkPeerRequest struct {
 	Name      string `json:"name"`
 	PublicKey string `json:"public_key"` // optional: device's own key; generated when empty
 	Endpoint  string `json:"endpoint"`   // optional: device's reachable endpoint
+	Rolodex   bool   `json:"rolodex"`    // optional: peer runs a rolodex DNS server on its overlay address
 }
 
 type RemoveNetworkPeerRequest struct {
@@ -310,6 +311,7 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 		Name:      strings.TrimSpace(req.Name),
 		AllowedIP: allowedIP,
 		Endpoint:  strings.TrimSpace(req.Endpoint),
+		Rolodex:   req.Rolodex,
 	})
 	if err != nil {
 		if errors.Is(err, account.ErrDuplicateNetworkPeer) {

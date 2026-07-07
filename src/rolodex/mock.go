@@ -29,11 +29,15 @@ type MockClient struct {
 	ScopedRecords map[string][]*upstream.DnsRecord
 	Associations  map[string]string // ipAddress -> scopeName
 
+	// Scope TLD state.
+	ScopeTlds          map[string][]string // scopeName -> additional owned TLDs
+	ScopeTldForwarders map[string][]string // scopeName + "\x00" + tld -> forwarders
+
 	// RBL / DNSBL state.
-	RblEnabled    bool
-	RblProviders  []*upstream.RblConfig
-	DnsblEnabled  bool
-	DnsblProviders []*upstream.DnsblConfig
+	RblEnabled      bool
+	RblProviders    []*upstream.RblConfig
+	DnsblEnabled    bool
+	DnsblProviders  []*upstream.DnsblConfig
 	LocalRblEntries []*upstream.LocalRblEntry
 
 	AddRecordErr      error
@@ -54,15 +58,25 @@ type MockClient struct {
 	RemoveLocalRblEntryErr error
 	ListLocalRblEntriesErr error
 
-	CreateNetworkScopeErr      error
-	DeleteNetworkScopeErr      error
-	ListNetworkScopesErr       error
-	JoinNetworkErr             error
-	LeaveNetworkErr            error
-	GetNetworkAssociationsErr  error
-	AddScopedRecordErr         error
-	RemoveScopedRecordErr      error
-	ListScopedRecordsErr       error
+	CreateNetworkScopeErr     error
+	DeleteNetworkScopeErr     error
+	ListNetworkScopesErr      error
+	JoinNetworkErr            error
+	LeaveNetworkErr           error
+	GetNetworkAssociationsErr error
+	AddScopedRecordErr        error
+	RemoveScopedRecordErr     error
+	ListScopedRecordsErr      error
+	AddScopeTldErr            error
+	RemoveScopeTldErr         error
+	ListScopeTldsErr          error
+	SetScopeTldForwardersErr  error
+	ListScopeTldForwardersErr error
+}
+
+// scopeTldKey builds the ScopeTldForwarders map key for a (scope, tld) pair.
+func scopeTldKey(scope, tld string) string {
+	return scope + "\x00" + tld
 }
 
 // GetCalls returns a snapshot of all recorded method calls.
@@ -404,6 +418,84 @@ func (m *MockClient) ListScopedRecords(_ context.Context, scopeName string, _ *u
 	defer m.mu.Unlock()
 	src := m.ScopedRecords[scopeName]
 	out := make([]*upstream.DnsRecord, len(src))
+	copy(out, src)
+	return out, nil
+}
+
+func (m *MockClient) AddScopeTld(_ context.Context, scopeName, tld string) error {
+	m.record("AddScopeTld", scopeName, tld)
+	if m.AddScopeTldErr != nil {
+		return m.AddScopeTldErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ScopeTlds == nil {
+		m.ScopeTlds = map[string][]string{}
+	}
+	if !slices.Contains(m.ScopeTlds[scopeName], tld) {
+		m.ScopeTlds[scopeName] = append(m.ScopeTlds[scopeName], tld)
+	}
+	return nil
+}
+
+func (m *MockClient) RemoveScopeTld(_ context.Context, scopeName, tld string) error {
+	m.record("RemoveScopeTld", scopeName, tld)
+	if m.RemoveScopeTldErr != nil {
+		return m.RemoveScopeTldErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ScopeTlds != nil {
+		m.ScopeTlds[scopeName] = slices.DeleteFunc(m.ScopeTlds[scopeName], func(t string) bool {
+			return t == tld
+		})
+	}
+	return nil
+}
+
+func (m *MockClient) ListScopeTlds(_ context.Context, scopeName string) ([]string, error) {
+	m.record("ListScopeTlds", scopeName)
+	if m.ListScopeTldsErr != nil {
+		return nil, m.ListScopeTldsErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	src := m.ScopeTlds[scopeName]
+	out := make([]string, len(src))
+	copy(out, src)
+	return out, nil
+}
+
+func (m *MockClient) SetScopeTldForwarders(_ context.Context, scopeName, tld string, forwarders []string) error {
+	m.record("SetScopeTldForwarders", scopeName, tld, forwarders)
+	if m.SetScopeTldForwardersErr != nil {
+		return m.SetScopeTldForwardersErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ScopeTldForwarders == nil {
+		m.ScopeTldForwarders = map[string][]string{}
+	}
+	key := scopeTldKey(scopeName, tld)
+	if len(forwarders) == 0 {
+		delete(m.ScopeTldForwarders, key)
+	} else {
+		cp := make([]string, len(forwarders))
+		copy(cp, forwarders)
+		m.ScopeTldForwarders[key] = cp
+	}
+	return nil
+}
+
+func (m *MockClient) ListScopeTldForwarders(_ context.Context, scopeName, tld string) ([]string, error) {
+	m.record("ListScopeTldForwarders", scopeName, tld)
+	if m.ListScopeTldForwardersErr != nil {
+		return nil, m.ListScopeTldForwardersErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	src := m.ScopeTldForwarders[scopeTldKey(scopeName, tld)]
+	out := make([]string, len(src))
 	copy(out, src)
 	return out, nil
 }

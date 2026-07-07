@@ -75,7 +75,7 @@ describe('InstallQuestionsDialog network selector', () => {
     let submittedNetwork = null
     const onSubmit = vi.fn((e) => {
       e.preventDefault()
-      submittedNetwork = e.currentTarget['__network__'].value
+      submittedNetwork = e.currentTarget.elements['__network__'].value
     })
     renderDialog({ onSubmit })
 
@@ -96,7 +96,7 @@ describe('InstallQuestionsDialog network selector', () => {
     let submittedNetwork = null
     const onSubmit = vi.fn((e) => {
       e.preventDefault()
-      submittedNetwork = e.currentTarget['__network__'].value
+      submittedNetwork = e.currentTarget.elements['__network__'].value
     })
     renderDialog({ onSubmit })
 

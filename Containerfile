@@ -33,7 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pigz lbzip2 xz-utils \
     ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN printf '[engine]\nruntime = "runc"\n' > /etc/containers/containers.conf
+# Keep podman's per-network subnet allocation off 10.64.0.0/10, which town-os
+# reserves for WireGuard overlays (src/wireguard/ipam.go). If podman's default
+# pools (10.89/16, 10.90/15, 10.96/11, ... all inside 10.64.0.0/10) overlap the
+# overlay range, in-range /24s get skipped as they conflict with overlay routes
+# and the pool exhausts under load ("could not find free subnet from subnet
+# pools"), breaking package container networks. 172.16.0.0/12 avoids the clash.
+RUN printf '[engine]\nruntime = "runc"\n\n[network]\ndefault_subnet_pools = [{"base" = "172.16.0.0/12", "size" = 24}]\n' > /etc/containers/containers.conf
 
 FROM runtime-deps
 # Empty default: an empty /town-os.tag is ignored at runtime in favor of the

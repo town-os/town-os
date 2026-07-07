@@ -38,11 +38,20 @@ func InitNetworkManager(db *sql.DB) (*SQLiteNetworkManager, error) {
 		name         TEXT NOT NULL DEFAULT '',
 		allowed_ip   TEXT NOT NULL DEFAULT '',
 		endpoint     TEXT NOT NULL DEFAULT '',
+		rolodex      INTEGER NOT NULL DEFAULT 0,
 		created_at   TEXT NOT NULL,
 		PRIMARY KEY (network_name, public_key)
 	)`)
 	if err != nil {
 		return nil, fmt.Errorf("create network_peers table: %w", err)
+	}
+
+	// Migrate pre-existing network_peers tables that lack the rolodex column.
+	// A duplicate-column error means the migration already ran; ignore it.
+	if _, err = db.ExecContext(ctx,
+		`ALTER TABLE network_peers ADD COLUMN rolodex INTEGER NOT NULL DEFAULT 0`,
+	); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, fmt.Errorf("migrate network_peers.rolodex: %w", err)
 	}
 
 	return &SQLiteNetworkManager{db: db}, nil
@@ -225,10 +234,14 @@ func (m *SQLiteNetworkManager) AddPeer(p *NetworkPeer) (*NetworkPeer, error) {
 	ctx, cancel := dbCtx()
 	defer cancel()
 
+	rolodex := 0
+	if p.Rolodex {
+		rolodex = 1
+	}
 	_, err := m.db.ExecContext(ctx,
-		`INSERT INTO network_peers (network_name, public_key, name, allowed_ip, endpoint, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		p.Network, p.PublicKey, p.Name, p.AllowedIP, p.Endpoint, nowStr,
+		`INSERT INTO network_peers (network_name, public_key, name, allowed_ip, endpoint, rolodex, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		p.Network, p.PublicKey, p.Name, p.AllowedIP, p.Endpoint, rolodex, nowStr,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "PRIMARY KEY") {
@@ -266,7 +279,7 @@ func (m *SQLiteNetworkManager) ListPeers(network string) (_ []NetworkPeer, err e
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,
-		`SELECT network_name, public_key, name, allowed_ip, endpoint, created_at
+		`SELECT network_name, public_key, name, allowed_ip, endpoint, rolodex, created_at
 		 FROM network_peers WHERE network_name = ? ORDER BY allowed_ip, public_key`, network,
 	)
 	if err != nil {
@@ -280,9 +293,11 @@ func (m *SQLiteNetworkManager) ListPeers(network string) (_ []NetworkPeer, err e
 	for rows.Next() {
 		var p NetworkPeer
 		var createdStr string
-		if err := rows.Scan(&p.Network, &p.PublicKey, &p.Name, &p.AllowedIP, &p.Endpoint, &createdStr); err != nil {
+		var rolodex int
+		if err := rows.Scan(&p.Network, &p.PublicKey, &p.Name, &p.AllowedIP, &p.Endpoint, &rolodex, &createdStr); err != nil {
 			return nil, fmt.Errorf("scan network peer row: %w", err)
 		}
+		p.Rolodex = rolodex != 0
 		p.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
 		if err != nil {
 			return nil, fmt.Errorf("parse created_at: %w", err)
