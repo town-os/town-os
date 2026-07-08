@@ -875,6 +875,14 @@ func collectInstalledTLSA(cfg ReconcileDNSConfig, tld string) []rolodex.TLSAEntr
 		if err != nil {
 			continue
 		}
+		// Non-default-network packages publish their DANE TLSA scoped to that
+		// network (see publishPackageTLSA), not in the global home zone. Skip them
+		// here so the global rebuild does not add a stale, partition-hidden TLSA
+		// under the network's TLD.
+		if network, nerr := cfg.Installer.LoadNetwork(pi.Repo, pi.Name); nerr == nil &&
+			network != "" && network != account.DefaultNetworkName {
+			continue
+		}
 		var domains []string
 		if cfg.RepositoryRoot != nil {
 			if ip, lerr := cfg.RepositoryRoot.LoadPackage(pi.Repo, pi.Name, pi.Version); lerr == nil {

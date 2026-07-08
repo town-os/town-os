@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"github.com/labstack/echo/v5"
 )
@@ -27,22 +28,22 @@ type SetTLDRequest struct {
 
 // AddDNSRecordRequest is the request body for POST /dns/records/add.
 type AddDNSRecordRequest struct {
-	Name       string             `json:"name"`
+	Name       string              `json:"name"`
 	RecordType upstream.RecordType `json:"record_type"`
-	Value      string             `json:"value"`
-	TTL        uint32             `json:"ttl"`
+	Value      string              `json:"value"`
+	TTL        uint32              `json:"ttl"`
 }
 
 // RemoveDNSRecordRequest is the request body for POST /dns/records/remove.
 type RemoveDNSRecordRequest struct {
-	Name       string              `json:"name"`
+	Name       string               `json:"name"`
 	RecordType *upstream.RecordType `json:"record_type,omitempty"`
 }
 
 // DNSSetupResponse is the response for POST /dns/setup.
 type DNSSetupResponse struct {
-	TLD              string `json:"tld"`
-	PackagesRegistered int  `json:"packages_registered"`
+	TLD                string `json:"tld"`
+	PackagesRegistered int    `json:"packages_registered"`
 }
 
 func (s *SystemControllerHandlers) dnsStatus(c *echo.Context) error {
@@ -280,12 +281,12 @@ func (s *SystemControllerHandlers) unregisterPackageDNS(ctx context.Context, rep
 // It is a best-effort no-op when rolodex is unavailable, the TLD is empty, or
 // the package terminates no TLS ports. Must be called after the network state
 // file and leaf cert have been written.
-func (s *SystemControllerHandlers) publishPackageTLSA(ctx context.Context, repoName, effectiveName, version string, domains []string) {
+func (s *SystemControllerHandlers) publishPackageTLSA(ctx context.Context, repoName, effectiveName, version, network string, domains []string) {
 	rc := s.Controller.GetRolodexClient()
 	if rc == nil {
 		return
 	}
-	tld := s.getDNSTLDValue()
+	tld := s.networkTLD(network)
 	if tld == "" {
 		return
 	}
@@ -297,8 +298,17 @@ func (s *SystemControllerHandlers) publishPackageTLSA(ctx context.Context, repoN
 		slog.Debug(fmt.Sprintf("build TLSA %s/%s: %v", repoName, effectiveName, err))
 		return
 	}
-	if err := rolodex.RegisterPackageTLSA(ctx, rc, entries); err != nil {
-		slog.Debug(fmt.Sprintf("publish TLSA %s/%s: %v", repoName, effectiveName, err))
+	// A package on a non-default network resolves within that network's scope, so
+	// its DANE TLSA must be scoped there too: a global TLSA under the network's
+	// TLD is hidden by the owned-TLD partition, exactly as a global A record is.
+	if network == "" || network == account.DefaultNetworkName {
+		if err := rolodex.RegisterPackageTLSA(ctx, rc, entries); err != nil {
+			slog.Debug(fmt.Sprintf("publish TLSA %s/%s: %v", repoName, effectiveName, err))
+		}
+		return
+	}
+	if err := rolodex.RegisterScopedPackageTLSA(ctx, rc, network, entries); err != nil {
+		slog.Debug(fmt.Sprintf("publish scoped TLSA %s/%s: %v", repoName, effectiveName, err))
 	}
 }
 

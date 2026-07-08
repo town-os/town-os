@@ -47,6 +47,29 @@ func RegisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) err
 	return nil
 }
 
+// RegisterScopedPackageTLSA publishes each entry's TLSA record within a network
+// scope, mirroring scoped package address records so DANE validators on that
+// network's overlay resolve the pin alongside the scoped address. A non-scoped
+// TLSA under a network-owned TLD is hidden by rolodex's owned-TLD partition.
+// Entries with an empty Value are skipped.
+func RegisterScopedPackageTLSA(ctx context.Context, c Client, scope string, entries []TLSAEntry) error {
+	for _, e := range entries {
+		if e.Value == "" {
+			continue
+		}
+		owner := tlsaName(e.Name, e.Port)
+		if err := c.AddScopedRecord(ctx, scope, &upstream.DnsRecord{
+			Name:       owner,
+			RecordType: upstream.RecordTypeTLSA,
+			Value:      e.Value,
+			Ttl:        300,
+		}); err != nil {
+			return fmt.Errorf("add scoped TLSA record %s: %w", owner, err)
+		}
+	}
+	return nil
+}
+
 // UnregisterPackageTLSA removes the TLSA records for the given entries. The
 // Value field is ignored (removal is keyed by name + type).
 func UnregisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) error {

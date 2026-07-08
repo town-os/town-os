@@ -23,14 +23,14 @@ func dnsNetworkHandler(nm account.NetworkManager, rc rolodex.Client, inst packag
 	return &SystemControllerHandlers{Controller: sb, ctx: context.Background()}
 }
 
-// seedNetwork returns a mock network manager holding a single non-default
-// network with the given name and TLD, plus the always-present default network.
-func seedNetwork(t *testing.T, name, tld, addr string) *account.MockNetworkManager {
+// seedNetwork returns a mock network manager holding the non-default "fart"
+// network (TLD "fart") used across the DNS/cert network tests.
+func seedNetwork(t *testing.T) *account.MockNetworkManager {
 	t.Helper()
 	nm := account.InitMockNetworkManager()
-	n := &account.Network{Name: name, TLD: tld, Subnet: addr, Address: addr, PublicKey: "PUB", ListenPort: 51820, Enabled: true}
+	n := &account.Network{Name: "fart", TLD: "fart", Subnet: "10.65.0.1/24", Address: "10.65.0.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
 	if _, err := nm.Create(n); err != nil {
-		t.Fatalf("seed network %q: %v", name, err)
+		t.Fatalf("seed network: %v", err)
 	}
 	return nm
 }
@@ -57,7 +57,7 @@ func TestRegisterPackageDNSForNetworkDefaultUsesGlobalHomeZone(t *testing.T) {
 // the regression: a gitea instance on the "fart" network was resolving as
 // gitea.default.home instead of gitea.default.fart.
 func TestRegisterPackageDNSForNetworkNonDefaultUsesScopedTLDNotHome(t *testing.T) {
-	nm := seedNetwork(t, "fart", "fart", "10.65.0.1/24")
+	nm := seedNetwork(t)
 	mc := &rolodex.MockClient{}
 	s := dnsNetworkHandler(nm, mc, nil)
 

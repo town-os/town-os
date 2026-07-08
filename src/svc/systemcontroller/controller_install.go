@@ -285,7 +285,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	compiled, err := ip.CompileWithContext(req.Responses, packages.CompileContext{
 		ExternalHost: s.Controller.GetExternalIP(),
 		InternalHost: s.Controller.GetInternalIP(),
-		PackageDNS:   effectiveName + "." + repoName + "." + s.getDNSTLDValue(),
+		PackageDNS:   effectiveName + "." + repoName + "." + s.networkTLD(network),
 	})
 	if err != nil {
 		return err
@@ -446,7 +446,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 
 		units := systemd.GeneratePackageUnits(cfg)
-		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, compiled, ip.Supplies); err != nil {
+		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, network, compiled, ip.Supplies); err != nil {
 			pw.Err(err)
 			return nil
 		}
@@ -464,7 +464,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	// network's TLD.
 	s.registerPackageDNSForNetwork(ctx, network, repoName, effectiveName, compiled.Network.Domains)
 	// Pin the proxy's leaf via DANE for any terminated TLS ports.
-	s.publishPackageTLSA(ctx, repoName, effectiveName, req.Version, compiled.Network.Domains)
+	s.publishPackageTLSA(ctx, repoName, effectiveName, req.Version, network, compiled.Network.Domains)
 
 	// Re-render the shared :443 ingress so an HTTP package's reverse_proxy vhost
 	// is served immediately (its leaf and DNS were set up above). Only HTTP

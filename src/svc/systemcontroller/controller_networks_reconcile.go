@@ -39,6 +39,26 @@ func (s *SystemControllerHandlers) resolveInstallNetwork(requested string) (stri
 	return network, nil
 }
 
+// networkTLD returns the DNS TLD a package installed into the given network
+// resolves under, so its certificate SANs and DANE TLSA records use the same
+// TLD as its address records: the global dns_tld for the default network (or an
+// unknown/unavailable one), otherwise the network's own TLD. A gitea instance on
+// the "fart" network must get a cert for gitea.<repo>.fart, not <...>.home.
+func (s *SystemControllerHandlers) networkTLD(network string) string {
+	if network == "" || network == account.DefaultNetworkName {
+		return s.getDNSTLDValue()
+	}
+	nm := s.Controller.GetNetworkManager()
+	if nm == nil {
+		return s.getDNSTLDValue()
+	}
+	n, err := nm.Get(network)
+	if err != nil || n.TLD == "" {
+		return s.getDNSTLDValue()
+	}
+	return n.TLD
+}
+
 // registerPackageDNSForNetwork plumbs a package's DNS into the one zone that
 // matches its install network: the global home zone (registerPackageDNS) for the
 // default network, or the network's scoped TLD zone (registerScopedPackageDNS)

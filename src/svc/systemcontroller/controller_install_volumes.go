@@ -26,7 +26,7 @@ import (
 // is issued (or refreshed) for the package and every external port is
 // marked TLS=true so the NC terminates TLS on the host-facing port instead
 // of running a plain socat forwarder.
-func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, version string, compiled *packages.Package, supplies []string) error {
+func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, version, network string, compiled *packages.Package, supplies []string) error {
 	statePath := s.Controller.GetNetworkStatePath()
 	if statePath == "" {
 		return nil
@@ -37,9 +37,12 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 		return nil
 	}
 
+	// The leaf SAN and TLS-port marking must use the install network's TLD so the
+	// issued cert matches the package's actual DNS name (<pkg>.<repo>.<net-tld>),
+	// not always the global home zone.
 	if err := applyPackageTLS(
 		&state, s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(),
-		repoName, pkgName, version, s.Controller.GetInternalIP(), s.dnsTLD(),
+		repoName, pkgName, version, s.Controller.GetInternalIP(), s.networkTLD(network),
 		compiled, supplies,
 	); err != nil {
 		return err
@@ -128,19 +131,6 @@ func writeNetworkStateFile(statePath, repoName, pkgName, version string, state *
 		return fmt.Errorf("write network state: %w", err)
 	}
 	return nil
-}
-
-// dnsTLD returns the configured DNS TLD or "home" when unset. Used when
-// computing PACKAGE_DNS for SAN fields at install time.
-func (s *SystemControllerHandlers) dnsTLD() string {
-	mgr := s.Controller.GetSettingsManager()
-	if mgr == nil {
-		return "home"
-	}
-	if v, err := mgr.Get("dns_tld"); err == nil && v != "" {
-		return v
-	}
-	return "home"
 }
 
 // removePackageNetworkState removes the per-package network state file.
