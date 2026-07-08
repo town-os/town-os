@@ -6,14 +6,13 @@ COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
 COPY . /src
-# Empty default: with no baked tag, the binary falls back to the per-arch
-# rc.latest-<arch> tag at runtime (defaultVersionTag). The make pipeline
-# always passes the real per-arch tag.
-ARG TOWN_OS_TAG=
 # TOWN_OS_GO_TAGS is the comma-separated list of Go build tags forwarded by
 # the make pipeline. Empty by default; PROTON_ENABLED=1 sets it to "proton".
 ARG TOWN_OS_GO_TAGS=
-RUN CGO_ENABLED=1 go build -tags "${TOWN_OS_GO_TAGS}" -ldflags "-s -w -X main.Version=${TOWN_OS_TAG}" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
+# The image tag is no longer baked into the binary. At runtime the controller
+# defaults to rc.latest-<arch> and the install build system pins a specific tag
+# via the TOWN_OS_TAG env var on the systemcontroller systemd unit.
+RUN CGO_ENABLED=1 go build -tags "${TOWN_OS_GO_TAGS}" -ldflags "-s -w" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
 FROM docker.io/oven/bun:latest AS ui-builder
@@ -42,10 +41,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN printf '[engine]\nruntime = "runc"\n\n[network]\ndefault_subnet_pools = [{"base" = "172.16.0.0/12", "size" = 24}]\n' > /etc/containers/containers.conf
 
 FROM runtime-deps
-# Empty default: an empty /town-os.tag is ignored at runtime in favor of the
-# per-arch rc.latest-<arch> fallback (defaultVersionTag).
-ARG TOWN_OS_TAG=
-RUN echo "${TOWN_OS_TAG}" > /town-os.tag
 COPY --from=go-builder /systemcontroller /systemcontroller
 COPY --from=go-builder /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=ui-builder /ui/dist /ui

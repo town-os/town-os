@@ -155,6 +155,31 @@ func (m *Manager) SocketPath() string {
 	return filepath.Join(m.cfg.DataDir, SocketName)
 }
 
+// SystemService describes the ingress system service so the controller can list
+// it and include it in system updates (image pull + unit restart), mirroring
+// the UI, rolodex, and monitoring system services.
+type SystemService struct {
+	Key         string
+	DisplayName string
+	Image       string
+	Port        string
+	UnitName    string
+}
+
+// SystemServices returns metadata for the ingress system service. Ingress runs
+// as a host systemd unit just like the UI and rolodex, so it must be part of the
+// system-service listing and the system-update facility; omitting it here is why
+// ingress would otherwise never be re-pulled or restarted on a system update.
+func (m *Manager) SystemServices() []SystemService {
+	return []SystemService{{
+		Key:         m.key(),
+		DisplayName: "Ingress",
+		Image:       m.cfg.Image,
+		Port:        strconv.Itoa(m.hostPort()),
+		UnitName:    systemd.SystemServiceUnitName(m.key()),
+	}}
+}
+
 // unitConfig builds the systemd unit config for the ingress container: it joins
 // the ingress network (creating it if needed), publishes :443 and :80, mounts
 // the data dir (for the socket) read-write and the TLS subvolume read-only, and

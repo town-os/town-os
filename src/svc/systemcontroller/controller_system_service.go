@@ -110,6 +110,21 @@ func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 		}
 	}
 
+	// Ingress runs as a host systemd unit like the UI and rolodex; it must be
+	// pulled and restarted on a system update too. Without this it was silently
+	// excluded, so its image never advanced on "refresh system services".
+	if ingMgr := s.Controller.GetIngress(); ingMgr != nil {
+		for _, svc := range ingMgr.SystemServices() {
+			all = append(all, systemServiceInfo{
+				Key:         svc.Key,
+				DisplayName: svc.DisplayName,
+				Image:       svc.Image,
+				Port:        svc.Port,
+				UnitName:    svc.UnitName,
+			})
+		}
+	}
+
 	// The systemcontroller itself runs as a host systemd unit. List it as
 	// a system service so users can see its status and trigger restarts
 	// from the UI. The image and listen address are plumbed through
@@ -192,33 +207,69 @@ func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error 
 	ctx := c.Request().Context()
 	svcs := s.collectSystemServices()
 
-	// Collect unique images.
+	// Pull every system-service image, in dependency order: the systemcontroller
+	// (the version anchor — pulled first so the freshly-pulled image is already
+	// local when it self-restarts at the end), then rolodex (the box's DNS, which
+	// the other images may need to resolve their registry), then everything else.
+	scImage := s.Controller.GetSystemControllerImage()
+	rolImages := make(map[string]struct{})
+	if rol := s.Controller.GetRolodex(); rol != nil {
+		for _, svc := range rol.SystemServices() {
+			rolImages[svc.Image] = struct{}{}
+		}
+	}
+
 	seen := make(map[string]struct{}, len(svcs))
-	images := make([]string, 0, len(svcs))
+	var scOrder, rolOrder, otherOrder []string
 	for _, svc := range svcs {
+		if svc.Image == "" {
+			continue
+		}
 		if _, ok := seen[svc.Image]; ok {
 			continue
 		}
 		seen[svc.Image] = struct{}{}
-		images = append(images, svc.Image)
+		_, isRolodex := rolImages[svc.Image]
+		switch {
+		case svc.Image == scImage:
+			scOrder = append(scOrder, svc.Image)
+		case isRolodex:
+			rolOrder = append(rolOrder, svc.Image)
+		default:
+			otherOrder = append(otherOrder, svc.Image)
+		}
 	}
 
-	// Pull all images in parallel (max 3 concurrent), collecting errors.
 	var (
 		pullMu     sync.Mutex
 		pullErrors []string
-		wg         sync.WaitGroup
-		sem        = make(chan struct{}, 3)
 	)
-	for _, img := range images {
+	pullOne := func(img string) {
+		if err := pullImage(ctx, img); err != nil {
+			pullMu.Lock()
+			pullErrors = append(pullErrors, err.Error())
+			pullMu.Unlock()
+		}
+	}
+
+	// Anchor + DNS first, sequentially, so the ordering is guaranteed.
+	for _, img := range scOrder {
+		pullOne(img)
+	}
+	for _, img := range rolOrder {
+		pullOne(img)
+	}
+	// The remaining images have no ordering constraint; pull them in parallel
+	// (max 3 concurrent).
+	var (
+		wg  sync.WaitGroup
+		sem = make(chan struct{}, 3)
+	)
+	for _, img := range otherOrder {
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if err := pullImage(ctx, img); err != nil {
-				pullMu.Lock()
-				pullErrors = append(pullErrors, err.Error())
-				pullMu.Unlock()
-			}
+			pullOne(img)
 		})
 	}
 	wg.Wait()

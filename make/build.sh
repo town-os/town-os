@@ -23,7 +23,6 @@ case "$1" in
     step "Building production image"
     mkdir -p .cache/go-mod .cache/go-build .cache/bun
     ${SUDO} podman build --network=host --pull=never \
-      --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -113,7 +112,6 @@ case "$1" in
     step "Building release image"
     mkdir -p .cache/go-mod .cache/go-build .cache/bun
     ${SUDO} podman build --network=host --pull=never \
-      --build-arg "TOWN_OS_TAG=${TOWN_OS_TAG}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -173,7 +171,6 @@ case "$1" in
     substep "Building ${RELEASE_IMAGE} with tag rc.${DATE_TAG}-${ARCH}"
     mkdir -p .cache/go-mod .cache/go-build .cache/bun
     ${SUDO} podman build --network=host --pull=never \
-      --build-arg "TOWN_OS_TAG=rc.${DATE_TAG}-${ARCH}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -256,7 +253,6 @@ case "$1" in
     substep "Building ${RELEASE_IMAGE} with tag release.${DATE_TAG}-${ARCH}"
     mkdir -p .cache/go-mod .cache/go-build .cache/bun
     ${SUDO} podman build --network=host --pull=never \
-      --build-arg "TOWN_OS_TAG=release.${DATE_TAG}-${ARCH}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -436,11 +432,12 @@ case "$1" in
     require_registry_login quay.io
     step "Pushing all images with tag ${TAG}"
 
-    # Systemcontroller — rebuild with tag baked in.
+    # Systemcontroller image. The tag is no longer baked into the binary; the
+    # controller resolves it at runtime from TOWN_OS_TAG (set on its systemd
+    # unit by the install build system), defaulting to rc.latest-<arch>.
     substep "Building ${RELEASE_IMAGE}:${TAG}"
     mkdir -p .cache/go-mod .cache/go-build .cache/bun
     ${SUDO} podman build --network=host --pull=never \
-      --build-arg "TOWN_OS_TAG=${TAG}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \

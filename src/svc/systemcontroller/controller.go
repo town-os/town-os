@@ -270,8 +270,8 @@ type ServerConfig struct {
 	// SystemControllerImage is the container image reference that the
 	// systemcontroller's own systemd unit runs. When non-empty, the
 	// systemcontroller is listed as a system service in the /system-services
-	// API and UI. Set from main.go using the release tag derived from
-	// /town-os.tag or the compile-time Version ldflags var.
+	// API and UI. Set from main.go using the image tag from resolveImageTag()
+	// (TOWN_OS_TAG env var, else the rc.latest-<arch> default).
 	SystemControllerImage string
 	// SystemControllerListenAddr is the address the systemcontroller's
 	// HTTP server listens on (e.g. ":5309"). Used for display in the

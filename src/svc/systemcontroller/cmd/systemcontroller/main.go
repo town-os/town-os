@@ -32,9 +32,6 @@ import (
 	"gitea.com/town-os/town-os/src/ui"
 )
 
-// Version is set at build time via ldflags (e.g. -ldflags "-X main.Version=v1.0.0").
-var Version string
-
 // archTag maps Go's runtime.GOARCH (amd64/arm64) to the per-arch image tag
 // suffix the make pipeline pushes (x86_64/aarch64, the uname -m form). The
 // registry tag suffix deliberately differs from Go's GOARCH spelling, so the
@@ -50,12 +47,27 @@ func archTag() string {
 	}
 }
 
-// defaultVersionTag is the last-resort image tag when no tag was baked in at
-// build time. rc tags are partitioned per architecture (rc.latest-x86_64 /
+// defaultVersionTag is the default image tag: rc.latest for this host's
+// architecture. rc tags are partitioned per architecture (rc.latest-x86_64 /
 // rc.latest-aarch64, pushed natively from each host); archTag() maps the Go
 // runtime arch to the registry tag suffix used on both supported architectures.
 func defaultVersionTag() string {
 	return "rc.latest-" + archTag()
+}
+
+// resolveImageTag returns the image tag used for the systemcontroller and every
+// sibling image it pulls (UI, rolodex, network controller, ingress). It is
+// rc.latest-<arch> by default, so a system update always pulls the newest
+// images; the install image build system pins a specific tag by setting the
+// TOWN_OS_TAG env var on the systemcontroller systemd unit. The former
+// compile-time main.Version pin and the /town-os.tag file were removed because a
+// stale value in either one silently held every sibling image back on an old tag
+// even after the controller itself advanced.
+func resolveImageTag() string {
+	if tag := strings.TrimSpace(os.Getenv("TOWN_OS_TAG")); tag != "" {
+		return tag
+	}
+	return defaultVersionTag()
 }
 
 // HostPodmanSocket is the unix socket URL of the host podman that the
@@ -269,22 +281,11 @@ func run() (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Read the tag baked into the image at push time. This lets us derive
-	// matching tags for sibling images (UI, rolodex, networkcontroller) at
-	// runtime. Baked rc tags are per-arch (rc.<date>-<arch>), so derived
-	// sibling tags are per-arch too. Fallback chain: TOWN_OS_TAG env var →
-	// compile-time Version ldflags → /town-os.tag file →
-	// "rc.latest-<arch>" (defaultVersionTag).
-	tag := defaultVersionTag()
-	if envTag := os.Getenv("TOWN_OS_TAG"); envTag != "" {
-		tag = envTag
-	} else if Version != "" {
-		tag = Version
-	} else if data, err := os.ReadFile("/town-os.tag"); err == nil {
-		if t := strings.TrimSpace(string(data)); t != "" {
-			tag = t
-		}
-	}
+	// The image tag for the systemcontroller and every sibling image (UI,
+	// rolodex, networkcontroller, ingress). rc.latest-<arch> by default; the
+	// install build system pins a specific tag via the TOWN_OS_TAG env var on
+	// the systemcontroller unit.
+	tag := resolveImageTag()
 
 	// Network controller image: pulled from quay.io like every other
 	// sibling image. NC_IMAGE overrides the derived default (used by

@@ -111,7 +111,7 @@ The system controller startup in `src/svc/systemcontroller/cmd/systemcontroller/
 11. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
 12. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
 13. **Init install manager, btrfs storage, systemd manager**.
-14. **Read version tag** — from `/town-os.tag` file, or compile-time `Version` ldflags var, or fallback `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH` mapped to `x86_64`/`aarch64` via `archTag()`). Used to derive image tags for sibling services; baked push tags are per-arch, so derived sibling tags are too.
+14. **Resolve image tag** — `resolveImageTag()`: the `TOWN_OS_TAG` env var (set by the install build system), else `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH` mapped to `x86_64`/`aarch64` via `archTag()`). No `/town-os.tag` file and no compile-time `Version` pin. Used to derive image tags for sibling services; push tags are per-arch, so derived sibling tags are too.
 15. **Start background repo refresh** — goroutine polls every 5 minutes.
 16. **Write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if file is newer than the binary or content is unchanged) and restarts the service only when the file was written. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly (not via podman port mappings). The DNS port defaults to 53 but can be overridden via the `DNSPort` config field for tests.
 17. **Wait for Rolodex DNS readiness** **(non-fatal)** — polls until the DNS TCP port accepts connections.
@@ -1210,7 +1210,7 @@ Startup failures for monitoring, Rolodex config, the network controller image bu
 
 ### Version Tag Detection
 
-The system controller reads an optional `/town-os.tag` file at startup to derive matching image tags for sibling services (UI, Rolodex). The fallback chain is: `TOWN_OS_TAG` env var, then compile-time `Version` variable (set via ldflags), then `/town-os.tag` file, then `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH` mapped to `x86_64`/`aarch64` via `archTag()`). This tag constructs image references like `quay.io/town/ui:<tag>` and `quay.io/town/rolodex:<tag>`; pushed tags are per-arch, so the baked tag and every derived sibling tag carry the arch suffix.
+The system controller derives matching image tags for every sibling service (UI, Rolodex, network controller, ingress) from a single tag resolved by `resolveImageTag()`: the `TOWN_OS_TAG` env var if set, else `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH` mapped to `x86_64`/`aarch64` via `archTag()`). There is no compile-time `Version` pin and no `/town-os.tag` file — both were removed because a stale value in either one silently held every sibling image back on an old tag even after the controller advanced. The install build system pins a specific tag by setting `TOWN_OS_TAG` on the systemcontroller systemd unit (`../install/make/install.sh` derives it from `CONTROLLER_IMAGE`); with no override the fleet always tracks `rc.latest-<arch>`. This tag constructs image references like `quay.io/town/ui:<tag>` and `quay.io/town/rolodex:<tag>`; pushed tags are per-arch, so every derived sibling tag carries the arch suffix.
 
 ### Error Format
 
