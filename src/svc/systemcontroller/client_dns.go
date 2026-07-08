@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
 )
@@ -29,9 +30,15 @@ func (c *SystemdClient) DNSStatus(ctx context.Context) (_ *DNSStatusResponse, er
 	return &result, json.NewDecoder(resp.Body).Decode(&result)
 }
 
-// ListDNSRecords returns all DNS records from the rolodex service.
-func (c *SystemdClient) ListDNSRecords(ctx context.Context) (_ []*upstream.DnsRecord, err error) {
-	resp, err := c.getClient(ctx, "dns/records")
+// ListDNSRecords returns DNS records annotated with their network and TLD. With
+// an empty tld it returns records across every network (global + scoped); a
+// non-empty tld restricts the result to that domain.
+func (c *SystemdClient) ListDNSRecords(ctx context.Context, tld string) (_ []*DNSRecordView, err error) {
+	path := "dns/records"
+	if tld != "" {
+		path += "?tld=" + url.QueryEscape(tld)
+	}
+	resp, err := c.getClient(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListDNSRecords: %w", ErrHTTPRequest, err)
 	}
@@ -43,7 +50,7 @@ func (c *SystemdClient) ListDNSRecords(ctx context.Context) (_ []*upstream.DnsRe
 		return nil, readProblemDetail(resp, "GET", "dns/records")
 	}
 
-	var records []*upstream.DnsRecord
+	var records []*DNSRecordView
 	return records, json.NewDecoder(resp.Body).Decode(&records)
 }
 

@@ -24,18 +24,31 @@ func (m *MockClient) DNSStatus(_ context.Context) (*DNSStatusResponse, error) {
 	return &DNSStatusResponse{}, nil
 }
 
-// ListDNSRecords returns the mock DNS records.
-func (m *MockClient) ListDNSRecords(_ context.Context) ([]*upstream.DnsRecord, error) {
+// ListDNSRecords returns the mock DNS records as views annotated with the
+// requested TLD. The mock does not track per-network zones, so every stored
+// record is echoed back under the requested tld.
+func (m *MockClient) ListDNSRecords(_ context.Context, tld string) ([]*DNSRecordView, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.Calls = append(m.Calls, MockCall{Method: "ListDNSRecords"})
+	m.Calls = append(m.Calls, MockCall{Method: "ListDNSRecords", Args: []any{tld}})
 
 	if m.ListDNSRecordsErr != nil {
 		return nil, m.ListDNSRecordsErr
 	}
 
-	return m.DNSRecords, nil
+	views := make([]*DNSRecordView, 0, len(m.DNSRecords))
+	for _, r := range m.DNSRecords {
+		views = append(views, &DNSRecordView{
+			Name:       r.Name,
+			RecordType: r.RecordType,
+			Value:      r.Value,
+			Ttl:        r.Ttl,
+			Priority:   r.Priority,
+			TLD:        tld,
+		})
+	}
+	return views, nil
 }
 
 // AddDNSRecord adds a record to the mock.

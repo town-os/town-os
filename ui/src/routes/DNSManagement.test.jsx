@@ -16,6 +16,12 @@ const mockRemoveDNSRecord = vi.fn(() => Promise.resolve())
 const mockGetDNSTLD = vi.fn(() => Promise.resolve({ tld: 'town' }))
 const mockSetDNSTLD = vi.fn(() => Promise.resolve())
 const mockSetupDNS = vi.fn(() => Promise.resolve())
+const mockListNetworks = vi.fn(() =>
+  Promise.resolve([
+    { name: 'home', tld: 'town', enabled: true },
+    { name: 'office', tld: 'office', enabled: true },
+  ]),
+)
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
@@ -26,6 +32,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     getDNSTLD: mockGetDNSTLD,
     setDNSTLD: mockSetDNSTLD,
     setupDNS: mockSetupDNS,
+    listNetworks: mockListNetworks,
   }),
 }))
 
@@ -58,11 +65,16 @@ describe('DNSManagement component', () => {
     mockGetDNSTLD.mockClear()
     mockSetDNSTLD.mockClear()
     mockSetupDNS.mockClear()
+    mockListNetworks.mockClear()
 
     mockDnsStatus.mockResolvedValue({ enabled: true, running: true, tld: 'town', record_count: 2 })
     mockListDNSRecords.mockResolvedValue([
-      { name: 'app.town', record_type: 0, value: '192.168.1.1', ttl: 300, priority: 0 },
-      { name: 'mail.town', record_type: 3, value: 'mx.town', ttl: 600, priority: 10 },
+      { name: 'app.town', record_type: 0, value: '192.168.1.1', ttl: 300, priority: 0, network: '', tld: 'town' },
+      { name: 'mail.town', record_type: 3, value: 'mx.town', ttl: 600, priority: 10, network: '', tld: 'town' },
+    ])
+    mockListNetworks.mockResolvedValue([
+      { name: 'home', tld: 'town', enabled: true },
+      { name: 'office', tld: 'office', enabled: true },
     ])
   })
 
@@ -101,6 +113,31 @@ describe('DNSManagement component', () => {
     })
   })
 
+  it('fetches records across all networks by default', async () => {
+    renderDNS()
+    // An empty tld filter means "every network" (global + scoped).
+    await waitFor(() => {
+      expect(mockListDNSRecords).toHaveBeenCalledWith('')
+    })
+    // The TLD filter defaults to "All TLDs" and networks feed its options.
+    await waitFor(() => {
+      expect(mockListNetworks).toHaveBeenCalled()
+    })
+    expect(screen.getByText('All TLDs')).toBeTruthy()
+  })
+
+  it('shows each record\'s TLD/network', async () => {
+    mockListDNSRecords.mockResolvedValue([
+      { name: 'gitea.office', record_type: 0, value: '10.90.12.5', ttl: 300, priority: 0, network: 'office', tld: 'office' },
+    ])
+    renderDNS()
+    await waitFor(() => {
+      expect(screen.getByText('gitea.office')).toBeTruthy()
+    })
+    // The scoped record is labelled with its owning network.
+    expect(screen.getByText('office')).toBeTruthy()
+  })
+
   it('displays status badges', async () => {
     renderDNS()
     await waitFor(() => {
@@ -111,8 +148,15 @@ describe('DNSManagement component', () => {
 
   it('displays TLD in status card', async () => {
     renderDNS()
+    // "town" now appears both in the status card and in each record's TLD
+    // badge; target the status-card span (text-sm font-medium) specifically.
     await waitFor(() => {
-      expect(screen.getByText('town')).toBeTruthy()
+      const matches = screen.getAllByText('town')
+      expect(
+        matches.some(
+          (el) => el.className.includes('text-sm') && el.className.includes('font-medium'),
+        ),
+      ).toBe(true)
     })
   })
 

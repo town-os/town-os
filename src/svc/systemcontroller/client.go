@@ -251,10 +251,12 @@ type Client interface {
 	//
 	// Calls GET /dns/status on the Control Plane Service.
 	DNSStatus(ctx context.Context) (*DNSStatusResponse, error)
-	// ListDNSRecords returns all DNS records from the rolodex service.
+	// ListDNSRecords returns DNS records annotated with their network and TLD.
+	// An empty tld returns records across every network (global + scoped); a
+	// non-empty tld restricts the result to that domain.
 	//
 	// Calls GET /dns/records on the Control Plane Service.
-	ListDNSRecords(ctx context.Context) ([]*upstream.DnsRecord, error)
+	ListDNSRecords(ctx context.Context, tld string) ([]*DNSRecordView, error)
 	// AddDNSRecord adds a custom DNS record via the rolodex service.
 	//
 	// Calls POST /dns/records/add on the Control Plane Service.

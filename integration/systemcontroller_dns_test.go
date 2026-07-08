@@ -188,7 +188,7 @@ func TestDNSRecordAddRemove(t *testing.T) {
 	}
 
 	// List records.
-	records, err := c.ListDNSRecords(ctx)
+	records, err := c.ListDNSRecords(ctx, "")
 	if err != nil {
 		t.Fatalf("ListDNSRecords: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestDNSRecordAddRemove(t *testing.T) {
 	}
 
 	// Verify empty.
-	records, err = c.ListDNSRecords(ctx)
+	records, err = c.ListDNSRecords(ctx, "")
 	if err != nil {
 		t.Fatalf("ListDNSRecords after remove: %v", err)
 	}

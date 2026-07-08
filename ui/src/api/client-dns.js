@@ -12,14 +12,18 @@ SystemControllerClient.prototype.dnsStatus = async function () {
 }
 
 /**
- * Returns the list of DNS records.
+ * Returns DNS records annotated with their network and TLD. With no `tld` it
+ * returns records across every network (the global home zone plus each
+ * network's scoped zone); a non-empty `tld` restricts the result to that domain.
  *
- * Calls GET /dns/records on the Control Plane Service.
+ * Calls GET /dns/records[?tld=<tld>] on the Control Plane Service.
  *
- * @returns {Promise<Array<{name: string, record_type: number, value: string, ttl: number, priority: number}>>}
+ * @param {string} [tld] - Optional TLD to filter by; omit for all networks.
+ * @returns {Promise<Array<{name: string, record_type: number, value: string, ttl: number, priority: number, network: string, tld: string}>>}
  */
-SystemControllerClient.prototype.listDNSRecords = async function () {
-  return this.getJSON('/dns/records')
+SystemControllerClient.prototype.listDNSRecords = async function (tld) {
+  const query = tld ? `?tld=${encodeURIComponent(tld)}` : ''
+  return this.getJSON(`/dns/records${query}`)
 }
 
 /**

@@ -64,6 +64,7 @@ export default function DNSManagement() {
   const [setupConfirm, setSetupConfirm] = useState(false)
   const [removeConfirm, setRemoveConfirm] = useState(null)
   const [addRecordType, setAddRecordType] = useState('')
+  const [tldFilter, setTldFilter] = useState('')
 
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') || 'records'
@@ -86,11 +87,23 @@ export default function DNSManagement() {
   )
 
   const [records, , recordsLoading] = usePolling(
-    () => getClient().listDNSRecords().catch(() => []),
+    () => getClient().listDNSRecords(tldFilter).catch(() => []),
+    [],
+    [refreshKey, tldFilter],
+    60000,
+  )
+
+  // Networks supply the set of TLDs the filter dropdown offers.
+  const [networks] = usePolling(
+    () => getClient().listNetworks().catch(() => []),
     [],
     [refreshKey],
     60000,
   )
+
+  const availableTlds = Array.from(
+    new Set((networks || []).map((n) => n.tld).filter(Boolean))
+  ).sort()
 
   const [removedRecords, setRemovedRecords] = useState([])
 
@@ -179,6 +192,15 @@ export default function DNSManagement() {
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
     {
+      key: 'tld',
+      label: t('dns.col_tld'),
+      transform: (v, row) => (
+        <Badge variant="secondary" className="font-mono">
+          {row.network ? row.network : v || '—'}
+        </Badge>
+      ),
+    },
+    {
       key: 'ttl',
       label: t('dns.col_ttl'),
     },
@@ -187,13 +209,17 @@ export default function DNSManagement() {
       label: t('dns.col_actions'),
       sortable: false,
       transform: (_, row) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setRemoveConfirm(row)}
-        >
-          <Trash2 className="h-3 w-3" />
-        </Button>
+        // Scoped (per-network) records are removed through their network, not
+        // the global remove endpoint, so only global records get a delete here.
+        row.network ? null : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setRemoveConfirm(row)}
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )
       ),
     }] : []),
   ]
@@ -263,6 +289,22 @@ export default function DNSManagement() {
           </TabsList>
 
           <TabsContent value="records" className="mt-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="tld-filter" className="text-sm text-muted-foreground">
+                {t('dns.tld_filter_label')}
+              </Label>
+              <Select value={tldFilter || '__all__'} onValueChange={(v) => setTldFilter(v === '__all__' ? '' : v)}>
+                <SelectTrigger id="tld-filter" className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{t('dns.tld_filter_all')}</SelectItem>
+                  {availableTlds.map((tld) => (
+                    <SelectItem key={tld} value={tld}>{tld}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {recordsLoading && displayedRecords.length === 0 && (
               <div className="text-center py-8 text-muted-foreground animate-pulse">{t('dns.loading')}</div>
             )}

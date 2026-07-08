@@ -46,6 +46,20 @@ type DNSSetupResponse struct {
 	PackagesRegistered int    `json:"packages_registered"`
 }
 
+// DNSRecordView is a DNS record annotated with the network and TLD it belongs
+// to, so the API can present records across every network — the global home
+// zone plus each network's scoped zone — rather than only the current TLD.
+// Network is empty for the global (default-network) zone.
+type DNSRecordView struct {
+	Name       string              `json:"name"`
+	RecordType upstream.RecordType `json:"record_type"`
+	Value      string              `json:"value"`
+	Ttl        uint32              `json:"ttl"`
+	Priority   uint32              `json:"priority"`
+	Network    string              `json:"network"`
+	TLD        string              `json:"tld"`
+}
+
 func (s *SystemControllerHandlers) dnsStatus(c *echo.Context) error {
 	mgr := s.Controller.GetRolodex()
 	if mgr == nil {
@@ -71,21 +85,77 @@ func (s *SystemControllerHandlers) dnsStatus(c *echo.Context) error {
 	})
 }
 
+// listDNSRecords returns DNS records across every network by default: the global
+// home zone (default network) plus each network's scoped zone, each annotated
+// with its network and TLD. A `?tld=<tld>` query param restricts the result to a
+// single domain (e.g. one network's TLD, or the home TLD for the global zone).
 func (s *SystemControllerHandlers) listDNSRecords(c *echo.Context) error {
 	rc := s.Controller.GetRolodexClient()
 	if rc == nil {
 		return echo.NewHTTPError(503, "rolodex not available")
 	}
+	ctx := c.Request().Context()
+	tldFilter := strings.ToLower(strings.TrimSpace(c.QueryParam("tld")))
 
-	records, err := rc.ListRecords(c.Request().Context(), nil)
-	if err != nil {
-		return echo.NewHTTPError(500, fmt.Sprintf("list records: %v", err))
+	// Each network maps to a record source: the default network's records live in
+	// the global home zone; every other network's records are scoped to it.
+	type zone struct {
+		network string
+		tld     string
+		global  bool
 	}
-	if records == nil {
-		records = []*upstream.DnsRecord{}
+	var zones []zone
+	if nm := s.Controller.GetNetworkManager(); nm != nil {
+		if nets, err := nm.List(); err == nil {
+			for _, n := range nets {
+				// The default network's records live in the global home zone;
+				// they carry an empty Network so callers treat them as global
+				// (e.g. removable via the global endpoint) rather than scoped.
+				if n.Name == account.DefaultNetworkName {
+					zones = append(zones, zone{network: "", tld: n.TLD, global: true})
+					continue
+				}
+				zones = append(zones, zone{network: n.Name, tld: n.TLD, global: false})
+			}
+		}
+	}
+	if len(zones) == 0 {
+		// No network manager / no networks: fall back to the global zone only.
+		zones = []zone{{tld: s.getDNSTLDValue(), global: true}}
 	}
 
-	return c.JSON(200, records)
+	views := []DNSRecordView{}
+	for _, z := range zones {
+		if tldFilter != "" && !strings.EqualFold(z.tld, tldFilter) {
+			continue
+		}
+		var (
+			records []*upstream.DnsRecord
+			err     error
+		)
+		if z.global {
+			records, err = rc.ListRecords(ctx, nil)
+		} else {
+			records, err = rc.ListScopedRecords(ctx, z.network, nil)
+		}
+		if err != nil {
+			slog.Debug(fmt.Sprintf("list records for tld %q: %v", z.tld, err))
+			continue
+		}
+		for _, r := range records {
+			views = append(views, DNSRecordView{
+				Name:       r.Name,
+				RecordType: r.RecordType,
+				Value:      r.Value,
+				Ttl:        r.Ttl,
+				Priority:   r.Priority,
+				Network:    z.network,
+				TLD:        z.tld,
+			})
+		}
+	}
+
+	return c.JSON(200, views)
 }
 
 func (s *SystemControllerHandlers) addDNSRecord(c *echo.Context) error {
