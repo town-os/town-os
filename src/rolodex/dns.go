@@ -146,6 +146,73 @@ func SetupTLD(ctx context.Context, c Client, tld, ipv4, ipv6 string) error {
 	return nil
 }
 
+// EnsureScopedTLD idempotently publishes the zone-apex records (SOA, NS, and
+// ns1 A/AAAA) for a network-owned TLD, scoped to that network. A network's TLD
+// is its scope home_domain — an owned zone in rolodex's partition — so its apex
+// records must be scoped: a global record under the TLD would be hidden by the
+// owned-TLD partition (the same reason package address/TLSA records are scoped).
+// It is a no-op when the zone's SOA is already present, so it is safe to call on
+// every reconcile as well as at network creation. An empty ipv4/ipv6 skips the
+// corresponding ns1 address record.
+func EnsureScopedTLD(ctx context.Context, c Client, scope, tld, ipv4, ipv6 string) error {
+	zone := tld + "."
+
+	existing, err := c.ListScopedRecords(ctx, scope, nil)
+	if err != nil {
+		return fmt.Errorf("list scoped records for %q: %w", scope, err)
+	}
+	for _, r := range existing {
+		if r.RecordType == upstream.RecordTypeSOA && strings.EqualFold(r.Name, zone) {
+			return nil // apex already published for this scope
+		}
+	}
+
+	serial := time.Now().Unix()
+	soaValue := fmt.Sprintf("ns1.%s. hostmaster.%s. %d 7200 3600 1209600 3600", zone, zone, serial)
+	if err := c.AddScopedRecord(ctx, scope, &upstream.DnsRecord{
+		Name:       zone,
+		RecordType: upstream.RecordTypeSOA,
+		Value:      soaValue,
+		Ttl:        3600,
+	}); err != nil {
+		return fmt.Errorf("add scoped SOA record: %w", err)
+	}
+
+	if err := c.AddScopedRecord(ctx, scope, &upstream.DnsRecord{
+		Name:       zone,
+		RecordType: upstream.RecordTypeNS,
+		Value:      "ns1." + zone,
+		Ttl:        3600,
+	}); err != nil {
+		return fmt.Errorf("add scoped NS record: %w", err)
+	}
+
+	ns1Name := "ns1." + zone
+	if ipv4 != "" {
+		if err := c.AddScopedRecord(ctx, scope, &upstream.DnsRecord{
+			Name:       ns1Name,
+			RecordType: upstream.RecordTypeA,
+			Value:      ipv4,
+			Ttl:        300,
+		}); err != nil {
+			return fmt.Errorf("add scoped A record for ns1: %w", err)
+		}
+	}
+
+	if ipv6 != "" {
+		if err := c.AddScopedRecord(ctx, scope, &upstream.DnsRecord{
+			Name:       ns1Name,
+			RecordType: upstream.RecordTypeAAAA,
+			Value:      ipv6,
+			Ttl:        300,
+		}); err != nil {
+			return fmt.Errorf("add scoped AAAA record for ns1: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // TeardownTLD removes the authoritative zone and all records under the given TLD.
 func TeardownTLD(ctx context.Context, c Client, tld string) error {
 	zone := tld + "."

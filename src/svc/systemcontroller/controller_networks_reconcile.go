@@ -180,6 +180,15 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 		if err := rolodex.EnsureNetworkScope(ctx, rc, n.Name, n.TLD+"."); err != nil {
 			logNonFatal("ensure network scope", err)
 		}
+		// Publish the network TLD's zone apex (SOA/NS/ns1) scoped to the network
+		// so the owned zone is authoritative and resolvable on the overlay. The
+		// default network's home zone is global and set up by SetupDNS instead.
+		if n.Name != account.DefaultNetworkName {
+			ns1IP, _ := overlayIP(n.Address)
+			if err := rolodex.EnsureScopedTLD(ctx, rc, n.Name, n.TLD, ns1IP, ""); err != nil {
+				logNonFatal("ensure scoped TLD zone", err)
+			}
+		}
 		if n.Enabled {
 			if addr, ok := overlayIP(n.Address); ok {
 				if err := rolodex.BindOverlayAddress(ctx, rc, addr, n.Name); err != nil {
