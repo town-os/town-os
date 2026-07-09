@@ -1,9 +1,15 @@
 package systemcontroller
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
+	"github.com/labstack/echo/v5"
 )
 
 func TestDNSExcludedServicesRoundtrip(t *testing.T) {
@@ -43,6 +49,58 @@ func TestLoadDNSExcludedServicesNilAndInvalid(t *testing.T) {
 	if got := loadDNSExcludedServices(mgr); len(got) != 0 {
 		t.Fatalf("invalid JSON should yield empty set, got %v", got)
 	}
+}
+
+// A package installed into a non-default network must be listed with its FQDN
+// under that network's TLD (gitea.default.fart), not the global home zone — the
+// DNS "Services" tab renders this FQDN directly, so the old always-dns_tld
+// behavior showed gitea.default.home for a package on the fart network. A
+// default-network package stays under dns_tld (home).
+func TestListDNSServicesUsesNetworkTLD(t *testing.T) {
+	nm := seedNetwork(t) // fart network, TLD "fart"
+	inst := packages.InitMockInstallManager()
+	inst.Installed = []packages.PackageIdentity{
+		{Repo: "default", Name: "nginx", Version: "1.0"},
+		{Repo: "default", Name: "gitea", Version: "2.0"},
+	}
+	// gitea lives on the fart network; nginx stays in the default (home) zone.
+	if err := inst.SaveNetwork("default", "gitea", "fart"); err != nil {
+		t.Fatalf("save gitea network: %v", err)
+	}
+
+	sb := &serverBase{ServerConfig: ServerConfig{NetworkMgr: nm, Installer: inst}}
+	s := &SystemControllerHandlers{Controller: sb, ctx: context.Background()}
+
+	byName := map[string]DNSServiceEntry{}
+	for _, e := range listDNSServicesView(t, s) {
+		byName[e.Name] = e
+	}
+
+	if got := byName["gitea"].FQDN; got != "gitea.default.fart" {
+		t.Errorf("gitea on the fart network: FQDN = %q, want gitea.default.fart", got)
+	}
+	if got := byName["nginx"].FQDN; got != "nginx.default.home" {
+		t.Errorf("nginx on the default network: FQDN = %q, want nginx.default.home", got)
+	}
+}
+
+// listDNSServicesView invokes the GET /dns/services handler and decodes the JSON.
+func listDNSServicesView(t *testing.T, s *SystemControllerHandlers) []DNSServiceEntry {
+	t.Helper()
+	e := echo.New()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/dns/services", nil)
+	rec := httptest.NewRecorder()
+	if err := s.listDNSServices(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("listDNSServices: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var entries []DNSServiceEntry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+		t.Fatalf("decode: %v (body: %s)", err, rec.Body.String())
+	}
+	return entries
 }
 
 func TestFilterExcludedDNSInfo(t *testing.T) {

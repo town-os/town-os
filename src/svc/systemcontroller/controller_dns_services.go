@@ -91,7 +91,6 @@ func (s *SystemControllerHandlers) listDNSServices(c *echo.Context) error {
 		return echo.NewHTTPError(500, fmt.Sprintf("list installed: %v", err))
 	}
 
-	tld := s.getDNSTLDValue()
 	excluded := loadDNSExcludedServices(s.Controller.GetSettingsManager())
 	rr := s.Controller.GetRepositoryRoot()
 
@@ -107,6 +106,13 @@ func (s *SystemControllerHandlers) listDNSServices(c *echo.Context) error {
 			continue
 		}
 		seen[key] = true
+
+		// A package installed into a non-default network resolves under that
+		// network's TLD (e.g. gitea.default.fart), not the global home zone, so
+		// its published FQDN must use the network TLD rather than dns_tld. An
+		// unknown/default network falls back to dns_tld via networkTLD.
+		network, _ := inst.LoadNetwork(pi.Repo, pi.Name)
+		tld := s.networkTLD(network)
 
 		var domains []string
 		if rr != nil {
@@ -176,27 +182,23 @@ func (s *SystemControllerHandlers) setDNSService(c *echo.Context) error {
 	}
 
 	// Apply the change immediately to the live zone (best-effort: persisted
-	// state is the source of truth, reconcile will converge regardless).
-	rc := s.Controller.GetRolodexClient()
-	tld := s.getDNSTLDValue()
-	if rc != nil && tld != "" {
+	// state is the source of truth, reconcile will converge regardless). A
+	// package on a non-default network resolves under that network's scoped TLD
+	// zone (e.g. gitea.default.fart), so publish/unpublish must route through the
+	// network-aware helpers rather than always touching the global home zone.
+	if rc := s.Controller.GetRolodexClient(); rc != nil {
 		ctx := c.Request().Context()
-		var domains []string
-		if rr := s.Controller.GetRepositoryRoot(); rr != nil {
-			if ip, lerr := rr.LoadPackage(req.Repo, req.Name, version); lerr == nil {
-				domains = internalDomains(ip.Network.Domains, tld)
-			}
-		}
+		network, _ := inst.LoadNetwork(req.Repo, req.Name)
 		if req.Published {
-			ipv4 := s.Controller.GetInternalIP()
-			ipv6 := s.Controller.GetInternalIPv6()
-			if err := rolodex.RegisterPackageDNS(ctx, rc, req.Repo, req.Name, tld, ipv4, ipv6, domains); err != nil {
-				return echo.NewHTTPError(500, fmt.Sprintf("register DNS: %v", err))
+			var domains []string
+			if rr := s.Controller.GetRepositoryRoot(); rr != nil {
+				if ip, lerr := rr.LoadPackage(req.Repo, req.Name, version); lerr == nil {
+					domains = ip.Network.Domains
+				}
 			}
+			s.registerPackageDNSForNetwork(ctx, network, req.Repo, req.Name, domains)
 		} else {
-			if err := rolodex.UnregisterPackageDNS(ctx, rc, req.Repo, req.Name, tld, domains); err != nil {
-				return echo.NewHTTPError(500, fmt.Sprintf("unregister DNS: %v", err))
-			}
+			s.unregisterPackageDNS(ctx, req.Repo, req.Name, req.Name, version)
 		}
 	}
 
