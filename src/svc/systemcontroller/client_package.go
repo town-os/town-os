@@ -151,6 +151,22 @@ func (c *SystemdClient) InstallPackage(ctx context.Context, name, version string
 	return c.postSSE(ctx, "packages/install", pr)
 }
 
+// InstallPackageInNetwork installs a package onto a specific network. A
+// non-default network dual-homes the package in DNS so it is reachable on both
+// that network's WireGuard overlay and the local LAN. An empty network installs
+// onto the default (home) network, identical to InstallPackage.
+func (c *SystemdClient) InstallPackageInNetwork(ctx context.Context, name, version string, responses packages.Responses, network string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, InstallRequest{
+		Name:      name,
+		Version:   version,
+		Responses: responses,
+		Network:   network,
+	})
+
+	return c.postSSE(ctx, "packages/install", pr)
+}
+
 // UninstallPackage removes an installed package. Set purgeVolumes to also
 // delete all associated data volumes.
 func (c *SystemdClient) UninstallPackage(ctx context.Context, repo, name, version string, purgeVolumes bool) error {

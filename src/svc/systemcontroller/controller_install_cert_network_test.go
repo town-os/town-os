@@ -137,7 +137,7 @@ func TestPublishPackageTLSADefaultNetworkGlobalHome(t *testing.T) {
 // must use.
 func TestNetworkTLDResolvesInstallNetwork(t *testing.T) {
 	nm := seedNetwork(t)
-	s := dnsNetworkHandler(nm, nil, nil)
+	s := dnsNetworkHandler(nm, nil)
 
 	if got := s.networkTLD("fart"); got != "fart" {
 		t.Errorf("networkTLD(fart) = %q, want fart", got)

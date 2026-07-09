@@ -72,10 +72,21 @@ func (s *SystemControllerHandlers) registerPackageDNSForNetwork(ctx context.Cont
 	s.registerScopedPackageDNS(ctx, network, repo, name, domains)
 }
 
-// registerScopedPackageDNS best-effort registers scoped A records pointing a
-// package's FQDNs at the box's overlay address within a non-default network's
-// rolodex scope, so peers on that network resolve to the reachable overlay IP.
-// No-op for the default network or when rolodex/networks are unavailable.
+// registerScopedPackageDNS best-effort dual-homes a non-default network
+// package's DNS so it is reachable from BOTH the network's WireGuard overlay and
+// the local (LAN) network — split-horizon by the querying source:
+//
+//   - SCOPED records (rolodex scope, served to overlay peers) point the
+//     package's FQDNs at the box's overlay address, reachable over the tunnel;
+//   - GLOBAL records (served to loopback/LAN clients) point the same FQDNs at
+//     the box's internal LAN address, reachable on the local network.
+//
+// The box's ingress listens on all interfaces, so once a client resolves to an
+// address it can route to (overlay IP over WireGuard, LAN IP over the LAN) it
+// reaches the same package. Without the global records a LAN client resolves
+// only the overlay IP and cannot connect. No-op for the default network (whose
+// package DNS is already the global home zone) or when rolodex/networks are
+// unavailable.
 func (s *SystemControllerHandlers) registerScopedPackageDNS(ctx context.Context, network, repo, name string, domains []string) {
 	if network == "" || network == account.DefaultNetworkName {
 		return
@@ -103,11 +114,59 @@ func (s *SystemControllerHandlers) registerScopedPackageDNS(ctx context.Context,
 	for _, d := range domains {
 		names = append(names, d+"."+base)
 	}
+	// Overlay-facing scoped records (WireGuard peers).
 	for _, fqdn := range names {
 		rec := &upstream.DnsRecord{Name: fqdn, RecordType: upstream.RecordTypeA, Value: addr, Ttl: 300}
 		if err := rc.AddScopedRecord(ctx, n.Name, rec); err != nil {
 			logNonFatal("add scoped record "+fqdn, err)
 		}
+	}
+	// LAN-facing global records (loopback/LAN clients), pointing the same FQDNs
+	// at the box's internal address under the network's own TLD. This is the
+	// same helper the default network uses, so the local view is consistent.
+	ipv4 := s.Controller.GetInternalIP()
+	ipv6 := s.Controller.GetInternalIPv6()
+	if ipv4 == "" && ipv6 == "" {
+		return
+	}
+	if err := rolodex.RegisterPackageDNS(ctx, rc, repo, name, n.TLD, ipv4, ipv6, domains); err != nil {
+		logNonFatal("register global dns for network package", err)
+	}
+}
+
+// unregisterScopedPackageDNS is the inverse of registerScopedPackageDNS: it
+// removes both the overlay-facing scoped records and the LAN-facing global
+// records for a non-default network package. Best-effort no-op for the default
+// network (whose records live in the global home zone, cleaned by
+// unregisterPackageDNS) or when rolodex/networks are unavailable.
+func (s *SystemControllerHandlers) unregisterScopedPackageDNS(ctx context.Context, network, repo, name string, domains []string) {
+	if network == "" || network == account.DefaultNetworkName {
+		return
+	}
+	rc := s.Controller.GetRolodexClient()
+	nm := s.Controller.GetNetworkManager()
+	if rc == nil || nm == nil {
+		return
+	}
+	n, err := nm.Get(network)
+	if err != nil {
+		return
+	}
+
+	base := name + "." + repo + "." + n.TLD + "."
+	names := []string{base}
+	for _, d := range domains {
+		names = append(names, d+"."+base)
+	}
+	// Overlay-facing scoped records (nil opts removes every type for the name).
+	for _, fqdn := range names {
+		if _, err := rc.RemoveScopedRecord(ctx, n.Name, fqdn, nil); err != nil {
+			logNonFatal("remove scoped record "+fqdn, err)
+		}
+	}
+	// LAN-facing global records under the network TLD.
+	if err := rolodex.UnregisterPackageDNS(ctx, rc, repo, name, n.TLD, domains); err != nil {
+		logNonFatal("unregister global dns for network package", err)
 	}
 }
 

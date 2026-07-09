@@ -344,6 +344,16 @@ func (s *SystemControllerHandlers) unregisterPackageDNS(ctx context.Context, rep
 	if err := rolodex.UnregisterPackageDNS(ctx, rc, repoName, effectiveName, tld, internalDomains(domains, tld)); err != nil {
 		slog.Debug(fmt.Sprintf("unregister DNS %s/%s: %v", repoName, effectiveName, err))
 	}
+
+	// A package installed into a non-default network also has scoped (overlay)
+	// and global (LAN) records under that network's TLD — cleaned up here so the
+	// dual-homed records don't outlive the package. The install network is
+	// persisted per package (keyed by effectiveName, as install saves it).
+	if inst := s.Controller.GetInstaller(); inst != nil {
+		if network, err := inst.LoadNetwork(repoName, effectiveName); err == nil {
+			s.unregisterScopedPackageDNS(ctx, network, repoName, effectiveName, domains)
+		}
+	}
 }
 
 // publishPackageTLSA publishes DANE TLSA records pinning the package's leaf

@@ -15,10 +15,10 @@ import (
 )
 
 // dnsNetworkHandler builds a handler wired with a rolodex mock, a network
-// manager, an installer, and a fixed internal IP, for exercising the package
-// DNS-plumbing paths without the full install machinery.
-func dnsNetworkHandler(nm account.NetworkManager, rc rolodex.Client, inst packages.Installer) *SystemControllerHandlers {
-	sb := &serverBase{ServerConfig: ServerConfig{NetworkMgr: nm, RolodexClient: rc, Installer: inst}}
+// manager, and a fixed internal IP, for exercising the package DNS-plumbing
+// paths without the full install machinery.
+func dnsNetworkHandler(nm account.NetworkManager, rc rolodex.Client) *SystemControllerHandlers {
+	sb := &serverBase{ServerConfig: ServerConfig{NetworkMgr: nm, RolodexClient: rc}}
 	sb.internalIP.Store("192.168.1.10")
 	return &SystemControllerHandlers{Controller: sb, ctx: context.Background()}
 }
@@ -40,7 +40,7 @@ func seedNetwork(t *testing.T) *account.MockNetworkManager {
 func TestRegisterPackageDNSForNetworkDefaultUsesGlobalHomeZone(t *testing.T) {
 	nm := account.InitMockNetworkManager()
 	mc := &rolodex.MockClient{}
-	s := dnsNetworkHandler(nm, mc, nil)
+	s := dnsNetworkHandler(nm, mc)
 
 	s.registerPackageDNSForNetwork(context.Background(), account.DefaultNetworkName, "repo-a", "nginx", nil)
 
@@ -52,28 +52,68 @@ func TestRegisterPackageDNSForNetworkDefaultUsesGlobalHomeZone(t *testing.T) {
 	}
 }
 
-// A package installed into a non-default network is plumbed as a scoped record
-// under that network's TLD and MUST NOT land in the global home zone. This is
-// the regression: a gitea instance on the "fart" network was resolving as
-// gitea.default.home instead of gitea.default.fart.
-func TestRegisterPackageDNSForNetworkNonDefaultUsesScopedTLDNotHome(t *testing.T) {
+// A package installed into a non-default network is dual-homed so it is
+// reachable from BOTH the WireGuard overlay and the local (LAN) network:
+//   - a SCOPED record under the network's TLD pointing at the overlay IP
+//     (served to overlay peers), and
+//   - a GLOBAL record under the same network TLD pointing at the box's LAN IP
+//     (served to loopback/LAN clients).
+// It MUST NOT land in the global home zone (the original regression: a gitea
+// instance on "fart" resolving as gitea.default.home instead of .fart).
+func TestRegisterPackageDNSForNetworkNonDefaultDualHomes(t *testing.T) {
 	nm := seedNetwork(t)
 	mc := &rolodex.MockClient{}
-	s := dnsNetworkHandler(nm, mc, nil)
+	s := dnsNetworkHandler(nm, mc)
 
 	s.registerPackageDNSForNetwork(context.Background(), "fart", "repo-a", "gitea", nil)
 
-	// The scoped record lives under the network's TLD in the network's scope.
+	// Overlay-facing scoped record: the network's TLD in the network's scope,
+	// pointing at the box's overlay address (10.65.0.1 from seedNetwork).
 	scoped := mc.ScopedRecords["fart"]
-	if !hasRecord(scoped, "gitea.repo-a.fart.") {
-		t.Fatalf("expected scoped record gitea.repo-a.fart. in scope fart, got %v", recordNames(scoped))
+	rec := recordByType(scoped, "gitea.repo-a.fart.", upstream.RecordTypeA)
+	if rec == nil {
+		t.Fatalf("expected scoped A record gitea.repo-a.fart. in scope fart, got %v", recordNames(scoped))
 	}
-	// Crucially, nothing is written to the global home zone.
-	if len(mc.Records) != 0 {
-		t.Fatalf("non-default network must not create global records, got %v", globalNames(mc))
+	if rec.Value != "10.65.0.1" {
+		t.Fatalf("scoped record must point at the overlay IP 10.65.0.1, got %q", rec.Value)
 	}
+
+	// LAN-facing global record: the same FQDN under the network TLD, pointing at
+	// the box's internal LAN IP (192.168.1.10 from dnsNetworkHandler).
+	global := recordByType(mc.Records, "gitea.repo-a.fart.", upstream.RecordTypeA)
+	if global == nil {
+		t.Fatalf("expected global A record gitea.repo-a.fart. for LAN clients, got %v", globalNames(mc))
+	}
+	if global.Value != "192.168.1.10" {
+		t.Fatalf("global record must point at the internal LAN IP 192.168.1.10, got %q", global.Value)
+	}
+
+	// Crucially, it still never leaks into the global HOME zone.
 	if hasGlobalRecord(mc, "gitea.repo-a.home.") {
 		t.Fatal("package on the fart network must not resolve as gitea.repo-a.home.")
+	}
+}
+
+// unregisterScopedPackageDNS is the inverse of the dual-homing register: it must
+// remove BOTH the scoped overlay record and the global LAN record so neither
+// outlives the package.
+func TestUnregisterScopedPackageDNSRemovesBothHomings(t *testing.T) {
+	nm := seedNetwork(t)
+	mc := &rolodex.MockClient{}
+	s := dnsNetworkHandler(nm, mc)
+
+	s.registerPackageDNSForNetwork(context.Background(), "fart", "repo-a", "gitea", nil)
+	if !hasRecord(mc.ScopedRecords["fart"], "gitea.repo-a.fart.") || !hasGlobalRecord(mc, "gitea.repo-a.fart.") {
+		t.Fatalf("precondition: expected both scoped and global records after register")
+	}
+
+	s.unregisterScopedPackageDNS(context.Background(), "fart", "repo-a", "gitea", nil)
+
+	if hasRecord(mc.ScopedRecords["fart"], "gitea.repo-a.fart.") {
+		t.Fatalf("scoped record should be removed, got %v", recordNames(mc.ScopedRecords["fart"]))
+	}
+	if hasGlobalRecord(mc, "gitea.repo-a.fart.") {
+		t.Fatalf("global record should be removed, got %v", globalNames(mc))
 	}
 }
 
@@ -143,6 +183,16 @@ func hasRecord(recs []*upstream.DnsRecord, name string) bool {
 		}
 	}
 	return false
+}
+
+// recordByType returns the first record matching both name and type, or nil.
+func recordByType(recs []*upstream.DnsRecord, name string, rt upstream.RecordType) *upstream.DnsRecord {
+	for _, r := range recs {
+		if r.Name == name && r.RecordType == rt {
+			return r
+		}
+	}
+	return nil
 }
 
 func globalNames(mc *rolodex.MockClient) string { return recordNames(mc.Records) }
