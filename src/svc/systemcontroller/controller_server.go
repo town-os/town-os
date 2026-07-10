@@ -481,6 +481,24 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		return
 	}
 
+	// Non-default-network packages are dual-homed: their LAN-facing global record
+	// also carries the box IP, so it goes stale on a change too. RebuildDNS only
+	// covers the global home zone (collectInstalledDNSInfo excludes networked
+	// packages), so re-pin the network-TLD LAN records here. No-op when the
+	// network manager is unset.
+	if err := RebuildNetworkDNS(ctx, ReconcileDNSConfig{
+		Client:         rolClient,
+		Installer:      s.Installer,
+		RepositoryRoot: s.RepositoryRoot,
+		SettingsMgr:    s.SettingsMgr,
+		NetworkMgr:     s.GetNetworkManager(),
+		InternalIP:     newIP,
+		InternalIPv6:   s.GetInternalIPv6(),
+	}); err != nil {
+		slog.Error("rebuild network DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
+		return
+	}
+
 	slog.Info("rebuilt package DNS records after internal IP change", "old", oldIP, "new", newIP)
 }
 

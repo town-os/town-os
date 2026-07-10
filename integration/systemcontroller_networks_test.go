@@ -86,36 +86,32 @@ func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 		t.Error("home network should be enabled by default")
 	}
 
-	// A wg-quick config file was written for every network, named by interface.
-	for _, name := range []string{"home", "office"} {
-		iface := wireguard.InterfaceName(name)
-		p := filepath.Join(stateDir, iface+".conf")
-		data, rerr := os.ReadFile(p) //nolint:gosec // G304 -- test-controlled path
-		if rerr != nil {
-			t.Fatalf("expected config file for %s at %s: %v", name, p, rerr)
-		}
-		if !strings.Contains(string(data), "[Interface]") || !strings.Contains(string(data), "PrivateKey = ") {
-			t.Errorf("config for %s malformed:\n%s", name, data)
-		}
-
-		// The unit was installed for the network.
-		unitName := systemd.NetworkUnitName(name)
-		if _, ok := sd.InstalledUnits[unitName]; !ok {
-			t.Errorf("expected unit %s to be installed", unitName)
-		}
-		if !strings.Contains(sd.InstalledUnits[unitName], "wg-quick up "+p) {
-			t.Errorf("unit %s does not reference config path %s:\n%s", unitName, p, sd.InstalledUnits[unitName])
-		}
+	// A wg-quick config file and systemd unit are written for NON-DEFAULT networks
+	// only. The default/home network is LAN-only and gets no WireGuard transport.
+	iface := wireguard.InterfaceName("office")
+	p := filepath.Join(stateDir, iface+".conf")
+	data, rerr := os.ReadFile(p) //nolint:gosec // G304 -- test-controlled path
+	if rerr != nil {
+		t.Fatalf("expected config file for office at %s: %v", p, rerr)
+	}
+	if !strings.Contains(string(data), "[Interface]") || !strings.Contains(string(data), "PrivateKey = ") {
+		t.Errorf("config for office malformed:\n%s", data)
+	}
+	officeUnit := systemd.NetworkUnitName("office")
+	if _, ok := sd.InstalledUnits[officeUnit]; !ok {
+		t.Errorf("expected unit %s to be installed", officeUnit)
+	}
+	if !strings.Contains(sd.InstalledUnits[officeUnit], "wg-quick up "+p) {
+		t.Errorf("unit %s does not reference config path %s:\n%s", officeUnit, p, sd.InstalledUnits[officeUnit])
 	}
 
-	// The home config file must carry the derived overlay address so peers see
-	// a stable box address.
-	homeCfg, err := os.ReadFile(filepath.Join(stateDir, wireguard.InterfaceName("home")+".conf")) //nolint:gosec // G304 -- test-controlled path
-	if err != nil {
-		t.Fatalf("read home config: %v", err)
+	// The default/home network has NO WireGuard interface: no wg-quick config file
+	// and no systemd unit. .home resolves only on the LAN, never over an overlay.
+	if _, serr := os.Stat(filepath.Join(stateDir, wireguard.InterfaceName("home")+".conf")); !os.IsNotExist(serr) {
+		t.Errorf("home network must not have a wg-quick config file, stat err = %v", serr)
 	}
-	if !strings.Contains(string(homeCfg), "Address = "+home.Address) {
-		t.Errorf("home config missing address %s:\n%s", home.Address, homeCfg)
+	if _, ok := sd.InstalledUnits[systemd.NetworkUnitName("home")]; ok {
+		t.Error("home network must not install a WireGuard unit")
 	}
 }
 
@@ -218,8 +214,10 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 		SettingsMgr:      &mockSettingsManager{values: map[string]string{"dns_tld": "home"}},
 	})
 
-	for _, name := range []string{account.DefaultNetworkName, "lab"} {
-		unit := systemd.NetworkUnitName(name)
+	// Only the non-default "lab" network gets WireGuard transport under real
+	// systemd; the default/home network is LAN-only and gets no unit or config.
+	{
+		unit := systemd.NetworkUnitName("lab")
 		unitPath := "/etc/systemd/system/" + unit
 
 		// The unit file exists on disk and references the rendered wg config.
@@ -227,7 +225,7 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected unit file %s on disk: %v", unitPath, err)
 		}
-		cfgPath := filepath.Join(stateDir, wireguard.InterfaceName(name)+".conf")
+		cfgPath := filepath.Join(stateDir, wireguard.InterfaceName("lab")+".conf")
 		if !strings.Contains(string(content), "wg-quick up "+cfgPath) {
 			t.Errorf("unit %s does not reference config %s:\n%s", unit, cfgPath, content)
 		}
@@ -242,13 +240,23 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 		}
 		// Disabled networks must not be active.
 		if states[0].ActiveState == "active" {
-			t.Errorf("disabled network %s should not be active, got %q", name, states[0].ActiveState)
+			t.Errorf("disabled network lab should not be active, got %q", states[0].ActiveState)
 		}
 
 		// The wg-quick config file was rendered to the state dir.
 		if _, err := os.Stat(cfgPath); err != nil {
 			t.Errorf("expected config file %s: %v", cfgPath, err)
 		}
+	}
+
+	// The default/home network has no WireGuard transport under real systemd: no
+	// unit file on disk and no wg-quick config in the state dir.
+	homeUnitPath := "/etc/systemd/system/" + systemd.NetworkUnitName(account.DefaultNetworkName)
+	if _, err := os.Stat(homeUnitPath); !os.IsNotExist(err) {
+		t.Errorf("default network must not install a unit file %s, stat err = %v", homeUnitPath, err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, wireguard.InterfaceName(account.DefaultNetworkName)+".conf")); !os.IsNotExist(err) {
+		t.Errorf("default network must not have a wg-quick config file, stat err = %v", err)
 	}
 }
 

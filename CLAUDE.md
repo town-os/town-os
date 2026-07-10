@@ -980,6 +980,46 @@ The rolodex container runs with `--net host` and binds DNS to `DNSLoopback` (`12
 
 **Rolodex image is pulled per-arch in tests and dev** — the make harness pulls the host's per-arch rc tag `quay.io/town/rolodex:rc.latest-<arch>` (where `<arch>` is the raw `uname -m` form `x86_64`/`aarch64`), NOT the plain no-arch `rc.latest`. Internal Town OS image pulls default to the rc channel so the harness, dev, and the runtime all track `rc.latest-<arch>`. Rolodex publishes per-arch tags pushed natively from each host (`make push-rc` / `make push-release` in the rolodex-dns repo), so no multi-arch manifest assembly is required for test hosts of any architecture; the *plain* `rc.latest` (no arch suffix) is a single-arch manifest and crash-loops with `exec format error` on the other architecture — only the suffixed `rc.latest-<arch>` is safe to pull directly. The Makefile computes `HOST_ARCH` (normalized to `x86_64`/`aarch64`) and defaults `ROLODEX_IMAGE_TAG ?= rc.latest-$(HOST_ARCH)`; `ROLODEX_IMAGE` derives from it and is injected into test/dev containers via env. Override with `make ROLODEX_IMAGE_TAG=<tag> ...` (e.g. `latest-$(HOST_ARCH)` for a released rolodex) or the `ROLODEX_IMAGE` environment variable. Production/runtime behavior matches — the systemcontroller derives the tag from its release tag (falling back to `rc.latest-<arch>` via `defaultVersionTag()`) unless `ROLODEX_IMAGE` is set; the test and dev harnesses always set it. The dev container's baked rolodex unit (`integration/testdata/town-os-system--rolodex.service`) uses an `@ROLODEX_IMAGE@` placeholder substituted at image build time via the `ROLODEX_IMAGE` build arg in `integration/testdata/Containerfile.dev` (the build fails if the arg is empty), so the baked unit always matches the image the harness loads.
 
+### Network TLDs, Dual-Home, and Split-Horizon Resolution
+
+Every network owns a TLD, registered in rolodex as a network scope whose
+`home_domain` is the TLD (`rolodex.EnsureNetworkScope`, called from
+`applyNetworkTransport` in `controller_networks_reconcile.go`). Owning the TLD is
+what **partitions** it: rolodex hides a scope's TLD from any WireGuard peer joined
+to a *different* scope. The default/home network (`account.DefaultNetworkName`,
+TLD from the `dns_tld` setting, default `home`) owns `home.` as a **DNS-only**
+scope — it gets no WireGuard interface, overlay subnet, or peer association, so no
+source IP is ever bound to the home scope. `.home` is therefore LAN-only and
+hidden from every WireGuard peer, yet fully resolvable on the LAN.
+
+**Dual-home.** A package installed into a non-default network is published twice
+(`registerScopedPackageDNS`):
+
+- a **scoped** A record under the network TLD at the box's **overlay IP** — served
+  to WireGuard overlay peers by source IP (`AddScopedRecord`); and
+- a **global** A record for the same FQDN at the box's **LAN IP**
+  (`RegisterPackageDNS`) — served to loopback/LAN clients.
+
+Each side receives an address it can actually route to. No global authoritative
+zone is published for the network TLD: a bare global A record resolves on the LAN
+with no zone, and rolodex's **LAN→owning-scope fallback** (rolodex-dns, resolution
+step 5) treats the scope-owned TLD as authoritative for LAN sources — so an
+unmatched name under a network TLD yields an authoritative NXDOMAIN from the LAN
+instead of leaking the private TLD upstream. Default-network packages stay in the
+global home zone only (`registerPackageDNS`); a non-default package must never
+appear there (the original "resolves as `.home`" bug).
+
+**Split-horizon summary.** A LAN client (no WireGuard) resolves **every** network
+TLD (`.home`, and every WireGuard network's TLD) plus the public internet. A
+WireGuard peer joined to one network resolves **only** that network's TLD plus the
+public internet — a sibling network's TLD and `.home` both return NXDOMAIN. The
+LAN view is never partitioned; only overlay peers are. `RebuildNetworkDNS`
+(`reconcile.go`, called at boot) re-registers each non-default network package's
+LAN-facing global record so an already-installed package keeps resolving on the
+LAN after a restart; the scoped records persist in rolodex independently. Boot
+network reconcile is passed the rolodex client so the home scope (and every
+network scope) is established even on a cold boot.
+
 ### DNS API
 
 - `GET /dns/status` (auth required) -- returns DNS status including enabled flag, running state, TLD, and record count.

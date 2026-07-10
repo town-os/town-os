@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // Default locations for the caddy binary and its generated config inside the
@@ -24,6 +25,18 @@ import (
 const (
 	DefaultCaddyBinary     = "/usr/bin/caddy"
 	DefaultCaddyConfigPath = "/etc/caddy/Caddyfile"
+)
+
+// caddy reload talks to the running caddy's admin API (127.0.0.1:2019 by
+// default). Immediately after Start() spawns `caddy run`, the admin API may not
+// be listening yet, so the first reload after a fresh start can fail with a
+// transient connection-refused (exit 1) — especially under load (concurrent
+// test-full containers). Retry the reload for a bounded window so a caddy that
+// is still coming up does not surface as a hard error; a genuine config error
+// still fails every attempt and is returned once the window elapses.
+const (
+	caddyReloadDeadline   = 20 * time.Second
+	caddyReloadRetryDelay = 250 * time.Millisecond
 )
 
 // CaddySupervisor owns the lifecycle of the caddy child process.
@@ -56,9 +69,28 @@ type osCaddySupervisor struct {
 	binary     string
 	configPath string
 
+	// Reload-retry tuning; zero means use the package defaults
+	// (caddyReloadDeadline / caddyReloadRetryDelay). Tests set short values.
+	reloadDeadline   time.Duration
+	reloadRetryDelay time.Duration
+
 	mu       sync.Mutex
 	proc     *exec.Cmd
 	lastSent []byte
+}
+
+func (s *osCaddySupervisor) reloadDeadlineValue() time.Duration {
+	if s.reloadDeadline > 0 {
+		return s.reloadDeadline
+	}
+	return caddyReloadDeadline
+}
+
+func (s *osCaddySupervisor) reloadRetryDelayValue() time.Duration {
+	if s.reloadRetryDelay > 0 {
+		return s.reloadRetryDelay
+	}
+	return caddyReloadRetryDelay
 }
 
 // NewCaddySupervisor returns the production supervisor pointed at the default
@@ -149,14 +181,26 @@ func (s *osCaddySupervisor) Reload(content []byte) error {
 		return s.Start()
 	}
 
-	cmd := exec.Command(s.binary, "reload", "--config", s.configPath) //nolint:gosec,noctx // G204 -- binary path is a trusted constant
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("caddy reload: %w", err)
+	// Retry the reload for a bounded window: a fresh `caddy run` may not have its
+	// admin API listening yet, so the first reload can transiently fail with
+	// connection-refused. A genuine config error fails every attempt and is
+	// returned once the deadline passes.
+	deadline := time.Now().Add(s.reloadDeadlineValue())
+	var reloadErr error
+	for attempt := 1; ; attempt++ {
+		cmd := exec.Command(s.binary, "reload", "--config", s.configPath) //nolint:gosec,noctx // G204 -- binary path is a trusted constant
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		if reloadErr = cmd.Run(); reloadErr == nil {
+			slog.Info("caddy reloaded")
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("caddy reload (gave up after %d attempts): %w", attempt, reloadErr)
+		}
+		slog.Warn(fmt.Sprintf("caddy reload attempt %d failed, retrying: %v", attempt, reloadErr))
+		time.Sleep(s.reloadRetryDelayValue())
 	}
-	slog.Info("caddy reloaded")
-	return nil
 }
 
 // Shutdown sends SIGKILL to the child process if it is running. Callers should

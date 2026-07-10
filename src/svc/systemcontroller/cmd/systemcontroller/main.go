@@ -544,37 +544,54 @@ func run() (err error) {
 			// Startup: wipe and rebuild rolodex so any drift from a crashed
 			// or out-of-sync prior run is discarded. The hourly drift-repair
 			// poller (ReconcileDNS) takes over once the HTTP server is up.
-			dnsErr := systemcontroller.RebuildDNS(ctx, systemcontroller.ReconcileDNSConfig{
+			dnsCfg := systemcontroller.ReconcileDNSConfig{
 				Client:           rolClient,
 				Installer:        inst,
 				RepositoryRoot:   rr,
 				SettingsMgr:      settingsMgr,
 				PagesManager:     pagesMgr,
+				NetworkMgr:       networkMgr,
 				InternalIP:       getInternalIP(),
 				InternalIPv6:     getInternalIPv6(),
 				NetworkStatePath: *networkStatePath,
 				BtrfsBasePath:    *btrfsPath,
-			})
-			if dnsErr != nil {
+			}
+			if dnsErr := systemcontroller.RebuildDNS(ctx, dnsCfg); dnsErr != nil {
 				fmt.Fprintf(os.Stderr, "rebuild DNS: %v\n", dnsErr)
 			}
-			if closeErr := rolClient.Close(); closeErr != nil {
-				fmt.Fprintf(os.Stderr, "close rolodex client: %v\n", closeErr)
+			// LAN-facing global records for non-default networks. The
+			// scoped/overlay records are established at install and persist; this
+			// makes each network package resolvable from loopback/LAN too (a bare
+			// global A record, LAN-resolvable via rolodex's owning-scope fallback).
+			if netDNSErr := systemcontroller.RebuildNetworkDNS(ctx, dnsCfg); netDNSErr != nil {
+				fmt.Fprintf(os.Stderr, "rebuild network DNS: %v\n", netDNSErr)
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "reconcile DNS: could not connect to rolodex socket\n")
 		}
-	}
 
-	// Ensure the default network exists and bring up every enabled network's
-	// WireGuard interface. Non-fatal: a WG failure must not block boot.
-	bs.Step("reconcile_networks")
-	systemcontroller.ReconcileNetworks(ctx, systemcontroller.ReconcileNetworksConfig{
-		NetworkMgr:       networkMgr,
-		Systemd:          sd,
-		NetworkStatePath: *networkStatePath,
-		SettingsMgr:      settingsMgr,
-	})
+		// Ensure the default network exists and bring up every enabled network's
+		// WireGuard interface. Pass the rolodex client (may be nil) so the boot
+		// reconcile owns each network's TLD scope in rolodex — including the
+		// default/home TLD, which must be an owned scope so it is partitioned away
+		// from (hidden from) every WireGuard peer while staying LAN-only. The
+		// default network gets no WireGuard transport. Non-fatal: a WG failure
+		// must not block boot.
+		bs.Step("reconcile_networks")
+		systemcontroller.ReconcileNetworks(ctx, systemcontroller.ReconcileNetworksConfig{
+			NetworkMgr:       networkMgr,
+			Systemd:          sd,
+			NetworkStatePath: *networkStatePath,
+			SettingsMgr:      settingsMgr,
+			RolodexClient:    rolClient,
+		})
+
+		if rolClient != nil {
+			if closeErr := rolClient.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "close rolodex client: %v\n", closeErr)
+			}
+		}
+	}
 
 	// Program the shared :443 ingress with the full route set (HTTP packages +
 	// pages), at the same point in boot as rolodex. Push/declarative: on a

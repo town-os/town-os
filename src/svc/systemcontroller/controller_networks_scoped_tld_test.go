@@ -10,6 +10,7 @@ import (
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/rolodex"
+	"gitea.com/town-os/town-os/src/systemd"
 )
 
 func scopedApex(recs []*upstream.DnsRecord, name string, rt upstream.RecordType) *upstream.DnsRecord {
@@ -70,5 +71,52 @@ func TestApplyNetworkTransportDefaultNetworkNoScopedApex(t *testing.T) {
 
 	if len(mc.ScopedRecords[account.DefaultNetworkName]) != 0 {
 		t.Fatalf("default network must not publish a scoped TLD apex, got %+v", mc.ScopedRecords)
+	}
+}
+
+// The default/home network is a DNS-only owned scope: applyNetworkTransport must
+// create its rolodex scope (so .home is owned and therefore hidden from WireGuard
+// peers) but install NO WireGuard systemd unit and bind NO overlay association —
+// .home has no WireGuard transport of its own and stays LAN-only.
+func TestApplyNetworkTransportDefaultNetworkNoWireGuardTransport(t *testing.T) {
+	mock := account.InitMockNetworkManager()
+	n := &account.Network{Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.64.0.0/24", Address: "10.64.0.1/24", PublicKey: "PUB", PrivateKey: "PRIV", ListenPort: 51820, Enabled: true}
+	if _, err := mock.Create(n); err != nil {
+		t.Fatalf("seed network: %v", err)
+	}
+	mc := &rolodex.MockClient{}
+	sd := systemd.InitMockManager()
+	sb := &serverBase{ServerConfig: ServerConfig{
+		NetworkMgr:       mock,
+		RolodexClient:    mc,
+		Systemd:          sd,
+		NetworkStatePath: t.TempDir(),
+	}}
+	s := &SystemControllerHandlers{Controller: sb, ctx: context.Background()}
+
+	if err := s.applyNetworkTransport(context.Background(), n); err != nil {
+		t.Fatalf("applyNetworkTransport: %v", err)
+	}
+
+	// The home scope is created and owns the home TLD via its home_domain.
+	found := false
+	for _, sc := range mc.Scopes {
+		if sc.Name == account.DefaultNetworkName && sc.HomeDomain == "home." {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a rolodex scope %q owning home., got %+v", account.DefaultNetworkName, mc.Scopes)
+	}
+
+	// No WireGuard systemd unit is installed for the default network.
+	if _, ok := sd.InstalledUnits[systemd.NetworkUnitName(account.DefaultNetworkName)]; ok {
+		t.Fatalf("default network must not install a WireGuard unit, got %v", sd.InstalledUnits)
+	}
+
+	// No overlay association is bound: nothing joins the home scope, so no source
+	// IP resolves .home over WireGuard — it is reachable only from the LAN.
+	if len(mc.Associations) != 0 {
+		t.Fatalf("default network must not bind an overlay association, got %+v", mc.Associations)
 	}
 }

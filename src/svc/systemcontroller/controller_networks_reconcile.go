@@ -134,6 +134,12 @@ func (s *SystemControllerHandlers) registerScopedPackageDNS(ctx context.Context,
 	if ipv4 == "" && ipv6 == "" {
 		return
 	}
+	// A bare global A record resolves on the LAN without any authoritative zone:
+	// rolodex's LAN->owning-scope fallback treats the network TLD (owned by the
+	// scope EnsureNetworkScope created above) as authoritative for loopback/LAN
+	// sources, so the global record wins for LAN clients and unmatched names in
+	// the TLD yield an authoritative NXDOMAIN instead of leaking upstream. No
+	// global SOA/NS zone is published (it would only duplicate the scoped apex).
 	if err := rolodex.RegisterPackageDNS(ctx, rc, repo, name, n.TLD, ipv4, ipv6, domains); err != nil {
 		logNonFatal("register global dns for network package", err)
 	}
@@ -237,35 +243,52 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 	statePath := s.Controller.GetNetworkStatePath()
 	sd := s.Controller.GetSystemdManager()
 
-	// Best-effort rolodex scope regardless of transport availability. The
-	// scope's home_domain carries the network TLD (set by EnsureNetworkScope),
-	// which rolodex treats as the network's authoritative owned zone.
+	// Best-effort rolodex scope regardless of transport availability. Every
+	// network — including the default/home network — owns its TLD as a rolodex
+	// scope home_domain (set by EnsureNetworkScope), which rolodex treats as the
+	// network's authoritative owned zone. Owning the TLD is what partitions it
+	// away from foreign WireGuard peers: rolodex hides a scope's TLD from peers
+	// joined to a different scope, so .home is hidden from every overlay peer
+	// even though it has no WireGuard transport of its own.
 	if rc := s.Controller.GetRolodexClient(); rc != nil {
 		if err := rolodex.EnsureNetworkScope(ctx, rc, n.Name, n.TLD+"."); err != nil {
 			logNonFatal("ensure network scope", err)
 		}
-		// Publish the network TLD's zone apex (SOA/NS/ns1) scoped to the network
-		// so the owned zone is authoritative and resolvable on the overlay. The
-		// default network's home zone is global and set up by SetupDNS instead.
+		// Non-default networks are WireGuard overlays: publish the network TLD's
+		// zone apex (SOA/NS/ns1) scoped to the network so the owned zone is
+		// authoritative and resolvable on the overlay, bind the box's overlay
+		// address into the scope, and reconcile peer forwarders. The default
+		// network has NO WireGuard transport — its home zone is global (SetupDNS),
+		// and it never binds an overlay address or peers, so no source IP is ever
+		// associated with the home scope and .home stays LAN-only.
 		if n.Name != account.DefaultNetworkName {
 			ns1IP, _ := overlayIP(n.Address)
 			if err := rolodex.EnsureScopedTLD(ctx, rc, n.Name, n.TLD, ns1IP, ""); err != nil {
 				logNonFatal("ensure scoped TLD zone", err)
 			}
-		}
-		if n.Enabled {
-			if addr, ok := overlayIP(n.Address); ok {
-				if err := rolodex.BindOverlayAddress(ctx, rc, addr, n.Name); err != nil {
-					logNonFatal("bind overlay address", err)
+			if n.Enabled {
+				if addr, ok := overlayIP(n.Address); ok {
+					if err := rolodex.BindOverlayAddress(ctx, rc, addr, n.Name); err != nil {
+						logNonFatal("bind overlay address", err)
+					}
 				}
+				// Per-TLD peer forwarders: peers that run their own rolodex become
+				// forwarders for the shared network TLD, so records authoritative on
+				// a peer resolve across the overlay. We also bind each such peer's
+				// overlay IP into the scope (symmetric) so the peer's queries to us
+				// are answered rather than REFUSED.
+				s.reconcilePeerForwarders(ctx, rc, n)
 			}
-			// Per-TLD peer forwarders: peers that run their own rolodex become
-			// forwarders for the shared network TLD, so records authoritative on
-			// a peer resolve across the overlay. We also bind each such peer's
-			// overlay IP into the scope (symmetric) so the peer's queries to us
-			// are answered rather than REFUSED.
-			s.reconcilePeerForwarders(ctx, rc, n)
 		}
+	}
+
+	// The default/home network is LAN-only: it has no WireGuard interface,
+	// overlay subnet transport, or peers. Only non-default networks install a
+	// WireGuard systemd unit. Tear down any home WG transport left behind by an
+	// older build so an upgraded box drops the interface.
+	if n.Name == account.DefaultNetworkName {
+		s.teardownNetworkTransport(ctx, n.Name)
+		return nil
 	}
 
 	if statePath == "" || sd == nil {

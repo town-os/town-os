@@ -787,7 +787,12 @@ type ReconcileDNSConfig struct {
 	RepositoryRoot *packages.RepositoryRoot
 	SettingsMgr    account.SettingsManager
 	PagesManager   account.PagesManager
-	InternalIP     string
+	// NetworkMgr enumerates non-default networks so RebuildNetworkDNS can
+	// establish each one's global authoritative TLD zone and register its
+	// packages' LAN-facing records. nil disables the non-default-network DNS
+	// rebuild (the global home zone is unaffected).
+	NetworkMgr account.NetworkManager
+	InternalIP string
 	// InternalIPv6 is the host's global IPv6 address (from the same interface
 	// as InternalIP), used to publish AAAA records alongside the A records.
 	// Empty when the host has no globally routable IPv6 — AAAA is then skipped
@@ -869,6 +874,95 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	}
 
 	return nil
+}
+
+// RebuildNetworkDNS re-registers each non-default network package's LAN-facing
+// A/AAAA record under its network TLD, at the box's internal IP. This is the LAN
+// half of the dual-home: overlay peers reach the package via its scoped record
+// (the overlay IP), while loopback/LAN clients reach it via this global record
+// (the LAN IP). No global authoritative zone is published — a bare global A
+// record resolves on the LAN, and rolodex's LAN->owning-scope fallback (the
+// network TLD is owned by the scope applyNetworkTransport creates) both makes
+// the global record authoritative for LAN sources and returns an authoritative
+// NXDOMAIN for unmatched names instead of leaking the private TLD upstream. The
+// scoped/overlay records and the scoped zone apex live in separate rolodex
+// tables and are owned by applyNetworkTransport; this function never touches
+// them. Idempotent across reboots: each package's prior global records are
+// removed before re-adding, since AddRecord errors on duplicates. No-op when no
+// network manager or rolodex client is configured.
+func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
+	if cfg.NetworkMgr == nil || cfg.Client == nil {
+		return nil
+	}
+
+	nets, err := cfg.NetworkMgr.List()
+	if err != nil {
+		return fmt.Errorf("list networks: %w", err)
+	}
+
+	excluded := loadDNSExcludedServices(cfg.SettingsMgr)
+	for i := range nets {
+		n := nets[i]
+		if n.Name == account.DefaultNetworkName || n.TLD == "" {
+			continue
+		}
+
+		for _, pkg := range filterExcludedDNSInfo(collectNetworkDNSInfo(cfg.Installer, cfg.RepositoryRoot, n.Name, n.TLD), excluded) {
+			// Drop any prior global records for this package so a reboot
+			// re-registers cleanly (RemoveRecord is a no-op when absent).
+			if err := rolodex.UnregisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, n.TLD, pkg.Domains); err != nil {
+				slog.Debug(fmt.Sprintf("rebuild network DNS clear %s/%s: %v", pkg.Repo, pkg.Name, err))
+			}
+			if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, n.TLD, cfg.InternalIP, cfg.InternalIPv6, pkg.Domains); err != nil {
+				slog.Debug(fmt.Sprintf("rebuild network DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
+			}
+		}
+	}
+
+	return nil
+}
+
+// collectNetworkDNSInfo returns LAN-facing DNS info for installed packages
+// assigned to the given non-default network — the inverse of the exclusion in
+// collectInstalledDNSInfo, which drops those same packages from the global home
+// zone so they only appear under their network TLD here.
+func collectNetworkDNSInfo(inst packages.Installer, rr *packages.RepositoryRoot, network, tld string) []rolodex.PackageDNSInfo {
+	if inst == nil {
+		return nil
+	}
+
+	installed, err := inst.ListInstalled()
+	if err != nil {
+		return nil
+	}
+
+	pkgs := make([]rolodex.PackageDNSInfo, 0, len(installed))
+	for _, pkg := range installed {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+
+		net, nerr := inst.LoadNetwork(pi.Repo, pi.Name)
+		if nerr != nil || net != network {
+			continue
+		}
+
+		var domains []string
+		if rr != nil {
+			if ip, lerr := rr.LoadPackage(pi.Repo, pi.Name, pi.Version); lerr == nil {
+				domains = internalDomains(ip.Network.Domains, tld)
+			}
+		}
+
+		pkgs = append(pkgs, rolodex.PackageDNSInfo{
+			Repo:    pi.Repo,
+			Name:    pi.Name,
+			Domains: domains,
+		})
+	}
+
+	return pkgs
 }
 
 // collectInstalledTLSA computes the DANE TLSA entries for every installed
