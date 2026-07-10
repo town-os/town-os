@@ -18,6 +18,7 @@ vi.mock('@/api/client-boot.js', () => ({
 }))
 
 import BootStatusStepper from './BootStatusStepper.jsx'
+import { bootSteps } from './boot-steps.js'
 
 function renderStepper(overrides = {}) {
   return render(
@@ -44,8 +45,8 @@ describe('BootStatusStepper', () => {
   it('renders every known step as pending on first mount', () => {
     renderStepper()
     const items = screen.getAllByRole('listitem')
-    // 20 steps in the canonical list (see bootSteps in component).
-    expect(items.length).toBe(20)
+    // One row per entry in the canonical list (see bootSteps).
+    expect(items.length).toBe(bootSteps.length)
     // All pending initially.
     for (const li of items) {
       expect(li.getAttribute('data-state')).toBe('pending')
@@ -65,6 +66,62 @@ describe('BootStatusStepper', () => {
     expect(createDirs.getAttribute('data-state')).toBe('done')
     expect(openDB.getAttribute('data-state')).toBe('in_progress')
     expect(reconcile.getAttribute('data-state')).toBe('pending')
+  })
+
+  // Regression: the backend emits several networking/ingress stages
+  // (init_network_mgr, start_ingress, start_pages, reconcile_networks,
+  // reconcile_ingress) that used to be missing from bootSteps. An
+  // unrecognized step resolves to indexOf === -1, which stateFor treats
+  // as "nothing done yet" and blanks every completed row. Every step the
+  // backend can emit must be present so completed rows stay checked.
+  for (const step of [
+    'init_network_mgr',
+    'start_ingress',
+    'start_pages',
+    'reconcile_networks',
+    'reconcile_ingress',
+  ]) {
+    it(`keeps prior stages checked when the ${step} stage arrives`, () => {
+      renderStepper()
+      act(() => captured.onEvent({ step }))
+
+      const idx = bootSteps.indexOf(step)
+      expect(idx).toBeGreaterThan(0) // step is known, not -1
+      // Everything before it must read as done, not reset to pending.
+      for (let i = 0; i < idx; i++) {
+        const row = document.querySelector(`[data-step="${bootSteps[i]}"]`)
+        expect(row.getAttribute('data-state')).toBe('done')
+      }
+      const current = document.querySelector(`[data-step="${step}"]`)
+      expect(current.getAttribute('data-state')).toBe('in_progress')
+    })
+  }
+
+  it('advances monotonically through the full boot sequence without regressing', () => {
+    renderStepper()
+    // Play every stage in canonical order. After each one, no already-passed
+    // stage may fall back to pending (the flicker bug).
+    for (let cur = 0; cur < bootSteps.length; cur++) {
+      act(() => captured.onEvent({ step: bootSteps[cur] }))
+      for (let i = 0; i < bootSteps.length; i++) {
+        const row = document.querySelector(`[data-step="${bootSteps[i]}"]`)
+        const expected = i < cur ? 'done' : i === cur ? 'in_progress' : 'pending'
+        expect(row.getAttribute('data-state')).toBe(expected)
+      }
+    }
+  })
+
+  it('ignores an unknown step instead of blanking completed rows', () => {
+    renderStepper()
+    // Advance a few real steps so there is progress to protect.
+    act(() => captured.onEvent({ step: 'pull_images' }))
+    const before = document.querySelector('[data-step="open_db"]').getAttribute('data-state')
+    expect(before).toBe('done')
+
+    // A step this build doesn't know about must not reset progress.
+    act(() => captured.onEvent({ step: 'some_future_backend_step' }))
+    expect(document.querySelector('[data-step="open_db"]').getAttribute('data-state')).toBe('done')
+    expect(document.querySelector('[data-step="pull_images"]').getAttribute('data-state')).toBe('in_progress')
   })
 
   it('shows per-package label for refreshing_<pkg> events', () => {

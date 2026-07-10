@@ -63,10 +63,17 @@ export default function BootStatusStepper({ baseURL, onComplete, onError, hostna
           if (evt.step.startsWith(REFRESH_PREFIX)) {
             setRefreshingName(evt.step.slice(REFRESH_PREFIX.length))
             setCurrentStep('refresh_packages')
-          } else {
+          } else if (bootSteps.includes(evt.step)) {
             setRefreshingName(null)
             setCurrentStep(evt.step)
           }
+          // A step we don't know about (e.g. one the backend added but
+          // this build's bootSteps doesn't list yet) is deliberately
+          // ignored rather than applied: applying it would resolve to
+          // indexOf === -1 in stateFor and reset every completed row back
+          // to "pending". Ignoring it keeps progress monotonic — the next
+          // known step advances the stepper. boot-steps.js is kept in sync
+          // with the backend so this is only a defensive backstop.
         }
       },
       onDisconnect: (ms) => {
