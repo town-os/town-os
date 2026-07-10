@@ -31,6 +31,12 @@ type ReconcileConfig struct {
 	Storage                storage.Storage
 	Systemd                systemd.Manager
 	SettingsMgr            account.SettingsManager
+	// NetworkMgr resolves a package's install network to its DNS TLD so
+	// reconcile recompiles @PACKAGE_DNS@ under the same TLD the package was
+	// installed with (e.g. a package on the "fart" network keeps
+	// gitea.default.fart in its unit env, not gitea.default.home). nil falls
+	// back to the global dns_tld for every package.
+	NetworkMgr             account.NetworkManager
 	PagesManager           account.PagesManager
 	BtrfsBasePath          string
 	NetworkControllerImage string
@@ -401,7 +407,15 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		return nil, fmt.Errorf("get responses: %w", err)
 	}
 
-	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	// Resolve @PACKAGE_DNS@ under the package's install network TLD, not the
+	// global dns_tld, so a package on a non-default network keeps its
+	// network-scoped FQDN across reconciles. A package on the "fart" network
+	// whose env references @PACKAGE_DNS@ (e.g. gitea's ROOT_URL/DOMAIN) must
+	// keep gitea.default.fart — recompiling it as gitea.default.home here would
+	// rewrite the unit and restart the service with a broken URL. LoadNetwork
+	// returns "" for default-network packages, which falls back to dns_tld.
+	network, _ := cfg.Installer.LoadNetwork(repoName, pi.Name)
+	tld := networkTLDValue(cfg.NetworkMgr, cfg.SettingsMgr, network)
 	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
 		ExternalHost: cfg.ExternalIP,
 		InternalHost: cfg.InternalIP,

@@ -1906,6 +1906,55 @@ environment:
 	}
 }
 
+// A package installed onto a non-default network must have @PACKAGE_DNS@ in its
+// unit env recompiled under that network's TLD (gitea.repo-a.fart), not the
+// global dns_tld. Otherwise reconcile rewrites a fart-network gitea's
+// ROOT_URL/DOMAIN to .home and restarts it with a broken URL.
+func TestReconcileCompileUsesNetworkTLD(t *testing.T) {
+	pkgYAML := `image: nginx:1.0
+environment:
+  DNS_NAME: "@PACKAGE_DNS@"
+`
+	rr, inst := setupReconcileRepo(t, map[string]string{"gitea/2.0": pkgYAML})
+	sd := systemd.InitMockManager()
+
+	if err := inst.Install("repo-a", "gitea", "gitea", "2.0", packages.Responses{}); err != nil {
+		t.Fatalf("pre-install: %v", err)
+	}
+	if err := inst.SaveNetwork("repo-a", "gitea", "fart"); err != nil {
+		t.Fatalf("SaveNetwork: %v", err)
+	}
+
+	nm := seedNetwork(t) // fart network, TLD "fart"
+	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
+
+	if err := Reconcile(context.Background(), ReconcileConfig{
+		Installer:      inst,
+		RepositoryRoot: rr,
+		Systemd:        sd,
+		SettingsMgr:    settings,
+		NetworkMgr:     nm,
+		InternalIP:     "192.168.1.50",
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	calls := sd.GetCalls()
+	if len(calls) < 1 {
+		t.Fatal("expected at least 1 systemd call")
+	}
+	unitContent, ok := calls[0].Args[1].(string)
+	if !ok {
+		t.Fatal("expected string arg for unit content")
+	}
+	if !strings.Contains(unitContent, "gitea.repo-a.fart") {
+		t.Fatalf("expected PACKAGE_DNS under the network TLD 'gitea.repo-a.fart', got:\n%s", unitContent)
+	}
+	if strings.Contains(unitContent, "gitea.repo-a.home") {
+		t.Fatalf("fart-network package must not fall back to the home zone, got:\n%s", unitContent)
+	}
+}
+
 // mockSettingsManager is a minimal in-memory settings manager for tests.
 type mockSettingsManager struct {
 	values map[string]string

@@ -131,10 +131,18 @@ func (s *SystemControllerHandlers) getInstalledInfo(c *echo.Context) error {
 		return err
 	}
 
+	// A package installed into a non-default network resolves under that
+	// network's TLD (e.g. gitea.default.fart), not the global home zone, so the
+	// notes/URL pages compiled here must use the network TLD rather than the
+	// global dns_tld. An unknown/default network falls back to dns_tld via
+	// networkTLD.
+	network, _ := inst.LoadNetwork(req.Repo, req.Name)
+	tld := s.networkTLD(network)
+
 	ctx := packages.CompileContext{
 		ExternalHost: s.Controller.GetExternalIP(),
 		InternalHost: s.Controller.GetInternalIP(),
-		PackageDNS:   req.Name + "." + req.Repo + "." + s.getDNSTLDValue(),
+		PackageDNS:   req.Name + "." + req.Repo + "." + tld,
 	}
 	notes, err := ip.CompileNotesWithContext(responses, ctx)
 	if err != nil {

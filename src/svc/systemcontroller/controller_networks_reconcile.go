@@ -45,16 +45,21 @@ func (s *SystemControllerHandlers) resolveInstallNetwork(requested string) (stri
 // unknown/unavailable one), otherwise the network's own TLD. A gitea instance on
 // the "fart" network must get a cert for gitea.<repo>.fart, not <...>.home.
 func (s *SystemControllerHandlers) networkTLD(network string) string {
-	if network == "" || network == account.DefaultNetworkName {
-		return s.getDNSTLDValue()
-	}
-	nm := s.Controller.GetNetworkManager()
-	if nm == nil {
-		return s.getDNSTLDValue()
+	return networkTLDValue(s.Controller.GetNetworkManager(), s.Controller.GetSettingsManager(), network)
+}
+
+// networkTLDValue is the free-function core of networkTLD, so the reconcile
+// path (which compiles package units without a handler) can resolve the same
+// per-network TLD. It maps a package's install network to the TLD its DNS
+// names use: the global dns_tld for the default network (or an unknown/
+// unavailable one), otherwise the network's own TLD.
+func networkTLDValue(nm account.NetworkManager, settingsMgr account.SettingsManager, network string) string {
+	if network == "" || network == account.DefaultNetworkName || nm == nil {
+		return reconcileDNSTLD(settingsMgr)
 	}
 	n, err := nm.Get(network)
 	if err != nil || n.TLD == "" {
-		return s.getDNSTLDValue()
+		return reconcileDNSTLD(settingsMgr)
 	}
 	return n.TLD
 }

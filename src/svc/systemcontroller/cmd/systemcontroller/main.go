@@ -498,6 +498,7 @@ func run() (err error) {
 		Storage:                st,
 		Systemd:                sd,
 		SettingsMgr:            settingsMgr,
+		NetworkMgr:             networkMgr,
 		PagesManager:           pagesMgr,
 		BtrfsBasePath:          *btrfsPath,
 		NetworkControllerImage: ncImage,

@@ -50,7 +50,12 @@ func (s *SystemControllerHandlers) rebuildGit(c *echo.Context) error {
 		return fmt.Errorf("get responses: %w", err)
 	}
 
-	tld := s.getDNSTLDValue()
+	// Recompile @PACKAGE_DNS@ under the package's install network TLD (rebuild
+	// regenerates and restarts the unit; using the global dns_tld would rewrite
+	// a non-default-network package's env to .home). Falls back to dns_tld for
+	// default-network packages.
+	network, _ := inst.LoadNetwork(req.Repo, req.Name)
+	tld := s.networkTLD(network)
 	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
 		ExternalHost: s.Controller.GetExternalIP(),
 		InternalHost: s.Controller.GetInternalIP(),
