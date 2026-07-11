@@ -64,6 +64,34 @@ func networkTLDValue(nm account.NetworkManager, settingsMgr account.SettingsMana
 	return n.TLD
 }
 
+// networkOverlayIP returns the box's WireGuard overlay address on the given
+// network, for use as a certificate SAN so a peer on that network can reach a
+// package by raw overlay address (https://10.65.0.1) and not just by name. The
+// default network has no WireGuard transport at all (it is DNS-only; see
+// applyNetworkTransport), so it — and any unknown network — yields "", which
+// collectTLSSans treats as "skip that SAN". Keeping it empty there is what
+// stops default-network leaves from churning on every reconcile.
+func (s *SystemControllerHandlers) networkOverlayIP(network string) string {
+	return networkOverlayIPValue(s.Controller.GetNetworkManager(), network)
+}
+
+// networkOverlayIPValue is the free-function core of networkOverlayIP, so the
+// reconcile path (which has no handler) can resolve the same address.
+func networkOverlayIPValue(nm account.NetworkManager, network string) string {
+	if network == "" || network == account.DefaultNetworkName || nm == nil {
+		return ""
+	}
+	n, err := nm.Get(network)
+	if err != nil {
+		return ""
+	}
+	addr, ok := overlayIP(n.Address)
+	if !ok {
+		return ""
+	}
+	return addr
+}
+
 // registerPackageDNSForNetwork plumbs a package's DNS into the one zone that
 // matches its install network: the global home zone (registerPackageDNS) for the
 // default network, or the network's scoped TLD zone (registerScopedPackageDNS)

@@ -419,7 +419,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
 		ExternalHost: cfg.ExternalIP,
 		InternalHost: cfg.InternalIP,
-		PackageDNS:   pi.Name + "." + repoName + "." + tld,
+		PackageDNS:   packageFQDN(repoName, pi.Name, tld),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile: %w", err)
@@ -505,11 +505,14 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	}
 
 	// Write per-package network state file. Only parent/standalone packages
-	// need a state file — dependencies share the parent's NC.
+	// need a state file — dependencies share the parent's NC. Reuse the
+	// install-network tld resolved above (line ~418) so the leaf SAN and the
+	// state file's FQDN stay under the package's own network TLD across boots.
 	isDep := netInfo.ParentNCUnitName != ""
 	needsNetworkState := !isDep && (len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0)
 	if cfg.NetworkStatePath != "" && needsNetworkState {
-		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, compiled, ip.Supplies); err != nil {
+		overlay := networkOverlayIPValue(cfg.NetworkMgr, network)
+		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, tld, overlay, compiled, ip.Supplies); err != nil {
 			return nil, fmt.Errorf("write network state: %w", err)
 		}
 	}
@@ -917,9 +920,64 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 				slog.Debug(fmt.Sprintf("rebuild network DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
 			}
 		}
+
+		// Dual-home the DANE TLSA exactly like the A records above: a GLOBAL pin
+		// (served to LAN sources, which resolve the network TLD through rolodex's
+		// LAN->owning-scope fallback) and a SCOPED pin (served to WireGuard peers,
+		// whose queries are answered from the scope and never see global records).
+		// Install only ever wrote the scoped half (publishPackageTLSA), and nothing
+		// republished either half after a restart — so a LAN client had no TLSA at
+		// all for a network package, and a reboot dropped the scoped one.
+		if entries := collectNetworkTLSA(cfg, n.Name, n.TLD); len(entries) > 0 {
+			if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
+				slog.Debug(fmt.Sprintf("rebuild network TLSA %s: %v", n.Name, err))
+			}
+			if err := rolodex.RegisterScopedPackageTLSA(ctx, cfg.Client, n.Name, entries); err != nil {
+				slog.Debug(fmt.Sprintf("rebuild scoped network TLSA %s: %v", n.Name, err))
+			}
+		}
 	}
 
 	return nil
+}
+
+// collectNetworkTLSA returns DANE TLSA entries for the installed packages
+// assigned to the given non-default network, pinned under that network's TLD.
+// It is the inverse filter of collectInstalledTLSA, which skips exactly these
+// packages so the global home zone never carries a stale pin under a network's
+// TLD.
+func collectNetworkTLSA(cfg ReconcileDNSConfig, network, tld string) []rolodex.TLSAEntry {
+	if cfg.Installer == nil || cfg.NetworkStatePath == "" || cfg.BtrfsBasePath == "" {
+		return nil
+	}
+	installed, err := cfg.Installer.ListInstalled()
+	if err != nil {
+		return nil
+	}
+	var entries []rolodex.TLSAEntry
+	for _, pkg := range installed {
+		pi, err := packages.ParsePackageIdentity(pkg)
+		if err != nil {
+			continue
+		}
+		net, nerr := cfg.Installer.LoadNetwork(pi.Repo, pi.Name)
+		if nerr != nil || net != network {
+			continue
+		}
+		var domains []string
+		if cfg.RepositoryRoot != nil {
+			if ip, lerr := cfg.RepositoryRoot.LoadPackage(pi.Repo, pi.Name, pi.Version); lerr == nil {
+				domains = ip.Network.Domains
+			}
+		}
+		pkgEntries, err := buildTLSAEntries(cfg.NetworkStatePath, cfg.BtrfsBasePath, pi.Repo, pi.Name, pi.Version, tld, domains)
+		if err != nil {
+			slog.Debug(fmt.Sprintf("collect network TLSA %s/%s: %v", pi.Repo, pi.Name, err))
+			continue
+		}
+		entries = append(entries, pkgEntries...)
+	}
+	return entries
 }
 
 // collectNetworkDNSInfo returns LAN-facing DNS info for installed packages
@@ -1135,12 +1193,19 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 // supplies is the raw `supplies:` list from the package YAML. When it
 // contains "http" and cfg.TLSCA is set, a leaf cert is issued for the
 // package and every external port is marked TLS=true in the state file.
-func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version string, compiled *packages.Package, supplies []string) error {
+//
+// tld and overlayIP are the caller's *install-network* values (resolved once in
+// reconcilePackage), NOT the global dns_tld. Recomputing the global TLD here is
+// exactly the bug this signature exists to prevent: it re-issued a
+// fart-network package's leaf with SAN <pkg>.<repo>.home on every boot,
+// silently clobbering the correct <pkg>.<repo>.fart SAN written at install and
+// leaving the ingress serving a name the cert was not valid for.
+func reconcileWriteNetworkState(cfg ReconcileConfig, repoName, pkgName, version, tld, overlayIP string, compiled *packages.Package, supplies []string) error {
 	state := buildPackageNetworkState(repoName, pkgName, version, compiled)
 
 	if err := applyPackageTLS(
 		&state, cfg.TLSCA, cfg.BtrfsBasePath,
-		repoName, pkgName, version, cfg.InternalIP, reconcileDNSTLD(cfg.SettingsMgr),
+		repoName, pkgName, version, cfg.InternalIP, tld, overlayIP,
 		compiled, supplies,
 	); err != nil {
 		return err

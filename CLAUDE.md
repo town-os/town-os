@@ -1020,6 +1020,56 @@ LAN after a restart; the scoped records persist in rolodex independently. Boot
 network reconcile is passed the rolodex client so the home scope (and every
 network scope) is established even on a cold boot.
 
+### The package FQDN is one string — A record, leaf SAN, TLSA owner, ingress vhost
+
+**A package's DNS name is always derived from its *install network's* TLD, never
+from the global `dns_tld` setting.** `packageFQDN(repo, name, tld)`
+(`src/svc/systemcontroller/controller_tls.go`) is the single source of truth, and
+the TLD comes from `networkTLDValue(nm, settingsMgr, network)` (which falls back
+to `dns_tld` only for the default network). Four things must name a package
+identically, and a mismatch in any one of them silently breaks serving:
+
+1. its **A record**, 2. its **leaf certificate SAN**, 3. its **DANE TLSA owner**,
+and 4. its **shared :443 ingress vhost**.
+
+To keep them from drifting, the FQDN is computed **once** — in `applyPackageTLS`,
+on the same line that issues the leaf — and persisted as
+`PackageNetworkState.FQDN` (`fqdn` in the per-package network state JSON). The
+ingress route builder (`collectPackageIngressSites`) reads that field rather than
+recomposing the name, so the vhost is by construction the name the cert is valid
+for. `reconcileWriteNetworkState` takes the TLD **from its caller**
+(`reconcilePackage`, which resolved it from the install network); it must never
+call `reconcileDNSTLD` itself. Doing so was a real bug: every boot re-issued a
+`fart`-network package's leaf with SAN `<pkg>.<repo>.home`, clobbering the
+correct `.fart` SAN, while the ingress rendered a `<pkg>.<repo>.home` vhost that
+nothing dialed — so the package resolved on the LAN but was never served. An
+empty `fqdn` (pre-upgrade state file, or a non-HTTP package) falls back to the
+global TLD and self-heals on the next reconcile.
+
+**The ingress is interface-agnostic and needs no per-network binding.** It
+publishes `-p 443:443` / `-p 80:80` with no host IP (`0.0.0.0`, so LAN +
+WireGuard + loopback all reach it) and its Caddyfile has **no `bind` directive**,
+so Caddy listens on all interfaces and selects the vhost purely by **SNI/Host**.
+Backends are reached by container name on the shared `town-os-ingress` podman
+network, which every HTTP-fronted package joins regardless of its WireGuard
+network. A LAN client and an overlay peer therefore hit the same listener,
+SNI-select the same vhost, get the same local-CA leaf, and are proxied to the
+same container. Nothing binds a listening socket to an overlay IP —
+`BindOverlayAddress` is a rolodex *DNS scope association*, not a socket bind. Do
+not add `bind` directives or per-network listeners to the ingress.
+
+The package leaf also carries the box's **overlay IP** on that network as a SAN
+(`networkOverlayIPValue`), so a peer can reach the package by raw WireGuard
+address (`https://10.65.0.1`) and not only by name. It is empty for the default
+network (which has no WireGuard transport), which keeps default-network leaves
+from churning on every reconcile.
+
+DANE TLSA for a network package is **dual-homed like its A record**:
+`RebuildNetworkDNS` registers a global pin (served to LAN sources via the
+LAN→owning-scope fallback) *and* a scoped pin (served to overlay peers, whose
+queries never see global records). Install alone only ever wrote the scoped half,
+and nothing republished either half across a restart.
+
 ### DNS API
 
 - `GET /dns/status` (auth required) -- returns DNS status including enabled flag, running state, TLD, and record count.

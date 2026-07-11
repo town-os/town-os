@@ -188,6 +188,90 @@ func TestCollectPackageIngressSitesNilLister(t *testing.T) {
 	}
 }
 
+// A package installed into a non-default WireGuard network is served under THAT
+// network's TLD, taken from the state file's FQDN — never under the global
+// dns_tld. This is the bug that made gitea.default.fart resolve on the LAN but
+// never get served: the ingress rendered a gitea.default.home vhost that nothing
+// dialed, and the leaf it attached was valid only for .fart.
+func TestCollectPackageIngressSitesUsesStateFQDN(t *testing.T) {
+	dir := t.TempDir()
+	writeState(t, dir, "local", "gitea", "1.0", networkcontroller.PackageNetworkState{
+		Repo: "local", Package: "gitea", Version: "1.0",
+		ContainerName: "town-os-package--local-gitea-1.0",
+		FQDN:          "gitea.local.fart",
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 443, InternalPort: 3000, TLS: true, Ingress: true, CertPath: "/etc/town-os/tls/leaves/local/gitea/1.0"},
+		},
+	})
+
+	// The global dns_tld is "home" — it must NOT win over the state file.
+	sites := collectPackageIngressSites(&stubLister{items: []string{"local/gitea@1.0"}}, dir, "home")
+	if len(sites) != 1 {
+		t.Fatalf("expected 1 site, got %d: %+v", len(sites), sites)
+	}
+	if sites[0].Hostname != "gitea.local.fart" {
+		t.Fatalf("hostname = %q, want gitea.local.fart (the network TLD, not the global dns_tld)", sites[0].Hostname)
+	}
+}
+
+// State files written before the FQDN field existed carry no fqdn key. They must
+// keep resolving under the global dns_tld (today's behavior for default-network
+// packages) and self-heal on the next reconcile, which rewrites them.
+func TestCollectPackageIngressSitesFallsBackWhenFQDNEmpty(t *testing.T) {
+	dir := t.TempDir()
+	writeState(t, dir, "default", "gitea", "1.0", networkcontroller.PackageNetworkState{
+		Repo: "default", Package: "gitea", Version: "1.0",
+		ContainerName: "town-os-package--default-gitea-1.0",
+		// no FQDN — pre-upgrade state file
+		Ports: []networkcontroller.PortConfig{
+			{ExternalPort: 443, InternalPort: 3000, TLS: true, Ingress: true, CertPath: "/x"},
+		},
+	})
+
+	sites := collectPackageIngressSites(&stubLister{items: []string{"default/gitea@1.0"}}, dir, "home")
+	if len(sites) != 1 {
+		t.Fatalf("expected 1 site, got %d", len(sites))
+	}
+	if sites[0].Hostname != "gitea.default.home" {
+		t.Fatalf("hostname = %q, want the global-TLD fallback gitea.default.home", sites[0].Hostname)
+	}
+}
+
+// The public-FQDN dedupe compares against the network-correct FQDN, so a dep
+// declaring its own internal name as an SNI name does not produce a duplicate
+// vhost (which would make caddy reject the whole config).
+func TestCollectPackageIngressSitesNetworkFQDNDedupesSNI(t *testing.T) {
+	dir := t.TempDir()
+	writeState(t, dir, "default", "gitea", "2.0", networkcontroller.PackageNetworkState{
+		Repo: "default", Package: "gitea", Version: "2.0",
+		ContainerName: "town-os-package--default-gitea-2.0",
+		FQDN:          "gitea.default.fart",
+		Ports: []networkcontroller.PortConfig{
+			{
+				ExternalPort: 443, InternalPort: 3000, TLS: true, Ingress: true,
+				CertPath:     "/x",
+				PublicDomain: true,
+				SNINames:     []string{"gitea.default.fart", "git.example.com"},
+			},
+		},
+	})
+
+	sites := collectPackageIngressSites(&stubLister{items: []string{"default/gitea@2.0"}}, dir, "home")
+	if len(sites) != 2 {
+		t.Fatalf("expected exactly 2 sites (internal + public), got %d: %+v", len(sites), sites)
+	}
+	seen := map[string]bool{}
+	for _, s := range sites {
+		if seen[s.Hostname] {
+			t.Fatalf("duplicate vhost %q would make caddy reject the config", s.Hostname)
+		}
+		seen[s.Hostname] = true
+	}
+	if !seen["gitea.default.fart"] || !seen["git.example.com"] {
+		t.Fatalf("want gitea.default.fart + git.example.com, got %+v", seen)
+	}
+}
+
 // writeState marshals a package network state to the state dir under the
 // systemcontroller's <repo>-<pkg>-<ver>.json convention.
 func writeState(t *testing.T, dir, repo, pkg, version string, st networkcontroller.PackageNetworkState) {

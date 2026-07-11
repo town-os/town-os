@@ -6,6 +6,8 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/networkcontroller"
@@ -54,7 +56,7 @@ func TestSuppliesHTTP(t *testing.T) {
 }
 
 func TestCollectTLSSans(t *testing.T) {
-	sans := collectTLSSans("nginx.default.home", []string{"nginx.alt.home"}, "", "")
+	sans := collectTLSSans("nginx.default.home", []string{"nginx.alt.home"}, "", "", "")
 	want := []string{"nginx.default.home", "nginx.alt.home", "localhost", "127.0.0.1"}
 	if len(sans) != len(want) {
 		t.Fatalf("len=%d, want %d", len(sans), len(want))
@@ -72,7 +74,7 @@ func TestCollectTLSSans(t *testing.T) {
 // warning. Empty internalIP means "skip" so boots that can't discover
 // the LAN IP don't churn the cert SAN set on every reconcile.
 func TestCollectTLSSansIncludesInternalIP(t *testing.T) {
-	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88", "")
+	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88", "", "")
 	want := []string{"nginx.default.home", "localhost", "127.0.0.1", "192.168.1.88"}
 	if len(sans) != len(want) {
 		t.Fatalf("len=%d, want %d", len(sans), len(want))
@@ -88,7 +90,7 @@ func TestCollectTLSSansIncludesInternalIP(t *testing.T) {
 // host has a global IPv6, a direct https://[v6-literal] dial must match the
 // cert. A v4-only host (empty IPv6) gets the v4-only SAN set unchanged.
 func TestCollectTLSSansIncludesInternalIPv6(t *testing.T) {
-	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88", "2001:db8::1")
+	sans := collectTLSSans("nginx.default.home", nil, "192.168.1.88", "2001:db8::1", "")
 	want := []string{"nginx.default.home", "localhost", "127.0.0.1", "192.168.1.88", "2001:db8::1"}
 	if len(sans) != len(want) {
 		t.Fatalf("len=%d, want %d (%v)", len(sans), len(want), sans)
@@ -101,7 +103,7 @@ func TestCollectTLSSansIncludesInternalIPv6(t *testing.T) {
 }
 
 func TestIssueLeafForPackageNoOpWithoutCA(t *testing.T) {
-	path, err := issueLeafForPackage(nil, "/town-os", "default", "nginx", "1.0", &packages.Package{}, "nginx.default.home", "")
+	path, err := issueLeafForPackage(nil, "/town-os", "default", "nginx", "1.0", &packages.Package{}, "nginx.default.home", "", "")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestIssueLeafForPackageWritesAndReturnsContainerPath(t *testing.T) {
 	compiled := &packages.Package{
 		Network: packages.PackageNetwork{Domains: []string{"custom.example"}},
 	}
-	path, err := issueLeafForPackage(ca, dir, "default", "nginx", "1.0", compiled, "nginx.default.home", "192.168.1.88")
+	path, err := issueLeafForPackage(ca, dir, "default", "nginx", "1.0", compiled, "nginx.default.home", "192.168.1.88", "")
 	if err != nil {
 		t.Fatalf("issueLeafForPackage: %v", err)
 	}
@@ -310,7 +312,7 @@ func TestReconcileWriteNetworkStateIncludesTLSWhenSuppliesHTTP(t *testing.T) {
 			External: packages.PortMap{8080: 80},
 		},
 	}
-	if err := reconcileWriteNetworkState(cfg, "default", "nginx", "1.0", compiled, []string{"http"}); err != nil {
+	if err := reconcileWriteNetworkState(cfg, "default", "nginx", "1.0", "home", "", compiled, []string{"http"}); err != nil {
 		t.Fatalf("reconcileWriteNetworkState: %v", err)
 	}
 
@@ -336,6 +338,141 @@ func TestReconcileWriteNetworkStateIncludesTLSWhenSuppliesHTTP(t *testing.T) {
 	}
 }
 
+// leafSANs parses the issued leaf and returns its DNS names and IP SANs.
+func leafSANs(t *testing.T, btrfs, repo, pkg, version string) ([]string, []string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(btrfs, "tls", "leaves", repo, pkg, version, "cert.pem")) //nolint:gosec // G304 -- test temp path
+	if err != nil {
+		t.Fatalf("read leaf: %v", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		t.Fatal("cert PEM decode failed")
+	}
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("ParseCertificate: %v", err)
+	}
+	ips := make([]string, 0, len(parsed.IPAddresses))
+	for _, ip := range parsed.IPAddresses {
+		ips = append(ips, ip.String())
+	}
+	return parsed.DNSNames, ips
+}
+
+// Bug A regression. Reconcile runs on every boot; it used to recompute the TLD
+// from the global dns_tld setting, so a package installed into the "fart"
+// network had its leaf re-issued with SAN gitea.default.home — silently
+// clobbering the correct gitea.default.fart SAN written at install and leaving
+// the ingress serving a name the cert was not valid for. The tld must come from
+// the CALLER (which resolved it from the install network), and the global
+// setting must not be consulted here at all.
+func TestReconcileWriteNetworkStateUsesCallerTLDNotGlobalSetting(t *testing.T) {
+	dir := t.TempDir()
+	btrfs := filepath.Join(dir, "btrfs")
+	stateDir := filepath.Join(dir, "state")
+	for _, d := range []string{btrfs, stateDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
+	}
+	ca, err := townostls.EnsureCA(filepath.Join(btrfs, TLSSubvolume))
+	if err != nil {
+		t.Fatalf("EnsureCA: %v", err)
+	}
+
+	// The global dns_tld is "home" — reconcile must ignore it for this package.
+	cfg := ReconcileConfig{
+		BtrfsBasePath:    btrfs,
+		NetworkStatePath: stateDir,
+		TLSCA:            ca,
+		SettingsMgr:      &mockSettingsManager{values: map[string]string{"dns_tld": "home"}},
+	}
+	compiled := &packages.Package{
+		Network: packages.PackageNetwork{External: packages.PortMap{8080: 80}},
+	}
+
+	// Caller passes the install-network TLD and the box's overlay address on it.
+	if err := reconcileWriteNetworkState(cfg, "default", "gitea", "1.0", "fart", "10.65.0.1", compiled, []string{"http"}); err != nil {
+		t.Fatalf("reconcileWriteNetworkState: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(stateDir, "default-gitea-1.0.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st networkcontroller.PackageNetworkState
+	if err := json.Unmarshal(data, &st); err != nil {
+		t.Fatalf("unmarshal state: %v", err)
+	}
+	if st.FQDN != "gitea.default.fart" {
+		t.Fatalf("state FQDN = %q, want gitea.default.fart", st.FQDN)
+	}
+
+	dnsNames, ips := leafSANs(t, btrfs, "default", "gitea", "1.0")
+	var hasFart, hasHome bool
+	for _, n := range dnsNames {
+		switch n {
+		case "gitea.default.fart":
+			hasFart = true
+		case "gitea.default.home":
+			hasHome = true
+		}
+	}
+	if !hasFart {
+		t.Errorf("leaf SANs %v missing gitea.default.fart", dnsNames)
+	}
+	if hasHome {
+		t.Errorf("leaf SANs %v must not carry the global-TLD name gitea.default.home", dnsNames)
+	}
+
+	// The state file's FQDN and the cert SAN must be the SAME string — that
+	// invariant is what keeps the ingress vhost valid for the cert it serves.
+	if !slices.Contains(dnsNames, st.FQDN) {
+		t.Errorf("state FQDN %q is not a SAN of the issued leaf %v", st.FQDN, dnsNames)
+	}
+
+	// The overlay address is a SAN too, so a WireGuard peer can hit the box by
+	// raw overlay IP and not just by name.
+	if !slices.Contains(ips, "10.65.0.1") {
+		t.Errorf("leaf IP SANs %v missing the overlay address 10.65.0.1", ips)
+	}
+}
+
+// A default-network package has no overlay address and keeps exactly the SAN set
+// it had before this change — no cert churn on every reconcile.
+func TestReconcileWriteNetworkStateDefaultNetworkHasNoOverlaySAN(t *testing.T) {
+	dir := t.TempDir()
+	btrfs := filepath.Join(dir, "btrfs")
+	stateDir := filepath.Join(dir, "state")
+	for _, d := range []string{btrfs, stateDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
+	}
+	ca, err := townostls.EnsureCA(filepath.Join(btrfs, TLSSubvolume))
+	if err != nil {
+		t.Fatalf("EnsureCA: %v", err)
+	}
+	cfg := ReconcileConfig{BtrfsBasePath: btrfs, NetworkStatePath: stateDir, TLSCA: ca}
+	compiled := &packages.Package{
+		Network: packages.PackageNetwork{External: packages.PortMap{8080: 80}},
+	}
+	if err := reconcileWriteNetworkState(cfg, "default", "nginx", "1.0", "home", "", compiled, []string{"http"}); err != nil {
+		t.Fatalf("reconcileWriteNetworkState: %v", err)
+	}
+
+	dnsNames, ips := leafSANs(t, btrfs, "default", "nginx", "1.0")
+	if !slices.Contains(dnsNames, "nginx.default.home") {
+		t.Errorf("leaf SANs %v missing nginx.default.home", dnsNames)
+	}
+	for _, ip := range ips {
+		if strings.HasPrefix(ip, "10.6") {
+			t.Errorf("default-network leaf must carry no overlay SAN, got %v", ips)
+		}
+	}
+}
+
 func TestReconcileWriteNetworkStateSkipsTLSWithoutSupplies(t *testing.T) {
 	dir := t.TempDir()
 	btrfs := filepath.Join(dir, "btrfs")
@@ -355,7 +492,7 @@ func TestReconcileWriteNetworkStateSkipsTLSWithoutSupplies(t *testing.T) {
 		TLSCA:            ca,
 	}
 	compiled := &packages.Package{Network: packages.PackageNetwork{External: packages.PortMap{9090: 9090}}}
-	if err := reconcileWriteNetworkState(cfg, "default", "prometheus", "1.0", compiled, nil); err != nil {
+	if err := reconcileWriteNetworkState(cfg, "default", "prometheus", "1.0", "home", "", compiled, nil); err != nil {
 		t.Fatalf("reconcileWriteNetworkState: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(stateDir, "default-prometheus-1.0.json"))
@@ -553,7 +690,7 @@ func TestReconcileWriteNetworkStateOmitsDirectPort(t *testing.T) {
 			DirectPorts: map[uint16]bool{2222: true},
 		},
 	}
-	if err := reconcileWriteNetworkState(cfg, "default", "app", "1.0", compiled, nil); err != nil {
+	if err := reconcileWriteNetworkState(cfg, "default", "app", "1.0", "home", "", compiled, nil); err != nil {
 		t.Fatalf("reconcileWriteNetworkState: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(stateDir, "default-app-1.0.json"))

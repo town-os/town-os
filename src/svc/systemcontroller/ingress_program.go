@@ -37,6 +37,12 @@ func pagesBackend() string {
 // ACME-managed cert for public FQDNs). It mirrors the data the legacy
 // file-mounted Caddyfile carried, but as gRPC Route messages the ingress
 // renders itself.
+//
+// tld is the *global* dns_tld and is used for PAGES only (pages are home/LAN-only
+// and never live on a WireGuard network), plus as the fallback for pre-upgrade
+// package state files. Package vhost hostnames come from each package's state
+// file FQDN, which is written under that package's install-network TLD — see
+// collectPackageIngressSites.
 func buildIngressRoutes(pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, tld, internalIP string) []*ingresspb.Route {
 	var routes []*ingresspb.Route
 

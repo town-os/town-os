@@ -120,3 +120,34 @@ func TestApplyNetworkTransportDefaultNetworkNoWireGuardTransport(t *testing.T) {
 		t.Fatalf("default network must not bind an overlay association, got %+v", mc.Associations)
 	}
 }
+
+// networkOverlayIPValue feeds the leaf's overlay SAN, so a WireGuard peer can
+// reach a package by raw overlay address. The default network is DNS-only (no
+// WireGuard transport at all), so it must yield "" — an empty SAN is skipped by
+// collectTLSSans, which is what stops default-network leaves from churning on
+// every reconcile.
+func TestNetworkOverlayIPValue(t *testing.T) {
+	nm := account.InitMockNetworkManager()
+	if _, err := nm.Create(&account.Network{
+		Name: "fart", TLD: "fart", Subnet: "10.65.0.0/24", Address: "10.65.0.1/24",
+		PublicKey: "PUB", ListenPort: 51820, Enabled: true,
+	}); err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+
+	if got := networkOverlayIPValue(nm, "fart"); got != "10.65.0.1" {
+		t.Errorf("networkOverlayIPValue(fart) = %q, want 10.65.0.1", got)
+	}
+	if got := networkOverlayIPValue(nm, account.DefaultNetworkName); got != "" {
+		t.Errorf("default network has no WireGuard transport; want \"\", got %q", got)
+	}
+	if got := networkOverlayIPValue(nm, ""); got != "" {
+		t.Errorf("empty network: want \"\", got %q", got)
+	}
+	if got := networkOverlayIPValue(nm, "nonexistent"); got != "" {
+		t.Errorf("unknown network: want \"\", got %q", got)
+	}
+	if got := networkOverlayIPValue(nil, "fart"); got != "" {
+		t.Errorf("nil manager: want \"\", got %q", got)
+	}
+}

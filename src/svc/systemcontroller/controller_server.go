@@ -494,6 +494,11 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		NetworkMgr:     s.GetNetworkManager(),
 		InternalIP:     newIP,
 		InternalIPv6:   s.GetInternalIPv6(),
+		// Needed so the network TLDs' DANE TLSA pins are republished alongside
+		// the A records; empty would silently skip them (collectNetworkTLSA
+		// no-ops without a state dir and btrfs base).
+		NetworkStatePath: s.NetworkStatePath,
+		BtrfsBasePath:    s.BtrfsBasePath,
 	}); err != nil {
 		slog.Error("rebuild network DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
 		return

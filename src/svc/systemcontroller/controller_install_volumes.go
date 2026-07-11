@@ -39,11 +39,12 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 
 	// The leaf SAN and TLS-port marking must use the install network's TLD so the
 	// issued cert matches the package's actual DNS name (<pkg>.<repo>.<net-tld>),
-	// not always the global home zone.
+	// not always the global home zone. The overlay IP lets a peer on that network
+	// also reach the package by raw WireGuard address.
 	if err := applyPackageTLS(
 		&state, s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(),
 		repoName, pkgName, version, s.Controller.GetInternalIP(), s.networkTLD(network),
-		compiled, supplies,
+		s.networkOverlayIP(network), compiled, supplies,
 	); err != nil {
 		return err
 	}
@@ -96,15 +97,23 @@ func buildPackageNetworkState(repoName, pkgName, version string, compiled *packa
 // applyPackageTLS issues the package leaf (when it supplies http and exposes an
 // HTTP port) and marks the state's ports for TLS termination / passthrough via
 // applyTLSToPorts.
-func applyPackageTLS(state *networkcontroller.PackageNetworkState, ca *townostls.CA, btrfsBase, repoName, pkgName, version, internalIP, tld string, compiled *packages.Package, supplies []string) error {
+//
+// tld is the package's *install network's* TLD (see networkTLDValue), so the
+// leaf SAN, the state file's FQDN, and — via that FQDN — the shared :443
+// ingress vhost all name the package identically. Recording state.FQDN here,
+// on the very line that issues the SAN, is what keeps the ingress from ever
+// serving a hostname the cert is not valid for. overlayIP is the box's
+// WireGuard address on that network ("" for the default network).
+func applyPackageTLS(state *networkcontroller.PackageNetworkState, ca *townostls.CA, btrfsBase, repoName, pkgName, version, internalIP, tld, overlayIP string, compiled *packages.Package, supplies []string) error {
 	if !suppliesHTTP(supplies) || !hasHTTPPort(state, compiled) {
 		return nil
 	}
-	packageDNS := pkgName + "." + repoName + "." + tld
-	certPath, err := issueLeafForPackage(ca, btrfsBase, repoName, pkgName, version, compiled, packageDNS, internalIP)
+	packageDNS := packageFQDN(repoName, pkgName, tld)
+	certPath, err := issueLeafForPackage(ca, btrfsBase, repoName, pkgName, version, compiled, packageDNS, internalIP, overlayIP)
 	if err != nil {
 		return fmt.Errorf("issue tls leaf: %w", err)
 	}
+	state.FQDN = packageDNS
 	if certPath != "" {
 		applyTLSToPorts(state, certPath, compiled, tld)
 	}

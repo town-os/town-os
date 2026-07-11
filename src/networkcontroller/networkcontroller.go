@@ -71,11 +71,24 @@ type PortConfig struct {
 // PackageNetworkState is the per-package JSON state file written by the
 // systemcontroller and watched by the networkcontroller daemon.
 type PackageNetworkState struct {
-	Repo          string       `json:"repo"`
-	Package       string       `json:"package"`
-	Version       string       `json:"version"`
-	ContainerName string       `json:"container_name"`
-	Ports         []PortConfig `json:"ports"`
+	Repo          string `json:"repo"`
+	Package       string `json:"package"`
+	Version       string `json:"version"`
+	ContainerName string `json:"container_name"`
+	// FQDN is the package's DNS name under its *install network's* TLD
+	// (<pkg>.<repo>.<tld>) — the identical string used as the leaf
+	// certificate's SAN. It is written by the systemcontroller in the same pass
+	// that issues the leaf (applyPackageTLS), which is what guarantees the
+	// shared :443 ingress names its vhost with exactly the name the cert is
+	// valid for. A package on the "fart" network is gitea.default.fart here,
+	// never gitea.default.home.
+	//
+	// The networkcontroller daemon ignores this field (it serves the local leaf
+	// port-keyed, for any SNI). Empty for non-HTTP packages and for state files
+	// written before this field existed — the ingress falls back to the global
+	// dns_tld in that case, and the next reconcile rewrites the file.
+	FQDN  string       `json:"fqdn,omitempty"`
+	Ports []PortConfig `json:"ports"`
 }
 
 // ExecRunner abstracts process execution for testing.

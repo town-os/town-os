@@ -49,12 +49,23 @@ func ingressHostPorts(compiled *packages.Package, supplies []string) map[uint16]
 // collectPackageIngressSites builds the reverse_proxy vhosts the shared :443
 // ingress serves for installed HTTP packages. For each package it reads the
 // network state file the systemcontroller already writes and emits one site per
-// TLS-terminated, non-passthrough port, keyed by the package FQDN
-// (<name>.<repo>.<tld>) and proxying to the service container on the ingress
-// network. Passthrough ports own their TLS end to end and are left on their own
-// per-package forwarder, so they are skipped here. The installer need only list
-// installed identifiers (FreshnessLister).
-func collectPackageIngressSites(installer FreshnessLister, stateDir, tld string) []PackageIngressSite {
+// TLS-terminated, non-passthrough port, keyed by the package FQDN and proxying
+// to the service container on the ingress network. Passthrough ports own their
+// TLS end to end and are left on their own per-package forwarder, so they are
+// skipped here. The installer need only list installed identifiers
+// (FreshnessLister).
+//
+// The FQDN comes from the state file, which is authoritative because it is
+// written under the package's *install network's* TLD in the same pass that
+// issues the leaf (applyPackageTLS) — so the vhost is always named exactly what
+// the cert is valid for. A package on the "fart" network is served as
+// gitea.default.fart; naming it from the global dns_tld instead (the old
+// behavior) rendered a gitea.default.home vhost that nothing ever dialed, so
+// the package resolved on the LAN but was never served.
+//
+// defaultTLD is only a fallback for state files written before the FQDN field
+// existed; they self-heal on the next reconcile, which rewrites them.
+func collectPackageIngressSites(installer FreshnessLister, stateDir, defaultTLD string) []PackageIngressSite {
 	if installer == nil || stateDir == "" {
 		return nil
 	}
@@ -81,7 +92,10 @@ func collectPackageIngressSites(installer FreshnessLister, stateDir, tld string)
 		if uerr := json.Unmarshal(data, &st); uerr != nil {
 			continue
 		}
-		fqdn := pi.Name + "." + pi.Repo + "." + tld
+		fqdn := st.FQDN
+		if fqdn == "" {
+			fqdn = packageFQDN(pi.Repo, pi.Name, defaultTLD)
+		}
 		for _, port := range st.Ports {
 			if !port.Ingress || st.ContainerName == "" {
 				continue

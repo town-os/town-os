@@ -108,14 +108,20 @@ func suppliesHTTP(supplies []string) bool {
 //     when present, so a browser on the home network hitting
 //     `https://192.168.1.88:<port>` or `https://[2001:db8::1]:<port>`
 //     directly matches the cert, not just the mDNS/rolodex name
+//   - the box's WireGuard overlay IP on the package's install network, when it
+//     has one, so a peer on that network hitting `https://10.65.0.1` by raw
+//     address validates too. The same leaf therefore serves the LAN and the
+//     overlay: the shared ingress listens on all interfaces and SNI-selects
+//     this vhost from either side.
 //
-// Both IPs are optional (empty string skips them) because the SAN set feeds
+// All three IPs are optional (empty string skips them) because the SAN set feeds
 // IssueLeaf's idempotency check — a boot that can't discover an address would
 // otherwise churn the cert from "with IP" → "without IP" and back on every
-// reconcile. A v4-only host (internalIPv6 == "") gets the same SAN set as
-// before, so existing leaves are not re-issued.
-func collectTLSSans(packageDNS string, extraDomains []string, internalIP, internalIPv6 string) []string {
-	sans := make([]string, 0, 5+len(extraDomains))
+// reconcile. A v4-only host (internalIPv6 == "") and a default-network package
+// (overlayIP == "") get the same SAN set as before, so existing leaves are not
+// re-issued.
+func collectTLSSans(packageDNS string, extraDomains []string, internalIP, internalIPv6, overlayIP string) []string {
+	sans := make([]string, 0, 6+len(extraDomains))
 	if packageDNS != "" {
 		sans = append(sans, packageDNS)
 	}
@@ -126,6 +132,9 @@ func collectTLSSans(packageDNS string, extraDomains []string, internalIP, intern
 	}
 	if internalIPv6 != "" {
 		sans = append(sans, internalIPv6)
+	}
+	if overlayIP != "" {
+		sans = append(sans, overlayIP)
 	}
 	return sans
 }
@@ -224,6 +233,17 @@ func internalDomains(domains []string, tld string) []string {
 		out = append(out, d)
 	}
 	return out
+}
+
+// packageFQDN is the single source of truth for a package's DNS name: the name
+// its A record, its leaf certificate SAN, its DANE TLSA owner, and its shared
+// :443 ingress vhost must all agree on. tld is the package's *install network's*
+// TLD (networkTLDValue), not the global dns_tld — a package on the "fart"
+// network is gitea.default.fart, never gitea.default.home. Deriving these four
+// names from one function is what keeps the ingress from serving a vhost the
+// cert is not valid for.
+func packageFQDN(repoName, pkgName, tld string) string {
+	return pkgName + "." + repoName + "." + tld
 }
 
 // publicDomains returns the package's network.domains entries that are public
@@ -379,8 +399,10 @@ func buildTLSAEntries(stateDir, btrfsBase, repo, name, version, tld string, doma
 // ca is nil the function is a no-op and returns "". internalIP may be
 // empty when the caller can't discover a LAN address (boot-time race);
 // see collectTLSSans for why that's treated as "skip that SAN" rather
-// than "fail".
-func issueLeafForPackage(ca *townostls.CA, btrfsBase, repoName, pkgName, version string, compiled *packages.Package, packageDNS, internalIP string) (string, error) {
+// than "fail". overlayIP is the box's WireGuard address on the package's
+// install network (empty for the default network), so a peer on that
+// network can also reach the package by raw overlay address.
+func issueLeafForPackage(ca *townostls.CA, btrfsBase, repoName, pkgName, version string, compiled *packages.Package, packageDNS, internalIP, overlayIP string) (string, error) {
 	if ca == nil || btrfsBase == "" {
 		return "", nil
 	}
@@ -393,7 +415,7 @@ func issueLeafForPackage(ca *townostls.CA, btrfsBase, repoName, pkgName, version
 	// the v6 through every install/reconcile signature; gated empty on v4-only
 	// hosts so the SAN set (and thus the issued cert) is unchanged there.
 	_, internalIPv6 := InternalInterfaceIPs()
-	sans := collectTLSSans(packageDNS, domains, internalIP, internalIPv6)
+	sans := collectTLSSans(packageDNS, domains, internalIP, internalIPv6, overlayIP)
 	hostDir := hostTLSLeafDir(btrfsBase, repoName, pkgName, version)
 	if err := ca.IssueLeaf(hostDir, sans); err != nil {
 		return "", err

@@ -75,8 +75,10 @@ func issuePageLeaf(ca *townostls.CA, btrfsBase, pageName, hostname, internalIP s
 	}
 	// Add the host's global IPv6 SAN (paired to the internalIP interface) so a
 	// direct https://[v6-literal] dial matches; empty/no-op on v4-only hosts.
+	// Pages are home/LAN-only and never live on a WireGuard network, so they
+	// carry no overlay SAN.
 	_, internalIPv6 := InternalInterfaceIPs()
-	sans := collectTLSSans(hostname, nil, internalIP, internalIPv6)
+	sans := collectTLSSans(hostname, nil, internalIP, internalIPv6, "")
 	hostDir := hostTLSLeafDir(btrfsBase, PagesLeafRepo, pageName, PagesLeafVersion)
 	if err := ca.IssueLeaf(hostDir, sans); err != nil {
 		return "", err
