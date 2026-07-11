@@ -28,16 +28,25 @@ const (
 	// and other services commonly bound to 127.0.0.1.
 	DNSLoopback = "127.0.0.2"
 
+	// ResolutionModeAuto is a tiered fallback chain: iterate from the root
+	// servers first, then DoH/DoT, then the local forwarder, then a public
+	// resolver on :53 — sticking to whichever tier last worked. It keeps the
+	// privacy of recursion wherever the network permits it and degrades instead
+	// of failing where it does not, which is why it is both rolodex's default
+	// and ours.
+	ResolutionModeAuto = "auto"
 	// ResolutionModeRecursive resolves unmatched queries iteratively from the
-	// root servers (rolodex's own resolver), never contacting an upstream
-	// recursive resolver. This is Town OS's default.
+	// root servers and NOTHING ELSE. It has no fallback: on a network that
+	// filters or hijacks outbound :53 (hotel, captive portal, some ISPs) every
+	// external name SERVFAILs. Choose it only to guarantee no query ever reaches
+	// a third party.
 	ResolutionModeRecursive = "recursive"
 	// ResolutionModeForward forwards unmatched queries to the configured
 	// upstream forwarders (legacy behavior). Used by forwarding tests.
 	ResolutionModeForward = "forward"
 	// DefaultResolutionMode is the upstream resolution strategy written to
 	// rolodex.yml when Config.ResolutionMode is unset.
-	DefaultResolutionMode = ResolutionModeRecursive
+	DefaultResolutionMode = ResolutionModeAuto
 )
 
 // DefaultForwarders are the upstream DNS forwarder addresses written to
@@ -80,15 +89,18 @@ type Config struct {
 	Key string
 	// Forwarders overrides the upstream DNS forwarder addresses
 	// ("host:port") written to rolodex.yml. Defaults to
-	// DefaultForwarders. Only consulted when ResolutionMode is "forward";
-	// in recursive mode rolodex resolves from the roots and ignores them.
+	// DefaultForwarders. Consulted in "forward" mode, and as the
+	// local-forwarder tier of "auto"; in "recursive" mode rolodex resolves
+	// from the roots and ignores them.
 	// Tests point this at a local stub DNS server so forwarding works
 	// without internet access (captive networks block direct queries to
 	// public resolvers).
 	Forwarders []string
-	// ResolutionMode selects how rolodex resolves unmatched queries:
-	// "recursive" (iterative from the root servers, the default) or
-	// "forward" (forward to Forwarders). Defaults to DefaultResolutionMode.
+	// ResolutionMode selects how rolodex resolves unmatched queries: "auto"
+	// (the default: roots, then DoH/DoT, then Forwarders, then a public
+	// resolver — sticking to whichever tier last worked), "recursive"
+	// (iterative from the root servers only, no fallback), or "forward"
+	// (forward to Forwarders). Defaults to DefaultResolutionMode.
 	ResolutionMode string
 }
 
@@ -131,7 +143,7 @@ func (m *Manager) dnsPort() string {
 }
 
 // resolutionMode returns the configured upstream resolution mode, defaulting
-// to DefaultResolutionMode ("recursive").
+// to DefaultResolutionMode ("auto").
 func (m *Manager) resolutionMode() string {
 	if m.cfg.ResolutionMode != "" {
 		return m.cfg.ResolutionMode
@@ -146,7 +158,9 @@ func (m *Manager) ResolutionMode() string {
 
 // ValidResolutionMode reports whether mode is one rolodex understands.
 func ValidResolutionMode(mode string) bool {
-	return mode == ResolutionModeRecursive || mode == ResolutionModeForward
+	return mode == ResolutionModeAuto ||
+		mode == ResolutionModeRecursive ||
+		mode == ResolutionModeForward
 }
 
 // SetResolutionMode changes the mode this manager renders into rolodex.yml.
@@ -200,11 +214,17 @@ func (m *Manager) forwarders() []string {
 // is always DNSLoopback (127.0.0.2) because the rolodex container runs with
 // --net host.
 //
-// resolution.mode defaults to "recursive": Town OS resolves unmatched queries
-// iteratively from the root servers rather than forwarding to an upstream
-// resolver. Rolodex 0.2.4 made "recursive" the upstream default, but we pin it
-// explicitly so the behavior is independent of upstream default changes. The
-// forwarders are still written (used only if the mode is "forward").
+// resolution.mode defaults to "auto": rolodex tries the root servers first and
+// falls back through DoH/DoT, the local forwarder, and a public :53 resolver,
+// sticking to whichever tier last worked. Bare "recursive" has no fallback — on
+// a network that filters or hijacks outbound :53 every external name SERVFAILs,
+// and because the resolver sends a single un-retransmitted datagram per server,
+// even ordinary packet loss surfaces as SERVFAIL. Auto keeps recursion's privacy
+// where the network allows it and degrades instead of failing where it does not.
+// The mode is written explicitly (rather than left to rolodex's own default) so
+// Town OS behavior does not move when upstream changes its default. The
+// forwarders are still written; they are consulted only in "forward" mode and as
+// auto's local-forwarder tier.
 func rolodexConfig(port string, forwarders []string, mode string) string {
 	if mode == "" {
 		mode = DefaultResolutionMode

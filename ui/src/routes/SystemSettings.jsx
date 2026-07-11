@@ -339,16 +339,16 @@ export default function SystemSettings() {
   }
 
   // --- DNS Resolution Mode ---
-  // Recursive resolves from the root servers (private, but every cache miss
-  // pays a full walk); forward hands unmatched queries to the upstream
-  // resolvers in rolodex.yml (one hop, much faster on a cold cache).
-  const currentResolutionMode = settings[DNS_RESOLUTION_MODE_KEY] || 'recursive'
+  // Auto tries the root servers, then DoH/DoT, then the forwarders, then a
+  // public resolver. Recursive is roots-only with no fallback; forward goes
+  // straight to the upstream resolvers.
+  const currentResolutionMode = settings[DNS_RESOLUTION_MODE_KEY] || 'auto'
 
-  const [resolutionModeInput, setResolutionModeInput] = useState('recursive')
+  const [resolutionModeInput, setResolutionModeInput] = useState('auto')
   const [resolutionModeSaving, setResolutionModeSaving] = useState(false)
 
   useEffect(() => {
-    setResolutionModeInput(settings[DNS_RESOLUTION_MODE_KEY] || 'recursive')
+    setResolutionModeInput(settings[DNS_RESOLUTION_MODE_KEY] || 'auto')
   }, [settings])
 
   async function handleSaveResolutionMode(e) {
@@ -571,11 +571,7 @@ export default function SystemSettings() {
           <p className="text-sm text-muted-foreground mt-1">
             {t('settings.dns_resolution_description')}{' '}
             {t('settings.current_value', { value: '' })}
-            <strong>
-              {currentResolutionMode === 'forward'
-                ? t('settings.dns_resolution_option_forward')
-                : t('settings.dns_resolution_option_recursive')}
-            </strong>
+            <strong>{t(`settings.dns_resolution_option_${currentResolutionMode}`)}</strong>
           </p>
         </div>
 
@@ -589,6 +585,7 @@ export default function SystemSettings() {
               disabled={resolutionModeSaving}
               className="flex h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
+              <option value="auto">{t('settings.dns_resolution_option_auto')}</option>
               <option value="recursive">{t('settings.dns_resolution_option_recursive')}</option>
               <option value="forward">{t('settings.dns_resolution_option_forward')}</option>
             </select>

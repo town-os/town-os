@@ -1014,10 +1014,10 @@ describe('SystemSettings DNS resolution mode', () => {
     }))
   })
 
-  it('defaults to recursive when the setting is absent', async () => {
+  it('defaults to auto when the setting is absent', async () => {
     renderSystemSettings()
     await waitFor(() => {
-      expect(screen.getByLabelText('Mode').value).toBe('recursive')
+      expect(screen.getByLabelText('Mode').value).toBe('auto')
     })
   })
 
@@ -1035,7 +1035,7 @@ describe('SystemSettings DNS resolution mode', () => {
     const user = userEvent.setup()
     renderSystemSettings()
     await waitFor(() => {
-      expect(screen.getByLabelText('Mode').value).toBe('recursive')
+      expect(screen.getByLabelText('Mode').value).toBe('auto')
     })
     await user.selectOptions(screen.getByLabelText('Mode'), 'forward')
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
@@ -1051,7 +1051,7 @@ describe('SystemSettings DNS resolution mode', () => {
   it('saving an unchanged mode is a no-op', async () => {
     renderSystemSettings()
     await waitFor(() => {
-      expect(screen.getByLabelText('Mode').value).toBe('recursive')
+      expect(screen.getByLabelText('Mode').value).toBe('auto')
     })
     const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {

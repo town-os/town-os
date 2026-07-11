@@ -25,7 +25,7 @@ func initResolutionModeTest(t *testing.T) (*systemcontroller.SystemdClient, *sys
 	sd := systemd.InitMockManager()
 	settings := &mockSettingsManager{values: map[string]string{
 		"dns_tld":             "home",
-		"dns_resolution_mode": rolodex.ResolutionModeRecursive,
+		"dns_resolution_mode": rolodex.ResolutionModeAuto,
 	}}
 
 	dataDir := rolodexTempDir(t, "resolution-mode-*")
@@ -74,7 +74,7 @@ func TestIntegrationSetDNSResolutionModeRewritesConfigAndRestartsRolodex(t *test
 	c, sd, rolMgr, dataDir := initResolutionModeTest(t)
 	ctx := context.Background()
 
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeRecursive)
+	assertRolodexMode(t, dataDir, rolodex.ResolutionModeAuto)
 
 	if err := c.SetSetting(ctx, "dns_resolution_mode", rolodex.ResolutionModeForward); err != nil {
 		t.Fatalf("SetSetting: %v", err)
@@ -91,6 +91,11 @@ func TestIntegrationSetDNSResolutionModeRewritesConfigAndRestartsRolodex(t *test
 		t.Fatalf("SetSetting back to recursive: %v", err)
 	}
 	assertRolodexMode(t, dataDir, rolodex.ResolutionModeRecursive)
+
+	if err := c.SetSetting(ctx, "dns_resolution_mode", rolodex.ResolutionModeAuto); err != nil {
+		t.Fatalf("SetSetting back to auto: %v", err)
+	}
+	assertRolodexMode(t, dataDir, rolodex.ResolutionModeAuto)
 }
 
 // TestIntegrationSetDNSResolutionModeRejectsGarbage: an unparseable mode in
@@ -107,7 +112,7 @@ func TestIntegrationSetDNSResolutionModeRejectsGarbage(t *testing.T) {
 	}
 
 	// The config on disk must be untouched — no half-applied change.
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeRecursive)
+	assertRolodexMode(t, dataDir, rolodex.ResolutionModeAuto)
 }
 
 func rolodexRestartRequested(sd *systemd.MockManager, want string) bool {

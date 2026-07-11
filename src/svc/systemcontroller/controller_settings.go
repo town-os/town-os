@@ -30,12 +30,15 @@ var settingsValidators = map[string]func(string) error{
 	"dns_resolution_mode": ValidateDNSResolutionMode,
 }
 
-// ValidateDNSResolutionMode accepts only the two modes rolodex understands.
+// ValidateDNSResolutionMode accepts only the modes rolodex understands.
 // Anything else would be written into rolodex.yml and refused at startup,
 // taking DNS down for the whole box.
 func ValidateDNSResolutionMode(v string) error {
 	if !rolodex.ValidResolutionMode(v) {
-		return fmt.Errorf("must be %q or %q", rolodex.ResolutionModeRecursive, rolodex.ResolutionModeForward)
+		return fmt.Errorf("must be %q, %q, or %q",
+			rolodex.ResolutionModeAuto,
+			rolodex.ResolutionModeRecursive,
+			rolodex.ResolutionModeForward)
 	}
 	return nil
 }

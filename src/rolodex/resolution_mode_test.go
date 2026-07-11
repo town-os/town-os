@@ -15,6 +15,7 @@ func TestValidResolutionMode(t *testing.T) {
 	t.Parallel()
 
 	for mode, want := range map[string]bool{
+		ResolutionModeAuto:      true,
 		ResolutionModeRecursive: true,
 		ResolutionModeForward:   true,
 		"":                      false,
@@ -28,12 +29,17 @@ func TestValidResolutionMode(t *testing.T) {
 	}
 }
 
-func TestResolutionModeDefaultsToRecursive(t *testing.T) {
+// TestResolutionModeDefaultsToAuto pins the fallback chain as the default.
+// Bare "recursive" has no fallback: on a network that filters or hijacks
+// outbound :53 every external name SERVFAILs, and since the resolver sends one
+// un-retransmitted datagram per server, even ordinary packet loss surfaces as
+// SERVFAIL. Auto keeps recursion's privacy where the network allows it.
+func TestResolutionModeDefaultsToAuto(t *testing.T) {
 	t.Parallel()
 
 	m := NewManager(Config{DataDir: t.TempDir()})
-	if got := m.ResolutionMode(); got != ResolutionModeRecursive {
-		t.Fatalf("ResolutionMode() = %q, want %q", got, ResolutionModeRecursive)
+	if got := m.ResolutionMode(); got != ResolutionModeAuto {
+		t.Fatalf("ResolutionMode() = %q, want %q", got, ResolutionModeAuto)
 	}
 }
 
@@ -46,7 +52,7 @@ func TestSetResolutionModeChangesRenderedConfig(t *testing.T) {
 	if _, err := m.RewriteConfig(); err != nil {
 		t.Fatalf("RewriteConfig: %v", err)
 	}
-	assertConfigMode(t, dir, ResolutionModeRecursive)
+	assertConfigMode(t, dir, ResolutionModeAuto)
 
 	m.SetResolutionMode(ResolutionModeForward)
 	if got := m.ResolutionMode(); got != ResolutionModeForward {
@@ -93,7 +99,7 @@ func TestRewriteConfigIgnoresMtimeGuard(t *testing.T) {
 	} else if written {
 		t.Fatal("WriteConfig should have skipped a config newer than the binary")
 	}
-	assertConfigMode(t, dir, ResolutionModeRecursive) // untouched, as expected
+	assertConfigMode(t, dir, ResolutionModeAuto) // untouched, as expected
 
 	written, err := m.RewriteConfig()
 	if err != nil {

@@ -18,7 +18,11 @@ import (
 func TestValidateDNSResolutionModeRejectsUnknownModes(t *testing.T) {
 	t.Parallel()
 
-	for _, mode := range []string{rolodex.ResolutionModeRecursive, rolodex.ResolutionModeForward} {
+	for _, mode := range []string{
+		rolodex.ResolutionModeAuto,
+		rolodex.ResolutionModeRecursive,
+		rolodex.ResolutionModeForward,
+	} {
 		if err := ValidateDNSResolutionMode(mode); err != nil {
 			t.Errorf("ValidateDNSResolutionMode(%q) = %v, want nil", mode, err)
 		}
@@ -46,17 +50,18 @@ func TestDNSResolutionModeIsWiredIntoSettingsValidators(t *testing.T) {
 	}
 }
 
-// TestDNSResolutionModeDefaultIsRecursive pins the out-of-the-box behavior:
-// Town OS resolves from the root servers and leaks no queries to a third-party
-// resolver unless the operator opts in.
-func TestDNSResolutionModeDefaultIsRecursive(t *testing.T) {
+// TestDNSResolutionModeDefaultIsAuto pins the out-of-the-box behavior: Town OS
+// tries the root servers first (so queries stay private wherever the network
+// permits it) but degrades to encrypted DNS or an upstream resolver rather than
+// SERVFAILing where it does not. Bare "recursive" has no fallback at all.
+func TestDNSResolutionModeDefaultIsAuto(t *testing.T) {
 	t.Parallel()
 
 	got, ok := account.DefaultSettings["dns_resolution_mode"]
 	if !ok {
 		t.Fatal("dns_resolution_mode is not seeded in DefaultSettings")
 	}
-	if got != rolodex.ResolutionModeRecursive {
-		t.Fatalf("default dns_resolution_mode = %q, want %q", got, rolodex.ResolutionModeRecursive)
+	if got != rolodex.ResolutionModeAuto {
+		t.Fatalf("default dns_resolution_mode = %q, want %q", got, rolodex.ResolutionModeAuto)
 	}
 }

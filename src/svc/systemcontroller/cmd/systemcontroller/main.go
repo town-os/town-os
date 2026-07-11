@@ -322,10 +322,11 @@ func run() (err error) {
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
 	}
-	// The resolution mode is a user-facing setting: "recursive" (the default,
-	// iterate from the root servers) or "forward" (one hop to the upstream
-	// resolvers). An invalid stored value is ignored so a bad setting can never
-	// render a rolodex.yml that rolodex refuses to start with.
+	// The resolution mode is a user-facing setting: "auto" (the default: roots,
+	// then DoH/DoT, then the forwarders, then a public resolver), "recursive"
+	// (roots only, no fallback), or "forward" (straight to the forwarders). An
+	// invalid stored value is ignored so a bad setting can never render a
+	// rolodex.yml that rolodex refuses to start with.
 	resolutionMode := rolodex.DefaultResolutionMode
 	if v, modeErr := settingsMgr.Get("dns_resolution_mode"); modeErr == nil && rolodex.ValidResolutionMode(v) {
 		resolutionMode = v

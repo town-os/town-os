@@ -10,14 +10,16 @@ var DefaultSettings = map[string]string{
 	"locale":                 "en-US",       // BCP 47 locale code
 	"dns_tld":                "home",        // Default top-level domain for package DNS records
 	// How rolodex resolves names it is not authoritative for:
-	//   "recursive" -- iterate from the root servers (private, no third party
-	//                  sees your queries, but every cache miss pays a full
-	//                  root -> TLD -> authoritative walk).
-	//   "forward"   -- forward to the upstream resolvers in rolodex.yml
-	//                  (one hop; much lower latency on a cold cache).
-	// Recursive is the default so the box does not depend on, or leak queries
-	// to, a third-party resolver out of the box.
-	"dns_resolution_mode": "recursive",
+	//   "auto"      -- try the root servers first, then DoH/DoT, then the
+	//                  upstream forwarders, then a public resolver on :53,
+	//                  sticking to whichever tier last worked.
+	//   "recursive" -- iterate from the root servers and nothing else. No
+	//                  fallback: on a network that filters or hijacks outbound
+	//                  :53, every external name SERVFAILs.
+	//   "forward"   -- forward to the upstream resolvers in rolodex.yml.
+	// Auto is the default because it keeps recursion's privacy wherever the
+	// network permits it and degrades instead of failing where it does not.
+	"dns_resolution_mode": "auto",
 }
 
 type SettingsManager interface {
