@@ -44,7 +44,7 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
       open={dialog.open}
       onOpenChange={(v) => !v && onClose()}
     >
-      <DialogContent>
+      <DialogContent onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>
             {t('install_questions.title', { name: dialog.name, version: dialog.version })}

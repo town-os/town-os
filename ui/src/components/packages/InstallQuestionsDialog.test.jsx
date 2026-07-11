@@ -27,6 +27,7 @@ beforeAll(() => {
 
 function renderDialog(overrides = {}) {
   const onSubmit = overrides.onSubmit || vi.fn((e) => e.preventDefault())
+  const onClose = overrides.onClose || vi.fn()
   const dialog = {
     open: true,
     name: 'nginx',
@@ -40,13 +41,13 @@ function renderDialog(overrides = {}) {
     <TooltipProvider>
       <InstallQuestionsDialog
         dialog={dialog}
-        onClose={() => {}}
+        onClose={onClose}
         onSubmit={onSubmit}
         onClearField={() => {}}
       />
     </TooltipProvider>,
   )
-  return { onSubmit }
+  return { onSubmit, onClose }
 }
 
 describe('InstallQuestionsDialog network selector', () => {
@@ -104,5 +105,26 @@ describe('InstallQuestionsDialog network selector', () => {
     fireEvent.submit(select.closest('form'))
 
     expect(submittedNetwork).toBe('home')
+  })
+})
+
+describe('InstallQuestionsDialog dismissal', () => {
+  it('stays open when the user clicks outside it', async () => {
+    const { onClose } = renderDialog()
+    await screen.findByRole('combobox')
+
+    fireEvent.pointerDown(document.body)
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('closes when the cancel button is pressed', async () => {
+    const { onClose } = renderDialog()
+    await screen.findByRole('combobox')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onClose).toHaveBeenCalled()
   })
 })

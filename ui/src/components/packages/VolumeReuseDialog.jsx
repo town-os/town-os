@@ -16,7 +16,7 @@ export default function VolumeReuseDialog({ dialog, onClose, onStartFresh, onReu
       open={dialog.open}
       onOpenChange={(v) => !v && onClose()}
     >
-      <DialogContent>
+      <DialogContent onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{t('volume_reuse.title')}</DialogTitle>
           <DialogDescription>{t('volume_reuse.description')}</DialogDescription>

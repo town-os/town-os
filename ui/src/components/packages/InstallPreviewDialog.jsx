@@ -26,7 +26,7 @@ export default function InstallPreviewDialog({ dialog, onClose, onContinue }) {
       open={dialog.open}
       onOpenChange={(v) => !v && onClose()}
     >
-      <DialogContent>
+      <DialogContent onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>
             {t('install_preview.title', { name: dialog.name, version: dialog.version })}
