@@ -978,6 +978,8 @@ The rolodex container runs with `--net host` and binds DNS to `DNSLoopback` (`12
 
 **Resolution mode.** `rolodex.yml` pins `resolution.mode` explicitly via `Config.ResolutionMode`, defaulting to `recursive` (`DefaultResolutionMode`) — Town OS resolves unmatched queries iteratively from the root servers rather than forwarding to an upstream resolver. The `forwarders:` list is still written but is only consulted in `forward` mode; the forwarding integration test opts into `ResolutionModeForward` and points the forwarders at a local stub. Rolodex 0.2.4 made `recursive` the upstream default, but Town OS pins it so behavior is independent of upstream default changes.
 
+The mode is operator-configurable at runtime via the `dns_resolution_mode` setting (`recursive` | `forward`; validated by `ValidateDNSResolutionMode`, so an unparseable value can never reach `rolodex.yml` and brick DNS). `main.go` reads it into `rolodex.Config` at boot; a change through `POST /settings/set` runs `Controller.RefreshDNSResolutionMode`, which calls **`Manager.RewriteConfig()`** and restarts the rolodex unit. `RewriteConfig` exists precisely because `WriteConfig` refuses to overwrite a `rolodex.yml` newer than the systemcontroller binary (it treats that as hand-edited) — and the file written at the previous boot *always* satisfies that condition, so `WriteConfig` would silently no-op on an operator-initiated change. Use `WriteConfig` at boot, `RewriteConfig` for runtime changes.
+
 **Rolodex image is pulled per-arch in tests and dev** — the make harness pulls the host's per-arch rc tag `quay.io/town/rolodex:rc.latest-<arch>` (where `<arch>` is the raw `uname -m` form `x86_64`/`aarch64`), NOT the plain no-arch `rc.latest`. Internal Town OS image pulls default to the rc channel so the harness, dev, and the runtime all track `rc.latest-<arch>`. Rolodex publishes per-arch tags pushed natively from each host (`make push-rc` / `make push-release` in the rolodex-dns repo), so no multi-arch manifest assembly is required for test hosts of any architecture; the *plain* `rc.latest` (no arch suffix) is a single-arch manifest and crash-loops with `exec format error` on the other architecture — only the suffixed `rc.latest-<arch>` is safe to pull directly. The Makefile computes `HOST_ARCH` (normalized to `x86_64`/`aarch64`) and defaults `ROLODEX_IMAGE_TAG ?= rc.latest-$(HOST_ARCH)`; `ROLODEX_IMAGE` derives from it and is injected into test/dev containers via env. Override with `make ROLODEX_IMAGE_TAG=<tag> ...` (e.g. `latest-$(HOST_ARCH)` for a released rolodex) or the `ROLODEX_IMAGE` environment variable. Production/runtime behavior matches — the systemcontroller derives the tag from its release tag (falling back to `rc.latest-<arch>` via `defaultVersionTag()`) unless `ROLODEX_IMAGE` is set; the test and dev harnesses always set it. The dev container's baked rolodex unit (`integration/testdata/town-os-system--rolodex.service`) uses an `@ROLODEX_IMAGE@` placeholder substituted at image build time via the `ROLODEX_IMAGE` build arg in `integration/testdata/Containerfile.dev` (the build fails if the arg is empty), so the baked unit always matches the image the harness loads.
 
 ### Network TLDs, Dual-Home, and Split-Horizon Resolution
@@ -1069,6 +1071,35 @@ DANE TLSA for a network package is **dual-homed like its A record**:
 LAN→owning-scope fallback) *and* a scoped pin (served to overlay peers, whose
 queries never see global records). Install alone only ever wrote the scoped half,
 and nothing republished either half across a restart.
+
+### Pages are network-scoped too
+
+A page carries a `network` (the `PageSite.Network` column; `""` means the
+default/home network, the same convention as `Installer.LoadNetwork` for
+packages) and gets **exactly the treatment a package does**: its name comes from
+that network's TLD, it is dual-homed (scoped overlay record + global LAN record),
+its leaf carries the network FQDN plus the box's overlay IP, its DANE TLSA is
+pinned under the network TLD (global + scoped), and it is hidden from peers of
+every *other* network. `pageFQDN` (`pages_tls.go`) is the page-side twin of
+`packageFQDN`, and `pageNetworkTLD` of `networkTLDValue`.
+
+The page-specific wrinkle: a page's FQDN **also names its on-disk btrfs
+subvolume and its webroot symlink** (the pages Caddy roots on `/srv/<host>`). So
+the FQDN is not merely a label — get it wrong and the content moves out from
+under the name the ingress serves. Three consequences:
+
+- `reconcilePages` builds its `valid` set with `pageFQDN`, because that set drives
+  `pruneStalePageSymlinks` — naming a `fart` page `blog.home` there would both
+  miss its real `blog.fart` directory *and* prune the live symlink.
+- Changing a page's **network** renames its subvolume/symlink (`migratePageDir`),
+  exactly as a `dns_tld` change does for default-network pages.
+- `migratePageDirsForTLD` (the `dns_tld`-change handler) **skips non-default-network
+  pages** — they are not named under the global TLD, so renaming them would break
+  a page that was working.
+
+Pages remain served by the single shared `town-os-system--pages` container behind
+the ingress; the network is a naming/DNS/cert concern only, with no per-network
+container or podman plumbing.
 
 ### DNS API
 
@@ -1448,4 +1479,5 @@ Integration tests run inside privileged podman containers with systemd, btrfs, a
 | `locale`                 | `en-US`                          | BCP 47 locale code (system-wide)                |
 | `proton_image`           | `quay.io/town/proton:latest`     | Proton runner container image (GE-Proton)       |
 | `dns_tld`                | `home`                           | Default top-level domain for package DNS records|
+| `dns_resolution_mode`    | `recursive`                      | Rolodex upstream resolution: `recursive` or `forward` |
 | `monitoring_backend`     | `uplot`                          | Monitoring dashboard: `uplot` or `grafana`      |

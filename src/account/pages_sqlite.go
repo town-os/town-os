@@ -25,6 +25,7 @@ func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
 		image           TEXT NOT NULL DEFAULT '',
 		image_directory TEXT NOT NULL DEFAULT '',
 		status          TEXT NOT NULL DEFAULT 'pending',
+		network         TEXT NOT NULL DEFAULT '',
 		created_at      TEXT NOT NULL,
 		updated_at      TEXT NOT NULL
 	)`)
@@ -40,6 +41,9 @@ func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
 		{"source_type", "TEXT NOT NULL DEFAULT 'archive'"},
 		{"image", "TEXT NOT NULL DEFAULT ''"},
 		{"image_directory", "TEXT NOT NULL DEFAULT ''"},
+		// Existing pages predate networks; '' means the default/home network,
+		// matching Installer.LoadNetwork's convention for packages.
+		{"network", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		_, err := db.ExecContext(ctx,
 			fmt.Sprintf("ALTER TABLE pages ADD COLUMN %s %s", col.name, col.def))
@@ -51,7 +55,7 @@ func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
 	return &SQLitePagesManager{db: db}, nil
 }
 
-func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*PageSite, error) {
+func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, ErrPageNameRequired
 	}
@@ -91,9 +95,9 @@ func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, i
 	defer cancel()
 
 	_, err := m.db.ExecContext(ctx,
-		`INSERT INTO pages (name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-		name, repoURL, branch, domain, sourceType, image, imageDirectory, nowStr, nowStr,
+		`INSERT INTO pages (name, repo_url, branch, domain, source_type, image, image_directory, status, network, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		name, repoURL, branch, domain, sourceType, image, imageDirectory, network, nowStr, nowStr,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "PRIMARY KEY") {
@@ -111,6 +115,7 @@ func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, i
 		Image:          image,
 		ImageDirectory: imageDirectory,
 		Status:         "pending",
+		Network:        network,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
@@ -124,9 +129,9 @@ func (m *SQLitePagesManager) Get(name string) (*PageSite, error) {
 	defer cancel()
 
 	err := m.db.QueryRowContext(ctx,
-		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at FROM pages WHERE name = ?`,
+		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, network, created_at, updated_at FROM pages WHERE name = ?`,
 		name,
-	).Scan(&page.Name, &page.RepoURL, &page.Branch, &page.Domain, &page.SourceType, &page.Image, &page.ImageDirectory, &page.Status, &createdStr, &updatedStr)
+	).Scan(&page.Name, &page.RepoURL, &page.Branch, &page.Domain, &page.SourceType, &page.Image, &page.ImageDirectory, &page.Status, &page.Network, &createdStr, &updatedStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrPageNotFound
 	}
@@ -185,6 +190,10 @@ func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSi
 		sets = append(sets, "status = ?")
 		args = append(args, *fields.Status)
 	}
+	if fields.Network != nil {
+		sets = append(sets, "network = ?")
+		args = append(args, *fields.Network)
+	}
 
 	if len(sets) == 0 {
 		return m.Get(name)
@@ -242,7 +251,7 @@ func (m *SQLitePagesManager) List() (_ []PageSite, err error) {
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,
-		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, created_at, updated_at FROM pages ORDER BY name`,
+		`SELECT name, repo_url, branch, domain, source_type, image, image_directory, status, network, created_at, updated_at FROM pages ORDER BY name`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list pages: %w", err)
@@ -256,7 +265,7 @@ func (m *SQLitePagesManager) List() (_ []PageSite, err error) {
 		var page PageSite
 		var createdStr, updatedStr string
 
-		if err := rows.Scan(&page.Name, &page.RepoURL, &page.Branch, &page.Domain, &page.SourceType, &page.Image, &page.ImageDirectory, &page.Status, &createdStr, &updatedStr); err != nil {
+		if err := rows.Scan(&page.Name, &page.RepoURL, &page.Branch, &page.Domain, &page.SourceType, &page.Image, &page.ImageDirectory, &page.Status, &page.Network, &createdStr, &updatedStr); err != nil {
 			return nil, fmt.Errorf("scan page row: %w", err)
 		}
 

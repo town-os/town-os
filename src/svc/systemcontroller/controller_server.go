@@ -160,6 +160,46 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 	}
 	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.DiskDevices)
 }
+// RefreshDNSResolutionMode switches rolodex between resolving unmatched names
+// iteratively from the root servers ("recursive") and forwarding them to the
+// upstream resolvers already written into rolodex.yml ("forward"). It rewrites
+// the config and restarts the rolodex unit so the change takes effect without a
+// reboot.
+//
+// RewriteConfig (not WriteConfig) is deliberate: WriteConfig refuses to
+// overwrite a rolodex.yml newer than the systemcontroller binary, and the file
+// written at the last boot always is — so WriteConfig would no-op here and the
+// setting would never reach rolodex.
+func (s *serverBase) RefreshDNSResolutionMode(ctx context.Context, mode string) error {
+	if s.Rolodex == nil {
+		return nil
+	}
+	if !rolodex.ValidResolutionMode(mode) {
+		return fmt.Errorf("invalid dns resolution mode %q", mode)
+	}
+	if s.Rolodex.ResolutionMode() == mode {
+		return nil
+	}
+
+	s.Rolodex.SetResolutionMode(mode)
+	written, err := s.Rolodex.RewriteConfig()
+	if err != nil {
+		return fmt.Errorf("write rolodex config: %w", err)
+	}
+	if !written {
+		return nil
+	}
+
+	sd := s.GetSystemdManager()
+	if sd == nil {
+		return nil
+	}
+	if err := sd.SetStatus(ctx, s.Rolodex.UnitName(), "restart"); err != nil {
+		return fmt.Errorf("restart rolodex: %w", err)
+	}
+	return nil
+}
+
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetIngress() *ingressctl.Manager           { return s.Ingress }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
@@ -492,8 +532,11 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		RepositoryRoot: s.RepositoryRoot,
 		SettingsMgr:    s.SettingsMgr,
 		NetworkMgr:     s.GetNetworkManager(),
-		InternalIP:     newIP,
-		InternalIPv6:   s.GetInternalIPv6(),
+		// Pages on a non-default network carry the box IP in their LAN-facing
+		// record too, so they go stale on an IP change exactly like packages.
+		PagesManager: s.PagesMgr,
+		InternalIP:   newIP,
+		InternalIPv6: s.GetInternalIPv6(),
 		// Needed so the network TLDs' DANE TLSA pins are republished alongside
 		// the A records; empty would silently skip them (collectNetworkTLSA
 		// no-ops without a state dir and btrfs base).

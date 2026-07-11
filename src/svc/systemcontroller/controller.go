@@ -42,6 +42,9 @@ type systemControllerBackend interface {
 	GetMonitoringBackend() string
 	GetDiskDevices() []string
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
+	// RefreshDNSResolutionMode switches rolodex between recursive-from-roots
+	// and forwarding to its upstream resolvers, taking effect immediately.
+	RefreshDNSResolutionMode(ctx context.Context, mode string) error
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
 	GetIngress() *ingressctl.Manager

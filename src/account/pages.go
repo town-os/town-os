@@ -35,8 +35,17 @@ type PageSite struct {
 	Image          string    `json:"image"`
 	ImageDirectory string    `json:"image_directory"`
 	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	// Network is the network the page is published on, exactly like a package's
+	// install network: it selects the TLD the page's hostname, leaf SAN, DANE
+	// TLSA and ingress vhost are all named under, and it decides who can resolve
+	// the page. Empty (the zero value, and the DB default) means the default/home
+	// network — the same convention as Installer.LoadNetwork, which returns ""
+	// for a default-network package. A page on a non-default network is
+	// dual-homed (scoped overlay record for WireGuard peers + global record at
+	// the LAN IP) and is hidden from peers of every OTHER network.
+	Network   string    `json:"network"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type PageSiteUpdate struct {
@@ -47,6 +56,7 @@ type PageSiteUpdate struct {
 	Image          *string `json:"image,omitempty"`
 	ImageDirectory *string `json:"image_directory,omitempty"`
 	Status         *string `json:"status,omitempty"`
+	Network        *string `json:"network,omitempty"`
 }
 
 // ValidPageSourceType returns true if the given source type is valid.
@@ -55,7 +65,9 @@ func ValidPageSourceType(s string) bool {
 }
 
 type PagesManager interface {
-	Create(name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*PageSite, error)
+	// Create registers a page. network is the network it is published on; ""
+	// means the default/home network (see PageSite.Network).
+	Create(name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error)
 	Get(name string) (*PageSite, error)
 	Update(name string, fields PageSiteUpdate) (*PageSite, error)
 	Remove(name string) error

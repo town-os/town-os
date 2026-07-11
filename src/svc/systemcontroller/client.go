@@ -207,7 +207,7 @@ type Client interface {
 	// sourceType selects the content source: "archive" (default), "container_image", or "git".
 	// repoURL and branch are required when sourceType is "git".
 	// image and imageDirectory are required when sourceType is "container_image".
-	CreatePage(ctx context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*account.PageSite, error)
+	CreatePage(ctx context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*account.PageSite, error)
 	// UpdatePage updates fields on an existing page site.
 	UpdatePage(ctx context.Context, name string, fields account.PageSiteUpdate) (*account.PageSite, error)
 	// RemovePage deletes a page site.

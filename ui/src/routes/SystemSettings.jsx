@@ -15,6 +15,7 @@ const ARCHIVE_UNPACK_TIMEOUT_KEY = 'archive_unpack_timeout'
 const DEFAULT_ARCHIVE_UNPACK_TIMEOUT = 600 // seconds (10 min)
 const PROTON_IMAGE_KEY = 'proton_image'
 const MONITORING_BACKEND_KEY = 'monitoring_backend'
+const DNS_RESOLUTION_MODE_KEY = 'dns_resolution_mode'
 
 function formatBytes(t, bytes) {
   if (bytes === 0) return t('settings.format_no_quota')
@@ -337,6 +338,37 @@ export default function SystemSettings() {
     }
   }
 
+  // --- DNS Resolution Mode ---
+  // Recursive resolves from the root servers (private, but every cache miss
+  // pays a full walk); forward hands unmatched queries to the upstream
+  // resolvers in rolodex.yml (one hop, much faster on a cold cache).
+  const currentResolutionMode = settings[DNS_RESOLUTION_MODE_KEY] || 'recursive'
+
+  const [resolutionModeInput, setResolutionModeInput] = useState('recursive')
+  const [resolutionModeSaving, setResolutionModeSaving] = useState(false)
+
+  useEffect(() => {
+    setResolutionModeInput(settings[DNS_RESOLUTION_MODE_KEY] || 'recursive')
+  }, [settings])
+
+  async function handleSaveResolutionMode(e) {
+    e.preventDefault()
+    if (resolutionModeInput === currentResolutionMode) {
+      toast.info(t('settings.toast_nothing_to_do'))
+      return
+    }
+    setResolutionModeSaving(true)
+    try {
+      await getClient().setSetting(DNS_RESOLUTION_MODE_KEY, resolutionModeInput)
+      toast.success(t('settings.toast_dns_resolution_saved'))
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err.detail || err.message)
+    } finally {
+      setResolutionModeSaving(false)
+    }
+  }
+
   const populated = new Set(localeData?.populated || [])
 
   return (
@@ -535,6 +567,39 @@ export default function SystemSettings() {
 
       <div className="rounded-lg border p-6 space-y-6">
         <div>
+          <h2 className="text-lg font-semibold">{t('settings.dns_resolution_title')}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t('settings.dns_resolution_description')}{' '}
+            {t('settings.current_value', { value: '' })}
+            <strong>
+              {currentResolutionMode === 'forward'
+                ? t('settings.dns_resolution_option_forward')
+                : t('settings.dns_resolution_option_recursive')}
+            </strong>
+          </p>
+        </div>
+
+        <form onSubmit={handleSaveResolutionMode} className="flex items-end gap-3">
+          <div className="space-y-2">
+            <Label htmlFor="dns-resolution-mode-select">{t('settings.dns_resolution_label')}</Label>
+            <select
+              id="dns-resolution-mode-select"
+              value={resolutionModeInput}
+              onChange={(e) => setResolutionModeInput(e.target.value)}
+              disabled={resolutionModeSaving}
+              className="flex h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="recursive">{t('settings.dns_resolution_option_recursive')}</option>
+              <option value="forward">{t('settings.dns_resolution_option_forward')}</option>
+            </select>
+          </div>
+          <Button type="submit" disabled={resolutionModeSaving}>
+            {resolutionModeSaving ? t('settings.saving_btn') : t('settings.save_btn')}
+          </Button>
+        </form>
+      </div>
+      <div className="rounded-lg border p-6 space-y-6">
+        <div>
           <h2 className="text-lg font-semibold">{t('settings.monitoring_title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
             {t('settings.monitoring_description')}{' '}
@@ -561,6 +626,7 @@ export default function SystemSettings() {
           </Button>
         </form>
       </div>
+
     </div>
   )
 }

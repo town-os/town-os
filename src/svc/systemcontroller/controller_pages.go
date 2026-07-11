@@ -15,6 +15,7 @@ import (
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/i18n"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"github.com/labstack/echo/v5"
 )
@@ -29,6 +30,11 @@ type CreatePageRequest struct {
 	SourceType     string `json:"source_type"`
 	Image          string `json:"image"`
 	ImageDirectory string `json:"image_directory"`
+	// Network is the network the page is published on (default "home"), exactly
+	// like InstallRequest.Network for a package. It selects the TLD the page's
+	// hostname, cert, DNS records and ingress vhost are named under, and which
+	// WireGuard peers can resolve it.
+	Network string `json:"network,omitempty"`
 }
 
 type UpdatePageRequest struct {
@@ -53,16 +59,28 @@ func (s *SystemControllerHandlers) refreshPages(ctx context.Context) {
 	s.reprogramIngress(ctx)
 }
 
-// setPageDNS adds or removes the rolodex A record for an internal page's
-// hostname so it resolves immediately on create/remove. Public-FQDN pages are
-// resolved by the user's own DNS and are skipped. The periodic DNS reconcile
-// keeps records converged regardless, so errors here are only logged.
-func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain string, add bool) {
+// setPageDNS adds or removes the rolodex records for an internal page's hostname
+// so it resolves immediately on create/remove. It is the page-side twin of
+// registerPackageDNSForNetwork:
+//
+//   - a DEFAULT-network page gets a single global A record in the home zone;
+//   - a NON-default-network page is DUAL-HOMED under its network's TLD — a
+//     SCOPED record at the box's overlay address (served to that network's
+//     WireGuard peers, and hidden from every other network's peers) plus a
+//     GLOBAL record at the box's LAN address (served to loopback/LAN clients,
+//     which have no route to the overlay).
+//
+// Public-FQDN pages are resolved by the user's own DNS and are skipped. The
+// periodic DNS reconcile keeps records converged regardless, so errors here are
+// only logged.
+func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, network string, add bool) {
 	cl := s.Controller.GetRolodexClient()
 	if cl == nil {
 		return
 	}
-	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	nm := s.Controller.GetNetworkManager()
+	globalTLD := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	tld := pageNetworkTLD(nm, network, globalTLD)
 	if pageIsPublic(domain, tld) {
 		return
 	}
@@ -70,7 +88,29 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain string
 	if host == "" {
 		return
 	}
+
+	// Overlay-facing scoped record for a non-default-network page. Owning the
+	// TLD via the scope is also what partitions it: rolodex hides a scope's TLD
+	// from peers joined to any other scope.
+	overlay := networkOverlayIPValue(nm, network)
+	scoped := !pageOnDefaultNetworkName(network) && overlay != ""
+
 	if add {
+		if scoped {
+			if n, err := nm.Get(network); err == nil {
+				if err := rolodex.EnsureNetworkScope(ctx, cl, n.Name, n.TLD+"."); err != nil {
+					logNonFatal("ensure scope for page dns", err)
+				} else if err := cl.AddScopedRecord(ctx, n.Name, &upstream.DnsRecord{
+					Name: host + ".", RecordType: upstream.RecordTypeA, Value: overlay, Ttl: 300,
+				}); err != nil {
+					logNonFatal("add scoped page record "+host, err)
+				}
+			}
+		}
+		// LAN-facing global record (both the default and the non-default case).
+		// A bare global A resolves on the LAN with no authoritative zone —
+		// rolodex's LAN->owning-scope fallback makes the network TLD
+		// authoritative for LAN sources.
 		ip := s.Controller.GetInternalIP()
 		if ip == "" {
 			return
@@ -85,10 +125,23 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain string
 		}
 		return
 	}
+
+	if scoped {
+		if n, err := nm.Get(network); err == nil {
+			if _, err := cl.RemoveScopedRecord(ctx, n.Name, host+".", nil); err != nil {
+				slog.Debug(fmt.Sprintf("page scoped DNS remove %s: %v", host, err))
+			}
+		}
+	}
 	aType := upstream.RecordTypeA
 	if _, err := cl.RemoveRecord(ctx, host+".", &upstream.RemoveRecordOptions{RecordType: &aType}); err != nil {
 		slog.Debug(fmt.Sprintf("page DNS remove %s: %v", host, err))
 	}
+}
+
+// pageOnDefaultNetworkName is pageOnDefaultNetwork for a bare network string.
+func pageOnDefaultNetworkName(network string) bool {
+	return network == "" || network == account.DefaultNetworkName
 }
 
 func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
@@ -113,14 +166,22 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		req.SourceType = account.PageSourceArchive
 	}
 
-	page, err := mgr.Create(req.Name, req.RepoURL, req.Branch, req.Domain, req.SourceType, req.Image, req.ImageDirectory)
+	// Validate the requested network the same way a package install does: an
+	// unknown network is a 400, and "" normalizes to the default network.
+	network, nerr := s.resolveInstallNetwork(req.Network)
+	if nerr != nil {
+		return nerr
+	}
+
+	page, err := mgr.Create(req.Name, req.RepoURL, req.Branch, req.Domain, req.SourceType, req.Image, req.ImageDirectory, network)
 	if err != nil {
 		return err
 	}
 
 	// All page storage (content subvolume, webroot symlink, the host the static
-	// server matches) is keyed by the page's served FQDN, not its short name.
-	dir := s.pageDirName(req.Domain)
+	// server matches) is keyed by the page's served FQDN — which is named under
+	// the page's NETWORK TLD, not its short name and not the global dns_tld.
+	dir := s.pageDirName(req.Domain, network)
 	if dir == "" {
 		if rerr := mgr.Remove(req.Name); rerr != nil {
 			slog.Debug(fmt.Sprintf("pages rollback remove %s: %v", req.Name, rerr))
@@ -204,7 +265,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 	// but the hostname, cert, and A record only depend on the page metadata).
 	ctx := c.Request().Context()
 	s.refreshPages(ctx)
-	s.setPageDNS(ctx, req.Domain, true)
+	s.setPageDNS(ctx, req.Domain, network, true)
 
 	return c.JSON(200, page)
 }
@@ -236,10 +297,16 @@ func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
 	// A domain change moves the page to a new hostname: retire the old A record,
 	// publish the new one, and re-render so the vhost (and its leaf) follow.
 	ctx := c.Request().Context()
-	if old != nil && pageDomain(*old) != pageDomain(*page) {
-		s.setPageDNS(ctx, pageDomain(*old), false)
+	// A domain OR network change moves the page to a new hostname (the network
+	// selects the TLD), so retire the old name under its OLD network and publish
+	// the new one under the new network. Migrate the on-disk subvolume/symlink
+	// too — they are keyed by the FQDN, so the page would otherwise serve 404
+	// from a directory nothing points at.
+	if old != nil && (pageDomain(*old) != pageDomain(*page) || old.Network != page.Network) {
+		s.setPageDNS(ctx, pageDomain(*old), old.Network, false)
+		s.migratePageDir(*old, *page)
 	}
-	s.setPageDNS(ctx, pageDomain(*page), true)
+	s.setPageDNS(ctx, pageDomain(*page), page.Network, true)
 	s.refreshPages(ctx)
 
 	return c.JSON(200, page)
@@ -269,9 +336,9 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 
 	// Resolve the FQDN directory from the captured record (falling back to the
 	// name when the record could not be read).
-	dir := s.pageDirName(req.Name)
+	dir := s.pageDirName(req.Name, "")
 	if removed != nil {
-		dir = s.pageDirName(pageDomain(*removed))
+		dir = s.pageDirName(pageDomain(*removed), removed.Network)
 	}
 
 	btrfsBase := s.Controller.GetBtrfsBasePath()
@@ -292,7 +359,7 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 	// Drop the page's vhost from the Caddyfile and its A record from DNS.
 	ctx := c.Request().Context()
 	if removed != nil {
-		s.setPageDNS(ctx, pageDomain(*removed), false)
+		s.setPageDNS(ctx, pageDomain(*removed), removed.Network, false)
 	}
 	s.refreshPages(ctx)
 
@@ -341,7 +408,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
 	}
 
-	dir := s.pageDirName(pageDomain(*page))
+	dir := s.pageDirName(pageDomain(*page), page.Network)
 	targetDir := s.pagesSubvolumePath(dir)
 	pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
 
@@ -444,7 +511,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 		}
 	}()
 
-	dir := s.pageDirName(pageDomain(*page))
+	dir := s.pageDirName(pageDomain(*page), page.Network)
 	targetDir := s.pagesSubvolumePath(dir)
 	if targetDir == "" {
 		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
@@ -531,8 +598,39 @@ func (s *SystemControllerHandlers) pagesSubvolumePath(dir string) string {
 // verbatim). The content subvolume, webroot symlink, and the host the static
 // pages server matches are all keyed by this name, so two pages whose short
 // labels collide (e.g. blog.a.com and blog.b.com) never share a directory.
-func (s *SystemControllerHandlers) pageDirName(domain string) string {
-	return pageHostname(domain, reconcileDNSTLD(s.Controller.GetSettingsManager()))
+func (s *SystemControllerHandlers) pageDirName(domain, network string) string {
+	return pageHostname(domain, s.pageTLDFor(network))
+}
+
+// pageTLDFor resolves the TLD a page on the given network is named under: the
+// network's own TLD, or the global dns_tld for the default network.
+func (s *SystemControllerHandlers) pageTLDFor(network string) string {
+	return pageNetworkTLD(s.Controller.GetNetworkManager(), network,
+		reconcileDNSTLD(s.Controller.GetSettingsManager()))
+}
+
+// migratePageDir renames a page's content subvolume and webroot symlink when its
+// served FQDN changes (a domain edit, or a network move that changes the TLD).
+// Best-effort: failures are logged and the periodic reconcile is the backstop.
+func (s *SystemControllerHandlers) migratePageDir(old, updated account.PageSite) {
+	oldDir := s.pageDirName(pageDomain(old), old.Network)
+	newDir := s.pageDirName(pageDomain(updated), updated.Network)
+	if oldDir == "" || newDir == "" || oldDir == newDir {
+		return
+	}
+	if st := s.Controller.GetStorage(); st != nil {
+		if err := st.RenameFilesystem(PagesVolumePrefix+"/"+oldDir, PagesVolumePrefix+"/"+newDir); err != nil {
+			slog.Debug(fmt.Sprintf("pages rename %s -> %s: %v", oldDir, newDir, err))
+		}
+	}
+	if base := s.Controller.GetBtrfsBasePath(); base != "" {
+		if err := RemovePageSymlink(base, oldDir); err != nil {
+			slog.Debug(fmt.Sprintf("pages remove old symlink %s: %v", oldDir, err))
+		}
+		if err := EnsurePageSymlink(base, newDir); err != nil {
+			slog.Debug(fmt.Sprintf("pages symlink %s: %v", newDir, err))
+		}
+	}
 }
 
 // migratePageDirsForTLD renames each internal page's content subvolume and
@@ -554,6 +652,13 @@ func (s *SystemControllerHandlers) migratePageDirsForTLD(oldTLD, newTLD string) 
 	st := s.Controller.GetStorage()
 	base := s.Controller.GetBtrfsBasePath()
 	for _, p := range pages {
+		// Only default-network pages are named under the global dns_tld. A page on
+		// a WireGuard network is named under THAT network's TLD, so a dns_tld
+		// change must not touch its directory — renaming it would move the content
+		// out from under the FQDN the ingress still serves.
+		if !pageOnDefaultNetwork(p) {
+			continue
+		}
 		domain := pageDomain(p)
 		oldDir := pageHostname(domain, oldTLD)
 		newDir := pageHostname(domain, newTLD)

@@ -489,6 +489,12 @@ const enUS = {
   'settings.toast_monitoring_restarting': 'Restarting monitoring UI...',
   'settings.toast_monitoring_ready': 'Monitoring UI restarted ({backend})',
   'settings.toast_monitoring_timeout': 'Monitoring backend was saved, but the monitoring UI did not come back online in time. Check the service logs.',
+  'settings.dns_resolution_title': 'DNS Resolution',
+  'settings.dns_resolution_description': 'How names outside your local zones are resolved. Recursive queries the root servers directly — nothing leaves your network to a third-party resolver, but every cache miss pays a full lookup walk. Forward hands unmatched queries to the upstream resolvers, which is much faster on a cold cache.',
+  'settings.dns_resolution_label': 'Mode',
+  'settings.dns_resolution_option_recursive': 'Recursive (private, from the root servers)',
+  'settings.dns_resolution_option_forward': 'Forward (faster, uses upstream resolvers)',
+  'settings.toast_dns_resolution_saved': 'DNS resolution mode updated. Rolodex is restarting.',
   'settings.saving_btn': 'Saving...',
   'settings.toast_nothing_to_do': 'There is nothing to be done',
 
@@ -536,6 +542,8 @@ const enUS = {
   'networks.toast_copy_failed': 'Copy failed',
   'networks.install_label': 'Network',
   'networks.install_help': 'The network this package is served on.',
+  'networks.page_label': 'Network',
+  'networks.page_help': 'The network this page is served on. It selects the domain suffix (TLD) and which WireGuard peers can reach it.',
 
   // --- Confirm Dialog ---
   'confirm.default_confirm_label': 'Confirm',

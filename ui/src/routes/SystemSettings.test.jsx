@@ -327,11 +327,11 @@ describe('SystemSettings component', () => {
     })
   })
 
-  it('renders six Save buttons', async () => {
+  it('renders seven Save buttons', async () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(6)
+      expect(buttons).toHaveLength(7)
     })
   })
 
@@ -617,7 +617,7 @@ describe('SystemSettings Proton Runner Image', () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(6)
+      expect(buttons).toHaveLength(7)
     })
     await waitFor(() => {
       const input = screen.getByLabelText('Image')
@@ -996,5 +996,68 @@ describe('formatBytes edge cases', () => {
     // So it falls back to bytes
     const value = 1024 * 1024 * 1024 - 1
     expect(formatBytes(value)).toBe(`${value} bytes`)
+  })
+})
+
+describe('SystemSettings DNS resolution mode', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockGetLocales.mockClear()
+    mockToast.info.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+    mockGetLocales.mockImplementation(() => Promise.resolve({
+      current: 'en-US',
+      populated: ['en-US'],
+      common_languages: [{ code: 'en-US', native_name: 'English', english_name: 'English' }],
+      extended_locales: [],
+    }))
+  })
+
+  it('defaults to recursive when the setting is absent', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Mode').value).toBe('recursive')
+    })
+  })
+
+  it('reflects the stored mode', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, dns_resolution_mode: 'forward' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Mode').value).toBe('forward')
+    })
+  })
+
+  it('saves the selected mode', async () => {
+    const user = userEvent.setup()
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Mode').value).toBe('recursive')
+    })
+    await user.selectOptions(screen.getByLabelText('Mode'), 'forward')
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    // The DNS form sits directly above the monitoring form, which is last.
+    await act(async () => {
+      fireEvent.click(saveButtons[saveButtons.length - 2])
+    })
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('dns_resolution_mode', 'forward')
+    })
+  })
+
+  it('saving an unchanged mode is a no-op', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Mode').value).toBe('recursive')
+    })
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveButtons[saveButtons.length - 2])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expect(mockToast.info).toHaveBeenCalled()
   })
 })

@@ -1085,8 +1085,8 @@ func TestReconcilePagesSubvolumesAndSymlinks(t *testing.T) {
 	}
 
 	pagesMgr := account.InitMockPagesManager()
-	_, _ = pagesMgr.Create("alpha-site", "", "", "alpha.example.com", account.PageSourceArchive, "", "")
-	_, _ = pagesMgr.Create("beta-site", "", "", "beta.example.com", account.PageSourceArchive, "", "")
+	_, _ = pagesMgr.Create("alpha-site", "", "", "alpha.example.com", account.PageSourceArchive, "", "", "")
+	_, _ = pagesMgr.Create("beta-site", "", "", "beta.example.com", account.PageSourceArchive, "", "", "")
 
 	btrfsBase := t.TempDir()
 

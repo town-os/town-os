@@ -58,7 +58,7 @@ func newPagesSeedEnv(t *testing.T, gitClient git.Client, pages ...account.PageSi
 	base := t.TempDir()
 	pm := account.InitMockPagesManager()
 	for _, p := range pages {
-		if _, err := pm.Create(p.Name, p.RepoURL, p.Branch, p.Domain, p.SourceType, p.Image, p.ImageDirectory); err != nil {
+		if _, err := pm.Create(p.Name, p.RepoURL, p.Branch, p.Domain, p.SourceType, p.Image, p.ImageDirectory, ""); err != nil {
 			t.Fatalf("create page %s: %v", p.Name, err)
 		}
 		dir := pageHostname(p.Domain, "home")

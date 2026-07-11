@@ -322,11 +322,21 @@ func run() (err error) {
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
 	}
+	// The resolution mode is a user-facing setting: "recursive" (the default,
+	// iterate from the root servers) or "forward" (one hop to the upstream
+	// resolvers). An invalid stored value is ignored so a bad setting can never
+	// render a rolodex.yml that rolodex refuses to start with.
+	resolutionMode := rolodex.DefaultResolutionMode
+	if v, modeErr := settingsMgr.Get("dns_resolution_mode"); modeErr == nil && rolodex.ValidResolutionMode(v) {
+		resolutionMode = v
+	}
+
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
 		DataDir:        rolDataDir,
 		Image:          rolImage,
 		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
+		ResolutionMode: resolutionMode,
 	})
 	configWritten, configErr := rolMgr.WriteConfig()
 	if configErr != nil {
@@ -605,7 +615,7 @@ func run() (err error) {
 		if dialErr != nil {
 			fmt.Fprintf(os.Stderr, "ingress dial: %v\n", dialErr)
 		} else {
-			if irErr := systemcontroller.RebuildIngress(ctx, ic, pagesMgr, inst, tlsCA, *btrfsPath, *networkStatePath, dnsTLD, getInternalIP()); irErr != nil {
+			if irErr := systemcontroller.RebuildIngress(ctx, ic, pagesMgr, networkMgr, inst, tlsCA, *btrfsPath, *networkStatePath, dnsTLD, getInternalIP()); irErr != nil {
 				fmt.Fprintf(os.Stderr, "rebuild ingress: %v\n", irErr)
 			}
 			if closeErr := ic.Close(); closeErr != nil {

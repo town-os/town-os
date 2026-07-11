@@ -38,12 +38,14 @@ func pagesBackend() string {
 // file-mounted Caddyfile carried, but as gRPC Route messages the ingress
 // renders itself.
 //
-// tld is the *global* dns_tld and is used for PAGES only (pages are home/LAN-only
-// and never live on a WireGuard network), plus as the fallback for pre-upgrade
-// package state files. Package vhost hostnames come from each package's state
-// file FQDN, which is written under that package's install-network TLD — see
-// collectPackageIngressSites.
-func buildIngressRoutes(pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, tld, internalIP string) []*ingresspb.Route {
+// tld is the *global* dns_tld. It is the fallback for pre-upgrade package state
+// files, and the TLD for pages on the DEFAULT network. Package vhost hostnames
+// come from each package's state file FQDN (written under that package's
+// install-network TLD — see collectPackageIngressSites); page vhost hostnames
+// come from pageFQDN, which resolves the page's own network TLD via nm. A page
+// on the "fart" network is served as blog.fart, with a leaf valid for that name
+// and for the box's overlay address on that network.
+func buildIngressRoutes(pagesMgr account.PagesManager, nm account.NetworkManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, tld, internalIP string) []*ingresspb.Route {
 	var routes []*ingresspb.Route
 
 	for _, s := range collectPackageIngressSites(installer, stateDir, tld) {
@@ -67,18 +69,20 @@ func buildIngressRoutes(pagesMgr account.PagesManager, installer FreshnessLister
 	backend := pagesBackend()
 	for _, page := range pages {
 		domain := pageDomain(page)
-		hostname := pageHostname(domain, tld)
+		// The page's own network TLD, not the global dns_tld.
+		pageTLD := pageNetworkTLD(nm, page.Network, tld)
+		hostname := pageHostname(domain, pageTLD)
 		if hostname == "" {
 			continue
 		}
-		if pageIsPublic(domain, tld) {
+		if pageIsPublic(domain, pageTLD) {
 			// Public FQDN: served via ACME, resolved by the user's own DNS.
 			// ServeHttp so a plain-HTTP visit is served directly (static content)
 			// rather than redirected — pages carry nothing sensitive.
 			routes = append(routes, &ingresspb.Route{Hostname: hostname, Backend: backend, Acme: true, ServeHttp: true})
 			continue
 		}
-		certDir, lerr := issuePageLeaf(ca, btrfsBase, page.Name, hostname, internalIP)
+		certDir, lerr := issuePageLeaf(ca, btrfsBase, page.Name, hostname, internalIP, networkOverlayIPValue(nm, page.Network))
 		if lerr != nil {
 			slog.Debug(fmt.Sprintf("ingress: page leaf %s: %v", page.Name, lerr))
 			continue
@@ -92,8 +96,8 @@ func buildIngressRoutes(pagesMgr account.PagesManager, installer FreshnessLister
 // + pages). It is the declarative reconcile entry point — called at boot (the
 // reconcile_ingress step), from the periodic reconcile, and after package
 // install/uninstall and page CRUD — mirroring rolodex RebuildDNS.
-func RebuildIngress(ctx context.Context, ic ingress.Client, pagesMgr account.PagesManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, tld, internalIP string) error {
-	routes := buildIngressRoutes(pagesMgr, installer, ca, btrfsBase, stateDir, tld, internalIP)
+func RebuildIngress(ctx context.Context, ic ingress.Client, pagesMgr account.PagesManager, nm account.NetworkManager, installer FreshnessLister, ca *townostls.CA, btrfsBase, stateDir, tld, internalIP string) error {
+	routes := buildIngressRoutes(pagesMgr, nm, installer, ca, btrfsBase, stateDir, tld, internalIP)
 	if err := ic.SetRoutes(ctx, routes); err != nil {
 		return fmt.Errorf("set ingress routes: %w", err)
 	}
@@ -109,7 +113,8 @@ func (s *SystemControllerHandlers) reprogramIngress(ctx context.Context) {
 		return
 	}
 	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
-	if err := RebuildIngress(ctx, ic, s.Controller.GetPagesManager(), s.Controller.GetInstaller(),
+	if err := RebuildIngress(ctx, ic, s.Controller.GetPagesManager(), s.Controller.GetNetworkManager(),
+		s.Controller.GetInstaller(),
 		s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(), s.Controller.GetNetworkStatePath(),
 		tld, s.Controller.GetInternalIP()); err != nil {
 		slog.Debug(fmt.Sprintf("reprogram ingress: %v", err))

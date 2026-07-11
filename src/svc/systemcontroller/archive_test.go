@@ -164,6 +164,9 @@ func (b *archiveTestBackend) GetDiskDevices() []string     { return nil }
 func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ string) error {
 	return nil
 }
+func (b *archiveTestBackend) RefreshDNSResolutionMode(_ context.Context, _ string) error {
+	return nil
+}
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
 func (b *archiveTestBackend) GetIngress() *ingressctl.Manager                       { return nil }

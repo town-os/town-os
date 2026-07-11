@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
+import getClient from '@/lib/client-instance.js'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,6 +32,26 @@ export default function PagesDialogs({
   SOURCE_TYPE_LABELS,
 }) {
   const { t } = useI18n()
+  const [networks, setNetworks] = useState([])
+
+  // Populate the network picker the same way the package install dialog does:
+  // enabled networks only, refreshed each time the create dialog opens.
+  useEffect(() => {
+    if (!createDialog) return
+    const client = getClient()
+    if (typeof client.listNetworks !== 'function') return
+    let cancelled = false
+    client
+      .listNetworks()
+      .then((list) => {
+        if (!cancelled) setNetworks((list || []).filter((n) => n.enabled))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [createDialog])
+
   return (
     <>
       {/* Create dialog */}
@@ -54,6 +76,22 @@ export default function PagesDialogs({
                     <SelectItem value="git">Git Repository</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-network">{t('networks.page_label')}</Label>
+                <select
+                  id="create-network"
+                  name="network"
+                  defaultValue="home"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                >
+                  {(networks.length ? networks : [{ name: 'home' }]).map((n) => (
+                    <option key={n.name} value={n.name}>
+                      {n.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">{t('networks.page_help')}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="create-name">{t('pages.name_label')}</Label>

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/networkcontroller"
 )
 
@@ -40,7 +41,7 @@ func TestBuildIngressRoutesPackages(t *testing.T) {
 	}
 
 	lister := &stubLister{items: []string{"asdf/gitea@1.0"}}
-	routes := buildIngressRoutes(nil, lister, nil, "", stateDir, "home", "")
+	routes := buildIngressRoutes(nil, nil, lister, nil, "", stateDir, "home", "")
 
 	if len(routes) != 1 {
 		t.Fatalf("expected exactly 1 package route, got %d: %+v", len(routes), routes)
@@ -81,7 +82,7 @@ func TestRebuildIngressPushesRoutes(t *testing.T) {
 
 	ic := &mockIngressClient{}
 	lister := &stubLister{items: []string{"asdf/gitea@1.0"}}
-	if err := RebuildIngress(context.Background(), ic, nil, lister, nil, "", stateDir, "home", ""); err != nil {
+	if err := RebuildIngress(context.Background(), ic, nil, nil, lister, nil, "", stateDir, "home", ""); err != nil {
 		t.Fatalf("RebuildIngress: %v", err)
 	}
 	if len(ic.setCalls) != 1 {
@@ -89,5 +90,43 @@ func TestRebuildIngressPushesRoutes(t *testing.T) {
 	}
 	if len(ic.setCalls[0]) != 1 || ic.setCalls[0][0].GetHostname() != "gitea.asdf.home" {
 		t.Fatalf("unexpected routes pushed: %+v", ic.setCalls[0])
+	}
+}
+
+// A page on a non-default network is served under THAT network's TLD, while a
+// page on the default network keeps the global dns_tld — both in the same route
+// set. This is the page-side twin of the package fix: naming the vhost from the
+// global TLD would render a blog.home site that nothing dials, with a leaf valid
+// only for blog.fart.
+func TestBuildIngressRoutesPagesUseNetworkTLD(t *testing.T) {
+	nm := account.InitMockNetworkManager()
+	if _, err := nm.Create(&account.Network{
+		Name: "fart", TLD: "fart", Subnet: "10.65.0.0/24", Address: "10.65.0.1/24",
+		PublicKey: "PUB", ListenPort: 51820, Enabled: true,
+	}); err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+
+	pagesMgr := &pagesTestManager{pages: []account.PageSite{
+		{Name: "blog"},                    // default network → blog.home
+		{Name: "secret", Network: "fart"}, // fart network   → secret.fart
+	}}
+
+	// ca == nil, so no leaf is issued and CertDir stays empty; we are asserting
+	// the hostnames the ingress vhosts are keyed by.
+	routes := buildIngressRoutes(pagesMgr, nm, &stubLister{}, nil, "", "", "home", "")
+
+	hosts := map[string]bool{}
+	for _, r := range routes {
+		hosts[r.GetHostname()] = true
+	}
+	if !hosts["blog.home"] {
+		t.Errorf("default-network page must be served at blog.home; got %v", hosts)
+	}
+	if !hosts["secret.fart"] {
+		t.Errorf("fart-network page must be served at secret.fart; got %v", hosts)
+	}
+	if hosts["secret.home"] {
+		t.Errorf("fart-network page must NOT be served under the global dns_tld; got %v", hosts)
 	}
 }

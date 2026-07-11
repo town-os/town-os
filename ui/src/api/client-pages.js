@@ -15,8 +15,8 @@ import { SystemControllerClient } from './core.js'
  *
  * Calls POST /pages/create on the Control Plane Service.
  */
-SystemControllerClient.prototype.createPage = async function (name, repoURL, branch, domain, sourceType, image, imageDirectory) {
-  return this.postJSON('/pages/create', {
+SystemControllerClient.prototype.createPage = async function (name, repoURL, branch, domain, sourceType, image, imageDirectory, network) {
+  const body = {
     name,
     repo_url: repoURL || '',
     branch: branch || '',
@@ -24,7 +24,11 @@ SystemControllerClient.prototype.createPage = async function (name, repoURL, bra
     source_type: sourceType || 'archive',
     image: image || '',
     image_directory: imageDirectory || '',
-  })
+  }
+  // Omitted when empty so the server applies the default (home) network,
+  // matching installPackage's handling of the same field.
+  if (network) body.network = network
+  return this.postJSON('/pages/create', body)
 }
 
 /**

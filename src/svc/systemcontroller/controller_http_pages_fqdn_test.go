@@ -37,7 +37,7 @@ func TestHTTPCreatePageInternalUsesFQDNDir(t *testing.T) {
 	}
 
 	// Default domain == name "blog"; internal => served FQDN "blog.home".
-	if _, err := env.Client.CreatePage(context.TODO(), "blog", "", "", "", account.PageSourceArchive, "", ""); err != nil {
+	if _, err := env.Client.CreatePage(context.TODO(), "blog", "", "", "", account.PageSourceArchive, "", "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
@@ -65,10 +65,10 @@ func TestHTTPCreatePageLabelCollisionDistinctDirs(t *testing.T) {
 		t.Fatalf("EnsurePagesWebroot: %v", err)
 	}
 
-	if _, err := env.Client.CreatePage(context.TODO(), "blog-a", "", "", "blog.a.com", account.PageSourceArchive, "", ""); err != nil {
+	if _, err := env.Client.CreatePage(context.TODO(), "blog-a", "", "", "blog.a.com", account.PageSourceArchive, "", "", ""); err != nil {
 		t.Fatalf("CreatePage a: %v", err)
 	}
-	if _, err := env.Client.CreatePage(context.TODO(), "blog-b", "", "", "blog.b.com", account.PageSourceArchive, "", ""); err != nil {
+	if _, err := env.Client.CreatePage(context.TODO(), "blog-b", "", "", "blog.b.com", account.PageSourceArchive, "", "", ""); err != nil {
 		t.Fatalf("CreatePage b: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestHTTPCreatePageGitCloneFailureResets(t *testing.T) {
 	}
 	env.GitClient.CloneErr = errors.New("mock clone failure")
 
-	if _, err := env.Client.CreatePage(context.TODO(), "failclone", "https://example.invalid/repo.git", "main", "", account.PageSourceGit, "", ""); err != nil {
+	if _, err := env.Client.CreatePage(context.TODO(), "failclone", "https://example.invalid/repo.git", "main", "", account.PageSourceGit, "", "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
@@ -198,7 +198,7 @@ func TestHTTPSetDNSTLDRenamesInternalPageDirs(t *testing.T) {
 	}
 
 	// Internal page: default domain "blog" => dir "blog.home" at the start.
-	if _, err := c.CreatePage(context.TODO(), "blog", "", "", "", account.PageSourceArchive, "", ""); err != nil {
+	if _, err := c.CreatePage(context.TODO(), "blog", "", "", "", account.PageSourceArchive, "", "", ""); err != nil {
 		t.Fatalf("CreatePage: %v", err)
 	}
 	if !storageHasFS(ctrl, "pages/blog.home") {

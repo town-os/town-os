@@ -31,10 +31,10 @@ func (m *MockPagesManager) GetCalls() []MockCall {
 	return out
 }
 
-func (m *MockPagesManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*PageSite, error) {
+func (m *MockPagesManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{name, repoURL, branch, domain, sourceType, image, imageDirectory}})
+	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{name, repoURL, branch, domain, sourceType, image, imageDirectory, network}})
 
 	if m.CreateErr != nil {
 		return nil, m.CreateErr
@@ -86,6 +86,7 @@ func (m *MockPagesManager) Create(name, repoURL, branch, domain, sourceType, ima
 		Image:          image,
 		ImageDirectory: imageDirectory,
 		Status:         "pending",
+		Network:        network,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -153,6 +154,9 @@ func (m *MockPagesManager) Update(name string, fields PageSiteUpdate) (*PageSite
 	}
 	if fields.Status != nil {
 		page.Status = *fields.Status
+	}
+	if fields.Network != nil {
+		page.Network = *fields.Network
 	}
 	page.UpdatedAt = time.Now()
 

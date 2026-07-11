@@ -25,9 +25,10 @@ import (
 //   - sourceType: content source — "archive" (default), "container_image", or "git".
 //   - image: container image reference (required for source_type "container_image").
 //   - imageDirectory: directory within the container image to extract (required for source_type "container_image").
+//   - network: the network to publish the page on ("" = the default/home network).
 //
 // Calls POST /pages/create on the Control Plane Service.
-func (c *SystemdClient) CreatePage(ctx context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory string) (_ *account.PageSite, err error) {
+func (c *SystemdClient) CreatePage(ctx context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (_ *account.PageSite, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, CreatePageRequest{
 		Name:           name,
@@ -37,6 +38,7 @@ func (c *SystemdClient) CreatePage(ctx context.Context, name, repoURL, branch, d
 		SourceType:     sourceType,
 		Image:          image,
 		ImageDirectory: imageDirectory,
+		Network:        network,
 	})
 
 	resp, err := c.postJSON(ctx, "pages/create", pr)

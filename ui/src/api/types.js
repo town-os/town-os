@@ -35,6 +35,7 @@
  * @property {string} source_type - Content source: "archive" (default), "container_image", or "git".
  * @property {string} image - Container image reference (for container_image source type).
  * @property {string} image_directory - Directory within the container image to extract (for container_image source type).
+ * @property {string} network
  * @property {string} status
  * @property {string} created_at
  * @property {string} updated_at

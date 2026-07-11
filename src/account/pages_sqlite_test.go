@@ -31,7 +31,7 @@ func initPagesTestDB(t *testing.T) *SQLitePagesManager {
 func TestPagesCreateAndGet(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	page, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	page, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestPagesCreateAndGet(t *testing.T) {
 func TestPagesCreateDefaultBranch(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	page, err := mgr.Create("my-site", "https://github.com/user/site.git", "", "site.example.com", PageSourceGit, "", "")
+	page, err := mgr.Create("my-site", "https://github.com/user/site.git", "", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -84,12 +84,12 @@ func TestPagesCreateDefaultBranch(t *testing.T) {
 func TestPagesCreateDuplicate(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	_, err = mgr.Create("my-site", "https://github.com/user/other.git", "main", "other.example.com", PageSourceGit, "", "")
+	_, err = mgr.Create("my-site", "https://github.com/user/other.git", "main", "other.example.com", PageSourceGit, "", "", "")
 	if !errors.Is(err, ErrDuplicatePageName) {
 		t.Fatalf("expected ErrDuplicatePageName, got %v", err)
 	}
@@ -98,17 +98,17 @@ func TestPagesCreateDuplicate(t *testing.T) {
 func TestPagesCreateValidation(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	_, err := mgr.Create("", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if !errors.Is(err, ErrPageNameRequired) {
 		t.Fatalf("expected ErrPageNameRequired, got %v", err)
 	}
 
-	_, err = mgr.Create("my-site", "", "main", "site.example.com", PageSourceGit, "", "")
+	_, err = mgr.Create("my-site", "", "main", "site.example.com", PageSourceGit, "", "", "")
 	if !errors.Is(err, ErrPageRepoRequired) {
 		t.Fatalf("expected ErrPageRepoRequired, got %v", err)
 	}
 
-	_, err = mgr.Create("my-site", "https://github.com/user/site.git", "main", "", PageSourceGit, "", "")
+	_, err = mgr.Create("my-site", "https://github.com/user/site.git", "main", "", PageSourceGit, "", "", "")
 	if !errors.Is(err, ErrPageDomainRequired) {
 		t.Fatalf("expected ErrPageDomainRequired, got %v", err)
 	}
@@ -117,7 +117,7 @@ func TestPagesCreateValidation(t *testing.T) {
 func TestPagesCreateArchiveSourceType(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	page, err := mgr.Create("archive-site", "", "", "archive.example.com", PageSourceArchive, "", "")
+	page, err := mgr.Create("archive-site", "", "", "archive.example.com", PageSourceArchive, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestPagesCreateArchiveSourceType(t *testing.T) {
 func TestPagesCreateContainerImageSourceType(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	page, err := mgr.Create("image-site", "", "", "image.example.com", PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html")
+	page, err := mgr.Create("image-site", "", "", "image.example.com", PageSourceContainerImage, "nginx:latest", "/usr/share/nginx/html", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestPagesCreateContainerImageSourceType(t *testing.T) {
 func TestPagesCreateContainerImageRequiresImage(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("image-site", "", "", "image.example.com", PageSourceContainerImage, "", "/usr/share/nginx/html")
+	_, err := mgr.Create("image-site", "", "", "image.example.com", PageSourceContainerImage, "", "/usr/share/nginx/html", "")
 	if !errors.Is(err, ErrPageImageRequired) {
 		t.Fatalf("expected ErrPageImageRequired, got %v", err)
 	}
@@ -159,7 +159,7 @@ func TestPagesCreateContainerImageRequiresImage(t *testing.T) {
 func TestPagesCreateContainerImageRequiresDirectory(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("image-site", "", "", "image.example.com", PageSourceContainerImage, "nginx:latest", "")
+	_, err := mgr.Create("image-site", "", "", "image.example.com", PageSourceContainerImage, "nginx:latest", "", "")
 	if !errors.Is(err, ErrPageImageDirectoryRequired) {
 		t.Fatalf("expected ErrPageImageDirectoryRequired, got %v", err)
 	}
@@ -168,7 +168,7 @@ func TestPagesCreateContainerImageRequiresDirectory(t *testing.T) {
 func TestPagesCreateInvalidSourceType(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("bad-site", "", "", "bad.example.com", "invalid", "", "")
+	_, err := mgr.Create("bad-site", "", "", "bad.example.com", "invalid", "", "", "")
 	if !errors.Is(err, ErrPageInvalidSourceType) {
 		t.Fatalf("expected ErrPageInvalidSourceType, got %v", err)
 	}
@@ -177,7 +177,7 @@ func TestPagesCreateInvalidSourceType(t *testing.T) {
 func TestPagesCreateDefaultSourceType(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	page, err := mgr.Create("default-site", "", "", "default.example.com", "", "", "")
+	page, err := mgr.Create("default-site", "", "", "default.example.com", "", "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestPagesGetNotFound(t *testing.T) {
 func TestPagesUpdate(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestPagesUpdate(t *testing.T) {
 func TestPagesUpdateSourceType(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestPagesUpdateSourceType(t *testing.T) {
 func TestPagesUpdateInvalidSourceType(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "", "", "site.example.com", PageSourceArchive, "", "")
+	_, err := mgr.Create("my-site", "", "", "site.example.com", PageSourceArchive, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestPagesUpdateInvalidSourceType(t *testing.T) {
 func TestPagesUpdateImageFields(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "", "", "site.example.com", PageSourceContainerImage, "nginx:latest", "/html")
+	_, err := mgr.Create("my-site", "", "", "site.example.com", PageSourceContainerImage, "nginx:latest", "/html", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestPagesUpdateNotFound(t *testing.T) {
 func TestPagesUpdateNoFields(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestPagesUpdateNoFields(t *testing.T) {
 func TestPagesUpdateEmptyDomain(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestPagesUpdateEmptyDomain(t *testing.T) {
 func TestPagesRemove(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "")
+	_, err := mgr.Create("my-site", "https://github.com/user/site.git", "main", "site.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -367,11 +367,11 @@ func TestPagesList(t *testing.T) {
 		t.Fatalf("expected 0 pages, got %d", len(pages))
 	}
 
-	_, err = mgr.Create("alpha", "https://github.com/user/alpha.git", "main", "alpha.example.com", PageSourceGit, "", "")
+	_, err = mgr.Create("alpha", "https://github.com/user/alpha.git", "main", "alpha.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create alpha: %v", err)
 	}
-	_, err = mgr.Create("beta", "https://github.com/user/beta.git", "develop", "beta.example.com", PageSourceGit, "", "")
+	_, err = mgr.Create("beta", "https://github.com/user/beta.git", "develop", "beta.example.com", PageSourceGit, "", "", "")
 	if err != nil {
 		t.Fatalf("Create beta: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestPagesList(t *testing.T) {
 func TestPagesListIncludesSourceType(t *testing.T) {
 	mgr := initPagesTestDB(t)
 
-	_, err := mgr.Create("archive-page", "", "", "archive.example.com", PageSourceArchive, "", "")
+	_, err := mgr.Create("archive-page", "", "", "archive.example.com", PageSourceArchive, "", "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

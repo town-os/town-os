@@ -8,10 +8,10 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 )
 
-func (m *MockClient) CreatePage(_ context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory string) (*account.PageSite, error) {
+func (m *MockClient) CreatePage(_ context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*account.PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "CreatePage", Args: []any{name, repoURL, branch, domain, sourceType, image, imageDirectory}})
+	m.Calls = append(m.Calls, MockCall{Method: "CreatePage", Args: []any{name, repoURL, branch, domain, sourceType, image, imageDirectory, network}})
 
 	if m.CreatePageErr != nil {
 		return nil, m.CreatePageErr
@@ -39,6 +39,7 @@ func (m *MockClient) CreatePage(_ context.Context, name, repoURL, branch, domain
 		Image:          image,
 		ImageDirectory: imageDirectory,
 		Status:         "active",
+		Network:        network,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

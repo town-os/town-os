@@ -67,6 +67,8 @@ export default function PagesManagement() {
     const form = e.target.elements
     const name = form.name.value.trim()
     const domain = form.domain.value.trim()
+    // "" lets the server default to the home network, like the install dialog.
+    const network = form.network?.value || ''
 
     if (!name) {
       toast.error(t('pages.error_name_required'))
@@ -83,7 +85,7 @@ export default function PagesManagement() {
         }
         setProvisioning(true)
         cancelPollingRef.current = false
-        await getClient().createPage(name, repoURL, branch, domain, 'git', '', '')
+        await getClient().createPage(name, repoURL, branch, domain, 'git', '', '', network)
         const finalStatus = await pollPageStatus(name)
         if (finalStatus === 'active') {
           toast.success(t('pages.toast_provisioned'))
@@ -103,7 +105,7 @@ export default function PagesManagement() {
         }
         setProvisioning(true)
         cancelPollingRef.current = false
-        await getClient().createPage(name, '', '', domain, 'container_image', image, imageDirectory)
+        await getClient().createPage(name, '', '', domain, 'container_image', image, imageDirectory, network)
         const finalStatus = await pollPageStatus(name)
         if (finalStatus === 'active') {
           toast.success(t('pages.toast_provisioned'))
@@ -115,11 +117,11 @@ export default function PagesManagement() {
         const archiveFile = form.archive?.files?.[0]
         if (archiveFile) {
           setProvisioning(true)
-          const created = await getClient().createPage(name, '', '', domain, 'archive', '', '')
+          const created = await getClient().createPage(name, '', '', domain, 'archive', '', '', network)
           await getClient().uploadPageArchive(created.name, archiveFile)
           toast.success(t('pages.toast_provisioned'))
         } else {
-          await getClient().createPage(name, '', '', domain, 'archive', '', '')
+          await getClient().createPage(name, '', '', domain, 'archive', '', '', network)
           toast.success(t('pages.toast_created'))
         }
       }
@@ -208,6 +210,11 @@ export default function PagesManagement() {
   const columns = [
     { key: 'name', label: t('pages.col_name') },
     { key: 'domain', label: t('pages.col_domain') },
+    {
+      key: 'network',
+      label: t('networks.page_label'),
+      render: (row) => row.network || 'home',
+    },
     {
       key: 'source_type',
       label: 'Source',

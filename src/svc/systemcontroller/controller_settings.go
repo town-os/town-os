@@ -7,6 +7,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/packages"
+	"gitea.com/town-os/town-os/src/rolodex"
 	"github.com/labstack/echo/v5"
 )
 
@@ -25,7 +26,18 @@ type GetSettingRequest struct {
 // settingsValidators maps setting keys to validation functions that are
 // called before the value is persisted via the generic settings API.
 var settingsValidators = map[string]func(string) error{
-	"dns_tld": ValidateTLD,
+	"dns_tld":             ValidateTLD,
+	"dns_resolution_mode": ValidateDNSResolutionMode,
+}
+
+// ValidateDNSResolutionMode accepts only the two modes rolodex understands.
+// Anything else would be written into rolodex.yml and refused at startup,
+// taking DNS down for the whole box.
+func ValidateDNSResolutionMode(v string) error {
+	if !rolodex.ValidResolutionMode(v) {
+		return fmt.Errorf("must be %q or %q", rolodex.ResolutionModeRecursive, rolodex.ResolutionModeForward)
+	}
+	return nil
 }
 
 var byteValueSettings = map[string]bool{
@@ -112,6 +124,14 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 	if req.Key == "monitoring_backend" {
 		if err := s.Controller.RefreshMonitoringBackend(c.Request().Context(), value); err != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("failed to refresh monitoring backend: %v", err))
+		}
+	}
+
+	// Rewrite rolodex.yml and restart rolodex so a resolution-mode change takes
+	// effect immediately rather than at the next boot.
+	if req.Key == "dns_resolution_mode" {
+		if err := s.Controller.RefreshDNSResolutionMode(c.Request().Context(), value); err != nil {
+			return echo.NewHTTPError(500, fmt.Sprintf("failed to apply dns resolution mode: %v", err))
 		}
 	}
 

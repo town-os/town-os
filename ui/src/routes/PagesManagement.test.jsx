@@ -63,6 +63,14 @@ const mockUploadPageArchive = vi.fn(() =>
   }),
 )
 
+const mockListNetworks = vi.fn(() =>
+  Promise.resolve([
+    { name: 'home', tld: 'home', enabled: true },
+    { name: 'fart', tld: 'fart', enabled: true },
+    { name: 'off', tld: 'off', enabled: false },
+  ]),
+)
+
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     listPages: mockListPages,
@@ -71,6 +79,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     removePage: mockRemovePage,
     rebuildPage: mockRebuildPage,
     uploadPageArchive: mockUploadPageArchive,
+    listNetworks: mockListNetworks,
   }),
 }))
 
@@ -180,6 +189,66 @@ describe('PagesManagement component', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Name')).toBeTruthy()
     })
+  })
+
+  it('populates the network selector from listNetworks with enabled networks only', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Create Page')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Create Page'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'fart' })).toBeTruthy()
+    })
+    expect(screen.getByRole('option', { name: 'home' })).toBeTruthy()
+    // Disabled networks are not offerable targets.
+    expect(screen.queryByRole('option', { name: 'off' })).toBeNull()
+  })
+
+  it('submits the selected network when creating a page', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Create Page')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name')).toBeTruthy()
+    })
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'secret' } })
+    // Move the page onto the fart network.
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'fart' })).toBeTruthy()
+    })
+    fireEvent.change(document.getElementById('create-network'), { target: { value: 'fart' } })
+
+    fireEvent.submit(document.getElementById('create-name').closest('form'))
+
+    await waitFor(() => {
+      expect(mockCreatePage).toHaveBeenCalled()
+    })
+    // network is the 8th positional arg of createPage.
+    expect(mockCreatePage.mock.calls[0][7]).toBe('fart')
+  })
+
+  it('defaults a page to the home network when nothing is chosen', async () => {
+    renderPages()
+    await waitFor(() => {
+      expect(screen.getByText('Create Page')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Create Page'))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name')).toBeTruthy()
+    })
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'blog' } })
+    fireEvent.submit(document.getElementById('create-name').closest('form'))
+
+    await waitFor(() => {
+      expect(mockCreatePage).toHaveBeenCalled()
+    })
+    expect(mockCreatePage.mock.calls[0][7]).toBe('home')
   })
 
   it('opens edit dialog when Edit button is clicked', async () => {
@@ -587,7 +656,10 @@ describe('PagesManagement provisioning behavior', () => {
   }
 
   async function selectSourceType(label) {
-    const trigger = screen.getByRole('combobox')
+    // The create dialog has two comboboxes now — the shadcn source-type trigger
+    // and the native network <select> — so target the source-type one by id
+    // rather than assuming it is the only combobox in the dialog.
+    const trigger = document.getElementById('create-source-type')
     fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' })
     await waitFor(() => {
       expect(screen.getByRole('option', { name: label })).toBeTruthy()

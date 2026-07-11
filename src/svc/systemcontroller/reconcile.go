@@ -347,7 +347,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	// ingress even when no pages exist.
 	if cfg.IngressClient != nil {
 		tld := reconcileDNSTLD(cfg.SettingsMgr)
-		if err := RebuildIngress(ctx, cfg.IngressClient, cfg.PagesManager, cfg.Installer,
+		if err := RebuildIngress(ctx, cfg.IngressClient, cfg.PagesManager, cfg.NetworkMgr, cfg.Installer,
 			cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath, tld, cfg.InternalIP); err != nil {
 			slog.Error(fmt.Sprintf("reconcile: ingress: %v", err))
 		}
@@ -921,6 +921,35 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 			}
 		}
 
+		// Pages on this network are dual-homed exactly like its packages: a scoped
+		// A at the overlay address for WireGuard peers, and a global A at the LAN
+		// address for loopback/LAN clients. Pages have no install record, so they
+		// are keyed off PageSite.Network rather than Installer.LoadNetwork.
+		overlay := networkOverlayIPValue(cfg.NetworkMgr, n.Name)
+		for _, host := range collectNetworkPageHostnames(cfg.PagesManager, n.Name, n.TLD) {
+			if overlay != "" {
+				if err := cfg.Client.AddScopedRecord(ctx, n.Name, &upstream.DnsRecord{
+					Name: host + ".", RecordType: upstream.RecordTypeA, Value: overlay, Ttl: 300,
+				}); err != nil {
+					slog.Debug(fmt.Sprintf("rebuild network page scoped %s: %v", host, err))
+				}
+			}
+			if cfg.InternalIP != "" {
+				if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
+					Name: host + ".", RecordType: upstream.RecordTypeA, Value: cfg.InternalIP, Ttl: 300,
+				}); err != nil {
+					slog.Debug(fmt.Sprintf("rebuild network page %s: %v", host, err))
+				}
+			}
+			if cfg.InternalIPv6 != "" {
+				if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
+					Name: host + ".", RecordType: upstream.RecordTypeAAAA, Value: cfg.InternalIPv6, Ttl: 300,
+				}); err != nil {
+					slog.Debug(fmt.Sprintf("rebuild network page AAAA %s: %v", host, err))
+				}
+			}
+		}
+
 		// Dual-home the DANE TLSA exactly like the A records above: a GLOBAL pin
 		// (served to LAN sources, which resolve the network TLD through rolodex's
 		// LAN->owning-scope fallback) and a SCOPED pin (served to WireGuard peers,
@@ -928,7 +957,9 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		// Install only ever wrote the scoped half (publishPackageTLSA), and nothing
 		// republished either half after a restart — so a LAN client had no TLSA at
 		// all for a network package, and a reboot dropped the scoped one.
-		if entries := collectNetworkTLSA(cfg, n.Name, n.TLD); len(entries) > 0 {
+		entries := collectNetworkTLSA(cfg, n.Name, n.TLD)
+		entries = append(entries, collectNetworkPageTLSA(cfg.PagesManager, cfg.BtrfsBasePath, n.Name, n.TLD)...)
+		if len(entries) > 0 {
 			if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
 				slog.Debug(fmt.Sprintf("rebuild network TLSA %s: %v", n.Name, err))
 			}
@@ -1227,11 +1258,15 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 		return fmt.Errorf("list pages: %w", err)
 	}
 
-	// Page storage is keyed by the served FQDN at the current TLD.
-	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	// Page storage is keyed by the served FQDN — which is named under the page's
+	// OWN network TLD, not the global dns_tld. Getting this wrong is not cosmetic:
+	// `valid` drives pruneStalePageSymlinks below, so naming a fart-network page
+	// as blog.home here would both miss its real blog.fart directory AND prune the
+	// live symlink the ingress is serving from.
+	globalTLD := reconcileDNSTLD(cfg.SettingsMgr)
 	valid := make(map[string]struct{}, len(pages))
 	for _, page := range pages {
-		dir := pageHostname(pageDomain(page), tld)
+		dir := pageFQDN(cfg.NetworkMgr, page, globalTLD)
 		if dir == "" {
 			continue
 		}

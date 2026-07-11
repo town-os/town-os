@@ -139,6 +139,53 @@ func (m *Manager) resolutionMode() string {
 	return DefaultResolutionMode
 }
 
+// ResolutionMode returns the mode that would be written to rolodex.yml.
+func (m *Manager) ResolutionMode() string {
+	return m.resolutionMode()
+}
+
+// ValidResolutionMode reports whether mode is one rolodex understands.
+func ValidResolutionMode(mode string) bool {
+	return mode == ResolutionModeRecursive || mode == ResolutionModeForward
+}
+
+// SetResolutionMode changes the mode this manager renders into rolodex.yml.
+// Callers must follow with RewriteConfig + a unit restart for it to take
+// effect on the running server.
+func (m *Manager) SetResolutionMode(mode string) {
+	m.cfg.ResolutionMode = mode
+}
+
+// RewriteConfig writes rolodex.yml unconditionally, returning true when the
+// bytes actually changed. It is the runtime counterpart to WriteConfig, which
+// deliberately refuses to overwrite a config file newer than the
+// systemcontroller binary (it treats that as user-modified). That guard is
+// correct at boot but wrong for an operator-initiated change: the file written
+// at the previous boot is ALWAYS newer than the binary, so WriteConfig would
+// silently no-op and the new setting would never reach rolodex.
+func (m *Manager) RewriteConfig() (bool, error) {
+	if err := os.MkdirAll(m.cfg.DataDir, 0755); err != nil { //nolint:gosec // data dir must be accessible by container process
+		return false, fmt.Errorf("create data dir: %w", err)
+	}
+
+	config := rolodexConfig(m.dnsPort(), m.forwarders(), m.resolutionMode())
+	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
+
+	if existing, err := os.ReadFile(configPath); err == nil && string(existing) == config { //nolint:gosec // G304 -- configPath is built from the controlled DataDir
+		return false, nil
+	}
+
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
+		return false, fmt.Errorf("write config: %w", err)
+	}
+	return true, nil
+}
+
+// UnitName returns the systemd unit that supervises rolodex.
+func (m *Manager) UnitName() string {
+	return systemd.SystemServiceUnitName(m.key())
+}
+
 // forwarders returns the configured upstream forwarder addresses, defaulting
 // to DefaultForwarders.
 func (m *Manager) forwarders() []string {
