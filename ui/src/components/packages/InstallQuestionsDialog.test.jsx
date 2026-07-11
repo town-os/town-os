@@ -36,6 +36,7 @@ function renderDialog(overrides = {}) {
     responses: {},
     fieldErrors: {},
     clearedFields: {},
+    ...(overrides.dialog || {}),
   }
   render(
     <TooltipProvider>
@@ -105,6 +106,78 @@ describe('InstallQuestionsDialog network selector', () => {
     fireEvent.submit(select.closest('form'))
 
     expect(submittedNetwork).toBe('home')
+  })
+})
+
+describe('InstallQuestionsDialog boolean questions', () => {
+  // The form is read by name, so a boolean must submit "true"/"false" — never a
+  // checkbox's native "on", and never nothing at all when it is unchecked.
+  function renderBoolean({ question = {}, responses = {} } = {}) {
+    let submitted = null
+    const onSubmit = vi.fn((e) => {
+      e.preventDefault()
+      submitted = e.currentTarget.elements['open'].value
+    })
+    renderDialog({
+      onSubmit,
+      dialog: {
+        questions: { open: { query: 'Allow open registration?', type: 'boolean', ...question } },
+        responses,
+      },
+    })
+    return {
+      submit: async () => {
+        const box = await screen.findByRole('checkbox', { name: 'Allow open registration?' })
+        fireEvent.submit(box.closest('form'))
+        return submitted
+      },
+      checkbox: () => screen.getByRole('checkbox', { name: 'Allow open registration?' }),
+    }
+  }
+
+  it('renders a checkbox instead of a text input', async () => {
+    renderBoolean()
+    const box = await screen.findByRole('checkbox', { name: 'Allow open registration?' })
+    expect(box.checked).toBe(false)
+    // No free-text field for this question.
+    expect(screen.queryByRole('textbox', { name: 'Allow open registration?' })).toBeNull()
+  })
+
+  it('submits "false" when the box is left unchecked', async () => {
+    const { submit } = renderBoolean()
+    expect(await submit()).toBe('false')
+  })
+
+  it('submits "true" once the box is checked', async () => {
+    const { submit, checkbox } = renderBoolean()
+    await screen.findByRole('checkbox', { name: 'Allow open registration?' })
+    fireEvent.click(checkbox())
+    expect(await submit()).toBe('true')
+  })
+
+  it('starts checked when the package default is true', async () => {
+    const { submit, checkbox } = renderBoolean({ question: { default: 'true' } })
+    await screen.findByRole('checkbox', { name: 'Allow open registration?' })
+    expect(checkbox().checked).toBe(true)
+    expect(await submit()).toBe('true')
+  })
+
+  it('lets the user turn off a default-on option', async () => {
+    const { submit, checkbox } = renderBoolean({ question: { default: 'true' } })
+    await screen.findByRole('checkbox', { name: 'Allow open registration?' })
+    fireEvent.click(checkbox())
+    expect(await submit()).toBe('false')
+  })
+
+  it('reflects a cached response rather than a read-only value with a clear button', async () => {
+    const { submit, checkbox } = renderBoolean({
+      question: { default: 'true' },
+      responses: { open: 'false' },
+    })
+    await screen.findByRole('checkbox', { name: 'Allow open registration?' })
+    // The saved answer wins over the default, and stays directly editable.
+    expect(checkbox().checked).toBe(false)
+    expect(await submit()).toBe('false')
   })
 })
 

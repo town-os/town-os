@@ -1615,3 +1615,47 @@ func TestCompilePostUpdateTrimsWhitespace(t *testing.T) {
 		t.Fatalf("expected trimmed command, got %q", compiled.PostUpdate[1])
 	}
 }
+
+func TestCompileBooleanQuestion(t *testing.T) {
+	t.Parallel()
+
+	newInput := func() InputPackage {
+		return InputPackage{
+			Image:       InputPackageImage{URL: "debian:latest"},
+			Environment: map[string]string{"REGISTRATION_OPEN": "@open@"},
+			Questions: map[string]Question{
+				"open": {Query: "Allow open registration?", Type: Boolean},
+			},
+		}
+	}
+
+	for name, item := range map[string]struct {
+		response string
+		expected string
+	}{
+		"true":            {response: "true", expected: "true"},
+		"false":           {response: "false", expected: "false"},
+		"normalized_true": {response: "1", expected: "true"},
+		"normalized_case": {response: "FALSE", expected: "false"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			input := newInput()
+			compiled, err := input.Compile(Responses{"open": item.response})
+			if err != nil {
+				t.Fatalf("Compile(%q): %v", item.response, err)
+			}
+			if compiled.Environment["REGISTRATION_OPEN"] != item.expected {
+				t.Fatalf("expected REGISTRATION_OPEN=%q, got %q", item.expected, compiled.Environment["REGISTRATION_OPEN"])
+			}
+		})
+	}
+
+	t.Run("invalid response rejected", func(t *testing.T) {
+		t.Parallel()
+		input := newInput()
+		if _, err := input.Compile(Responses{"open": "maybe"}); err == nil {
+			t.Fatal("expected a non-boolean response to be rejected")
+		}
+	})
+}

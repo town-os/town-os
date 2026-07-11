@@ -12,6 +12,19 @@ import { Separator } from '@/components/ui/separator'
 
 export default function PackageInfoDialog({ dialog, onClose }) {
   const { t } = useI18n()
+
+  function answerFor(key, question) {
+    const value = dialog.responses?.[key]
+    if (question.type === 'secret') return t('package_info.secret_mask')
+    if (question.type === 'boolean') {
+      if (value === undefined || value === '') return '-'
+      return ['true', 't', '1'].includes(String(value).trim().toLowerCase())
+        ? t('package_info.boolean_true')
+        : t('package_info.boolean_false')
+    }
+    return value || '-'
+  }
+
   return (
     <Dialog
       open={dialog.open}
@@ -33,7 +46,7 @@ export default function PackageInfoDialog({ dialog, onClose }) {
                   <div key={key} className="flex justify-between gap-4 text-sm">
                     <span className="text-muted-foreground">{question.query}</span>
                     <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
-                      {question.type === 'secret' ? t('package_info.secret_mask') : (dialog.responses?.[key] || '-')}
+                      {answerFor(key, question)}
                     </code>
                   </div>
                 ))}

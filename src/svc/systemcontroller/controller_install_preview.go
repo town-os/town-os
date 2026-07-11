@@ -317,6 +317,22 @@ func (s *SystemControllerHandlers) autoGenerateResponses(responses *packages.Res
 				*responses = packages.Responses{}
 			}
 			(*responses)[name] = secret
+		case packages.Boolean:
+			// An unchecked checkbox submits nothing, and a dependency's
+			// boolean question may go unanswered by the parent. Both mean
+			// "false" unless the package declares a default.
+			value := "false"
+			if q.Default != "" {
+				b, err := strconv.ParseBool(strings.TrimSpace(q.Default))
+				if err != nil {
+					return fmt.Errorf("question %q: %w", name, err)
+				}
+				value = strconv.FormatBool(b)
+			}
+			if *responses == nil {
+				*responses = packages.Responses{}
+			}
+			(*responses)[name] = value
 		default:
 			if (resp == "auto" || resp == "") && q.Default != "" {
 				if *responses == nil {

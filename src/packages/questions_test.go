@@ -332,6 +332,70 @@ func TestOutput(t *testing.T) {
 			err:    true,
 		},
 
+		// Boolean tests. The UI submits the canonical "true"/"false", but a
+		// package's YAML default may use any spelling strconv.ParseBool takes;
+		// every accepted form normalizes to "true" or "false".
+		"boolean_true": {
+			output:   Boolean,
+			input:    "true",
+			expected: "true",
+		},
+		"boolean_false": {
+			output:   Boolean,
+			input:    "false",
+			expected: "false",
+		},
+		"boolean_one": {
+			output:   Boolean,
+			input:    "1",
+			expected: "true",
+		},
+		"boolean_zero": {
+			output:   Boolean,
+			input:    "0",
+			expected: "false",
+		},
+		"boolean_short_true": {
+			output:   Boolean,
+			input:    "t",
+			expected: "true",
+		},
+		"boolean_short_false": {
+			output:   Boolean,
+			input:    "f",
+			expected: "false",
+		},
+		"boolean_titlecase": {
+			output:   Boolean,
+			input:    "True",
+			expected: "true",
+		},
+		"boolean_uppercase": {
+			output:   Boolean,
+			input:    "FALSE",
+			expected: "false",
+		},
+		"boolean_whitespace": {
+			output:   Boolean,
+			input:    "  true  ",
+			expected: "true",
+		},
+		"boolean_yes_rejected": {
+			output: Boolean,
+			input:  "yes",
+			err:    true,
+		},
+		"boolean_empty": {
+			output: Boolean,
+			input:  "",
+			err:    true,
+		},
+		"boolean_garbage": {
+			output: Boolean,
+			input:  "maybe",
+			err:    true,
+		},
+
 		// Invalid output type
 		"invalid_type": {
 			output: OutputType("bogus"),

@@ -19,9 +19,29 @@ import {
 } from '@/components/ui/tooltip'
 import { X } from 'lucide-react'
 
+// Boolean answers travel as strings. Cached responses are already canonical,
+// but a package's YAML default may use any spelling Go's strconv.ParseBool
+// accepts, which is what the backend validates against.
+function parseBoolean(value) {
+  return ['true', 't', '1'].includes(String(value ?? '').trim().toLowerCase())
+}
+
 export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onClearField }) {
   const { t } = useI18n()
   const [networks, setNetworks] = useState([])
+  const [booleans, setBooleans] = useState({})
+
+  useEffect(() => {
+    if (!dialog.open) return
+    const initial = {}
+    for (const [key, question] of Object.entries(dialog.questions || {})) {
+      if (question.type !== 'boolean') continue
+      const cached = dialog.responses?.[key]
+      initial[key] = parseBoolean(cached === undefined || cached === '' ? question.default : cached)
+    }
+    setBooleans(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialog.open])
 
   useEffect(() => {
     if (!dialog.open) return
@@ -76,6 +96,31 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                   const cachedValue = dialog.responses?.[key]
                   const isCleared = dialog.clearedFields?.[key]
                   const hasCachedValue = !!cachedValue && !isCleared
+
+                  if (question.type === 'boolean') {
+                    const checked = !!booleans[key]
+                    // The checkbox itself carries no name; the hidden input is
+                    // the form field, so the submit handler reads "true"/"false"
+                    // rather than a checkbox's "on"/absent value.
+                    return (
+                      <div key={key} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            id={`${key}__toggle`}
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setBooleans((prev) => ({ ...prev, [key]: e.target.checked }))
+                            }
+                            className="h-4 w-4 rounded border border-input accent-primary"
+                          />
+                          <Label htmlFor={`${key}__toggle`}>{question.query}</Label>
+                        </div>
+                        <input type="hidden" name={key} value={checked ? 'true' : 'false'} />
+                        {fieldError && <p className="text-sm text-destructive">{fieldError}</p>}
+                      </div>
+                    )
+                  }
 
                   // Build placeholder: show default or type hint
                   let placeholder

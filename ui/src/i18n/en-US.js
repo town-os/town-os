@@ -617,6 +617,8 @@ const enUS = {
   'package_info.description': 'Installed package configuration and notes.',
   'package_info.configuration_title': 'Configuration',
   'package_info.secret_mask': '********',
+  'package_info.boolean_true': 'Yes',
+  'package_info.boolean_false': 'No',
   'package_info.no_config': 'No configuration for this package.',
   'package_info.close_btn': 'Close',
 

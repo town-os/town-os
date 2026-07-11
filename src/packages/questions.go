@@ -40,6 +40,7 @@ const (
 	Archive  OutputType = "archive"
 	Duration OutputType = "duration"
 	Secret   OutputType = "secret"
+	Boolean  OutputType = "boolean"
 )
 
 func (o OutputType) Output(answer string) (string, error) {
@@ -83,6 +84,15 @@ func (o OutputType) Output(answer string) (string, error) {
 			return "", ErrInvalidType
 		}
 		return answer, nil
+	case Boolean:
+		// strconv.ParseBool accepts exactly the spellings YAML 1.2 treats as
+		// booleans (plus 1/0/t/f); it is normalized to "true"/"false" so
+		// template substitution produces one canonical form.
+		b, err := strconv.ParseBool(strings.TrimSpace(answer))
+		if err != nil {
+			return "", err
+		}
+		return strconv.FormatBool(b), nil
 	case Duration:
 		d, err := ParseDuration(answer)
 		if err != nil {
