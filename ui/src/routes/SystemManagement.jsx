@@ -48,6 +48,7 @@ export default function SystemManagement() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [refreshDialog, setRefreshDialog] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [previousBootID, setPreviousBootID] = useState(null)
   const pollRef = useRef(null)
   const [sortKey] = useState('package_identifier')
   const [sortDirection] = useState('asc')
@@ -80,6 +81,18 @@ export default function SystemManagement() {
 
   const handleRefreshServices = useCallback(async () => {
     try {
+      // Capture the boot id of the process we are about to restart, BEFORE
+      // asking it to restart. Everything downstream — the stepper and the
+      // reload poll below — needs it to tell the outgoing controller from
+      // its successor: for the first second or so after it accepts the
+      // request the old process is still up and answers /status/ping 200
+      // and /boot-status 404 exactly like a freshly booted one would.
+      // Without the id both watchers latch onto the process that is about
+      // to die, declare the refresh finished, and never show the restart.
+      const before = await getClient().ping()
+      const prevBootID = before?.boot_id || null
+      setPreviousBootID(prevBootID)
+
       setRefreshing(true)
       await getClient().refreshSystemServices()
       toast.success(t('system.refresh_toast_started'))
@@ -91,7 +104,14 @@ export default function SystemManagement() {
       setTimeout(() => {
         pollRef.current = setInterval(async () => {
           try {
-            await getClient().ping()
+            const ping = await getClient().ping()
+            // A ping answered by the process we just asked to restart does not
+            // mean it is "back" — it means it has not gone down yet. Only a
+            // different incarnation counts. An answer carrying no id cannot
+            // prove it is the successor, so it waits too. When we never
+            // captured an id in the first place there is nothing to compare
+            // against, and we fall back to "any ping counts".
+            if (prevBootID && (!ping?.boot_id || ping.boot_id === prevBootID)) return
             const res = await fetch(window.location.href, {
               cache: 'no-store',
               credentials: 'same-origin',
@@ -496,7 +516,7 @@ export default function SystemManagement() {
           {refreshing ? (
             <div className="space-y-3 py-2">
               <p className="text-sm text-muted-foreground">{t('system.refresh_in_progress')}</p>
-              <BootStatusStepper baseURL={getClient().baseURL} />
+              <BootStatusStepper baseURL={getClient().baseURL} previousBootID={previousBootID} />
             </div>
           ) : (
             <>

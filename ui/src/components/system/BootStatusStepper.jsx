@@ -16,6 +16,14 @@ const MDNS_HINT_DELAY_MS = 60_000
  *   onError      — called if the stream reports an error frame.
  *   hostname     — hostname shown in the mDNS reconnect hint. Falls
  *                  back to window.location.hostname.
+ *   previousBootID — boot id captured before a restart was requested.
+ *                  Pass it when the stepper is watching a controller
+ *                  RESTART (Refresh Core Services) rather than a
+ *                  first boot: it stops the still-running outgoing
+ *                  process from being mistaken for a finished new one.
+ *                  Omit on the first-boot screen, where any booted
+ *                  controller answering is by definition the one we
+ *                  were waiting for.
  *
  * The stepper owns the subscription lifecycle: on mount it starts
  * observing; on unmount it aborts. It also surfaces a "reconnecting
@@ -25,7 +33,7 @@ const MDNS_HINT_DELAY_MS = 60_000
  * a stale address after a full hardware reboot — the only safe
  * remedy from JS is reminding the user to reload).
  */
-export default function BootStatusStepper({ baseURL, onComplete, onError, hostname }) {
+export default function BootStatusStepper({ baseURL, onComplete, onError, hostname, previousBootID = null }) {
   const { t } = useI18n()
   const [currentStep, setCurrentStep] = useState(null)
   const [refreshingName, setRefreshingName] = useState(null)
@@ -39,6 +47,7 @@ export default function BootStatusStepper({ baseURL, onComplete, onError, hostna
 
     observeBootStatus({
       baseURL,
+      previousBootID,
       signal: ctrl.signal,
       onEvent: (evt) => {
         if (evt.error) {
@@ -94,7 +103,7 @@ export default function BootStatusStepper({ baseURL, onComplete, onError, hostna
     // baseURL/callbacks are stable in practice; intentionally exclude
     // to avoid resubscribing on every parent re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseURL])
+  }, [baseURL, previousBootID])
 
   const currentIndex = currentStep ? bootSteps.indexOf(currentStep) : -1
 

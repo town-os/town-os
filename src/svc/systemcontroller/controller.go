@@ -54,6 +54,7 @@ type systemControllerBackend interface {
 	GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string)
 	GetSystemControllerImage() string
 	GetSystemControllerListenAddr() string
+	GetBootID() string
 	GetTLSCA() *townostls.CA
 }
 
@@ -280,6 +281,14 @@ type ServerConfig struct {
 	// HTTP server listens on (e.g. ":5309"). Used for display in the
 	// /system-services entry.
 	SystemControllerListenAddr string
+
+	// BootID identifies this process incarnation. main.go sets it from
+	// BootStatus.BootID() so the full router's /status/ping reports the
+	// same id the boot stub did. The refresh UI captures the id before
+	// asking for a restart and waits for it to change — without it, the
+	// still-alive outgoing process is indistinguishable from the booted
+	// incoming one (both answer ping 200 and 404 /boot-status).
+	BootID string
 
 	// TLSCA is the local X.509 root used to issue per-package leaf certs
 	// for HTTP-supplying packages. nil disables TLS termination and leaves

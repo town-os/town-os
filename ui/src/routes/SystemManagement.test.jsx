@@ -490,6 +490,62 @@ describe('SystemManagement', () => {
     expect(screen.queryByRole('button', { name: /Refresh All Services/ })).toBeNull()
   })
 
+  it('does not reload while the pre-restart controller is still answering', async () => {
+    // The process being refreshed stays up for about a second after it
+    // accepts the request, and its ping looks exactly like a healthy one.
+    // Reloading on it would tear the dialog down before the restart even
+    // begins — the user would never see a single stage. Only a ping from a
+    // DIFFERENT incarnation (new boot_id) counts as "back".
+    const reloadSpy = vi.fn()
+    const origLocation = window.location
+    delete window.location
+    window.location = { ...origLocation, reload: reloadSpy, href: 'http://localhost/' }
+
+    const fetchSpy = vi.fn().mockImplementation(async (url) => {
+      const u = typeof url === 'string' ? url : url?.url ?? ''
+      if (u.includes('/boot-status')) throw new Error('boot-status unavailable in test')
+      if (u === 'http://localhost/') return { ok: true }
+      throw new Error('unexpected fetch URL: ' + u)
+    })
+    const origFetch = globalThis.fetch
+    globalThis.fetch = fetchSpy
+
+    // Every ping — the pre-refresh capture and every poll tick — is answered
+    // by the same (outgoing) process.
+    mockPing.mockResolvedValue({ username: 'admin', boot_id: 'gen-1' })
+
+    try {
+      renderSystemManagement()
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Refresh Core Services/ })).toBeTruthy()
+      })
+      fireEvent.click(screen.getByRole('button', { name: /Refresh Core Services/ }))
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Refresh All Services/ })).toBeTruthy()
+      })
+
+      vi.useFakeTimers()
+      fireEvent.click(screen.getByRole('button', { name: /Refresh All Services/ }))
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+      // Several poll ticks against the same generation: still no reload.
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      expect(reloadSpy).not.toHaveBeenCalled()
+
+      // The successor comes up: now the reload fires.
+      mockPing.mockResolvedValue({ username: 'admin', boot_id: 'gen-2' })
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+      globalThis.fetch = origFetch
+      window.location = origLocation
+    }
+  })
+
   it('reloads the browser only after both systemcontroller and UI are back', async () => {
     // Simulate: systemcontroller comes back first (ping succeeds) but UI
     // container is still restarting (fetch fails), then UI comes back.

@@ -16,6 +16,11 @@ type bootPingResponse struct {
 	Step    string `json:"step,omitempty"`
 	Done    bool   `json:"done,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// BootID identifies this process incarnation. The full router's ping
+	// reports the same field, so a refresh client can compare it against
+	// the id it captured pre-refresh to tell the old process from the new
+	// one. See BootStatus.id.
+	BootID string `json:"boot_id,omitempty"`
 }
 
 // NewBootHandler returns the early HTTP handler that backs :5309 until
@@ -49,7 +54,7 @@ func NewBootHandler(bs *BootStatus) http.Handler {
 			status = http.StatusOK
 		}
 		w.WriteHeader(status)
-		body := bootPingResponse{Booting: !done, Step: step, Done: done, Error: errStr}
+		body := bootPingResponse{Booting: !done, Step: step, Done: done, Error: errStr, BootID: bs.BootID()}
 		if err := json.NewEncoder(w).Encode(body); err != nil {
 			return
 		}

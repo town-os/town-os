@@ -45,6 +45,7 @@ export async function observeBootStatus({
   onDisconnect,
   onReconnect,
   signal,
+  previousBootID = null,
   maxEnvelopeMs = 5 * 60 * 1000,
   baseBackoffMs = 2000,
   maxBackoffMs = 30000,
@@ -75,14 +76,36 @@ export async function observeBootStatus({
       })
 
       if (resp.status === 404) {
-        // Startup finished: once boot completes the systemcontroller swaps
-        // its root handler from the boot-status stub to the full router,
-        // which has no /boot-status route and returns 404. So a 404 is the
-        // *completion* signal (the early handler always serves /boot-status
-        // while it is active and never 404s it) — emit done and resolve
-        // instead of reconnecting forever on the provisioning screen.
-        if (onEvent) onEvent({ done: true })
-        return
+        // A 404 means we reached a *fully booted* controller: once boot
+        // completes the systemcontroller swaps its root handler from the
+        // boot-status stub (which always serves this route) to the full
+        // Echo router (which has no such route).
+        //
+        // Which booted controller, though? On the first-boot screen there
+        // is only one answer — boot finished, we're done. But during a
+        // Refresh Core Services the OLD process is still up and serving
+        // for about a second after it accepts the request, and it 404s
+        // this route exactly like a finished new process would. Treating
+        // that as completion is what made the stepper flash straight to
+        // "ready" and then sit there: it had latched onto the outgoing
+        // process and never watched the incoming one boot at all.
+        //
+        // So when the caller hands us the boot id it captured before
+        // asking for the restart, a 404 only means "done" if the
+        // controller now answering reports a DIFFERENT id (the successor
+        // booted so fast we never caught its stub). A matching id is the
+        // pre-restart process still on its feet — reconnect and wait for
+        // it to go down.
+        if (!previousBootID) {
+          if (onEvent) onEvent({ done: true })
+          return
+        }
+        const currentBootID = await readBootID(fetchImpl, trimmedBase, signal, nowImpl)
+        if (currentBootID && currentBootID !== previousBootID) {
+          if (onEvent) onEvent({ done: true })
+          return
+        }
+        throw new Error('boot-status 404 from the pre-restart controller')
       }
 
       if (!resp.ok || !resp.body) {
@@ -134,5 +157,33 @@ export async function observeBootStatus({
 
     await sleepImpl(backoff, signal)
     backoff = Math.min(backoff * 2, maxBackoffMs)
+  }
+}
+
+/**
+ * Read the `boot_id` the controller currently answering /status/ping
+ * reports, or null if it cannot be read.
+ *
+ * Both the boot stub and the full router carry the field, so this works
+ * on either side of the handler swap. The stub answers 503 while booting
+ * (deliberately, so readiness probes don't call a half-booted controller
+ * ready), so the status code is ignored and only the body is parsed.
+ *
+ * Returns null — never throws — when the controller is unreachable, the
+ * body isn't JSON, or the field is absent (an older controller). A null
+ * is treated by the caller as "cannot prove the successor is up", which
+ * keeps it waiting rather than falsely reporting the refresh complete.
+ */
+export async function readBootID(fetchImpl, baseURL, signal, nowImpl = () => Date.now()) {
+  try {
+    const resp = await fetchImpl(`${baseURL}/status/ping?t=${nowImpl()}`, {
+      signal,
+      cache: 'no-store',
+      credentials: 'same-origin',
+    })
+    const body = await resp.json()
+    return typeof body?.boot_id === 'string' && body.boot_id ? body.boot_id : null
+  } catch {
+    return null
   }
 }

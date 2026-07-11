@@ -2,6 +2,8 @@ package systemcontroller
 
 import (
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 // BootStatus tracks the current stage of systemcontroller startup and
@@ -15,6 +17,16 @@ import (
 // dropped and closed, so the boot sequence is never stalled by a stuck
 // consumer.
 type BootStatus struct {
+	// id identifies this process incarnation. It is regenerated on every
+	// NewBootStatus (i.e. every systemcontroller start) and is reported
+	// by both the boot stub's /status/ping and the full router's
+	// /status/ping. A client that captured the id before asking for a
+	// refresh can therefore tell "the old process is still answering"
+	// (same id) from "the new process is up" (different id) — the two are
+	// otherwise indistinguishable, since both serve a 200 ping and 404
+	// the /boot-status route once booted.
+	id string
+
 	mu      sync.Mutex
 	step    string
 	done    bool
@@ -33,8 +45,15 @@ const bootSubscriberBufSize = 64
 // NewBootStatus returns a BootStatus with no subscribers and an empty
 // history. The zero value is not valid because of the subs map.
 func NewBootStatus() *BootStatus {
-	return &BootStatus{subs: map[chan progressEvent]struct{}{}}
+	return &BootStatus{
+		id:   uuid.NewString(),
+		subs: map[chan progressEvent]struct{}{},
+	}
 }
+
+// BootID returns the identifier for this process incarnation. It is
+// immutable for the life of the BootStatus, so no lock is taken.
+func (b *BootStatus) BootID() string { return b.id }
 
 // Step records a new step name as the current boot stage and broadcasts a
 // progressEvent{Step} to every active subscriber.

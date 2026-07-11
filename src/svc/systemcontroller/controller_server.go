@@ -208,6 +208,7 @@ func (s *serverBase) GetResolvedConfigurator() func(ctx context.Context, tld, lo
 }
 func (s *serverBase) GetSystemControllerImage() string      { return s.SystemControllerImage }
 func (s *serverBase) GetSystemControllerListenAddr() string { return s.SystemControllerListenAddr }
+func (s *serverBase) GetBootID() string                     { return s.BootID }
 func (s *serverBase) GetTLSCA() *townostls.CA               { return s.TLSCA }
 func (s *serverBase) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
 	if s.ImageExtractFunc != nil {

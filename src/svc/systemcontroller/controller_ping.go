@@ -16,6 +16,13 @@ import (
 type PingMinimalResponse struct {
 	Status     string `json:"status"`
 	NeedsSetup bool   `json:"needs_setup,omitempty"`
+	// BootID is carried even in the minimal response: the refresh flow
+	// polls ping across a controller restart, and during that window the
+	// browser may briefly be unauthenticated (the boot stub answers no
+	// tokens at all). Without it a client cannot distinguish the outgoing
+	// process from the incoming one. It is a random per-process UUID and
+	// discloses nothing about the system.
+	BootID string `json:"boot_id,omitempty"`
 }
 
 type PingResponse struct {
@@ -41,8 +48,11 @@ type PingResponse struct {
 	RepositoryErrors   map[string]string  `json:"repository_errors,omitempty"`
 	TimezoneOffset     int                `json:"timezone_offset"`
 	Locale             string             `json:"locale"`
-	PagesEnabled       bool               `json:"pages_enabled"`
 	ProtonEnabled      bool               `json:"proton_enabled"`
+	// BootID identifies this process incarnation; see BootStatus.id. The
+	// boot stub's /status/ping reports the same field, so the refresh UI
+	// can follow a restart across the stub → full-router handoff.
+	BootID string `json:"boot_id,omitempty"`
 }
 
 type UnitCounts struct {
@@ -52,7 +62,7 @@ type UnitCounts struct {
 }
 
 func (s *SystemControllerHandlers) ping(c *echo.Context) error {
-	resp := PingResponse{Status: "ok"}
+	resp := PingResponse{Status: "ok", BootID: s.Controller.GetBootID()}
 
 	// List accounts once; used for NeedsSetup, the total count, and the
 	// admin count. Previously this handler called am.List() twice.
@@ -87,7 +97,11 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		}
 		// Non-localhost requests without a valid token get the minimal response.
 		if resp.Username == "" && !isLocalhost(c.Request()) {
-			return c.JSON(200, PingMinimalResponse{Status: resp.Status, NeedsSetup: resp.NeedsSetup})
+			return c.JSON(200, PingMinimalResponse{
+				Status:     resp.Status,
+				NeedsSetup: resp.NeedsSetup,
+				BootID:     resp.BootID,
+			})
 		}
 	}
 
@@ -230,7 +244,6 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp.InternalIP = s.Controller.GetInternalIP()
 	resp.TimezoneOffset = packages.TimezoneOffset()
 	resp.Locale = s.getLocale()
-	resp.PagesEnabled = s.Controller.GetPagesManager() != nil
 	resp.ProtonEnabled = packages.ProtonEnabled()
 
 	// Compute upgrade info. Reuse the installed list gathered above to

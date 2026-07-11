@@ -208,3 +208,134 @@ describe('observeBootStatus', () => {
     expect(got).toEqual([{ step: 'ok' }, { done: true }])
   })
 })
+
+// A restart (Refresh Core Services) is the case where a bare 404 lies: the
+// process being restarted stays up and serving for a moment after it accepts
+// the request, and a booted controller 404s /boot-status whether it is the
+// one on its way out or its successor. previousBootID is what tells them
+// apart.
+describe('observeBootStatus across a controller restart', () => {
+  function pingResponse(bootID) {
+    return { ok: true, status: 200, json: async () => ({ status: 'ok', boot_id: bootID }) }
+  }
+
+  it('does not treat the pre-restart controller 404 as completion', async () => {
+    // Every /boot-status probe 404s and every ping still reports the id we
+    // captured before requesting the restart: the old process is alive. The
+    // observer must keep waiting, not report the refresh finished.
+    const events = []
+    const onDisconnect = vi.fn()
+    const fetchImpl = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/status/ping')) return pingResponse('gen-1')
+      return { ok: false, status: 404, body: null }
+    })
+
+    await observeBootStatus({
+      baseURL: 'http://h',
+      previousBootID: 'gen-1',
+      onEvent: (e) => events.push(e),
+      onDisconnect,
+      fetchImpl,
+      sleepImpl: () => Promise.resolve(),
+      // Two boot-status probes' worth of backoff, then the envelope expires
+      // and the loop gives up — proving it never emitted done.
+      maxEnvelopeMs: 5000,
+      baseBackoffMs: 2000,
+    })
+
+    expect(events).toEqual([])
+    expect(onDisconnect).toHaveBeenCalled()
+  })
+
+  it('reports completion once a 404 comes from a different incarnation', async () => {
+    // The successor booted so fast we never caught its stub streaming; the
+    // 404 now comes from a controller reporting a new id, so the restart is
+    // genuinely done.
+    const events = []
+    const fetchImpl = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/status/ping')) return pingResponse('gen-2')
+      return { ok: false, status: 404, body: null }
+    })
+
+    await observeBootStatus({
+      baseURL: 'http://h',
+      previousBootID: 'gen-1',
+      onEvent: (e) => events.push(e),
+      fetchImpl,
+      sleepImpl: () => Promise.resolve(),
+    })
+
+    expect(events).toEqual([{ done: true }])
+  })
+
+  it('streams the successor\'s stages once its boot stub answers', async () => {
+    // First probe hits the outgoing process (404, same id). It then goes
+    // down and the new one comes up serving its boot stub: the stepper gets
+    // the restart's real stages, which is the whole point of the dialog.
+    const events = []
+    let probes = 0
+    const fetchImpl = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/status/ping')) return pingResponse('gen-1')
+      probes++
+      if (probes === 1) return { ok: false, status: 404, body: null }
+      return okResponse([{ step: 'open_db' }, { step: 'reconcile' }, { done: true }])
+    })
+
+    await observeBootStatus({
+      baseURL: 'http://h',
+      previousBootID: 'gen-1',
+      onEvent: (e) => events.push(e),
+      fetchImpl,
+      sleepImpl: () => Promise.resolve(),
+    })
+
+    expect(events).toEqual([
+      { step: 'open_db' },
+      { step: 'reconcile' },
+      { done: true },
+    ])
+  })
+
+  it('keeps waiting when the controller reports no boot id at all', async () => {
+    // An older controller that predates boot_id cannot prove it is the
+    // successor. Waiting (and eventually timing out) is the safe failure:
+    // reporting a refresh complete that never happened is not.
+    const events = []
+    const fetchImpl = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/status/ping')) {
+        return { ok: true, status: 200, json: async () => ({ status: 'ok' }) }
+      }
+      return { ok: false, status: 404, body: null }
+    })
+
+    await observeBootStatus({
+      baseURL: 'http://h',
+      previousBootID: 'gen-1',
+      onEvent: (e) => events.push(e),
+      fetchImpl,
+      sleepImpl: () => Promise.resolve(),
+      maxEnvelopeMs: 5000,
+      baseBackoffMs: 2000,
+    })
+
+    expect(events).toEqual([])
+  })
+
+  it('still treats a bare 404 as completion on the first-boot screen', async () => {
+    // No previousBootID means no restart is being watched: any booted
+    // controller answering is the one we were waiting for. Unchanged.
+    const events = []
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 404, body: null })
+
+    await observeBootStatus({
+      baseURL: 'http://h',
+      onEvent: (e) => events.push(e),
+      fetchImpl,
+      sleepImpl: () => Promise.resolve(),
+    })
+
+    expect(events).toEqual([{ done: true }])
+    // No ping probe: without a previous id there is nothing to compare.
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})

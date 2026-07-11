@@ -29,7 +29,7 @@ const NAV_KEYS = [
   { to: '/dashboard/users', key: 'nav.users', icon: Users },
   { to: '/dashboard/system', key: 'nav.services', icon: Cog },
   { to: '/dashboard/packages', key: 'nav.packages', icon: Package },
-  { to: '/dashboard/pages', key: 'nav.pages', icon: Globe, pagesOnly: true },
+  { to: '/dashboard/pages', key: 'nav.pages', icon: Globe },
   { to: '/dashboard/dns', key: 'nav.dns', icon: Wifi },
   { to: '/dashboard/networks', key: 'nav.networks', icon: Network, adminOnly: true },
   { to: '/dashboard/monitoring', key: 'nav.monitoring', icon: Activity },
@@ -65,11 +65,11 @@ export default function Dashboard({ children }) {
           </Link>
         </div>
         <nav className="flex flex-col gap-1 px-3 py-2">
-          {NAV_KEYS.filter(
-            (item) =>
-              (!item.adminOnly || account?.admin) &&
-              (!item.pagesOnly || ping?.pages_enabled),
-          ).map((navItem) => {
+          {/* Pages is unconditional: the pages subsystem is always
+              initialized at boot (there is no feature gate), so hiding
+              the entry behind a ping field only made it pop in a beat
+              after the rest of the sidebar had already rendered. */}
+          {NAV_KEYS.filter((item) => !item.adminOnly || account?.admin).map((navItem) => {
             const NavIcon = navItem.icon
             const active = location.pathname === navItem.to
             return (

@@ -29,7 +29,7 @@ function renderDashboard() {
   )
 }
 
-describe('Dashboard sidebar pages gating', () => {
+describe('Dashboard sidebar', () => {
   beforeEach(() => {
     mockPingResponse = {
       status: 'ok',
@@ -37,24 +37,25 @@ describe('Dashboard sidebar pages gating', () => {
       admins: 1,
       needs_setup: false,
       locale: 'en-US',
-      pages_enabled: false,
     }
   })
 
-  it('hides the Pages nav entry when pages_enabled is false', async () => {
+  // The pages subsystem is always initialized at boot — there is no feature
+  // gate — so the Pages entry must render with the rest of the sidebar on the
+  // very first paint. It used to be gated on a ping field, which made it pop
+  // in a beat late (and never at all if the ping failed).
+  it('renders the Pages nav entry immediately, before any ping resolves', () => {
+    renderDashboard()
+    expect(screen.getByText('Pages')).toBeTruthy()
+  })
+
+  it('keeps the Pages nav entry when the ping fails', async () => {
+    mockPingResponse = { status: 'error' }
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('Services')).toBeTruthy()
     })
-    expect(screen.queryByText('Pages')).toBeNull()
-  })
-
-  it('shows the Pages nav entry when pages_enabled is true', async () => {
-    mockPingResponse = { ...mockPingResponse, pages_enabled: true }
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByText('Pages')).toBeTruthy()
-    })
+    expect(screen.getByText('Pages')).toBeTruthy()
   })
 
   // Regression: without `min-w-0` on the right-pane flex column, a wide

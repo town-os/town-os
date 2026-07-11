@@ -678,6 +678,10 @@ func run() (err error) {
 		ResolvedConfigurator:       rolodex.ConfigureResolvedRouting,
 		SystemControllerImage:      "quay.io/town/town:" + tag,
 		SystemControllerListenAddr: *listenAddr,
+		// Same id the boot stub reported on /status/ping, so a refresh
+		// client watching across the restart sees one continuous identity
+		// per process and can tell this incarnation from its predecessor.
+		BootID: bs.BootID(),
 	})
 
 	// Atomically swap the root handler from the boot-status stub to the

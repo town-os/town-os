@@ -414,34 +414,19 @@ func TestHTTPPingIncludesInternalIP(t *testing.T) {
 	_ = ping.InternalIP
 }
 
-func TestHTTPPingPagesEnabledFalseWhenUnset(t *testing.T) {
-	mock := storage.InitBtrFSMock()
-	rr := emptyRepoRoot(t)
-	ts := InitTestServer(ServerConfig{Storage: mock, RepositoryRoot: rr})
-	t.Cleanup(ts.Close)
-
-	c, err := ts.Client()
-	if err != nil {
-		t.Fatalf("ts.Client: %v", err)
-	}
-
-	ping, err := c.Ping(context.TODO())
-	if err != nil {
-		t.Fatalf("Ping: %v", err)
-	}
-
-	if ping.PagesEnabled {
-		t.Fatal("expected pages_enabled=false when PagesMgr is nil")
-	}
-}
-
-func TestHTTPPingPagesEnabledTrueWhenSet(t *testing.T) {
+// TestHTTPPingReportsBootID pins the field the Refresh Core Services flow
+// depends on: the full router's ping must report the process's boot id, the
+// same value the boot stub reported before the handler swap. Without it a
+// refresh client cannot tell the controller it asked to restart from the
+// controller that came back, because both answer ping 200 and 404
+// /boot-status.
+func TestHTTPPingReportsBootID(t *testing.T) {
 	mock := storage.InitBtrFSMock()
 	rr := emptyRepoRoot(t)
 	ts := InitTestServer(ServerConfig{
 		Storage:        mock,
 		RepositoryRoot: rr,
-		PagesMgr:       account.InitMockPagesManager(),
+		BootID:         "boot-abc",
 	})
 	t.Cleanup(ts.Close)
 
@@ -455,8 +440,8 @@ func TestHTTPPingPagesEnabledTrueWhenSet(t *testing.T) {
 		t.Fatalf("Ping: %v", err)
 	}
 
-	if !ping.PagesEnabled {
-		t.Fatal("expected pages_enabled=true when PagesMgr is set")
+	if ping.BootID != "boot-abc" {
+		t.Fatalf("ping boot_id = %q, want %q", ping.BootID, "boot-abc")
 	}
 }
 

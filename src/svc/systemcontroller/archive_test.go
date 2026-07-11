@@ -177,6 +177,7 @@ func (b *archiveTestBackend) GetResolvedConfigurator() func(ctx context.Context,
 }
 func (b *archiveTestBackend) GetSystemControllerImage() string { return "" }
 func (b *archiveTestBackend) GetSystemControllerListenAddr() string { return "" }
+func (b *archiveTestBackend) GetBootID() string                     { return "" }
 func (b *archiveTestBackend) GetTLSCA() *townostls.CA               { return nil }
 func (b *archiveTestBackend) GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error {
 	return reconcileExtractFromImage
