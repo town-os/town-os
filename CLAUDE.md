@@ -279,6 +279,11 @@ Questions prompt the user during package installation. Each question has a `quer
 - **archive** -- archive file name.
 - **duration** -- time durations (`s`, `m`, `h`, `d` suffixes).
 - **secret** -- auto-generates a cryptographically secure value when the response is empty or `"auto"`. Generates 32 bytes via `crypto/rand`, returned as a 64-character hex string (256 bits of entropy). Suitable for passwords, encryption key salts, and other secret values. Users can override by providing an explicit response.
+- **boolean** -- a yes/no option, rendered as a **checkbox** in the install questions dialog rather than a text input. Validation is `strconv.ParseBool`, which accepts exactly the spellings yaml.v3 (YAML 1.2) treats as booleans plus `1`/`0`/`t`/`f`, case-insensitively; `yes`/`no` are **not** accepted. The answer is normalized to the string `"true"` or `"false"`, so `@variable@` substitution and file templates (`{{.Responses.key}}`) always see one canonical form and can be tested with `{{if eq .Responses.key "true"}}`.
+
+  An unchecked checkbox submits nothing, and a dependency's boolean question often goes unanswered by its parent — both would otherwise trip `Compile`'s empty-response validation. `autoGenerateResponses` (`controller_install_preview.go`) therefore resolves a missing or empty boolean to the question's `default` (normalized), or to `"false"` when no default is declared. An explicit `"false"` from the form always wins over a `default: "true"`, so a default-on option can actually be turned off; a `default` that `strconv.ParseBool` cannot parse is a package bug and fails the install rather than silently installing with the option off.
+
+  The package info dialog renders saved boolean answers as Yes/No instead of the raw `"true"`/`"false"` string, and boolean questions bypass the cached-value/clear-button path in the install dialog — a saved answer simply pre-checks the box and stays directly editable.
 
 ### Compilation
 
