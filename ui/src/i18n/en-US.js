@@ -247,6 +247,10 @@ const enUS = {
   'system.refresh_toast_started': 'Refreshing core services...',
   'system.refresh_toast_complete': 'System controller is back online.',
   'system.refresh_in_progress': 'Refreshing services, waiting for the system controller to restart...',
+  'system.refresh_waiting_ui': 'System controller is back. Waiting for the web UI to finish restarting...',
+  'system.refresh_complete': 'Refresh complete. All core services are back online.',
+  'system.refresh_session_ended': 'The system controller restarted with a new signing key, so your session ended. Reload to sign in again.',
+  'system.refresh_reload_btn': 'Reload',
   // Boot-status stepper — surfaced while the systemcontroller is
   // coming back up during refresh or any boot. Step keys match the
   // values bs.Step() publishes in src/svc/systemcontroller/cmd/systemcontroller/main.go.

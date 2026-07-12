@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import getClient from '@/lib/client-instance.js'
 import { useRequireAuth, usePolling } from '@/lib/hooks.js'
+import { suspendSessionChecks } from '@/lib/session-guard.js'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import JournalViewer from '@/components/JournalViewer.jsx'
 import PackageServiceTree from '@/components/system/PackageServiceTree.jsx'
@@ -39,6 +40,37 @@ import {
 } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 
+const UI_PROBE_INTERVAL_MS = 2000
+const UI_PROBE_TIMEOUT_MS = 120000
+
+/**
+ * Poll the current document until the UI container serves it again, or the
+ * signal aborts, or UI_PROBE_TIMEOUT_MS elapses. Resolves true when the
+ * page is fetchable, false on timeout.
+ * @param {AbortSignal} signal
+ * @returns {Promise<boolean>}
+ */
+async function waitForUIDocument(signal) {
+  const deadline = Date.now() + UI_PROBE_TIMEOUT_MS
+  for (;;) {
+    if (signal.aborted) return false
+    try {
+      const res = await fetch(window.location.href, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+      })
+      if (res.ok) return true
+    } catch {
+      // UI container still restarting.
+    }
+    if (signal.aborted || Date.now() >= deadline) return false
+    await new Promise((resolve) => {
+      const id = setTimeout(resolve, UI_PROBE_INTERVAL_MS)
+      signal.addEventListener('abort', () => { clearTimeout(id); resolve() }, { once: true })
+    })
+  }
+}
+
 export default function SystemManagement() {
   const { t } = useI18n()
   const account = useRequireAuth()
@@ -48,8 +80,11 @@ export default function SystemManagement() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [refreshDialog, setRefreshDialog] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [controllerBack, setControllerBack] = useState(false)
+  const [uiBack, setUiBack] = useState(false)
   const [previousBootID, setPreviousBootID] = useState(null)
-  const pollRef = useRef(null)
+  const releaseSessionChecksRef = useRef(null)
+  const uiProbeRef = useRef(null)
   const [sortKey] = useState('package_identifier')
   const [sortDirection] = useState('asc')
   const [journalUnit, setJournalUnit] = useState(null)
@@ -75,64 +110,81 @@ export default function SystemManagement() {
 
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
+      if (uiProbeRef.current) uiProbeRef.current.abort()
+      if (releaseSessionChecksRef.current) releaseSessionChecksRef.current()
     }
   }, [])
 
   const handleRefreshServices = useCallback(async () => {
     try {
       // Capture the boot id of the process we are about to restart, BEFORE
-      // asking it to restart. Everything downstream — the stepper and the
-      // reload poll below — needs it to tell the outgoing controller from
-      // its successor: for the first second or so after it accepts the
-      // request the old process is still up and answers /status/ping 200
-      // and /boot-status 404 exactly like a freshly booted one would.
-      // Without the id both watchers latch onto the process that is about
-      // to die, declare the refresh finished, and never show the restart.
+      // asking it to restart. The stepper needs it to tell the outgoing
+      // controller from its successor: for the first second or so after it
+      // accepts the request the old process is still up and answers
+      // /status/ping 200 and /boot-status 404 exactly like a freshly booted
+      // one would. Without the id the watcher latches onto the process that
+      // is about to die, declares the refresh finished, and never shows the
+      // restart.
       const before = await getClient().ping()
-      const prevBootID = before?.boot_id || null
-      setPreviousBootID(prevBootID)
+      setPreviousBootID(before?.boot_id || null)
 
+      // Stand the session poll down for the whole restart. The successor
+      // controller generates a new JWT signing key and clears the sessions
+      // table, so this token dies with the old process — and the poll's
+      // next tick would read that as "session expired", navigate to the
+      // login page and unmount this dialog mid-update. Nothing here needs
+      // an authenticated call: the stepper watches /boot-status, which is
+      // public. The suspension is released when the dialog is done.
+      if (!releaseSessionChecksRef.current) {
+        releaseSessionChecksRef.current = suspendSessionChecks()
+      }
+
+      setControllerBack(false)
+      setUiBack(false)
       setRefreshing(true)
       await getClient().refreshSystemServices()
       toast.success(t('system.refresh_toast_started'))
-      // After 3s delay, start polling ping to detect when systemcontroller
-      // returns AND the UI container is serving its document again. The UI
-      // refresh restarts every system service including the UI (Caddy on
-      // port 80), so reloading on systemcontroller ping alone can hit a
-      // UI container that's still restarting. Poll both before reloading.
-      setTimeout(() => {
-        pollRef.current = setInterval(async () => {
-          try {
-            const ping = await getClient().ping()
-            // A ping answered by the process we just asked to restart does not
-            // mean it is "back" — it means it has not gone down yet. Only a
-            // different incarnation counts. An answer carrying no id cannot
-            // prove it is the successor, so it waits too. When we never
-            // captured an id in the first place there is nothing to compare
-            // against, and we fall back to "any ping counts".
-            if (prevBootID && (!ping?.boot_id || ping.boot_id === prevBootID)) return
-            const res = await fetch(window.location.href, {
-              cache: 'no-store',
-              credentials: 'same-origin',
-            })
-            if (!res.ok) return
-            clearInterval(pollRef.current)
-            pollRef.current = null
-            setRefreshing(false)
-            setRefreshDialog(false)
-            toast.success(t('system.refresh_toast_complete'))
-            window.location.reload()
-          } catch {
-            // Controller or UI not back yet.
-          }
-        }, 2000)
-      }, 3000)
     } catch (err) {
       setRefreshing(false)
+      if (releaseSessionChecksRef.current) {
+        releaseSessionChecksRef.current()
+        releaseSessionChecksRef.current = null
+      }
       toast.error(err.detail || err.message)
     }
   }, [t])
+
+  // The stepper's stream reaching `done` means the SUCCESSOR controller
+  // finished booting. The refresh restarts every system service including
+  // the UI container (Caddy on port 80), so the document that served this
+  // page may still be down — probe it before offering the reload, or the
+  // operator clicks Reload straight into a connection error.
+  const handleRefreshComplete = useCallback(() => {
+    setControllerBack(true)
+    toast.success(t('system.refresh_toast_complete'))
+
+    const ctrl = new AbortController()
+    uiProbeRef.current = ctrl
+    void waitForUIDocument(ctrl.signal).then((ok) => {
+      if (ctrl.signal.aborted) return
+      setUiBack(ok)
+    })
+  }, [t])
+
+  const closeRefreshDialog = useCallback(() => {
+    if (uiProbeRef.current) {
+      uiProbeRef.current.abort()
+      uiProbeRef.current = null
+    }
+    if (releaseSessionChecksRef.current) {
+      releaseSessionChecksRef.current()
+      releaseSessionChecksRef.current = null
+    }
+    setRefreshDialog(false)
+    setRefreshing(false)
+    setControllerBack(false)
+    setUiBack(false)
+  }, [])
 
   const effectiveSearch = searchTerm
 
@@ -507,16 +559,48 @@ export default function SystemManagement() {
       </ConfirmDialog>
 
       {/* Refresh Core Services Dialog */}
-      <Dialog open={refreshDialog} onOpenChange={(v) => !refreshing && !v && setRefreshDialog(false)}>
-        <DialogContent onPointerDownOutside={refreshing ? (e) => e.preventDefault() : undefined}>
+      <Dialog
+        open={refreshDialog}
+        onOpenChange={(v) => {
+          if (v) return
+          // While the successor is still booting the dialog IS the status
+          // display — closing it would abandon the only view of the update.
+          // Once the controller is back the operator may dismiss it, even if
+          // the UI container is still coming up.
+          if (refreshing && !controllerBack) return
+          closeRefreshDialog()
+        }}
+      >
+        <DialogContent onPointerDownOutside={refreshing && !controllerBack ? (e) => e.preventDefault() : undefined}>
           <DialogHeader>
             <DialogTitle>{t('system.refresh_dialog_title')}</DialogTitle>
             <DialogDescription className="sr-only">{t('system.refresh_dialog_title')}</DialogDescription>
           </DialogHeader>
           {refreshing ? (
             <div className="space-y-3 py-2">
-              <p className="text-sm text-muted-foreground">{t('system.refresh_in_progress')}</p>
-              <BootStatusStepper baseURL={getClient().baseURL} previousBootID={previousBootID} />
+              <p className="text-sm text-muted-foreground">
+                {uiBack
+                  ? t('system.refresh_complete')
+                  : controllerBack
+                    ? t('system.refresh_waiting_ui')
+                    : t('system.refresh_in_progress')}
+              </p>
+              <BootStatusStepper
+                baseURL={getClient().baseURL}
+                previousBootID={previousBootID}
+                onComplete={handleRefreshComplete}
+              />
+              {uiBack && (
+                <div className="space-y-3 pt-1" data-testid="refresh-complete">
+                  <p className="text-sm text-muted-foreground">{t('system.refresh_session_ended')}</p>
+                  <div className="flex justify-end">
+                    <Button onClick={() => window.location.reload()}>
+                      <RefreshCw className="h-4 w-4 mr-1" />
+                      {t('system.refresh_reload_btn')}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <>

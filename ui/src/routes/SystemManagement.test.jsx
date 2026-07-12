@@ -2,6 +2,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import SystemManagement from './SystemManagement.jsx'
+import { isSessionCheckSuspended, resetSessionChecks } from '@/lib/session-guard.js'
+
+/**
+ * Build a fake /boot-status SSE response carrying the given frames.
+ * @param {Array<object>} frames
+ */
+function bootStatusStream(frames) {
+  const encoder = new TextEncoder()
+  return {
+    ok: true,
+    status: 200,
+    body: new ReadableStream({
+      start(controller) {
+        for (const frame of frames) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n`))
+        }
+        controller.close()
+      },
+    }),
+  }
+}
 
 const fooUnit = {
   Name: 'town-os-foo.service',
@@ -137,6 +158,10 @@ describe('SystemManagement', () => {
     mockLogTail.mockClear()
     mockListSystemServices.mockClear()
     mockSetSystemServiceStatus.mockClear()
+    mockRefreshSystemServices.mockClear()
+    mockPing.mockReset()
+    mockPing.mockResolvedValue({ username: 'admin' })
+    resetSessionChecks()
   })
 
   it('renders the Services heading', async () => {
@@ -490,28 +515,71 @@ describe('SystemManagement', () => {
     expect(screen.queryByRole('button', { name: /Refresh All Services/ })).toBeNull()
   })
 
-  it('does not reload while the pre-restart controller is still answering', async () => {
-    // The process being refreshed stays up for about a second after it
-    // accepts the request, and its ping looks exactly like a healthy one.
-    // Reloading on it would tear the dialog down before the restart even
-    // begins — the user would never see a single stage. Only a ping from a
-    // DIFFERENT incarnation (new boot_id) counts as "back".
+  it('suspends session checks for the duration of the restart', async () => {
+    // The successor controller generates a new signing key and clears the
+    // sessions table, so this token dies with the old process. If the
+    // session poll kept running it would read the successor's first answer
+    // as "session expired", navigate to the login page, and unmount the
+    // dialog rendering the restart — which is exactly the bug.
+    const fetchSpy = vi.fn().mockImplementation(async (url) => {
+      const u = typeof url === 'string' ? url : url?.url ?? ''
+      if (u.includes('/boot-status')) throw new Error('boot-status unavailable in test')
+      throw new Error('unexpected fetch URL: ' + u)
+    })
+    const origFetch = globalThis.fetch
+    globalThis.fetch = fetchSpy
+    mockPing.mockResolvedValue({ username: 'admin', boot_id: 'gen-1' })
+
+    try {
+      renderSystemManagement()
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Refresh Core Services/ })).toBeTruthy()
+      })
+      expect(isSessionCheckSuspended()).toBe(false)
+
+      fireEvent.click(screen.getByRole('button', { name: /Refresh Core Services/ }))
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Refresh All Services/ })).toBeTruthy()
+      })
+      fireEvent.click(screen.getByRole('button', { name: /Refresh All Services/ }))
+
+      await waitFor(() => {
+        expect(isSessionCheckSuspended()).toBe(true)
+      })
+      // Still suspended while the restart is in flight.
+      expect(screen.getByText(/Refreshing services, waiting for/)).toBeTruthy()
+    } finally {
+      globalThis.fetch = origFetch
+    }
+  })
+
+  it('does not reload the page on its own; the dialog reports completion instead', async () => {
+    // No ping-driven reload loop: the boot-status stream is the source of
+    // truth. When the successor reports done and the UI container answers
+    // again, the dialog shows the completion state and hands the reload to
+    // the operator.
     const reloadSpy = vi.fn()
     const origLocation = window.location
     delete window.location
     window.location = { ...origLocation, reload: reloadSpy, href: 'http://localhost/' }
 
+    let uiProbeCall = 0
     const fetchSpy = vi.fn().mockImplementation(async (url) => {
       const u = typeof url === 'string' ? url : url?.url ?? ''
-      if (u.includes('/boot-status')) throw new Error('boot-status unavailable in test')
-      if (u === 'http://localhost/') return { ok: true }
+      if (u.includes('/boot-status')) {
+        return bootStatusStream([{ step: 'boot_controller' }, { done: true }])
+      }
+      if (u === 'http://localhost/') {
+        uiProbeCall += 1
+        // The UI container (Caddy) is restarting too: it misses the first
+        // probe and answers the second.
+        if (uiProbeCall === 1) throw new Error('network error')
+        return { ok: true }
+      }
       throw new Error('unexpected fetch URL: ' + u)
     })
     const origFetch = globalThis.fetch
     globalThis.fetch = fetchSpy
-
-    // Every ping — the pre-refresh capture and every poll tick — is answered
-    // by the same (outgoing) process.
     mockPing.mockResolvedValue({ username: 'admin', boot_id: 'gen-1' })
 
     try {
@@ -523,91 +591,26 @@ describe('SystemManagement', () => {
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Refresh All Services/ })).toBeTruthy()
       })
-
-      vi.useFakeTimers()
       fireEvent.click(screen.getByRole('button', { name: /Refresh All Services/ }))
 
-      await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-      // Several poll ticks against the same generation: still no reload.
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      // Stream reached done → controller is back, UI probe still failing.
+      await waitFor(() => {
+        expect(screen.getByText(/Waiting for the web UI/)).toBeTruthy()
+      })
+      expect(reloadSpy).not.toHaveBeenCalled()
+      expect(screen.queryByTestId('refresh-complete')).toBeNull()
+
+      // Second probe succeeds → completion state with an explicit Reload.
+      await act(async () => { await new Promise((r) => setTimeout(r, 2100)) })
+      await waitFor(() => {
+        expect(screen.getByTestId('refresh-complete')).toBeTruthy()
+      })
+      expect(screen.getByText(/Refresh complete/)).toBeTruthy()
       expect(reloadSpy).not.toHaveBeenCalled()
 
-      // The successor comes up: now the reload fires.
-      mockPing.mockResolvedValue({ username: 'admin', boot_id: 'gen-2' })
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      fireEvent.click(screen.getByRole('button', { name: /^Reload$/ }))
       expect(reloadSpy).toHaveBeenCalledTimes(1)
     } finally {
-      vi.useRealTimers()
-      globalThis.fetch = origFetch
-      window.location = origLocation
-    }
-  })
-
-  it('reloads the browser only after both systemcontroller and UI are back', async () => {
-    // Simulate: systemcontroller comes back first (ping succeeds) but UI
-    // container is still restarting (fetch fails), then UI comes back.
-    // Reload must wait until both are reachable.
-    const reloadSpy = vi.fn()
-    const origLocation = window.location
-    delete window.location
-    window.location = { ...origLocation, reload: reloadSpy, href: 'http://localhost/' }
-
-    // Route fetch by URL. The refresh flow mounts BootStatusStepper,
-    // which hits /boot-status and reconnects indefinitely; those
-    // requests must not consume the staged UI-container probes.
-    let uiProbeCall = 0
-    const fetchSpy = vi.fn().mockImplementation(async (url) => {
-      const u = typeof url === 'string' ? url : url?.url ?? ''
-      if (u.includes('/boot-status')) {
-        // BootStatusStepper subscription — always reject so the
-        // stepper stays in "reconnecting" state; it has its own retry
-        // loop and does not affect the reload decision.
-        throw new Error('boot-status unavailable in test')
-      }
-      if (u === 'http://localhost/') {
-        uiProbeCall += 1
-        if (uiProbeCall === 1) throw new Error('network error')
-        return { ok: true }
-      }
-      throw new Error('unexpected fetch URL: ' + u)
-    })
-    const origFetch = globalThis.fetch
-    globalThis.fetch = fetchSpy
-
-    mockPing.mockResolvedValue({ username: 'admin' })
-
-    try {
-      renderSystemManagement()
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Refresh Core Services/ })).toBeTruthy()
-      })
-
-      fireEvent.click(screen.getByRole('button', { name: /Refresh Core Services/ }))
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Refresh All Services/ })).toBeTruthy()
-      })
-
-      vi.useFakeTimers()
-      fireEvent.click(screen.getByRole('button', { name: /Refresh All Services/ }))
-
-      // Wait out the 3s settling delay before polling starts.
-      await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-      // First poll tick: ping ok, fetch rejects — no reload yet.
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-      expect(reloadSpy).not.toHaveBeenCalled()
-      // Second poll tick: ping ok, fetch ok — reload fires.
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-      expect(reloadSpy).toHaveBeenCalledTimes(1)
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost/',
-        expect.objectContaining({ cache: 'no-store' }),
-      )
-    } finally {
-      vi.useRealTimers()
       globalThis.fetch = origFetch
       window.location = origLocation
     }

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
 import getClient from './client-instance.js'
 import { getToken, clearToken, getAccount, setSessionExpired } from './auth.js'
+import { isSessionCheckSuspended, subscribeSessionChecks } from './session-guard.js'
 import { ApiError } from '../api/client.js'
 
 /**
@@ -54,10 +55,25 @@ export function usePolling(fetcher, defaultValue, deps = [], interval = 60000) {
 }
 
 /**
+ * Hook that reports whether session-validity polling is currently suspended.
+ * @returns {boolean}
+ */
+export function useSessionChecksSuspended() {
+  return useSyncExternalStore(subscribeSessionChecks, isSessionCheckSuspended)
+}
+
+/**
  * Hook that verifies the session is still valid, redirecting to login if not.
+ *
+ * The poll stands down while a caller holds a suspension (see
+ * session-guard.js). A Refresh Core Services restart invalidates every
+ * session — new signing key, sessions table cleared — so a poll running
+ * across it would bounce the operator to the login page the instant the
+ * successor answered, tearing down the dialog showing them the restart.
  */
 export function useRequireAuth() {
   const navigate = useNavigate()
+  const suspended = useSessionChecksSuspended()
 
   useEffect(() => {
     const token = getToken()
@@ -65,30 +81,33 @@ export function useRequireAuth() {
       navigate('/')
       return
     }
+    if (suspended) return
+
+    const logout = () => {
+      // A suspension taken while this ping was in flight still counts:
+      // the answer describes a controller the caller already told us not
+      // to judge the session by.
+      if (isSessionCheckSuspended()) return
+      setSessionExpired()
+      clearToken()
+      navigate('/')
+    }
 
     const check = () => {
       getClient()
         .ping()
         .then((resp) => {
-          if (!resp.username) {
-            setSessionExpired()
-            clearToken()
-            navigate('/')
-          }
+          if (!resp.username) logout()
         })
         .catch((err) => {
-          if (err instanceof ApiError && err.status === 401) {
-            setSessionExpired()
-            clearToken()
-            navigate('/')
-          }
+          if (err instanceof ApiError && err.status === 401) logout()
         })
     }
 
     check()
     const id = setInterval(check, 60000)
     return () => clearInterval(id)
-  }, [navigate])
+  }, [navigate, suspended])
 
   return getAccount()
 }
