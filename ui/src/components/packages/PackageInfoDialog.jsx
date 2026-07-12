@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
+import { toast } from 'sonner'
+import { Copy, Check } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -9,13 +12,59 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { copyToClipboard } from '@/lib/utils.js'
+
+// SecretAnswer shows a secret response masked, and copies the real value to the
+// clipboard on click so the user can paste it without ever putting it on screen.
+// The copy icon and the hover/focus styling are what tell the user the mask is
+// clickable at all -- without them it reads as inert text.
+function SecretAnswer({ value, t }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t('package_info.secret_copy_label')}
+          className="inline-flex items-center gap-1.5 font-mono text-xs bg-muted hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none px-1.5 py-0.5 rounded shrink-0 cursor-pointer transition-colors"
+          onClick={async () => {
+            try {
+              await copyToClipboard(value)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 2000)
+              toast.success(t('package_info.secret_copied'))
+            } catch {
+              toast.error(t('package_info.secret_copy_failed'))
+            }
+          }}
+        >
+          {t('package_info.secret_mask')}
+          {copied ? (
+            <Check className="h-3 w-3 text-green-600" />
+          ) : (
+            <Copy className="h-3 w-3 text-muted-foreground" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{t('package_info.secret_copy_tooltip')}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 export default function PackageInfoDialog({ dialog, onClose }) {
   const { t } = useI18n()
 
   function answerFor(key, question) {
     const value = dialog.responses?.[key]
-    if (question.type === 'secret') return t('package_info.secret_mask')
+    if (question.type === 'secret') {
+      if (value === undefined || value === '') return '-'
+      return <SecretAnswer value={String(value)} t={t} />
+    }
     if (question.type === 'boolean') {
       if (value === undefined || value === '') return '-'
       return ['true', 't', '1'].includes(String(value).trim().toLowerCase())
@@ -42,14 +91,21 @@ export default function PackageInfoDialog({ dialog, onClose }) {
             <div className="space-y-2">
               <h4 className="text-sm font-medium">{t('package_info.configuration_title')}</h4>
               <div className="space-y-1">
-                {Object.entries(dialog.questions).map(([key, question]) => (
-                  <div key={key} className="flex justify-between gap-4 text-sm">
-                    <span className="text-muted-foreground">{question.query}</span>
-                    <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
-                      {answerFor(key, question)}
-                    </code>
-                  </div>
-                ))}
+                {Object.entries(dialog.questions).map(([key, question]) => {
+                  const answer = answerFor(key, question)
+                  return (
+                    <div key={key} className="flex justify-between gap-4 text-sm">
+                      <span className="text-muted-foreground">{question.query}</span>
+                      {typeof answer === 'string' ? (
+                        <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded shrink-0">
+                          {answer}
+                        </code>
+                      ) : (
+                        answer
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}

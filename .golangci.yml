@@ -1,5 +1,15 @@
 version: "2"
 
+run:
+  # Anchor issue paths at the go.mod directory. The default anchors them at the
+  # git root, which golangci finds by walking up for a .git *directory* -- in a
+  # linked worktree .git is a file, so it walks past it into the parent clone
+  # and every issue is reported against the parent's copy of the file. The
+  # nolint processor then looks for directives at those line numbers in the
+  # wrong file: the moment the two checkouts diverge, //nolint stops
+  # suppressing and lint fails on code that passes in a plain checkout.
+  relative-path-mode: gomod
+
 linters:
   default: all
   enable:

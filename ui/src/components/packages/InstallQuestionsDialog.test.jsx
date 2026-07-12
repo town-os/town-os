@@ -181,6 +181,81 @@ describe('InstallQuestionsDialog boolean questions', () => {
   })
 })
 
+describe('InstallQuestionsDialog cached secrets', () => {
+  function renderSecret(overrides = {}) {
+    const onClearField = vi.fn()
+    render(
+      <TooltipProvider>
+        <InstallQuestionsDialog
+          dialog={{
+            open: true,
+            name: 'redis',
+            version: '1.0',
+            questions: { pass: { query: 'Enter password', type: 'secret' } },
+            responses: { pass: 'my-secret' },
+            fieldErrors: {},
+            clearedFields: {},
+            ...overrides,
+          }}
+          onClose={vi.fn()}
+          onSubmit={(e) => e.preventDefault()}
+          onClearField={onClearField}
+        />
+      </TooltipProvider>,
+    )
+    return { onClearField }
+  }
+
+  it('shows the cached secret in the clear rather than masked', async () => {
+    renderSecret()
+    expect(await screen.findByText('my-secret')).toBeTruthy()
+    expect(screen.queryByText('********')).toBeNull()
+  })
+
+  it('offers a recycle button, not a clear X, and reports the tooltip on hover', async () => {
+    const { onClearField } = renderSecret()
+    const btn = await screen.findByRole('button', { name: 'Replace this secret' })
+    expect(btn.querySelector('svg.lucide-rotate-cw')).toBeTruthy()
+    expect(btn.querySelector('svg.lucide-x')).toBeNull()
+
+    fireEvent.focus(btn)
+    await waitFor(() => {
+      expect(
+        screen.getAllByText('Replace this secret — leave the new field empty to generate one').length,
+      ).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(btn)
+    expect(onClearField).toHaveBeenCalledWith('pass')
+  })
+
+  it('keeps the clear X for non-secret cached answers', async () => {
+    const { onClearField } = renderSecret({
+      questions: { port: { query: 'Port?', type: 'port' } },
+      responses: { port: '8080' },
+    })
+    const btn = await screen.findByRole('button', { name: 'Clear this value' })
+    expect(btn.querySelector('svg.lucide-x')).toBeTruthy()
+
+    fireEvent.focus(btn)
+    await waitFor(() => {
+      expect(screen.getAllByText('Clear to enter a new value').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(btn)
+    expect(onClearField).toHaveBeenCalledWith('port')
+  })
+
+  it('renders a recycled secret as a visible text input that auto-generates when left empty', async () => {
+    renderSecret({ clearedFields: { pass: true } })
+    const input = await screen.findByLabelText('Enter password')
+    // The operator asked to see what they type; a password input hides it.
+    expect(input.type).toBe('text')
+    expect(input.value).toBe('')
+    expect(input.placeholder).toBe('Auto-generated if empty')
+  })
+})
+
 describe('InstallQuestionsDialog dismissal', () => {
   it('stays open when the user clicks outside it', async () => {
     const { onClose } = renderDialog()

@@ -5,6 +5,15 @@
 set -e
 . make/lib.sh
 
+# Per-checkout lint cache. golangci keys cached issues by file path, and its
+# paths are anchored per checkout, so a cache shared with another working copy
+# (a worktree, a second clone) replays another tree's results against this one
+# -- which resurfaces issues whose //nolint directives live at different lines
+# here. Disk-backed under .cache/ like the btrfs images, never tmpfs, and
+# per-working-directory so concurrent runs cannot collide.
+export GOLANGCI_LINT_CACHE="${PWD}/.cache/golangci-lint"
+mkdir -p "${GOLANGCI_LINT_CACHE}"
+
 : "${GO_BUILD_TAGS:=}"
 GO_TAGS_ARG=()
 LINT_TAGS_ARG=()

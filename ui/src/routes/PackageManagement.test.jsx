@@ -1043,7 +1043,7 @@ describe('PackageManagement', () => {
     })
   })
 
-  it('shows password masking for cached password-type responses', async () => {
+  it('shows cached password-type responses in the clear', async () => {
     mockClient.getPackageQuestionsByIdentity.mockImplementation(() =>
       Promise.resolve({
         secret: { query: 'Enter password', type: 'secret' },
@@ -1064,10 +1064,11 @@ describe('PackageManagement', () => {
       expect(screen.getByText(/Install redis/)).toBeTruthy()
     })
 
-    // Password values should be masked with asterisks.
+    // The install form is where the operator decides what to keep; masking the
+    // value there hides what they are about to reinstall with.
     await waitFor(() => {
-      expect(screen.getByText('********')).toBeTruthy()
-      expect(screen.queryByText('my-secret')).toBeNull()
+      expect(screen.getByText('my-secret')).toBeTruthy()
+      expect(screen.queryByText('********')).toBeNull()
     })
   })
 
@@ -1399,7 +1400,7 @@ describe('PackageManagement', () => {
     expect(screen.queryByText(/Install redis/)).toBeNull()
   })
 
-  it('clearing a password field reveals a password-type input', async () => {
+  it('recycling a password field drops the cached secret and reveals an empty input', async () => {
     mockClient.getPackageQuestionsByIdentity.mockImplementation(() =>
       Promise.resolve({
         secret: { query: 'Enter password', type: 'secret' },
@@ -1417,20 +1418,24 @@ describe('PackageManagement', () => {
     fireEvent.click(screen.getByText('Not Installed'))
 
     await waitFor(() => {
-      expect(screen.getByText('********')).toBeTruthy()
+      expect(screen.getByText('my-secret')).toBeTruthy()
     })
 
-    // Clear the password field.
+    // A secret gets a recycle button, not a delete X.
     const form = document.querySelector('form')
-    const clearButtons = form.querySelectorAll('button svg.lucide-x')
-    fireEvent.click(clearButtons[0].closest('button'))
+    expect(form.querySelector('button svg.lucide-x')).toBeNull()
+    const recycle = form.querySelector('button svg.lucide-rotate-cw')
+    expect(recycle).toBeTruthy()
+    fireEvent.click(recycle.closest('button'))
 
-    // After clearing, the input should have type="password".
+    // The cached value is gone from the form: the empty response tells the
+    // server to mint a fresh secret unless the user types their own.
     await waitFor(() => {
-      expect(screen.queryByText('********')).toBeNull()
+      expect(screen.queryByText('my-secret')).toBeNull()
       const input = form.querySelector('input[name="secret"]')
       expect(input).toBeTruthy()
-      expect(input.type).toBe('password')
+      expect(input.value).toBe('')
+      expect(input.placeholder).toBe('Auto-generated if empty')
     })
   })
 
@@ -1736,10 +1741,11 @@ describe('PackageManagement', () => {
       expect(screen.getByText(/Install redis/)).toBeTruthy()
     })
 
-    // Password type should render as password input, others as text.
+    // Secrets are typed in the clear, like every other answer: the operator is
+    // configuring their own box and needs to see what they enter.
     await waitFor(() => {
       const passwordInput = document.querySelector('input[name="secret"]')
-      expect(passwordInput.type).toBe('password')
+      expect(passwordInput.type).toBe('text')
       const hostnameInput = document.querySelector('input[name="hostname"]')
       expect(hostnameInput.type).toBe('text')
     })

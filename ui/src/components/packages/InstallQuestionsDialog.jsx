@@ -17,7 +17,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { X } from 'lucide-react'
+import { X, RotateCw } from 'lucide-react'
 
 // Boolean answers travel as strings. Cached responses are already canonical,
 // but a package's YAML default may use any spelling Go's strconv.ParseBool
@@ -122,6 +122,8 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                     )
                   }
 
+                  const isSecret = question.type === 'secret'
+
                   // Build placeholder: show default or type hint
                   let placeholder
                   if (question.default) {
@@ -132,6 +134,8 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                     placeholder = t('install_questions.placeholder_port')
                   } else if (question.type === 'hostname') {
                     placeholder = t('install_questions.placeholder_hostname')
+                  } else if (isSecret) {
+                    placeholder = t('install_questions.placeholder_secret')
                   }
 
                   return (
@@ -139,30 +143,46 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                       <Label htmlFor={key}>{question.query}</Label>
                       {hasCachedValue ? (
                         <div className="flex items-center gap-2">
-                          <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm font-mono">
-                            {question.type === 'secret' ? t('install_questions.secret_mask') : cachedValue}
+                          <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm font-mono break-all">
+                            {cachedValue}
                           </div>
                           <input type="hidden" name={key} value={cachedValue} />
+                          {/* A secret is not discarded so much as rotated: clearing
+                              it hands an empty response to the server, which mints a
+                              fresh one. Say that, rather than showing a delete X. */}
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                aria-label={
+                                  isSecret
+                                    ? t('install_questions.recycle_label')
+                                    : t('install_questions.clear_label')
+                                }
+                                className={
+                                  isSecret
+                                    ? 'h-8 w-8 p-0 text-muted-foreground hover:text-primary'
+                                    : 'h-8 w-8 p-0 text-muted-foreground hover:text-destructive'
+                                }
                                 onClick={() => onClearField(key)}
                               >
-                                <X className="h-4 w-4" />
+                                {isSecret ? <RotateCw className="h-4 w-4" /> : <X className="h-4 w-4" />}
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>{t('install_questions.clear_tooltip')}</TooltipContent>
+                            <TooltipContent>
+                              {isSecret
+                                ? t('install_questions.recycle_tooltip')
+                                : t('install_questions.clear_tooltip')}
+                            </TooltipContent>
                           </Tooltip>
                         </div>
                       ) : (
                         <Input
                           id={key}
                           name={key}
-                          type={question.type === 'secret' ? 'password' : 'text'}
+                          type="text"
                           placeholder={placeholder}
                           defaultValue=""
                           className={fieldError ? 'border-destructive' : ''}

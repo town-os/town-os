@@ -1,13 +1,35 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import PackageInfoDialog from './PackageInfoDialog.jsx'
+
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args) => toastSuccess(...args),
+    error: (...args) => toastError(...args),
+  },
+}))
+
+// Radix's tooltip measures its trigger, which jsdom does not implement.
+beforeAll(() => {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+})
 
 function renderInfo(dialog) {
   render(
-    <PackageInfoDialog
-      dialog={{ open: true, name: 'synapse', version: '1.0', ...dialog }}
-      onClose={vi.fn()}
-    />,
+    <TooltipProvider>
+      <PackageInfoDialog
+        dialog={{ open: true, name: 'synapse', version: '1.0', ...dialog }}
+        onClose={vi.fn()}
+      />
+    </TooltipProvider>,
   )
 }
 
@@ -53,5 +75,121 @@ describe('PackageInfoDialog boolean answers', () => {
     // Secrets stay masked.
     expect(screen.getByText('********')).toBeTruthy()
     expect(screen.queryByText('hunter2')).toBeNull()
+  })
+})
+
+describe('PackageInfoDialog secret answers', () => {
+  const origClipboard = navigator.clipboard
+
+  beforeEach(() => {
+    toastSuccess.mockClear()
+    toastError.mockClear()
+  })
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: origClipboard,
+      writable: true,
+      configurable: true,
+    })
+  })
+
+  function renderSecret() {
+    renderInfo({
+      questions: { pass: { query: 'Password?', type: 'secret' } },
+      responses: { pass: 'hunter2' },
+    })
+  }
+
+  it('copies the unmasked secret to the clipboard and toasts on success', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    })
+    window.isSecureContext = true
+
+    renderSecret()
+    await userEvent.click(screen.getByRole('button', { name: 'Copy secret to clipboard' }))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('hunter2'))
+    expect(toastSuccess).toHaveBeenCalledWith('Copied to clipboard')
+    // The value itself never reaches the screen.
+    expect(screen.queryByText('hunter2')).toBeNull()
+    expect(screen.getByText('********')).toBeTruthy()
+  })
+
+  it('shows a copy affordance on the mask, and a check once copied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    })
+    window.isSecureContext = true
+
+    renderSecret()
+    const btn = screen.getByRole('button', { name: 'Copy secret to clipboard' })
+    // A bare mask reads as inert text; the copy icon is what says "click me".
+    expect(btn.querySelector('.lucide-copy')).toBeTruthy()
+
+    await userEvent.click(btn)
+
+    await waitFor(() => expect(btn.querySelector('.lucide-check')).toBeTruthy())
+    expect(btn.querySelector('.lucide-copy')).toBeNull()
+  })
+
+  it('explains the click in a tooltip on hover', async () => {
+    renderSecret()
+    const btn = screen.getByRole('button', { name: 'Copy secret to clipboard' })
+
+    fireEvent.focus(btn)
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Click to copy to clipboard').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('falls back to execCommand outside a secure context', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    })
+    window.isSecureContext = false
+    const execCommand = vi.fn().mockReturnValue(true)
+    document.execCommand = execCommand
+
+    renderSecret()
+    await userEvent.click(screen.getByRole('button', { name: 'Copy secret to clipboard' }))
+
+    await waitFor(() => expect(execCommand).toHaveBeenCalledWith('copy'))
+    expect(toastSuccess).toHaveBeenCalledWith('Copied to clipboard')
+  })
+
+  it('toasts an error when the copy fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'))
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    })
+    window.isSecureContext = true
+
+    renderSecret()
+    await userEvent.click(screen.getByRole('button', { name: 'Copy secret to clipboard' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not copy to clipboard'))
+    expect(toastSuccess).not.toHaveBeenCalled()
+  })
+
+  it('renders an unanswered secret as a plain dash with nothing to copy', () => {
+    renderInfo({
+      questions: { pass: { query: 'Password?', type: 'secret' } },
+      responses: {},
+    })
+    expect(screen.getByText('-')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Copy secret to clipboard' })).toBeNull()
   })
 })
