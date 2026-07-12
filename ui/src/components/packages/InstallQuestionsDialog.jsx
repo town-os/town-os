@@ -136,11 +136,22 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                     placeholder = t('install_questions.placeholder_hostname')
                   } else if (isSecret) {
                     placeholder = t('install_questions.placeholder_secret')
+                  } else if (question.optional) {
+                    // An optional question with no default: say so, or the empty
+                    // field reads as one the user forgot to fill in.
+                    placeholder = t('install_questions.placeholder_optional')
                   }
 
                   return (
                     <div key={key} className="space-y-2">
-                      <Label htmlFor={key}>{question.query}</Label>
+                      <Label htmlFor={key}>
+                        {question.query}
+                        {question.optional && (
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            {t('install_questions.optional_suffix')}
+                          </span>
+                        )}
+                      </Label>
                       {hasCachedValue ? (
                         <div className="flex items-center gap-2">
                           <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm font-mono break-all">

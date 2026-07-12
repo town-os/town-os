@@ -555,8 +555,13 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		}
 	}
 
-	// Check for missing or empty responses.
-	for name := range i.Questions {
+	// Check for missing or empty responses. An optional question is exempt from
+	// both: it may be absent from the map or answered with an empty string, and
+	// it compiles to the empty string either way.
+	for name, q := range i.Questions {
+		if q.Optional {
+			continue
+		}
 		resp, ok := response[name]
 		if !ok {
 			verrs = append(verrs, ResponseValidationError{
@@ -575,9 +580,16 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		return nil, &ValidationError{Errors: verrs}
 	}
 
-	// All responses are present and non-empty; apply templates.
+	// Every required response is present and non-empty; apply templates.
 	for prompt, resp := range response {
 		q := i.Questions[prompt]
+		// A blank answer to an optional question substitutes the empty string.
+		// It must skip Output(), which exists to reject exactly this for a typed
+		// question -- an empty port is not a port.
+		if q.Optional && resp == "" {
+			i.iterateFields(prompt, "")
+			continue
+		}
 		if q.Type != "" {
 			resp, err = q.Type.Output(resp)
 			if err != nil {
@@ -589,6 +601,19 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 			}
 		}
 		i.iterateFields(prompt, resp)
+	}
+
+	// An optional question the caller omitted entirely still has @marker@ sites
+	// to fill. The loop above only walks the responses that were supplied, so
+	// without this the marker would survive verbatim into the container's
+	// environment -- the app would read a literal "@smtp_host@".
+	for name, q := range i.Questions {
+		if !q.Optional {
+			continue
+		}
+		if _, ok := response[name]; !ok {
+			i.iterateFields(name, "")
+		}
 	}
 
 	if len(verrs) > 0 {

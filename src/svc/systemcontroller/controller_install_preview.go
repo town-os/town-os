@@ -292,6 +292,19 @@ func (s *SystemControllerHandlers) autoGenerateResponses(responses *packages.Res
 			continue
 		}
 
+		// An optional question left blank stays blank -- it falls back to its
+		// default if it declares one, but is never generated. Auto-generating
+		// here would defeat the point: an unconfigured optional SMTP password
+		// would arrive at the application as a random secret rather than as
+		// nothing, and the application would try to authenticate with it.
+		if q.Optional {
+			if *responses == nil {
+				*responses = packages.Responses{}
+			}
+			(*responses)[name] = q.Default
+			continue
+		}
+
 		switch q.Type {
 		case packages.Port:
 			port, err := packages.FindAvailablePort(excludedPorts)

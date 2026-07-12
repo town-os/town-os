@@ -1659,3 +1659,89 @@ func TestCompileBooleanQuestion(t *testing.T) {
 		}
 	})
 }
+
+// An optional question may be left blank. Every other question must be answered
+// non-empty, which leaves a package author with no way to express a setting the
+// application can genuinely do without -- an SMTP relay, an API key -- except by
+// inventing a placeholder default and hoping the operator replaces it.
+func TestCompileOptionalQuestion(t *testing.T) {
+	t.Parallel()
+
+	newInput := func() InputPackage {
+		return InputPackage{
+			Image: InputPackageImage{URL: "debian:latest"},
+			Environment: map[string]string{
+				"SMTP_HOST": "@smtp_host@",
+				"SMTP_PORT": "@smtp_port@",
+			},
+			Questions: map[string]Question{
+				"smtp_host": {Query: "SMTP host", Optional: true},
+				"smtp_port": {Query: "SMTP port", Type: Port, Optional: true},
+			},
+		}
+	}
+
+	t.Run("blank answer compiles to an empty value", func(t *testing.T) {
+		t.Parallel()
+		input := newInput()
+		compiled, err := input.Compile(Responses{"smtp_host": "", "smtp_port": ""})
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		if got := compiled.Environment["SMTP_HOST"]; got != "" {
+			t.Fatalf("SMTP_HOST = %q, want empty", got)
+		}
+		// A typed optional question must not be run through its validator when
+		// blank: an empty string is not a valid port, and rejecting it here would
+		// make the question impossible to leave unanswered.
+		if got := compiled.Environment["SMTP_PORT"]; got != "" {
+			t.Fatalf("SMTP_PORT = %q, want empty", got)
+		}
+	})
+
+	// The marker sites still have to be filled. Compile substitutes by walking the
+	// responses it was given, so an omitted question would otherwise leave the
+	// literal "@smtp_host@" in the environment for the application to read.
+	t.Run("omitted answer leaves no marker behind", func(t *testing.T) {
+		t.Parallel()
+		input := newInput()
+		compiled, err := input.Compile(Responses{})
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		if got := compiled.Environment["SMTP_HOST"]; got != "" {
+			t.Fatalf("SMTP_HOST = %q, want empty (no marker)", got)
+		}
+	})
+
+	t.Run("an answered optional question still validates", func(t *testing.T) {
+		t.Parallel()
+		input := newInput()
+		compiled, err := input.Compile(Responses{"smtp_host": "mail.example.com", "smtp_port": "587"})
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		if compiled.Environment["SMTP_HOST"] != "mail.example.com" {
+			t.Fatalf("SMTP_HOST = %q", compiled.Environment["SMTP_HOST"])
+		}
+		if compiled.Environment["SMTP_PORT"] != "587" {
+			t.Fatalf("SMTP_PORT = %q", compiled.Environment["SMTP_PORT"])
+		}
+
+		bad := newInput()
+		if _, err := bad.Compile(Responses{"smtp_host": "mail.example.com", "smtp_port": "not-a-port"}); err == nil {
+			t.Fatal("expected a non-port answer to an optional port question to be rejected")
+		}
+	})
+
+	// Optional is opt-in: a required question is still required.
+	t.Run("a required question is unaffected", func(t *testing.T) {
+		t.Parallel()
+		input := newInput()
+		input.Questions["required"] = Question{Query: "Required"}
+		input.Environment["REQUIRED"] = "@required@"
+		if _, err := input.Compile(Responses{"required": ""}); err == nil {
+			t.Fatal("expected an empty answer to a required question to be rejected")
+		}
+	})
+}

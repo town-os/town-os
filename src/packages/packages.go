@@ -354,9 +354,17 @@ type InputPackageNetwork struct {
 }
 
 type Question struct {
-	Query   string     `json:"query" yaml:"query"`
-	Type    OutputType `json:"type,omitempty" yaml:"type,omitempty"`
-	Default string     `json:"default,omitempty" yaml:"default,omitempty"`
+	Query string     `json:"query" yaml:"query"`
+	Type  OutputType `json:"type,omitempty" yaml:"type,omitempty"`
+	// Optional lets a question be left blank. Every other question must be
+	// answered with a non-empty value, which makes settings a package can
+	// genuinely do without -- an SMTP relay, an API key -- impossible to
+	// express: the author has to invent a placeholder default and hope the
+	// operator overwrites it. An optional question accepts an empty answer and
+	// substitutes the empty string at its @marker@ sites, so the application
+	// sees the variable unset rather than set to something made up.
+	Optional bool   `json:"optional,omitempty" yaml:"optional,omitempty"`
+	Default  string `json:"default,omitempty" yaml:"default,omitempty"`
 }
 
 type InputPackage struct {

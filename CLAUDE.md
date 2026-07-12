@@ -283,6 +283,16 @@ Questions prompt the user during package installation. Each question has a `quer
 
   The package info dialog renders saved boolean answers as Yes/No instead of the raw `"true"`/`"false"` string, and boolean questions bypass the cached-value/clear-button path in the install dialog — a saved answer simply pre-checks the box and stays directly editable.
 
+#### Optional questions
+
+Any question may set `optional: true`. Every other question must be answered with a non-empty value, which leaves a package author no way to express a setting the application can genuinely do without — an SMTP relay, an API key — except by inventing a placeholder default and hoping the operator overwrites it.
+
+An optional question may be absent from the responses map or answered with an empty string; `Compile` exempts it from both `ErrMissingResponse` and `ErrEmptyResponse`, and substitutes the **empty string** at its `@variable@` sites. A blank answer also skips `OutputType.Output`, whose job is to reject exactly that for a typed question — an empty string is not a valid port — so `optional` composes with `type`: an answered optional port is still validated as a port, while a blank one compiles away to nothing.
+
+Two details matter for correctness. `Compile` substitutes by walking the responses it was given, so a question omitted from the map entirely gets a second pass that fills its markers with the empty string; without it the literal `@smtp_host@` would survive into the container's environment. And `autoGenerateResponses` skips optional questions before the type switch: generating a value would defeat the question, since a blank optional secret would otherwise arrive as a random 256-bit string that the application would dutifully try to authenticate with. A blank optional question falls back to its `default` if it declares one, and to the empty string otherwise.
+
+`optional` is meaningless on a boolean, which is a checkbox and always resolves to one of its two values.
+
 ### Compilation
 
 Compilation validates all responses, applies type-specific validation, substitutes all template variables, normalizes container image URLs, and produces a resolved `Package` struct. For VM packages, memory strings are parsed to byte counts and CPU defaults are applied. Post-update commands are trimmed of leading/trailing whitespace. Validation errors are collected and returned together.

@@ -591,6 +591,8 @@ const enUS = {
   'install_questions.placeholder_hostname': 'Auto-generated if empty',
   'install_questions.duration_hint': 'Duration format: use s (seconds), m (minutes), h (hours), or d (days)',
   'install_questions.placeholder_secret': 'Auto-generated if empty',
+  'install_questions.placeholder_optional': 'Leave empty to disable',
+  'install_questions.optional_suffix': '(optional)',
   'install_questions.clear_tooltip': 'Clear to enter a new value',
   'install_questions.clear_label': 'Clear this value',
   'install_questions.recycle_tooltip': 'Replace this secret — leave the new field empty to generate one',
