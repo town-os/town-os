@@ -24,8 +24,8 @@ describe('observeBootStatus', () => {
   it('invokes onEvent for each frame and resolves on done', async () => {
     const events = []
     const fetchImpl = vi.fn().mockResolvedValue(okResponse([
-      { step: 'open_db' },
-      { step: 'reconcile' },
+      { step: 'boot_controller' },
+      { step: 'boot_services' },
       { done: true },
     ]))
 
@@ -37,8 +37,8 @@ describe('observeBootStatus', () => {
     })
 
     expect(events).toEqual([
-      { step: 'open_db' },
-      { step: 'reconcile' },
+      { step: 'boot_controller' },
+      { step: 'boot_services' },
       { done: true },
     ])
     expect(fetchImpl).toHaveBeenCalledTimes(1)
@@ -278,7 +278,7 @@ describe('observeBootStatus across a controller restart', () => {
       if (url.includes('/status/ping')) return pingResponse('gen-1')
       probes++
       if (probes === 1) return { ok: false, status: 404, body: null }
-      return okResponse([{ step: 'open_db' }, { step: 'reconcile' }, { done: true }])
+      return okResponse([{ step: 'boot_controller' }, { step: 'boot_services' }, { done: true }])
     })
 
     await observeBootStatus({
@@ -290,8 +290,8 @@ describe('observeBootStatus across a controller restart', () => {
     })
 
     expect(events).toEqual([
-      { step: 'open_db' },
-      { step: 'reconcile' },
+      { step: 'boot_controller' },
+      { step: 'boot_services' },
       { done: true },
     ])
   })

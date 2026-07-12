@@ -28,6 +28,8 @@ function renderStepper(overrides = {}) {
   )
 }
 
+const stateOf = (step) => document.querySelector(`[data-step="${step}"]`)?.getAttribute('data-state')
+
 describe('BootStatusStepper', () => {
   beforeEach(() => {
     captured.onEvent = null
@@ -42,60 +44,34 @@ describe('BootStatusStepper', () => {
     vi.useRealTimers()
   })
 
-  it('renders every known step as pending on first mount', () => {
+  it('renders exactly the five coarse stages, all pending, on first mount', () => {
     renderStepper()
     const items = screen.getAllByRole('listitem')
-    // One row per entry in the canonical list (see bootSteps).
-    expect(items.length).toBe(bootSteps.length)
-    // All pending initially.
+    // Five stages and nothing else: no package rows until the backend
+    // actually names a package.
+    expect(items.length).toBe(5)
+    expect(bootSteps).toEqual([
+      'boot_controller',
+      'boot_dns',
+      'boot_services',
+      'restart_packages',
+      'ready',
+    ])
     for (const li of items) {
       expect(li.getAttribute('data-state')).toBe('pending')
     }
   })
 
-  it('marks prior steps done and current step in-progress as events arrive', () => {
+  it('marks prior stages done and the current stage in-progress', () => {
     renderStepper()
-    act(() => captured.onEvent({ step: 'open_db' }))
+    act(() => captured.onEvent({ step: 'boot_dns' }))
 
-    const setupTempDir = document.querySelector('[data-step="setup_temp_dir"]')
-    const createDirs = document.querySelector('[data-step="create_dirs"]')
-    const openDB = document.querySelector('[data-step="open_db"]')
-    const reconcile = document.querySelector('[data-step="reconcile"]')
-
-    expect(setupTempDir.getAttribute('data-state')).toBe('done')
-    expect(createDirs.getAttribute('data-state')).toBe('done')
-    expect(openDB.getAttribute('data-state')).toBe('in_progress')
-    expect(reconcile.getAttribute('data-state')).toBe('pending')
+    expect(stateOf('boot_controller')).toBe('done')
+    expect(stateOf('boot_dns')).toBe('in_progress')
+    expect(stateOf('boot_services')).toBe('pending')
+    expect(stateOf('restart_packages')).toBe('pending')
+    expect(stateOf('ready')).toBe('pending')
   })
-
-  // Regression: the backend emits several networking/ingress stages
-  // (init_network_mgr, start_ingress, start_pages, reconcile_networks,
-  // reconcile_ingress) that used to be missing from bootSteps. An
-  // unrecognized step resolves to indexOf === -1, which stateFor treats
-  // as "nothing done yet" and blanks every completed row. Every step the
-  // backend can emit must be present so completed rows stay checked.
-  for (const step of [
-    'init_network_mgr',
-    'start_ingress',
-    'start_pages',
-    'reconcile_networks',
-    'reconcile_ingress',
-  ]) {
-    it(`keeps prior stages checked when the ${step} stage arrives`, () => {
-      renderStepper()
-      act(() => captured.onEvent({ step }))
-
-      const idx = bootSteps.indexOf(step)
-      expect(idx).toBeGreaterThan(0) // step is known, not -1
-      // Everything before it must read as done, not reset to pending.
-      for (let i = 0; i < idx; i++) {
-        const row = document.querySelector(`[data-step="${bootSteps[i]}"]`)
-        expect(row.getAttribute('data-state')).toBe('done')
-      }
-      const current = document.querySelector(`[data-step="${step}"]`)
-      expect(current.getAttribute('data-state')).toBe('in_progress')
-    })
-  }
 
   it('advances monotonically through the full boot sequence without regressing', () => {
     renderStepper()
@@ -104,41 +80,99 @@ describe('BootStatusStepper', () => {
     for (let cur = 0; cur < bootSteps.length; cur++) {
       act(() => captured.onEvent({ step: bootSteps[cur] }))
       for (let i = 0; i < bootSteps.length; i++) {
-        const row = document.querySelector(`[data-step="${bootSteps[i]}"]`)
         const expected = i < cur ? 'done' : i === cur ? 'in_progress' : 'pending'
-        expect(row.getAttribute('data-state')).toBe(expected)
+        expect(stateOf(bootSteps[i])).toBe(expected)
       }
     }
   })
 
   it('ignores an unknown step instead of blanking completed rows', () => {
     renderStepper()
-    // Advance a few real steps so there is progress to protect.
-    act(() => captured.onEvent({ step: 'pull_images' }))
-    const before = document.querySelector('[data-step="open_db"]').getAttribute('data-state')
-    expect(before).toBe('done')
+    act(() => captured.onEvent({ step: 'boot_services' }))
+    expect(stateOf('boot_controller')).toBe('done')
 
-    // A step this build doesn't know about must not reset progress.
+    // A step this build doesn't know about — including any of the retired
+    // fine-grained names — must not reset progress.
     act(() => captured.onEvent({ step: 'some_future_backend_step' }))
-    expect(document.querySelector('[data-step="open_db"]').getAttribute('data-state')).toBe('done')
-    expect(document.querySelector('[data-step="pull_images"]').getAttribute('data-state')).toBe('in_progress')
+    act(() => captured.onEvent({ step: 'open_db' }))
+    expect(stateOf('boot_controller')).toBe('done')
+    expect(stateOf('boot_services')).toBe('in_progress')
   })
 
-  it('shows per-package label for refreshing_<pkg> events', () => {
-    renderStepper()
-    act(() => captured.onEvent({ step: 'refreshing_core/gitea' }))
-    expect(screen.getByText(/core\/gitea/)).toBeTruthy()
-    const refreshRow = document.querySelector('[data-step="refresh_packages"]')
-    expect(refreshRow.getAttribute('data-state')).toBe('in_progress')
-  })
-
-  it('marks ready as final step and calls onComplete on done', () => {
+  it('marks ready as the final stage and calls onComplete on done', () => {
     const onComplete = vi.fn()
     renderStepper({ onComplete })
     act(() => captured.onEvent({ done: true }))
     expect(onComplete).toHaveBeenCalledTimes(1)
-    const ready = document.querySelector('[data-step="ready"]')
-    expect(ready.getAttribute('data-state')).toBe('in_progress')
+    expect(stateOf('ready')).toBe('in_progress')
+  })
+
+  describe('per-package rows', () => {
+    it('adds a row per package, each a peer of the five stages', () => {
+      renderStepper()
+      act(() => captured.onEvent({ step: 'restarting_core/gitea' }))
+      act(() => captured.onEvent({ step: 'restarting_core/postgres' }))
+      act(() => captured.onEvent({ step: 'restarting_extras/matrix' }))
+
+      // Five stages + one row per package, in one flat list.
+      expect(screen.getAllByRole('listitem').length).toBe(5 + 3)
+      for (const pkg of ['core/gitea', 'core/postgres', 'extras/matrix']) {
+        expect(document.querySelector(`[data-package="${pkg}"]`)).toBeTruthy()
+        expect(screen.getByText(`Restarting ${pkg}`)).toBeTruthy()
+      }
+      // The package rows sit directly under the stage that owns them.
+      const steps = [...document.querySelectorAll('li')].map((li) => li.getAttribute('data-step'))
+      expect(steps).toEqual([
+        'boot_controller',
+        'boot_dns',
+        'boot_services',
+        'restart_packages',
+        'restarting_core/gitea',
+        'restarting_core/postgres',
+        'restarting_extras/matrix',
+        'ready',
+      ])
+    })
+
+    it('tracks each package independently: earlier done, current in-progress', () => {
+      renderStepper()
+      act(() => captured.onEvent({ step: 'restarting_core/gitea' }))
+      expect(stateOf('restart_packages')).toBe('in_progress')
+      expect(stateOf('restarting_core/gitea')).toBe('in_progress')
+
+      act(() => captured.onEvent({ step: 'restarting_core/postgres' }))
+      expect(stateOf('restarting_core/gitea')).toBe('done')
+      expect(stateOf('restarting_core/postgres')).toBe('in_progress')
+
+      act(() => captured.onEvent({ step: 'restarting_extras/matrix' }))
+      expect(stateOf('restarting_core/gitea')).toBe('done')
+      expect(stateOf('restarting_core/postgres')).toBe('done')
+      expect(stateOf('restarting_extras/matrix')).toBe('in_progress')
+    })
+
+    it('marks every package done once the boot moves past the restart stage', () => {
+      renderStepper()
+      act(() => captured.onEvent({ step: 'restarting_core/gitea' }))
+      act(() => captured.onEvent({ step: 'restarting_core/postgres' }))
+      act(() => captured.onEvent({ step: 'ready' }))
+
+      expect(stateOf('restart_packages')).toBe('done')
+      expect(stateOf('restarting_core/gitea')).toBe('done')
+      expect(stateOf('restarting_core/postgres')).toBe('done')
+      expect(stateOf('ready')).toBe('in_progress')
+    })
+
+    it('does not duplicate a package row when history replays after a reconnect', () => {
+      renderStepper()
+      act(() => captured.onEvent({ step: 'restarting_core/gitea' }))
+      act(() => captured.onEvent({ step: 'restarting_core/postgres' }))
+      // A reconnect replays the whole history, re-delivering both events.
+      act(() => captured.onEvent({ step: 'restarting_core/gitea' }))
+      act(() => captured.onEvent({ step: 'restarting_core/postgres' }))
+
+      expect(document.querySelectorAll('[data-package="core/gitea"]').length).toBe(1)
+      expect(screen.getAllByRole('listitem').length).toBe(5 + 2)
+    })
   })
 
   it('surfaces reconnect banner on disconnect', () => {
@@ -162,7 +196,7 @@ describe('BootStatusStepper', () => {
     renderStepper()
     act(() => captured.onDisconnect(2000))
     expect(screen.getByTestId('boot-reconnect-banner')).toBeTruthy()
-    act(() => captured.onEvent({ step: 'reconcile' }))
+    act(() => captured.onEvent({ step: 'boot_services' }))
     expect(screen.queryByTestId('boot-reconnect-banner')).toBeNull()
   })
 
@@ -172,5 +206,16 @@ describe('BootStatusStepper', () => {
     act(() => captured.onEvent({ error: 'reconcile blew up' }))
     expect(onError).toHaveBeenCalledWith('reconcile blew up')
     expect(screen.getByTestId('boot-error-banner').textContent).toMatch(/reconcile blew up/)
+  })
+
+  it('marks the failing package row as errored, not the whole stage list', () => {
+    renderStepper()
+    act(() => captured.onEvent({ step: 'restarting_core/gitea' }))
+    act(() => captured.onEvent({ step: 'restarting_core/postgres' }))
+    act(() => captured.onEvent({ error: 'unit failed to start' }))
+
+    expect(stateOf('restarting_core/gitea')).toBe('done')
+    expect(stateOf('restarting_core/postgres')).toBe('error')
+    expect(stateOf('boot_controller')).toBe('done')
   })
 })

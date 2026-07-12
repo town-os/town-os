@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 )
@@ -139,8 +141,8 @@ func TestBootStatusRefreshGenerationHandoff(t *testing.T) {
 	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
 
-	bs1.Step("open_db")
-	bs1.Step("reconcile")
+	bs1.Step(systemcontroller.StepBootController)
+	bs1.Step(systemcontroller.StepBootServices)
 
 	// While booting, ping must be 503 (so readiness probes don't call a
 	// half-booted controller ready) and must carry the generation's id.
@@ -151,8 +153,8 @@ func TestBootStatusRefreshGenerationHandoff(t *testing.T) {
 	if !body.Booting {
 		t.Error("booting ping: booting = false, want true")
 	}
-	if body.Step != "reconcile" {
-		t.Errorf("booting ping: step = %q, want %q", body.Step, "reconcile")
+	if body.Step != systemcontroller.StepBootServices {
+		t.Errorf("booting ping: step = %q, want %q", body.Step, systemcontroller.StepBootServices)
 	}
 	gen1 := body.BootID
 	if gen1 == "" {
@@ -167,7 +169,9 @@ func TestBootStatusRefreshGenerationHandoff(t *testing.T) {
 	if streamCode != http.StatusOK {
 		t.Fatalf("boot-status status = %d, want 200", streamCode)
 	}
-	if len(frames) != 2 || frames[0].Step != "open_db" || frames[1].Step != "reconcile" {
+	if len(frames) != 2 ||
+		frames[0].Step != systemcontroller.StepBootController ||
+		frames[1].Step != systemcontroller.StepBootServices {
 		t.Fatalf("boot-status frames = %+v, want the emitted steps in order", frames)
 	}
 
@@ -204,7 +208,7 @@ func TestBootStatusRefreshGenerationHandoff(t *testing.T) {
 		t.Fatal("restarted controller reused the previous boot_id; generations must be distinguishable")
 	}
 	root.Swap(systemcontroller.NewBootHandler(bs2))
-	bs2.Step("open_db")
+	bs2.Step(systemcontroller.StepBootController)
 
 	code, body = getPing(t, srv.URL)
 	if code != http.StatusServiceUnavailable {
@@ -222,7 +226,7 @@ func TestBootStatusRefreshGenerationHandoff(t *testing.T) {
 	if streamCode != http.StatusOK {
 		t.Fatalf("restarted /boot-status status = %d, want 200", streamCode)
 	}
-	if len(frames) != 1 || frames[0].Step != "open_db" {
+	if len(frames) != 1 || frames[0].Step != systemcontroller.StepBootController {
 		t.Fatalf("restarted boot-status frames = %+v, want only the new generation's steps "+
 			"(history from the previous generation must not leak into the new stream)", frames)
 	}
@@ -242,7 +246,11 @@ func TestBootStatusPingBootIDStableWithinGeneration(t *testing.T) {
 		t.Fatal("ping boot_id is empty")
 	}
 
-	for _, step := range []string{"create_dirs", "pull_images", "reconcile"} {
+	for _, step := range []string{
+		systemcontroller.StepBootController,
+		systemcontroller.StepBootDNS,
+		systemcontroller.StepBootServices,
+	} {
 		bs.Step(step)
 		_, body := getPing(t, srv.URL)
 		if body.BootID != first.BootID {
@@ -250,6 +258,71 @@ func TestBootStatusPingBootIDStableWithinGeneration(t *testing.T) {
 		}
 		if body.Step != step {
 			t.Errorf("ping step = %q, want %q", body.Step, step)
+		}
+	}
+}
+
+// TestBootStatusNotAudited pins that a request to /boot-status against the
+// FULL router never reaches the audit log.
+//
+// Only the boot stub serves /boot-status; the full router 404s it. A UI
+// watching a self-update holds the SSE stream open across the handler swap,
+// so the first request after the swap necessarily lands on the full router
+// and 404s. That is the expected end of the stream — not an operator action
+// and not a failure. Auditing it would file a failed-action row on every
+// successful refresh, and those rows feed the "recent audit errors" count
+// that the dashboard renders as a red failure pill: a clean update would
+// manufacture its own alarm.
+func TestBootStatusNotAudited(t *testing.T) {
+	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if cErr := db.Close(); cErr != nil {
+			t.Errorf("db.Close: %v", cErr)
+		}
+	})
+
+	auditMgr, err := account.InitAuditManager(db)
+	if err != nil {
+		t.Fatalf("InitAuditManager: %v", err)
+	}
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:  storage.InitBtrFS("/town-os"),
+		AuditMgr: auditMgr,
+	})
+	t.Cleanup(func() { ts.Server.Close() })
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.Server.URL+"/boot-status", nil)
+	if err != nil {
+		t.Fatalf("new boot-status request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("boot-status: %v", err)
+	}
+	defer func() {
+		if cErr := resp.Body.Close(); cErr != nil {
+			t.Errorf("close body: %v", cErr)
+		}
+	}()
+
+	// The full router genuinely has no such route — that is the premise.
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("full-router /boot-status status = %d, want 404", resp.StatusCode)
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{Limit: 100})
+	if err != nil {
+		t.Fatalf("list audit: %v", err)
+	}
+	for _, entry := range page.Entries {
+		if entry.Path == "/boot-status" {
+			t.Fatalf("/boot-status was written to the audit log (success=%v, error=%q); "+
+				"a normal refresh would spam the audit log and inflate the dashboard's "+
+				"recent-errors pill", entry.Success, entry.Error)
 		}
 	}
 }

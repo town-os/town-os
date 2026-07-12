@@ -4,7 +4,12 @@ import { CheckCircle2, Circle, Loader2, AlertTriangle } from 'lucide-react'
 import { observeBootStatus } from '@/api/client-boot.js'
 import { bootSteps } from './boot-steps.js'
 
-const REFRESH_PREFIX = 'refreshing_'
+// PACKAGE_PREFIX matches PackageStepPrefix in
+// src/svc/systemcontroller/boot_status.go. The freshness stage emits one
+// "restarting_<repo>/<name>" event per installed package; each becomes its
+// own row under the restart_packages stage.
+const PACKAGE_PREFIX = 'restarting_'
+const RESTART_STAGE = 'restart_packages'
 const MDNS_HINT_DELAY_MS = 60_000
 
 /**
@@ -36,7 +41,11 @@ const MDNS_HINT_DELAY_MS = 60_000
 export default function BootStatusStepper({ baseURL, onComplete, onError, hostname, previousBootID = null }) {
   const { t } = useI18n()
   const [currentStep, setCurrentStep] = useState(null)
-  const [refreshingName, setRefreshingName] = useState(null)
+  // packages accumulates in arrival order — the backend restarts them
+  // serially, so the most recent one is always the in-progress row and
+  // every earlier one is done.
+  const [packages, setPackages] = useState([])
+  const [currentPackage, setCurrentPackage] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
   const [reconnectIn, setReconnectIn] = useState(null) // ms until retry, or null when connected
   const [showMdnsHint, setShowMdnsHint] = useState(false)
@@ -57,6 +66,7 @@ export default function BootStatusStepper({ baseURL, onComplete, onError, hostna
         }
         if (evt.done) {
           setCurrentStep('ready')
+          setCurrentPackage(null)
           if (onComplete) onComplete()
           return
         }
@@ -69,20 +79,24 @@ export default function BootStatusStepper({ baseURL, onComplete, onError, hostna
           }
           setShowMdnsHint(false)
 
-          if (evt.step.startsWith(REFRESH_PREFIX)) {
-            setRefreshingName(evt.step.slice(REFRESH_PREFIX.length))
-            setCurrentStep('refresh_packages')
+          if (evt.step.startsWith(PACKAGE_PREFIX)) {
+            const name = evt.step.slice(PACKAGE_PREFIX.length)
+            // Append on first sight. History replay after a reconnect
+            // re-delivers earlier package events, so dedupe rather than
+            // growing a duplicate row per reconnect.
+            setPackages((prev) => (prev.includes(name) ? prev : [...prev, name]))
+            setCurrentPackage(name)
+            setCurrentStep(RESTART_STAGE)
           } else if (bootSteps.includes(evt.step)) {
-            setRefreshingName(null)
             setCurrentStep(evt.step)
           }
           // A step we don't know about (e.g. one the backend added but
           // this build's bootSteps doesn't list yet) is deliberately
           // ignored rather than applied: applying it would resolve to
-          // indexOf === -1 in stateFor and reset every completed row back
-          // to "pending". Ignoring it keeps progress monotonic — the next
-          // known step advances the stepper. boot-steps.js is kept in sync
-          // with the backend so this is only a defensive backstop.
+          // indexOf === -1 in stageState and reset every completed row
+          // back to "pending". Ignoring it keeps progress monotonic — the
+          // next known step advances the stepper. boot-steps.js is kept in
+          // sync with the backend so this is only a defensive backstop.
         }
       },
       onDisconnect: (ms) => {
@@ -106,22 +120,48 @@ export default function BootStatusStepper({ baseURL, onComplete, onError, hostna
   }, [baseURL, previousBootID])
 
   const currentIndex = currentStep ? bootSteps.indexOf(currentStep) : -1
+  const hasError = Boolean(errorMsg)
+
+  // Flatten the five stages and the per-package rows into one list so the
+  // packages are rendered as peers of the stages rather than as a nested
+  // sub-list: each installed package is a first-class row with its own
+  // icon and state.
+  const rows = []
+  for (const step of bootSteps) {
+    rows.push({
+      key: step,
+      step,
+      label: t(`boot.label.${step}`),
+      state: stageState(bootSteps.indexOf(step), currentIndex, hasError),
+    })
+    if (step === RESTART_STAGE) {
+      for (const name of packages) {
+        rows.push({
+          key: `${PACKAGE_PREFIX}${name}`,
+          step: `${PACKAGE_PREFIX}${name}`,
+          pkg: name,
+          label: t('boot.label.restarting_pkg', { name }),
+          state: packageState(name, packages, currentPackage, currentIndex, hasError),
+        })
+      }
+    }
+  }
 
   return (
     <div className="space-y-3" data-testid="boot-status-stepper">
       <ol className="space-y-1" aria-label="boot-progress">
-        {bootSteps.map((step, idx) => {
-          const state = stateFor(idx, currentIndex, Boolean(errorMsg))
-          const label = step === 'refresh_packages' && refreshingName
-            ? t('boot.label.refreshing_pkg', { name: refreshingName })
-            : t(`boot.label.${step}`)
-          return (
-            <li key={step} className="flex items-center gap-2 text-sm" data-step={step} data-state={state}>
-              <StepIcon state={state} />
-              <span className={state === 'pending' ? 'text-muted-foreground' : ''}>{label}</span>
-            </li>
-          )
-        })}
+        {rows.map((row) => (
+          <li
+            key={row.key}
+            className="flex items-center gap-2 text-sm"
+            data-step={row.step}
+            data-state={row.state}
+            {...(row.pkg ? { 'data-package': row.pkg } : {})}
+          >
+            <StepIcon state={row.state} />
+            <span className={row.state === 'pending' ? 'text-muted-foreground' : ''}>{row.label}</span>
+          </li>
+        ))}
       </ol>
 
       {reconnectIn !== null && !errorMsg && (
@@ -157,11 +197,29 @@ export default function BootStatusStepper({ baseURL, onComplete, onError, hostna
   )
 }
 
-function stateFor(idx, currentIndex, hasError) {
+// stageState classifies one of the five coarse stages by comparing its
+// index against the current stage's index.
+function stageState(idx, currentIndex, hasError) {
   if (hasError && idx === currentIndex) return 'error'
   if (currentIndex < 0) return 'pending'
   if (idx < currentIndex) return 'done'
   if (idx === currentIndex) return 'in_progress'
+  return 'pending'
+}
+
+// packageState classifies one per-package row. Packages only have meaning
+// while the restart stage is current: before it, they cannot have been
+// reached; after it, every one of them is finished (the backend restarts
+// them serially and only advances past the stage once the loop ends).
+function packageState(name, packages, currentPackage, currentIndex, hasError) {
+  const restartIndex = bootSteps.indexOf(RESTART_STAGE)
+  if (currentIndex < restartIndex) return 'pending'
+  if (currentIndex > restartIndex) return 'done'
+
+  const idx = packages.indexOf(name)
+  const curIdx = currentPackage ? packages.indexOf(currentPackage) : -1
+  if (idx < curIdx) return 'done'
+  if (idx === curIdx) return hasError ? 'error' : 'in_progress'
   return 'pending'
 }
 

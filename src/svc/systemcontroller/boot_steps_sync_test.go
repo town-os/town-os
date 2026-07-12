@@ -109,7 +109,7 @@ func TestBootStepsFrontendInSyncWithBackend(t *testing.T) {
 	frontend := frontendBootSteps(t)
 
 	// The frontend list may contain steps main.go does not emit directly
-	// (refresh_packages comes from freshness.go). Filter the frontend down
+	// (restart_packages comes from freshness.go). Filter the frontend down
 	// to just the backend steps, preserving order, then require the two
 	// ordered sequences to match exactly. This catches both a missing step
 	// and a reordered one.

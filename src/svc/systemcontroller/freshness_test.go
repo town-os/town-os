@@ -149,13 +149,14 @@ func TestRunFreshnessStage_RestartsEachPackageAndRemovesMarker(t *testing.T) {
 		t.Errorf("failed = %+v, want empty", failed)
 	}
 
-	// Expect a top-level "refresh_packages" step followed by one event
-	// per installed identifier. Order matches ListInstalled order.
+	// Expect the coarse "restart_packages" stage followed by one event per
+	// installed identifier — every package is represented individually so
+	// the stepper can render a row each. Order matches ListInstalled order.
 	wantSteps := []string{
-		"refresh_packages",
-		"refreshing_core/gitea",
-		"refreshing_core/gitea--dep--postgres",
-		"refreshing_extras/matrix",
+		StepRestartPackages,
+		PackageStepPrefix + "core/gitea",
+		PackageStepPrefix + "core/gitea--dep--postgres",
+		PackageStepPrefix + "extras/matrix",
 	}
 	if got := r.Steps(); !slices.Equal(got, wantSteps) {
 		t.Errorf("steps = %+v, want %+v", got, wantSteps)
@@ -237,10 +238,12 @@ func TestRunFreshnessStage_UnparseableIdentSkipped(t *testing.T) {
 	if got := restarter.Calls(); !slices.Equal(got, []string{systemd.UnitName("core", "valid", "1.0")}) {
 		t.Errorf("restart calls = %+v, want exactly one valid restart", got)
 	}
-	// Two step events: the top-level "refresh_packages" + one
-	// "refreshing_core/valid". The malformed entries produced no events.
-	if got := r.Steps(); len(got) != 2 {
-		t.Errorf("steps = %+v, want 2", got)
+	// Two step events: the coarse "restart_packages" stage + one
+	// per-package event for core/valid. The malformed entries produced no
+	// events, so they get no row in the UI either.
+	wantSteps := []string{StepRestartPackages, PackageStepPrefix + "core/valid"}
+	if got := r.Steps(); !slices.Equal(got, wantSteps) {
+		t.Errorf("steps = %+v, want %+v", got, wantSteps)
 	}
 }
 

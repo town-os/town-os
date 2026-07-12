@@ -35,6 +35,49 @@ type BootStatus struct {
 	subs    map[chan progressEvent]struct{}
 }
 
+// The boot sequence reports progress as five coarse stages, in this
+// order. They are deliberately few and user-facing: a person watching a
+// self-update wants to know which of "the controller", "DNS", "the
+// system services", or "my packages" is currently holding things up, not
+// which of two dozen internal manager constructors is running.
+//
+// The literals are duplicated as bs.Step("...") calls in
+// cmd/systemcontroller/main.go rather than referenced as constants,
+// because TestBootStepsFrontendInSyncWithBackend parses those literals
+// out of main.go to prove the frontend list agrees. Keep the two in
+// sync; that test fails loudly if they drift.
+const (
+	// StepBootController covers process bring-up: temp dirs, the SQLite
+	// database, every manager, and the package repository clone/fetch.
+	StepBootController = "boot_controller"
+	// StepBootDNS covers writing rolodex.yml and waiting for rolodex to
+	// answer on its DNS port.
+	StepBootDNS = "boot_dns"
+	// StepBootServices covers image pulls, monitoring, ingress, pages,
+	// reconcile, and the UI container — everything that must be running
+	// before a package can be started.
+	StepBootServices = "boot_services"
+	// StepRestartPackages is emitted by the freshness stage before it
+	// restarts installed packages one by one. Each package then gets its
+	// own PackageStepPrefix event, so the UI shows a row per package.
+	StepRestartPackages = "restart_packages"
+	// StepReady is the terminal stage: the full Echo router is about to
+	// be swapped in for the boot stub.
+	StepReady = "ready"
+)
+
+// PackageStepPrefix prefixes the per-package steps emitted by the
+// freshness stage, one per installed package: "restarting_<repo>/<name>".
+// The UI strips the prefix and renders the remainder as its own row,
+// equal in weight to the five coarse stages, so a box with many packages
+// shows real per-package progress rather than one stalled bar.
+//
+// Note the package identity itself contains "/" and mixed case, so these
+// step names deliberately do NOT match the [a-z0-9_]+ shape the boot-step
+// sync test enforces for the coarse stages — they are dynamic values, not
+// part of the fixed list.
+const PackageStepPrefix = "restarting_"
+
 // bootSubscriberBufSize is the per-subscriber channel buffer. Sized
 // generously so normal subscribers never hit backpressure during a typical
 // boot (the sequence emits ~25 events over several seconds); slow

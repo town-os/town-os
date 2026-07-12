@@ -3,9 +3,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 - **MOST IMPORTANT**:
     - **Use `make`, not raw compiler/test tools.** Never run `go build`, `go test`, `go vet`, `golangci-lint`, `bun test`, `vitest`, or any equivalent directly. Always go through a make target so the repo's wrappers (cleanup traps, btrfs lifecycle, per-run instance IDs) apply.
     - **Make targets you may run whenever you need them** (fast, idempotent, no remote side effects):
-      `make help`, `make lint`, `make test`, `make test-ui-unit`, `make test-integration`, `make check-*` (bun / go / podman / runc / btrfs / libsystemd / golangci-lint). Use these freely to validate changes — you don't need to ask first.
-    - **Make targets that require explicit user permission before running:**
-      `make test-full` (expensive, spawns full container stack — NEVER run this unprompted), `make push*` / `make release*` / `make *-image` / `make production-image` / `make pull-images` (talk to registries or build images), `make dev*` / `make registry` / `make gitea` (start long-running local services), `make clean*` / `make btrfs*` (destructive on local state).
+      `make help`, `make lint`, `make check-*` (bun / go / podman / runc / btrfs / libsystemd / golangci-lint). Use these freely to validate changes — you don't need to ask first.
     - **If a make target isn't in either list above, ask first.**
     - DO NOT FORCE PUSH FOR ANY REASON EVER.
     - when you need to push, push to "origin" only.

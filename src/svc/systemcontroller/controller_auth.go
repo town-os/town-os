@@ -192,10 +192,19 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		path := c.Request().URL.Path
 
 		excluded := map[string]bool{
-			"/":                             true,
-			"/account/sessions":             true,
-			"/account/me":                   true,
-			"/status/ping":                  true,
+			"/":                 true,
+			"/account/sessions": true,
+			"/account/me":       true,
+			"/status/ping":      true,
+			// The boot stub serves /boot-status; the full router does not.
+			// A UI watching a self-update keeps the SSE stream open across
+			// the handler swap, so the first request after the swap lands
+			// on the full router and 404s. That is the expected end of the
+			// stream, not an operator action — auditing it would file a
+			// failed-action row on every successful refresh and inflate the
+			// "recent audit errors" count the dashboard renders as a red
+			// failure pill.
+			"/boot-status":                  true,
 			"/audit/log":                    true,
 			"/storage":                      true,
 			"/repository":                   true,

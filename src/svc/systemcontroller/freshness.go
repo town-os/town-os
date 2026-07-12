@@ -53,9 +53,11 @@ type FreshnessLister interface {
 }
 
 // RunFreshnessStage checks for the restart-pending marker in baseDir and,
-// if present, iterates every installed package identifier, emits a
-// "refreshing_<repo>/<name>" step on the reporter, and restarts the
-// unit. Per-package errors are logged but never abort the loop — one
+// if present, emits the coarse StepRestartPackages stage, then iterates
+// every installed package identifier, emits a
+// PackageStepPrefix+"<repo>/<name>" step on the reporter (one per
+// package, so the UI renders a row each), and restarts the unit.
+// Per-package errors are logged but never abort the loop — one
 // stuck package must not block the controller from swapping to its full
 // handler. The marker is removed only after the loop completes so a
 // crash leaves the marker in place and the next boot retries.
@@ -81,7 +83,7 @@ func RunFreshnessStage(
 		return nil, fmt.Errorf("stat restart-pending marker: %w", statErr)
 	}
 
-	bs.Step("refresh_packages")
+	bs.Step(StepRestartPackages)
 
 	installed, listErr := inst.ListInstalled()
 	if listErr != nil {
@@ -95,7 +97,7 @@ func RunFreshnessStage(
 				slog.String("ident", ident))
 			continue
 		}
-		bs.Step("refreshing_" + repo + "/" + name)
+		bs.Step(PackageStepPrefix + repo + "/" + name)
 		unit := systemd.UnitName(repo, name, version)
 		if rErr := sd.SetStatus(ctx, unit, systemd.Restart); rErr != nil {
 			slog.Warn("freshness restart failed",

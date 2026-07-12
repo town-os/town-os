@@ -44,21 +44,16 @@ describe('AuditLog', () => {
     mockListAuditLog.mockImplementation(() => Promise.resolve(mockAuditResponse))
   })
 
-  it('renders the action description with a leading icon that pushes the text right', async () => {
+  it('renders the action description as plain text, with no leading icon', async () => {
     renderAuditLog()
     const actionText = await screen.findByText('install package')
 
-    // The action text is wrapped in a flex row alongside the icon, so the
-    // icon occupies its own horizontal space and the description sits to its
-    // right (rather than the icon being hidden under the text).
-    const row = actionText.closest('span.flex')
-    expect(row).not.toBeNull()
-    expect(row.className).toContain('items-center')
-    expect(row.className).toContain('gap-2')
-
-    // A leading lucide icon precedes the text within that row.
-    const icon = row.querySelector('svg.lucide-activity')
-    expect(icon).not.toBeNull()
-    expect(icon.classList.contains('shrink-0')).toBe(true)
+    // The action column used to wrap its value in a flex row with a leading
+    // Activity icon. The icon added nothing and threw the column's alignment
+    // off, so the cell now renders the bare description.
+    expect(actionText.closest('span.flex')).toBeNull()
+    const cell = actionText.closest('td')
+    expect(cell).not.toBeNull()
+    expect(cell.querySelector('svg')).toBeNull()
   })
 })

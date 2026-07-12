@@ -29,7 +29,7 @@ func TestBootHandler_StatusPingHTTPShape(t *testing.T) {
 	t.Parallel()
 
 	bs := NewBootStatus()
-	bs.Step("reconcile")
+	bs.Step(StepBootServices)
 	srv := httptest.NewServer(NewBootHandler(bs))
 	t.Cleanup(srv.Close)
 
@@ -65,8 +65,8 @@ func TestBootHandler_StatusPingHTTPShape(t *testing.T) {
 	if !body.Booting {
 		t.Errorf("booting = false, want true")
 	}
-	if body.Step != "reconcile" {
-		t.Errorf("step = %q, want reconcile", body.Step)
+	if body.Step != StepBootServices {
+		t.Errorf("step = %q, want %q", body.Step, StepBootServices)
 	}
 }
 

@@ -138,7 +138,7 @@ func run() (err error) {
 		close(listenErrCh)
 	}()
 
-	bs.Step("setup_temp_dir")
+	bs.Step("boot_controller")
 	dir, err := os.MkdirTemp("", "systemcontroller-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -151,7 +151,6 @@ func run() (err error) {
 	}()
 
 	// Ensure required directories exist.
-	bs.Step("create_dirs")
 	for _, d := range []string{*btrfsPath, *networkStatePath} {
 		if d != "" {
 			if err := os.MkdirAll(d, 0750); err != nil {
@@ -178,7 +177,6 @@ func run() (err error) {
 		}
 	}
 
-	bs.Step("open_db")
 	db, err := account.OpenDB(dbFile)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
@@ -187,13 +185,11 @@ func run() (err error) {
 		err = errors.Join(err, db.Close())
 	}()
 
-	bs.Step("init_account_mgr")
 	acctMgr, err := account.InitManager(db)
 	if err != nil {
 		return fmt.Errorf("init account manager: %w", err)
 	}
 
-	bs.Step("init_session_mgr")
 	signingKey, err := generateSigningKey()
 	if err != nil {
 		return fmt.Errorf("signing key: %w", err)
@@ -203,25 +199,21 @@ func run() (err error) {
 		return fmt.Errorf("init session manager: %w", err)
 	}
 
-	bs.Step("init_audit_mgr")
 	auditMgr, err := account.InitAuditManager(db)
 	if err != nil {
 		return fmt.Errorf("init audit manager: %w", err)
 	}
 
-	bs.Step("init_settings_mgr")
 	settingsMgr, err := account.InitSettingsManager(db)
 	if err != nil {
 		return fmt.Errorf("init settings manager: %w", err)
 	}
 
-	bs.Step("init_pages_mgr")
 	pagesMgr, err := account.InitPagesManager(db)
 	if err != nil {
 		return fmt.Errorf("init pages manager: %w", err)
 	}
 
-	bs.Step("init_network_mgr")
 	networkMgr, err := account.InitNetworkManager(db)
 	if err != nil {
 		return fmt.Errorf("init network manager: %w", err)
@@ -236,7 +228,6 @@ func run() (err error) {
 		}
 	}
 
-	bs.Step("seed_repositories")
 	repoFile := filepath.Join(repoBase, packages.RepositoriesFile)
 	_, err = os.Stat(repoFile)
 	if os.IsNotExist(err) {
@@ -266,7 +257,6 @@ func run() (err error) {
 			return fmt.Errorf("write repositories file: %w", err)
 		}
 	}
-	bs.Step("init_repo_root")
 	rr, err := packages.RepositoryRootFromBase(repoBase)
 	if err != nil {
 		return fmt.Errorf("init repository root: %w", err)
@@ -317,7 +307,7 @@ func run() (err error) {
 		rolImage = "quay.io/town/rolodex:" + tag
 	}
 
-	bs.Step("write_rolodex_config")
+	bs.Step("boot_dns")
 	rolDataDir := filepath.Join(*btrfsPath, "rolodex")
 	if err := os.MkdirAll(rolDataDir, 0750); err != nil {
 		return fmt.Errorf("create rolodex data dir: %w", err)
@@ -354,7 +344,6 @@ func run() (err error) {
 	}
 
 	// Wait for DNS readiness.
-	bs.Step("wait_rolodex_dns")
 	if err := rolMgr.WaitForDNSReady(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
 	}
@@ -390,7 +379,7 @@ func run() (err error) {
 		fmt.Fprintf(os.Stderr, "btrfs disk device discovery: %v\n", diskErr)
 	}
 
-	bs.Step("pull_images")
+	bs.Step("boot_services")
 	// Pull container images in parallel (non-fatal). The NC image is
 	// included here so the systemd units that reference it have a loaded
 	// image ready before they start. Every package NC unit also includes
@@ -409,7 +398,6 @@ func run() (err error) {
 	}
 	parallelEnsureImages(ctx, coreImages)
 
-	bs.Step("start_monitoring")
 	// Tear down obsolete monitoring units from the previous (NC + socket)
 	// design before starting the new host-net services. On an in-place
 	// upgrade the leftover NC containers still hold -p 9090:9090 / -p
@@ -483,14 +471,12 @@ func run() (err error) {
 			// `podman network create --ipv6` fails and the unit won't start).
 			EnableIPv6: getInternalIPv6() != "",
 		})
-		bs.Step("start_ingress")
 		if startErr := ingressMgr.Start(ctx); startErr != nil {
 			fmt.Fprintf(os.Stderr, "ingress: %v\n", startErr)
 		}
 
 		// Pages: a standalone Caddy static-file service the ingress
 		// reverse-proxies to for every page FQDN. Started alongside the ingress.
-		bs.Step("start_pages")
 		if pErr := systemcontroller.StartPagesService(ctx, sd, *btrfsPath, systemcontroller.DefaultCaddyImage); pErr != nil {
 			fmt.Fprintf(os.Stderr, "pages service: %v\n", pErr)
 		}
@@ -502,7 +488,6 @@ func run() (err error) {
 	versionFile := filepath.Join(*btrfsPath, "town-os-version")
 	versionChanged := detectVersionChange(ctx, versionFile)
 
-	bs.Step("reconcile")
 	err = systemcontroller.Reconcile(ctx, systemcontroller.ReconcileConfig{
 		Installer:              inst,
 		RepositoryRoot:         rr,
@@ -536,7 +521,6 @@ func run() (err error) {
 	// Persist current image SHA so the next startup can detect changes.
 	persistVersion(ctx, versionFile)
 
-	bs.Step("reconcile_dns")
 	// Reconcile DNS state: set up TLD zone and register records for all
 	// installed packages. This runs after rolodex is started so the gRPC
 	// socket is available.
@@ -588,7 +572,6 @@ func run() (err error) {
 		// from (hidden from) every WireGuard peer while staying LAN-only. The
 		// default network gets no WireGuard transport. Non-fatal: a WG failure
 		// must not block boot.
-		bs.Step("reconcile_networks")
 		systemcontroller.ReconcileNetworks(ctx, systemcontroller.ReconcileNetworksConfig{
 			NetworkMgr:       networkMgr,
 			Systemd:          sd,
@@ -608,7 +591,6 @@ func run() (err error) {
 	// pages), at the same point in boot as rolodex. Push/declarative: on a
 	// fresh ingress this rebuilds everything (same model as RebuildDNS).
 	if ingressMgr != nil {
-		bs.Step("reconcile_ingress")
 		if rdyErr := ingressMgr.WaitForReady(ctx); rdyErr != nil {
 			fmt.Fprintf(os.Stderr, "ingress readiness: %v\n", rdyErr)
 		}
@@ -625,7 +607,6 @@ func run() (err error) {
 		}
 	}
 
-	bs.Step("start_ui_container")
 	// Start the UI container (Caddy web server). Skipped when UI_IMAGE
 	// is empty (dev mode — bun serves the UI directly).
 	var uiMgr *ui.Manager
@@ -652,7 +633,6 @@ func run() (err error) {
 			len(failed), strings.Join(failed, ", "))
 	}
 
-	bs.Step("build_handler")
 	handler := systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{
 		Storage:                    st,
 		RepositoryRoot:             rr,
