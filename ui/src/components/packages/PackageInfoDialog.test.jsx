@@ -168,6 +168,44 @@ describe('PackageInfoDialog secret answers', () => {
     expect(toastSuccess).toHaveBeenCalledWith('Copied to clipboard')
   })
 
+  // The regression: a Town OS box is served over plain HTTP, so this fallback is
+  // the path every real copy takes. Asserting execCommand was *called* is not
+  // enough -- it returns true, and the UI toasts "copied", even when the wrong
+  // text (or none) reaches the clipboard. What matters is the text that would be
+  // copied: the selection of the focused element at that moment.
+  it('copies the real secret -- not an empty or stale selection -- outside a secure context', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    })
+    window.isSecureContext = false
+
+    let copiedText
+    let copiedFromParent
+    document.execCommand = vi.fn(() => {
+      const el = document.activeElement
+      copiedText = el?.value?.slice(el.selectionStart, el.selectionEnd)
+      // Read the parent here, while the copy is happening: the scratch element is
+      // detached again as soon as copyToClipboard returns, and a detached node
+      // reports a null parent.
+      copiedFromParent = el?.parentElement
+      return true
+    })
+
+    renderSecret()
+    const btn = screen.getByRole('button', { name: 'Copy secret to clipboard' })
+    await userEvent.click(btn)
+
+    await waitFor(() => expect(copiedText).toBe('hunter2'))
+    // And it must be selected from an element mounted alongside the button, i.e.
+    // inside the dialog. On document.body it sits outside the dialog's focus
+    // scope, which pulls focus back and drops the selection -- the copy then
+    // silently yields whatever else was selected, and still reports success.
+    expect(copiedFromParent).toBe(btn.parentElement)
+    expect(copiedFromParent).not.toBe(document.body)
+  })
+
   it('toasts an error when the copy fails', async () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'))
     Object.defineProperty(navigator, 'clipboard', {

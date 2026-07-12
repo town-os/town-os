@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import { toast } from 'sonner'
 import { Copy, Check } from 'lucide-react'
@@ -25,16 +25,22 @@ import { copyToClipboard } from '@/lib/utils.js'
 // clickable at all -- without them it reads as inert text.
 function SecretAnswer({ value, t }) {
   const [copied, setCopied] = useState(false)
+  const btnRef = useRef(null)
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          ref={btnRef}
           type="button"
           aria-label={t('package_info.secret_copy_label')}
           className="inline-flex items-center gap-1.5 font-mono text-xs bg-muted hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none px-1.5 py-0.5 rounded shrink-0 cursor-pointer transition-colors"
           onClick={async () => {
             try {
-              await copyToClipboard(value)
+              // The insecure-context fallback needs to mount its scratch
+              // textarea inside the dialog: on document.body it lands outside
+              // this dialog's focus scope, which pulls focus back and drops the
+              // selection, so the copy silently yields the wrong text.
+              await copyToClipboard(value, btnRef.current?.parentElement ?? undefined)
               setCopied(true)
               setTimeout(() => setCopied(false), 2000)
               toast.success(t('package_info.secret_copied'))
