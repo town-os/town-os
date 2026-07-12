@@ -7,7 +7,7 @@ import DataTable from '@/components/DataTable.jsx'
 import JournalViewer from '@/components/JournalViewer.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Check, CircleAlert, FileText, Clock } from 'lucide-react'
+import { Check, CircleAlert, FileText } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -128,20 +128,19 @@ export default function AuditLog() {
     {
       key: 'created_at',
       label: t('audit.col_time'),
+      // The timestamp itself opens the journal at that moment. This used to
+      // be a trailing Clock icon button, but it sat flush against the Action
+      // column and read as a stray leading icon on the action text.
       transform: (v) => (
-        <span className="text-sm flex items-center gap-1">
+        <button
+          type="button"
+          className="text-sm hover:underline"
+          onClick={() => openJournal(v)}
+          aria-label={t('audit.view_logs_label')}
+          title={t('audit.view_logs_label')}
+        >
           {formatTime(v)}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-5 w-5 p-0"
-            onClick={() => openJournal(v)}
-            aria-label={t('audit.view_logs_label')}
-            title={t('audit.view_logs_label')}
-          >
-            <Clock className="h-3 w-3" />
-          </Button>
-        </span>
+        </button>
       ),
     },
     {

@@ -56,4 +56,28 @@ describe('AuditLog', () => {
     expect(cell).not.toBeNull()
     expect(cell.querySelector('svg')).toBeNull()
   })
+
+  it('renders the timestamp as a bare clickable cell, with no trailing clock icon', async () => {
+    renderAuditLog()
+    // The time cell used to carry a trailing Clock icon button. It sat flush
+    // against the Action column, so it read as a stray leading icon on the
+    // action text -- the same visual defect the Activity icon caused.
+    const timeCell = (await screen.findByText('install package'))
+      .closest('tr')
+      .querySelector('td:nth-child(2)')
+    expect(timeCell.querySelector('svg')).toBeNull()
+  })
+
+  it('keeps the timestamp itself as the journal-viewer trigger', async () => {
+    renderAuditLog()
+    // Removing the icon must not remove the feature: the Clock button was the
+    // only entry point to the journal viewer from this table, so the timestamp
+    // text now carries the click.
+    const timeCell = (await screen.findByText('install package'))
+      .closest('tr')
+      .querySelector('td:nth-child(2)')
+    const trigger = timeCell.querySelector('button')
+    expect(trigger).not.toBeNull()
+    expect(trigger.textContent).toBe(timeCell.textContent)
+  })
 })
