@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import {
@@ -17,7 +17,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { X, RotateCw } from 'lucide-react'
+import { X, RotateCw, Check } from 'lucide-react'
 
 // Boolean answers travel as strings. Cached responses are already canonical,
 // but a package's YAML default may use any spelling Go's strconv.ParseBool
@@ -30,6 +30,58 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
   const { t } = useI18n()
   const [networks, setNetworks] = useState([])
   const [booleans, setBooleans] = useState({})
+  // An oauth question is answered by a device flow rather than by typing: state
+  // per question key is { status, token, approveUrl, userCode, error }.
+  const [oauth, setOauth] = useState({})
+  const oauthCancelled = useRef(false)
+
+  useEffect(() => {
+    // A dialog that closes mid-flow must not leave a poll loop running against a
+    // flow nobody is waiting for.
+    oauthCancelled.current = !dialog.open
+  }, [dialog.open])
+
+  async function runOAuth(key) {
+    setOauth((prev) => ({ ...prev, [key]: { status: 'starting' } }))
+    try {
+      const started = await getClient().startOAuth(dialog.repo, dialog.name, dialog.version, key)
+      setOauth((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'waiting',
+          approveUrl: started.approve_url,
+          userCode: started.user_code || '',
+        },
+      }))
+      // Opened from the click handler's own task so the browser still counts it
+      // as user-initiated; opening it after the await would be a popup block.
+      window.open(started.approve_url, '_blank', 'noopener,noreferrer')
+
+      const interval = Math.max(1000, started.interval_ms || 5000)
+      for (;;) {
+        if (oauthCancelled.current) return
+        await new Promise((resolve) => setTimeout(resolve, interval))
+        if (oauthCancelled.current) return
+        const polled = await getClient().pollOAuth(started.flow_id)
+        if (polled.status === 'approved') {
+          setOauth((prev) => ({ ...prev, [key]: { status: 'approved', token: polled.token } }))
+          return
+        }
+        if (polled.status === 'expired') {
+          setOauth((prev) => ({
+            ...prev,
+            [key]: { status: 'error', error: t('install_questions.oauth_expired') },
+          }))
+          return
+        }
+      }
+    } catch (err) {
+      setOauth((prev) => ({
+        ...prev,
+        [key]: { status: 'error', error: err.detail || err.message },
+      }))
+    }
+  }
 
   useEffect(() => {
     if (!dialog.open) return
@@ -96,6 +148,74 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                   const cachedValue = dialog.responses?.[key]
                   const isCleared = dialog.clearedFields?.[key]
                   const hasCachedValue = !!cachedValue && !isCleared
+
+                  if (question.type === 'oauth') {
+                    const flow = oauth[key] || {}
+                    // A cached token from a previous install is already an answer:
+                    // the flow does not have to be run again to reinstall.
+                    const token = flow.token || (hasCachedValue ? cachedValue : '')
+                    const connected = !!token
+                    return (
+                      <div key={key} className="space-y-2">
+                        <Label>{question.query}</Label>
+                        {/* The token is the form's value whether it came from the
+                            flow just now or from the previous install. */}
+                        <input type="hidden" name={key} value={token} />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant={connected ? 'outline' : 'default'}
+                            size="sm"
+                            disabled={flow.status === 'starting' || flow.status === 'waiting'}
+                            onClick={() => runOAuth(key)}
+                          >
+                            {connected
+                              ? t('install_questions.oauth_reconnect')
+                              : t('install_questions.oauth_connect')}
+                          </Button>
+                          {connected && (
+                            <span className="flex items-center gap-1 text-sm text-green-600">
+                              <Check className="h-4 w-4" />
+                              {t('install_questions.oauth_connected')}
+                            </span>
+                          )}
+                          {flow.status === 'starting' && (
+                            <span className="text-sm text-muted-foreground animate-pulse">
+                              {t('install_questions.oauth_starting')}
+                            </span>
+                          )}
+                          {flow.status === 'waiting' && (
+                            <span className="text-sm text-muted-foreground animate-pulse">
+                              {t('install_questions.oauth_waiting')}
+                            </span>
+                          )}
+                        </div>
+                        {flow.status === 'waiting' && flow.userCode && (
+                          <p className="text-sm">
+                            {t('install_questions.oauth_user_code')}{' '}
+                            <span className="font-mono font-medium">{flow.userCode}</span>
+                          </p>
+                        )}
+                        {/* The approval page opens in a new tab, which a popup
+                            blocker may swallow. Leave the link on screen so the
+                            flow is not simply stuck when it does. */}
+                        {flow.status === 'waiting' && flow.approveUrl && (
+                          <a
+                            href={flow.approveUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-sm underline text-primary break-all"
+                          >
+                            {t('install_questions.oauth_open_manually')}
+                          </a>
+                        )}
+                        {flow.status === 'error' && (
+                          <p className="text-sm text-destructive">{flow.error}</p>
+                        )}
+                        {fieldError && <p className="text-sm text-destructive">{fieldError}</p>}
+                      </div>
+                    )
+                  }
 
                   if (question.type === 'boolean') {
                     const checked = !!booleans[key]

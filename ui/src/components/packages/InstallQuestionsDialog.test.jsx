@@ -4,6 +4,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import InstallQuestionsDialog from './InstallQuestionsDialog.jsx'
 
 const mockClient = {
+  startOAuth: vi.fn(),
+  pollOAuth: vi.fn(),
   listNetworks: vi.fn(() =>
     Promise.resolve([
       { name: 'home', enabled: true },
@@ -274,5 +276,110 @@ describe('InstallQuestionsDialog dismissal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+// An oauth question is answered by running a device flow, not by typing: the user
+// clicks Connect, approves at the provider, and the token the flow returns
+// becomes the form's value. This is what replaces running a shell script by hand
+// to obtain a Plex token.
+describe('InstallQuestionsDialog oauth questions', () => {
+  const oauthDialog = {
+    repo: 'default',
+    name: 'plex',
+    version: '3.0',
+    questions: { plextoken: { query: 'Plex account', type: 'oauth' } },
+  }
+
+  beforeEach(() => {
+    mockClient.startOAuth.mockReset()
+    mockClient.pollOAuth.mockReset()
+    vi.spyOn(window, 'open').mockImplementation(() => null)
+  })
+
+  it('renders a Connect button rather than a text field', () => {
+    renderDialog({ dialog: oauthDialog })
+
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeTruthy()
+    // A token is not something anyone types; there must be no text input to type
+    // it into.
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('opens the approval page and submits the token the flow returns', async () => {
+    mockClient.startOAuth.mockResolvedValue({
+      flow_id: 'flow-1',
+      approve_url: 'https://app.plex.tv/auth#?code=abcd',
+      interval_ms: 1000,
+    })
+    // Pending first: the operator has not approved yet, which is the normal
+    // state for the first poll or several.
+    mockClient.pollOAuth
+      .mockResolvedValueOnce({ status: 'pending' })
+      .mockResolvedValueOnce({ status: 'approved', token: 'plex-auth-token' })
+
+    const onSubmit = vi.fn((e) => e.preventDefault())
+    renderDialog({ dialog: oauthDialog, onSubmit })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(() => expect(window.open).toHaveBeenCalledWith(
+      'https://app.plex.tv/auth#?code=abcd',
+      '_blank',
+      'noopener,noreferrer',
+    ))
+    await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy(), { timeout: 5000 })
+
+    // The token is the form's value for the question, exactly as if it had been
+    // typed into a text field.
+    // The dialog renders through a portal, so the field lives on document, not in
+    // render()'s container.
+    const field = document.querySelector('input[name="plextoken"]')
+    expect(field.value).toBe('plex-auth-token')
+    expect(mockClient.startOAuth).toHaveBeenCalledWith('default', 'plex', '3.0', 'plextoken')
+  }, 10000)
+
+  it('shows the user code when the provider requires one', async () => {
+    mockClient.startOAuth.mockResolvedValue({
+      flow_id: 'flow-2',
+      approve_url: 'https://github.com/login/device',
+      user_code: 'WXYZ-1234',
+      interval_ms: 1000,
+    })
+    mockClient.pollOAuth.mockResolvedValue({ status: 'pending' })
+
+    renderDialog({ dialog: oauthDialog })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(() => expect(screen.getByText('WXYZ-1234')).toBeTruthy())
+  })
+
+  it('reports an expired approval request instead of polling forever', async () => {
+    mockClient.startOAuth.mockResolvedValue({
+      flow_id: 'flow-3',
+      approve_url: 'https://app.plex.tv/auth',
+      interval_ms: 1000,
+    })
+    mockClient.pollOAuth.mockResolvedValue({ status: 'expired' })
+
+    renderDialog({ dialog: oauthDialog })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(
+      () => expect(screen.getByText('The approval request expired. Connect again.')).toBeTruthy(),
+      { timeout: 5000 },
+    )
+  }, 10000)
+
+  // Reinstalling must not force the operator back through the provider: the token
+  // from the previous install is already a valid answer.
+  it('treats a cached token as already connected', () => {
+    renderDialog({
+      dialog: { ...oauthDialog, responses: { plextoken: 'saved-token' } },
+    })
+
+    expect(screen.getByText('Connected')).toBeTruthy()
+    expect(document.querySelector('input[name="plextoken"]').value).toBe('saved-token')
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy()
   })
 })

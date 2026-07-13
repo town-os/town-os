@@ -117,6 +117,7 @@ type serverBase struct {
 	extFailWarnLogged bool
 }
 
+func (s *serverBase) GetOAuthAllowPrivate() bool                   { return s.OAuthAllowPrivate }
 func (s *serverBase) GetStorage() storage.Storage                 { return s.Storage }
 func (s *serverBase) GetRepositoryRoot() *packages.RepositoryRoot { return s.RepositoryRoot }
 func (s *serverBase) GetInstaller() packages.Installer            { return s.Installer }

@@ -283,6 +283,37 @@ Questions prompt the user during package installation. Each question has a `quer
 
   The package info dialog renders saved boolean answers as Yes/No instead of the raw `"true"`/`"false"` string, and boolean questions bypass the cached-value/clear-button path in the install dialog — a saved answer simply pre-checks the box and stays directly editable.
 
+- **oauth** -- a token obtained by running a device flow from the install dialog, rather than typed. Validated like a secret (any non-empty string), never auto-generated, and masked in the package info dialog. The install dialog renders a **Connect** button in place of a text field; a cached answer from a previous install renders as already connected, so a reinstall does not send the operator back to the provider.
+
+#### OAuth questions
+
+Some applications are configured with a credential only their vendor can mint -- a Plex account token, a GitHub personal token -- and the only way to get one has been to run a shell script by hand and paste what it printed. An `oauth` question runs that flow from the dialog instead.
+
+There is **no provider registry**. The question carries an `oauth:` block naming the provider's own URLs, so a package can use any vendor with a device-style flow without a change to Town OS:
+
+```yaml
+questions:
+  plextoken:
+    query: "Plex account"
+    type: oauth
+    oauth:
+      start: { method: POST, url: "https://plex.tv/api/v2/pins?strong=true", headers: { X-Plex-Client-Identifier: "{{client_id}}" } }
+      extract: { id: id, code: code }
+      approve: "https://app.plex.tv/auth#?clientID={{client_id}}&code={{code}}"
+      poll: { url: "https://plex.tv/api/v2/pins/{{id}}", headers: { X-Plex-Client-Identifier: "{{client_id}}" } }
+      token: authToken
+      interval: 2s
+      timeout: 10m
+```
+
+`start` opens the flow; `extract` names JSON fields to pull from its response; `approve` is the URL the browser opens; `poll` is repeated until the JSON field named by `token` stops being absent or null, which is exactly what "the user has not approved yet" looks like on the wire. `{{...}}` placeholders resolve against the extracted values plus `{{client_id}}`, a random per-flow identifier the controller sends on every step (Plex ties the pin to it). An extracted JSON number is rendered as digits, not as `1.234567e+06` -- a float-formatted pin id would 404 the poll URL and hang forever in "pending".
+
+The flow lives in `src/packages/oauth.go` (schema plus validation) and `src/svc/systemcontroller/controller_oauth.go` (execution). `POST /packages/oauth/start` runs the start step and returns `{flow_id, approve_url, user_code, interval_ms}`; `POST /packages/oauth/poll` runs one poll step and returns `pending`, `approved` with the token, or `expired`. Both require admin. The server keeps the flow only until it is redeemed -- the token is handed to the browser, which submits it as the question's answer like any other response, so holding a copy server-side would only add a second place for it to leak from.
+
+Validation comes in two halves, and conflating them is a bug. `ValidateOAuthSpec` checks the *shape* of the flow (required fields, parseable durations, no template in a URL's host) and is what `Compile` runs when a package is installed. `ValidateOAuthFlow` is that plus the address policy below, and runs only when a flow is about to be *executed*. An install happens long after its flow ran, on a host whose `OAuthAllowPrivate` setting `Compile` cannot see — so applying the address policy at compile time rejects an install whose own flow had just succeeded.
+
+**The address guard is load-bearing.** A package names arbitrary URLs and the *controller* dials them, so without a guard a package could aim it at the host's own network. `packages.CheckOAuthAddr` runs in the HTTP client's `DialContext` (and on every redirect) and refuses loopback, private, link-local, multicast, unspecified, and CGNAT addresses; URLs must be `https`. Checking at dial time rather than parse time is what makes it DNS-rebinding-proof. `ServerConfig.OAuthAllowPrivate` relaxes it and exists only so tests can point a flow at an `httptest` server on 127.0.0.1.
+
 #### Optional questions
 
 Any question may set `optional: true`. Every other question must be answered with a non-empty value, which leaves a package author no way to express a setting the application can genuinely do without — an SMTP relay, an API key — except by inventing a placeholder default and hoping the operator overwrites it.

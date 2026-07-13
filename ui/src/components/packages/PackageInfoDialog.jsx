@@ -67,7 +67,9 @@ export default function PackageInfoDialog({ dialog, onClose }) {
 
   function answerFor(key, question) {
     const value = dialog.responses?.[key]
-    if (question.type === 'secret') {
+    // An oauth answer is the token the device flow returned -- a credential, so
+    // it is masked and copyable exactly like a secret rather than printed.
+    if (question.type === 'secret' || question.type === 'oauth') {
       if (value === undefined || value === '') return '-'
       return <SecretAnswer value={String(value)} t={t} />
     }

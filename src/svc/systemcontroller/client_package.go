@@ -387,3 +387,47 @@ func (c *SystemdClient) InstallPreview(ctx context.Context, repo, name, version 
 	var preview InstallPreview
 	return &preview, json.NewDecoder(resp.Body).Decode(&preview)
 }
+
+// StartOAuth begins an OAuth device flow for an `oauth` question and returns the
+// URL the operator must approve it at.
+func (c *SystemdClient) StartOAuth(ctx context.Context, repo, name, version, question string) (_ *OAuthStartResponse, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, OAuthStartRequest{Repo: repo, Name: name, Version: version, Question: question})
+
+	resp, err := c.postJSON(ctx, "packages/oauth/start", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: StartOAuth: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "POST", "packages/oauth/start")
+	}
+
+	var out OAuthStartResponse
+	return &out, json.NewDecoder(resp.Body).Decode(&out)
+}
+
+// PollOAuth checks a pending device flow once. It reports "pending" until the
+// operator approves at the provider, then "approved" with the token.
+func (c *SystemdClient) PollOAuth(ctx context.Context, flowID string) (_ *OAuthPollResponse, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, OAuthPollRequest{FlowID: flowID})
+
+	resp, err := c.postJSON(ctx, "packages/oauth/poll", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: PollOAuth: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "POST", "packages/oauth/poll")
+	}
+
+	var out OAuthPollResponse
+	return &out, json.NewDecoder(resp.Body).Decode(&out)
+}

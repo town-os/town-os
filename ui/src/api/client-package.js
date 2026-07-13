@@ -277,3 +277,27 @@ SystemControllerClient.prototype.uploadVMImage = async function (url, name) {
 SystemControllerClient.prototype.deleteVMImage = async function (name) {
   await this.post('/vm-images/delete', { name })
 }
+
+/**
+ * Begin an OAuth device flow for an `oauth` question. The controller creates the
+ * pending authorization at the provider and returns the URL the operator has to
+ * approve it at.
+ * @param {string} repo
+ * @param {string} name
+ * @param {string} version
+ * @param {string} question - the question key
+ * @returns {Promise<{flow_id: string, approve_url: string, user_code?: string, interval_ms: number}>}
+ */
+SystemControllerClient.prototype.startOAuth = async function (repo, name, version, question) {
+  return this.postJSON('/packages/oauth/start', { repo, name, version, question })
+}
+
+/**
+ * Check a pending device flow once. Returns "pending" until the operator
+ * approves at the provider, then "approved" with the token.
+ * @param {string} flowId
+ * @returns {Promise<{status: 'pending'|'approved'|'expired', token?: string}>}
+ */
+SystemControllerClient.prototype.pollOAuth = async function (flowId) {
+  return this.postJSON('/packages/oauth/poll', { flow_id: flowId })
+}

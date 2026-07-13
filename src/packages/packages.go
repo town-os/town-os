@@ -353,9 +353,56 @@ type InputPackageNetwork struct {
 	TLSMode map[string]string `yaml:"tls_mode,omitempty"`
 }
 
+// OAuthStep is a single HTTP call in a device-flow: the one that starts the
+// flow, and the one polled until the user approves it.
+type OAuthStep struct {
+	Method  string            `json:"method,omitempty" yaml:"method,omitempty"`
+	URL     string            `json:"url" yaml:"url"`
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	// Form is sent as an application/x-www-form-urlencoded body. Device flows
+	// split about evenly between form bodies (GitHub) and bare query strings
+	// (Plex), so both have to be expressible.
+	Form map[string]string `json:"form,omitempty" yaml:"form,omitempty"`
+}
+
+// OAuthFlow describes an OAuth 2.0 device flow: create a pending authorization,
+// send the user somewhere to approve it, then poll until a token comes back.
+// This is the only OAuth variant that works here, because Town OS has no public
+// redirect URI to receive an authorization code at.
+//
+// The URLs live in the package rather than in a provider registry inside Town
+// OS, so a package author can wire up a new service without changing the system
+// controller. The server makes these calls, so it restricts them to https and
+// refuses hosts that resolve to private or loopback addresses -- otherwise a
+// package could use this to probe the network the controller runs on.
+//
+// Templates use {{name}} and resolve against the values pulled out by Start's
+// Extract map, plus {{client_id}}, a UUID minted per flow (Plex requires a
+// stable client identifier across the create/poll pair).
+type OAuthFlow struct {
+	Start OAuthStep `json:"start" yaml:"start"`
+	// Extract names the JSON fields to pull out of Start's response and make
+	// available to the templates below.
+	Extract map[string]string `json:"extract,omitempty" yaml:"extract,omitempty"`
+	// Approve is the URL the user opens to approve the request.
+	Approve string `json:"approve" yaml:"approve"`
+	// UserCode is an optional template for a short code the user must type on
+	// the approval page (GitHub shows one; Plex does not).
+	UserCode string    `json:"user_code,omitempty" yaml:"user_code,omitempty"`
+	Poll     OAuthStep `json:"poll" yaml:"poll"`
+	// Token is the JSON field in Poll's response holding the token. It stays
+	// absent or null until the user approves, which is what "pending" means.
+	Token string `json:"token" yaml:"token"`
+	// Interval and Timeout are human-readable durations (e.g. "5s", "5m").
+	Interval string `json:"interval,omitempty" yaml:"interval,omitempty"`
+	Timeout  string `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+}
+
 type Question struct {
 	Query string     `json:"query" yaml:"query"`
 	Type  OutputType `json:"type,omitempty" yaml:"type,omitempty"`
+	// OAuth is required by, and only meaningful for, an `oauth` question.
+	OAuth *OAuthFlow `json:"oauth,omitempty" yaml:"oauth,omitempty"`
 	// Optional lets a question be left blank. Every other question must be
 	// answered with a non-empty value, which makes settings a package can
 	// genuinely do without -- an SMTP relay, an API key -- impossible to

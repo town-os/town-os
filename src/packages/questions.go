@@ -41,6 +41,11 @@ const (
 	Duration OutputType = "duration"
 	Secret   OutputType = "secret"
 	Boolean  OutputType = "boolean"
+	// Oauth is answered by completing a device flow in the install dialog rather
+	// than by typing. The answer is the token the flow returns, so it validates
+	// and is handled exactly like a Secret -- masked, never auto-generated, and
+	// carried forward on upgrade.
+	Oauth OutputType = "oauth"
 )
 
 func (o OutputType) Output(answer string) (string, error) {
@@ -79,7 +84,7 @@ func (o OutputType) Output(answer string) (string, error) {
 			return "", ErrInvalidType
 		}
 		return answer, nil
-	case Secret:
+	case Secret, Oauth:
 		if answer == "" {
 			return "", ErrInvalidType
 		}

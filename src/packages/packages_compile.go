@@ -410,8 +410,15 @@ func (i *InputPackage) Validate() error {
 		}
 	}
 
-	for name := range i.Questions {
+	for name, q := range i.Questions {
 		if err := ValidateQuestionName(name); err != nil {
+			return err
+		}
+		// The shape of the flow, not whether its URLs may be dialed: by the time a
+		// package is installed the flow has already run, and the address rules
+		// belong to the host that ran it (see ServerConfig.OAuthAllowPrivate), not
+		// to the package sitting in the repository.
+		if err := ValidateOAuthSpec(name, q); err != nil {
 			return err
 		}
 	}

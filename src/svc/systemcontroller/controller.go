@@ -82,6 +82,18 @@ type SystemControllerHandlers struct {
 	// Caddy container so concurrent page/package CRUD never fires overlapping
 	// `systemctl restart` calls (the Caddyfile itself is written synchronously).
 	ingressRestartMu sync.Mutex
+
+	// oauthStore holds the OAuth device flows currently awaiting approval. They
+	// are short-lived and worthless once redeemed, so they never leave memory.
+	oauthOnce  sync.Once
+	oauthStore *oauthFlows
+}
+
+// oauthFlows returns the pending-device-flow store, creating it on first use so
+// that a handler set built without one (every test server) still works.
+func (s *SystemControllerHandlers) oauthFlows() *oauthFlows {
+	s.oauthOnce.Do(func() { s.oauthStore = newOAuthFlows() })
+	return s.oauthStore
 }
 
 // lockPackage acquires a per-package mutex and returns an unlock function.
@@ -159,6 +171,11 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/packages/questions", s.getPackageQuestions, s.requireAdmin)
 	e.Add("POST", "/packages/questions/identity", s.getPackageQuestionsByIdentity, s.requireAdmin)
 	e.Add("POST", "/packages/children", s.listChildren, s.requireAuth)
+	// An oauth question is answered by running a device flow from the install
+	// dialog. Admin-only: starting a flow makes the controller fetch a URL the
+	// package named, and completing one yields a credential.
+	e.Add("POST", "/packages/oauth/start", s.startOAuth, s.requireAdmin)
+	e.Add("POST", "/packages/oauth/poll", s.pollOAuth, s.requireAdmin)
 	e.Add("POST", "/packages/install-preview", s.installPreview, s.requireAuth)
 	e.Add("POST", "/packages/install", s.installPackage, s.requireAdmin)
 	e.Add("POST", "/packages/uninstall", s.uninstallPackage, s.requireAdmin)
@@ -289,6 +306,13 @@ type ServerConfig struct {
 	// still-alive outgoing process is indistinguishable from the booted
 	// incoming one (both answer ping 200 and 404 /boot-status).
 	BootID string
+
+	// OAuthAllowPrivate lets an OAuth device flow call a private or loopback
+	// address. It exists so tests can point a flow at an httptest server; in
+	// production it stays false, and packages.CheckOAuthAddr refuses to let the
+	// controller -- which runs as root on the host -- be aimed at the host's own
+	// network by a URL a package named.
+	OAuthAllowPrivate bool
 
 	// TLSCA is the local X.509 root used to issue per-package leaf certs
 	// for HTTP-supplying packages. nil disables TLS termination and leaves
