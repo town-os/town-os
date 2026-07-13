@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/wireguard"
 	"github.com/labstack/echo/v5"
 )
@@ -55,6 +59,21 @@ type AddNetworkPeerRequest struct {
 type RemoveNetworkPeerRequest struct {
 	Network   string `json:"network"`
 	PublicKey string `json:"public_key"`
+}
+
+// RefreshNetworkPeerRequest asks to extend a peer's TTL. The new expiry is
+// server-computed as now + peer_ttl; the caller does not choose it.
+type RefreshNetworkPeerRequest struct {
+	Network   string `json:"network"`
+	PublicKey string `json:"public_key"`
+}
+
+// RefreshPeerResult reports a peer's new expiry so a client can pace its next
+// heartbeat well before the TTL elapses.
+type RefreshPeerResult struct {
+	Network   string    `json:"network"`
+	PublicKey string    `json:"public_key"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // NetworkView is the API representation of a network (private key omitted).
@@ -305,6 +324,25 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	}
 	allowedIP := fmt.Sprintf("%s/32", peerAddr)
 
+	// Attribute the enrollment and, for WireGuard-only accounts, enforce network
+	// scope and stamp a TTL. A WireGuard account may enroll only on a network in
+	// its scope, and its peers expire on their own unless refreshed, so an
+	// abandoned device cannot hold an overlay address forever. Admin enrollments
+	// stay permanent (nil expiry), preserving the pre-TTL behavior.
+	acct := s.callingAccount(c)
+	var createdBy string
+	var expiresAt *time.Time
+	if acct != nil {
+		createdBy = acct.Username
+		if acct.WireGuard {
+			if !wireGuardScopeAllows(acct, n.Name) {
+				return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthWireGuardNetworkDenied))
+			}
+			exp := time.Now().Add(s.peerTTL()).UTC()
+			expiresAt = &exp
+		}
+	}
+
 	stored, err := nm.AddPeer(&account.NetworkPeer{
 		Network:   n.Name,
 		PublicKey: publicKey,
@@ -312,6 +350,8 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 		AllowedIP: allowedIP,
 		Endpoint:  strings.TrimSpace(req.Endpoint),
 		Rolodex:   req.Rolodex,
+		CreatedBy: createdBy,
+		ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		if errors.Is(err, account.ErrDuplicateNetworkPeer) {
@@ -359,4 +399,92 @@ func (s *SystemControllerHandlers) removeNetworkPeer(c *echo.Context) error {
 		}
 	}
 	return c.JSON(200, map[string]any{"status": "ok"})
+}
+
+// refreshNetworkPeer handles POST /networks/peers/refresh. It slides a peer's
+// TTL forward by peer_ttl — the heartbeat that keeps a long-lived enrollment
+// (the portal) alive. A WireGuard-only caller may refresh only a peer it
+// enrolled on a network in its scope; an admin may refresh any peer. No
+// transport reload is needed: the peer set is unchanged, only its expiry.
+func (s *SystemControllerHandlers) refreshNetworkPeer(c *echo.Context) error {
+	var req RefreshNetworkPeerRequest
+	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
+	}
+	if req.Network == "" || req.PublicKey == "" {
+		return echo.NewHTTPError(400, "network and public_key are required")
+	}
+
+	nm := s.Controller.GetNetworkManager()
+	if nm == nil {
+		return echo.NewHTTPError(503, "network manager not available")
+	}
+
+	if acct := s.callingAccount(c); acct != nil && acct.WireGuard {
+		if !wireGuardScopeAllows(acct, req.Network) {
+			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthWireGuardNetworkDenied))
+		}
+		owned, err := s.peerOwnedBy(nm, req.Network, req.PublicKey, acct.Username)
+		if err != nil {
+			return echo.NewHTTPError(500, fmt.Sprintf("list peers: %v", err))
+		}
+		if !owned {
+			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthWireGuardPeerNotOwned))
+		}
+	}
+
+	expiresAt := time.Now().Add(s.peerTTL()).UTC()
+	if err := nm.RefreshPeer(req.Network, req.PublicKey, expiresAt); err != nil {
+		if errors.Is(err, account.ErrNetworkPeerNotFound) {
+			return echo.NewHTTPError(404, "peer not found")
+		}
+		return echo.NewHTTPError(500, fmt.Sprintf("refresh peer: %v", err))
+	}
+
+	return c.JSON(200, RefreshPeerResult{Network: req.Network, PublicKey: req.PublicKey, ExpiresAt: expiresAt})
+}
+
+// peerOwnedBy reports whether the named peer exists on the network and was
+// enrolled by username. A missing peer reports false (not owned), so the caller
+// returns the ownership 403 rather than leaking existence — refresh of an absent
+// peer and refresh of someone else's peer look identical to a scoped account.
+func (s *SystemControllerHandlers) peerOwnedBy(nm account.NetworkManager, network, publicKey, username string) (bool, error) {
+	peers, err := nm.ListPeers(network)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range peers {
+		if p.PublicKey == publicKey {
+			return p.CreatedBy == username, nil
+		}
+	}
+	return false, nil
+}
+
+// wireGuardScopeAllows reports whether a WireGuard-only account is scoped to the
+// named network. The scope is stored normalized (deduped, sorted) so a linear
+// scan is fine for the handful of networks an account is realistically scoped to.
+func wireGuardScopeAllows(acct *account.Account, network string) bool {
+	return slices.Contains(acct.Networks, network)
+}
+
+// peerTTL returns the configured peer enrollment lifetime. It reads the peer_ttl
+// setting (raw seconds) and falls back to two hours if the setting is missing,
+// blank, unparseable, or non-positive — a corrupt setting must never yield a
+// zero TTL that would expire every enrollment on the next reaper tick.
+func (s *SystemControllerHandlers) peerTTL() time.Duration {
+	const fallback = 2 * time.Hour
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return fallback
+	}
+	val, err := mgr.Get("peer_ttl")
+	if err != nil {
+		return fallback
+	}
+	secs, err := strconv.Atoi(strings.TrimSpace(val))
+	if err != nil || secs <= 0 {
+		return fallback
+	}
+	return time.Duration(secs) * time.Second
 }

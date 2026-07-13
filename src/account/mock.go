@@ -45,9 +45,20 @@ func (m *MockManager) GetCalls() []MockCall {
 }
 
 func (m *MockManager) Create(username, password, email, phone, realName string, admin bool) (*Account, error) {
+	return m.create("Create", username, password, email, phone, realName, admin, false, nil)
+}
+
+func (m *MockManager) CreateWireGuard(username, password, email, phone, realName string, networks []string) (*Account, error) {
+	if err := validateNetworkScope(networks); err != nil {
+		return nil, err
+	}
+	return m.create("CreateWireGuard", username, password, email, phone, realName, false, true, normalizeNetworkScope(networks))
+}
+
+func (m *MockManager) create(method, username, password, email, phone, realName string, admin, wireguard bool, networks []string) (*Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{username, password, email, phone, realName, admin}})
+	m.Calls = append(m.Calls, MockCall{Method: method, Args: []any{username, password, email, phone, realName, admin, wireguard, networks}})
 
 	if m.CreateErr != nil {
 		return nil, m.CreateErr
@@ -70,6 +81,8 @@ func (m *MockManager) Create(username, password, email, phone, realName string, 
 		Phone:        phone,
 		RealName:     realName,
 		Admin:        admin,
+		WireGuard:    wireguard,
+		Networks:     networks,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -116,6 +129,21 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 		return nil, ErrNotFound
 	}
 
+	// Resolve the resulting WireGuard/scope state and validate it before
+	// mutating, mirroring the SQLite manager. acct is a live pointer into the
+	// map, so applying first and failing after would corrupt stored state.
+	wireguard := acct.WireGuard
+	if fields.WireGuard != nil {
+		wireguard = *fields.WireGuard
+	}
+	networks := acct.Networks
+	if fields.Networks != nil {
+		networks = normalizeNetworkScope(*fields.Networks)
+	}
+	if wireguard && len(networks) == 0 {
+		return nil, ErrWireGuardNoNetworks
+	}
+
 	if fields.Password != nil {
 		acct.PasswordHash = *fields.Password
 	}
@@ -131,6 +159,8 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 	if fields.Admin != nil {
 		acct.Admin = *fields.Admin
 	}
+	acct.WireGuard = wireguard
+	acct.Networks = networks
 	acct.UpdatedAt = time.Now()
 
 	out := *acct

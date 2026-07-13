@@ -83,6 +83,13 @@ var RouteActionKeys = map[string]string{
 	"/packages/clear-last-responses":       i18n.MsgAuditClearLastResponses,
 	"/system-services/status":              i18n.MsgAuditSetSystemServiceStatus,
 	"/system-services/refresh":             i18n.MsgAuditRefreshSystemServices,
+	"/networks/create":                     i18n.MsgAuditCreateNetwork,
+	"/networks/remove":                     i18n.MsgAuditRemoveNetwork,
+	"/networks/enable":                     i18n.MsgAuditEnableNetwork,
+	"/networks/disable":                    i18n.MsgAuditDisableNetwork,
+	"/networks/peers/add":                  i18n.MsgAuditAddNetworkPeer,
+	"/networks/peers/remove":               i18n.MsgAuditRemoveNetworkPeer,
+	"/networks/peers/refresh":              i18n.MsgAuditRefreshNetworkPeer,
 }
 
 // RouteActions maps API paths to their localized audit action descriptions

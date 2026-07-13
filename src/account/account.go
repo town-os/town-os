@@ -5,6 +5,7 @@ package account
 import (
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -27,6 +28,15 @@ var (
 	// reject them at creation time rather than trust every layer to
 	// round-trip them correctly.
 	ErrPasswordInvalidChars = errors.New("password may only contain printable ASCII characters (no spaces)")
+	// ErrWireGuardNoNetworks is returned when a WireGuard-only account is
+	// created or updated without at least one network. A WireGuard account's
+	// entire purpose is to enroll peers on specific networks; one with no
+	// networks could authenticate but do nothing, and — worse — an empty
+	// network list must never be read as "any network".
+	ErrWireGuardNoNetworks = errors.New("a wireguard-only account must be scoped to at least one network")
+	// ErrInvalidNetworkName is returned when a scoped network name is not a
+	// legal network identifier.
+	ErrInvalidNetworkName = errors.New("invalid network name in wireguard account scope")
 )
 
 var emailRegexp = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -43,8 +53,19 @@ type Account struct {
 	RealName     string    `json:"real_name"`
 	Admin        bool      `json:"admin"`
 	Disabled     bool      `json:"disabled"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	// WireGuard marks an account whose privileges are restricted to enrolling
+	// on the WireGuard networks named in Networks and nothing else. It is a
+	// fail-closed capability, enforced by wireGuardAllowlistMiddleware: such an
+	// account is denied every endpoint that is not on the allowlist, so it
+	// cannot reach the control plane the way a normal (non-admin) account can.
+	// Unlike Admin, WireGuard is mutable after creation.
+	WireGuard bool `json:"wireguard"`
+	// Networks is the set of networks a WireGuard account may enroll peers on.
+	// It is meaningful only when WireGuard is true, and must be non-empty then.
+	// An empty list is never "any network".
+	Networks  []string  `json:"networks"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // UpdateFields holds optional fields for updating an account. Only non-nil
@@ -57,6 +78,14 @@ type UpdateFields struct {
 	Phone    *string `json:"phone,omitempty"`
 	RealName *string `json:"real_name,omitempty"`
 	Admin    *bool   `json:"admin,omitempty"`
+	// WireGuard toggles the WireGuard-only restriction. Unlike Admin (which is
+	// immutable after creation), an operator may turn this on or off on an
+	// existing account. When it is turned on, Networks must resolve to a
+	// non-empty set (either supplied here or already stored).
+	WireGuard *bool `json:"wireguard,omitempty"`
+	// Networks replaces the account's network scope. A nil pointer leaves the
+	// stored scope untouched; a non-nil pointer replaces it wholesale.
+	Networks *[]string `json:"networks,omitempty"`
 }
 
 // Manager defines the interface for account CRUD and authentication operations.
@@ -65,6 +94,15 @@ type Manager interface {
 	// 8 characters. Email, phone, and realName are all required. When admin
 	// is true the account receives administrator privileges.
 	Create(username, password, email, phone, realName string, admin bool) (*Account, error)
+	// CreateWireGuard creates a WireGuard-only account scoped to networks.
+	//
+	// It is a separate method rather than a flag on Create so the dozens of
+	// existing Create call sites are untouched, and so the security-relevant
+	// invariant — a WireGuard account is never an admin, and always has a
+	// non-empty network scope — is enforced in one place at creation time
+	// rather than assembled from a widened positional signature. networks must
+	// be non-empty; each entry must be a valid network name.
+	CreateWireGuard(username, password, email, phone, realName string, networks []string) (*Account, error)
 	// Get retrieves an account by username. Returns [ErrNotFound] if the
 	// account does not exist.
 	Get(username string) (*Account, error)
@@ -150,5 +188,57 @@ func validateUpdateFields(fields UpdateFields) error {
 			return err
 		}
 	}
+	if fields.Networks != nil {
+		// Only the *names* are validated here, not the non-emptiness. Clearing
+		// the scope to empty is legal on an update — e.g. turning WireGuard off
+		// in the same call. Whether the *resulting* account may have an empty
+		// scope is decided by validateWireGuardResult (SQLite) / the mock's
+		// resolution, which know the post-update WireGuard state; enforcing
+		// non-emptiness here would reject that legitimate case.
+		if err := validateNetworkNames(*fields.Networks); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// validateNetworkScope checks that a WireGuard account's network list is
+// non-empty and every entry is a legal network name. It is deliberately strict:
+// a malformed or empty scope on a WireGuard account is a fail-open risk, so it
+// is rejected at the boundary rather than stored and interpreted later. Used on
+// the create path, where the account is WireGuard by construction.
+func validateNetworkScope(networks []string) error {
+	if len(networks) == 0 {
+		return ErrWireGuardNoNetworks
+	}
+	return validateNetworkNames(networks)
+}
+
+// validateNetworkNames checks that every entry is a legal network name, without
+// any opinion on whether the list may be empty. The emptiness rule is
+// context-dependent (only a WireGuard account must be non-empty), so it lives
+// with the code that knows that context.
+func validateNetworkNames(networks []string) error {
+	for _, n := range networks {
+		if !ValidNetworkName(n) {
+			return ErrInvalidNetworkName
+		}
+	}
+	return nil
+}
+
+// normalizeNetworkScope de-duplicates and sorts a network list so the stored
+// scope is canonical regardless of the order the caller supplied.
+func normalizeNetworkScope(networks []string) []string {
+	seen := make(map[string]struct{}, len(networks))
+	out := make([]string, 0, len(networks))
+	for _, n := range networks {
+		if _, dup := seen[n]; dup {
+			continue
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }

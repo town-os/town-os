@@ -18,7 +18,24 @@ export default function CreateUser() {
   const { t } = useI18n()
   useEffect(() => { document.title = t('create_user.page_title') }, [t])
   const [loading, setLoading] = useState(false)
+  const [wireguard, setWireguard] = useState(false)
+  const [networks, setNetworks] = useState([])
+  const [selectedNetworks, setSelectedNetworks] = useState([])
   const navigate = useNavigate()
+
+  // Fetch the enrollable networks for the scope selector. The default "home"
+  // network has no WireGuard transport, so it is never a valid scope.
+  useEffect(() => {
+    getClient().listNetworks()
+      .then((nets) => setNetworks((nets || []).filter((n) => n.name !== 'home')))
+      .catch((err) => console.debug('listNetworks failed:', err))
+  }, [])
+
+  function toggleNetwork(name) {
+    setSelectedNetworks((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    )
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -43,6 +60,10 @@ export default function CreateUser() {
       toast.error(t('create_user.error_passwords_mismatch'))
       return
     }
+    if (wireguard && selectedNetworks.length === 0) {
+      toast.error(t('create_user.error_networks_required'))
+      return
+    }
 
     setLoading(true)
     try {
@@ -52,7 +73,10 @@ export default function CreateUser() {
         form.email.value || '',
         form.phone.value || '',
         form.realname.value || '',
-        !!form.admin?.checked,
+        // A WireGuard-only account is never an admin; the two are exclusive.
+        wireguard ? false : !!form.admin?.checked,
+        wireguard,
+        wireguard ? selectedNetworks : [],
       )
       navigate('/dashboard/users')
     } catch (err) {
@@ -110,15 +134,52 @@ export default function CreateUser() {
                 <Input id="email" name="email" type="email" />
               </div>
             </div>
+            {!wireguard && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="admin"
+                  name="admin"
+                  className="rounded"
+                />
+                <Label htmlFor="admin">{t('create_user.admin_label')}</Label>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                id="admin"
-                name="admin"
+                id="wireguard"
+                name="wireguard"
                 className="rounded"
+                checked={wireguard}
+                onChange={(e) => setWireguard(e.target.checked)}
               />
-              <Label htmlFor="admin">{t('create_user.admin_label')}</Label>
+              <Label htmlFor="wireguard">{t('create_user.wireguard_label')}</Label>
             </div>
+            {wireguard && (
+              <div className="space-y-2">
+                <Label>{t('create_user.networks_label')}</Label>
+                <p className="text-sm text-muted-foreground">{t('create_user.networks_description')}</p>
+                {networks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t('create_user.networks_none')}</p>
+                ) : (
+                  <div className="space-y-1">
+                    {networks.map((n) => (
+                      <div key={n.name} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`network-${n.name}`}
+                          className="rounded"
+                          checked={selectedNetworks.includes(n.name)}
+                          onChange={() => toggleNetwork(n.name)}
+                        />
+                        <Label htmlFor={`network-${n.name}`}>{n.name}</Label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
           <CardFooter className="flex gap-3 pt-6">
             <Button

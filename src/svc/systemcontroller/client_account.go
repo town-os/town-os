@@ -38,6 +38,33 @@ func (c *SystemdClient) CreateAccount(ctx context.Context, username, password, e
 	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
 }
 
+// CreateWireGuardAccount creates a WireGuard-only account scoped to networks.
+// The resulting account is never an admin and may reach only the WireGuard
+// enrollment endpoints.
+func (c *SystemdClient) CreateWireGuardAccount(ctx context.Context, username, password, email, phone, realName string, networks []string) (_ *account.Account, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, CreateAccountRequest{
+		Username: username, Password: password,
+		Email: email, Phone: phone, RealName: realName,
+		WireGuard: true, Networks: networks,
+	})
+
+	resp, err := c.postJSON(ctx, "account/create", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: CreateWireGuardAccount: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "POST", "account/create")
+	}
+
+	var acct account.Account
+	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
+}
+
 // GetAccount retrieves a user account by username.
 func (c *SystemdClient) GetAccount(ctx context.Context, username string) (_ *account.Account, err error) {
 	pr, pw := io.Pipe()

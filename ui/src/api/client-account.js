@@ -8,10 +8,12 @@ import { SystemControllerClient } from './core.js'
  * @param {string} email - Email address (validated against standard format).
  * @param {string} phone - Phone number (digits with optional formatting).
  * @param {string} realName - Display name.
- * @param {boolean} admin - When true, the account receives administrator privileges.
+ * @param {boolean} admin - When true, the account receives administrator privileges. Ignored when `wireguard` is true.
+ * @param {boolean} [wireguard] - When true, create a WireGuard-only account scoped to `networks` instead of a normal account.
+ * @param {string[]} [networks] - Networks the WireGuard-only account may enroll peers on. Must be non-empty when `wireguard` is true.
  * @returns {Promise<Account>}
  */
-SystemControllerClient.prototype.createAccount = async function (username, password, email, phone, realName, admin) {
+SystemControllerClient.prototype.createAccount = async function (username, password, email, phone, realName, admin, wireguard = false, networks = []) {
   return this.postJSON('/account/create', {
     username,
     password,
@@ -19,6 +21,8 @@ SystemControllerClient.prototype.createAccount = async function (username, passw
     phone,
     real_name: realName,
     admin,
+    wireguard,
+    networks,
   })
 }
 

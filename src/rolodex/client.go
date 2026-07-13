@@ -52,6 +52,11 @@ type Client interface {
 	// addresses of other network members running rolodex, consulted for names
 	// under the TLD before an authoritative NXDOMAIN. See scope.go for helpers.
 	AddScopeTld(ctx context.Context, scopeName, tld string) error
+	// AddScopeTldWithListener additionally binds a DNS listener (UDP+TCP) to
+	// listenIP on the server. This is how rolodex comes to answer on a network's
+	// overlay address at all — the listener is a full resolver, and the ingress
+	// answer-rewriting is confined to names under tld. See EnsureScopeListener.
+	AddScopeTldWithListener(ctx context.Context, scopeName, tld, listenIP string) error
 	RemoveScopeTld(ctx context.Context, scopeName, tld string) error
 	ListScopeTlds(ctx context.Context, scopeName string) ([]string, error)
 	SetScopeTldForwarders(ctx context.Context, scopeName, tld string, forwarders []string) error
@@ -168,6 +173,10 @@ func (c *client) ListScopedRecords(ctx context.Context, scopeName string, opts *
 
 func (c *client) AddScopeTld(ctx context.Context, scopeName, tld string) error {
 	return c.c.AddScopeTld(ctx, scopeName, tld)
+}
+
+func (c *client) AddScopeTldWithListener(ctx context.Context, scopeName, tld, listenIP string) error {
+	return c.c.AddScopeTldWithListener(ctx, scopeName, tld, listenIP)
 }
 
 func (c *client) RemoveScopeTld(ctx context.Context, scopeName, tld string) error {

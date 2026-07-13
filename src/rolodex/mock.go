@@ -32,6 +32,7 @@ type MockClient struct {
 	// Scope TLD state.
 	ScopeTlds          map[string][]string // scopeName -> additional owned TLDs
 	ScopeTldForwarders map[string][]string // scopeName + "\x00" + tld -> forwarders
+	ScopeTldListeners  map[string]string   // scopeName + "\x00" + tld -> listen IP
 
 	// RBL / DNSBL state.
 	RblEnabled      bool
@@ -69,6 +70,7 @@ type MockClient struct {
 	ListScopedRecordsErr      error
 	AddScopeTldErr            error
 	RemoveScopeTldErr         error
+	AddScopeTldListenerErr    error
 	ListScopeTldsErr          error
 	SetScopeTldForwardersErr  error
 	ListScopeTldForwardersErr error
@@ -434,6 +436,28 @@ func (m *MockClient) AddScopeTld(_ context.Context, scopeName, tld string) error
 	}
 	if !slices.Contains(m.ScopeTlds[scopeName], tld) {
 		m.ScopeTlds[scopeName] = append(m.ScopeTlds[scopeName], tld)
+	}
+	return nil
+}
+
+func (m *MockClient) AddScopeTldWithListener(_ context.Context, scopeName, tld, listenIP string) error {
+	m.record("AddScopeTldWithListener", scopeName, tld, listenIP)
+	if m.AddScopeTldListenerErr != nil {
+		return m.AddScopeTldListenerErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ScopeTlds == nil {
+		m.ScopeTlds = map[string][]string{}
+	}
+	if !slices.Contains(m.ScopeTlds[scopeName], tld) {
+		m.ScopeTlds[scopeName] = append(m.ScopeTlds[scopeName], tld)
+	}
+	if listenIP != "" {
+		if m.ScopeTldListeners == nil {
+			m.ScopeTldListeners = map[string]string{}
+		}
+		m.ScopeTldListeners[scopeName+"\x00"+tld] = listenIP
 	}
 	return nil
 }

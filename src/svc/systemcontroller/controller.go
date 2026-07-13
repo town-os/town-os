@@ -245,7 +245,10 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/networks/remove", s.removeNetwork, s.requireAdmin)
 	e.Add("POST", "/networks/enable", s.enableNetwork, s.requireAdmin)
 	e.Add("POST", "/networks/disable", s.disableNetwork, s.requireAdmin)
-	e.Add("POST", "/networks/peers/add", s.addNetworkPeer, s.requireAdmin)
+	// peers/add and peers/refresh admit WireGuard-only accounts (scope and
+	// ownership enforced in the handlers), not just admins.
+	e.Add("POST", "/networks/peers/add", s.addNetworkPeer, s.requirePeerEnroll)
+	e.Add("POST", "/networks/peers/refresh", s.refreshNetworkPeer, s.requirePeerEnroll)
 	e.Add("POST", "/networks/peers/remove", s.removeNetworkPeer, s.requireAdmin)
 }
 

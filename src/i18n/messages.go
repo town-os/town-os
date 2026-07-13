@@ -206,4 +206,29 @@ const (
 	// MsgAuditRefreshSystemServices is the audit action for refreshing
 	// system services via /system-services/refresh.
 	MsgAuditRefreshSystemServices = "audit.action.refresh_system_services"
+
+	// MsgAuditCreateNetwork is the audit action for creating an overlay network.
+	MsgAuditCreateNetwork = "audit.action.create_network"
+	// MsgAuditRemoveNetwork is the audit action for removing an overlay network.
+	MsgAuditRemoveNetwork = "audit.action.remove_network"
+	// MsgAuditEnableNetwork is the audit action for enabling a network's overlay.
+	MsgAuditEnableNetwork = "audit.action.enable_network"
+	// MsgAuditDisableNetwork is the audit action for disabling a network's overlay.
+	MsgAuditDisableNetwork = "audit.action.disable_network"
+	// MsgAuditAddNetworkPeer is the audit action for enrolling a peer on a network.
+	MsgAuditAddNetworkPeer = "audit.action.add_network_peer"
+	// MsgAuditRemoveNetworkPeer is the audit action for removing a peer.
+	MsgAuditRemoveNetworkPeer = "audit.action.remove_network_peer"
+	// MsgAuditRefreshNetworkPeer is the audit action for refreshing a peer's TTL.
+	MsgAuditRefreshNetworkPeer = "audit.action.refresh_network_peer"
+
+	// MsgAuthWireGuardRestricted indicates a WireGuard-only account tried to
+	// reach an endpoint outside the WireGuard enrollment allowlist.
+	MsgAuthWireGuardRestricted = "auth.wireguard_restricted"
+	// MsgAuthWireGuardNetworkDenied indicates a WireGuard-only account tried to
+	// act on a network outside its permitted scope.
+	MsgAuthWireGuardNetworkDenied = "auth.wireguard_network_denied"
+	// MsgAuthWireGuardPeerNotOwned indicates a WireGuard-only account tried to
+	// refresh a peer it did not enroll.
+	MsgAuthWireGuardPeerNotOwned = "auth.wireguard_peer_not_owned"
 )

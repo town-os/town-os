@@ -12,14 +12,16 @@ type MockNetworkManager struct {
 	peers    map[string][]*NetworkPeer
 	Calls    []MockCall
 
-	CreateErr     error
-	GetErr        error
-	ListErr       error
-	RemoveErr     error
-	SetEnabledErr error
-	AddPeerErr    error
-	RemovePeerErr error
-	ListPeersErr  error
+	CreateErr           error
+	GetErr              error
+	ListErr             error
+	RemoveErr           error
+	SetEnabledErr       error
+	AddPeerErr          error
+	RemovePeerErr       error
+	ListPeersErr        error
+	RefreshPeerErr      error
+	ReapExpiredPeersErr error
 }
 
 func InitMockNetworkManager() *MockNetworkManager {
@@ -184,6 +186,55 @@ func (m *MockNetworkManager) RemovePeer(network, publicKey string) error {
 		}
 	}
 	return ErrNetworkPeerNotFound
+}
+
+func (m *MockNetworkManager) RefreshPeer(network, publicKey string, expiresAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "RefreshPeer", Args: []any{network, publicKey, expiresAt}})
+
+	if m.RefreshPeerErr != nil {
+		return m.RefreshPeerErr
+	}
+	for _, p := range m.peers[network] {
+		if p.PublicKey == publicKey {
+			expires := expiresAt
+			p.ExpiresAt = &expires
+			return nil
+		}
+	}
+	return ErrNetworkPeerNotFound
+}
+
+func (m *MockNetworkManager) ReapExpiredPeers(now time.Time) ([]NetworkPeer, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ReapExpiredPeers", Args: []any{now}})
+
+	if m.ReapExpiredPeersErr != nil {
+		return nil, m.ReapExpiredPeersErr
+	}
+
+	var reaped []NetworkPeer
+	for network, list := range m.peers {
+		kept := make([]*NetworkPeer, 0, len(list))
+		for _, p := range list {
+			// Non-nil expiry at or before now → reaped; nil expiry never expires.
+			if p.ExpiresAt != nil && !p.ExpiresAt.After(now) {
+				reaped = append(reaped, *p)
+			} else {
+				kept = append(kept, p)
+			}
+		}
+		m.peers[network] = kept
+	}
+	sort.Slice(reaped, func(i, j int) bool {
+		if reaped[i].Network != reaped[j].Network {
+			return reaped[i].Network < reaped[j].Network
+		}
+		return reaped[i].PublicKey < reaped[j].PublicKey
+	})
+	return reaped, nil
 }
 
 func (m *MockNetworkManager) ListPeers(network string) ([]NetworkPeer, error) {

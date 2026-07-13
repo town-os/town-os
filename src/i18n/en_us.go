@@ -122,4 +122,16 @@ var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditClearLastResponses:      "clear cached install responses",
 	MsgAuditSetSystemServiceStatus:  "set system service status",
 	MsgAuditRefreshSystemServices:   "refresh system services",
+	MsgAuditCreateNetwork:           "create network",
+	MsgAuditRemoveNetwork:           "remove network",
+	MsgAuditEnableNetwork:           "enable network",
+	MsgAuditDisableNetwork:          "disable network",
+	MsgAuditAddNetworkPeer:          "add network peer",
+	MsgAuditRemoveNetworkPeer:       "remove network peer",
+	MsgAuditRefreshNetworkPeer:      "refresh network peer",
+
+	// WireGuard-only account restrictions.
+	MsgAuthWireGuardRestricted:    "this account may only use wireguard enrollment endpoints",
+	MsgAuthWireGuardNetworkDenied: "this account is not permitted on that network",
+	MsgAuthWireGuardPeerNotOwned:  "this account may only refresh peers it enrolled",
 }

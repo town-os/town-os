@@ -54,6 +54,50 @@ func TestApplyNetworkTransportPublishesScopedTLDApex(t *testing.T) {
 	}
 }
 
+// An enabled non-default network must bind a rolodex DNS listener on the box's
+// overlay address. The peer configs we hand out set `DNS = <overlay .1>`
+// (renderPeerDeviceConfig), and rolodex otherwise binds only loopback and the
+// default-route interface — so without this a peer's DNS query lands on a closed
+// port and the overlay has no resolver at all.
+func TestApplyNetworkTransportBindsOverlayDNSListener(t *testing.T) {
+	mock := account.InitMockNetworkManager()
+	n := &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
+	if _, err := mock.Create(n); err != nil {
+		t.Fatalf("seed network: %v", err)
+	}
+	mc := &rolodex.MockClient{}
+	s := newNetworksHandlerWithRolodex(mock, mc)
+
+	if err := s.applyNetworkTransport(context.Background(), n); err != nil {
+		t.Fatalf("applyNetworkTransport: %v", err)
+	}
+
+	got := mc.ScopeTldListeners["office\x00office."]
+	if got != "10.90.12.1" {
+		t.Fatalf("expected a DNS listener bound to the overlay address 10.90.12.1 for office., got %q (listeners: %+v)", got, mc.ScopeTldListeners)
+	}
+}
+
+// The default/home network has no WireGuard transport and no overlay address, so
+// there is nothing to listen on — it must not bind an ingress listener.
+func TestApplyNetworkTransportDefaultNetworkNoOverlayDNSListener(t *testing.T) {
+	mock := account.InitMockNetworkManager()
+	n := &account.Network{Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.64.0.0/24", Address: "10.64.0.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
+	if _, err := mock.Create(n); err != nil {
+		t.Fatalf("seed network: %v", err)
+	}
+	mc := &rolodex.MockClient{}
+	s := newNetworksHandlerWithRolodex(mock, mc)
+
+	if err := s.applyNetworkTransport(context.Background(), n); err != nil {
+		t.Fatalf("applyNetworkTransport: %v", err)
+	}
+
+	if len(mc.ScopeTldListeners) != 0 {
+		t.Fatalf("default network must not bind an overlay DNS listener, got %+v", mc.ScopeTldListeners)
+	}
+}
+
 // The default network's home zone is global (set up by SetupDNS), so
 // applyNetworkTransport must not publish a scoped apex for it.
 func TestApplyNetworkTransportDefaultNetworkNoScopedApex(t *testing.T) {

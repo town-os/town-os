@@ -30,6 +30,9 @@ export default function UserManagement() {
   const { t } = useI18n()
   useEffect(() => { document.title = t('users.page_title') }, [t])
   const [editDialog, setEditDialog] = useState({ open: false })
+  const [editWireguard, setEditWireguard] = useState(false)
+  const [editNetworks, setEditNetworks] = useState([])
+  const [networks, setNetworks] = useState([])
   const [statusConfirm, setStatusConfirm] = useState(null)
   const [adminCount, setAdminCount] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -37,6 +40,26 @@ export default function UserManagement() {
   const [sortKey, setSortKey] = useState('username')
   const [sortDirection, setSortDirection] = useState('asc')
   const [search, setSearch] = useState('')
+
+  // The default "home" network has no WireGuard transport, so it is never a
+  // valid scope for a WireGuard-only account.
+  useEffect(() => {
+    getClient().listNetworks()
+      .then((nets) => setNetworks((nets || []).filter((n) => n.name !== 'home')))
+      .catch((err) => console.debug('listNetworks failed:', err))
+  }, [])
+
+  function openEdit(row) {
+    setEditWireguard(!!row.wireguard)
+    setEditNetworks(row.networks || [])
+    setEditDialog({ open: true, ...row })
+  }
+
+  function toggleEditNetwork(name) {
+    setEditNetworks((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    )
+  }
 
   const [accountData, , loading] = usePolling(
     () => getClient().listAccounts(sortKey, sortDirection, PAGE_SIZE, page * PAGE_SIZE, search || undefined),
@@ -66,11 +89,20 @@ export default function UserManagement() {
       return
     }
 
+    if (editWireguard && editNetworks.length === 0) {
+      toast.error(t('users.error_networks_required'))
+      return
+    }
+
     const fields = {}
     if (form.password.value) fields.password = form.password.value
     if (form.email.value) fields.email = form.email.value
     if (form.phone.value) fields.phone = form.phone.value
     if (form.real_name.value) fields.real_name = form.real_name.value
+    // The dialog is authoritative over the WireGuard restriction and its scope.
+    // admin is immutable and is never sent.
+    fields.wireguard = editWireguard
+    fields.networks = editWireguard ? editNetworks : []
 
     try {
       await getClient().updateAccount(editDialog.username, fields)
@@ -107,11 +139,16 @@ export default function UserManagement() {
     {
       key: 'admin',
       label: t('users.col_role'),
-      transform: (v) => (
-        <Badge variant={v ? 'default' : 'secondary'}>
-          {v ? t('users.role_admin') : t('users.role_user')}
-        </Badge>
-      ),
+      transform: (v, row) => {
+        if (row.wireguard) {
+          return <Badge variant="outline">{t('users.role_wireguard')}</Badge>
+        }
+        return (
+          <Badge variant={v ? 'default' : 'secondary'}>
+            {v ? t('users.role_admin') : t('users.role_user')}
+          </Badge>
+        )
+      },
     },
     {
       key: 'disabled',
@@ -141,7 +178,7 @@ export default function UserManagement() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setEditDialog({ open: true, ...row })}
+          onClick={() => openEdit(row)}
         >
           {t('users.edit_btn')}
         </Button>
@@ -254,6 +291,41 @@ export default function UserManagement() {
                   />
                 </div>
               </div>
+              {!editDialog.admin && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="edit-wireguard"
+                      className="rounded"
+                      checked={editWireguard}
+                      onChange={(e) => setEditWireguard(e.target.checked)}
+                    />
+                    <Label htmlFor="edit-wireguard">{t('users.wireguard_label')}</Label>
+                  </div>
+                  {editWireguard && (
+                    <div className="space-y-1">
+                      <Label>{t('users.networks_label')}</Label>
+                      {networks.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">{t('users.networks_none')}</p>
+                      ) : (
+                        networks.map((n) => (
+                          <div key={n.name} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`edit-network-${n.name}`}
+                              className="rounded"
+                              checked={editNetworks.includes(n.name)}
+                              onChange={() => toggleEditNetwork(n.name)}
+                            />
+                            <Label htmlFor={`edit-network-${n.name}`}>{n.name}</Label>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button

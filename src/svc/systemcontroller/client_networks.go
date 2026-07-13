@@ -113,3 +113,24 @@ func (c *SystemdClient) RemoveNetworkPeer(ctx context.Context, network, publicKe
 	go pipeEncode(pw, RemoveNetworkPeerRequest{Network: network, PublicKey: publicKey})
 	return c.postClient(ctx, "networks/peers/remove", pr)
 }
+
+// RefreshNetworkPeer extends a peer's TTL by the server's configured peer_ttl
+// and returns the new expiry. This is the heartbeat a long-lived client issues
+// to keep its enrollment from being reaped.
+func (c *SystemdClient) RefreshNetworkPeer(ctx context.Context, network, publicKey string) (_ RefreshPeerResult, err error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, RefreshNetworkPeerRequest{Network: network, PublicKey: publicKey})
+
+	resp, err := c.postJSON(ctx, "networks/peers/refresh", pr)
+	if err != nil {
+		return RefreshPeerResult{}, fmt.Errorf("%w: RefreshNetworkPeer: %w", ErrHTTPRequest, err)
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+
+	if resp.StatusCode != http.StatusOK {
+		return RefreshPeerResult{}, readProblemDetail(resp, "POST", "networks/peers/refresh")
+	}
+
+	var result RefreshPeerResult
+	return result, json.NewDecoder(resp.Body).Decode(&result)
+}

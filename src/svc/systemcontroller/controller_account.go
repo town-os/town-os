@@ -17,6 +17,11 @@ type CreateAccountRequest struct {
 	Phone    string `json:"phone"`
 	RealName string `json:"real_name"`
 	Admin    bool   `json:"admin"`
+	// WireGuard, when true, creates a WireGuard-only account scoped to Networks
+	// instead of a normal account. Admin is ignored in that case — the two are
+	// mutually exclusive and CreateWireGuard never grants admin.
+	WireGuard bool     `json:"wireguard"`
+	Networks  []string `json:"networks"`
 }
 
 type GetAccountRequest struct {
@@ -77,10 +82,19 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 		return err
 	}
 
-	acct, err := s.Controller.GetAccountManager().Create(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Admin)
+	var acct *account.Account
+	var err error
+	if req.WireGuard {
+		acct, err = s.Controller.GetAccountManager().CreateWireGuard(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Networks)
+	} else {
+		acct, err = s.Controller.GetAccountManager().Create(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Admin)
+	}
 	if err != nil {
 		if errors.Is(err, account.ErrDuplicateUsername) {
 			return echo.NewHTTPError(400, i18n.T(locale, i18n.MsgAccountCreateFailed))
+		}
+		if errors.Is(err, account.ErrWireGuardNoNetworks) || errors.Is(err, account.ErrInvalidNetworkName) {
+			return echo.NewHTTPError(400, err.Error())
 		}
 		return err
 	}

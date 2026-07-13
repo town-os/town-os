@@ -182,6 +182,93 @@ func (s *SystemControllerHandlers) requireAuth(next echo.HandlerFunc) echo.Handl
 	}
 }
 
+// callingAccount resolves the account behind the request's bearer token, or nil
+// when there is no session manager, no token, or the token is invalid. It never
+// errors — callers that need to *reject* an unauthenticated request rely on the
+// route's own auth middleware; callingAccount only answers "who, if anyone".
+func (s *SystemControllerHandlers) callingAccount(c *echo.Context) *account.Account {
+	sm := s.Controller.GetSessionManager()
+	if sm == nil {
+		return nil
+	}
+	token := extractBearerToken(c.Request())
+	if token == "" {
+		return nil
+	}
+	_, acct, err := sm.Validate(token)
+	if err != nil {
+		return nil
+	}
+	return acct
+}
+
+// wireGuardAllowedRoutes is the fail-closed allowlist for WireGuard-only
+// accounts, keyed by "METHOD PATH". Such an account may reach ONLY these
+// endpoints — the ones needed to authenticate, discover the network, fetch the
+// CA, and enroll/refresh a peer. Everything else is denied. Keep this list
+// minimal: it is the entire attack surface a scoped account has against the
+// control plane, and the portal holds a live tunnel into the overlay.
+var wireGuardAllowedRoutes = map[string]bool{
+	"POST /account/authenticate":   true,
+	"GET /account/me":              true,
+	"GET /networks":                true,
+	"GET /networks/peers":          true,
+	"POST /networks/peers/add":     true,
+	"POST /networks/peers/refresh": true,
+	"GET /dns/services":            true,
+	"GET /tls/ca.crt":              true,
+}
+
+func wireGuardAllowedPath(method, path string) bool {
+	return wireGuardAllowedRoutes[method+" "+path]
+}
+
+// wireGuardAllowlist is the fail-closed gate for WireGuard-only accounts. It is
+// a global middleware so that a newly added route is denied to WireGuard
+// accounts by default — the safe direction — until it is explicitly added to
+// wireGuardAllowedRoutes. Requests with no valid token, and requests from normal
+// or admin accounts, pass straight through to the route's own auth middleware;
+// only an authenticated WireGuard account is constrained here.
+func (s *SystemControllerHandlers) wireGuardAllowlist(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		acct := s.callingAccount(c)
+		if acct == nil || !acct.WireGuard {
+			return next(c)
+		}
+		if !wireGuardAllowedPath(c.Request().Method, c.Request().URL.Path) {
+			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthWireGuardRestricted))
+		}
+		return next(c)
+	}
+}
+
+// requirePeerEnroll guards the peer enrollment endpoints (peers/add,
+// peers/refresh). It admits admins and WireGuard-only accounts — whose
+// per-network scope and per-peer ownership are enforced in the handler — but
+// rejects a plain non-admin account, so peer management stays privileged. The
+// global wireGuardAllowlist has already confined a WireGuard account to these
+// routes by the time this runs.
+func (s *SystemControllerHandlers) requirePeerEnroll(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		if s.Controller.GetSessionManager() == nil {
+			return next(c)
+		}
+		locale := s.getLocale()
+		token := extractBearerToken(c.Request())
+		if token == "" {
+			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
+		}
+		_, acct, err := s.Controller.GetSessionManager().Validate(token)
+		if err != nil {
+			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
+		}
+		if !acct.Admin && !acct.WireGuard {
+			return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthAdminRequired))
+		}
+		return next(c)
+	}
+}
+
 func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		am := s.Controller.GetAuditManager()

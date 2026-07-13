@@ -495,6 +495,57 @@ describe('SystemControllerClient', () => {
             phone: '555-1234',
             real_name: 'Bob Smith',
             admin: false,
+            wireguard: false,
+            networks: [],
+          }),
+        },
+      )
+    })
+
+    it('sends wireguard flag and network scope', async () => {
+      const acct = {
+        username: 'portal',
+        email: 'p@example.com',
+        phone: '555-9',
+        real_name: 'Portal',
+        admin: false,
+        disabled: false,
+        wireguard: true,
+        networks: ['office'],
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      }
+      mockFetch(acct)
+      client.setToken('tok')
+
+      const result = await client.createAccount(
+        'portal',
+        'secret12',
+        'p@example.com',
+        '555-9',
+        'Portal',
+        false,
+        true,
+        ['office'],
+      )
+      expect(result).toEqual(acct)
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:5309/account/create',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer tok',
+          },
+          body: JSON.stringify({
+            username: 'portal',
+            password: 'secret12',
+            email: 'p@example.com',
+            phone: '555-9',
+            real_name: 'Portal',
+            admin: false,
+            wireguard: true,
+            networks: ['office'],
           }),
         },
       )

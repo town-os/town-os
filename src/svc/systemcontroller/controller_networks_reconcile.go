@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
@@ -216,6 +217,47 @@ func logNonFatal(what string, err error) {
 	slog.Debug(fmt.Sprintf("%s: %v", what, err))
 }
 
+// reapExpiredPeers deletes every peer whose TTL has lapsed and re-renders the
+// transport of each affected network so the live WireGuard device and rolodex
+// forwarders drop the reaped peers. Best-effort and idempotent: the persisted
+// peer set is the source of truth, and a failed re-render is repaired by the
+// next tick or by boot reconcile. Called from the reaper goroutine, so all
+// errors are logged rather than returned.
+func (s *SystemControllerHandlers) reapExpiredPeers(ctx context.Context) {
+	nm := s.Controller.GetNetworkManager()
+	if nm == nil {
+		return
+	}
+	reaped, err := nm.ReapExpiredPeers(time.Now())
+	if err != nil {
+		logNonFatal("reap expired peers", err)
+		return
+	}
+	if len(reaped) == 0 {
+		return
+	}
+
+	// Re-render each affected network once, from the now-reduced peer set.
+	rerendered := make(map[string]bool, len(reaped))
+	for _, p := range reaped {
+		if rerendered[p.Network] {
+			continue
+		}
+		rerendered[p.Network] = true
+		n, err := nm.Get(p.Network)
+		if err != nil {
+			// The network may itself have been removed (its peers cascade-deleted);
+			// nothing to re-render in that case.
+			logNonFatal("get network after reap", err)
+			continue
+		}
+		if err := s.applyNetworkTransport(ctx, n); err != nil {
+			logNonFatal("apply network after peer reap", err)
+		}
+	}
+	slog.Info("reaped expired wireguard peers", "count", len(reaped), "networks", len(rerendered))
+}
+
 // buildNetwork assembles a new Network record: it derives the overlay subnet
 // from the IPAM seed (systemd machine-id), generates a WireGuard keypair, and
 // assigns a listen port from the current network count.
@@ -298,6 +340,15 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 				if addr, ok := overlayIP(n.Address); ok {
 					if err := rolodex.BindOverlayAddress(ctx, rc, addr, n.Name); err != nil {
 						logNonFatal("bind overlay address", err)
+					}
+					// Make rolodex actually listen on the overlay address. The peer
+					// configs we hand out set `DNS = <overlay .1>` (renderPeerDeviceConfig),
+					// and the box's rolodex otherwise binds only loopback and the
+					// default-route interface — so without this a peer's DNS lands on a
+					// closed port. BindOverlayAddress above only decides how a query is
+					// answered once it arrives.
+					if err := rolodex.EnsureScopeListener(ctx, rc, n.Name, n.TLD+".", addr); err != nil {
+						logNonFatal("bind overlay dns listener", err)
 					}
 				}
 				// Per-TLD peer forwarders: peers that run their own rolodex become

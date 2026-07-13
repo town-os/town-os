@@ -13,6 +13,8 @@ const MAX_ARCHIVE_SIZE_KEY = 'max_archive_size'
 const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 1024 * 1024 * 1024 // 1 GB
 const ARCHIVE_UNPACK_TIMEOUT_KEY = 'archive_unpack_timeout'
 const DEFAULT_ARCHIVE_UNPACK_TIMEOUT = 600 // seconds (10 min)
+const PEER_TTL_KEY = 'peer_ttl'
+const DEFAULT_PEER_TTL = 7200 // seconds (2 hours)
 const PROTON_IMAGE_KEY = 'proton_image'
 const MONITORING_BACKEND_KEY = 'monitoring_backend'
 const DNS_RESOLUTION_MODE_KEY = 'dns_resolution_mode'
@@ -248,6 +250,63 @@ export default function SystemSettings() {
     try {
       await getClient().setSetting(ARCHIVE_UNPACK_TIMEOUT_KEY, String(secs))
       toast.success(t('settings.toast_timeout_updated'))
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err.detail || err.message)
+    }
+  }
+
+  // --- WireGuard Peer TTL ---
+  // How long a WireGuard-only enrollment stays valid before the reaper removes
+  // it. A long-lived client (the portal) refreshes its peer before this elapses.
+  const currentPeerTTL = settings[PEER_TTL_KEY] !== undefined
+    ? Number(settings[PEER_TTL_KEY])
+    : DEFAULT_PEER_TTL
+
+  const [peerTTLInput, setPeerTTLInput] = useState('')
+  const [peerTTLUnit, setPeerTTLUnit] = useState('hours')
+
+  useEffect(() => {
+    if (settings[PEER_TTL_KEY] !== undefined) {
+      const secs = Number(settings[PEER_TTL_KEY])
+      if (secs >= 3600 && secs % 3600 === 0) {
+        setPeerTTLInput(String(secs / 3600))
+        setPeerTTLUnit('hours')
+      } else if (secs >= 60 && secs % 60 === 0) {
+        setPeerTTLInput(String(secs / 60))
+        setPeerTTLUnit('minutes')
+      } else {
+        setPeerTTLInput(String(secs))
+        setPeerTTLUnit('seconds')
+      }
+    } else {
+      setPeerTTLInput('2')
+      setPeerTTLUnit('hours')
+    }
+  }, [settings])
+
+  function peerTTLToSeconds() {
+    const num = Number(peerTTLInput)
+    if (isNaN(num) || num <= 0) return null
+    if (peerTTLUnit === 'hours') return num * 3600
+    if (peerTTLUnit === 'minutes') return num * 60
+    return num
+  }
+
+  async function handleSavePeerTTL(e) {
+    e.preventDefault()
+    const secs = peerTTLToSeconds()
+    if (secs === null) {
+      toast.error(t('settings.error_invalid_peer_ttl'))
+      return
+    }
+    if (secs === currentPeerTTL) {
+      toast.info(t('settings.toast_nothing_to_do'))
+      return
+    }
+    try {
+      await getClient().setSetting(PEER_TTL_KEY, String(secs))
+      toast.success(t('settings.toast_peer_ttl_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
       toast.error(err.detail || err.message)
@@ -527,6 +586,44 @@ export default function SystemSettings() {
               id="timeout-unit"
               value={timeoutUnit}
               onChange={(e) => setTimeoutUnit(e.target.value)}
+              className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
+            >
+              <option value="seconds">{t('settings.unit_option_seconds')}</option>
+              <option value="minutes">{t('settings.unit_option_minutes')}</option>
+              <option value="hours">{t('settings.unit_option_hours')}</option>
+            </select>
+          </div>
+          <Button type="submit">{t('settings.save_btn')}</Button>
+        </form>
+      </div>
+
+      <div className="rounded-lg border p-6 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold">{t('settings.peer_ttl_title')}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t('settings.peer_ttl_description')}{' '}
+            {t('settings.current_value', { value: '' })}<strong>{formatDuration(t, currentPeerTTL)}</strong>
+          </p>
+        </div>
+
+        <form onSubmit={handleSavePeerTTL} className="flex items-end gap-3">
+          <div className="space-y-2">
+            <Label htmlFor="peer-ttl-value">{t('settings.peer_ttl_label')}</Label>
+            <Input
+              id="peer-ttl-value"
+              type="number"
+              min="1"
+              value={peerTTLInput}
+              onChange={(e) => setPeerTTLInput(e.target.value)}
+              className="w-32"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="peer-ttl-unit">{t('settings.unit_label')}</Label>
+            <select
+              id="peer-ttl-unit"
+              value={peerTTLUnit}
+              onChange={(e) => setPeerTTLUnit(e.target.value)}
               className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
             >
               <option value="seconds">{t('settings.unit_option_seconds')}</option>

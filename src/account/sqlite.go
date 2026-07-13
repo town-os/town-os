@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -85,6 +86,8 @@ func InitManager(db *sql.DB) (*SQLiteManager, error) {
 		real_name     TEXT NOT NULL,
 		admin         INTEGER NOT NULL DEFAULT 0,
 		disabled      INTEGER NOT NULL DEFAULT 0,
+		wireguard     INTEGER NOT NULL DEFAULT 0,
+		networks      TEXT NOT NULL DEFAULT '[]',
 		created_at    TEXT NOT NULL,
 		updated_at    TEXT NOT NULL
 	)`)
@@ -92,7 +95,50 @@ func InitManager(db *sql.DB) (*SQLiteManager, error) {
 		return nil, fmt.Errorf("create accounts table: %w", err)
 	}
 
+	// Migrate pre-existing accounts tables that predate the WireGuard-only
+	// account type. The DEFAULTs make every existing row read back exactly as
+	// it did before (a normal, non-WireGuard account with no network scope), so
+	// the migration is safe to run against any older database. A duplicate
+	// column error means it already ran.
+	for _, col := range []struct{ name, def string }{
+		{"wireguard", "INTEGER NOT NULL DEFAULT 0"},
+		{"networks", "TEXT NOT NULL DEFAULT '[]'"},
+	} {
+		if _, err := db.ExecContext(ctx,
+			fmt.Sprintf("ALTER TABLE accounts ADD COLUMN %s %s", col.name, col.def),
+		); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("migrate accounts.%s: %w", col.name, err)
+		}
+	}
+
 	return &SQLiteManager{db: db}, nil
+}
+
+// marshalNetworks encodes a network scope for storage. An empty or nil scope is
+// stored as the JSON empty array so the column is never NULL and always parses.
+func marshalNetworks(networks []string) (string, error) {
+	if len(networks) == 0 {
+		return "[]", nil
+	}
+	b, err := json.Marshal(networks)
+	if err != nil {
+		return "", fmt.Errorf("encode network scope: %w", err)
+	}
+	return string(b), nil
+}
+
+// unmarshalNetworks decodes a stored network scope. A blank value (possible on
+// a row written before the column existed and then read oddly) decodes to nil
+// rather than erroring.
+func unmarshalNetworks(s string) ([]string, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil, fmt.Errorf("decode network scope %q: %w", s, err)
+	}
+	return out, nil
 }
 
 func hashPassword(password string) (string, error) {
@@ -154,17 +200,39 @@ func verifyPassword(hash, password string) bool {
 	return diff == 0
 }
 
-func (m *SQLiteManager) Create(username, password, email, phone, realName string, admin bool) (_ *Account, err error) {
-	err = validatePassword(password)
-	if err != nil {
+func (m *SQLiteManager) Create(username, password, email, phone, realName string, admin bool) (*Account, error) {
+	return m.create(username, password, email, phone, realName, admin, false, nil)
+}
+
+// CreateWireGuard creates a WireGuard-only account. It can never be admin (the
+// two are mutually exclusive by construction here, not by a caller's
+// discipline), and its network scope is validated non-empty before the row is
+// written, so a WireGuard account with no reachable network cannot exist.
+func (m *SQLiteManager) CreateWireGuard(username, password, email, phone, realName string, networks []string) (*Account, error) {
+	if err := validateNetworkScope(networks); err != nil {
 		return nil, err
 	}
-	err = validateContactInfo(email, phone, realName)
-	if err != nil {
+	return m.create(username, password, email, phone, realName, false, true, normalizeNetworkScope(networks))
+}
+
+// create is the shared insert path for both account kinds. Keeping it in one
+// place means the WireGuard flag and network scope are written atomically with
+// the rest of the row — there is no window where an account exists but its
+// restriction has not been applied yet.
+func (m *SQLiteManager) create(username, password, email, phone, realName string, admin, wireguard bool, networks []string) (_ *Account, err error) {
+	if err = validatePassword(password); err != nil {
+		return nil, err
+	}
+	if err = validateContactInfo(email, phone, realName); err != nil {
 		return nil, err
 	}
 
 	hash, err := hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+
+	networksJSON, err := marshalNetworks(networks)
 	if err != nil {
 		return nil, err
 	}
@@ -176,9 +244,9 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 	defer cancel()
 
 	_, err = m.db.ExecContext(ctx,
-		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-		username, hash, email, phone, realName, admin, nowStr, nowStr,
+		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, disabled, wireguard, networks, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+		username, hash, email, phone, realName, admin, wireguard, networksJSON, nowStr, nowStr,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "PRIMARY KEY") {
@@ -193,42 +261,67 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 		Phone:     phone,
 		RealName:  realName,
 		Admin:     admin,
+		WireGuard: wireguard,
+		Networks:  networks,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}, nil
 }
+
+// accountColumns is the canonical SELECT column list for an account, shared by
+// Get and List so the two can never drift out of sync with scanAccountRow.
+const accountColumns = `username, password_hash, email, phone, real_name, admin, disabled, wireguard, networks, created_at, updated_at`
 
 func (m *SQLiteManager) Get(username string) (*Account, error) {
 	ctx, cancel := dbCtx()
 	defer cancel()
 
 	row := m.db.QueryRowContext(ctx,
-		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
-		 FROM accounts WHERE username = ?`, username,
+		"SELECT "+accountColumns+" FROM accounts WHERE username = ?", username,
 	)
-	return scanAccount(row)
+	acct, err := scanAccountRow(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return acct, err
 }
 
-func scanAccount(row *sql.Row) (*Account, error) {
-	var acct Account
-	var createdStr, updatedStr string
+// rowScanner is satisfied by both *sql.Row and *sql.Rows, so scanAccountRow can
+// serve Get and List from one implementation.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
 
-	err := row.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &acct.Admin, &acct.Disabled, &createdStr, &updatedStr)
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
+// scanAccountRow reads one account, including the WireGuard flag and network
+// scope. It returns sql.ErrNoRows unwrapped so the caller can map it (Get →
+// ErrNotFound; List treats it as end-of-rows, which never occurs there).
+func scanAccountRow(s rowScanner) (*Account, error) {
+	var acct Account
+	var createdStr, updatedStr, networksJSON string
+
+	err := s.Scan(
+		&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName,
+		&acct.Admin, &acct.Disabled, &acct.WireGuard, &networksJSON, &createdStr, &updatedStr,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, err
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan account: %w", err)
 	}
 
-	var parseErr error
-	acct.CreatedAt, parseErr = time.Parse(time.RFC3339, createdStr)
-	if parseErr != nil {
-		return nil, fmt.Errorf("parse created_at: %w", parseErr)
+	acct.Networks, err = unmarshalNetworks(networksJSON)
+	if err != nil {
+		return nil, err
 	}
-	acct.UpdatedAt, parseErr = time.Parse(time.RFC3339, updatedStr)
-	if parseErr != nil {
-		return nil, fmt.Errorf("parse updated_at: %w", parseErr)
+
+	acct.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	acct.UpdatedAt, err = time.Parse(time.RFC3339, updatedStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse updated_at: %w", err)
 	}
 
 	return &acct, nil
@@ -267,6 +360,27 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 		sets = append(sets, "admin = ?")
 		args = append(args, *fields.Admin)
 	}
+	if fields.WireGuard != nil {
+		sets = append(sets, "wireguard = ?")
+		args = append(args, *fields.WireGuard)
+	}
+	if fields.Networks != nil {
+		networksJSON, err := marshalNetworks(normalizeNetworkScope(*fields.Networks))
+		if err != nil {
+			return nil, err
+		}
+		sets = append(sets, "networks = ?")
+		args = append(args, networksJSON)
+	}
+
+	// Guard the WireGuard invariant across the *resulting* row, not just this
+	// request: turning WireGuard on while leaving Networks empty (or clearing
+	// Networks on an account that is, or is becoming, WireGuard) would leave a
+	// restricted account with no reachable network. Resolve the post-update
+	// state and reject it before writing.
+	if err := m.validateWireGuardResult(username, fields); err != nil {
+		return nil, err
+	}
 
 	if len(sets) == 0 {
 		return m.Get(username)
@@ -297,6 +411,37 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 	}
 
 	return m.Get(username)
+}
+
+// validateWireGuardResult enforces "a WireGuard account always has a non-empty
+// network scope" against the state the row will have *after* the update. It
+// reads the current account and overlays whichever of WireGuard/Networks the
+// update sets, so every path into an empty-scoped WireGuard account is caught:
+// enabling WireGuard without networks, or clearing networks on a WireGuard
+// account.
+func (m *SQLiteManager) validateWireGuardResult(username string, fields UpdateFields) error {
+	if fields.WireGuard == nil && fields.Networks == nil {
+		return nil // neither dimension is changing
+	}
+
+	current, err := m.Get(username)
+	if err != nil {
+		return err
+	}
+
+	wireguard := current.WireGuard
+	if fields.WireGuard != nil {
+		wireguard = *fields.WireGuard
+	}
+	if !wireguard {
+		return nil // a non-WireGuard account may have any (including empty) scope
+	}
+
+	networks := current.Networks
+	if fields.Networks != nil {
+		networks = *fields.Networks
+	}
+	return validateNetworkScope(networks)
 }
 
 func (m *SQLiteManager) Disable(username string) error {
@@ -346,8 +491,7 @@ func (m *SQLiteManager) List() ([]Account, error) {
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,
-		`SELECT username, password_hash, email, phone, real_name, admin, disabled, created_at, updated_at
-		 FROM accounts ORDER BY username`,
+		"SELECT "+accountColumns+" FROM accounts ORDER BY username",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
@@ -358,24 +502,11 @@ func (m *SQLiteManager) List() ([]Account, error) {
 
 	var out []Account
 	for rows.Next() {
-		var acct Account
-		var createdStr, updatedStr string
-
-		err := rows.Scan(&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName, &acct.Admin, &acct.Disabled, &createdStr, &updatedStr)
+		acct, err := scanAccountRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan account row: %w", err)
+			return nil, err
 		}
-
-		acct.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
-		if err != nil {
-			return nil, fmt.Errorf("parse created_at: %w", err)
-		}
-		acct.UpdatedAt, err = time.Parse(time.RFC3339, updatedStr)
-		if err != nil {
-			return nil, fmt.Errorf("parse updated_at: %w", err)
-		}
-
-		out = append(out, acct)
+		out = append(out, *acct)
 	}
 
 	err = rows.Err()

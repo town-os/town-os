@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -232,6 +232,7 @@ const defaultSettings = {
   default_quota: '53687091200',
   max_archive_size: '1073741824',
   archive_unpack_timeout: '600',
+  peer_ttl: '7200',
   proton_image: '',
   monitoring_backend: 'uplot',
 }
@@ -290,6 +291,40 @@ function renderSystemSettings() {
   )
 }
 
+// Put a value into a controlled number field.
+//
+// React drives onChange for text-like inputs off the 'input' event, and a
+// 'change' event alone has been observed to leave this stack's controlled number
+// inputs untouched -- the field keeps its old value, the form saves nothing, and
+// the test reads as "the save never fired" rather than "the typing never landed".
+// user.clear()+user.type() is no better here (see the NOTE below). Fire input,
+// fall back to change, and then ASSERT the field actually holds the value, so a
+// failed interaction fails on its own line instead of impersonating a bug.
+function setNumberField(label, value) {
+  const el = screen.getByLabelText(label)
+  fireEvent.input(el, { target: { value } })
+  if (el.value !== String(value)) {
+    fireEvent.change(el, { target: { value } })
+  }
+  expect(el.value).toBe(String(value))
+  return el
+}
+
+// Click the Save button belonging to the section that owns `label`.
+//
+// These tests used to index into every Save button on the page
+// (saveButtons[4]), which is a trap: the Language form renders only once
+// getLocales resolves, so until it appears every index below it shifts by one
+// and a click lands on the wrong form. A click on a neighbouring form saves an
+// unchanged value, takes the nothing-to-do path, and calls nothing -- which is
+// indistinguishable from the save under test never firing, and makes the
+// "unchanged value does not save" tests pass for the wrong reason. Find the
+// field, submit its own form.
+function saveSection(label) {
+  const form = screen.getByLabelText(label).closest('form')
+  fireEvent.click(within(form).getByRole('button', { name: 'Save' }))
+}
+
 describe('SystemSettings component', () => {
   beforeEach(() => {
     mockGetSettings.mockClear()
@@ -331,7 +366,7 @@ describe('SystemSettings component', () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(7)
+      expect(buttons).toHaveLength(8)
     })
   })
 
@@ -617,7 +652,7 @@ describe('SystemSettings Proton Runner Image', () => {
     renderSystemSettings()
     await waitFor(() => {
       const buttons = screen.getAllByRole('button', { name: 'Save' })
-      expect(buttons).toHaveLength(7)
+      expect(buttons).toHaveLength(8)
     })
     await waitFor(() => {
       const input = screen.getByLabelText('Image')
@@ -625,8 +660,7 @@ describe('SystemSettings Proton Runner Image', () => {
     })
     const input = screen.getByLabelText('Image')
     fireEvent.change(input, { target: { value: '' } })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[4])
+    saveSection('Image')
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('proton_image', '')
     })
@@ -751,8 +785,7 @@ describe('SystemSettings changed-value save hits setSetting', () => {
     // change, so setSetting fires with the new byte count.
     const quotaUnit = document.getElementById('quota-unit')
     await user.selectOptions(quotaUnit, 'MB')
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[1])
+    saveSection('Quota')
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('default_quota', String(50 * 1024 * 1024))
     })
@@ -767,8 +800,7 @@ describe('SystemSettings changed-value save hits setSetting', () => {
     const input = screen.getByLabelText('Size')
     await user.clear(input)
     await user.type(input, '5')
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[2])
+    saveSection('Size')
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('max_archive_size', String(5 * 1024 * 1024 * 1024))
     })
@@ -783,13 +815,104 @@ describe('SystemSettings changed-value save hits setSetting', () => {
     const input = screen.getByLabelText('Timeout')
     await user.clear(input)
     await user.type(input, '30')
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[3])
+    saveSection('Timeout')
     await waitFor(() => {
       // Default unit is minutes when the loaded value is minute-aligned,
       // so 30 minutes = 1800 seconds.
       expect(mockSetSetting).toHaveBeenCalledWith('archive_unpack_timeout', '1800')
     })
+  })
+
+  it('peer ttl: changing value posts the new second count', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      // 7200s loads as 2 hours (hour-aligned).
+      expect(screen.getByLabelText('TTL').value).toBe('2')
+    })
+    setNumberField('TTL', '3')
+    // Submit the form the field actually belongs to. Indexing into every Save
+    // button on the page makes the test depend on how many sections happen to
+    // render above this one, and a click that lands on a neighbouring form saves
+    // an unchanged value -- which looks exactly like the save never firing.
+    saveSection('TTL')
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('peer_ttl', String(3 * 3600))
+    })
+  })
+
+  // The unit select is half of the answer: the same number means a different
+  // number of seconds depending on which unit is chosen.
+  it('peer ttl: changing the unit re-computes the seconds and posts them', async () => {
+    const user = userEvent.setup()
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('TTL').value).toBe('2')
+    })
+    // Loaded as 2 hours. Switching to minutes makes it 2 minutes -- a real
+    // change, so it saves 120 seconds rather than 7200.
+    await user.selectOptions(document.getElementById('peer-ttl-unit'), 'minutes')
+    saveSection('TTL')
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('peer_ttl', String(2 * 60))
+    })
+  })
+
+  // A TTL of zero would mean every peer is already expired. The field declares
+  // min="1", so the browser refuses the submit outright and the save handler is
+  // never even reached -- no request, and no error toast either, because there is
+  // nothing for the app to complain about. Assert the guard that is actually doing
+  // the work rather than one that cannot fire.
+  it('peer ttl: zero is refused by the field itself and never posted', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('TTL').value).toBe('2')
+    })
+    const input = setNumberField('TTL', '0')
+    expect(input.min).toBe('1')
+    expect(input.checkValidity()).toBe(false)
+
+    saveSection('TTL')
+    await act(async () => {})
+    expect(mockSetSetting).not.toHaveBeenCalled()
+  })
+
+  // An empty field, by contrast, satisfies the browser (nothing is `required`),
+  // so it reaches the handler -- which has to reject it, since "" is not a TTL.
+  it('peer ttl: an empty value is rejected and never posted', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('TTL').value).toBe('2')
+    })
+    setNumberField('TTL', '')
+    saveSection('TTL')
+    await waitFor(() => {
+      expect(mockToast.error).toHaveBeenCalledWith('Invalid peer TTL value')
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+  })
+
+  // A stored value is decomposed into the largest unit it divides evenly into,
+  // so the operator sees "30 minutes", not "1800 seconds".
+  it('peer ttl: a minute-aligned stored value loads as minutes', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, peer_ttl: '1800' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('TTL').value).toBe('30')
+    })
+    expect(document.getElementById('peer-ttl-unit').value).toBe('minutes')
+  })
+
+  it('peer ttl: a value aligned to nothing loads as seconds', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, peer_ttl: '90' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('TTL').value).toBe('90')
+    })
+    expect(document.getElementById('peer-ttl-unit').value).toBe('seconds')
   })
 
   it('proton image: changing value posts the new string', async () => {
@@ -800,8 +923,7 @@ describe('SystemSettings changed-value save hits setSetting', () => {
     })
     const input = screen.getByLabelText('Image')
     await user.type(input, 'ghcr.io/town-os/proton-runner:v2')
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[4])
+    saveSection('Image')
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('proton_image', 'ghcr.io/town-os/proton-runner:v2')
     })
@@ -815,8 +937,7 @@ describe('SystemSettings changed-value save hits setSetting', () => {
     })
     const select = screen.getByLabelText('Language')
     await user.selectOptions(select, 'es-ES')
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    fireEvent.click(saveButtons[0])
+    saveSection('Language')
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('locale', 'es-ES')
     })
@@ -839,9 +960,8 @@ describe('SystemSettings changed-value save hits setSetting', () => {
     })
     const select = screen.getByLabelText('Backend')
     await user.selectOptions(select, 'grafana')
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[saveButtons.length - 1])
+      saveSection('Backend')
     })
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('monitoring_backend', 'grafana')
@@ -879,9 +999,8 @@ describe('SystemSettings unchanged save is a no-op', () => {
       const select = screen.getByLabelText('Language')
       expect(select.value).toBe('en-US')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[0])
+      saveSection('Language')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expectNothingToDoToast()
@@ -889,18 +1008,13 @@ describe('SystemSettings unchanged save is a no-op', () => {
 
   it('quota: clicking Save with unchanged value does not call setSetting', async () => {
     renderSystemSettings()
-    // Wait for the Language form to render (getLocales resolved) so all Save
-    // buttons exist and their indices are stable. The Quota field shows '50'
-    // by default even before settings load, so waiting on it alone can race
-    // ahead of the conditionally-rendered Language Save button and shift the
-    // saveButtons indices.
+    // The Quota field shows '50' by default even before settings load, so wait
+    // for a value that only the loaded settings can produce.
     await waitFor(() => {
-      expect(screen.getByLabelText('Language')).toBeTruthy()
       expect(screen.getByLabelText('Quota').value).toBe('50')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[1])
+      saveSection('Quota')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expectNothingToDoToast()
@@ -911,9 +1025,8 @@ describe('SystemSettings unchanged save is a no-op', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Size').value).toBe('1')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[2])
+      saveSection('Size')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expectNothingToDoToast()
@@ -924,9 +1037,20 @@ describe('SystemSettings unchanged save is a no-op', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Timeout').value).toBe('10')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[3])
+      saveSection('Timeout')
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expectNothingToDoToast()
+  })
+
+  it('peer ttl: clicking Save with unchanged value does not call setSetting', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByLabelText('TTL').value).toBe('2')
+    })
+    await act(async () => {
+      saveSection('TTL')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expectNothingToDoToast()
@@ -934,16 +1058,11 @@ describe('SystemSettings unchanged save is a no-op', () => {
 
   it('proton image: clicking Save with unchanged empty value does not call setSetting', async () => {
     renderSystemSettings()
-    // The Image field is empty by default before settings load, so wait for
-    // the Language form too (getLocales resolved) to keep the saveButtons
-    // indices stable.
     await waitFor(() => {
-      expect(screen.getByLabelText('Language')).toBeTruthy()
       expect(screen.getByLabelText('Image').value).toBe('')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[4])
+      saveSection('Image')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expectNothingToDoToast()
@@ -957,9 +1076,8 @@ describe('SystemSettings unchanged save is a no-op', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Image').value).toBe('ghcr.io/town-os/proton-runner:latest')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[4])
+      saveSection('Image')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expectNothingToDoToast()
@@ -970,9 +1088,8 @@ describe('SystemSettings unchanged save is a no-op', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Backend').value).toBe('uplot')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[saveButtons.length - 1])
+      saveSection('Backend')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expect(mockMonitoringStatus).not.toHaveBeenCalled()
@@ -1038,10 +1155,8 @@ describe('SystemSettings DNS resolution mode', () => {
       expect(screen.getByLabelText('Mode').value).toBe('auto')
     })
     await user.selectOptions(screen.getByLabelText('Mode'), 'forward')
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
-    // The DNS form sits directly above the monitoring form, which is last.
     await act(async () => {
-      fireEvent.click(saveButtons[saveButtons.length - 2])
+      saveSection('Mode')
     })
     await waitFor(() => {
       expect(mockSetSetting).toHaveBeenCalledWith('dns_resolution_mode', 'forward')
@@ -1053,9 +1168,8 @@ describe('SystemSettings DNS resolution mode', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Mode').value).toBe('auto')
     })
-    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
     await act(async () => {
-      fireEvent.click(saveButtons[saveButtons.length - 2])
+      saveSection('Mode')
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expect(mockToast.info).toHaveBeenCalled()

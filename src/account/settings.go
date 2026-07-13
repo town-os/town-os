@@ -20,6 +20,13 @@ var DefaultSettings = map[string]string{
 	// Auto is the default because it keeps recursion's privacy wherever the
 	// network permits it and degrades instead of failing where it does not.
 	"dns_resolution_mode": "auto",
+	// peer_ttl is how long, in seconds, a WireGuard peer enrollment stays valid
+	// before the reaper removes it. Stored as raw seconds to match the other
+	// duration settings (archive_unpack_timeout). A long-lived client (the
+	// portal) refreshes its peer before this elapses; an abandoned device's
+	// peer expires on its own, so the additive peers/add endpoint cannot silently
+	// accumulate dead peers and burn overlay addresses.
+	"peer_ttl": "7200", // 2 hours
 }
 
 type SettingsManager interface {

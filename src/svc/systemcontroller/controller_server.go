@@ -729,6 +729,38 @@ func (s *serverBase) startNetworkPoller(ctx context.Context) {
 			}
 		}
 	}()
+
+	// Expired-peer reaper. WireGuard-only enrollments carry a TTL; a device
+	// that stops refreshing must have its peer (and overlay address) reclaimed.
+	// Own goroutine so the reap + transport re-render can't stall the IP/DNS
+	// ticks. Cheap at steady state — ReapExpiredPeers is a single indexed delete.
+	go func() {
+		ticker := time.NewTicker(peerReapInterval(getHandler(ctx, s).peerTTL()))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				getHandler(ctx, s).reapExpiredPeers(ctx)
+			}
+		}
+	}()
+}
+
+// peerReapInterval derives how often to sweep for expired peers from the TTL:
+// a quarter of the TTL so a lapsed peer lingers at most ~TTL/4 past expiry,
+// clamped to [1m, 15m] so neither a tiny nor an enormous TTL yields a pathological
+// sweep rate.
+func peerReapInterval(ttl time.Duration) time.Duration {
+	interval := ttl / 4
+	if interval < time.Minute {
+		return time.Minute
+	}
+	if interval > 15*time.Minute {
+		return 15 * time.Minute
+	}
+	return interval
 }
 
 func parseLogLevel() slog.Level {
@@ -799,6 +831,10 @@ func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handl
 		}
 	})
 	e.Use(handlers.auditMiddleware)
+	// Fail-closed gate for WireGuard-only accounts. Registered after audit so a
+	// denied request is still recorded, and before the routes so a scoped account
+	// is confined regardless of any single route's own middleware.
+	e.Use(handlers.wireGuardAllowlist)
 	handlers.configureRoutes(e)
 	return e
 }

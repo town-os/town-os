@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -39,6 +40,8 @@ func InitNetworkManager(db *sql.DB) (*SQLiteNetworkManager, error) {
 		allowed_ip   TEXT NOT NULL DEFAULT '',
 		endpoint     TEXT NOT NULL DEFAULT '',
 		rolodex      INTEGER NOT NULL DEFAULT 0,
+		created_by   TEXT NOT NULL DEFAULT '',
+		expires_at   TEXT,
 		created_at   TEXT NOT NULL,
 		PRIMARY KEY (network_name, public_key)
 	)`)
@@ -46,12 +49,21 @@ func InitNetworkManager(db *sql.DB) (*SQLiteNetworkManager, error) {
 		return nil, fmt.Errorf("create network_peers table: %w", err)
 	}
 
-	// Migrate pre-existing network_peers tables that lack the rolodex column.
-	// A duplicate-column error means the migration already ran; ignore it.
-	if _, err = db.ExecContext(ctx,
-		`ALTER TABLE network_peers ADD COLUMN rolodex INTEGER NOT NULL DEFAULT 0`,
-	); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		return nil, fmt.Errorf("migrate network_peers.rolodex: %w", err)
+	// Migrate pre-existing network_peers tables that lack the newer columns. A
+	// duplicate-column error means that column's migration already ran; ignore
+	// it. expires_at is deliberately nullable (no NOT NULL/DEFAULT): a NULL means
+	// "never expires", which is exactly how every peer that predates the TTL
+	// feature must keep behaving.
+	for _, col := range []struct{ name, def string }{
+		{"rolodex", "INTEGER NOT NULL DEFAULT 0"},
+		{"created_by", "TEXT NOT NULL DEFAULT ''"},
+		{"expires_at", "TEXT"},
+	} {
+		if _, err = db.ExecContext(ctx,
+			fmt.Sprintf("ALTER TABLE network_peers ADD COLUMN %s %s", col.name, col.def),
+		); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("migrate network_peers.%s: %w", col.name, err)
+		}
 	}
 
 	return &SQLiteNetworkManager{db: db}, nil
@@ -238,10 +250,17 @@ func (m *SQLiteNetworkManager) AddPeer(p *NetworkPeer) (*NetworkPeer, error) {
 	if p.Rolodex {
 		rolodex = 1
 	}
+	// A nil ExpiresAt is stored as SQL NULL ("never expires"); a non-nil one is
+	// normalized to UTC RFC3339 so lexical <= comparison in the reaper matches
+	// chronological order, exactly as created_at does.
+	var expiresVal any
+	if p.ExpiresAt != nil {
+		expiresVal = p.ExpiresAt.UTC().Format(time.RFC3339)
+	}
 	_, err := m.db.ExecContext(ctx,
-		`INSERT INTO network_peers (network_name, public_key, name, allowed_ip, endpoint, rolodex, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.Network, p.PublicKey, p.Name, p.AllowedIP, p.Endpoint, rolodex, nowStr,
+		`INSERT INTO network_peers (network_name, public_key, name, allowed_ip, endpoint, rolodex, created_by, expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Network, p.PublicKey, p.Name, p.AllowedIP, p.Endpoint, rolodex, p.CreatedBy, expiresVal, nowStr,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "PRIMARY KEY") {
@@ -274,13 +293,45 @@ func (m *SQLiteNetworkManager) RemovePeer(network, publicKey string) error {
 	return nil
 }
 
+// networkPeerColumns is the canonical SELECT column list for a peer, shared by
+// ListPeers and ReapExpiredPeers so the two can never drift out of sync with
+// scanNetworkPeerRow.
+const networkPeerColumns = `network_name, public_key, name, allowed_ip, endpoint, rolodex, created_by, expires_at, created_at`
+
+// scanNetworkPeerRow reads one peer, decoding the nullable expires_at into a
+// *time.Time (nil for a NULL / "never expires" row). It is fed from *sql.Rows in
+// both list and reap paths via the shared rowScanner interface.
+func scanNetworkPeerRow(s rowScanner) (*NetworkPeer, error) {
+	var p NetworkPeer
+	var createdStr string
+	var expiresStr sql.NullString
+	var rolodex int
+	if err := s.Scan(&p.Network, &p.PublicKey, &p.Name, &p.AllowedIP, &p.Endpoint, &rolodex, &p.CreatedBy, &expiresStr, &createdStr); err != nil {
+		return nil, fmt.Errorf("scan network peer row: %w", err)
+	}
+	p.Rolodex = rolodex != 0
+
+	var err error
+	p.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	if expiresStr.Valid && strings.TrimSpace(expiresStr.String) != "" {
+		expires, err := time.Parse(time.RFC3339, expiresStr.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse expires_at: %w", err)
+		}
+		p.ExpiresAt = &expires
+	}
+	return &p, nil
+}
+
 func (m *SQLiteNetworkManager) ListPeers(network string) (_ []NetworkPeer, err error) {
 	ctx, cancel := dbCtx()
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,
-		`SELECT network_name, public_key, name, allowed_ip, endpoint, rolodex, created_at
-		 FROM network_peers WHERE network_name = ? ORDER BY allowed_ip, public_key`, network,
+		"SELECT "+networkPeerColumns+" FROM network_peers WHERE network_name = ? ORDER BY allowed_ip, public_key", network,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list network peers: %w", err)
@@ -291,21 +342,107 @@ func (m *SQLiteNetworkManager) ListPeers(network string) (_ []NetworkPeer, err e
 
 	out := make([]NetworkPeer, 0, 8)
 	for rows.Next() {
-		var p NetworkPeer
-		var createdStr string
-		var rolodex int
-		if err := rows.Scan(&p.Network, &p.PublicKey, &p.Name, &p.AllowedIP, &p.Endpoint, &rolodex, &createdStr); err != nil {
-			return nil, fmt.Errorf("scan network peer row: %w", err)
-		}
-		p.Rolodex = rolodex != 0
-		p.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
+		p, err := scanNetworkPeerRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("parse created_at: %w", err)
+			return nil, err
 		}
-		out = append(out, p)
+		out = append(out, *p)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows iteration: %w", err)
 	}
 	return out, nil
+}
+
+// RefreshPeer extends a peer's expiry. It sets expires_at unconditionally to the
+// supplied time, so a heartbeat both slides a TTL'd peer forward and (were it
+// ever called on a permanent peer) would give it one — callers pass now+peer_ttl.
+func (m *SQLiteNetworkManager) RefreshPeer(network, publicKey string, expiresAt time.Time) error {
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	res, err := m.db.ExecContext(ctx,
+		"UPDATE network_peers SET expires_at = ? WHERE network_name = ? AND public_key = ?",
+		expiresAt.UTC().Format(time.RFC3339), network, publicKey,
+	)
+	if err != nil {
+		return fmt.Errorf("refresh network peer: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNetworkPeerNotFound
+	}
+	return nil
+}
+
+// ReapExpiredPeers removes every peer whose expiry has passed and returns the
+// removed set. The select and delete run in one transaction so a concurrent
+// RefreshPeer cannot slip a peer's expiry forward between the two statements and
+// have it both survive and be reported reaped (the single-connection pool would
+// otherwise release the connection between statements).
+func (m *SQLiteNetworkManager) ReapExpiredPeers(now time.Time) (_ []NetworkPeer, err error) {
+	nowStr := now.UTC().Format(time.RFC3339)
+
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin reap transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, tx.Rollback())
+		}
+	}()
+
+	// The rows must be fully drained and closed before the DELETE runs on the
+	// same single-connection transaction, so the select lives in its own helper
+	// whose deferred Close fires before we return here to delete.
+	expired, err := selectExpiredPeers(ctx, tx, nowStr)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(expired) > 0 {
+		if _, err = tx.ExecContext(ctx,
+			"DELETE FROM network_peers WHERE expires_at IS NOT NULL AND expires_at <= ?", nowStr,
+		); err != nil {
+			return nil, fmt.Errorf("delete expired peers: %w", err)
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit reap transaction: %w", err)
+	}
+	return expired, nil
+}
+
+func selectExpiredPeers(ctx context.Context, tx *sql.Tx, nowStr string) (_ []NetworkPeer, err error) {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT "+networkPeerColumns+" FROM network_peers WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY network_name, public_key",
+		nowStr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select expired peers: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, rows.Close())
+	}()
+
+	var expired []NetworkPeer
+	for rows.Next() {
+		p, scanErr := scanNetworkPeerRow(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		expired = append(expired, *p)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("rows iteration: %w", rowsErr)
+	}
+	return expired, nil
 }
