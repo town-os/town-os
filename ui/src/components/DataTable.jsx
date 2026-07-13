@@ -15,7 +15,7 @@ import { ChevronUp, ChevronDown, Search, RotateCcw } from 'lucide-react'
 /**
  * @param {{
  *   data: any[],
- *   columns: { key: string, label: string, transform?: (value: any, record: any) => any, sortable?: boolean }[],
+ *   columns: { key: string, label: string, transform?: (value: any, record: any) => any, sortable?: boolean, width?: string, className?: string, clip?: boolean }[],
  *   entryKey?: string,
  *   page?: number,
  *   setPage?: (n: number) => void,
@@ -233,7 +233,14 @@ export default function DataTable({
                     }
                   >
                     <div className={`flex items-center gap-1${headerJustify(cls)}`}>
-                      {col.label}
+                      {/* Header cells are nowrap too, so a label wider than a
+                          narrow column would overflow onto the next header
+                          exactly as the body cells did. Truncate it, and keep
+                          the sort indicator beside it rather than inside the
+                          truncating box so it never gets ellipsed away. */}
+                      {/* min-w-0: a flex item will not shrink below its content
+                          width without it, so truncate alone would do nothing. */}
+                      <span className="truncate min-w-0">{col.label}</span>
                       {sortKey === col.key && (
                         col.sortValues
                           ? <span className="text-xs font-normal text-muted-foreground ml-1">({sortDirection})</span>
@@ -266,9 +273,18 @@ export default function DataTable({
                       className={resolveClassName(col, idx)}
                       style={colStyle(col)}
                     >
-                      {col.transform
-                        ? col.transform(row[col.key], row)
-                        : row[col.key]}
+                      {/* Cells are whitespace-nowrap and the table is
+                          table-layout:fixed, so content wider than its column
+                          can neither wrap nor shrink: without something to clip
+                          it, it simply paints over the next column. Truncating
+                          here rather than on the <td> keeps the overflow on an
+                          inner box, so a cell may still host a portalled popover
+                          or tooltip without it being clipped away. */}
+                      <div className={col.clip === false ? undefined : 'truncate'}>
+                        {col.transform
+                          ? col.transform(row[col.key], row)
+                          : row[col.key]}
+                      </div>
                     </TableCell>
                   ))}
                 </TableRow>

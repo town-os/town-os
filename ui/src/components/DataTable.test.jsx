@@ -36,6 +36,61 @@ describe('DataTable', () => {
     expect(headers[1].className).toContain('text-right')
   })
 
+  // Cells are whitespace-nowrap inside a table-layout:fixed table, so content
+  // too wide for its column can neither wrap nor shrink. With nothing clipping
+  // it, it paints straight over the next column -- which is what the audit log
+  // looked like: timestamps sitting on top of actions, endpoints on top of users.
+  it('clips overlong cell content instead of letting it overflow the column', () => {
+    const data = [{ name: 'a'.repeat(200), value: '1' }]
+    const { container } = render(<DataTable {...baseProps} data={data} />)
+
+    const cell = container.querySelectorAll('td')[0]
+    const box = cell.firstElementChild
+    expect(box).toBeTruthy()
+    expect(box.className).toContain('truncate')
+    expect(box.textContent).toBe('a'.repeat(200))
+  })
+
+  // Header cells are nowrap as well, so a label in a deliberately narrow column
+  // (the audit log's Detail column is only as wide as its own header) would
+  // overflow onto the next header just as the body cells did.
+  it('clips a header label that outgrows a narrow column', () => {
+    const { container } = render(<DataTable {...baseProps} />)
+
+    const label = container.querySelector('th span')
+    expect(label.className).toContain('truncate')
+    // Without min-w-0 a flex item refuses to shrink below its content, and
+    // truncate would have no effect at all.
+    expect(label.className).toContain('min-w-0')
+  })
+
+  // A cell that hosts its own overflowing UI (a popover, a menu) can opt out.
+  it('leaves a cell unclipped when the column sets clip: false', () => {
+    const columns = [
+      { key: 'name', label: 'Name', clip: false },
+      { key: 'value', label: 'Value' },
+    ]
+    const { container } = render(<DataTable {...baseProps} columns={columns} />)
+
+    const cells = container.querySelectorAll('td')
+    expect(cells[0].firstElementChild.className).not.toContain('truncate')
+    expect(cells[1].firstElementChild.className).toContain('truncate')
+  })
+
+  // Fixed layout splits the pane equally by default, which starves the columns
+  // with the longest content and hands a full share to one holding an icon.
+  it('binds an explicit column width to its <col>', () => {
+    const columns = [
+      { key: 'name', label: 'Name', width: '80%' },
+      { key: 'value', label: 'Value', width: '20%' },
+    ]
+    const { container } = render(<DataTable {...baseProps} columns={columns} />)
+
+    const cols = container.querySelectorAll('colgroup col')
+    expect(cols[0].style.width).toBe('80%')
+    expect(cols[1].style.width).toBe('20%')
+  })
+
   it('applies column className to body cells', () => {
     const columns = [
       { key: 'name', label: 'Name' },

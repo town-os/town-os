@@ -120,14 +120,21 @@ export default function AuditLog() {
   }
 
   const columns = [
+    // Widths are explicit because the table is table-layout:fixed: left to
+    // itself it splits the pane equally, which starves the timestamp and the
+    // endpoint -- the two columns with the longest content -- while handing a
+    // full share to an icon. Content that does not fit a fixed cell can neither
+    // wrap (cells are nowrap) nor shrink, so it used to overlap the next column.
     {
       key: 'id',
       label: t('audit.col_id'),
+      width: '6%',
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
     {
       key: 'created_at',
       label: t('audit.col_time'),
+      width: '19%',
       // The timestamp itself opens the journal at that moment. This used to
       // be a trailing Clock icon button, but it sat flush against the Action
       // column and read as a stray leading icon on the action text.
@@ -146,16 +153,22 @@ export default function AuditLog() {
     {
       key: 'action',
       label: t('audit.col_action'),
+      width: '17%',
     },
     {
       key: 'path',
       label: t('audit.col_endpoint'),
+      width: '33%',
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
-    { key: 'account', label: t('audit.col_user'), transform: (v) => v || '-' },
+    { key: 'account', label: t('audit.col_user'), width: '15%', transform: (v) => v || '-' },
     {
       key: 'detail',
+      // Holds one icon button, so it only needs room for its own header label --
+      // any wider and it steals width from the endpoint, which is the column
+      // that actually has something long to show.
       label: t('audit.col_detail'),
+      width: '5%',
       sortable: false,
       transform: (v, row) =>
         v ? (
@@ -176,6 +189,7 @@ export default function AuditLog() {
     {
       key: 'success',
       label: t('audit.col_status'),
+      width: '5%',
       sortable: false,
       className: 'text-center',
       transform: (v, row) =>
