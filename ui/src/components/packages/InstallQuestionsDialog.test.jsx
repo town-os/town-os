@@ -383,3 +383,133 @@ describe('InstallQuestionsDialog oauth questions', () => {
     expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy()
   })
 })
+
+// A failed reconnect must not be reported as a success. The cached token from the
+// previous install is still the form's value -- it is still a valid answer -- but
+// a green "Connected" beside a red error tells the operator the attempt they are
+// looking at worked, which it did not.
+describe('InstallQuestionsDialog oauth errors', () => {
+  const oauthDialog = {
+    repo: 'default',
+    name: 'plex',
+    version: '3.0',
+    questions: { plextoken: { query: 'Plex account', type: 'oauth' } },
+  }
+
+  beforeEach(() => {
+    mockClient.startOAuth.mockReset()
+    mockClient.pollOAuth.mockReset()
+    vi.spyOn(window, 'open').mockImplementation(() => null)
+  })
+
+  it('drops the Connected badge when a reconnect fails, but keeps the cached token', async () => {
+    mockClient.startOAuth.mockRejectedValue({ detail: 'oauth URL not allowed' })
+
+    renderDialog({
+      dialog: { ...oauthDialog, responses: { plextoken: 'saved-token' } },
+    })
+
+    expect(screen.getByText('Connected')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+
+    await waitFor(() => expect(screen.getByText('oauth URL not allowed')).toBeTruthy())
+    expect(screen.queryByText('Connected')).toBeNull()
+    // The answer is still there to install with; only the claim of success is gone.
+    expect(document.querySelector('input[name="plextoken"]').value).toBe('saved-token')
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy()
+  })
+
+  it('does not claim Connected when the flow expires', async () => {
+    mockClient.startOAuth.mockResolvedValue({
+      flow_id: 'flow-x',
+      approve_url: 'https://app.plex.tv/auth',
+      interval_ms: 1000,
+    })
+    mockClient.pollOAuth.mockResolvedValue({ status: 'expired' })
+
+    renderDialog({
+      dialog: { ...oauthDialog, responses: { plextoken: 'saved-token' } },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+
+    await waitFor(
+      () => expect(screen.getByText('The approval request expired. Connect again.')).toBeTruthy(),
+      { timeout: 5000 },
+    )
+    expect(screen.queryByText('Connected')).toBeNull()
+  }, 10000)
+
+  it('reports a failed start with no cached token and offers Connect again', async () => {
+    mockClient.startOAuth.mockRejectedValue(new Error('provider returned 500'))
+
+    renderDialog({ dialog: oauthDialog })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(() => expect(screen.getByText('provider returned 500')).toBeTruthy())
+    expect(screen.queryByText('Connected')).toBeNull()
+    expect(document.querySelector('input[name="plextoken"]').value).toBe('')
+  })
+})
+
+// The two states that used to have no answer at all, because "connected" was
+// derived from holding a token rather than from what the flow was doing.
+describe('InstallQuestionsDialog oauth in-flight and empty-token states', () => {
+  const oauthDialog = {
+    repo: 'default',
+    name: 'plex',
+    version: '3.0',
+    questions: { plextoken: { query: 'Plex account', type: 'oauth' } },
+    responses: { plextoken: 'saved-token' },
+  }
+
+  beforeEach(() => {
+    mockClient.startOAuth.mockReset()
+    mockClient.pollOAuth.mockReset()
+    vi.spyOn(window, 'open').mockImplementation(() => null)
+  })
+
+  // A reconnect that is still running has not connected to anything. The cached
+  // token is still the answer, but the badge describes the attempt, not the value.
+  it('drops the Connected badge while a reconnect is in flight', async () => {
+    let releaseStart
+    mockClient.startOAuth.mockReturnValue(new Promise((resolve) => { releaseStart = resolve }))
+
+    renderDialog({ dialog: oauthDialog })
+    expect(screen.getByText('Connected')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+
+    await waitFor(() => expect(screen.getByText('Starting…')).toBeTruthy())
+    expect(screen.queryByText('Connected')).toBeNull()
+    // Still installable with what was already held.
+    expect(document.querySelector('input[name="plextoken"]').value).toBe('saved-token')
+
+    releaseStart({ flow_id: 'f', approve_url: 'https://app.plex.tv/auth', interval_ms: 1000 })
+    await waitFor(() => expect(screen.getByText('Waiting for approval…')).toBeTruthy())
+    expect(screen.queryByText('Connected')).toBeNull()
+  })
+
+  // "Approved" with nothing in hand is a failed flow. Reporting it as success
+  // would install the package with an empty credential.
+  it('treats an approval that carries no token as an error', async () => {
+    mockClient.startOAuth.mockResolvedValue({
+      flow_id: 'f',
+      approve_url: 'https://app.plex.tv/auth',
+      interval_ms: 1000,
+    })
+    mockClient.pollOAuth.mockResolvedValue({ status: 'approved', token: '' })
+
+    renderDialog({ dialog: { ...oauthDialog, responses: {} } })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(
+      () => expect(
+        screen.getByText('The provider approved the request but returned no token.'),
+      ).toBeTruthy(),
+      { timeout: 5000 },
+    )
+    expect(screen.queryByText('Connected')).toBeNull()
+    expect(document.querySelector('input[name="plextoken"]').value).toBe('')
+  }, 10000)
+})

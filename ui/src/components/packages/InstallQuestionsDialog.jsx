@@ -30,8 +30,19 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
   const { t } = useI18n()
   const [networks, setNetworks] = useState([])
   const [booleans, setBooleans] = useState({})
-  // An oauth question is answered by a device flow rather than by typing: state
-  // per question key is { status, token, approveUrl, userCode, error }.
+  // An oauth question is answered by a device flow rather than by typing. Its
+  // status is the ONLY thing the field renders from, and the token is the only
+  // thing it submits -- deriving "connected" from "we hold a token" instead is
+  // what once painted a green Connected badge above a red error, because a token
+  // cached from the previous install outlives whatever just failed.
+  //
+  //   idle       nothing held, nothing running
+  //   starting   the start call is in flight
+  //   waiting    the operator is over at the provider
+  //   connected  a token is held: cached from a previous install, or just earned
+  //   error      the last attempt failed; a cached token may still be held
+  //
+  // State per question key: { status, token, approveUrl, userCode, error }.
   const [oauth, setOauth] = useState({})
   const oauthCancelled = useRef(false)
 
@@ -41,18 +52,37 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
     oauthCancelled.current = !dialog.open
   }, [dialog.open])
 
+  // A token cached from a previous install is already an answer, so the question
+  // opens as connected and a reinstall need not visit the provider again.
+  useEffect(() => {
+    if (!dialog.open) return
+    const initial = {}
+    for (const [key, question] of Object.entries(dialog.questions || {})) {
+      if (question.type !== 'oauth') continue
+      const cached = dialog.responses?.[key]
+      initial[key] = cached
+        ? { status: 'connected', token: cached }
+        : { status: 'idle', token: '' }
+    }
+    setOauth(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialog.open])
+
+  // patch keeps the token a failed attempt did not take away: the operator can
+  // still install with what they already had.
+  function setFlow(key, patch) {
+    setOauth((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }))
+  }
+
   async function runOAuth(key) {
-    setOauth((prev) => ({ ...prev, [key]: { status: 'starting' } }))
+    setFlow(key, { status: 'starting', error: '', approveUrl: '', userCode: '' })
     try {
       const started = await getClient().startOAuth(dialog.repo, dialog.name, dialog.version, key)
-      setOauth((prev) => ({
-        ...prev,
-        [key]: {
-          status: 'waiting',
-          approveUrl: started.approve_url,
-          userCode: started.user_code || '',
-        },
-      }))
+      setFlow(key, {
+        status: 'waiting',
+        approveUrl: started.approve_url,
+        userCode: started.user_code || '',
+      })
       // Opened from the click handler's own task so the browser still counts it
       // as user-initiated; opening it after the await would be a popup block.
       window.open(started.approve_url, '_blank', 'noopener,noreferrer')
@@ -64,22 +94,22 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
         if (oauthCancelled.current) return
         const polled = await getClient().pollOAuth(started.flow_id)
         if (polled.status === 'approved') {
-          setOauth((prev) => ({ ...prev, [key]: { status: 'approved', token: polled.token } }))
+          // Approved with nothing in hand is a failure, not a success: without
+          // this the badge would read Connected over an empty answer.
+          if (!polled.token) {
+            setFlow(key, { status: 'error', error: t('install_questions.oauth_no_token') })
+            return
+          }
+          setFlow(key, { status: 'connected', token: polled.token, error: '' })
           return
         }
         if (polled.status === 'expired') {
-          setOauth((prev) => ({
-            ...prev,
-            [key]: { status: 'error', error: t('install_questions.oauth_expired') },
-          }))
+          setFlow(key, { status: 'error', error: t('install_questions.oauth_expired') })
           return
         }
       }
     } catch (err) {
-      setOauth((prev) => ({
-        ...prev,
-        [key]: { status: 'error', error: err.detail || err.message },
-      }))
+      setFlow(key, { status: 'error', error: err.detail || err.message })
     }
   }
 
@@ -150,30 +180,33 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
                   const hasCachedValue = !!cachedValue && !isCleared
 
                   if (question.type === 'oauth') {
-                    const flow = oauth[key] || {}
-                    // A cached token from a previous install is already an answer:
-                    // the flow does not have to be run again to reinstall.
-                    const token = flow.token || (hasCachedValue ? cachedValue : '')
-                    const connected = !!token
+                    const flow = oauth[key] || { status: 'idle', token: '' }
+                    const token = flow.token || ''
+                    // Everything on screen is read off the status. The token is
+                    // read only to decide what the button offers to do, because
+                    // replacing a token you hold is not the same act as getting
+                    // your first one.
+                    const busy = flow.status === 'starting' || flow.status === 'waiting'
                     return (
                       <div key={key} className="space-y-2">
                         <Label>{question.query}</Label>
-                        {/* The token is the form's value whether it came from the
-                            flow just now or from the previous install. */}
+                        {/* Whatever token is held is what gets installed, even if
+                            the attempt the operator just made failed: a failed
+                            reconnect does not take away the one they had. */}
                         <input type="hidden" name={key} value={token} />
                         <div className="flex items-center gap-2">
                           <Button
                             type="button"
-                            variant={connected ? 'outline' : 'default'}
+                            variant={token ? 'outline' : 'default'}
                             size="sm"
-                            disabled={flow.status === 'starting' || flow.status === 'waiting'}
+                            disabled={busy}
                             onClick={() => runOAuth(key)}
                           >
-                            {connected
+                            {token
                               ? t('install_questions.oauth_reconnect')
                               : t('install_questions.oauth_connect')}
                           </Button>
-                          {connected && (
+                          {flow.status === 'connected' && (
                             <span className="flex items-center gap-1 text-sm text-green-600">
                               <Check className="h-4 w-4" />
                               {t('install_questions.oauth_connected')}

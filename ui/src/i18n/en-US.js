@@ -604,6 +604,7 @@ const enUS = {
   'install_questions.oauth_user_code': 'Enter this code on the approval page:',
   'install_questions.oauth_open_manually': 'Approval page did not open? Open it here',
   'install_questions.oauth_expired': 'The approval request expired. Connect again.',
+  'install_questions.oauth_no_token': 'The provider approved the request but returned no token.',
   'install_questions.optional_suffix': '(optional)',
   'install_questions.clear_tooltip': 'Clear to enter a new value',
   'install_questions.clear_label': 'Clear this value',
