@@ -51,7 +51,7 @@ func ValidateOAuthSpec(name string, q Question) error {
 	}
 
 	for field, raw := range oauthURLs(f) {
-		if err := validateOAuthURLShape(raw); err != nil {
+		if _, err := parseOAuthURL(raw); err != nil {
 			return fmt.Errorf("%w: question %q: %s: %w", ErrInvalidOAuthSpec, name, field, err)
 		}
 	}
@@ -106,22 +106,25 @@ func oauthURLs(f *OAuthFlow) map[string]string {
 	}
 }
 
-// validateOAuthURLShape checks what is knowable about a URL without deciding
-// whether it may be called: that it parses, and that it does not template its
-// host -- a templated host would leave the address unknowable until the flow
-// ran, which is what the address rules exist to prevent.
-func validateOAuthURLShape(raw string) error {
-	if strings.Contains(authority(raw), "{{") {
-		return fmt.Errorf("%w: %q templates its host", ErrOAuthURLNotAllowed, raw)
-	}
-	u, err := url.Parse(templatePlaceholder(raw))
+// parseOAuthURL parses a URL declared in a package's oauth flow and returns it
+// with its host confirmed present.
+//
+// It hands the URL to net/url as written, templates and all, because net/url
+// already says exactly the right thing about them: {{id}} in a path, query, or
+// fragment parses fine and leaves the host intact, while a templated *host* --
+// "https://{{host}}/token" -- is a parse error ("invalid character { in host
+// name"). A templated host is the one form the address rules cannot survive,
+// since the address would stay unknowable until the flow ran, so the parser's
+// verdict is exactly the verdict we want.
+func parseOAuthURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrOAuthURLNotAllowed, err)
+		return nil, fmt.Errorf("%w: %w", ErrOAuthURLNotAllowed, err)
 	}
 	if u.Hostname() == "" {
-		return fmt.Errorf("%w: %q has no host", ErrOAuthURLNotAllowed, raw)
+		return nil, fmt.Errorf("%w: %q has no host", ErrOAuthURLNotAllowed, raw)
 	}
-	return nil
+	return u, nil
 }
 
 // ValidateOAuthURL checks a URL declared in a package's oauth flow. Templates
@@ -136,12 +139,9 @@ func ValidateOAuthURL(raw string) error {
 // ValidateOAuthURLAllowing is ValidateOAuthURL with the https/public-address
 // rules relaxed. See ValidateOAuthFlowAllowing.
 func ValidateOAuthURLAllowing(raw string, allowPrivate bool) error {
-	if err := validateOAuthURLShape(raw); err != nil {
-		return err
-	}
-	u, err := url.Parse(templatePlaceholder(raw))
+	u, err := parseOAuthURL(raw)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrOAuthURLNotAllowed, err)
+		return err
 	}
 	if u.Scheme != "https" && (!allowPrivate || u.Scheme != "http") {
 		return fmt.Errorf("%w: %q is not https", ErrOAuthURLNotAllowed, raw)
@@ -149,53 +149,19 @@ func ValidateOAuthURLAllowing(raw string, allowPrivate bool) error {
 	if allowPrivate {
 		return nil
 	}
-	host := u.Hostname()
-	// A literal IP is checked now; a name can only really be checked once
-	// resolved, which CheckOAuthAddr does at dial time. "localhost" is the one
-	// name that needs no resolver to condemn -- and it is the one a package
-	// aiming the controller at the host would reach for first.
-	if ip := net.ParseIP(host); ip != nil {
+	// A DNS name is NEVER rejected here. A name is not an address, and this
+	// function has no resolver: which address it is dialed at is decided later, by
+	// DNS, and is checked there -- CheckOAuthAddr runs in the dialer's Control hook
+	// with the concrete IP. Judging names here would refuse plex.tv for the crime
+	// of not being an IP address, while doing nothing about a name that answers
+	// with 127.0.0.1 -- which is the whole attack the guard exists to stop.
+	//
+	// A literal IP is knowable now, and saying so early gives a package author a
+	// better error than a failed dial.
+	if ip := net.ParseIP(u.Hostname()); ip != nil {
 		return checkIP(ip)
 	}
-	if lower := strings.ToLower(host); lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
-		return fmt.Errorf("%w: %q is not a public address", ErrOAuthURLNotAllowed, host)
-	}
 	return nil
-}
-
-// authority returns the scheme-and-host part of a URL as written, up to where
-// the path, query, or fragment begins. Used to look for templates in the host
-// without parsing, since a templated host is what makes parsing unreliable.
-func authority(raw string) string {
-	rest := raw
-	if _, after, found := strings.Cut(raw, "://"); found {
-		rest = after
-	}
-	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
-		return rest[:i]
-	}
-	return rest
-}
-
-// templatePlaceholder swaps {{name}} for a parseable literal so a URL carrying
-// templates can still be scheme/host-checked before the flow runs.
-func templatePlaceholder(raw string) string {
-	var b strings.Builder
-	for {
-		start := strings.Index(raw, "{{")
-		if start < 0 {
-			b.WriteString(raw)
-			return b.String()
-		}
-		end := strings.Index(raw[start:], "}}")
-		if end < 0 {
-			b.WriteString(raw)
-			return b.String()
-		}
-		b.WriteString(raw[:start])
-		b.WriteString("x")
-		raw = raw[start+end+2:]
-	}
 }
 
 // CheckOAuthAddr rejects an address the controller must not connect to. It is

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -103,18 +104,26 @@ func (o *oauthFlows) del(id string) {
 // allowPrivate exists for tests, whose provider is an httptest server on
 // loopback. It is never set from a package or a request.
 func oauthClient(allowPrivate bool) *http.Client {
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+		// Control, NOT Transport.DialContext. DialContext is handed the URL's host
+		// verbatim -- "plex.tv:443" -- because the name is resolved inside the
+		// dialer, below it. A check there sees a hostname, not an address, so it
+		// can only reject what it cannot parse: every real provider. Control runs
+		// once per connection attempt, after resolution, with the concrete IP:port
+		// about to be connected -- the one place the check is both correct and
+		// proof against a name that answers with 127.0.0.1.
+		Control: func(network, address string, _ syscall.RawConn) error {
+			if allowPrivate {
+				return nil
+			}
+			return packages.CheckOAuthAddr(network, address)
+		},
+	}
 	return &http.Client{
 		Timeout: oauthRequestTimeout,
 		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				if !allowPrivate {
-					if err := packages.CheckOAuthAddr(network, addr); err != nil {
-						return nil, err
-					}
-				}
-				return dialer.DialContext(ctx, network, addr)
-			},
+			DialContext: dialer.DialContext,
 		},
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			if req.URL.Scheme != "https" && !allowPrivate {

@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -262,5 +263,42 @@ func TestOAuthRefusesPrivateAddress(t *testing.T) {
 	}
 	if p.polls.Load() != 0 {
 		t.Fatal("the provider was reached despite the address guard")
+	}
+}
+
+// The guard has to resolve a name before judging it. Transport.DialContext is
+// handed the URL's host verbatim -- "plex.tv:443" -- so a check there sees a
+// hostname, cannot parse it as an IP, and rejects it: every real provider is
+// refused with "plex.tv is not an IP address". Dialer.Control runs after
+// resolution with the concrete address, which is both correct for names and the
+// only place a DNS answer of 127.0.0.1 can be caught.
+func TestOAuthClientResolvesNamesBeforeJudgingThem(t *testing.T) {
+	t.Parallel()
+	p := newMockProvider(t)
+	// The same server, named rather than numbered: "localhost" resolves to the
+	// loopback address the provider is actually listening on.
+	byName := strings.Replace(p.server.URL, "127.0.0.1", "localhost", 1)
+
+	resp, err := oauthClient(false).Get(byName + "/api/v2/pins") //nolint:noctx // the client under test
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("a name resolving to loopback was dialed anyway")
+	}
+	if strings.Contains(err.Error(), "is not an IP address") {
+		t.Fatalf("the guard judged the hostname instead of resolving it: %v", err)
+	}
+	if !errors.Is(err, packages.ErrOAuthURLNotAllowed) {
+		t.Fatalf("err = %v, want ErrOAuthURLNotAllowed", err)
+	}
+
+	// And with the rule relaxed, the same name connects: nothing about a hostname
+	// is objectionable in itself.
+	resp, err = oauthClient(true).Get(byName + "/api/v2/pins") //nolint:noctx // the client under test
+	if err != nil {
+		t.Fatalf("a hostname could not be dialed at all: %v", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 }

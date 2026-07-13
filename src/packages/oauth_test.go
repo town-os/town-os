@@ -92,9 +92,17 @@ func TestValidateOAuthURL(t *testing.T) {
 		"public https":            {url: "https://plex.tv/api/v2/pins", allowed: true},
 		"templated path":          {url: "https://plex.tv/api/v2/pins/{{id}}", allowed: true},
 		"templated query":         {url: "https://plex.tv/a?code={{code}}", allowed: true},
+		// Plex's approval URL puts its parameters in the fragment. net/url keeps the
+		// host intact through all of it, which is why no placeholder substitution is
+		// needed before parsing.
+		"templated fragment":      {url: "https://app.plex.tv/auth#?clientID={{client_id}}&code={{code}}", allowed: true},
 		"plain http":              {url: "http://plex.tv/api/v2/pins"},
 		"loopback literal":        {url: "https://127.0.0.1/token"},
-		"loopback name":           {url: "https://localhost/token"},
+		// A name is not judged here at all -- not even this one. It is resolved by
+		// DNS and checked at dial time, where the answer (127.0.0.1) is what gets
+		// refused. Rejecting names at parse time is what refused plex.tv.
+		"loopback name":           {url: "https://localhost/token", allowed: true},
+		"public name":             {url: "https://accounts.google.com/o/oauth2/device/code", allowed: true},
 		"private 10/8":            {url: "https://10.0.0.5/token"},
 		"private 192.168/16":      {url: "https://192.168.122.50/token"},
 		"link-local metadata":     {url: "https://169.254.169.254/latest/meta-data"},
