@@ -125,6 +125,10 @@ export default function AuditLog() {
     // endpoint -- the two columns with the longest content -- while handing a
     // full share to an icon. Content that does not fit a fixed cell can neither
     // wrap (cells are nowrap) nor shrink, so it used to overlap the next column.
+    //
+    // The endpoint and the account hold the two longest strings by far (a
+    // request path, an email address), so they take the width the icon columns
+    // do not need.
     {
       key: 'id',
       label: t('audit.col_id'),
@@ -134,7 +138,7 @@ export default function AuditLog() {
     {
       key: 'created_at',
       label: t('audit.col_time'),
-      width: '19%',
+      width: '17%',
       // The timestamp itself opens the journal at that moment. This used to
       // be a trailing Clock icon button, but it sat flush against the Action
       // column and read as a stray leading icon on the action text.
@@ -153,22 +157,30 @@ export default function AuditLog() {
     {
       key: 'action',
       label: t('audit.col_action'),
-      width: '17%',
+      width: '14%',
     },
     {
       key: 'path',
       label: t('audit.col_endpoint'),
-      width: '33%',
+      width: '32%',
       transform: (v) => <span className="font-mono text-sm">{v}</span>,
     },
-    { key: 'account', label: t('audit.col_user'), width: '15%', transform: (v) => v || '-' },
+    {
+      key: 'account',
+      label: t('audit.col_user'),
+      // An email address is long, and at 15% it was ellipsed down to nothing
+      // useful while pressing against the endpoint beside it.
+      width: '21%',
+      transform: (v) => v || '-',
+    },
     {
       key: 'detail',
-      // Holds one icon button, so it only needs room for its own header label --
-      // any wider and it steals width from the endpoint, which is the column
-      // that actually has something long to show.
+      // Holds one 24px icon button and nothing else, so it gets the width of the
+      // icon plus its own cell padding -- and the padding is cut to the minimum,
+      // because every pixel here is one the endpoint and the account do not get.
       label: t('audit.col_detail'),
       width: '5%',
+      className: 'px-1 text-center',
       sortable: false,
       transform: (v, row) =>
         v ? (

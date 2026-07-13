@@ -1,5 +1,21 @@
 :80 {
     root * /srv
+
+    # Every asset Vite emits is fingerprinted (index-Dpx7NVJm.js), so an asset
+    # URL names one exact build for all time and can be cached forever.
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+
+    # index.html is the one file that is NOT fingerprinted, and it is what names
+    # the current bundle. Served with no Cache-Control at all, a browser is free
+    # to apply heuristic freshness (RFC 9111 4.2.2) and keep a stale copy without
+    # revalidating -- so an upgraded box goes on serving the previous release's
+    # index.html, which points at the previous release's bundle, and the UI stays
+    # old until somebody hard-reloads. Every non-asset path is an SPA route that
+    # try_files resolves to index.html, so the rule has to cover all of them.
+    @html not path /assets/*
+    header @html Cache-Control "no-cache"
+
     try_files {path} /index.html
     file_server
 }
