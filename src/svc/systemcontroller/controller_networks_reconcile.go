@@ -1,7 +1,9 @@
 package systemcontroller
 
 import (
+	"bufio"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -313,6 +316,8 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 	statePath := s.Controller.GetNetworkStatePath()
 	sd := s.Controller.GetSystemdManager()
 
+	rc := s.Controller.GetRolodexClient()
+
 	// Best-effort rolodex scope regardless of transport availability. Every
 	// network — including the default/home network — owns its TLD as a rolodex
 	// scope home_domain (set by EnsureNetworkScope), which rolodex treats as the
@@ -320,43 +325,24 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 	// away from foreign WireGuard peers: rolodex hides a scope's TLD from peers
 	// joined to a different scope, so .home is hidden from every overlay peer
 	// even though it has no WireGuard transport of its own.
-	if rc := s.Controller.GetRolodexClient(); rc != nil {
+	//
+	// Neither of these needs the interface to exist: they are database writes.
+	// The programming that DOES need it is deferred to programNetworkOverlayDNS
+	// below, after the transport is up.
+	if rc != nil {
 		if err := rolodex.EnsureNetworkScope(ctx, rc, n.Name, n.TLD+"."); err != nil {
 			logNonFatal("ensure network scope", err)
 		}
 		// Non-default networks are WireGuard overlays: publish the network TLD's
 		// zone apex (SOA/NS/ns1) scoped to the network so the owned zone is
-		// authoritative and resolvable on the overlay, bind the box's overlay
-		// address into the scope, and reconcile peer forwarders. The default
-		// network has NO WireGuard transport — its home zone is global (SetupDNS),
-		// and it never binds an overlay address or peers, so no source IP is ever
-		// associated with the home scope and .home stays LAN-only.
+		// authoritative and resolvable on the overlay. The default network has NO
+		// WireGuard transport — its home zone is global (SetupDNS), and it never
+		// binds an overlay address or peers, so no source IP is ever associated
+		// with the home scope and .home stays LAN-only.
 		if n.Name != account.DefaultNetworkName {
 			ns1IP, _ := overlayIP(n.Address)
 			if err := rolodex.EnsureScopedTLD(ctx, rc, n.Name, n.TLD, ns1IP, ""); err != nil {
 				logNonFatal("ensure scoped TLD zone", err)
-			}
-			if n.Enabled {
-				if addr, ok := overlayIP(n.Address); ok {
-					if err := rolodex.BindOverlayAddress(ctx, rc, addr, n.Name); err != nil {
-						logNonFatal("bind overlay address", err)
-					}
-					// Make rolodex actually listen on the overlay address. The peer
-					// configs we hand out set `DNS = <overlay .1>` (renderPeerDeviceConfig),
-					// and the box's rolodex otherwise binds only loopback and the
-					// default-route interface — so without this a peer's DNS lands on a
-					// closed port. BindOverlayAddress above only decides how a query is
-					// answered once it arrives.
-					if err := rolodex.EnsureScopeListener(ctx, rc, n.Name, n.TLD+".", addr); err != nil {
-						logNonFatal("bind overlay dns listener", err)
-					}
-				}
-				// Per-TLD peer forwarders: peers that run their own rolodex become
-				// forwarders for the shared network TLD, so records authoritative on
-				// a peer resolve across the overlay. We also bind each such peer's
-				// overlay IP into the scope (symmetric) so the peer's queries to us
-				// are answered rather than REFUSED.
-				s.reconcilePeerForwarders(ctx, rc, n)
 			}
 		}
 	}
@@ -370,41 +356,233 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 		return nil
 	}
 
-	if statePath == "" || sd == nil {
-		return nil
+	// transportStarted records whether we actually asked systemd to bring the
+	// interface up on this pass, which is what makes the overlay address appear.
+	// It is false in unit tests (no systemd, no state dir), where the DNS
+	// programming below still runs against the mock rolodex client but has no
+	// interface to wait for.
+	transportStarted := false
+	if statePath != "" && sd != nil {
+		configPath := networkConfigPath(statePath, n.Name)
+		peers, err := s.networkPeerConfigs(n.Name)
+		if err != nil {
+			return err
+		}
+		content := wireguard.RenderInterfaceConfig(wireguard.InterfaceConfig{
+			PrivateKey: n.PrivateKey,
+			Address:    n.Address,
+			ListenPort: n.ListenPort,
+			Peers:      peers,
+		})
+		if err := os.MkdirAll(statePath, 0700); err != nil {
+			return fmt.Errorf("create network state dir: %w", err)
+		}
+		if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
+			return fmt.Errorf("write wireguard config: %w", err)
+		}
+
+		unit := systemd.GenerateNetworkUnit(systemd.NetworkUnitConfig{Name: n.Name, ConfigPath: configPath})
+		if err := sd.InstallUnit(ctx, unit.Name, unit.Content); err != nil {
+			return fmt.Errorf("install network unit: %w", err)
+		}
+
+		action := systemd.Restart
+		if !n.Enabled {
+			action = systemd.Stop
+		}
+		if err := sd.SetStatus(ctx, unit.Name, action); err != nil {
+			return fmt.Errorf("set network unit status: %w", err)
+		}
+		transportStarted = n.Enabled
 	}
 
-	configPath := networkConfigPath(statePath, n.Name)
-	peers, err := s.networkPeerConfigs(n.Name)
-	if err != nil {
-		return err
-	}
-	content := wireguard.RenderInterfaceConfig(wireguard.InterfaceConfig{
-		PrivateKey: n.PrivateKey,
-		Address:    n.Address,
-		ListenPort: n.ListenPort,
-		Peers:      peers,
-	})
-	if err := os.MkdirAll(statePath, 0700); err != nil {
-		return fmt.Errorf("create network state dir: %w", err)
-	}
-	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
-		return fmt.Errorf("write wireguard config: %w", err)
-	}
-
-	unit := systemd.GenerateNetworkUnit(systemd.NetworkUnitConfig{Name: n.Name, ConfigPath: configPath})
-	if err := sd.InstallUnit(ctx, unit.Name, unit.Content); err != nil {
-		return fmt.Errorf("install network unit: %w", err)
-	}
-
-	action := systemd.Restart
-	if !n.Enabled {
-		action = systemd.Stop
-	}
-	if err := sd.SetStatus(ctx, unit.Name, action); err != nil {
-		return fmt.Errorf("set network unit status: %w", err)
+	// Only now — with the interface up — program the parts of rolodex that bind
+	// to the overlay address.
+	if rc != nil && n.Enabled {
+		s.programNetworkOverlayDNS(ctx, rc, n, transportStarted)
 	}
 	return nil
+}
+
+// overlayAddrWaitTimeout bounds how long we wait for a WireGuard overlay address
+// to appear on the host after systemd reports the interface unit started.
+const overlayAddrWaitTimeout = 10 * time.Second
+
+// programNetworkOverlayDNS performs the rolodex programming that depends on the
+// box's overlay address EXISTING on the host, and must therefore run after the
+// WireGuard transport is up.
+//
+// Ordering here is load-bearing, and getting it wrong is silent. rolodex binds a
+// per-TLD ingress listener on the overlay address; a bind against an address the
+// host does not have yet fails with EADDRNOTAVAIL and the listener dies. rolodex
+// also replays these listeners from its own database at startup — so on a cold
+// boot it attempts the bind long before wg-quick has created the interface, and
+// the listener is already dead by the time we get here. Re-asserting it is what
+// revives it (rolodex treats an all-exited listener as absent and respawns), but
+// only if the address exists by then: re-asserting too early just kills it again.
+//
+// So: wait for the address, bounded, then program. A timeout is not fatal — the
+// next reconcile re-asserts, and rolodex's re-add is idempotent.
+func (s *SystemControllerHandlers) programNetworkOverlayDNS(ctx context.Context, rc rolodex.Client, n *account.Network, transportStarted bool) {
+	addr, ok := overlayIP(n.Address)
+	if !ok {
+		return
+	}
+	if transportStarted && !waitForHostAddr(ctx, addr, overlayAddrWaitTimeout) {
+		// Program anyway: the listener bind may still fail, but the scope
+		// association and forwarders are database writes that do not need the
+		// address, and the next reconcile retries the listener.
+		logNonFatal("wait for overlay address", fmt.Errorf("%s did not appear on any interface within %s", addr, overlayAddrWaitTimeout))
+	}
+
+	// Associate the box's overlay source IP with the scope. This decides HOW a
+	// query is answered once it arrives; it does not make one arrive.
+	if err := rolodex.BindOverlayAddress(ctx, rc, addr, n.Name); err != nil {
+		logNonFatal("bind overlay address", err)
+	}
+	// Make rolodex actually LISTEN on the overlay address. The peer configs we
+	// hand out set `DNS = <overlay .1>` (renderPeerDeviceConfig), and rolodex
+	// otherwise binds only loopback and the default-route interface — so without
+	// this a peer's DNS query lands on a closed port and every name it looks up
+	// over the tunnel times out.
+	if err := rolodex.EnsureScopeListener(ctx, rc, n.Name, n.TLD+".", addr); err != nil {
+		logNonFatal("bind overlay dns listener", err)
+	}
+	// Per-TLD peer forwarders: peers that run their own rolodex become forwarders
+	// for the shared network TLD, so records authoritative on a peer resolve
+	// across the overlay. We also bind each such peer's overlay IP into the scope
+	// (symmetric) so the peer's queries to us are answered rather than REFUSED.
+	s.reconcilePeerForwarders(ctx, rc, n)
+}
+
+// waitForHostAddr polls until addr is usable as a bind address on the host, or
+// the timeout expires. Reports whether it became usable.
+//
+// The systemcontroller runs in the host network namespace, so the interfaces it
+// enumerates are the host's — the WireGuard device wg-quick just created is
+// visible here.
+func waitForHostAddr(ctx context.Context, addr string, timeout time.Duration) bool {
+	wait, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if hostAddrRouted(addr) {
+			return true
+		}
+		select {
+		case <-wait.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
+// hostAddrRouted reports whether addr is assigned to a host interface that is UP
+// and has a route covering it.
+//
+// Assigned is not the same as usable, and the difference is exactly the window
+// this guard exists to close. wg-quick creates the device, adds the address, and
+// brings the link up in separate steps; a bind that lands mid-sequence can find
+// the address present on a link that cannot yet carry a packet, and a listener
+// bound there serves nobody. Requiring an UP link plus a route means the address
+// is one a peer's query can actually arrive on.
+func hostAddrRouted(addr string) bool {
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return false
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		logNonFatal("list interfaces", err)
+		return false
+	}
+	for _, iface := range ifaces {
+		addrs, aerr := iface.Addrs()
+		if aerr != nil {
+			continue
+		}
+		for _, a := range addrs {
+			ipnet, ok := a.(*net.IPNet)
+			if !ok || !ipnet.IP.Equal(ip) {
+				continue
+			}
+			if iface.Flags&net.FlagUp == 0 {
+				return false
+			}
+			return routeCovers(iface.Name, ip)
+		}
+	}
+	return false
+}
+
+// procNetRoute is the kernel's IPv4 routing table. Replaceable in tests.
+var procNetRoute = "/proc/net/route"
+
+// routeCovers reports whether the host's IPv4 routing table has an active route
+// on iface whose destination network contains ip.
+//
+// IPv6 has no equivalent check here (/proc/net/route is IPv4-only) and overlay
+// addresses are always IPv4 — drawn from 10.64.0.0/10 by SubnetForNetwork — so a
+// non-IPv4 address is accepted on the strength of the UP link alone rather than
+// being failed for a check we cannot perform.
+func routeCovers(iface string, ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return true
+	}
+	f, err := os.Open(procNetRoute)
+	if err != nil {
+		logNonFatal("open route table", err)
+		return false
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			logNonFatal("close route table", cerr)
+		}
+	}()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		// Iface Destination Gateway Flags RefCnt Use Metric Mask ...
+		if len(fields) < 8 || fields[0] != iface {
+			continue
+		}
+		flags, err := strconv.ParseUint(fields[3], 16, 32)
+		if err != nil || flags&rtfUp == 0 {
+			continue
+		}
+		dest, ok := parseRouteAddr(fields[1])
+		if !ok {
+			continue
+		}
+		mask, ok := parseRouteAddr(fields[7])
+		if !ok {
+			continue
+		}
+		if ip4.Mask(net.IPMask(mask)).Equal(dest.Mask(net.IPMask(mask))) {
+			return true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		logNonFatal("read route table", err)
+	}
+	return false
+}
+
+// rtfUp is the kernel's RTF_UP flag: the route is usable.
+const rtfUp = 0x0001
+
+// parseRouteAddr decodes one of /proc/net/route's little-endian hex words (an
+// address or a mask) into an IPv4 address: "0001A8C0" is 192.168.1.0.
+func parseRouteAddr(word string) (net.IP, bool) {
+	b, err := hex.DecodeString(word)
+	if err != nil || len(b) != net.IPv4len {
+		return nil, false
+	}
+	return net.IPv4(b[3], b[2], b[1], b[0]).To4(), true
 }
 
 // teardownNetworkTransport stops and removes a network's systemd unit and its
@@ -457,18 +635,61 @@ func (s *SystemControllerHandlers) networkUnitRunning(ctx context.Context, name 
 	return states[0].ActiveState == "active"
 }
 
+// peerEndpointHost returns the host an enrolling client used to reach this API:
+// the Host header of its own enrollment request, minus the port. That address is
+// reachable from that client BY CONSTRUCTION — the request arrived over it —
+// which is the one property an Endpoint must have and the one property the box
+// cannot establish by looking at itself.
+//
+// Deriving it any other way is a guess, and the guess is wrong wherever a NAT, a
+// port forward, or a relay sits between the peer and the box. The box's public IP
+// (ipinfo.io) is unroutable from a client on the same LAN, whose router will not
+// hairpin; the box's LAN address is unroutable from anywhere but that LAN. Either
+// way the peer gets an Endpoint whose handshakes land nowhere, which on the wire
+// is indistinguishable from a dead tunnel: no endpoint, no handshake, no
+// transfer, and every name the peer looks up over it times out.
+//
+// A loopback or unspecified Host means the caller reached us from the box itself,
+// so there is no remotely-dialable address to advertise. Return "" and let the
+// caller omit the Endpoint line entirely — an absent Endpoint is a config the
+// operator can complete, whereas a wrong one silently fails.
+func peerEndpointHost(c *echo.Context) string {
+	host := c.Request().Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		return ""
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		if addr.IsLoopback() || addr.IsUnspecified() {
+			return ""
+		}
+	}
+	return host
+}
+
+// formatEndpoint renders host:port for a wg-quick Endpoint, bracketing an IPv6
+// literal (a bare "2001:db8::1:51820" is unparseable).
+func formatEndpoint(host string, port int) string {
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Is6() {
+		return fmt.Sprintf("[%s]:%d", host, port)
+	}
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
 // renderPeerDeviceConfig produces a wg-quick config a user can import on a
 // device to join the network. PrivateKey is filled only when the server
 // generated the keypair; otherwise a placeholder is emitted.
-func (s *SystemControllerHandlers) renderPeerDeviceConfig(n *account.Network, subnet netip.Prefix, peerAddr netip.Addr, devicePrivateKey string) string {
+//
+// endpointHost is the address the enrolling client reached us on (see
+// peerEndpointHost); an empty value omits the Endpoint line rather than
+// substituting an address the box merely believes in.
+func (s *SystemControllerHandlers) renderPeerDeviceConfig(n *account.Network, subnet netip.Prefix, peerAddr netip.Addr, devicePrivateKey, endpointHost string) string {
 	priv := devicePrivateKey
 	if priv == "" {
 		priv = "REPLACE_WITH_YOUR_PRIVATE_KEY"
-	}
-
-	endpointHost := s.Controller.GetExternalIP()
-	if endpointHost == "" {
-		endpointHost = s.Controller.GetInternalIP()
 	}
 
 	var b strings.Builder
@@ -479,7 +700,7 @@ func (s *SystemControllerHandlers) renderPeerDeviceConfig(n *account.Network, su
 	b.WriteString("\n[Peer]\n")
 	fmt.Fprintf(&b, "PublicKey = %s\n", n.PublicKey)
 	if endpointHost != "" {
-		fmt.Fprintf(&b, "Endpoint = %s:%d\n", endpointHost, n.ListenPort)
+		fmt.Fprintf(&b, "Endpoint = %s\n", formatEndpoint(endpointHost, n.ListenPort))
 	}
 	fmt.Fprintf(&b, "AllowedIPs = %s\n", n.Subnet)
 	b.WriteString("PersistentKeepalive = 25\n")

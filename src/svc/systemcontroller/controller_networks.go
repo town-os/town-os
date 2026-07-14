@@ -368,7 +368,7 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	return c.JSON(200, AddPeerResult{
 		Peer:       *stored,
 		PrivateKey: privateKey,
-		Config:     s.renderPeerDeviceConfig(n, subnet, peerAddr, privateKey),
+		Config:     s.renderPeerDeviceConfig(n, subnet, peerAddr, privateKey, peerEndpointHost(c)),
 	})
 }
 
