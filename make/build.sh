@@ -120,8 +120,16 @@ case "$1" in
     ;;
   release-ui)
     step "Building UI release image"
+    # --no-cache forces `bun run build` to actually rerun every release, same as
+    # the ui-integration build. Without it, podman reuses a cached COPY/build
+    # layer and push-rc happily re-tags and re-pushes STALE /srv assets: the
+    # quay tag moves (new push timestamp) but the image's own created date — and
+    # the UI the box serves — stays frozen at whatever bun last built. Unlike the
+    # controller (whose daily TOWN_OS_TAG build-arg busts its cache) the UI has
+    # no changing input, so a cache hit silently ships an old UI. The mounted
+    # .cache/bun keeps bun install fast despite --no-cache.
     mkdir -p .cache/bun
-    ${SUDO} podman build --network=host --pull=never \
+    ${SUDO} podman build --network=host --pull=never --no-cache \
       --volume "$(pwd)/.cache/bun:/bun-cache:z" \
       -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
     ;;
