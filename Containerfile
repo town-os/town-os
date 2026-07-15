@@ -26,7 +26,18 @@ RUN bun install --frozen-lockfile
 COPY ui/ /ui/
 RUN bun run build
 
-FROM docker.io/library/debian:bookworm AS runtime-deps
+# Runtime base: bookworm-SLIM (~29 MB) rather than full bookworm (~144 MB) —
+# ~115 MB off the image for free. slim shares the same apt sources, so every
+# package below installs identically; it only omits pre-seeded docs/locales we
+# don't use. `tar` (execed by the archive handlers) is an essential package and
+# is still present in slim.
+#
+# This image CANNOT go distroless the way rolodex-dns did: the systemcontroller
+# is CGO_ENABLED=1 (needs glibc + libsystemd0) and shells out to real binaries —
+# podman (remote client to the host socket), btrfs-progs, socat, tar, and
+# pigz/lbzip2/xz for archives — none of which exist in a distroless base and
+# none of which can be apt-installed there. slim is the floor for this one.
+FROM docker.io/library/debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     btrfs-progs libsystemd0 podman runc socat \
     pigz lbzip2 xz-utils \
