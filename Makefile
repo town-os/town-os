@@ -88,7 +88,10 @@ IMAGE_CACHE ?= /var/cache/town-os/images
 export IMAGE_CACHE
 
 # Image lists.
-BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm docker.io/library/caddy:latest
+# debian:bookworm-slim is the systemcontroller runtime base (Containerfile);
+# debian:bookworm (non-slim) is still the Proton runner base (Containerfile.proton).
+# Both must be pre-pulled because release builds run podman with --pull=never.
+BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
 # Rolodex publishes per-arch tags (rc.latest-x86_64 / rc.latest-aarch64) pushed
 # natively from each host. Internal Town OS image pulls default to the host's
