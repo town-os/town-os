@@ -4,15 +4,6 @@ import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Networks from './Networks.jsx'
 
-if (!globalThis.localStorage || typeof globalThis.localStorage.removeItem !== 'function') {
-  const store = {}
-  globalThis.localStorage = {
-    getItem: (k) => (k in store ? store[k] : null),
-    setItem: (k, v) => { store[k] = String(v) },
-    removeItem: (k) => { delete store[k] },
-  }
-}
-
 beforeAll(() => {
   globalThis.ResizeObserver = class {
     observe() {}

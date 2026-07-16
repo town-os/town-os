@@ -4,16 +4,6 @@ import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import PackageManagement from './PackageManagement.jsx'
 
-// Polyfill localStorage if not available or incomplete (bun test environment).
-if (!globalThis.localStorage || typeof globalThis.localStorage.removeItem !== 'function') {
-  const store = {}
-  globalThis.localStorage = {
-    getItem: (k) => (k in store ? store[k] : null),
-    setItem: (k, v) => { store[k] = String(v) },
-    removeItem: (k) => { delete store[k] },
-  }
-}
-
 // Radix UI uses ResizeObserver which is not available in JSDOM.
 beforeAll(() => {
   globalThis.ResizeObserver = class {
