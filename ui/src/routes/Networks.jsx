@@ -4,6 +4,7 @@ import { useRequireAuth, usePolling } from '@/lib/hooks.js'
 import getClient from '@/lib/client-instance.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
+import ConnectedPeersPanel from '@/components/networks/ConnectedPeersPanel.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -151,6 +152,8 @@ export default function Networks() {
       </div>
 
       <DataTable data={networks} columns={columns} entryKey="name" />
+
+      <ConnectedPeersPanel isAdmin={isAdmin} />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>

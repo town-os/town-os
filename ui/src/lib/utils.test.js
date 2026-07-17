@@ -1,5 +1,37 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { copyToClipboard, formatBytes, PAGE_SIZE } from './utils.js'
+import { copyToClipboard, formatBytes, formatAgo, PAGE_SIZE } from './utils.js'
+
+describe('formatAgo', () => {
+  const now = new Date('2026-07-16T12:00:00Z')
+
+  it.each([
+    ['seconds', '2026-07-16T11:59:30Z', '30s'],
+    ['just now', '2026-07-16T12:00:00Z', '0s'],
+    ['minutes', '2026-07-16T11:45:00Z', '15m'],
+    ['the minute boundary', '2026-07-16T11:59:00Z', '1m'],
+    ['hours', '2026-07-16T09:00:00Z', '3h'],
+    ['the hour boundary', '2026-07-16T11:00:00Z', '1h'],
+    ['days', '2026-07-14T12:00:00Z', '2d'],
+    ['the day boundary', '2026-07-15T12:00:00Z', '1d'],
+  ])('renders %s', (_label, iso, want) => {
+    expect(formatAgo(iso, now)).toBe(want)
+  })
+
+  // A missing stamp means the event never happened. Returning a duration would
+  // claim it did.
+  it.each([[undefined], [null], ['']])('returns null for a missing timestamp (%s)', (v) => {
+    expect(formatAgo(v, now)).toBeNull()
+  })
+
+  it('returns null for an unparseable timestamp', () => {
+    expect(formatAgo('not-a-date', now)).toBeNull()
+  })
+
+  // Clock skew between the box and the browser must not render as a negative age.
+  it('clamps a future timestamp to zero', () => {
+    expect(formatAgo('2026-07-16T12:00:30Z', now)).toBe('0s')
+  })
+})
 
 describe('PAGE_SIZE', () => {
   it('is 20', () => {

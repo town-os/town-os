@@ -241,6 +241,11 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// Networks (per-network WireGuard overlays paired with DNS)
 	e.Add("GET", "/networks", s.listNetworks, s.requireAuth)
 	e.Add("GET", "/networks/peers", s.listNetworkPeers, s.requireAuth)
+	// Deliberately absent from wireGuardAllowedRoutes: this aggregates every
+	// account's peers and observed source addresses across every network, which a
+	// scoped WireGuard account has no business enumerating. The allowlist is
+	// fail-closed, so omitting it here is what denies it.
+	e.Add("GET", "/networks/peers/connected", s.listConnectedPeers, s.requireAdmin)
 	e.Add("POST", "/networks/create", s.createNetwork, s.requireAdmin)
 	e.Add("POST", "/networks/remove", s.removeNetwork, s.requireAdmin)
 	e.Add("POST", "/networks/enable", s.enableNetwork, s.requireAdmin)

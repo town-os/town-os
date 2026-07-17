@@ -80,3 +80,28 @@ export function formatBytes(bytes) {
   const val = bytes / Math.pow(1024, i)
   return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
 }
+
+/**
+ * Format a timestamp as a coarse "time ago" string (e.g. "30s", "15m", "3h").
+ *
+ * A null/undefined stamp means the event never happened, which is a different
+ * fact from "it happened long ago" — a device enrolled but never brought up
+ * versus one that is merely offline. This returns null for that case rather
+ * than inventing a duration; the caller renders the distinction.
+ *
+ * @param {string|null|undefined} iso - RFC3339 timestamp.
+ * @param {Date} [now] - Reference point; injectable so tests are not clock-dependent.
+ * @returns {string|null} formatted age, or null when there is no valid timestamp
+ */
+export function formatAgo(iso, now = new Date()) {
+  if (!iso) return null
+  const then = new Date(iso)
+  if (Number.isNaN(then.getTime())) return null
+  const secs = Math.floor((now.getTime() - then.getTime()) / 1000)
+  // Clock skew between the box and the browser must not render as a negative age.
+  if (secs < 0) return '0s'
+  if (secs < 60) return `${secs}s`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h`
+  return `${Math.floor(secs / 86400)}d`
+}

@@ -34,14 +34,23 @@ RUN bun run build
 #
 # This image CANNOT go distroless the way rolodex-dns did: the systemcontroller
 # is CGO_ENABLED=1 (needs glibc + libsystemd0) and shells out to real binaries —
-# podman (remote client to the host socket), btrfs-progs, socat, tar, and
-# pigz/lbzip2/xz for archives — none of which exist in a distroless base and
-# none of which can be apt-installed there. slim is the floor for this one.
+# podman (remote client to the host socket), btrfs-progs, socat, tar,
+# pigz/lbzip2/xz for archives, and wireguard-tools — none of which exist in a
+# distroless base and none of which can be apt-installed there. slim is the
+# floor for this one.
+#
+# wireguard-tools supplies `wg`, which the connected-peers panel execs as
+# `wg show <iface> dump` to read live handshake/endpoint/transfer state. Only
+# `wg` is needed, not `wg-quick`: the interfaces themselves are brought up by
+# generated systemd units that run wg-quick ON THE HOST, never in here. The read
+# works because the controller runs with --net host and so shares the host
+# network namespace where wg-quick created the device.
 FROM docker.io/library/debian:bookworm-slim AS runtime-deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     btrfs-progs libsystemd0 podman runc socat \
     pigz lbzip2 xz-utils \
     ca-certificates \
+    wireguard-tools \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 # Keep podman's per-network subnet allocation off 10.64.0.0/10, which town-os
 # reserves for WireGuard overlays (src/wireguard/ipam.go). If podman's default

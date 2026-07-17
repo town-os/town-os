@@ -330,6 +330,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/dns/services":                 true,
 			"/networks":                     true,
 			"/networks/peers":               true,
+			"/networks/peers/connected":     true,
 			"/storage/package-volumes":      true,
 			"/tls/ca.crt":                   true,
 		}

@@ -75,6 +75,25 @@ SystemControllerClient.prototype.listNetworkPeers = async function (network) {
 }
 
 /**
+ * Lists every peer across every WireGuard network, joined with live tunnel
+ * state read from the kernel. The default ("home") network is excluded — it is
+ * a DNS-only scope with no overlay, so it can never have peers.
+ *
+ * `connected` means a handshake inside WireGuard's 180s REJECT_AFTER_TIME
+ * window, the only liveness the protocol offers. `last_handshake` is absent
+ * when the peer has never handshook, which is distinct from having handshook
+ * long ago. `endpoint` is the kernel-observed source address, falling back to
+ * the operator-configured one when the peer has never been seen.
+ *
+ * Calls GET /networks/peers/connected. Admin only.
+ *
+ * @returns {Promise<Array<{network: string, tld: string, interface: string, public_key: string, name: string, account?: string, allowed_ip: string, endpoint?: string, rolodex: boolean, connected: boolean, last_handshake?: string, rx_bytes: number, tx_bytes: number, expires_at?: string, created_at: string}>>}
+ */
+SystemControllerClient.prototype.listConnectedPeers = async function () {
+  return this.getJSON('/networks/peers/connected')
+}
+
+/**
  * Adds a peer to a network. When public_key is omitted the server generates a
  * keypair and returns the private key plus a ready-to-import device config.
  *
@@ -84,6 +103,7 @@ SystemControllerClient.prototype.listNetworkPeers = async function (network) {
  * @param {string} name - Human-readable device label.
  * @param {string} [publicKey] - The device's own public key (optional).
  * @param {string} [endpoint] - The device's reachable endpoint (optional).
+ * @param {boolean} [rolodex] - Peer runs a rolodex DNS server on its overlay address.
  * @returns {Promise<{peer: object, private_key?: string, config: string}>}
  */
 SystemControllerClient.prototype.addNetworkPeer = async function (network, name, publicKey, endpoint, rolodex) {

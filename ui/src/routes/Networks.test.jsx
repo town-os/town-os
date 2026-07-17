@@ -20,6 +20,8 @@ const mockClient = {
       { name: 'office', tld: 'office', subnet: '10.90.2.0/24', address: '10.90.2.1/24', listen_port: 51821, enabled: false, peer_count: 2, interface: 'townc3d4', running: false },
     ]),
   ),
+  // The page embeds ConnectedPeersPanel, which polls this on mount.
+  listConnectedPeers: vi.fn(() => Promise.resolve([])),
 }
 
 vi.mock('@/lib/client-instance.js', () => ({

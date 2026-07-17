@@ -87,6 +87,24 @@ func (c *SystemdClient) ListNetworkPeers(ctx context.Context, network string) (_
 	return peers, json.NewDecoder(resp.Body).Decode(&peers)
 }
 
+// ListConnectedPeers returns every peer across every WireGuard network joined
+// with live tunnel state (handshake, observed endpoint, transfer). The default
+// network is excluded: it is DNS-only and has no overlay.
+func (c *SystemdClient) ListConnectedPeers(ctx context.Context) (_ []ConnectedPeerView, err error) {
+	resp, err := c.getClient(ctx, "networks/peers/connected")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListConnectedPeers: %w", ErrHTTPRequest, err)
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "GET", "networks/peers/connected")
+	}
+
+	var peers []ConnectedPeerView
+	return peers, json.NewDecoder(resp.Body).Decode(&peers)
+}
+
 // AddNetworkPeer registers a peer on a network. When PublicKey is empty the
 // server generates a keypair and returns the private key plus a device config.
 func (c *SystemdClient) AddNetworkPeer(ctx context.Context, req AddNetworkPeerRequest) (_ AddPeerResult, err error) {
