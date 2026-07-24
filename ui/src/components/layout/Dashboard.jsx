@@ -38,7 +38,7 @@ const NAV_KEYS = [
 ]
 
 export default function Dashboard({ children }) {
-  const { t, locale, setLocale } = useI18n()
+  const { t, syncServerLocale } = useI18n()
   const account = useRequireAuth()
   const location = useLocation()
 
@@ -49,11 +49,14 @@ export default function Dashboard({ children }) {
     60000,
   )
 
+  // The server's global `locale` setting is only a fallback: it applies when
+  // the browser's own language is not one we ship a catalog for. A
+  // browser-detected or explicitly chosen locale is pinned and left untouched.
   useEffect(() => {
-    if (ping?.locale && ping.locale !== locale) {
-      setLocale(ping.locale)
+    if (ping?.locale) {
+      syncServerLocale(ping.locale)
     }
-  }, [ping?.locale, locale, setLocale])
+  }, [ping?.locale, syncServerLocale])
 
   return (
     <div className="flex min-h-screen bg-background">
