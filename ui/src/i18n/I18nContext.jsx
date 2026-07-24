@@ -1,9 +1,29 @@
 import { createContext, useCallback, useContext, useState } from 'react'
 import enUS from './en-US.js'
+import daDK from './da-DK.js'
+import deDE from './de-DE.js'
+import fiFI from './fi-FI.js'
+import frFR from './fr-FR.js'
+import jaJP from './ja-JP.js'
+import koKR from './ko-KR.js'
+import nlNL from './nl-NL.js'
+import ruRU from './ru-RU.js'
+import zhCN from './zh-CN.js'
+import zhTW from './zh-TW.js'
 
 /** @type {Record<string, Record<string, string>>} */
 const catalogs = {
   'en-US': enUS,
+  'da-DK': daDK,
+  'de-DE': deDE,
+  'fi-FI': fiFI,
+  'fr-FR': frFR,
+  'ja-JP': jaJP,
+  'ko-KR': koKR,
+  'nl-NL': nlNL,
+  'ru-RU': ruRU,
+  'zh-CN': zhCN,
+  'zh-TW': zhTW,
 }
 
 const defaultLocale = 'en-US'

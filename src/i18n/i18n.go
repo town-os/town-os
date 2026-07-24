@@ -159,9 +159,21 @@ var ExtendedLocales = []Locale{
 }
 
 // PopulatedLocales returns the list of locale codes that have translations
-// available. Currently only en-US is populated.
+// available.
 func PopulatedLocales() []string {
-	return []string{DefaultLocale}
+	return []string{
+		DefaultLocale,
+		"da-DK",
+		"de-DE",
+		"fi-FI",
+		"fr-FR",
+		"ja-JP",
+		"ko-KR",
+		"nl-NL",
+		"ru-RU",
+		"zh-CN",
+		"zh-TW",
+	}
 }
 
 // IsPopulated reports whether the given locale code has translations available.
@@ -217,4 +229,14 @@ func T(locale, key string, args ...any) string {
 // catalogs holds all message translations keyed by locale code.
 var catalogs = map[string]map[string]string{
 	DefaultLocale: enUSMessages,
+	"da-DK":       daDKMessages,
+	"de-DE":       deDEMessages,
+	"fi-FI":       fiFIMessages,
+	"fr-FR":       frFRMessages,
+	"ja-JP":       jaJPMessages,
+	"ko-KR":       koKRMessages,
+	"nl-NL":       nlNLMessages,
+	"ru-RU":       ruRUMessages,
+	"zh-CN":       zhCNMessages,
+	"zh-TW":       zhTWMessages,
 }

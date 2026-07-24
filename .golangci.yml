@@ -56,3 +56,10 @@ linters:
       - linters:
           - gosec
         path: _test\.go
+      # i18n message catalogs are translation data. Non-English catalogs
+      # (Chinese/Japanese) contain Han ideographs in string values, which
+      # gosmopolitan flags line-by-line; the whole package is locale data,
+      # so exclude it rather than annotating every translated entry.
+      - linters:
+          - gosmopolitan
+        path: src/i18n/
