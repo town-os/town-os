@@ -182,6 +182,54 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 	}
 }
 
+func TestNewLocalesArePopulated(t *testing.T) {
+	for _, code := range []string{"sux", "vi-VN"} {
+		if !IsPopulated(code) {
+			t.Errorf("IsPopulated(%q) = false, want true", code)
+		}
+		if _, ok := catalogs[code]; !ok {
+			t.Errorf("catalogs is missing an entry for %q", code)
+		}
+	}
+}
+
+// TestPopulatedLocalesCoverEnUSKeys guards against a translated catalog
+// drifting from en-US: every locale advertised by PopulatedLocales() must
+// define exactly the same key set as the English source of truth, otherwise
+// T() silently falls back to English for the missing keys.
+func TestPopulatedLocalesCoverEnUSKeys(t *testing.T) {
+	for _, code := range PopulatedLocales() {
+		msgs, ok := catalogs[code]
+		if !ok {
+			t.Errorf("PopulatedLocales() lists %q but catalogs has no entry for it", code)
+			continue
+		}
+		for key := range enUSMessages {
+			if _, ok := msgs[key]; !ok {
+				t.Errorf("locale %q is missing translation for key %q", code, key)
+			}
+		}
+		for key := range msgs {
+			if _, ok := enUSMessages[key]; !ok {
+				t.Errorf("locale %q has key %q not present in en-US", code, key)
+			}
+		}
+	}
+}
+
+func TestSumerianLocaleListedInExtendedLocales(t *testing.T) {
+	found := false
+	for _, l := range ExtendedLocales {
+		if l.Code == "sux" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("ExtendedLocales does not contain the Sumerian (sux) locale")
+	}
+}
+
 func TestTMultipleFormatArgs(t *testing.T) {
 	got := T("en-US", MsgInstallSummaryUpgrade, "myapp", "1.0", "2.0")
 	want := "Upgrade myapp from 1.0 to 2.0"

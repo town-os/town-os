@@ -143,6 +143,7 @@ var ExtendedLocales = []Locale{
 	{Code: "sl-SI", NativeName: "Slovenščina", EnglishName: "Slovenian"},
 	{Code: "sq-AL", NativeName: "Shqip", EnglishName: "Albanian"},
 	{Code: "sr-RS", NativeName: "Српски", EnglishName: "Serbian"},
+	{Code: "sux", NativeName: "𒅴𒂠 (eme-ĝir)", EnglishName: "Sumerian"},
 	{Code: "sv-SE", NativeName: "Svenska", EnglishName: "Swedish"},
 	{Code: "sw-KE", NativeName: "Kiswahili", EnglishName: "Swahili"},
 	{Code: "ta-IN", NativeName: "தமிழ்", EnglishName: "Tamil"},
@@ -171,6 +172,8 @@ func PopulatedLocales() []string {
 		"ko-KR",
 		"nl-NL",
 		"ru-RU",
+		"sux",
+		"vi-VN",
 		"zh-CN",
 		"zh-TW",
 	}
@@ -237,6 +240,8 @@ var catalogs = map[string]map[string]string{
 	"ko-KR":       koKRMessages,
 	"nl-NL":       nlNLMessages,
 	"ru-RU":       ruRUMessages,
+	"sux":         suxMessages,
+	"vi-VN":       viVNMessages,
 	"zh-CN":       zhCNMessages,
 	"zh-TW":       zhTWMessages,
 }

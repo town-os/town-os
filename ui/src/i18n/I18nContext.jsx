@@ -8,6 +8,8 @@ import jaJP from './ja-JP.js'
 import koKR from './ko-KR.js'
 import nlNL from './nl-NL.js'
 import ruRU from './ru-RU.js'
+import sux from './sux.js'
+import viVN from './vi-VN.js'
 import zhCN from './zh-CN.js'
 import zhTW from './zh-TW.js'
 
@@ -22,6 +24,8 @@ const catalogs = {
   'ko-KR': koKR,
   'nl-NL': nlNL,
   'ru-RU': ruRU,
+  'sux': sux,
+  'vi-VN': viVN,
   'zh-CN': zhCN,
   'zh-TW': zhTW,
 }
