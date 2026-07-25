@@ -111,6 +111,86 @@ describe('InstallQuestionsDialog network selector', () => {
   })
 })
 
+describe('InstallQuestionsDialog pagination', () => {
+  beforeEach(() => {
+    mockClient.listNetworks.mockClear()
+  })
+
+  // PAGE_SIZE is 5 in the component, so 7 questions is two pages.
+  function makeQuestions(n) {
+    const q = {}
+    for (let i = 0; i < n; i++) q[`q${i}`] = { query: `Question ${i}` }
+    return q
+  }
+
+  it('splits a tall package across pages with Next before Install', async () => {
+    renderDialog({ dialog: { questions: makeQuestions(7) } })
+    await screen.findByRole('combobox') // page 0 is active, networks loaded
+
+    expect(screen.getByText('1 / 2')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeTruthy()
+    // The last-page-only Install and the first-page-hidden Previous are absent.
+    expect(screen.queryByRole('button', { name: 'Install' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
+  })
+
+  it('advances to the last page, swapping Next for Install and revealing Previous', async () => {
+    renderDialog({ dialog: { questions: makeQuestions(7) } })
+    await screen.findByRole('combobox')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.getByText('2 / 2')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+  })
+
+  // The whole point of paging over an uncontrolled form: an answer typed on a
+  // page you have left must still be mounted and still submit.
+  it('keeps an answer typed on an earlier page and submits it', async () => {
+    let submitted = null
+    const onSubmit = vi.fn((e) => {
+      e.preventDefault()
+      submitted = e.currentTarget.elements['q0'].value
+    })
+    renderDialog({ onSubmit, dialog: { questions: makeQuestions(6) } })
+
+    const input = await screen.findByLabelText('Question 0')
+    fireEvent.change(input, { target: { value: 'kept-value' } })
+
+    // Leave the page the answer is on, then install from the last page.
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Install' }))
+
+    expect(onSubmit).toHaveBeenCalled()
+    expect(submitted).toBe('kept-value')
+  })
+
+  it('opens on the page carrying a field error so the operator sees it', async () => {
+    renderDialog({
+      dialog: { questions: makeQuestions(6), fieldErrors: { q5: 'bad value' } },
+    })
+    // q5 lives on page 2 (index 1); the dialog jumps there on open.
+    await waitFor(() => expect(mockClient.listNetworks).toHaveBeenCalled())
+
+    expect(await screen.findByText('bad value')).toBeTruthy()
+    expect(screen.getByText('2 / 2')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy()
+  })
+
+  it('shows no pager and installs directly for a short package', async () => {
+    renderDialog({ dialog: { questions: makeQuestions(2) } })
+    await screen.findByRole('combobox')
+
+    expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
+    // A single page prints no "1 / 1" counter.
+    expect(screen.queryByText('1 / 1')).toBeNull()
+  })
+})
+
 describe('InstallQuestionsDialog boolean questions', () => {
   // The form is read by name, so a boolean must submit "true"/"false" — never a
   // checkbox's native "on", and never nothing at all when it is unchecked.
@@ -512,4 +592,40 @@ describe('InstallQuestionsDialog oauth in-flight and empty-token states', () => 
     expect(screen.queryByText('Connected')).toBeNull()
     expect(document.querySelector('input[name="plextoken"]').value).toBe('')
   }, 10000)
+})
+
+describe('InstallQuestionsDialog show_if conditional questions', () => {
+  const gatedDialog = {
+    open: true,
+    name: 'mastodon',
+    version: '1.4',
+    questions: {
+      enable_smtp: { query: 'Configure email?', type: 'boolean' },
+      smtp_host: { query: 'SMTP host', optional: true, show_if: 'enable_smtp' },
+    },
+    responses: {},
+    fieldErrors: {},
+    clearedFields: {},
+  }
+
+  // The gated field is always mounted (so a value typed before the box is
+  // unchecked survives a re-check); its wrapper carries the `hidden` class
+  // until the controlling checkbox is on. jsdom applies no Tailwind CSS, so we
+  // assert on that class rather than computed visibility.
+  it('hides a gated field until its boolean is checked, and reveals it on toggle', async () => {
+    renderDialog({ dialog: gatedDialog })
+
+    // Mounted but gated off by default (no default => false). Query by input
+    // name -- the optional label carries a suffix, so a label lookup is brittle.
+    const checkbox = await screen.findByLabelText('Configure email?')
+    const host = document.querySelector('input[name="smtp_host"]')
+    expect(host).not.toBeNull()
+    await waitFor(() => expect(host.closest('.hidden')).not.toBeNull())
+
+    fireEvent.click(checkbox)
+    await waitFor(() => expect(host.closest('.hidden')).toBeNull())
+
+    fireEvent.click(checkbox)
+    await waitFor(() => expect(host.closest('.hidden')).not.toBeNull())
+  })
 })
