@@ -1,0 +1,137 @@
+package i18n
+
+// trTRMessages contains all Turkish translations.
+var trTRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+	// Authentication and authorization.
+	MsgAuthMissingToken:   "yetkilendirme belirteci eksik",
+	MsgAuthInvalidSession: "geçersiz oturum",
+	MsgAuthAdminRequired:  "yönetici erişimi gerekli",
+
+	// Authentication.
+	MsgAuthInvalidCredentials: "geçersiz kimlik bilgileri",
+
+	// Account management.
+	MsgAccountAdminStatusImmutable: "yönetici durumu hesap oluşturulduktan sonra değiştirilemez",
+	MsgAccountListError:            "hesapları listele",
+	MsgAccountCheckSessions:        "etkin yönetici oturumlarını denetle",
+	MsgAccountCreateFailed:         "hesap oluşturma başarısız",
+
+	// Settings.
+	MsgSettingNotFound:     "%q ayarı bulunamadı",
+	MsgSettingKeyRequired:  "anahtar gerekli",
+	MsgSettingInvalidBytes: "%q için geçersiz bayt değeri: %v",
+	MsgSettingsMgrMissing:  "ayarlar yöneticisi kullanılamıyor",
+
+	// Audit.
+	MsgAuditNotConfigured: "denetim günlüğü yapılandırılmamış",
+
+	// Systemd units.
+	MsgUnitEnableDisableNotAllowed: "etkinleştirme/devre dışı bırakma izni yok",
+	MsgUnitCannotStopController:    "systemcontroller durdurulamaz",
+	MsgUnitInvalidLines:            "geçersiz lines parametresi",
+	MsgUnitInvalidSince:            "geçersiz since parametresi",
+	MsgUnitInvalidUntil:            "geçersiz until parametresi",
+	MsgUnitInvalidPriority:         "geçersiz priority parametresi",
+
+	// Repository management.
+	MsgRepoInvalidURL: "geçersiz url",
+
+	// Pages management.
+	MsgPagesNotConfigured:    "sayfalar yapılandırılmamış",
+	MsgPagesGitNotConfigured: "git istemcisi veya sayfalar dizini yapılandırılmamış",
+
+	// Package installation.
+	MsgInstallNoRepoRoot:      "yapılandırılmış depo kökü yok",
+	MsgInstallSummaryUpgrade:  "%s paketini %s sürümünden %s sürümüne yükselt",
+	MsgInstallSummaryInstall:  "%s %s kur",
+	MsgInstallSummaryImage:    "İmaj: %s",
+	MsgInstallSummaryVolumes:  "%d birim",
+	MsgInstallSummaryNewVols:  "%d yeni",
+	MsgInstallSummaryMigrated: "%d taşındı",
+	MsgInstallSummaryNoVols:   "Birim yok",
+	MsgInstallSummaryPorts:    "Dış bağlantı noktaları: %s",
+	MsgInstallSummaryConfig:   "Yapılandırma gerekli",
+	MsgInstallSummaryVMImage:  "VM İmajı: %s",
+
+	// Package manifest.
+	MsgManifestFieldsRequired: "repo, ad ve sürüm gerekli",
+	MsgManifestNotFound:       "paket bildirimi bulunamadı: %s/%s@%s",
+
+	// Rebuild git.
+	MsgRebuildFieldsRequired:   "repo, ad ve sürüm gerekli",
+	MsgRebuildRepoNotConfigured: "depo kökü yapılandırılmamış",
+	MsgRebuildGitNotConfigured:  "git istemcisi yapılandırılmamış",
+
+	// Archive operations.
+	MsgArchiveSubvolumeRequired: "subvolume alanı gerekli",
+	MsgArchiveFileRequired:      "arşiv dosyası gerekli: %v",
+	MsgArchiveUnsupportedFormat: "desteklenmeyen indirme biçimi: %s",
+	MsgArchiveUnpackSuccess:     "arşiv başarıyla açıldı",
+
+	// Pages extended messages.
+	MsgPagesDirNotConfigured:       "sayfalar dizini yapılandırılmamış",
+	MsgPagesNameRequired:           "ad alanı gerekli",
+	MsgPagesUploadArchiveOnly:      "yükleme yalnızca arşiv türündeki sayfalar için geçerlidir",
+	MsgPagesArchiveRebuildRequired: "arşiv sayfaları /pages/upload üzerinden yeni bir arşiv yüklenerek yeniden oluşturulmalıdır",
+
+	// Monitoring.
+	MsgMonitoringNotConfigured: "izleme yapılandırılmamış",
+
+	// Upgrades.
+	MsgUpgradeSettingsMissing: "ayarlar yöneticisi kullanılamıyor",
+
+	// Audit action descriptions (shown in the audit log).
+	MsgAuditCreateFilesystem:        "dosya sistemi oluştur",
+	MsgAuditModifyFilesystem:        "dosya sistemini değiştir",
+	MsgAuditRemoveFilesystem:        "dosya sistemini kaldır",
+	MsgAuditAddRepository:           "depo ekle",
+	MsgAuditRemoveRepository:        "depoyu kaldır",
+	MsgAuditMoveRepository:          "depoyu taşı",
+	MsgAuditRefreshRepositories:     "depoları yenile",
+	MsgAuditInstallPackage:          "paket kur",
+	MsgAuditUninstallPackage:        "paketi kaldır",
+	MsgAuditPurgeUninstalledVolumes: "kaldırılmış birimleri temizle",
+	MsgAuditPurgeVolumes:            "birimleri temizle",
+	MsgAuditDisablePackage:          "paketi devre dışı bırak",
+	MsgAuditEnablePackage:           "paketi etkinleştir",
+	MsgAuditSetUnitStatus:           "birim durumunu ayarla",
+	MsgAuditCreateAccount:           "hesap oluştur",
+	MsgAuditUpdateAccount:           "hesabı güncelle",
+	MsgAuditDisableAccount:          "hesabı devre dışı bırak",
+	MsgAuditAuthenticate:            "kimlik doğrula",
+	MsgAuditRevokeSession:           "oturumu iptal et",
+	MsgAuditUpdateSetting:           "ayarı güncelle",
+	MsgAuditDismissUpgrades:         "paket yükseltmelerini yoksay",
+	MsgAuditUploadArchive:           "arşiv yükle",
+	MsgAuditDownloadArchive:         "arşiv indir",
+	MsgAuditCreatePage:              "sayfa oluştur",
+	MsgAuditUpdatePage:              "sayfayı güncelle",
+	MsgAuditRemovePage:              "sayfayı kaldır",
+	MsgAuditRebuildPage:             "sayfayı yeniden oluştur",
+	MsgAuditUploadPageArchive:       "sayfa arşivi yükle",
+	MsgAuditEnableAccount:           "hesabı etkinleştir",
+	MsgAuditRebuildGit:              "git yeniden oluştur",
+	MsgAuditUploadVMImage:           "vm imajı yükle",
+	MsgAuditDeleteVMImage:           "vm imajını sil",
+	MsgAuditAddDNSRecord:            "dns kaydı ekle",
+	MsgAuditRemoveDNSRecord:         "dns kaydını kaldır",
+	MsgAuditSetDNSTLD:               "dns tld ayarla",
+	MsgAuditSetupDNS:                "dns kur",
+	MsgAuditRemovePackageVolume:     "paket birimini kaldır",
+	MsgAuditRemovePackageVolumeGroup: "paket birim grubunu kaldır",
+	MsgAuditClearLastResponses:      "önbelleğe alınmış kurulum yanıtlarını temizle",
+	MsgAuditSetSystemServiceStatus:  "sistem hizmeti durumunu ayarla",
+	MsgAuditRefreshSystemServices:   "sistem hizmetlerini yenile",
+	MsgAuditCreateNetwork:           "ağ oluştur",
+	MsgAuditRemoveNetwork:           "ağı kaldır",
+	MsgAuditEnableNetwork:           "ağı etkinleştir",
+	MsgAuditDisableNetwork:          "ağı devre dışı bırak",
+	MsgAuditAddNetworkPeer:          "ağ eşi ekle",
+	MsgAuditRemoveNetworkPeer:       "ağ eşini kaldır",
+	MsgAuditRefreshNetworkPeer:      "ağ eşini yenile",
+
+	// WireGuard-only account restrictions.
+	MsgAuthWireGuardRestricted:    "bu hesap yalnızca wireguard kayıt uç noktalarını kullanabilir",
+	MsgAuthWireGuardNetworkDenied: "bu hesabın o ağda bulunmasına izin verilmiyor",
+	MsgAuthWireGuardPeerNotOwned:  "bu hesap yalnızca kendi kaydettiği eşleri yenileyebilir",
+}

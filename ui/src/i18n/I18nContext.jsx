@@ -1,14 +1,26 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import enUS from './en-US.js'
+import arSA from './ar-SA.js'
+import bnBD from './bn-BD.js'
 import daDK from './da-DK.js'
 import deDE from './de-DE.js'
+import esES from './es-ES.js'
 import fiFI from './fi-FI.js'
 import frFR from './fr-FR.js'
+import hiIN from './hi-IN.js'
+import itIT from './it-IT.js'
 import jaJP from './ja-JP.js'
 import koKR from './ko-KR.js'
 import nlNL from './nl-NL.js'
+import plPL from './pl-PL.js'
+import ptBR from './pt-BR.js'
 import ruRU from './ru-RU.js'
+import saIN from './sa-IN.js'
 import sux from './sux.js'
+import svSE from './sv-SE.js'
+import thTH from './th-TH.js'
+import trTR from './tr-TR.js'
+import ukUA from './uk-UA.js'
 import viVN from './vi-VN.js'
 import zhCN from './zh-CN.js'
 import zhTW from './zh-TW.js'
@@ -16,15 +28,27 @@ import zhTW from './zh-TW.js'
 /** @type {Record<string, Record<string, string>>} */
 const catalogs = {
   'en-US': enUS,
+  'ar-SA': arSA,
+  'bn-BD': bnBD,
   'da-DK': daDK,
   'de-DE': deDE,
+  'es-ES': esES,
   'fi-FI': fiFI,
   'fr-FR': frFR,
+  'hi-IN': hiIN,
+  'it-IT': itIT,
   'ja-JP': jaJP,
   'ko-KR': koKR,
   'nl-NL': nlNL,
+  'pl-PL': plPL,
+  'pt-BR': ptBR,
   'ru-RU': ruRU,
+  'sa-IN': saIN,
   'sux': sux,
+  'sv-SE': svSE,
+  'th-TH': thTH,
+  'tr-TR': trTR,
+  'uk-UA': ukUA,
   'vi-VN': viVN,
   'zh-CN': zhCN,
   'zh-TW': zhTW,

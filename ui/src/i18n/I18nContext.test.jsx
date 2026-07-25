@@ -219,7 +219,7 @@ describe('I18nContext', () => {
   })
 
   it('applies the server locale only when the browser language is not shipped', () => {
-    setNavLanguages(['es-ES']) // no Spanish catalog -> not pinned
+    setNavLanguages(['af-ZA']) // no Afrikaans catalog -> not pinned
     render(
       <I18nProvider>
         <ServerSync code="ru-RU" />
@@ -283,7 +283,7 @@ describe('matchLocale', () => {
   })
 
   it('returns null when nothing is shipped for the language', () => {
-    expect(matchLocale(['es-ES', 'pt-BR'], catalogs)).toBeNull()
+    expect(matchLocale(['af-ZA', 'zu-ZA'], catalogs)).toBeNull()
     expect(matchLocale([], catalogs)).toBeNull()
   })
 
