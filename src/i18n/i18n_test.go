@@ -217,16 +217,20 @@ func TestPopulatedLocalesCoverEnUSKeys(t *testing.T) {
 	}
 }
 
-func TestSumerianLocaleListedInExtendedLocales(t *testing.T) {
-	found := false
-	for _, l := range ExtendedLocales {
-		if l.Code == "sux" {
-			found = true
-			break
+func TestSumerianLocaleListed(t *testing.T) {
+	// Sumerian is listed in both the common dropdown (so it shows without
+	// expanding "Show all country codes") and the extended list.
+	for name, list := range map[string][]Locale{"CommonLanguages": CommonLanguages, "ExtendedLocales": ExtendedLocales} {
+		found := false
+		for _, l := range list {
+			if l.Code == "sux" {
+				found = true
+				break
+			}
 		}
-	}
-	if !found {
-		t.Error("ExtendedLocales does not contain the Sumerian (sux) locale")
+		if !found {
+			t.Errorf("%s does not contain the Sumerian (sux) locale", name)
+		}
 	}
 }
 

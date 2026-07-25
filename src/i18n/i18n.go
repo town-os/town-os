@@ -54,6 +54,7 @@ var CommonLanguages = []Locale{
 	{Code: "pt-BR", NativeName: "Português", EnglishName: "Portuguese"},
 	{Code: "ru-RU", NativeName: "Русский", EnglishName: "Russian"},
 	{Code: "sa-IN", NativeName: "संस्कृतम्", EnglishName: "Sanskrit"},
+	{Code: "sux", NativeName: "𒅴𒂠 (eme-ĝir)", EnglishName: "Sumerian"},
 	{Code: "sv-SE", NativeName: "Svenska", EnglishName: "Swedish"},
 	{Code: "th-TH", NativeName: "ไทย", EnglishName: "Thai"},
 	{Code: "tr-TR", NativeName: "Türkçe", EnglishName: "Turkish"},
