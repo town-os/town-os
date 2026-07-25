@@ -19,13 +19,13 @@ type (
 const TemplateChar = '@'
 
 var (
-	ErrInvalidResponse     = errors.New("response does not match a prompt question")
-	ErrInvalidResponseType = errors.New("response does not match the expected type")
-	ErrMissingResponse     = errors.New("question has no response")
-	ErrEmptyResponse       = errors.New("empty response")
-	ErrInvalidGitSource    = errors.New("invalid git source")
-	ErrMixedRuntime        = errors.New("package must specify either image (container) or vm, not both")
-	ErrNoRuntime           = errors.New("package must specify either image (container) or vm")
+	ErrInvalidResponse          = errors.New("response does not match a prompt question")
+	ErrInvalidResponseType      = errors.New("response does not match the expected type")
+	ErrMissingResponse          = errors.New("question has no response")
+	ErrEmptyResponse            = errors.New("empty response")
+	ErrInvalidGitSource         = errors.New("invalid git source")
+	ErrMixedRuntime             = errors.New("package must specify either image (container) or vm, not both")
+	ErrNoRuntime                = errors.New("package must specify either image (container) or vm")
 	ErrInvalidVMConfig          = errors.New("invalid vm configuration")
 	ErrPostUpdateVMNotSupported = errors.New("post_update is not supported for VM packages")
 	ErrEntrypointVMNotSupported = errors.New("entrypoint is not supported for VM packages")
@@ -412,26 +412,36 @@ type Question struct {
 	// sees the variable unset rather than set to something made up.
 	Optional bool   `json:"optional,omitempty" yaml:"optional,omitempty"`
 	Default  string `json:"default,omitempty" yaml:"default,omitempty"`
+	// ShowIf names a boolean question in the same package. The install dialog
+	// keeps this question hidden until that boolean is checked, so a package can
+	// tuck an advanced group -- an SMTP relay, an API key -- behind one checkbox
+	// instead of confronting the operator with every field at once. It is a UI
+	// hint, but the compiler honors it too: while the named boolean is false this
+	// question compiles to the empty string and is exempt from the answered-and-
+	// non-empty requirement, exactly as if it were `optional` and left blank, no
+	// matter what the still-mounted field submitted. The named question must
+	// exist, be of type boolean, and not itself be conditional (no chains).
+	ShowIf string `json:"show_if,omitempty" yaml:"show_if,omitempty"`
 }
 
 type InputPackage struct {
-	Image        InputPackageImage                         `yaml:"image"`
-	Entrypoint   []string                                  `yaml:"entrypoint,omitempty"`
-	Command      []string                                  `yaml:"command"`
-	Environment  map[string]string                         `yaml:"environment"`
-	Network      InputPackageNetwork                       `yaml:"network"`
-	Volumes      map[string]InputPackageVolume             `yaml:"volumes"`
-	Questions    map[string]Question                       `yaml:"questions"`
-	Notes        map[string]Note                           `yaml:"notes" json:"notes,omitempty"`
-	Description  string                                    `yaml:"description" json:"description,omitempty"`
-	Supplies     []string                                  `yaml:"supplies" json:"supplies,omitempty"`
-	Archives     []InputPackageArchive                     `yaml:"archives,omitempty"`
-	GitSources   []InputPackageGitSource                   `yaml:"git_sources,omitempty"`
-	Templates    map[string]InputPackageTemplate           `yaml:"templates,omitempty"`
-	VM           *InputPackageVM                           `yaml:"vm,omitempty" json:"vm,omitempty"`
-	Proton       *InputPackageProton                       `yaml:"proton,omitempty"`
-	Dependencies map[string]InputPackageDependency         `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
-	PostUpdate   []string                                  `yaml:"post_update,omitempty" json:"post_update,omitempty"`
+	Image        InputPackageImage                 `yaml:"image"`
+	Entrypoint   []string                          `yaml:"entrypoint,omitempty"`
+	Command      []string                          `yaml:"command"`
+	Environment  map[string]string                 `yaml:"environment"`
+	Network      InputPackageNetwork               `yaml:"network"`
+	Volumes      map[string]InputPackageVolume     `yaml:"volumes"`
+	Questions    map[string]Question               `yaml:"questions"`
+	Notes        map[string]Note                   `yaml:"notes" json:"notes,omitempty"`
+	Description  string                            `yaml:"description" json:"description,omitempty"`
+	Supplies     []string                          `yaml:"supplies" json:"supplies,omitempty"`
+	Archives     []InputPackageArchive             `yaml:"archives,omitempty"`
+	GitSources   []InputPackageGitSource           `yaml:"git_sources,omitempty"`
+	Templates    map[string]InputPackageTemplate   `yaml:"templates,omitempty"`
+	VM           *InputPackageVM                   `yaml:"vm,omitempty" json:"vm,omitempty"`
+	Proton       *InputPackageProton               `yaml:"proton,omitempty"`
+	Dependencies map[string]InputPackageDependency `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	PostUpdate   []string                          `yaml:"post_update,omitempty" json:"post_update,omitempty"`
 }
 
 // RuntimeType returns the runtime type for this package based on which

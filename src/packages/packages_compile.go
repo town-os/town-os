@@ -421,6 +421,9 @@ func (i *InputPackage) Validate() error {
 		if err := ValidateOAuthSpec(name, q); err != nil {
 			return err
 		}
+		if err := ValidateShowIf(name, q, i.Questions); err != nil {
+			return err
+		}
 	}
 
 	for name, vol := range i.Volumes {
@@ -566,7 +569,10 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	// both: it may be absent from the map or answered with an empty string, and
 	// it compiles to the empty string either way.
 	for name, q := range i.Questions {
-		if q.Optional {
+		// A hidden conditional question cannot be answered -- its field is not on
+		// screen -- so it is exempt from the required check exactly like an
+		// optional one, and compiles to empty below.
+		if q.Optional || questionHidden(q, i.Questions, response) {
 			continue
 		}
 		resp, ok := response[name]
@@ -590,6 +596,14 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	// Every required response is present and non-empty; apply templates.
 	for prompt, resp := range response {
 		q := i.Questions[prompt]
+		// A hidden conditional question compiles to the empty string no matter
+		// what the still-mounted field submitted: the feature it configures is
+		// switched off. Force empty and skip Output() so a stale value cannot fail
+		// type validation for a field the operator cannot even see.
+		if questionHidden(q, i.Questions, response) {
+			i.iterateFields(prompt, "")
+			continue
+		}
 		// A blank answer to an optional question substitutes the empty string.
 		// It must skip Output(), which exists to reject exactly this for a typed
 		// question -- an empty port is not a port.
@@ -615,7 +629,10 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 	// without this the marker would survive verbatim into the container's
 	// environment -- the app would read a literal "@smtp_host@".
 	for name, q := range i.Questions {
-		if !q.Optional {
+		// Same reasoning as the optional case: a hidden conditional question the
+		// caller omitted still has @marker@ sites to fill with the empty string,
+		// or the app would read a literal "@smtp_host@".
+		if !q.Optional && !questionHidden(q, i.Questions, response) {
 			continue
 		}
 		if _, ok := response[name]; !ok {

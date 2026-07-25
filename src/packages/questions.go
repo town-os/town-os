@@ -30,7 +30,53 @@ var (
 	ErrInvalidPortName = errors.New("invalid port name (must start with a letter and contain only letters, digits, and underscores)")
 	ErrBytes           = errors.New("invalid byte size")
 	ErrInvalidDuration = errors.New("invalid duration")
+	ErrShowIfSelf      = errors.New("show_if cannot reference the question itself")
+	ErrShowIfUnknown   = errors.New("show_if references a question that does not exist")
+	ErrShowIfNotBool   = errors.New("show_if must reference a boolean question")
+	ErrShowIfChain     = errors.New("show_if cannot reference a question that is itself conditional")
 )
+
+// ValidateShowIf checks a question's `show_if` reference against its siblings.
+// A conditional question is only coherent if the thing controlling its
+// visibility is a plain checkbox: the referenced question must exist, be of
+// type boolean, and not itself be conditional, and a question may not gate on
+// itself. An empty ShowIf is unconditional and always valid.
+func ValidateShowIf(name string, q Question, questions map[string]Question) error {
+	if q.ShowIf == "" {
+		return nil
+	}
+	if q.ShowIf == name {
+		return fmt.Errorf("%w: %q", ErrShowIfSelf, name)
+	}
+	ctrl, ok := questions[q.ShowIf]
+	if !ok {
+		return fmt.Errorf("%w: %q -> %q", ErrShowIfUnknown, name, q.ShowIf)
+	}
+	if ctrl.Type != Boolean {
+		return fmt.Errorf("%w: %q -> %q", ErrShowIfNotBool, name, q.ShowIf)
+	}
+	if ctrl.ShowIf != "" {
+		return fmt.Errorf("%w: %q -> %q", ErrShowIfChain, name, q.ShowIf)
+	}
+	return nil
+}
+
+// questionHidden reports whether a conditional question is currently hidden --
+// its controlling boolean resolves to false. The control value is taken from
+// the submitted response, falling back to the boolean's declared default when
+// the operator left it untouched, and parsed leniently because an unchecked box
+// may arrive as "false", "0", or absent.
+func questionHidden(q Question, questions map[string]Question, response map[string]string) bool {
+	if q.ShowIf == "" {
+		return false
+	}
+	ctrl, ok := response[q.ShowIf]
+	if !ok {
+		ctrl = questions[q.ShowIf].Default
+	}
+	on, _ := strconv.ParseBool(strings.TrimSpace(ctrl))
+	return !on
+}
 
 const (
 	Port     OutputType = "port"
