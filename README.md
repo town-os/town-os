@@ -12,6 +12,7 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 
 - [Why It Matters](#why-it-matters)
 - [Existing and Planned Features](#existing-and-planned-features)
+- [Bootable Images (PC and Raspberry Pi)](#bootable-images-pc-and-raspberry-pi)
 - [Requests for Comment](#requests-for-comment)
 - [Prerequisites](#prerequisites)
 - [Development](#development)
@@ -29,7 +30,6 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
     - [SSH](#ssh)
     - [Dependency Checks](#dependency-checks)
 - [License](#license)
-- [From](#from)
 
 ## Why It Matters
 
@@ -41,27 +41,70 @@ Town OS is built so that anyone can help their family run services at home. Set 
 
 ## Existing and Planned Features
 
-Packaging is fully integrated with the storage and network, creating resources on demand, including opening ports over UPnP and managing port forwarding via a per-package network controller, or establishing tunnels. This functionality is coming soon, but router-level functionality is expected to arrive which would allow users more control over DNS and DHCP within their home and direct network-mappable relationships with functionality to block internet traffic for children, or ad-ware, or anything else. Providing a local resolver that can be programmed by Town OS allows for this and also package integrations like subdomain names within a private network. Slices can be torn off to provide for wireguard networks as well.
+Packaging is fully integrated with the storage and network, creating resources on demand, including opening ports over UPnP and managing port forwarding via a per-package network controller, or establishing tunnels.
+
+Town OS runs its own local resolver (Rolodex), programmed by the system itself: every installed package gets a name under a private TLD (`plex.default.home`), so services are reachable by name rather than by port number. The same resolver does the router-level filtering -- DNSBL domain blocklists and RBL reverse-IP lists are queried on demand against provider zones you choose (Spamhaus, SURBL, URIBL and friends are offered as one-click adds), plus a local blocklist you maintain by hand. That is how you keep a kid's tablet or the whole house free of ad-ware and spyware, with no feed downloads and nothing cached behind your back.
+
+Networks can be sliced off as WireGuard overlays. Each network owns its own TLD and its own overlay subnet, and the split is real: a laptop on the LAN resolves every network, while a phone tunnelled into one network resolves that network and the public internet and nothing else -- a sibling network's names simply do not exist for it. Peers enroll from the UI (or from a scoped, WireGuard-only account that can do nothing else), get a ready-to-import config, and are handed the address they actually dialed so a phone on the same Wi-Fi is not told to hairpin through the public IP. Enrollments carry a TTL and expire on their own, so an abandoned device does not sit on an overlay address forever. The Networks screen lists who is connected right now -- device, account, overlay address, live handshake and transfer -- with a disconnect button.
+
+Everything HTTP is served over HTTPS by name. Town OS runs its own certificate authority; each package and page gets a leaf certificate for its FQDN, and a single shared ingress terminates TLS on `:443`, selecting the right service by SNI. Fetch the root once from `/tls/ca.crt` and the browser stops complaining. The same certificate works from the LAN and from a WireGuard tunnel, because the ingress listens on every interface and routes by name, not by address.
 
 The storage system is designed alongside the packaging system to support upgrading and also temporary uninstallation and later restoration. Storage is uniquely partitioned for packages allowing for DR strategies which can be prioritized based on cost and availability. Quotas are used to keep storage needs from surprising the user.
 
-Packages are able to request input from the user -- similar to debconf -- but through the UI (look at the screen shots). These are template variables and can be used to configure container images and manage networking. Packages can also define Go `text/template` file templates that are rendered into volumes at install time, with access to user responses, package metadata, and system information (hostname, IPs). Templates are applied after volume seeding but before service boot, and existing files are never overwritten. [The package repository](https://github.com/town-os/default-packages) has more information. You can also completely replace the repositories with a private repository list -- perfect for your gamer buddies, family members you need to support, etc. A lot of expansion is expected here.
+Packages are able to request input from the user -- similar to debconf -- but through the UI (look at the screen shots). These are template variables and can be used to configure container images and manage networking. Questions are typed, and the type does real work: a port is auto-assigned if you leave it blank, a secret is generated with 256 bits of entropy rather than asking you to invent one, a boolean renders as a checkbox, a question can be marked optional so a blank answer means "leave it unset", and an advanced group can be tucked behind a checkbox with `show_if` so the dialog is not a wall of fields. An `oauth` question replaces the shell script you used to run by hand: click Connect, approve in the vendor's own page, and the token lands in the field -- with no provider list baked into Town OS, since the package names the URLs itself.
 
-Services all have adequate logging and supervision. There is a comfortable UI for accessing this information, presented in a way that is intended to be safe for non-technical users to consume. There are separate accounts for admin and normal users: you could help your parents run a Plex (or something similar) if you wanted. You could keep them spyware free.
+Packages can also define Go `text/template` file templates that are rendered into volumes at install time, with access to user responses, package metadata, and system information (hostname, IPs). Templates are applied after volume seeding but before service boot, and existing files are never overwritten. Packages can depend on other packages: dependencies install automatically, share a private container network with their parent so they talk by name instead of through host ports, can hand each other values (a database's container name and port) at install time, and can share storage volumes with a two-sided opt-in. [The package repository](https://github.com/town-os/default-packages) has more information. You can also completely replace the repositories with a private repository list -- perfect for your gamer buddies, family members you need to support, etc. A lot of expansion is expected here.
 
-The entire interface is internationalized. All user-facing strings -- both backend error messages and frontend UI text -- are routed through a message catalog keyed by BCP 47 locale codes (e.g. `en-US`, `de-DE`). A language selection screen in System Settings presents 21 common languages in their native scripts, with an expandable list of 87+ country-specific codes. Only English (en-US) is fully translated today; the infrastructure is ready for community translations.
+Services all have adequate logging and supervision. There is a comfortable UI for accessing this information, presented in a way that is intended to be safe for non-technical users to consume. Services are shown as a tree -- a package with its dependencies nested underneath -- and you can act on a whole tree at once or read the merged logs of every unit in it in one view. There are separate accounts for admin and normal users: you could help your parents run a Plex (or something similar) if you wanted. You could keep them spyware free.
+
+Updating the box shows its work. The system controller binds its port before it starts booting, so the UI streams progress live -- controller, DNS, system services, then a row per package as each one is restarted -- rather than showing a spinner against a dead port. It tags each process incarnation with an id, so the browser can tell "the old version is still answering" from "the new one is up" and knows when the update has actually landed.
+
+The entire interface is internationalized. All user-facing strings -- both backend error messages and frontend UI text -- are routed through a message catalog keyed by BCP 47 locale codes (e.g. `en-US`, `de-DE`). **25 languages ship fully translated** on both the backend and the frontend: Arabic, Bengali, Chinese (Simplified and Traditional), Danish, Dutch, English, Finnish, French, German, Hindi, Italian, Japanese, Korean, Polish, Portuguese, Russian, Sanskrit, Spanish, Sumerian, Swedish, Thai, Turkish, Ukrainian, and Vietnamese. A language screen in System Settings presents 22 common languages in their native scripts, with an expandable list of 90 country-specific codes; anything without a catalog is shown but disabled.
+
+The UI picks your language from your browser (`navigator.languages`), folding region variants onto the language we ship (`de-AT` uses the German catalog) and disambiguating Chinese by script. An explicit pick is remembered per browser, so the box's global language setting no longer overrides what each person sees -- it is only the fallback for a language Town OS has no catalog for.
 
 Windows applications can run alongside native Linux containers through Valve's Proton compatibility layer. A package definition with a `proton` section specifies a Windows app image, an extraction directory, and an executable path; the system pulls the app from an OCI image, extracts it into a persistent volume, and runs it inside a Proton runner container. The runner image is configured system-wide via the `proton_image` setting. **Proton support is opt-in**: rebuild with `make PROTON_ENABLED=1 …` (or `go build -tags proton`) to compile it in. Without the tag, `proton:` blocks in package YAML are rejected at install time, the `proton_image` setting is not seeded, the Settings UI omits the Proton card, and the release pipeline does not build or push the runner image.
 
-A built-in monitoring stack provides system observability out of the box. Prometheus collects metrics, Node Exporter reports host-level statistics, and Grafana serves auto-provisioned dashboards -- all managed as a single unit with no manual configuration required.
+A built-in monitoring stack provides system observability out of the box. Prometheus collects metrics and Node Exporter reports host-level statistics, both managed as system services with no manual configuration required. Dashboards are rendered directly in the UI with uPlot (~35 KB) by default -- disk I/O, network, CPU, and memory -- which keeps a ~771 MB Grafana image off the box entirely. Flip the `monitoring_backend` setting to `grafana` and the full Grafana stack is pulled, started, and pre-provisioned with a datasource and two dashboards instead.
 
-QEMU virtual machine support runs alongside containers as a first-class runtime. Packages can declare `runtime_type: vm` with a QEMU disk image, memory, and CPU count. The Control Plane Service downloads images from URLs, converts them to raw format with `qemu-img`, and caches them in a `vm-images` btrfs subvolume. At install time, a systemd service unit launches `qemu-system-x86_64` with KVM acceleration, virtio networking, and user-mode port forwarding. VM images can be listed, uploaded, and deleted through the API and UI.
+QEMU virtual machine support runs alongside containers as a first-class runtime. A package selects it simply by carrying a top-level `vm:` section -- a disk image, memory, and CPU count -- instead of an `image:`. The Control Plane Service downloads images from URLs, converts them to raw format with `qemu-img`, and caches them in a `vm-images` btrfs subvolume. At install time, a systemd service unit launches `qemu-system-x86_64` with KVM acceleration, virtio networking, and user-mode port forwarding. VM images can be listed, uploaded, and deleted through the API and UI.
 
-Static pages hosting lets you publish HTML content directly from the UI. Three source types are supported: upload a tar archive (the default), extract files from a container image, or clone a git repository. A dropdown in the create dialog selects the source type, and each page is served through a Caddy reverse proxy with its own domain. Archive pages can be updated by uploading a new archive at any time; git and container image pages can be rebuilt on demand to pull the latest content.
+Static pages hosting lets you publish HTML content directly from the UI. Three source types are supported: upload a tar archive (the default), extract files from a container image, or clone a git repository. A dropdown in the create dialog selects the source type, and each page is served over HTTPS at its own domain through the shared ingress, with a certificate from the local CA. A page belongs to a network just like a package does, so a site can be published to everyone on the LAN or only to peers of one WireGuard network. Archive pages can be updated by uploading a new archive at any time; git and container image pages can be rebuilt on demand to pull the latest content.
 
 Check out some of the [screen shots](./screenshots/). This all works in the dev tasks today.
 
 For detailed usage instructions, including the packaging system, storage, pages, and API documentation, visit **<https://town-os.github.io>**.
+
+## Bootable Images (PC and Raspberry Pi)
+
+This repository holds the Town OS software. The **bootable disk image** is built from the separate [install repository](https://gitea.com/town-os/install), which also launches it in a VM:
+
+```bash
+git clone https://gitea.com/town-os/install.git
+cd install
+make deps        # one time, manual — no build target ever installs packages
+make run         # build the image and launch it in a VM
+```
+
+Image builds are native by default -- with no `TARGET`, the image architecture matches the build host. Name a different one with `TARGET`:
+
+| Command                    | Result                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `make image TARGET=x86_64` | PC image (UEFI/GRUB). x86_64 host only -- there is no x86 emulation path.     |
+| `make image TARGET=aarch64`| Generic aarch64 image (UEFI/GRUB), e.g. an Apple-Silicon VM.                  |
+| `make image TARGET=rpi`    | **Native-boot Raspberry Pi image.** One image covers Pi 4/400/CM4 and Pi 5/CM5.|
+
+**Raspberry Pi.** `TARGET=rpi` is aarch64-only and btrfs-only, and boots via the Pi's own GPU bootloader and `config.txt` rather than GRUB. On an aarch64 host it builds natively; on an x86_64 host it is cross-produced inside a full-system `qemu-system-aarch64` VM -- a whole emulated machine, not `binfmt`/qemu-user and not a cross-compiler, so the build still runs as native aarch64 code. It works, and it is slow.
+
+Flash the resulting `-rpi` image to an SD card, USB stick, or NVMe:
+
+```bash
+make flash RPI=1 USB_DEV=/dev/sdX   # or dd the town-os-<date>-aarch64-rpi.img
+```
+
+For **Pi 5 NVMe boot**, also set the EEPROM boot order to include NVMe (`rpi-eeprom-config --edit` → `BOOT_ORDER=0xf416`; add `PCIE_PROBE=1` for non-HAT+ adapters); `dtparam=pciex1` is already in the generated `config.txt`. USB current caps are lifted for both boards in `config.txt` already (`usb_max_current_enable=1` on Pi 5, `max_usb_current=1` on Pi 4), which matters because bus-powered USB SSD and NVMe adapters are exactly what a boot-from-USB image runs off and they brown out under the firmware default.
+
+See the [install repo README](https://gitea.com/town-os/install) for flashing, serial console, releases, and the full variable list.
 
 ## Requests for Comment
 
@@ -239,13 +282,18 @@ Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concu
 | `make dev-image`              | Build the dev container image.                                                                                         |
 | `make ui-integration-image`   | Build the UI integration test container image.                                                                         |
 | `make build-networkcontroller`| Build the network controller binary locally (`town-os-networkcontroller`).                                             |
+| `make ui-image`               | Build the UI image locally as `localhost/town-os-ui:<INSTANCE_ID>` for tests (never pulls the quay UI image).          |
+| `make nc-image`               | Build the network controller image locally for tests; `make nc-image-dev` does the same against the dev base.          |
+| `make ingress-image`          | Build the ingress image locally for tests.                                                                             |
 | `make pull-images`            | Pull all container images from Docker Hub and save to global cache. Runs automatically if any cached image is missing. |
 
 Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
 
 ### Release and Push
 
-All release images are pushed to `quay.io/town/`. All push tags are partitioned per architecture: each host pushes its native arch as `rc.<date>-<arch>` / `rc.latest-<arch>` (release candidates) or `release.<date>-<arch>` / `latest-<arch>` (releases), where `<arch>` is `uname -m` mapped to `amd64`/`arm64`. The plain names (`rc.latest`, `latest`, and the date tags) exist only as multi-arch manifest lists assembled by `make manifest-rc` / `make manifest-release` after every architecture has pushed. The per-arch `TOWN_OS_TAG` is baked into the system controller binary at build time so sibling services (UI, Rolodex) use matching per-arch image tags.
+All release images are pushed to `quay.io/town/`. All push tags are partitioned per architecture: each host pushes its native arch as `rc.<date>-<arch>` / `rc.latest-<arch>` (release candidates) or `release.<date>-<arch>` / `latest-<arch>` (releases), where `<arch>` is the raw `uname -m` form — `x86_64` or `aarch64`, *not* the OCI platform names `amd64`/`arm64`. The plain names (`rc.latest`, `latest`, and the date tags) exist only as multi-arch manifest lists assembled by `make manifest-rc` / `make manifest-release` after every architecture has pushed; a plain name must never be pushed as a single-arch tag, since it fails on the other architecture with `exec format error`.
+
+At runtime the system controller derives every sibling image tag (UI, Rolodex, network controller, ingress) from a single value: the `TOWN_OS_TAG` environment variable if set, otherwise `rc.latest-<arch>`. There is no compile-time version pin — the install build system sets `TOWN_OS_TAG` on the system controller's systemd unit to pin a release, and with no override a box always tracks `rc.latest-<arch>`.
 
 | Target                      | Description                                                                                                        |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -253,6 +301,7 @@ All release images are pushed to `quay.io/town/`. All push tags are partitioned 
 | `make release-ui-image`     | Build the release UI image (`quay.io/town/ui`).                                                                    |
 | `make release-proton-image` | Build the release Proton runner image (`quay.io/town/proton`). **Requires `PROTON_ENABLED=1`**; the target does not exist otherwise. |
 | `make release-nc-image`     | Build the release network controller image (`quay.io/town/networkcontroller`).                                     |
+| `make release-ingress-image`| Build the release ingress image (`quay.io/town/ingress`).                                                          |
 | `make release-build`        | Pull images, run `test-full`, then build the release images. Includes the Proton runner when `PROTON_ENABLED=1`.    |
 | `make push`                 | Alias for `push-rc`.                                                                                               |
 | `make push-rc`              | Push all images (system controller, UI, network controller; Proton when `PROTON_ENABLED=1`) as per-arch release candidates (`rc.<date>-<arch>` + `rc.latest-<arch>`). |
@@ -265,6 +314,8 @@ All release images are pushed to `quay.io/town/`. All push tags are partitioned 
 | `make push-proton-release`  | Push only the Proton runner image as a release. **Requires `PROTON_ENABLED=1`**.                                    |
 | `make push-nc-rc`           | Push only the network controller image as a per-arch release candidate (`rc.<date>-<arch>` + `rc.latest-<arch>`).  |
 | `make push-nc-release`      | Push only the network controller image as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).          |
+| `make push-ingress-rc`      | Push only the ingress image as a per-arch release candidate (`rc.<date>-<arch>` + `rc.latest-<arch>`).             |
+| `make push-ingress-release` | Push only the ingress image as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).                     |
 | `make push-tag PUSH_TAG=x`  | Build and push all images with a custom tag `x`. Includes the Proton runner when `PROTON_ENABLED=1`.               |
 
 ### Registry Authentication

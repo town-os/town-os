@@ -78,7 +78,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - **Version change detection and unit restart** — the systemcontroller detects image upgrades by comparing the running container's image SHA (from `/proc/1/cgroup` → `podman inspect`) against a persisted version file at `<btrfsPath>/town-os-version`. On version change: (1) all container images are pulled, (2) the NC image is rebuilt, (3) reconcile regenerates all systemd units, (4) units whose content changed are restarted in order: NC units first (they own networks), then dependency services, then parent/standalone services, (5) post-update commands (`post_update` field) are executed via `podman exec` for container packages whose units changed. The version file is written after successful reconcile. Unit content is compared before/after via `ReadUnit()` to avoid unnecessary restarts when content hasn't changed.
 
-- **Network controller image is built as the first boot operation** — the NC container image (`localhost/town-os-networkcontroller:local`) is built via `podman build` as the very first runtime operation in the systemcontroller startup, before rolodex config, image pulls, or anything else. The systemcontroller container shares the host's podman storage (`/var/lib/containers`) so images built inside the container are directly available to host systemd units. The NC binary (`/town-os-networkcontroller`) is baked into the systemcontroller image at build time, guaranteeing the NC always matches the running systemcontroller. The `alpine:latest` base image is pulled via `ensureImage` if not already loaded. The build uses `--dns=8.8.8.8` so it does not depend on rolodex DNS. The build is non-fatal; if the network is unavailable at boot, the system controller starts without per-package networking and the image is built on the next restart. Never cache or skip the NC image build.
+- **The network controller image is pulled, not built at boot** — the NC image is a published sibling image (`quay.io/town/networkcontroller:<tag>`, tag from `resolveImageTag()`) pulled alongside the other core images, exactly like the UI, rolodex, and ingress images. It is **not** built with `podman build` during startup; the earlier boot-time build (`localhost/town-os-networkcontroller:local`, alpine base, `--dns=8.8.8.8`) is gone. `NC_IMAGE` overrides the derived default and is what the integration harness sets to inject a locally built image. The pull is non-fatal: every package NC unit carries an `ExecStartPre` `--pull=never` network-create fallback, so a failed pull is recoverable on the next boot.
 
 - **All monitoring services are system services** — Prometheus, Node Exporter, and the Monitoring UI all run under the system service namespace (`town-os-system--` prefix), started directly from `main.go` before reconcile. They are never installed through the package repository system; there is no installable "monitoring" package. The three services are: `town-os-system--node-exporter.service` (host networking, port 9100), `town-os-system--prometheus.service` (port 9090, bind-mount config/data from `{btrfsBase}/monitoring/`), and `town-os-system--monitoring-ui.service` (port 5308). The monitoring UI service runs either a socat forwarder (uPlot mode, default) or Grafana (grafana mode), controlled by the `monitoring_backend` setting. Prometheus config is written directly to disk. Prometheus, Grafana, and the uPlot socat forwarder are generated via `systemd.GeneratePackageUnits` with `PackageUnitConfig.SystemServiceKey` set, so they get a full network controller, socket activation, and a private podman network — the same plumbing as regular packages, but with the system service naming.
 
@@ -96,38 +96,42 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 The system controller startup in `src/svc/systemcontroller/cmd/systemcontroller/main.go` follows this exact order. Each step that says **(non-fatal)** logs to stderr and continues; everything else is fatal and aborts startup.
 
+The boot is **observable**: `:5309` is bound before any work happens, backed by a minimal boot-status stub that streams progress; the full Echo router is swapped in at the end without ever closing the listener. Progress is reported as five coarse stages (`boot_controller`, `boot_dns`, `boot_services`, `restart_packages`, `ready`) — see [Boot Status and Refresh](#boot-status-and-refresh).
+
 1. **Set `CONTAINER_HOST`** — `setupPodmanEnv()` sets `CONTAINER_HOST=unix:///run/podman/podman.sock` so every subsequent `podman` invocation (and child process) routes through the host's podman socket instead of the systemcontroller container's isolated storage.
 2. **Parse CLI flags and env vars** — `-db`, `-btrfs`, `-repo-dir`, `-network-state`, `-listen`. Env overrides: `TOWN_OS_LISTEN`.
-3. **Create directories** — temp working dir, btrfs base, network state dir, DB parent dir.
-4. **Build network controller image** **(non-fatal)** — the very first runtime operation that touches podman, before DB open, manager init, or anything else. Copies the NC binary from `/town-os-networkcontroller`, pulls `alpine:latest` via `ensureImage`, runs `podman build`. The SC container shares the host's podman storage (via `CONTAINER_HOST`) so the image is immediately available to host systemd units. Uses `--dns=8.8.8.8` so it does not depend on rolodex.
+3. **Bind `:5309` with the boot handler** — `NewBootStatus()` + `NewRootHandler(NewBootHandler(bs))` bind the listener immediately, before any startup work. Until the swap in step 24 the socket answers only `GET /status/ping` (503 with `{booting, step, done, boot_id}`) and `GET /boot-status` (SSE); everything else is 403.
+4. **Stage `boot_controller`** — temp working dir; create btrfs base and network state dir; remove any stale `town-os.db` left at the btrfs root by older deployments (`cleanupStaleRootDB`) and reject a `-db` path that would recreate it (`validateDBPath`) — the runtime DB lives at `<btrfsBase>/data/db/system.db`, never at the root.
 5. **Open SQLite database** — persistent if `-db` is set, otherwise ephemeral temp file.
 6. **Init account manager** — creates accounts table.
 7. **Generate ephemeral JWT signing key** — 32 random bytes via `crypto/rand`, overridable with `TOWN_OS_SIGNING_KEY`. Init session manager, which clears all prior sessions (old tokens are invalid with the new key).
-8. **Init audit manager** — creates audit log table.
-9. **Init settings manager** — creates settings table with defaults (`default_quota`, `max_archive_size`, `locale`, etc.).
-10. **Init pages manager** — always (the pages subsystem is unconditionally enabled).
-11. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
-12. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
-13. **Init install manager, btrfs storage, systemd manager**.
-14. **Resolve image tag** — `resolveImageTag()`: the `TOWN_OS_TAG` env var (set by the install build system), else `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH` mapped to `x86_64`/`aarch64` via `archTag()`). No `/town-os.tag` file and no compile-time `Version` pin. Used to derive image tags for sibling services; push tags are per-arch, so derived sibling tags are too.
-15. **Start background repo refresh** — goroutine polls every 5 minutes.
-16. **Write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if file is newer than the binary or content is unchanged) and restarts the service only when the file was written. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly (not via podman port mappings). The DNS port defaults to 53 but can be overridden via the `DNSPort` config field for tests.
-17. **Wait for Rolodex DNS readiness** **(non-fatal)** — polls until the DNS TCP port accepts connections.
-18. **Read monitoring backend setting** — `monitoring_backend` from settings DB, default `uplot`.
-19. **Pull container images** **(non-fatal)** — Prometheus, Node Exporter, UI image, optionally Grafana. Uses `ensureImage` (skips pull if already loaded). The SC shares the host's podman storage so pulled images are available to host systemd units.
-20. **Start monitoring system services** **(all non-fatal)** — Node Exporter (host networking, port 9100), Prometheus (port 9090, bind-mount config/data, `ExecStartPre` chowns data dir to uid 65534), Monitoring UI (port 5308, socat with `--pull=never` from NC image, or Grafana).
-21. **Detect version change** — compare running container's image SHA (`/proc/1/cgroup` → `podman inspect`) against `<btrfsPath>/town-os-version`. Sets `versionChanged` flag for reconcile.
+8. **Init audit, settings, pages, and network managers** — settings are seeded with defaults (`default_quota`, `max_archive_size`, `locale`, `dns_tld`, `dns_resolution_mode`, `peer_ttl`, …); pages is always initialized; the network manager owns the WireGuard network and peer tables.
+9. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
+10. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
+11. **Init install manager, btrfs storage, systemd manager**.
+12. **Resolve image tag** — `resolveImageTag()`: the `TOWN_OS_TAG` env var (set by the install build system), else `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH` mapped to `x86_64`/`aarch64` via `archTag()`). No `/town-os.tag` file and no compile-time `Version` pin. Every sibling image tag (UI, rolodex, network controller, ingress) derives from this one value; push tags are per-arch, so derived sibling tags are too.
+13. **Derive the NC image** — `quay.io/town/networkcontroller:<tag>`, overridable via `NC_IMAGE`. Pulled (step 17), never built.
+14. **Start background repo refresh** — goroutine polls every 5 minutes.
+15. **Stage `boot_dns`: write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if the file is newer than the binary and the content is unchanged) and restarts the service only when the file was written. `resolution.mode` comes from the `dns_resolution_mode` setting, and an unparseable stored value falls back to the default rather than rendering a config rolodex would refuse. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly. Then wait for DNS readiness (TCP connect poll), and configure systemd-resolved to route the TLD to rolodex.
+16. **Read the monitoring backend and discover btrfs disk devices** — `monitoring_backend` (default `uplot`); `monitoring.BtrfsDevices(btrfsPath)` **(non-fatal)** surfaces the backing block devices through `/monitoring/status`.
+17. **Stage `boot_services`: pull core container images** **(non-fatal)** — the NC image, Prometheus, Node Exporter, the UI image, and Grafana when that backend is selected, in parallel via `parallelEnsureImages` (skips a pull when the image is already loaded).
+18. **Start monitoring system services** **(all non-fatal)** — legacy NC/socket monitoring units from the previous design are torn down first (they still hold `-p 9090`/`-p 5308` and would crash-loop the new services). Node Exporter, Prometheus, and the Monitoring UI all run `--net host`; node-exporter and Prometheus bind loopback, and only the monitoring UI's `:5308` is LAN-facing. Then install the nightly podman prune timer **(non-fatal)**.
+19. **Ensure the local TLS CA** **(non-fatal)** — `tls.EnsureCA(<btrfsPath>/tls)` before reconcile, so reconcile can issue leaf certs as it walks installed packages.
+20. **Start the ingress and the pages service** **(non-fatal)** — `ingressctl.Manager` installs and starts `town-os-system--ingress` (shared `:443` SNI + `:80` Host router), dual-stack only when the host has a global IPv6. The pages Caddy service starts alongside it. Both are skipped when `INGRESS_IMAGE` is explicitly set to empty (dev mode).
+21. **Detect version change** — compare the running container's image SHA (`/proc/1/cgroup` → `podman inspect`) against `<btrfsPath>/town-os-version`. Sets `versionChanged` for reconcile.
 22. **Reconcile** — iterates all installed packages and restores runtime state:
-    - Creates root btrfs subvolumes (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`).
-    - For each installed package (latest version per repo/name): loads YAML, compiles with saved responses, creates btrfs volumes with quotas, seeds empty volumes from archives/git/proton, applies file templates, writes network state files, generates and installs systemd units (service + NC + sockets), starts services.
+    - Creates root btrfs subvolumes (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`, `tls`).
+    - For each installed package (latest version per repo/name): loads YAML, compiles with saved responses, creates btrfs volumes with quotas, seeds empty volumes from archives/git/proton, applies file templates, issues the package's TLS leaf, writes network state files (including the resolved `fqdn`), generates and installs systemd units (service + NC + sockets), starts services.
     - If `versionChanged`: restarts units whose content changed (NC first, then deps, then services), then runs `post_update` commands.
-    - Reconciles pages: ensures subvolumes, symlinks, Caddyfile, and Caddy unit.
-23. **Persist version SHA** — writes current image SHA to `<btrfsPath>/town-os-version`.
-24. **Reconcile DNS** — connects to Rolodex gRPC socket (retries up to 30s), sets up TLD zone, registers A records for all installed packages.
-25. **Start UI container** **(non-fatal)** — installs and starts `town-os-system--ui.service` (Caddy, host networking, port 80).
-26. **Create HTTP handler** — wires all managers into `ServerConfig`, starts external IP poller (ipinfo.io, 1-hour interval), configures Echo router with CORS, auth middleware, audit middleware.
-27. **Start HTTP server** — listens on `:5309` (or `TOWN_OS_LISTEN`). Prints `systemcontroller: listening on :5309` to stderr. **System is now ready.**
-28. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with 30s timeout. All background goroutines exit via context cancellation.
+    - Reconciles pages: ensures subvolumes, symlinks, and page content.
+    Then persist the current image SHA to `<btrfsPath>/town-os-version`.
+23. **Reconcile DNS and networks** — dial the rolodex gRPC socket (retry up to 30s). `RebuildDNS` wipes and rebuilds rolodex from scratch so drift from a crashed prior run is discarded; `RebuildNetworkDNS` re-registers the LAN-facing global records (and DANE pins) for non-default-network packages. `ReconcileNetworks` then ensures the default network exists and brings up every enabled network's WireGuard interface, passing the rolodex client so each network's TLD scope is owned — including the DNS-only home scope. All non-fatal.
+24. **Program the ingress** **(non-fatal)** — wait for readiness, dial its gRPC socket, and `RebuildIngress` pushes the full route set (HTTP packages + pages) declaratively, the same model as `RebuildDNS`.
+25. **Start the UI container** **(non-fatal)** — `town-os-system--ui.service`; skipped when `UI_IMAGE` is explicitly empty (dev mode, where bun serves the UI).
+26. **Stage `restart_packages`: freshness stage** — if the previous process left a refresh marker, restart every installed package unit serially, emitting a per-package progress event so the UI renders a row each. A stale marker from a crash is harmless.
+27. **Create the HTTP handler** — wires all managers into `ServerConfig`, starts the background pollers (external IP hourly, DNS drift repair, expired-peer reaper), configures the Echo router with CORS, the WireGuard allowlist, auth, and audit middleware.
+28. **Stage `ready`: swap the root handler** — the boot stub is atomically replaced by the full Echo router on the already-bound listener, so no port flap occurs and in-flight `/boot-status` SSE subscribers survive the handoff. `BootStatus.Done()` then closes the stream. **System is now ready.**
+29. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with a 30s timeout. All background goroutines exit via context cancellation.
 
 ## Performance Conventions
 
@@ -324,6 +328,14 @@ Two details matter for correctness. `Compile` substitutes by walking the respons
 
 `optional` is meaningless on a boolean, which is a checkbox and always resolves to one of its two values.
 
+#### Conditional questions (`show_if`)
+
+A question may carry `show_if: <boolean_question>`, naming a boolean question in the same package. The install dialog keeps the question hidden until that checkbox is checked, so a package can tuck an advanced group — an SMTP relay, an API key — behind one switch instead of confronting the operator with every field at once.
+
+It is more than a UI hint: the compiler honors it. While the controlling boolean resolves to false, the conditional question compiles to the **empty string** and is exempt from the answered-and-non-empty requirement — exactly as if it were `optional` and left blank — *no matter what the still-mounted field submitted*. `questionHidden` (`src/packages/questions.go`) reads the control value from the submitted response, falling back to the boolean's declared `default` when the operator never touched it, and parses it leniently because an unchecked box may arrive as `"false"`, `"0"`, or not at all. `Compile` forces the empty string and skips `Output()` for a hidden question, so a stale value cannot fail type validation for a field the operator cannot even see; a question omitted from the responses map entirely still gets its `@marker@` sites filled with the empty string. When the boolean is true, a non-optional conditional question is required as usual.
+
+`ValidateShowIf` rejects a `show_if` that references a question that does not exist (`ErrShowIfUnknown`), one that is not of type `boolean` (`ErrShowIfNotBool`), the question itself (`ErrShowIfSelf`), or another question that is itself conditional (`ErrShowIfChain` — no chains). A conditional question is only coherent if the thing controlling its visibility is a plain checkbox.
+
 ### Compilation
 
 Compilation validates all responses, applies type-specific validation, substitutes all template variables, normalizes container image URLs, and produces a resolved `Package` struct. For VM packages, memory strings are parsed to byte counts and CPU defaults are applied. Post-update commands are trimmed of leading/trailing whitespace. Validation errors are collected and returned together.
@@ -392,6 +404,12 @@ When a user installs a package, the questions dialog loads existing responses (f
 **Defaults** are shown in two ways when no cached value is present: as placeholder text in the input (e.g., "Default: 8080") and as helper text below the input in muted text with the value in monospace. Type-specific placeholders are shown when no default is defined: "Auto-assigned if empty" for ports, "Auto-generated if empty" for hostnames, and "e.g. 30s, 5m, 2h, 1d" for durations.
 
 **Validation errors** from the server are displayed per-field as red text below the input, and the input receives a red border.
+
+**Sizing and pagination.** The dialog is capped at the viewport height (minus margins) and laid out as a flex column, so the header and footer stay put while the questions area scrolls — the base `DialogContent`'s `overflow-hidden` otherwise made the spillover of a many-question package unreachable. Questions are paged **5 per page** with Previous/Next controls that give way to the Install button on the last page. Every page stays mounted (inactive ones are `display:none`) so the uncontrolled form inputs keep their typed values and still submit; unmounting a page would silently drop the answers on it. A field error jumps to the page that carries it, so a validation error is never hidden behind the pager. The pager reuses the existing `datatable.next`/`previous` strings and a numeric page counter, so it adds no translation keys.
+
+**Conditional questions** declared with `show_if` are hidden until their controlling checkbox is checked (see [Conditional questions](#conditional-questions-show_if)).
+
+**OAuth questions** render from a single per-question status — `idle`, `starting`, `waiting`, `connected`, `error` — seeded from the cached response, not from "does a token exist anywhere". A token cached from a previous install used to make the field read as connected before anything had happened and keep it reading that way through a failed reconnect, putting a green Connected badge above a red error. The token is now read for exactly one decision (Connect versus Reconnect) and is otherwise only what the hidden input submits: a failed reconnect leaves the operator the token they already had, but nothing claims the failed attempt worked, a reconnect still in flight does not read as connected, and an approval that carries no token is an error rather than a silent success that would install an empty credential.
 
 ### Package Info Dialog
 
@@ -522,6 +540,7 @@ Quotas are enforced at the btrfs qgroup level. A quota of 0 means unlimited.
 - `POST /storage/remove` (auth required) -- delete a user filesystem.
 - `POST /storage/package-volumes` (auth required) -- list package volumes grouped by package, with optional inclusion of uninstalled volumes.
 - `POST /storage/remove-package-volume` (admin required) -- delete a specific package volume by internal name.
+- `POST /storage/remove-package-volume-group` (admin required) -- cascading delete behind the storage tree's non-leaf delete buttons. `repo` and `name` are required; an empty `version` targets every installed version of the package. **Every systemd unit in the target package's dependency tree is stopped before any subvolume is removed**, so a podman container still holding a volume open cannot race the btrfs delete. `include_uninstalled` additionally sweeps the matching `uninstalled/` subtree (wired to the same "Show uninstalled" toggle that drives the volume listing).
 - `POST /storage/upload-archive` (admin required) -- upload and unpack an archive into a volume.
 - `POST /storage/download-archive` (admin required) -- download a volume as a compressed archive.
 
@@ -616,7 +635,9 @@ Pages is a static site hosting feature supporting three content source types: ar
 
 ### Data Model
 
-Each page site has: a unique name (primary key), source type (`archive`, `container_image`, or `git`; default: `archive`), repository URL (required for git), branch (defaults to `main`), container image reference (required for container_image), image directory (required for container_image), domain (defaults to the page name), status (`pending`, `active`, or `error`), and creation/update timestamps. Pages are stored in a SQLite table.
+Each page site has: a unique name (primary key), source type (`archive`, `container_image`, or `git`; default: `archive`), repository URL (required for git), branch (defaults to `main`), container image reference (required for container_image), image directory (required for container_image), domain (defaults to the page name), status (`pending`, `active`, or `error`), a **network**, and creation/update timestamps. Pages are stored in a SQLite table.
+
+`Network` is the page's publishing network, exactly like a package's install network: it selects the TLD the page's hostname, leaf SAN, DANE TLSA owner, and ingress vhost are all named under, and it decides who can resolve the page. Empty — the zero value and the DB default — means the default/home network, the same convention as `Installer.LoadNetwork` for packages. See [Pages are network-scoped too](#pages-are-network-scoped-too). It is accepted on create and is one of the partial-update fields.
 
 Pages content is stored in btrfs subvolumes under a `pages/` prefix. Each page gets a subvolume at `pages/{name}` and a symlink at `pages-webroot/{name}` pointing to `/data/pages/{name}`. The `pages` prefix is reserved and cannot be renamed or deleted via the general storage API.
 
@@ -669,8 +690,10 @@ VM units also manage firewall ports via `firewall-cmd` in pre-start and post-sto
 
 ### Service Unit API
 
-- `GET /systemd/units` (localhost or auth) -- list all package service units. Returns unit status enriched with package identifier, package description, and network controller failure flag.
+- `GET /systemd/units` (localhost or auth) -- list all package service units, flat. Returns unit status enriched with package identifier, package description, and network controller failure flag.
+- `GET /systemd/units-tree` (localhost or auth) -- the same data grouped into a dependency tree: root packages at the top, deps nested under their parent, recursively (the shape mirrors `/storage/package-volumes`). Each node carries `repo`/`name`/`version` (raw effective name, which may contain `--dep--`) alongside the human-facing `package_identifier`, plus the same status fields as the flat endpoint, so a client needs no second fetch to enrich rows. **Search and pagination apply to root nodes only** — dependency descendants do not count against the page, so a tree always ships with its full subtree even at a page boundary.
 - `POST /systemd/status` (admin required) -- change a service unit's status. Accepts unit name and action (start, stop, restart, enable, disable).
+- `POST /systemd/status/tree` (admin required) -- apply an action across a root package's whole dependency tree. Accepts `repo`, `name` (raw effective name, so values from the install APIs feed back unchanged), `version`, and `action`. Only `start`, `stop`, and `restart` are allowed — `enable`/`disable` are rejected — and stopping the system controller's own unit is refused. **Traversal order depends on the action**: units are collected leaves-first (the natural order for start and restart) and the order is reversed for stop, so the root goes down before its descendants.
 
 ### Service Management UI
 
@@ -716,32 +739,52 @@ Two endpoints serve log data:
 
 - `GET /systemd/logs` (localhost or auth) -- streams historical journal entries via Server-Sent Events. The `unit` query parameter selects the service; empty or `__system__` returns system-wide logs.
 - `GET /systemd/logs/tail` (localhost or auth) -- returns a JSON page of journal entries. Supports parameters: `unit`, `lines` (default 100), `before`/`after` (cursor pagination), `grep` (case-insensitive search), `since`/`until` (Unix timestamps), and `priority` (syslog severity filter, 0 = no filter).
+- `GET /systemd/logs/tree` and `GET /systemd/logs/tree/tail` (localhost or auth) -- the tree-scoped counterparts. Instead of a `unit`, they take `repo`, `name`, and `version` (all required) and cover **every** systemd unit in that package's dependency tree, so a parent's logs and its deps' logs interleave in one view. Replay and paging semantics otherwise match `/systemd/logs` and `/systemd/logs/tail`.
 
 ## Account Management
 
 ### Account Model
 
-Each account has: username (primary key), password hash (never exposed in JSON), email, phone, real name, admin flag, disabled flag, and creation/update timestamps. Accounts are stored in a SQLite table.
+Each account has: username (primary key), password hash (never exposed in JSON), email, phone, real name, admin flag, disabled flag, a WireGuard-only flag, a network scope, and creation/update timestamps. Accounts are stored in a SQLite table.
 
 ### Validation Rules
 
-- **Password** -- minimum 8 characters.
+- **Password** -- minimum 8 characters, and only printable ASCII (`0x21`--`0x7E`, no spaces). High-bit and control bytes are rejected at creation time (`ErrPasswordInvalidChars`) rather than trusting every layer on the path to bcrypt — HTTP Basic auth, JSON, URL encoding, the DB's latin1 columns — to round-trip them identically.
 - **Email** -- standard email format (`user@domain.tld`).
 - **Phone** -- digits with optional formatting (`+`, spaces, dashes, parentheses).
 - **Contact info** -- email, phone, and real name are all required (non-empty).
+- **WireGuard scope** -- a WireGuard-only account must be scoped to at least one network (`ErrWireGuardNoNetworks`), and every entry must be a valid network name (`ErrInvalidNetworkName`). An empty list is never read as "any network".
+
+### WireGuard-Only Accounts
+
+An account may be **WireGuard-only**: it exists to hold a peer rather than to sign in to the dashboard, and it is scoped to the networks the operator picks for it. The scope is carried through rolodex, so DNS answers for that account are limited to the same set.
+
+The restriction is a **fail-closed capability**, not a set of per-route checks. `wireGuardAllowlist` is a *global* middleware, so a newly added route is denied to WireGuard accounts by default until it is explicitly added to `wireGuardAllowedRoutes` (`src/svc/systemcontroller/controller_auth.go`), keyed by `"METHOD PATH"`. The whole allowlist is:
+
+```
+POST /account/authenticate    GET /networks           POST /networks/peers/add
+GET  /account/me              GET /networks/peers     POST /networks/peers/refresh
+GET  /dns/services            GET /tls/ca.crt
+```
+
+That is the entire control-plane attack surface a scoped account has, and it is deliberately minimal: enough to authenticate, discover the network, fetch the CA, and enroll or refresh a peer, and nothing else. Note what is absent — `GET /networks/peers/connected` aggregates every account's peers and observed source addresses across every network, so it is `requireAdmin` *and* off the allowlist.
+
+`requirePeerEnroll` guards `peers/add` and `peers/refresh`: it admits admins and WireGuard accounts (per-network scope and per-peer ownership enforced in the handler) but rejects a plain non-admin account, so peer management stays privileged.
+
+Unlike `Admin` — which is immutable after creation — `WireGuard` is mutable, and `account.Manager.CreateWireGuard` is a separate method from `Create` so the invariant (a WireGuard account is never an admin and always has a non-empty scope) is enforced in one place at creation time rather than assembled from a widened positional signature.
 
 ### Account API
 
-- `POST /account/create` -- create a new account. In bootstrap mode (no enabled admin accounts exist), unauthenticated access is allowed; otherwise admin authentication is required. Duplicate username errors return a generic failure message to prevent user enumeration.
+- `POST /account/create` -- create a new account. In bootstrap mode (no enabled admin accounts exist), unauthenticated access is allowed; otherwise admin authentication is required. Accepts the WireGuard flag and network scope (routed to `CreateWireGuard` when set). Duplicate username errors return a generic failure message to prevent user enumeration.
 - `POST /account` -- get account by username (auth required).
 - `GET /account` -- list all accounts with pagination and search (auth required).
-- `POST /account/update` -- update account fields (auth required). Admin status cannot be changed after account creation.
+- `POST /account/update` -- update account fields (auth required). Admin status cannot be changed after account creation; the WireGuard flag and network scope can. A nil `networks` leaves the stored scope untouched; a non-nil one replaces it wholesale.
 - `POST /account/disable` -- disable an account, preventing authentication (admin required).
 - `POST /account/enable` -- re-enable a disabled account (admin required).
 
 ### Account Management UI
 
-The users management screen (`/dashboard/users`) displays a paginated, sortable, searchable data table of accounts. Each row shows username, email, phone, real name, admin/user role badge, and enabled/disabled status. Actions per row include an Edit button (opens a dialog for updating password, email, phone, and real name) and an Enable/Disable toggle with confirmation. A link navigates to a dedicated create user page (`/dashboard/users/create`) with a registration form.
+The users management screen (`/dashboard/users`) displays a paginated, sortable, searchable data table of accounts. Each row shows username, email, phone, real name, admin/user role badge, and enabled/disabled status. Actions per row include an Edit button (opens a dialog for updating password, email, phone, real name, the WireGuard-only toggle, and the network-scope selector) and an Enable/Disable toggle with confirmation. A link navigates to a dedicated create user page (`/dashboard/users/create`) with a registration form carrying the same WireGuard controls. Both forms reject enabling WireGuard with no networks chosen.
 
 ### Session Management
 
@@ -768,7 +811,7 @@ Read-only endpoints are explicitly excluded from audit logging. Excluded paths i
 
 ### Settings Management
 
-Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), `archive_unpack_timeout` (600 seconds), `locale` (en-US), `proton_image` (quay.io/town/proton:latest), and `dns_tld` (home).
+Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), `archive_unpack_timeout` (600 seconds), `locale` (en-US), `dns_tld` (home), `dns_resolution_mode` (auto), and `peer_ttl` (7200 seconds). `proton_image` is registered only in `proton`-tagged builds. See [Settings](#settings) for the full table.
 
 - `GET /settings` -- get all settings (admin required).
 - `POST /settings/get` -- get a specific setting by key (admin required).
@@ -1005,6 +1048,139 @@ Both forms coexist in the same map; the parser branches on the key. A name mappi
 
 **When to use a name.** Whenever a parent references a dep's port. A name is the single fact the parent can cite; the dep owns the number. Use names for internal ports first (that's where parent-dep traffic lives on the shared podman network); external named ports are allowed but uncommon since parents don't usually dial deps through host bindings.
 
+## Networks (WireGuard Overlays)
+
+A **network** is a named WireGuard overlay paired with a DNS TLD. Packages install into a network; peers join it; the TLD is what partitions who can resolve what (see [Network TLDs, Dual-Home, and Split-Horizon Resolution](#network-tlds-dual-home-and-split-horizon-resolution)).
+
+### Network Model
+
+`account.Network` (`src/account/network.go`) carries: `Name`, `TLD`, `Subnet`, `Address` (the box's own overlay address, always the `.1` host), `PublicKey`, `PrivateKey` (never serialized), `ListenPort`, `Enabled`, and timestamps. Names are DNS-label-safe (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, max 32 chars) because they are reused as WireGuard interface suffixes and systemd unit names.
+
+`DefaultNetworkName` is `home`. It always exists, cannot be removed, and takes its TLD from the `dns_tld` setting. It is **DNS-only**: `applyNetworkTransport` gives it no WireGuard interface, no overlay subnet, and no peers, so it can never have a tunnelled device.
+
+`Enabled` controls only the *transport*: when false the WireGuard interface is not brought up, cutting remote access while local DNS resolution and the containers themselves keep running.
+
+### Addressing and Interfaces
+
+- **Subnet** — `wireguard.SubnetForNetwork(machineID, name)` derives a deterministic `/24` from the host's systemd machine-id and the network name. Keying on the machine-id means two Town OS boxes that both serve peers pick distinct subnets, so a device joining both never sees a collision. Subnets are drawn from `10.64.0.0/10` to bias away from the `10.0`/`10.1` ranges consumer routers hand out. The seed falls back to the hostname, then a constant, so derivation never fails.
+- **Interface name** — `wireguard.InterfaceName(name)` is `"town" + 4 hex` of a SHA-256 of the network name: stable across create order, independent of how many networks exist, and within the kernel's 15-character limit. wg-quick derives the interface from the config filename, so the config is written as `<InterfaceName>.conf`.
+- **Listen port** — offsets from `DefaultListenPortBase` (51820) by the network's index.
+
+**Podman's default subnet pools must stay out of `10.64.0.0/10`.** The runtime image writes `/etc/containers/containers.conf` with `default_subnet_pools = [{"base" = "172.16.0.0/12", "size" = 24}]` precisely because podman's defaults (10.89/16, 10.90/15, 10.96/11, …) all sit inside the overlay range: in-range `/24`s get skipped as conflicting with overlay routes, the pool exhausts under load with "could not find free subnet from subnet pools", and package container networks stop working. Do not remove that file or widen the pools back into `10.64.0.0/10`.
+
+The `wireguard` package performs **no interface control itself**. It generates keypairs and renders wg-quick-style config; the systemcontroller writes the rendered config into the host-shared network-state directory and a generated systemd unit brings the kernel interface up and down. That is what keeps the systemcontroller container free of host network-namespace requirements.
+
+**Ordering matters in `applyNetworkTransport`.** Rolodex must be programmed *after* the interface is started and the overlay address is assigned, on an UP link, and covered by a route — assigned is not the same as usable. Programming it first asks rolodex to bind an address the host does not have yet; the bind fails `EADDRNOTAVAIL` and the listener dies permanently, because rolodex records a listener at spawn time and the corpse then blocks every re-assert.
+
+### Peers
+
+`account.NetworkPeer` carries `Network`, `PublicKey`, `Name`, `AllowedIP`, `Endpoint`, `Rolodex`, `CreatedBy`, `ExpiresAt`, and `CreatedAt`.
+
+- **`Rolodex`** marks a peer that runs a rolodex DNS server on its overlay address. The box then registers that address as a per-TLD forwarder, so names under the shared TLD that are authoritative on the peer resolve across the overlay. Phones and laptops leave it false.
+- **`CreatedBy`** is the ownership key: a WireGuard-only account may refresh only the peers it created, so a scoped account cannot keep another account's peer alive.
+- **`Endpoint`** is derived from **the address the enrolling client dialed** (the `Host` header of its `peers/add` request), not from the box's own view of itself. The box's public IP (from ipinfo.io) or LAN address is unreachable behind a NAT, a port forward, or a relay — a phone on the same Wi-Fi cannot hairpin to the public IP and cannot route to the private LAN address at all, and the peer then handshakes into a void that looks to the user like broken DNS. The dialed address is reachable by construction: the request arrived over it. With no dialable address (a loopback enrollment) the endpoint is **omitted** rather than set to something that cannot work.
+
+### Peer Enrollment TTL and the Reaper
+
+An enrollment does not live forever. The `peer_ttl` setting (seconds, default `7200`) is how long one stays valid. A long-lived client refreshes its peer via `POST /networks/peers/refresh` before that elapses; an abandoned device's peer expires on its own, so the additive `peers/add` endpoint cannot silently accumulate dead peers and burn overlay addresses. A nil `ExpiresAt` means the peer never expires — permanent peers such as rolodex servers and operator-added devices.
+
+The expiry is always **server-computed** as `now + peer_ttl`; the caller never chooses it. A background reaper goroutine calls `ReapExpiredPeers` and then re-renders the transport of each affected network once, so the live WireGuard device and the rolodex forwarders drop the reaped peers. It is best-effort and idempotent: the persisted peer set is the source of truth, and a failed re-render is repaired by the next tick or by boot reconcile. `peerReapInterval` is a quarter of the TTL, clamped to `[1m, 15m]`, so a lapsed peer lingers at most ~TTL/4 past expiry and neither a tiny nor an enormous TTL yields a pathological sweep rate.
+
+### Connected Peers
+
+`GET /networks/peers/connected` joins the persisted rows with the live kernel state of each tunnel. The persisted half (name, account, overlay address, expiry) answers "who is allowed on"; the `wg show <iface> dump` half (handshake, observed endpoint, transfer) answers "who is actually here right now" — neither alone is the question, which is why `ConnectedPeerView` exists rather than reusing `account.NetworkPeer`.
+
+Parsing lives in the pure `wireguard.ParseDump`. The **first** line of a dump describes the interface itself and is deliberately skipped; treating it as a peer would manufacture a phantom holding the interface's own key. `wg`'s `(none)` and `off` placeholders are decoded rather than passed through as literal strings.
+
+**Connectedness is a handshake inside WireGuard's 180s `REJECT_AFTER_TIME` window** (`HandshakeStaleAfter`) — the only liveness the protocol offers. There is no session teardown, so a peer that walks away is indistinguishable from one that is idle until its handshake goes stale. A peer that has *never* handshaken keeps a nil timestamp rather than the epoch, because "never set up" and "offline for a day" are different facts about a device.
+
+The systemcontroller runs `--net host`, so it already shares the namespace where wg-quick created the device; the runtime image ships `wireguard-tools` for the `wg` binary alone (wg-quick still runs on the host, from the generated units). A missing interface is not an error — a disabled network, or one whose transport has not come up, simply has no live peers and its persisted rows must still render — and a dump failure degrades to the persisted rows instead of blanking the panel. The `home` network is excluded entirely: it has no transport, so including it would put a permanently disconnected row in a panel about who is tunnelled in.
+
+**Disconnect reuses `POST /networks/peers/remove`** rather than adding an endpoint. WireGuard has no session to kill, so removing the peer is the only forcible termination there is.
+
+### Networks API
+
+- `GET /networks` (auth required) -- list all networks with peer count, derived interface name, and running state. The private key is never exposed.
+- `POST /networks/create` (admin required) -- create a network. Accepts name and optional TLD (defaults to the name). Derives the subnet, generates a keypair, assigns a listen port, and returns the created network.
+- `POST /networks/remove` (admin required) -- delete a network by name. The default network cannot be removed.
+- `POST /networks/enable` / `POST /networks/disable` (admin required) -- bring the overlay interface up or down.
+- `GET /networks/peers?network=<name>` (auth required) -- list the peers registered on a network.
+- `GET /networks/peers/connected` (**admin required**) -- every peer across every WireGuard network joined with live tunnel state. Deliberately tighter than its `requireAuth` siblings and absent from the WireGuard allowlist.
+- `POST /networks/peers/add` (peer-enroll: admin or WireGuard account) -- register a peer. When `public_key` is empty the server generates a keypair and returns the private key plus a ready-to-import device config. Accepts an optional `endpoint` and a `rolodex` flag.
+- `POST /networks/peers/refresh` (peer-enroll: admin or WireGuard account) -- extend a peer's TTL by `peer_ttl` and return the new expiry, so a client can pace its next heartbeat well before the TTL elapses.
+- `POST /networks/peers/remove` (admin required) -- remove a peer by public key.
+
+### Networks UI
+
+`/dashboard/networks` lists the networks with create/remove/enable/disable actions and per-network peer enrollment. A second **Connected Peers** panel itemizes every peer across every WireGuard network — the device, the account that enrolled it, its overlay address, the endpoint it is dialing from, live handshake and transfer state, and its enrollment expiry — with a per-row Disconnect action.
+
+## TLS and the Local CA
+
+Town OS runs its own X.509 certificate authority so package and page traffic is served over HTTPS by name, with no public CA and no ACME dependency on the LAN.
+
+- **The CA** (`src/tls/ca.go`) is an ECDSA P-256 key pair under the btrfs `tls` subvolume (`ca.crt`, `ca.key`), 10-year validity, so it survives reboots. `EnsureCA` loads an existing CA or generates one on demand; the cert is world-readable and the key is owner-only and must never be served. CA failure is non-fatal — the system boots without HTTPS rather than not at all.
+- **Leaves** (`src/tls/leaf.go`) are per-package and per-page, written as `cert.pem`/`key.pem` in one directory so a consumer needs only a single mount path. `IssueLeaf` is **idempotent**: when an existing certificate already covers exactly the requested SAN set and is still valid it returns without touching disk, which is what lets reconcile call it on every boot without churning cert files. Hostnames may be DNS names or IP literals; anything that parses as an IP goes into `IPAddresses`, everything else into `DNSNames`.
+- **`GET /tls/ca.crt`** is **public** (and on the WireGuard allowlist) so any client — a browser, a phone joining over the overlay — can fetch the root and trust the box.
+
+A package's leaf SAN set is derived from the same single FQDN as its A record, its DANE TLSA owner, and its ingress vhost; see [The package FQDN is one string](#the-package-fqdn-is-one-string--a-record-leaf-san-tlsa-owner-ingress-vhost). Leaves also carry the box's overlay IP on the install network so a peer can reach the package by raw WireGuard address, not only by name.
+
+## Ingress
+
+The ingress is the shared Host router: a sidecar that supervises a Caddy child and exposes a gRPC management API the systemcontroller programs, the same way it programs rolodex. It holds the desired route set in memory, renders a Caddyfile on every change, and reloads Caddy zero-downtime.
+
+- **`src/ingress`** is the in-container service (`Server`, `renderCaddyfile`, the gRPC client, the `town-os-ingress` binary). It is built `CGO_ENABLED=0`.
+- **`src/ingress/ingressctl`** is the systemcontroller-side lifecycle controller: it generates, installs, and restarts the `town-os-system--ingress` unit and exposes the gRPC socket path the systemcontroller dials. It is a separate package precisely so the CGO-free ingress binary never imports `src/systemd` (which pulls in cgo via sdjournal).
+
+### Routing
+
+- **`:443`** — one `https://<hostname>` vhost per route, terminating TLS with the route's file-pinned local-CA leaf, or an explicit ACME issuer for a public FQDN, and reverse-proxying to the backend container on the shared `town-os-ingress` podman network.
+- **`:80`** — Host-routed: pages (`ServeHttp`) are served directly over plain HTTP (static content, nothing sensitive), packages get an HTTP→HTTPS redirect so they stay HTTPS-only, and any host not matched by a route falls through to the default backend — the Town OS UI, so bare-IP login (`http://<box-ip>/`) keeps working now that the UI no longer squats the host's `:80`.
+- A route with **no issued leaf yet** (non-ACME, empty cert dir) is skipped for HTTPS, so a half-provisioned entry never makes Caddy reject the whole config; a page still gets its `:80` vhost, which needs no cert. Packages are only redirected once the HTTPS target actually exists, so nothing redirects into a not-yet-provisioned cert.
+
+### Rendering
+
+Output is **sorted by hostname** so the rendered bytes are deterministic across reconciles — that is what lets the supervisor no-op a reload whose content has not changed. Globals are `auto_https off` (Town OS manages certs) and `protocols h1 h2` (the ingress publishes TCP only, so H3/QUIC over UDP is unreachable). The Caddy admin API is deliberately **left enabled** on its default container-local `localhost:2019`: the supervisor programs new routes with `caddy reload`, which talks to that endpoint, so `admin off` would break every route update after the first boot.
+
+The ingress is **interface-agnostic**: it publishes `-p 443:443` / `-p 80:80` with no host IP and its Caddyfile carries **no `bind` directive**, so Caddy listens on all interfaces and selects the vhost purely by SNI/Host. A LAN client and an overlay peer hit the same listener, SNI-select the same vhost, get the same local-CA leaf, and are proxied to the same container. Do not add `bind` directives or per-network listeners.
+
+Production binds 443/80; integration tests pass ephemeral ports (rendered as `host:PORT`) so `make test-full` never collides on a privileged port. Boot programs the full route set declaratively via `RebuildIngress`, the same push model as `RebuildDNS`; package and page CRUD program incremental changes over the same gRPC API.
+
+## Boot Status and Refresh
+
+`:5309` is bound before any startup work happens, so the UI can watch a boot — including a self-update — proceed rather than polling a dead port.
+
+### The Boot Stub
+
+`NewBootHandler` is a bare `http.ServeMux` (intentionally, so it can never accidentally mount a real API route) serving exactly three things:
+
+- `GET /status/ping` → `{booting, step, done, error, boot_id}`. It answers **503 while booting** and 200 once done, so external readiness probes — the test container's `wait_for_url`, orchestrator health checks — do not treat the stub as "service ready" and start hammering a half-booted controller. The JSON body still carries the progress fields, so the UI can distinguish "coming up" from "fully down".
+- `GET /boot-status` → an SSE stream of progress events.
+- everything else → **403**, not 404: the route exists in the full handler, it is just unavailable until the swap.
+
+`RootHandler.Swap` atomically replaces the stub with the full Echo router at the end of boot. The listener socket is never closed, so there is no port flap, and already-dispatched SSE handlers hold their own writer and keep streaming across the swap.
+
+### Progress Stages
+
+Five coarse stages, deliberately few and user-facing — a person watching a self-update wants to know whether "the controller", "DNS", "the system services", or "my packages" is holding things up, not which internal constructor is running:
+
+`boot_controller` → `boot_dns` → `boot_services` → `restart_packages` → `ready`
+
+The freshness stage emits an additional event per installed package, prefixed `restarting_` (`PackageStepPrefix`); the UI strips the prefix and renders each as its own row, equal in weight to the coarse stages, so a box with many packages shows real progress rather than one stalled bar. These per-package names deliberately do not match the `[a-z0-9_]+` shape enforced for the fixed stages — they are dynamic values.
+
+The stage literals are duplicated as `bs.Step("...")` calls in `main.go` rather than referenced as constants, because `TestBootStepsFrontendInSyncWithBackend` parses them out of `main.go` to prove the frontend list agrees. **Keep the two in sync**; that test fails loudly if they drift.
+
+### Broadcast Semantics
+
+`BootStatus` is safe for concurrent use and **never blocks the boot**. `Subscribe` replays history into a new subscriber first (so a late subscriber misses nothing), sizing the buffer to hold the full replay plus headroom; if boot already finished it closes the channel right after the replay so `for range` consumers exit. `publish` sends non-blocking — a subscriber whose buffer fills is dropped and closed, and its client reconnects and gets the history replay. No event can follow `Done`.
+
+### Process Identity and Refresh
+
+`boot_id` is a random UUID regenerated on every systemcontroller start, reported by **both** the stub's and the full router's `/status/ping` (and carried even in the unauthenticated minimal ping response, since a browser is briefly tokenless across a restart). A client that captured the id before asking for a refresh can tell "the old process is still answering" (same id) from "the new process is up" (different id) — the two are otherwise indistinguishable, because both serve a 200 ping and both 404 `/boot-status` once booted. This is what makes the UI's Refresh Core Services flow able to watch its own successor.
+
+`/boot-status` is excluded from audit logging for the same reason: a UI holding the stream open across the handler swap lands its next request on the full router, which 404s. That is the expected end of the stream, not an operator action — auditing it would file a failed-action row on every successful refresh and inflate the red failure pill on the dashboard.
+
+`POST /system-services/refresh` (admin) pulls every system-service image in dependency order — the systemcontroller image first (the version anchor, so the freshly pulled image is already local when it self-restarts at the end), then rolodex (the box's DNS, which the other pulls may need to resolve their registry), then everything else in parallel (max 3 concurrent) — and leaves a marker that the next process's freshness stage consumes to restart installed packages.
+
 ## DNS Management (Rolodex)
 
 Town OS includes an integrated local DNS resolver powered by a `rolodex-dns` container. The rolodex server manages zone files and records for installed packages, providing local name resolution via a gRPC Unix socket interface.
@@ -1192,11 +1368,15 @@ The DNS management screen shows DNS status (enabled, running, TLD, record count)
 
 ## Status Endpoint
 
-`GET /status/ping` (public) returns system status including: filesystem counts (user, installed, uninstalled), repository and package counts, installed package count, account and admin counts, service unit counts (total, active, failed), system service unit counts (total, active, failed), recent audit errors (last 5 minutes), setup status (`needs_setup` is true only when no enabled admin account exists; the login page is shown when admins exist regardless of session state), external IP (fetched hourly from ipinfo.io), internal IP (first non-loopback IPv4 address), disk usage statistics, upgrade availability, the server's UTC timezone offset in minutes, the current locale, and the authenticated username if a valid token is provided.
+`GET /status/ping` (public) returns system status including: filesystem counts (user, installed, uninstalled), repository and package counts, installed package count, account and admin counts, service unit counts (total, active, failed), system service unit counts (total, active, failed), recent audit errors (last 5 minutes), setup status (`needs_setup` is true only when no enabled admin account exists; the login page is shown when admins exist regardless of session state), external IP (fetched hourly from ipinfo.io), internal IP (first non-loopback IPv4 address), disk usage statistics, upgrade availability, the server's UTC timezone offset in minutes, the current locale, `proton_enabled` (whether this build carries the `proton` build tag), `boot_id`, and the authenticated username if a valid token is provided.
 
 Service unit counts are split into two fields: `units` counts only package service units (those matching `town-os-package--*`), while `system_services` counts system service units (those matching `town-os-system--*`). Leftover systemd units from uninstalled packages are excluded from the package count. The installed package list is cross-referenced with discovered systemd units by constructing the expected unit name from each package identity.
 
-Unauthenticated requests from non-localhost origins receive a minimal response containing only `needs_setup` and basic status fields. Authenticated requests and all localhost requests receive the full response with all fields listed above, plus `repository_errors` (a map of repository name to error string tracking per-repository refresh failures).
+The handler lists accounts once (used for `needs_setup`, the total, and the admin count) and uses `FilesystemNames` rather than `ListFilesystems` for the volume counts — the latter runs `btrfs qgroup show` plus a rootid lookup per subvolume, which at ~30 subvolumes cost about a second of the ping's latency budget for a quota the ping never reads.
+
+Unauthenticated requests from non-localhost origins receive a minimal response containing only `status`, `needs_setup`, and `boot_id`. `boot_id` is carried even there because the refresh flow polls ping across a controller restart, during which the browser is briefly unauthenticated; it is a random per-process UUID and discloses nothing about the system. Authenticated requests and all localhost requests receive the full response with all fields listed above, plus `repository_errors` (a map of repository name to error string tracking per-repository refresh failures).
+
+While the controller is still booting, this path is served by the boot stub instead and returns **503** with `{booting, step, done, error, boot_id}` — see [Boot Status and Refresh](#boot-status-and-refresh).
 
 ### External IP Polling
 
@@ -1303,7 +1483,11 @@ System services are systemd-managed infrastructure containers (distinct from use
 
 ## Web UI Production Image
 
-An independent UI container image (`quay.io/town/ui`) is built from `Containerfile.ui`. It uses a two-stage build: `oven/bun:latest` builds the UI static files, then `docker.io/library/caddy:latest` serves them on port 80 with SPA routing (`try_files {path} /index.html`).
+An independent UI container image (`quay.io/town/ui`) is built from `Containerfile.ui`. It uses a two-stage build: `oven/bun:latest` builds the UI static files, then `docker.io/library/caddy:latest` serves them on port 80 with SPA routing (`try_files {path} /index.html`). The UI is reached through the shared ingress rather than squatting the host's `:80` directly — it is the ingress's default `:80` backend for any host not matched by a route, so bare-IP login keeps working.
+
+**Cache headers are load-bearing** (`Caddyfile.ui`). Everything under `/assets/*` is fingerprinted by Vite, so an asset URL names one exact build for all time and is served `public, max-age=31536000, immutable`. `index.html` is the one file Vite does **not** fingerprint, and it is what names the current bundle; served with no `Cache-Control` at all, a browser may apply heuristic freshness (RFC 9111 §4.2.2) and reuse its cached copy without revalidating, so an upgraded box goes on handing out the previous release's `index.html` pointing at the previous release's bundle. The symptom is an upgrade that appears not to have happened — new features render as if the UI had never heard of them. Every non-asset path is an SPA route that `try_files` resolves to `index.html`, so the `no-cache` rule is written to cover all of them (`@html not path /assets/*`).
+
+`make release-ui` builds with `--no-cache` so a `push-rc` always ships freshly built UI assets rather than a layer-cached bundle.
 
 **Tests never pull the quay UI image** — the `ui-image` make target builds `Containerfile.ui` locally as `localhost/town-os-ui:<INSTANCE_ID>` (always matching the host arch and the in-repo UI source), saves it to the image cache, and the test harness loads it into test containers and injects it via the `UI_IMAGE` env var. `test-integration-build` and `test-ui-integration` depend on `ui-image`. The quay.io/town/ui tags are for production/release pushes only. `uiTestImage` in `integration/systemcontroller_ui_test.go` skips its test when `UI_IMAGE` is unset rather than falling back to a quay tag.
 
@@ -1331,22 +1515,38 @@ All user-facing strings (UI labels, error messages, toast notifications, audit l
 
 ### Backend
 
-The `i18n` package provides a `T(locale, key, args...)` function that resolves translation keys. The fallback chain is: requested locale, then `en-US`, then the raw key string. When `args` are provided, `fmt.Sprintf` formatting is applied. Only `en-US` is currently populated; all other locales fall back to the English catalog. Message keys use dot-separated namespaces (e.g., `auth.login_failed`, `pages.toast_provisioned`).
+The `i18n` package provides a `T(locale, key, args...)` function that resolves translation keys. The fallback chain is: requested locale, then `en-US`, then the raw key string. When `args` are provided, `fmt.Sprintf` formatting is applied. Message keys use dot-separated namespaces (e.g., `auth.login_failed`, `pages.toast_provisioned`).
+
+### Populated Catalogs
+
+Backend catalogs live one file per locale in `src/i18n` (`de_de.go`, `zh_cn.go`, …); the frontend mirror lives in `ui/src/i18n` (`de-DE.js`, `zh-CN.js`, …). The two sides are kept in lockstep — every populated backend catalog has a frontend twin.
+
+`PopulatedLocales()` is the authoritative list (25 entries): `en-US`, `ar-SA`, `bn-BD`, `da-DK`, `de-DE`, `es-ES`, `fi-FI`, `fr-FR`, `hi-IN`, `it-IT`, `ja-JP`, `ko-KR`, `nl-NL`, `pl-PL`, `pt-BR`, `ru-RU`, `sa-IN`, `sux`, `sv-SE`, `th-TH`, `tr-TR`, `uk-UA`, `vi-VN`, `zh-CN`, `zh-TW`. Anything not on it falls back to English. `IsPopulated(code)` is what the UI uses to disable an unpopulated entry in the language picker.
+
+`sux` (Sumerian, `𒅴𒂠 (eme-ĝir)`) is a deliberate outlier in shape as well as content: it is a bare ISO 639-3 language code with no region subtag, so any code that assumes a `xx-YY` form must tolerate it.
 
 ### Locale Lists
 
 BCP 47 locale codes are used throughout. Two curated lists are provided:
 
-- **CommonLanguages** (21 entries) -- Arabic (ar-SA), Bengali (bn-BD), Chinese (zh-CN), Dutch (nl-NL), English (en-US), French (fr-FR), German (de-DE), Hindi (hi-IN), Italian (it-IT), Japanese (ja-JP), Korean (ko-KR), Polish (pl-PL), Portuguese (pt-BR), Russian (ru-RU), Sanskrit (sa-IN), Spanish (es-ES), Swedish (sv-SE), Thai (th-TH), Turkish (tr-TR), Ukrainian (uk-UA), Vietnamese (vi-VN). Each entry includes the native-script name and English name.
-- **ExtendedLocales** (87 entries) -- comprehensive list of country-specific locale variants (e.g., de-AT, en-GB, es-MX, fr-CA, pt-PT, zh-TW).
+- **CommonLanguages** (22 entries) -- Arabic (ar-SA), Bengali (bn-BD), German (de-DE), English (en-US), Spanish (es-ES), French (fr-FR), Hindi (hi-IN), Italian (it-IT), Japanese (ja-JP), Korean (ko-KR), Dutch (nl-NL), Polish (pl-PL), Portuguese (pt-BR), Russian (ru-RU), Sanskrit (sa-IN), Sumerian (sux), Swedish (sv-SE), Thai (th-TH), Turkish (tr-TR), Ukrainian (uk-UA), Vietnamese (vi-VN), Chinese (zh-CN). Each entry includes the native-script name and English name.
+- **ExtendedLocales** (90 entries) -- comprehensive list of country-specific locale variants (e.g., de-AT, en-GB, es-MX, fr-CA, pt-PT, zh-TW), plus `sux`.
 
 ### Frontend
 
-A React context provider (`I18nProvider`) wraps the application and exposes a `useI18n()` hook returning `{ locale, setLocale, t }`. The `t` function resolves keys against the frontend catalog with the same fallback chain as the backend. Parameter interpolation uses `{name}` placeholders (e.g., `t('greeting', { name: 'Alice' })`).
+A React context provider (`I18nProvider`) wraps the application and exposes a `useI18n()` hook returning `{ locale, setLocale, syncServerLocale, t }`. The `t` function resolves keys against the frontend catalog with the same fallback chain as the backend. Parameter interpolation uses `{name}` placeholders (e.g., `t('greeting', { name: 'Alice' })`).
 
-### Locale Storage and Sync
+### Locale Detection, Storage, and Sync
 
-The current locale is stored as a system setting (key: `locale`, default: `en-US`). It is a system-wide setting, not per-user. The status ping response includes a `locale` field; the UI syncs the locale from the ping on each poll.
+The UI picks its language **from the browser first**, not from the global setting. On load it reads `navigator.languages` and matches the ordered preferences against the shipped catalogs: region variants fold to the base language (`de-AT` → `de-DE`), and Chinese is disambiguated by script/region (`zh-Hant` or a `TW`/`HK`/`MO` region → `zh-TW`, otherwise `zh-CN`). Matching is case-insensitive and tries exact tags across all preferences before falling back to primary subtags.
+
+Precedence, highest first:
+
+1. an explicit choice, persisted **per browser** in `localStorage` — *pinned*
+2. a browser-detected language matched to a shipped catalog — *pinned*
+3. the server's global `locale` setting, applied later via `syncServerLocale` — *not pinned*
+
+Once the locale is pinned, `syncServerLocale` is a no-op. This is the point of the split: the 60-second status ping used to call `setLocale` and so forced the admin's global `locale` setting onto every browser on every poll. The `locale` setting (system-wide, default `en-US`, still reported in the ping response) is now only the fallback for a language Town OS does not ship a catalog for.
 
 ### Locale API
 
@@ -1363,17 +1563,19 @@ The system settings page includes a language picker. Common languages are shown 
 The authoritative step-by-step boot ordering lives in [System Controller Boot Sequence](#system-controller-boot-sequence). In summary:
 
 1. `setupPodmanEnv()` points `CONTAINER_HOST` at the host podman socket.
-2. Flag parsing, directory creation, and NC image build (the first podman operation).
-3. Database, account, session, audit, settings, and (optional) pages managers.
+2. Flag parsing, then `:5309` is bound immediately with the boot-status stub.
+3. Directory creation, stale-root-DB cleanup, database, and the account, session, audit, settings, pages, and network managers.
 4. Repository seeding, repository root force-refresh.
-5. Install manager, btrfs storage, systemd manager.
+5. Install manager, btrfs storage, systemd manager; image tag resolution.
 6. Rolodex config write + readiness wait (rolodex itself is supervised by systemd).
-7. Monitoring image pulls and system service starts (Prometheus, Node Exporter, Monitoring UI).
-8. Version-change detection, reconcile, post-update commands.
-9. DNS reconcile, UI container start.
-10. HTTP server listen.
+7. Core image pulls (NC, monitoring, UI) and monitoring system service starts.
+8. Local TLS CA, ingress, and pages service.
+9. Version-change detection, reconcile, post-update commands.
+10. DNS rebuild, network reconcile, ingress programming, UI container start.
+11. Freshness stage (per-package restarts after a refresh).
+12. Handler construction and the atomic swap from the boot stub to the full router.
 
-Startup failures for monitoring, Rolodex config, the network controller image build, and the UI container are non-fatal; the system continues without them. All container image pulls use the `ensureImage` helper which checks `podman image exists` before pulling, avoiding redundant pulls in test/dev environments where images are pre-loaded. Pull failures for non-essential services are logged to stderr and do not prevent startup, allowing the system to boot even when the network is temporarily unavailable.
+Startup failures for monitoring, Rolodex config, core image pulls, the TLS CA, the ingress, the pages service, network reconcile, and the UI container are non-fatal; the system continues without them. All container image pulls use the `ensureImage` helper which checks `podman image exists` before pulling, avoiding redundant pulls in test/dev environments where images are pre-loaded. Pull failures for non-essential services are logged to stderr and do not prevent startup, allowing the system to boot even when the network is temporarily unavailable.
 
 ### Version Tag Detection
 
@@ -1400,10 +1602,10 @@ SIGINT triggers context cancellation. The HTTP server shuts down, and all backgr
 - `-db <path>` -- path to SQLite database (defaults to ephemeral temp file).
 - `-btrfs <path>` -- base path for btrfs subvolume operations.
 - `-repo-dir <path>` -- base directory for git repositories (defaults to ephemeral temp dir).
-- `-network-state <path>` -- directory for per-package network state files (defaults to `/var/run/town-os`).
+- `-network-state <path>` -- directory for per-package network state files (defaults to `/run/town-os`, `DefaultNetworkStatePath`; it must be a path the systemcontroller container and the host share — never `/var/run/...` or `/tmp`).
 - `-listen <addr>` -- HTTP listen address (defaults to `:5309`).
 
-The NC binary path is not a flag; it is hardcoded to `/town-os-networkcontroller` (baked into the systemcontroller container at build time so the NC binary always matches the running systemcontroller).
+The network controller image is not a flag either; it is derived from the resolved image tag and overridable with `NC_IMAGE`.
 
 ### Environment Variables
 
@@ -1414,8 +1616,11 @@ The NC binary path is not a flag; it is hardcoded to `/town-os-networkcontroller
 - `DEBUG` -- if set, allow all CORS origins and prepend test repositories to defaults.
 - `LOG_LEVEL` -- logging level: `debug`, `info`, `warn`, `error` (defaults to `error`).
 - `TOWN_OS_REPO_USERNAME` / `TOWN_OS_REPO_PASSWORD` -- repository credentials applied to all repositories on first initialization.
+- `TOWN_OS_TAG` -- pins the image tag every sibling image derives from (see [Version Tag Detection](#version-tag-detection)). Set by the install build system on the systemcontroller systemd unit.
 - `ROLODEX_IMAGE` -- override Rolodex container image (defaults to `quay.io/town/rolodex:<tag>`).
-- `UI_IMAGE` -- override UI container image (defaults to `quay.io/town/ui:<tag>`).
+- `UI_IMAGE` -- override UI container image (defaults to `quay.io/town/ui:<tag>`). Setting it to the **empty string** (explicitly present but empty) skips the UI container entirely — dev mode, where bun serves the UI.
+- `NC_IMAGE` -- override the network controller image (defaults to `quay.io/town/networkcontroller:<tag>`). Used by the integration harness to inject a locally built NC.
+- `INGRESS_IMAGE` -- override the ingress image (defaults to `quay.io/town/ingress:<tag>`). Setting it to the empty string skips the ingress and the pages service — dev mode.
 
 ## Development Prerequisites
 
@@ -1522,8 +1727,11 @@ Integration tests run inside privileged podman containers with systemd, btrfs, a
 | `default_quota`          | `53687091200`                    | Default volume quota in bytes (50 GB)           |
 | `max_archive_size`       | `1073741824`                     | Maximum upload size in bytes (1 GB)             |
 | `archive_unpack_timeout` | `600`                            | Unpack timeout in seconds (10 min)              |
-| `locale`                 | `en-US`                          | BCP 47 locale code (system-wide)                |
-| `proton_image`           | `quay.io/town/proton:latest`     | Proton runner container image (GE-Proton)       |
+| `locale`                 | `en-US`                          | BCP 47 locale code (system-wide fallback)       |
 | `dns_tld`                | `home`                           | Default top-level domain for package DNS records|
 | `dns_resolution_mode`    | `auto`                           | Rolodex upstream resolution: `auto`, `recursive`, or `forward` |
+| `peer_ttl`               | `7200`                           | WireGuard peer enrollment lifetime in seconds (2 h) |
 | `monitoring_backend`     | `uplot`                          | Monitoring dashboard: `uplot` or `grafana`      |
+| `proton_image`           | `quay.io/town/proton:latest`     | Proton runner image — **registered only under the `proton` build tag** |
+
+`DefaultSettings` (`src/account/settings.go`) is seeded on first init and existing values are never overwritten. `proton_image` is not in the base map: `src/account/settings_proton.go` is `//go:build proton` and registers the default in `init()`, so a build without the tag has no Proton setting, no Proton install path, and reports `proton_enabled: false` in the status ping. Build-tag-gated registration is used rather than an exported `Register` function so no caller acquires a call-order dependency on `DefaultSettings`.
