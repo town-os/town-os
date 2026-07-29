@@ -74,6 +74,8 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
+- **The storage layer manages volumes; gfeh provides object storage.** `src/storage` deals in btrfs subvolumes and quotas and nothing else -- it does not handle object storage at all. Objects, per-file metadata and permissions, the hierarchical user/ACL database, sharing, per-file HTTP exposure, federation, and every protocol view (S3, SMB/CIFS, IPFS, Google Drive, plain HTTP) belong to gfeh, which is the responsible party. Never add object/blob/per-file endpoints to `src/storage` or `/storage/*`, and never teach `storage.Storage` or `storage.Controller` about users, permissions, or protocols. See [Storage](#storage).
+
 - **Pages feature is always enabled** — the pages subsystem (static site hosting via Caddy) is initialized unconditionally at startup; there is no `TOWN_OS_PAGES` env gate. The pages manager is non-nil in a normal boot, so the pages API is always available. The handlers still keep a defensive nil-manager guard that returns "pages not configured" (exercised by tests that build a server without `ServerConfig.PagesMgr`), but real boots never hit it.
 
 - **Version change detection and unit restart** — the systemcontroller detects image upgrades by comparing the running container's image SHA (from `/proc/1/cgroup` → `podman inspect`) against a persisted version file at `<btrfsPath>/town-os-version`. On version change: (1) all container images are pulled, (2) the NC image is rebuilt, (3) reconcile regenerates all systemd units, (4) units whose content changed are restarted in order: NC units first (they own networks), then dependency services, then parent/standalone services, (5) post-update commands (`post_update` field) are executed via `podman exec` for container packages whose units changed. The version file is written after successful reconcile. Unit content is compared before/after via `ReadUnit()` to avoid unnecessary restarts when content hasn't changed.
@@ -517,6 +519,24 @@ The `Installer` interface supports `SetDisabled`, `IsDisabled`, and `IsPackageCh
 ## Storage
 
 Storage uses btrfs subvolumes with quota enforcement.
+
+### Separation of Concerns: Volumes vs. Object Storage
+
+**The storage layer manages volumes. gfeh provides object storage. The storage layer does not handle object storage at all -- gfeh is the responsible party.**
+
+`src/storage` creates, resizes, renames, snapshots, and deletes btrfs subvolumes, and reports disk usage. That is its entire remit. It must never learn what an object, a bucket, a key, a file handle, a content identifier (CID), an ACL, a share, or a protocol view is. To the storage layer a subvolume is an opaque byte arena with a quota.
+
+gfeh (`gitea.com/town-os/gfeh`, a Rust system service shipped as `town-os-system--gfeh`) owns everything above that line: the object namespace, per-file metadata and permissions, the hierarchical user/ACL database, sharing, per-file HTTP exposure, federation to external services, and every protocol view (S3, SMB/CIFS, IPFS, Google Drive, plain HTTP). It consumes the storage layer purely to provision and resize the subvolumes its partitions live in, then does its own direct I/O on the bind-mounted subtree.
+
+Consequences to respect when changing either side:
+
+- Do **not** add object, blob, key/value, or per-file endpoints to `src/storage` or the `/storage/*` API. If a feature needs to address individual files, it belongs in gfeh. The existing `upload-archive`/`download-archive` endpoints are a tar transport for volume seeding, not an object API, and must not grow in that direction.
+- Do **not** teach `storage.Storage` or `storage.Controller` about users, permissions, or protocols. Quota is the only policy the storage layer enforces.
+- gfeh partitions live under the reserved `gfeh/` subvolume prefix. They are provisioned through `storage.Storage`'s `CreateFilesystem`/`ModifyFilesystem` **in-process**, not through the `/storage/*` HTTP API: `createFilesystem` rewrites every submitted name to `user/<name>` unconditionally (`controller_storage.go`), so that route cannot produce a volume under any other prefix. Partition provisioning therefore needs its own `/gfeh/partitions/*` handlers, which also keeps reserved-prefix enforcement, quota policy, and the audit log in one place instead of duplicating them in gfeh.
+
+- **gfeh depends on a written contract, and changes here can break it.** `TOWNOS_CONTRACT.md` in the gfeh repository lists every route, behavior, and invariant gfeh relies on from Town OS -- the `user/` rewrite, the reserved-prefix rules, indistinguishable auth failures, per-request session revalidation against the account, and the fail-closed meaning of an empty `Account.Networks` -- and pins the Town OS revision it was verified against. gfeh emulates that contract so its tests can run without root, systemd, podman, or btrfs.
+
+  **When changing `src/storage`, `src/account`, or the system controller's routes, re-run `make check-townos-sync` in the gfeh checkout.** A drifted emulator gives gfeh a green test suite and a broken deployment. Reconcile the emulator and the contract document together; never one without the other.
 
 ### Filesystem Operations
 
