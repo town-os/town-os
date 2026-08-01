@@ -42,6 +42,10 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveSubvolumeRequired))
 	}
 
+	if isGfehSubvolume(subvolume) {
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveGfehRefused))
+	}
+
 	subpath := c.FormValue("subpath")
 	stopService := c.FormValue("stop_service")
 
@@ -111,6 +115,10 @@ func (s *SystemControllerHandlers) downloadArchive(c *echo.Context) error {
 
 	if req.Subvolume == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveSubvolumeRequired))
+	}
+
+	if isGfehSubvolume(req.Subvolume) {
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgArchiveGfehRefused))
 	}
 
 	// Default to tar.gz if not specified.

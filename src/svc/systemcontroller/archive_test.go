@@ -172,6 +172,7 @@ func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                  
 func (b *archiveTestBackend) GetIngress() *ingressctl.Manager                       { return nil }
 func (b *archiveTestBackend) GetIngressClient() ingress.Client                   { return nil }
 func (b *archiveTestBackend) GetUI() *ui.Manager                    { return nil }
+func (b *archiveTestBackend) GetGfehRegistry() GfehRegistry         { return nil }
 func (b *archiveTestBackend) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
 	return nil
 }

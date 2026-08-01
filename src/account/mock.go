@@ -159,6 +159,21 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 	if fields.Admin != nil {
 		acct.Admin = *fields.Admin
 	}
+	if fields.SMBPassword != nil {
+		// Hashed here rather than stored as plaintext, so a test that asserts
+		// on the stored value is asserting on what production stores. The
+		// empty string withdraws the credential.
+		hash := ""
+		if *fields.SMBPassword != "" {
+			derived, err := NTHash(*fields.SMBPassword)
+			if err != nil {
+				return nil, err
+			}
+			hash = derived
+		}
+		acct.SMBNTHash = hash
+		acct.SMBEnrolled = hash != ""
+	}
 	acct.WireGuard = wireguard
 	acct.Networks = networks
 	acct.UpdatedAt = time.Now()

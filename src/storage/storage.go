@@ -18,6 +18,20 @@ type Filesystem struct {
 	InternalName string `json:"internal_name,omitempty"`
 	Quota        uint64 `json:"quota"`
 	State        string `json:"state,omitempty"`
+	// UID and GID, when both are set, are applied to the subvolume root by
+	// CreateFilesystem. A service that runs as a non-root uid (gfeh) cannot
+	// otherwise write into a subvolume the systemcontroller created as root,
+	// and the alternative — nesting its data as plain directories inside one
+	// chowned parent — gives up the per-subvolume btrfs qgroup quota that is
+	// the whole reason the storage layer exists.
+	//
+	// The chown is deliberately NON-recursive, for the same reason
+	// systemd.HostVolumeMount's is: the service creates its own children as
+	// its own uid, so only the top of the tree can ever be wrong. Both are
+	// pointers so "not specified" is distinct from "root", and omitempty
+	// keeps them off the wire entirely for every existing caller.
+	UID *uint32 `json:"uid,omitempty"`
+	GID *uint32 `json:"gid,omitempty"`
 }
 
 type SubvolInfo struct {
@@ -58,6 +72,11 @@ type Controller interface {
 	QuotaEnable(path string) error
 	QGroupLimit(path string, bytes uint64) error
 	QGroupShow(path string) (uint64, error)
+	// Chown sets the owner of a subvolume root. It lives on the Controller
+	// rather than being an os.Chown in BtrFS because every other syscall- or
+	// subprocess-shaped operation does, which is what keeps BtrFS testable
+	// against the mock without touching real inodes.
+	Chown(path string, uid, gid uint32) error
 }
 
 // ValidateFilesystemName checks that a name is a valid unix path component

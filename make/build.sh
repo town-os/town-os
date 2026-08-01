@@ -108,6 +108,22 @@ case "$1" in
       -t "${INGRESS_IMAGE}" -f Containerfile.ingress .
     save_image_cache "${INGRESS_IMAGE}"
     ;;
+  gfeh-local)
+    step "Building local gfeh test image"
+    # A cargo registry cache, for the same reason the Go builds keep a module
+    # cache: gfehd pulls a large dependency tree and rebuilding it from scratch
+    # on every invocation is minutes per run.
+    mkdir -p .cache/cargo-registry
+    # No --pull=never: rust:1-bookworm is the builder base and is deliberately
+    # NOT in BASE_IMAGES (it is ~1.5G and only this target needs it), so the
+    # host store may not have it on a fresh checkout.
+    ${SUDO} podman build --network=host \
+      --build-arg "GFEH_VERSION=${GFEH_VERSION:-}" \
+      --build-arg "GFEH_LATEST=${GFEH_LATEST:-}" \
+      --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
+      -t "${GFEH_IMAGE}" -f Containerfile.gfeh .
+    save_image_cache "${GFEH_IMAGE}"
+    ;;
   release)
     step "Building release image"
     mkdir -p .cache/go-mod .cache/go-build .cache/bun
@@ -163,6 +179,15 @@ case "$1" in
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_INGRESS_IMAGE}" -f Containerfile.ingress .
+    ;;
+  release-gfeh)
+    step "Building gfeh image"
+    mkdir -p .cache/cargo-registry
+    ${SUDO} podman build --network=host \
+      --build-arg "GFEH_VERSION=${GFEH_VERSION:-}" \
+      --build-arg "GFEH_LATEST=${GFEH_LATEST:-}" \
+      --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
+      -t "${RELEASE_GFEH_IMAGE}" -f Containerfile.gfeh .
     ;;
   push-rc)
     require_registry_login quay.io
@@ -237,7 +262,7 @@ case "$1" in
     require_registry_login quay.io
     step "Assembling release candidate manifests"
     DATE_TAG="$(date +%Y%m%d)"
-    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}" "${RELEASE_INGRESS_IMAGE}"; do
+    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}" "${RELEASE_INGRESS_IMAGE}" "${RELEASE_GFEH_IMAGE}"; do
       build_manifest "${image}" "rc.${DATE_TAG}"
       build_manifest "${image}" "rc.latest"
     done
@@ -310,7 +335,12 @@ case "$1" in
     require_registry_login quay.io
     step "Assembling release manifests"
     DATE_TAG="$(date +%Y%m%d)"
-    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}"; do
+    # Every image push-release pushes per-arch tags for needs its plain names
+    # assembled here, or `latest` and `release.<date>` stay whatever single-arch
+    # tag was pushed last -- which is an `exec format error` on the other
+    # architecture. Ingress was missing from this list while being present in
+    # manifest-rc above; that was a bug, not a deliberate exclusion.
+    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}" "${RELEASE_INGRESS_IMAGE}" "${RELEASE_GFEH_IMAGE}"; do
       build_manifest "${image}" "release.${DATE_TAG}"
       build_manifest "${image}" "latest"
     done
@@ -405,6 +435,19 @@ case "$1" in
     substep "Pushing ${RELEASE_NC_IMAGE}:latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest-${ARCH}"
     ;;
+  push-gfeh-rc)
+    require_registry_login quay.io
+    step "Pushing gfeh release candidate (${ARCH})"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    ;;
   push-ingress-rc)
     require_registry_login quay.io
     step "Pushing ingress release candidate (${ARCH})"
@@ -430,6 +473,19 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    ;;
+  push-gfeh-release)
+    require_registry_login quay.io
+    step "Pushing gfeh release (${ARCH})"
+    DATE_TAG="$(date +%Y%m%d)"
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
     ;;
   push-tag)
     TAG="$2"

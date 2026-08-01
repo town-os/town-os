@@ -69,7 +69,8 @@ RELEASE_UI_IMAGE     := quay.io/town/ui
 RELEASE_PROTON_IMAGE := quay.io/town/proton
 RELEASE_NC_IMAGE     := quay.io/town/networkcontroller
 RELEASE_INGRESS_IMAGE := quay.io/town/ingress
-export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE RELEASE_PROTON_IMAGE RELEASE_NC_IMAGE RELEASE_INGRESS_IMAGE
+RELEASE_GFEH_IMAGE   := quay.io/town/gfeh
+export PODMAN_IMAGE PODMAN_DEV_BASE PODMAN_TEST_IMAGE PODMAN_DEV_IMAGE PODMAN_UI_IMAGE RELEASE_IMAGE RELEASE_UI_IMAGE RELEASE_PROTON_IMAGE RELEASE_NC_IMAGE RELEASE_INGRESS_IMAGE RELEASE_GFEH_IMAGE
 
 # Container names (unique per working directory).
 PODMAN_CONTAINER     := town-os-test-$(INSTANCE_ID)
@@ -112,11 +113,17 @@ UI_IMAGE ?= localhost/town-os-ui:$(INSTANCE_ID)
 # which captive networks block.
 NC_IMAGE ?= localhost/town-os-networkcontroller:$(INSTANCE_ID)
 INGRESS_IMAGE ?= localhost/town-os-ingress:$(INSTANCE_ID)
+GFEH_IMAGE ?= localhost/town-os-gfeh:$(INSTANCE_ID)
+# The gfeh crate version the image is built from. GFEH_LATEST non-empty takes
+# whatever crates.io holds today instead, mirroring TTYFORCE_LATEST in the
+# install repo.
+GFEH_VERSION ?= 0.1.1
+GFEH_LATEST ?=
 # The networkcontroller and UI images are pulled from quay in production but
 # test and dev harnesses build them locally and inject NC_IMAGE/UI_IMAGE at
 # container start, so their quay tags are intentionally NOT in ALL_IMAGES.
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE)
-export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE
+export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE GFEH_VERSION GFEH_LATEST
 export TEST_RUN TEST_TIMEOUT PUSH_TAG
 
 .DEFAULT_GOAL := help
@@ -131,14 +138,14 @@ include make/include.mk
 .PHONY: help deps
 .PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
 .PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images
-.PHONY: ui-image nc-image nc-image-dev ingress-image ui-integration-image production-image test-image dev-production-image dev-image
+.PHONY: ui-image nc-image nc-image-dev ingress-image gfeh-image ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
 .PHONY: test-ui-integration test-integration-build test-integration test-integration-rerun test-full
 .PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
-.PHONY: release-build release-image release-ui-image release-nc-image release-ingress-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-tag quay-login
+.PHONY: release-build release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag quay-login
 ifeq ($(PROTON_ENABLED),1)
 .PHONY: release-proton-image push-proton-rc push-proton-release
 endif
@@ -152,6 +159,10 @@ pull-images: check-podman check-runc docker-login quay-login
 ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 nc-image: check-podman check-runc production-image
 ingress-image: check-podman check-runc $(STATE_DIR)/.images-pulled
+# The rust toolchain image is deliberately NOT in BASE_IMAGES: it is ~1.5G and
+# only the gfeh build needs it, so pulling it on every `make test-full` would
+# cost every run for one target's benefit.
+gfeh-image: check-podman check-runc
 nc-image-dev: check-podman check-runc dev-production-image
 ui-integration-image: $(STATE_DIR)/.images-pulled
 production-image: check-podman check-runc $(STATE_DIR)/.images-pulled
@@ -186,13 +197,14 @@ release-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-nc-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ingress-image: check-podman check-runc $(STATE_DIR)/.images-pulled
+release-gfeh-image: check-podman check-runc
 ifeq ($(PROTON_ENABLED),1)
 release-proton-image: check-podman check-runc $(STATE_DIR)/.images-pulled
-release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image release-ingress-image
-push-rc: release-image release-ui-image release-proton-image release-nc-image release-ingress-image quay-login
+release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image
+push-rc: release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image quay-login
 else
-release-build: pull-images test-full release-image release-ui-image release-nc-image release-ingress-image
-push-rc: release-image release-ui-image release-nc-image release-ingress-image quay-login
+release-build: pull-images test-full release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image
+push-rc: release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image quay-login
 endif
 # Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build
@@ -206,5 +218,7 @@ push-nc-rc: release-nc-image quay-login
 push-nc-release: release-nc-image quay-login
 push-ingress-rc: release-ingress-image quay-login
 push-ingress-release: release-ingress-image quay-login
+push-gfeh-rc: release-gfeh-image quay-login
+push-gfeh-release: release-gfeh-image quay-login
 lint: check-go check-golangci-lint check-libsystemd check-bun
 btrfs: check-btrfs clean-btrfs

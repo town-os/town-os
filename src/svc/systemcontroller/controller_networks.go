@@ -174,6 +174,12 @@ func (s *SystemControllerHandlers) createNetwork(c *echo.Context) error {
 		return echo.NewHTTPError(500, fmt.Sprintf("apply network: %v", err))
 	}
 
+	// A network is also a gfeh partition, so provision one and republish the
+	// names it contributes. Best-effort: a partition that does not come up is
+	// a network without object storage, not a failed network creation, and the
+	// next reconcile tries again.
+	s.reconcileGfeh(c.Request().Context())
+
 	created.PrivateKey = ""
 	return c.JSON(200, NetworkView{Network: *created, Interface: wireguard.InterfaceName(created.Name)})
 }
@@ -213,6 +219,13 @@ func (s *SystemControllerHandlers) removeNetwork(c *echo.Context) error {
 			logNonFatal("delete network scope", err)
 		}
 	}
+
+	// Stop the partition's daemon and drop its ingress routes. The subvolume
+	// stays: removing a network says nothing about the bytes stored under it,
+	// and deleting them here would make a mistyped name unrecoverable.
+	// POST /gfeh/partitions/remove is the operation that says what it does.
+	s.reconcileGfeh(ctx)
+
 	return c.JSON(200, map[string]any{"status": "ok", "name": req.Name})
 }
 

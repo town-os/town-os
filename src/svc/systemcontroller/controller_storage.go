@@ -18,12 +18,19 @@ const (
 	UninstalledVolumePrefix = "uninstalled"
 	PagesVolumePrefix       = "pages"
 	UserVolumePrefix        = "user"
+	// GfehVolumePrefix is the object-storage root: every gfeh partition is a
+	// subvolume beneath it. Reserved like the others, so nobody can create a
+	// user volume that shadows a partition — and specifically NOT reachable
+	// through /storage/create, which rewrites every submitted name to
+	// user/<name>. That rewrite is exactly why partitions need their own
+	// /gfeh/partitions/* handlers (see TOWNOS_CONTRACT.md in the gfeh repo).
+	GfehVolumePrefix = "gfeh"
 )
 
 // isReservedFilesystem returns true if the given name is one of the
 // system-managed volume prefixes that users must not create, modify, or delete.
 func isReservedFilesystem(name string) bool {
-	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix || name == TLSSubvolume || name == packages.SubpackagesDir {
+	if name == PackagesVolumePrefix || name == UninstalledVolumePrefix || name == ArchivesSubvolume || name == PagesVolumePrefix || name == VMImagesSubvolume || name == UserVolumePrefix || name == TLSSubvolume || name == packages.SubpackagesDir || name == GfehVolumePrefix {
 		return true
 	}
 	if strings.HasPrefix(name, PackagesVolumePrefix+"/") {
@@ -48,6 +55,9 @@ func isReservedFilesystem(name string) bool {
 		return true
 	}
 	if strings.HasPrefix(name, packages.SubpackagesDir+"/") {
+		return true
+	}
+	if strings.HasPrefix(name, GfehVolumePrefix+"/") {
 		return true
 	}
 	return false
@@ -257,6 +267,20 @@ type FilesystemName struct {
 type ModifyFilesystemRequest struct {
 	Name       string             `json:"name"`
 	Filesystem storage.Filesystem `json:"filesystem"`
+}
+
+// isGfehSubvolume reports whether a name addresses the object-storage root or
+// a partition beneath it.
+//
+// The archive endpoints refuse these. GfehVolumePrefix is deliberately absent
+// from resolveArchiveSubvolume's passthrough list below, and this is the check
+// that makes that absence a clear refusal rather than a silent rewrite to
+// user/gfeh/<...>. Unpacking a tar straight into a partition would put files on
+// disk that gfeh's index has never seen — no owner, no ACL, no change sequence —
+// which is precisely the "tar transport grows into an object API" that CLAUDE.md
+// forbids. Seeding a partition is gfeh's job, through one of its own views.
+func isGfehSubvolume(name string) bool {
+	return name == GfehVolumePrefix || strings.HasPrefix(name, GfehVolumePrefix+"/")
 }
 
 // resolveArchiveSubvolume applies the user/ prefix to subvolume names that

@@ -104,6 +104,16 @@ export default function UserManagement() {
     fields.wireguard = editWireguard
     fields.networks = editWireguard ? editNetworks : []
 
+    // Three states, and they have to stay distinguishable: an untouched field
+    // leaves the credential alone, a password sets one, and the clear checkbox
+    // revokes it. Sending the empty string for an untouched field would
+    // silently withdraw SMB access on every unrelated edit.
+    if (form.smb_password.value) {
+      fields.smb_password = form.smb_password.value
+    } else if (form.smb_clear && form.smb_clear.checked) {
+      fields.smb_password = ''
+    }
+
     try {
       await getClient().updateAccount(editDialog.username, fields)
       toast.success(t('users.toast_updated'))
@@ -290,6 +300,26 @@ export default function UserManagement() {
                     defaultValue={editDialog.phone || ''}
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="smb_password">{t('users.smb_credential')}</Label>
+                <Input
+                  id="smb_password"
+                  name="smb_password"
+                  type="password"
+                  autoComplete="new-password"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('users.smb_credential_help')}
+                </p>
+                {editDialog.smb_enrolled ? (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" id="smb_clear" name="smb_clear" className="rounded" />
+                    {t('users.smb_clear')}
+                  </label>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{t('users.smb_not_enrolled')}</p>
+                )}
               </div>
               {!editDialog.admin && (
                 <div className="space-y-2">

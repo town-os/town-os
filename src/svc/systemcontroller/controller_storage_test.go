@@ -228,3 +228,43 @@ func TestIsReservedFilesystemIncludesSubpackages(t *testing.T) {
 		t.Error("expected subpackages prefix to be reserved")
 	}
 }
+
+// TestIsReservedFilesystemIncludesGfeh pins the reserved prefix gfeh's own
+// `make check-townos-sync` reads out of isReservedFilesystem. A user volume
+// that shadowed a partition would put unmanaged files inside the object-storage
+// root, so both the bare name and anything beneath it must be refused.
+func TestIsReservedFilesystemIncludesGfeh(t *testing.T) {
+	if !isReservedFilesystem(GfehVolumePrefix) {
+		t.Error("expected gfeh to be reserved at top level")
+	}
+	if !isReservedFilesystem("gfeh/photos") {
+		t.Error("expected gfeh prefix to be reserved")
+	}
+	// Not a false positive on a name that merely starts with the same letters.
+	if isReservedFilesystem("gfeh-notes") {
+		t.Error("gfeh-notes is an ordinary user volume, not a reserved prefix")
+	}
+}
+
+// TestGfehSubvolumesAreRefusedByTheArchiveEndpoints guards the IRON RULE
+// boundary: the archive routes are a tar transport for volume seeding, and
+// unpacking into a partition would create files gfeh's index has never seen —
+// no owner, no ACL, no change sequence. resolveArchiveSubvolume deliberately
+// omits the gfeh prefix, and isGfehSubvolume is what turns that omission into a
+// refusal instead of a silent rewrite to user/gfeh/<...>.
+func TestGfehSubvolumesAreRefusedByTheArchiveEndpoints(t *testing.T) {
+	for _, name := range []string{"gfeh", "gfeh/photos", "gfeh/photos/nested"} {
+		if !isGfehSubvolume(name) {
+			t.Errorf("isGfehSubvolume(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"", "user/photos", "gfeh-notes", "installed/core/nginx"} {
+		if isGfehSubvolume(name) {
+			t.Errorf("isGfehSubvolume(%q) = true, want false", name)
+		}
+	}
+	// And the resolver must never turn a gfeh name into a partition path.
+	if got := resolveArchiveSubvolume("gfeh/photos"); got == "gfeh/photos" {
+		t.Error("resolveArchiveSubvolume passed a gfeh partition through; the archive routes could then write into it")
+	}
+}

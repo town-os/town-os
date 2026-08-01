@@ -90,6 +90,14 @@ var RouteActionKeys = map[string]string{
 	"/networks/peers/add":                  i18n.MsgAuditAddNetworkPeer,
 	"/networks/peers/remove":               i18n.MsgAuditRemoveNetworkPeer,
 	"/networks/peers/refresh":              i18n.MsgAuditRefreshNetworkPeer,
+	"/gfeh/partitions/create":              i18n.MsgAuditCreateGfehPartition,
+	"/gfeh/partitions/modify":              i18n.MsgAuditModifyGfehPartition,
+	"/gfeh/partitions/remove":              i18n.MsgAuditRemoveGfehPartition,
+	"/gfeh/principals/add":                 i18n.MsgAuditAddGfehPrincipal,
+	"/gfeh/principals/remove":              i18n.MsgAuditRemoveGfehPrincipal,
+	"/gfeh/grants/add":                     i18n.MsgAuditAddGfehGrant,
+	"/gfeh/grants/revoke":                  i18n.MsgAuditRevokeGfehGrant,
+	"/gfeh/exposures/withdraw":             i18n.MsgAuditWithdrawGfehExposure,
 }
 
 // RouteActions maps API paths to their localized audit action descriptions

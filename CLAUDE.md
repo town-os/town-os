@@ -120,20 +120,22 @@ The boot is **observable**: `:5309` is bound before any work happens, backed by 
 18. **Start monitoring system services** **(all non-fatal)** — legacy NC/socket monitoring units from the previous design are torn down first (they still hold `-p 9090`/`-p 5308` and would crash-loop the new services). Node Exporter, Prometheus, and the Monitoring UI all run `--net host`; node-exporter and Prometheus bind loopback, and only the monitoring UI's `:5308` is LAN-facing. Then install the nightly podman prune timer **(non-fatal)**.
 19. **Ensure the local TLS CA** **(non-fatal)** — `tls.EnsureCA(<btrfsPath>/tls)` before reconcile, so reconcile can issue leaf certs as it walks installed packages.
 20. **Start the ingress and the pages service** **(non-fatal)** — `ingressctl.Manager` installs and starts `town-os-system--ingress` (shared `:443` SNI + `:80` Host router), dual-stack only when the host has a global IPv6. The pages Caddy service starts alongside it. Both are skipped when `INGRESS_IMAGE` is explicitly set to empty (dev mode).
-21. **Detect version change** — compare the running container's image SHA (`/proc/1/cgroup` → `podman inspect`) against `<btrfsPath>/town-os-version`. Sets `versionChanged` for reconcile.
-22. **Reconcile** — iterates all installed packages and restores runtime state:
-    - Creates root btrfs subvolumes (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`, `tls`).
+21. **Reconcile object storage** **(non-fatal)** — `ReconcileGfeh` ensures one gfeh partition per network: the `gfeh/<network>` subvolume (chowned to uid 2000), the rendered `gfehd.yaml`, and the `town-os-system--gfeh-<network>` unit, restarted only when the rendered content changed. Skipped entirely when `GFEH_IMAGE` is explicitly empty, and skipped when the ingress is disabled (the four HTTP views are only reachable through it). The partitions' *names* are published later and asynchronously — see step 30. See [Object Storage (gfeh)](#object-storage-gfeh).
+22. **Detect version change** — compare the running container's image SHA (`/proc/1/cgroup` → `podman inspect`) against `<btrfsPath>/town-os-version`. Sets `versionChanged` for reconcile.
+23. **Reconcile** — iterates all installed packages and restores runtime state:
+    - Creates root btrfs subvolumes (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`, `tls`, `gfeh`).
     - For each installed package (latest version per repo/name): loads YAML, compiles with saved responses, creates btrfs volumes with quotas, seeds empty volumes from archives/git/proton, applies file templates, issues the package's TLS leaf, writes network state files (including the resolved `fqdn`), generates and installs systemd units (service + NC + sockets), starts services.
     - If `versionChanged`: restarts units whose content changed (NC first, then deps, then services), then runs `post_update` commands.
     - Reconciles pages: ensures subvolumes, symlinks, and page content.
     Then persist the current image SHA to `<btrfsPath>/town-os-version`.
-23. **Reconcile DNS and networks** — dial the rolodex gRPC socket (retry up to 30s). `RebuildDNS` wipes and rebuilds rolodex from scratch so drift from a crashed prior run is discarded; `RebuildNetworkDNS` re-registers the LAN-facing global records (and DANE pins) for non-default-network packages. `ReconcileNetworks` then ensures the default network exists and brings up every enabled network's WireGuard interface, passing the rolodex client so each network's TLD scope is owned — including the DNS-only home scope. All non-fatal.
-24. **Program the ingress** **(non-fatal)** — wait for readiness, dial its gRPC socket, and `RebuildIngress` pushes the full route set (HTTP packages + pages) declaratively, the same model as `RebuildDNS`.
-25. **Start the UI container** **(non-fatal)** — `town-os-system--ui.service`; skipped when `UI_IMAGE` is explicitly empty (dev mode, where bun serves the UI).
-26. **Stage `restart_packages`: freshness stage** — if the previous process left a refresh marker, restart every installed package unit serially, emitting a per-package progress event so the UI renders a row each. A stale marker from a crash is harmless.
-27. **Create the HTTP handler** — wires all managers into `ServerConfig`, starts the background pollers (external IP hourly, DNS drift repair, expired-peer reaper), configures the Echo router with CORS, the WireGuard allowlist, auth, and audit middleware.
-28. **Stage `ready`: swap the root handler** — the boot stub is atomically replaced by the full Echo router on the already-bound listener, so no port flap occurs and in-flight `/boot-status` SSE subscribers survive the handoff. `BootStatus.Done()` then closes the stream. **System is now ready.**
-29. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with a 30s timeout. All background goroutines exit via context cancellation.
+24. **Reconcile DNS and networks** — dial the rolodex gRPC socket (retry up to 30s). `RebuildDNS` wipes and rebuilds rolodex from scratch so drift from a crashed prior run is discarded; `RebuildNetworkDNS` re-registers the LAN-facing global records (and DANE pins) for non-default-network packages. `ReconcileNetworks` then ensures the default network exists and brings up every enabled network's WireGuard interface, passing the rolodex client so each network's TLD scope is owned — including the DNS-only home scope. All non-fatal.
+25. **Program the ingress** **(non-fatal)** — wait for readiness, dial its gRPC socket, and `RebuildIngress` pushes the full route set (HTTP packages + pages) declaratively, the same model as `RebuildDNS`.
+26. **Start the UI container** **(non-fatal)** — `town-os-system--ui.service`; skipped when `UI_IMAGE` is explicitly empty (dev mode, where bun serves the UI).
+27. **Stage `restart_packages`: freshness stage** — if the previous process left a refresh marker, restart every installed package unit serially, emitting a per-package progress event so the UI renders a row each. A stale marker from a crash is harmless.
+28. **Create the HTTP handler** — wires all managers into `ServerConfig`, starts the background pollers (external IP hourly, DNS drift repair, expired-peer reaper), configures the Echo router with CORS, the WireGuard allowlist, auth, and audit middleware.
+29. **Stage `ready`: swap the root handler** — the boot stub is atomically replaced by the full Echo router on the already-bound listener, so no port flap occurs and in-flight `/boot-status` SSE subscribers survive the handoff. `BootStatus.Done()` then closes the stream. **System is now ready.**
+30. **Publish the object-storage names** **(non-fatal, background)** — `publishGfehNames` waits for at least one partition to answer its admin socket, then re-runs the DNS and ingress rebuilds so each partition's `/v1/names` output becomes A records, TLSA pins, leaf SANs, and ingress vhosts. It runs **after** the swap, and asynchronously, because gfehd polls `/status/ping` — which answers 503 until step 29 — before authenticating, so waiting for it inline would deadlock the boot it is waiting on. If nothing becomes ready in time the names are published by the next reconcile.
+31. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with a 30s timeout. All background goroutines exit via context cancellation.
 
 ## Performance Conventions
 
@@ -538,6 +540,8 @@ Consequences to respect when changing either side:
 
   **When changing `src/storage`, `src/account`, or the system controller's routes, re-run `make check-townos-sync` in the gfeh checkout.** A drifted emulator gives gfeh a green test suite and a broken deployment. Reconcile the emulator and the contract document together; never one without the other.
 
+The Town OS side of that integration — the partition routes, the per-network daemons, the admin socket, and how names reach DNS and the ingress — is [Object Storage (gfeh)](#object-storage-gfeh).
+
 ### Filesystem Operations
 
 The `Storage` interface provides:
@@ -571,8 +575,9 @@ Quotas are enforced at the btrfs qgroup level. A quota of 0 means unlimited.
 - **Uninstalled package volumes** -- `uninstalled/<repo>/<name>/<version>/<volname>`.
 - **Archive storage** -- `archives/` prefix (system-managed).
 - **VM images** -- `vm-images/` subvolume (system-managed). Stores cached raw VM disk images.
+- **Object-storage partitions** -- `gfeh/<network>`, one per Town OS network, owned by uid/gid 2000. Reserved: `/storage/create` cannot produce one (it rewrites every name to `user/<name>`), so they are provisioned through [`/gfeh/partitions/*`](#protocol-1-partition-provisioning-gfehpartitions).
 
-All prefix root names (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`) are reserved and cannot be directly created, modified, or deleted by users. Archive upload and download resolve subvolume names that lack an internal prefix by prepending `user/`.
+All prefix root names (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`, `gfeh`) are reserved and cannot be directly created, modified, or deleted by users. Archive upload and download resolve subvolume names that lack an internal prefix by prepending `user/`.
 
 ### Archive Format Detection
 
@@ -679,6 +684,140 @@ The pages management screen displays a paginated, sortable, searchable data tabl
 The create dialog has a source type dropdown at the top (Archive Upload / Container Image / Git Repository, default: Archive Upload). Fields change dynamically based on the selected source type: git shows repository URL and branch; container image shows image reference and image directory; archive shows an optional file upload input. For git and container image pages, submitting the form triggers provisioning: all inputs are disabled, the submit button shows a spinner with "Provisioning..." text, and the dialog cannot be closed. The UI polls page status every 2 seconds for up to 60 seconds. For archive pages with a file selected, the upload happens synchronously after creation.
 
 Actions per row vary by source type: archive pages show an Upload button; git and container image pages show a Rebuild button (with confirmation). All pages have Edit and Delete actions. The edit dialog shows fields appropriate to the page's source type.
+
+## Object Storage (gfeh)
+
+gfeh is the object-storage half of the split described in [Separation of Concerns](#separation-of-concerns-volumes-vs-object-storage): `src/storage` owns btrfs subvolumes and quotas, gfeh owns objects, per-file permissions, the user/ACL forest, sharing, and every protocol view. This section is the Town OS side of that boundary — how the daemons are deployed, and every protocol crossing it.
+
+`gfehd` is a Rust binary published to crates.io and packaged here as `quay.io/town/gfeh` (`Containerfile.gfeh`), because gfeh's own repository ships no image. It is **one process per partition**, not a single multi-tenant daemon.
+
+### Deployment shape: one partition per network
+
+A **partition** is one btrfs subvolume, one `gfehd` process, one admin socket, and **its own set of users**. There is exactly one per Town OS network, so the object-storage namespace is partitioned by the same boundary that partitions DNS and WireGuard: a principal, a grant, and an exposure in the `office` partition mean nothing in `home`.
+
+| Thing | Location |
+|---|---|
+| Partition data | `<btrfsBase>/gfeh/<network>` → container `/data/<network>` |
+| Config | `<btrfsBase>/gfeh-control/<network>/gfehd.yaml` → `/etc/gfeh/gfehd.yaml` |
+| Admin socket | `<btrfsBase>/gfeh-control/<network>/run/admin.sock` → `/run/gfeh/admin.sock` |
+| Unit | `town-os-system--gfeh-<network>.service` |
+
+Path helpers live in `src/gfeh/layout.go` — `PartitionVolume`, `ConfigPath`, `SocketPath`, `ServiceKey`, `NetworkFromKey` — and are the only place these strings are composed.
+
+The socket sits on the btrfs because that is the one filesystem both the gfehd container and the systemcontroller container can see; this is the same trick `ingressctl` uses for its gRPC socket. gfehd runs as **uid/gid 2000** (`gfeh.UID`/`gfeh.GID`), and a bind mount passes host ownership straight through, so the partition subvolume is chowned to that uid at creation — which is why `storage.Filesystem` carries optional `UID`/`GID` and `storage.Controller` has `Chown`. Non-recursive, for the same reason `HostVolumeMount`'s chown is: the daemon creates its own children as its own uid, so they are correctly owned already and never drift.
+
+**Ports.** The four HTTP views bind **fixed, identical container ports on every partition** — s3 9000, http 9001, drive 9002, ipfs 9003 — and publish **no host port**. That is safe precisely because they publish none: each container has its own netns and the ingress reaches it by container name, exactly as it reaches a package. Two partitions both serving S3 on 9000 cannot collide, including under a concurrent `make test-full`.
+
+SMB is the exception and the only view needing a real host port, because it is not HTTP and cannot sit behind the ingress. 445 is privileged and singular, so it is never used: the port is `DefaultSMBPortBase + <network index>` (base `4450`), overridable with `GFEH_SMB_PORT_BASE` so the integration harness can take a range of its own — the IRON RULE again. This mirrors `wireguard.DefaultListenPortBase`.
+
+### Protocol 1: partition provisioning (`/gfeh/partitions/*`)
+
+These four routes exist because `createFilesystem` rewrites every submitted name to `user/<name>` unconditionally, so `/storage/create` **cannot** produce a volume under the `gfeh/` prefix. They are declared in `TOWNOS_CONTRACT.md` and gfeh's Rust client parses these exact shapes, so **a change here is a contract change, not a refactor**. `make check-townos-sync` in the gfeh checkout is what catches drift; `controller_gfeh_partitions_test.go` pins the wire shapes on this side.
+
+| Route | Auth | Request | Response |
+|---|---|---|---|
+| `POST /gfeh/partitions/create` | admin | `{name, quota}`, name **without** prefix | `Filesystem` `{name:"gfeh/<n>", quota}` |
+| `POST /gfeh/partitions/modify` | admin | `{name, quota}` | `Filesystem` |
+| `POST /gfeh/partitions/remove` | admin | `{name}` | 200, empty |
+| `POST /gfeh/partitions` | auth | no body | **plain JSON array** of `Filesystem` |
+
+Two details are load-bearing:
+
+- **The list returns a bare array, not a `PageResult`.** Every other Town OS list endpoint paginates; this one cannot, because gfeh's `list_partitions()` deserializes `Vec<Filesystem>` directly and a paginated envelope fails to decode on the Rust side.
+- **The prefix is asymmetric.** Requests carry a bare name, responses carry `gfeh/<name>`. The prefix is Town OS's namespace artifact, not part of the partition's identity; gfeh's `Partition::from_volume` strips it coming back.
+
+Status codes gfeh's client branches on: **409** already exists (its provisioning is a create-or-resize and distinguishes the two by this status — a daemon whose partition exists on every boot but the first would otherwise only ever start once), **404** missing, **400** bad name, **403** non-admin. A name containing a path separator is refused at this boundary because gfehd refuses it at its own; disagreeing about what a legal partition name is would let `../user/something` address a volume outside the object-storage root.
+
+Handlers call `storage.Storage` in-process, never `/storage/*`, so reserved-prefix enforcement, quota policy, and the audit log stay in one place. These routes are **not** on the WireGuard allowlist — provisioning the root of a permission tree is not something a scoped peer account does.
+
+### Protocol 2: the admin socket (`/v1/*`)
+
+Each daemon's administrative surface is JSON-over-HTTP on its **Unix socket only** — never a port. There is no token and no authentication: the filesystem permissions on the socket are the access control, so reaching it already means being root on the box. `src/gfeh/client.go` (`UnixClient`) is the Go side; it pins `DialContext` to the socket and uses a fake `http://gfeh` authority.
+
+| Call | Method + path | Purpose |
+|---|---|---|
+| `Health` | `GET /v1/health` | liveness; also the readiness probe |
+| `Names` | `GET /v1/names` | the names this partition wants published |
+| `ListPrincipals` / `CreatePrincipal` / `DeletePrincipal` | `GET`/`POST` `/v1/principals`, `DELETE /v1/principals/<name>` | the partition's user forest |
+| `ListGrants` / `CreateGrant` / `RevokeGrant` | `GET /v1/grants?principal=`, `POST /v1/grants`, `DELETE /v1/grants/<id>` | ACLs |
+| `ListExposures` / `WithdrawExposure` | `GET /v1/exposures`, `DELETE /v1/exposures/<token>` | published `/f/<token>` links |
+
+gfehd maps its internal errors onto HTTP status (404/409/400) and `StatusError.Unwrap` maps those back onto Go sentinels so `errors.Is` works.
+
+Adding a user is `POST /v1/principals {name, parent, ceiling}` — **no password**, which is why the UI never asks for one. The ceiling follows gfeh's projection rule: `all` for a Town OS admin, read/write otherwise. A grant is clamped to the principal's ceiling by gfehd, so the UI shows the perms that came *back*, not the ones sent: an administrator has to be able to see that a grant was narrowed.
+
+### Protocol 3: names — gfeh answers, Town OS composes
+
+**gfeh never registers a DNS record or an ingress route.** `RebuildDNS` calls `TeardownTLD` and `RebuildIngress` calls `SetRoutes` with the full derived set — both destroy foreign state — so anything gfeh registered directly would survive exactly until the next reconcile. Instead `GET /v1/names` returns **labels** (`s3.<partition>`) with a view and a port, and Town OS composes the zone. The names are therefore *asked for* on every rebuild rather than pushed once.
+
+`gfehFQDN(label, tld)` (`gfeh_tls.go`) qualifies a label under the network's TLD and is the single string that the A record, the leaf SAN, the DANE TLSA owner, and the ingress vhost must all agree on — the same invariant `packageFQDN` and `pageFQDN` exist to hold. It **always** qualifies: it does not consult `isPublicFQDN`, because every gfeh label already contains a dot (`s3.gfeh`) and that predicate reads any such name as a public FQDN, which would leave every name unqualified and request an ACME certificate for a domain nobody owns.
+
+Publication matches packages and pages exactly:
+
+- **Dual-homed DNS** — a non-default network's partition gets a scoped A record at the box's overlay IP (served to that network's WireGuard peers) *and* a global A record at the LAN IP, via the fold-ins in `RebuildDNS` and `RebuildNetworkDNS`. DANE TLSA is pinned on both halves.
+- **TLS** — a local-CA leaf per name, carrying the box's overlay IP on that network as a SAN so a peer can dial by raw WireGuard address.
+- **Ingress** — one vhost per HTTP view, backend `<container>:<port>` on the shared `town-os-ingress` podman network. `dedupeIngressRoutes` guards the route set first-wins, because Caddy rejects an entire config over one duplicate vhost.
+
+`IsHTTPView` gates that last step, and an **unknown** view is treated as not-HTTP: a vhost for something that does not speak HTTP accepts a TLS handshake and then fails, which is worse than no route at all. SMB contributes a DNS record and no ingress route.
+
+### Protocol 4: the UI proxy (`/gfeh/*`)
+
+The admin socket is unauthenticated and not network-reachable, so Town OS proxies it. These are deliberately **separate from the four contract routes** so `check-townos-sync` keeps matching exactly what the contract declares.
+
+| Route | Auth |
+|---|---|
+| `GET /gfeh` | auth — partitions with network, TLD, quota, unit status, and `/v1/names` output |
+| `GET /gfeh/principals?network=` | auth |
+| `POST /gfeh/principals/add` / `remove` | admin |
+| `GET /gfeh/grants?network=&principal=` | auth |
+| `POST /gfeh/grants/add` / `revoke` | admin |
+| `GET /gfeh/exposures?network=` | auth |
+| `POST /gfeh/exposures/withdraw` | admin |
+
+The four `GET`s are audit-excluded; the five mutators carry audit keys. None are on the WireGuard allowlist. With no partitions configured, `GET /gfeh` reports that object storage is not configured rather than erroring.
+
+### Two unrelated credential systems
+
+These are confused easily and reasoning about one as if it were the other gives the wrong answer about lifetime, rotation, and blast radius. They live in separate files with separate names for that reason.
+
+- **`town_os:` in `gfehd.yaml`** authenticates **the daemon to Town OS's control plane**. It is a dedicated admin account, `gfeh` (`GfehServiceAccount`), with a 256-bit `crypto/rand` password persisted once at the `gfeh_service_password` setting and re-asserted on every boot so a drifted hash cannot silently strand a daemon. A **password rather than a session token**, and that is forced by Town OS's own session model: the JWT signing key is regenerated every start and `InitSessionManager` deletes every session, so a stored token is invalid the moment the controller restarts and the daemon could not recover on its own.
+- **`credentials:`, `drive.tokens:`, `smb.users:`** authenticate **end users to gfeh's views**. Town OS's account system never sees these as logins; they are rendered into the config and checked by gfehd.
+
+**The service account must never satisfy a setup check.** It is an enabled administrator created during boot, and both places that ask "does this box have an administrator" — the setup flag in `/status/ping` and the bootstrap branch of `POST /account/create` — mean "has a *person* been set up". Counting it makes a brand-new system report itself already set up and then demand a token for the account creation that would have produced one: the operator can never get in, and nothing on screen says why. `hasHumanAdmin` backs both call sites so they cannot drift onto different answers, and `isServiceAccount` is the exclusion. It is deliberately narrow — the account still appears in the users list and the account totals, because an administrative account on your box is something you should be able to see. Disabling it is refused rather than silently undone, since the next reconcile would put it back.
+
+### SMB and NTLMv2
+
+The SMB view verifies **NTLMv2** (`crates/gfeh-core/src/ntlm.rs` in gfeh; added in 0.1.2). Every command except Negotiate and SessionSetup requires an authenticated session — a client told `STATUS_LOGON_FAILURE` that simply ignored it could otherwise still use the share, which made the refusal cosmetic.
+
+Verification needs an **NT hash** (`MD4(UTF16LE(password))`), which **cannot be derived from bcrypt**, so an account that wants SMB enrols a second credential: `Account.SMBNTHash`/`SMBEnrolled`, set through `UpdateFields.SMBPassword`. That field is a `*string` with three meanings — nil leaves the credential alone, a value enrols, and the **empty string revokes** — because collapsing the last two would make "no change" and "revoke" the same request. `NTHash` (`src/account/smb_credential.go`) is pinned against MS-NLMP's own worked vector rather than against itself: the value is consumed by a different program in a different language over a wire protocol, so a self-consistently wrong hash would pass every test here and fail every login there.
+
+`collectSMBUsers` renders the enrolled accounts into each partition's `smb.users`. A disabled account keeps its row but is omitted. An account with no SMB credential can still use the other four views; it just cannot mount the share.
+
+### Config file
+
+`src/gfeh/config.go` mirrors gfehd's YAML **exactly**. Every gfehd config struct is `#[serde(deny_unknown_fields)]`, so a stray key is not ignored — it is a hard startup failure. Top level: `data_dir`, `partition`, `network` (a **pointer**: absent means the default partition, and an empty string is a different, invalid request), `admin_socket`, the five optional view blocks, `credentials`, and `town_os`. Written `0600` under `<btrfsBase>/gfeh-control/<network>/`.
+
+### Boot and reconcile
+
+`ReconcileGfeh` runs at boot **after the ingress and pages** and **before `Reconcile`** — the TLS CA and storage exist by then, and the names must be available to the `RebuildDNS`/`RebuildIngress` calls further down. It is also called from `/networks/create`, `/networks/remove`, `/networks/enable`, and `/networks/disable`, so a network added at runtime gets a partition. Non-fatal throughout.
+
+Per network it ensures the subvolume (with UID/GID), renders the config, installs and restarts the unit **only when the rendered content changed** (the `ReadUnit`-diff idiom reconcile already uses — which is why the service password must be stable across boots, or every partition would restart on every reconcile), and waits for the socket. `pruneGfehPartitions` removes units for networks that no longer exist.
+
+It is gated on the ingress: with `INGRESS_IMAGE` empty the four HTTP views are reachable by nothing, so starting partitions would publish four names per network that nothing serves. `GFEH_IMAGE` explicitly empty skips object storage entirely (dev mode) — the same `LookupEnv` convention `UI_IMAGE` and `INGRESS_IMAGE` use, because `Getenv` would make an empty value mean "use the default" and leave no off switch.
+
+**Names are published after the handler swap.** `publishGfehNames` runs in the background: gfehd polls `/status/ping`, which answers **503 until the full router is up** ([Boot Status](#boot-status-and-refresh)), so a partition cannot finish starting until boot is essentially done. Waiting for it inline would deadlock the boot it is waiting on. If no partition becomes ready in time the names are simply published by the next reconcile.
+
+Partitions register in `collectSystemServices()`, so `POST /system-services/refresh` re-pulls and restarts them — the omission that made the ingress silently stale.
+
+### Version coupling
+
+**Town OS pins a gfehd floor, and it is a floor rather than a preference.** `Containerfile.gfeh` builds from crates.io at `GFEH_VERSION` (override, or `GFEH_LATEST` non-empty to take whatever crates.io holds today — the same shape as `TTYFORCE_LATEST` in the install repo). The current floor is **0.1.2**, because Town OS renders two things a 0.1.1 daemon cannot survive: `smb.users`, which `deny_unknown_fields` turns into a config-parse failure, and the readiness wait, without which the daemon authenticates against the boot stub's 403 and dies.
+
+Neither failure is visible to `make test` — the unit and integration suites both stand in a **fake gfehd**, so pinning below the floor buys a green suite and a box where object storage is silently dead. Raise the pin when Town OS starts depending on new daemon behavior, and let the image build fail loudly if that version is not published yet.
+
+### UI
+
+`/dashboard/objects` (nav `nav.objects`, "Object Storage"). A network selector across the top, then `?tab=` sub-tabs: **Overview** (per-partition status, quota, and the published names with the port and whether each is reached through the ingress or dialed directly), **Users** (principals and ceilings; add projects a Town OS account), **Grants**, and **Links** (exposures, with withdraw). Reads are `requireAuth`, so the tab is not admin-only; the mutating controls are.
 
 ## Services
 
@@ -831,7 +970,7 @@ Read-only endpoints are explicitly excluded from audit logging. Excluded paths i
 
 ### Settings Management
 
-Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), `archive_unpack_timeout` (600 seconds), `locale` (en-US), `dns_tld` (home), `dns_resolution_mode` (auto), and `peer_ttl` (7200 seconds). `proton_image` is registered only in `proton`-tagged builds. See [Settings](#settings) for the full table.
+Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), `archive_unpack_timeout` (600 seconds), `locale` (en-US), `dns_tld` (home), `dns_resolution_mode` (auto), `peer_ttl` (7200 seconds), and `gfeh_partition_quota` (0). `proton_image` is registered only in `proton`-tagged builds. `gfeh_service_password` is generated on first boot rather than seeded as a default. See [Settings](#settings) for the full table.
 
 - `GET /settings` -- get all settings (admin required).
 - `POST /settings/get` -- get a specific setting by key (admin required).
@@ -1491,6 +1630,8 @@ The dashboard uses a two-panel layout: a sticky left sidebar and a right content
 
 System services are systemd-managed infrastructure containers (distinct from user-installed package services). They use the `town-os-system--` unit name prefix.
 
+The set is: rolodex, the ingress, pages, the UI, node-exporter, Prometheus, the monitoring UI (socat forwarder or Grafana), and **one gfeh partition per network** (`town-os-system--gfeh-<network>`). Everything in that list must register in `collectSystemServices()` so `POST /system-services/refresh` re-pulls and restarts it — an omission there is invisible until an upgrade silently leaves the service on its old image.
+
 ### System Service Unit Generation
 
 `GenerateSystemServiceUnit` produces podman-based systemd units with `Restart=always`. The unit config supports a `VolumeDirs` field listing host directories to pre-create via `ExecStartPre=/bin/mkdir -p <dir>` lines, preventing mount failures when containers start on reboot before the system controller has run.
@@ -1590,12 +1731,14 @@ The authoritative step-by-step boot ordering lives in [System Controller Boot Se
 6. Rolodex config write + readiness wait (rolodex itself is supervised by systemd).
 7. Core image pulls (NC, monitoring, UI) and monitoring system service starts.
 8. Local TLS CA, ingress, and pages service.
-9. Version-change detection, reconcile, post-update commands.
-10. DNS rebuild, network reconcile, ingress programming, UI container start.
-11. Freshness stage (per-package restarts after a refresh).
-12. Handler construction and the atomic swap from the boot stub to the full router.
+9. Object-storage reconcile (one gfeh partition per network).
+10. Version-change detection, reconcile, post-update commands.
+11. DNS rebuild, network reconcile, ingress programming, UI container start.
+12. Freshness stage (per-package restarts after a refresh).
+13. Handler construction and the atomic swap from the boot stub to the full router.
+14. Background publication of the object-storage names, once a partition answers.
 
-Startup failures for monitoring, Rolodex config, core image pulls, the TLS CA, the ingress, the pages service, network reconcile, and the UI container are non-fatal; the system continues without them. All container image pulls use the `ensureImage` helper which checks `podman image exists` before pulling, avoiding redundant pulls in test/dev environments where images are pre-loaded. Pull failures for non-essential services are logged to stderr and do not prevent startup, allowing the system to boot even when the network is temporarily unavailable.
+Startup failures for monitoring, Rolodex config, core image pulls, the TLS CA, the ingress, the pages service, object storage, network reconcile, and the UI container are non-fatal; the system continues without them. All container image pulls use the `ensureImage` helper which checks `podman image exists` before pulling, avoiding redundant pulls in test/dev environments where images are pre-loaded. Pull failures for non-essential services are logged to stderr and do not prevent startup, allowing the system to boot even when the network is temporarily unavailable.
 
 ### Version Tag Detection
 
@@ -1641,6 +1784,8 @@ The network controller image is not a flag either; it is derived from the resolv
 - `UI_IMAGE` -- override UI container image (defaults to `quay.io/town/ui:<tag>`). Setting it to the **empty string** (explicitly present but empty) skips the UI container entirely — dev mode, where bun serves the UI.
 - `NC_IMAGE` -- override the network controller image (defaults to `quay.io/town/networkcontroller:<tag>`). Used by the integration harness to inject a locally built NC.
 - `INGRESS_IMAGE` -- override the ingress image (defaults to `quay.io/town/ingress:<tag>`). Setting it to the empty string skips the ingress and the pages service — dev mode.
+- `GFEH_IMAGE` -- override the object-storage image (defaults to `quay.io/town/gfeh:<tag>`). Setting it to the **empty string** skips object storage entirely — dev mode. Object storage is also skipped when the ingress is disabled, since the four HTTP views are reachable only through it.
+- `GFEH_SMB_PORT_BASE` -- override the host port SMB listeners start from (default `4450`, one per network by index). The integration harness sets it so a concurrent `make test-full` cannot collide.
 
 ## Development Prerequisites
 
@@ -1752,6 +1897,7 @@ Integration tests run inside privileged podman containers with systemd, btrfs, a
 | `dns_resolution_mode`    | `auto`                           | Rolodex upstream resolution: `auto`, `recursive`, or `forward` |
 | `peer_ttl`               | `7200`                           | WireGuard peer enrollment lifetime in seconds (2 h) |
 | `monitoring_backend`     | `uplot`                          | Monitoring dashboard: `uplot` or `grafana`      |
+| `gfeh_partition_quota`   | `0`                              | Quota in bytes for each object-storage partition (0 = unlimited) |
 | `proton_image`           | `quay.io/town/proton:latest`     | Proton runner image — **registered only under the `proton` build tag** |
 
 `DefaultSettings` (`src/account/settings.go`) is seeded on first init and existing values are never overwritten. `proton_image` is not in the base map: `src/account/settings_proton.go` is `//go:build proton` and registers the default in `init()`, so a build without the tag has no Proton setting, no Proton install path, and reports `proton_enabled: false` in the status ping. Build-tag-gated registration is used rather than an exported `Register` function so no caller acquires a call-order dependency on `DefaultSettings`.

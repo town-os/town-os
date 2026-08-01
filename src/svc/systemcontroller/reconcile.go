@@ -66,6 +66,12 @@ type ReconcileConfig struct {
 	// btrfs. nil falls back to a default go-git client (see gitClient); tests
 	// inject a mock.
 	Git git.Client
+
+	// Gfeh is the set of running object-storage partitions, so the route set
+	// this reconcile programs is the same full set boot programs. Omitting it
+	// here would make every package install silently drop every gfeh vhost
+	// until the next boot -- SetRoutes is declarative and replaces everything.
+	Gfeh GfehRegistry
 }
 
 // gitClient returns the configured git client, defaulting to a go-git client
@@ -110,7 +116,7 @@ func reconcileDefaultQuota(mgr account.SettingsManager) uint64 {
 func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	// Ensure root subvolumes exist for volume management.
 	if cfg.Storage != nil {
-		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume, PagesVolumePrefix, VMImagesSubvolume, UserVolumePrefix, TLSSubvolume} {
+		for _, root := range []string{PackagesVolumePrefix, UninstalledVolumePrefix, ArchivesSubvolume, PagesVolumePrefix, VMImagesSubvolume, UserVolumePrefix, TLSSubvolume, GfehVolumePrefix} {
 			if err := cfg.Storage.CreateFilesystem(storage.Filesystem{Name: root}); err != nil {
 				slog.Debug(fmt.Sprintf("reconcile: create root volume %s: %v", root, err))
 			}
@@ -348,7 +354,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	if cfg.IngressClient != nil {
 		tld := reconcileDNSTLD(cfg.SettingsMgr)
 		if err := RebuildIngress(ctx, cfg.IngressClient, cfg.PagesManager, cfg.NetworkMgr, cfg.Installer,
-			cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath, tld, cfg.InternalIP); err != nil {
+			cfg.Gfeh, cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath, tld, cfg.InternalIP); err != nil {
 			slog.Error(fmt.Sprintf("reconcile: ingress: %v", err))
 		}
 	}
@@ -807,6 +813,11 @@ type ReconcileDNSConfig struct {
 	// disable TLSA republishing.
 	NetworkStatePath string
 	BtrfsBasePath    string
+	// Gfeh is the set of running object-storage partitions. Each is asked for
+	// its names on every rebuild, because both reconcilers destroy foreign
+	// state -- gfeh contributes hostnames rather than registering them. nil
+	// means object storage is not configured and contributes nothing.
+	Gfeh GfehRegistry
 }
 
 // RebuildDNS tears the authoritative zone down and rebuilds it from
@@ -866,10 +877,17 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		}
 	}
 
+	// Object storage on the default network shares this zone. Its names come
+	// from the partition itself (GET /v1/names) rather than from anything
+	// derived here, which is the whole reason gfeh needs no DNS client.
+	gfehSites := collectGfehSites(ctx, cfg.Gfeh, cfg.NetworkMgr, tld, "")
+	publishGfehGlobalRecords(ctx, cfg, gfehSites)
+
 	// TeardownTLD wiped every record including DANE TLSA, so re-pin the leaf
 	// for each installed package's terminated ports and each internal page.
 	entries := collectInstalledTLSA(cfg, tld)
 	entries = append(entries, collectPageTLSA(cfg.PagesManager, cfg.BtrfsBasePath, tld)...)
+	entries = append(entries, collectGfehTLSA(gfehSites, cfg.BtrfsBasePath)...)
 	if len(entries) > 0 {
 		if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
 			slog.Debug(fmt.Sprintf("rebuild TLSA: %v", err))
@@ -957,8 +975,16 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		// Install only ever wrote the scoped half (publishPackageTLSA), and nothing
 		// republished either half after a restart — so a LAN client had no TLSA at
 		// all for a network package, and a reboot dropped the scoped one.
+		// Object storage on this network is dual-homed exactly like its pages:
+		// a scoped A at the overlay address for WireGuard peers, and a global A
+		// at the LAN address for loopback and LAN clients. Each side gets an
+		// address it can actually route to.
+		gfehSites := collectGfehSites(ctx, cfg.Gfeh, cfg.NetworkMgr, n.TLD, n.Name)
+		publishGfehNetworkRecords(ctx, cfg, n.Name, overlay, gfehSites)
+
 		entries := collectNetworkTLSA(cfg, n.Name, n.TLD)
 		entries = append(entries, collectNetworkPageTLSA(cfg.PagesManager, cfg.BtrfsBasePath, n.Name, n.TLD)...)
+		entries = append(entries, collectGfehTLSA(gfehSites, cfg.BtrfsBasePath)...)
 		if len(entries) > 0 {
 			if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
 				slog.Debug(fmt.Sprintf("rebuild network TLSA %s: %v", n.Name, err))
@@ -1162,6 +1188,13 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	// delete them as orphan records.
 	for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
 		addDesired(host + ".")
+	}
+	// Object storage, for exactly the same reason -- and this is the easiest
+	// fold-in to miss, because omitting it does not break anything at boot.
+	// The records get published, everything works, and then this hourly pass
+	// deletes them as orphans an hour later.
+	for _, site := range collectGfehSites(ctx, cfg.Gfeh, cfg.NetworkMgr, tld, "") {
+		addDesired(site.FQDN + ".")
 	}
 
 	// List current records and index only the A/AAAA records we own.

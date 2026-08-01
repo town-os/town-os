@@ -21,6 +21,7 @@ import PagesManagement from '@/routes/PagesManagement.jsx'
 import SystemSettings from '@/routes/SystemSettings.jsx'
 import DNSManagement from '@/routes/DNSManagement.jsx'
 import Networks from '@/routes/Networks.jsx'
+import ObjectStorage from '@/routes/ObjectStorage.jsx'
 import MonitoringDashboard from '@/routes/MonitoringDashboard.jsx'
 
 function DashboardRoute({ children }) {
@@ -114,6 +115,14 @@ export default function App() {
             element={
               <DashboardRoute>
                 <Networks />
+              </DashboardRoute>
+            }
+          />
+          <Route
+            path="/dashboard/objects"
+            element={
+              <DashboardRoute>
+                <ObjectStorage />
               </DashboardRoute>
             }
           />

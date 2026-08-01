@@ -88,6 +88,7 @@ func InitManager(db *sql.DB) (*SQLiteManager, error) {
 		disabled      INTEGER NOT NULL DEFAULT 0,
 		wireguard     INTEGER NOT NULL DEFAULT 0,
 		networks      TEXT NOT NULL DEFAULT '[]',
+		smb_nt_hash   TEXT NOT NULL DEFAULT '',
 		created_at    TEXT NOT NULL,
 		updated_at    TEXT NOT NULL
 	)`)
@@ -103,6 +104,11 @@ func InitManager(db *sql.DB) (*SQLiteManager, error) {
 	for _, col := range []struct{ name, def string }{
 		{"wireguard", "INTEGER NOT NULL DEFAULT 0"},
 		{"networks", "TEXT NOT NULL DEFAULT '[]'"},
+		// The SMB credential. Empty means the account has not enrolled one and
+		// cannot mount a share, which is what every pre-existing row reads
+		// back as -- so the migration cannot hand anybody access they did not
+		// have before.
+		{"smb_nt_hash", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if _, err := db.ExecContext(ctx,
 			fmt.Sprintf("ALTER TABLE accounts ADD COLUMN %s %s", col.name, col.def),
@@ -244,8 +250,11 @@ func (m *SQLiteManager) create(username, password, email, phone, realName string
 	defer cancel()
 
 	_, err = m.db.ExecContext(ctx,
-		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, disabled, wireguard, networks, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+		// smb_nt_hash is empty at creation: the SMB credential is a second
+		// secret an account opts into afterwards, never something a new
+		// account silently acquires.
+		`INSERT INTO accounts (username, password_hash, email, phone, real_name, admin, disabled, wireguard, networks, smb_nt_hash, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, '', ?, ?)`,
 		username, hash, email, phone, realName, admin, wireguard, networksJSON, nowStr, nowStr,
 	)
 	if err != nil {
@@ -270,7 +279,7 @@ func (m *SQLiteManager) create(username, password, email, phone, realName string
 
 // accountColumns is the canonical SELECT column list for an account, shared by
 // Get and List so the two can never drift out of sync with scanAccountRow.
-const accountColumns = `username, password_hash, email, phone, real_name, admin, disabled, wireguard, networks, created_at, updated_at`
+const accountColumns = `username, password_hash, email, phone, real_name, admin, disabled, wireguard, networks, smb_nt_hash, created_at, updated_at`
 
 func (m *SQLiteManager) Get(username string) (*Account, error) {
 	ctx, cancel := dbCtx()
@@ -301,7 +310,7 @@ func scanAccountRow(s rowScanner) (*Account, error) {
 
 	err := s.Scan(
 		&acct.Username, &acct.PasswordHash, &acct.Email, &acct.Phone, &acct.RealName,
-		&acct.Admin, &acct.Disabled, &acct.WireGuard, &networksJSON, &createdStr, &updatedStr,
+		&acct.Admin, &acct.Disabled, &acct.WireGuard, &networksJSON, &acct.SMBNTHash, &createdStr, &updatedStr,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -314,6 +323,10 @@ func scanAccountRow(s rowScanner) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Derived rather than stored: the hash itself is never serialised, but the
+	// UI has to be able to show whether an account can mount a share.
+	acct.SMBEnrolled = acct.SMBNTHash != ""
 
 	acct.CreatedAt, err = time.Parse(time.RFC3339, createdStr)
 	if err != nil {
@@ -371,6 +384,21 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 		}
 		sets = append(sets, "networks = ?")
 		args = append(args, networksJSON)
+	}
+	if fields.SMBPassword != nil {
+		// The empty string withdraws the credential, after which the account
+		// can no longer mount a share. Anything else is hashed here and the
+		// plaintext goes no further, exactly as with Password.
+		hash := ""
+		if *fields.SMBPassword != "" {
+			derived, err := NTHash(*fields.SMBPassword)
+			if err != nil {
+				return nil, err
+			}
+			hash = derived
+		}
+		sets = append(sets, "smb_nt_hash = ?")
+		args = append(args, hash)
 	}
 
 	// Guard the WireGuard invariant across the *resulting* row, not just this

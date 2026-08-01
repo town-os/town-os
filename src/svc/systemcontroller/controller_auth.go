@@ -333,6 +333,13 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/networks/peers/connected":     true,
 			"/storage/package-volumes":      true,
 			"/tls/ca.crt":                   true,
+			// Object storage reads. /gfeh/partitions is a POST only because
+			// gfeh's client sends it that way; it is a listing, not an action.
+			"/gfeh/partitions": true,
+			"/gfeh":            true,
+			"/gfeh/principals": true,
+			"/gfeh/grants":     true,
+			"/gfeh/exposures":  true,
 		}
 
 		if excluded[path] {

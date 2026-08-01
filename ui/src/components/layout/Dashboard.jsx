@@ -20,12 +20,14 @@ import {
   Activity,
   Wifi,
   Network,
+  Database,
   AlertTriangle,
 } from 'lucide-react'
 
 const NAV_KEYS = [
   { to: '/dashboard', key: 'nav.home', icon: LayoutDashboard },
   { to: '/dashboard/storage', key: 'nav.storage', icon: HardDrive },
+  { to: '/dashboard/objects', key: 'nav.objects', icon: Database },
   { to: '/dashboard/users', key: 'nav.users', icon: Users },
   { to: '/dashboard/system', key: 'nav.services', icon: Cog },
   { to: '/dashboard/packages', key: 'nav.packages', icon: Package },

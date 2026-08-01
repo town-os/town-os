@@ -33,6 +33,7 @@ Build & lint
   nc-image                Build the local NC image used by tests (host arch).
   nc-image-dev            Build the local NC image for the dev container.
   ingress-image           Build the local ingress image used by tests (host arch).
+  gfeh-image              Build the local object-storage (gfeh) image (host arch).
   ui-integration-image    Build the container that runs the UI integration suite.
   dev-production-image    Build the dev base (production) container image.
   dev-image               Build the dev container image.
@@ -83,6 +84,7 @@ Release
   release-ui-image        Build the UI release image.
   release-nc-image        Build the network controller release image.
   release-ingress-image   Build the ingress release image.
+  release-gfeh-image      Build the object-storage (gfeh) release image.
   push / push-rc          Push all release images with per-arch rc tags
                           (rc.latest-<arch>, rc.<date>-<arch>).
   manifest-rc             Assemble + push the plain rc.latest / rc.<date>
@@ -97,6 +99,7 @@ Release
   push-ui-rc              push-ui-release
   push-nc-rc              push-nc-release
   push-ingress-rc         push-ingress-release
+  push-gfeh-rc            push-gfeh-release
 
 Proton (defined only when PROTON_ENABLED=1; see Variables below)
   release-proton-image    Build the Proton runner release image.
@@ -123,6 +126,11 @@ Variables
                           above, adds the runner image to release-build /
                           push-rc / push-release, and exposes the Proton
                           settings card in the UI.
+  GFEH_VERSION=<semver>   The gfeh crate the object-storage image is built from
+                          (default pinned). Ignored when GFEH_LATEST is set.
+  GFEH_LATEST=1           Build the object-storage image from whatever crates.io
+                          holds today instead of the pin. For tracking an
+                          unreleased fix; not for a release.
   TEST_RUN=<regex>        Restrict the integration run to matching tests.
   TEST_TIMEOUT=<dur>      Integration test timeout (default 60m).
   PUSH_TAG=<tag>          Tag used by push-tag.

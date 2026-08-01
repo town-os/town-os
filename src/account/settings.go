@@ -27,6 +27,14 @@ var DefaultSettings = map[string]string{
 	// peer expires on its own, so the additive peers/add endpoint cannot silently
 	// accumulate dead peers and burn overlay addresses.
 	"peer_ttl": "7200", // 2 hours
+
+	// The quota a gfeh partition's subvolume is created with, in bytes.
+	//
+	// Zero is unlimited, and is the default deliberately: a partition is the
+	// box's object storage for a whole network, and capping it at the
+	// per-user volume default would surprise somebody the first time a photo
+	// library outgrew it. An operator who wants a limit sets one.
+	"gfeh_partition_quota": "0",
 }
 
 type SettingsManager interface {

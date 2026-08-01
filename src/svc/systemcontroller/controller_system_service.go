@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -123,6 +124,31 @@ func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 				UnitName:    svc.UnitName,
 			})
 		}
+	}
+
+	// One object-storage partition per network, each its own daemon and its own
+	// unit. Listed for the same reason the ingress is: a service absent from
+	// here is never re-pulled or restarted by "refresh system services", so its
+	// image would stay on whatever it first started with forever.
+	//
+	// Sorted by key so the list does not reshuffle between polls — the registry
+	// is a map, and a UI table that reordered itself every 30 seconds would be
+	// unusable.
+	if reg := s.Controller.GetGfehRegistry(); reg != nil {
+		var partitions []systemServiceInfo
+		for _, m := range reg.Managers() {
+			for _, svc := range m.SystemServices() {
+				partitions = append(partitions, systemServiceInfo{
+					Key:         svc.Key,
+					DisplayName: svc.DisplayName,
+					Image:       svc.Image,
+					Port:        svc.Port,
+					UnitName:    svc.UnitName,
+				})
+			}
+		}
+		sort.Slice(partitions, func(i, j int) bool { return partitions[i].Key < partitions[j].Key })
+		all = append(all, partitions...)
 	}
 
 	// The systemcontroller itself runs as a host systemd unit. List it as

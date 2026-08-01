@@ -204,6 +204,7 @@ func (s *serverBase) RefreshDNSResolutionMode(ctx context.Context, mode string) 
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetIngress() *ingressctl.Manager           { return s.Ingress }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }
+func (s *serverBase) GetGfehRegistry() GfehRegistry           { return s.GfehRegistry }
 func (s *serverBase) GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
 	return s.ResolvedConfigurator
 }
@@ -395,6 +396,11 @@ func (s *serverBase) tickDNSPoll(ctx context.Context) {
 		PagesManager:   s.PagesMgr,
 		InternalIP:     s.GetInternalIP(),
 		InternalIPv6:   s.GetInternalIPv6(),
+		// Without this the hourly drift pass treats every object-storage
+		// record as an orphan and deletes it -- so gfeh would work at boot
+		// and stop resolving an hour later, which is a far worse failure
+		// than never working at all.
+		Gfeh: s.GetGfehRegistry(),
 	}); err != nil {
 		slog.Debug("hourly DNS reconcile", "error", err)
 	}
@@ -518,6 +524,7 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		InternalIPv6:     s.GetInternalIPv6(),
 		NetworkStatePath: s.NetworkStatePath,
 		BtrfsBasePath:    s.BtrfsBasePath,
+		Gfeh:             s.GetGfehRegistry(),
 	}); err != nil {
 		slog.Error("rebuild DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
 		return
@@ -544,6 +551,7 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		// no-ops without a state dir and btrfs base).
 		NetworkStatePath: s.NetworkStatePath,
 		BtrfsBasePath:    s.BtrfsBasePath,
+		Gfeh:             s.GetGfehRegistry(),
 	}); err != nil {
 		slog.Error("rebuild network DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
 		return

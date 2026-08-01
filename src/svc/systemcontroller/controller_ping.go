@@ -73,14 +73,10 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 			return err
 		}
 		accounts = list
-		hasAdmin := false
-		for _, a := range list {
-			if !a.Disabled && a.Admin {
-				hasAdmin = true
-				break
-			}
-		}
-		resp.NeedsSetup = !hasAdmin
+		// Service accounts excluded: setup asks whether a *person* has been
+		// set up, and the gfeh daemon's admin account exists from first boot.
+		// See isServiceAccount.
+		resp.NeedsSetup = !hasHumanAdmin(list)
 	}
 
 	// Check for optional auth — if a session manager is configured and no

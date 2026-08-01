@@ -206,9 +206,11 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
+	// Seven root subvolumes plus the object-storage root, then the four levels
+	// of the installed package's volume path.
 	fs := controller.GetFilesystems()
-	if len(fs) != 11 {
-		t.Fatalf("expected 11 filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 12 {
+		t.Fatalf("expected 12 filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)
@@ -231,17 +233,20 @@ func TestReconcileWithStorageVolumes(t *testing.T) {
 	if fs[6].Name != "tls" {
 		t.Fatalf("expected root subvolume tls, got %s", fs[6].Name)
 	}
-	if fs[7].Name != "installed/repo-a" {
-		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[7].Name)
+	if fs[7].Name != "gfeh" {
+		t.Fatalf("expected root subvolume gfeh, got %s", fs[7].Name)
 	}
-	if fs[8].Name != "installed/repo-a/nginx" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[8].Name)
+	if fs[8].Name != "installed/repo-a" {
+		t.Fatalf("expected intermediate installed/repo-a, got %s", fs[8].Name)
 	}
-	if fs[9].Name != "installed/repo-a/nginx/1.0" {
-		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[9].Name)
+	if fs[9].Name != "installed/repo-a/nginx" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx, got %s", fs[9].Name)
 	}
-	if fs[10].Name != "installed/repo-a/nginx/1.0/data" {
-		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[10].Name)
+	if fs[10].Name != "installed/repo-a/nginx/1.0" {
+		t.Fatalf("expected intermediate installed/repo-a/nginx/1.0, got %s", fs[10].Name)
+	}
+	if fs[11].Name != "installed/repo-a/nginx/1.0/data" {
+		t.Fatalf("expected volume installed/repo-a/nginx/1.0/data, got %s", fs[11].Name)
 	}
 }
 
@@ -733,9 +738,10 @@ func TestReconcileCreatesRootVolumes(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
+	// installed, uninstalled, archives, pages, vm-images, user, tls, gfeh.
 	fs := controller.GetFilesystems()
-	if len(fs) != 7 {
-		t.Fatalf("expected 7 root filesystems, got %d: %v", len(fs), fs)
+	if len(fs) != 8 {
+		t.Fatalf("expected 8 root filesystems, got %d: %v", len(fs), fs)
 	}
 	if fs[0].Name != "installed" {
 		t.Fatalf("expected root subvolume installed, got %s", fs[0].Name)

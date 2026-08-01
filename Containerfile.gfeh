@@ -1,0 +1,71 @@
+# Town OS object storage (gfeh)
+#
+# gfeh's own repository publishes to crates.io and ships no container image --
+# its Makefile names quay.io/town/gfeh but the build rules were never written --
+# so the image is built here, from the published crate.
+#
+# Build (rootful podman via make/build.sh, with --network=host; see CLAUDE.md):
+#   sudo podman build -f Containerfile.gfeh -t quay.io/town/gfeh:latest .
+#
+# Pinned by default and overridable, the same shape as TTYFORCE_LATEST in the
+# install repo: GFEH_LATEST non-empty takes whatever crates.io holds today,
+# which is what you want when tracking an unreleased fix and not what you want
+# in a release.
+
+# 0.1.2 is the floor, not a preference. Town OS renders two things a 0.1.1
+# daemon cannot survive:
+#
+#   * smb.users -- every gfehd config struct is #[serde(deny_unknown_fields)],
+#     and 0.1.1's SmbConfig has no users field, so a partition with any enrolled
+#     SMB credential fails to parse its config and never starts.
+#   * the readiness wait -- 0.1.1 authenticates to Town OS the instant it comes
+#     up, which during boot is the :5309 stub answering 403 to everything but
+#     the ping, so it dies before the control plane is ready to talk to it.
+#
+# Neither is visible to `make test` (the unit and integration suites both stand
+# in a fake gfehd), so pinning low buys a green suite and a box where object
+# storage is silently dead. If this version is not on crates.io yet the build
+# fails here, loudly, which is the outcome to want.
+ARG GFEH_VERSION=0.1.2
+ARG GFEH_LATEST=
+
+FROM docker.io/library/rust:1-bookworm AS builder
+ARG GFEH_VERSION
+ARG GFEH_LATEST
+# --locked for the pinned build so the image is reproducible; omitted for the
+# latest build, where the point is to take current dependencies.
+RUN if [ -n "$GFEH_LATEST" ]; then \
+      cargo install gfehd --root /out ; \
+    else \
+      cargo install gfehd --version "$GFEH_VERSION" --locked --root /out ; \
+    fi
+
+FROM docker.io/library/debian:bookworm-slim
+# ca-certificates is mandatory for any runtime image making outbound HTTPS
+# calls (CLAUDE.md): without it Go's and Rust's TLS stacks fail every request
+# with an unknown-authority error, and in a background poller that failure is
+# invisible at default log level.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# The uid gfeh runs as. Pinned to match gfeh.UID/gfeh.GID in src/gfeh, which is
+# what a partition's subvolume is chowned to -- a bind mount passes host
+# ownership straight through, so the two must agree or the daemon starts and
+# fails on its first write. Changing one means changing both AND chowning every
+# existing partition.
+RUN groupadd -g 2000 gfeh \
+ && useradd -u 2000 -g 2000 -M -s /usr/sbin/nologin gfeh
+
+COPY --from=builder /out/bin/gfehd /usr/bin/gfehd
+
+USER 2000:2000
+
+# CMD rather than ENTRYPOINT, per CLAUDE.md, and the config path is baked in
+# rather than passed by the unit. That combination is what makes CMD workable
+# here: with a bare CMD ["/usr/bin/gfehd"], `podman run <image> --config x`
+# REPLACES the command and podman tries to exec "--config" -- the trap
+# Containerfile.ingress documents at its ENTRYPOINT line. Every partition
+# mounts its own config at the same in-container path, so nothing needs to vary
+# per unit.
+CMD ["/usr/bin/gfehd", "--config", "/etc/gfeh/gfehd.yaml"]

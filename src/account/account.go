@@ -63,10 +63,33 @@ type Account struct {
 	// Networks is the set of networks a WireGuard account may enroll peers on.
 	// It is meaningful only when WireGuard is true, and must be non-empty then.
 	// An empty list is never "any network".
-	Networks  []string  `json:"networks"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Networks []string `json:"networks"`
+	// SMBNTHash is MD4(UTF16LE(smb password)), hex-encoded, or empty when the
+	// account has not enrolled an SMB credential — in which case it cannot
+	// mount an object-storage share at all.
+	//
+	// A second credential, and necessarily so: NTLMv2 is computed under this
+	// value, and it cannot be derived from PasswordHash. bcrypt and MD4 are
+	// different one-way functions over the same input, with no conversion in
+	// either direction, which is the same reason Samba keeps its own password
+	// database.
+	//
+	// Never serialised. It is unsalted MD4 with no work factor — weaker at
+	// rest than the bcrypt hash beside it, and password-equivalent for SMB, so
+	// it is treated like PasswordHash rather than like a hash.
+	SMBNTHash string `json:"-"`
+	// SMBEnrolled reports whether SMBNTHash is set, so the UI can show an
+	// account's enrolment state without the hash itself ever reaching a
+	// response body. Derived on read, never stored.
+	SMBEnrolled bool      `json:"smb_enrolled"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// HasSMBCredential reports whether the account may authenticate to the SMB
+// view. Exposed so the UI can show enrolment state without the hash itself
+// ever reaching a response body.
+func (a Account) HasSMBCredential() bool { return a.SMBNTHash != "" }
 
 // UpdateFields holds optional fields for updating an account. Only non-nil
 // pointer fields are applied during an update. Password must be at least
@@ -86,6 +109,15 @@ type UpdateFields struct {
 	// Networks replaces the account's network scope. A nil pointer leaves the
 	// stored scope untouched; a non-nil pointer replaces it wholesale.
 	Networks *[]string `json:"networks,omitempty"`
+	// SMBPassword enrols or replaces the account's SMB credential. The
+	// plaintext is hashed to MD4(UTF16LE(...)) on the way in and never stored,
+	// exactly like Password.
+	//
+	// A pointer so three states are distinguishable: nil leaves the stored
+	// credential alone, a non-empty string sets one, and the empty string
+	// withdraws it — after which the account can no longer mount a share. Two
+	// states would make "no change" and "revoke" the same request.
+	SMBPassword *string `json:"smb_password,omitempty"` //nolint:gosec // G117 -- request field, not a hardcoded credential
 }
 
 // Manager defines the interface for account CRUD and authentication operations.

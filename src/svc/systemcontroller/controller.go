@@ -50,6 +50,7 @@ type systemControllerBackend interface {
 	GetIngress() *ingressctl.Manager
 	GetIngressClient() ingress.Client
 	GetUI() *ui.Manager
+	GetGfehRegistry() GfehRegistry
 	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
 	GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string)
 	GetSystemControllerImage() string
@@ -135,6 +136,41 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/storage/remove", s.removeFilesystem, s.requireAuth)
 	e.Add("POST", "/storage", s.listFilesystems, s.requireAuth)
 	e.Add("POST", "/storage/package-volumes", s.listPackageVolumes, s.requireAuth)
+
+	// Object storage partitions. These four paths are a CONTRACT with gfeh
+	// (TOWNOS_CONTRACT.md in the gfeh repo) and gfeh's `make check-townos-sync`
+	// verifies them against this file — the method, the path, and the body
+	// shape. They exist separately from /storage/* because createFilesystem
+	// rewrites every submitted name to user/<name> unconditionally, so that
+	// route cannot produce a volume under the gfeh/ prefix.
+	//
+	// Creation is admin-only because provisioning a partition is also creating
+	// the root of a permission tree; everything below that root is self-service.
+	// Deliberately absent from wireGuardAllowedRoutes: the allowlist is
+	// fail-closed, and a scoped account holding a live tunnel into the overlay
+	// has no business provisioning storage.
+	e.Add("POST", "/gfeh/partitions/create", s.createGfehPartition, s.requireAdmin)
+	e.Add("POST", "/gfeh/partitions/modify", s.modifyGfehPartition, s.requireAdmin)
+	e.Add("POST", "/gfeh/partitions/remove", s.removeGfehPartition, s.requireAdmin)
+	e.Add("POST", "/gfeh/partitions", s.listGfehPartitions, s.requireAuth)
+
+	// The UI's view of object storage. gfehd's admin surface is a Unix socket
+	// that checks no credential -- filesystem permissions are its whole access
+	// control -- so a browser cannot reach it and these proxy to it after
+	// authenticating the caller. Reads are requireAuth (GET /account already
+	// exposes the account list, so who holds which grant is no more sensitive);
+	// writes are requireAdmin, because creating a principal is creating a root
+	// of the permission forest.
+	e.Add("GET", "/gfeh", s.listGfeh, s.requireAuth)
+	e.Add("GET", "/gfeh/principals", s.listGfehPrincipals, s.requireAuth)
+	e.Add("POST", "/gfeh/principals/add", s.addGfehPrincipal, s.requireAdmin)
+	e.Add("POST", "/gfeh/principals/remove", s.removeGfehPrincipal, s.requireAdmin)
+	e.Add("GET", "/gfeh/grants", s.listGfehGrants, s.requireAuth)
+	e.Add("POST", "/gfeh/grants/add", s.addGfehGrant, s.requireAdmin)
+	e.Add("POST", "/gfeh/grants/revoke", s.revokeGfehGrant, s.requireAdmin)
+	e.Add("GET", "/gfeh/exposures", s.listGfehExposures, s.requireAuth)
+	e.Add("POST", "/gfeh/exposures/withdraw", s.withdrawGfehExposure, s.requireAdmin)
+
 	e.Add("POST", "/storage/remove-package-volume", s.removePackageVolume, s.requireAdmin)
 	e.Add("POST", "/storage/remove-package-volume-group", s.removePackageVolumeGroup, s.requireAdmin)
 
@@ -291,6 +327,11 @@ type ServerConfig struct {
 	Ingress                  *ingressctl.Manager
 	IngressClient            ingress.Client
 	UI                       *ui.Manager
+	// GfehRegistry is the set of running object-storage partitions, one per
+	// network. Nil when GFEH_IMAGE is empty (dev mode), in which case every
+	// gfeh route reports that object storage is not configured and the name
+	// collectors contribute nothing.
+	GfehRegistry GfehRegistry
 	ImageExtractFunc         func(ctx context.Context, image, directory, targetPath string) error
 	// ResolvedConfigurator is called after DNS reconcile or TLD change to
 	// configure systemd-resolved routing for the TLD. When nil, the call

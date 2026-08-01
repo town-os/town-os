@@ -93,6 +93,14 @@ type MockClient struct {
 	SystemServices             []SystemServiceEntry
 	ListSystemServicesErr      error
 	SetSystemServiceStatusErr  error
+
+	// gfeh partitions, keyed by volume name (with the gfeh/ prefix), so the
+	// mock reflects the same namespace the real handlers report.
+	GfehPartitions          map[string]storage.Filesystem
+	CreateGfehPartitionErr  error
+	ModifyGfehPartitionErr  error
+	RemoveGfehPartitionErr  error
+	ListGfehPartitionsErr   error
 	VMImages             []VMImageInfo
 	ListVMImagesErr      error
 	UploadVMImageErr     error

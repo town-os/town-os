@@ -100,6 +100,30 @@ const (
 	MsgArchiveUnsupportedFormat = "archive.unsupported_format"
 	// MsgArchiveUnpackSuccess indicates the archive was unpacked successfully.
 	MsgArchiveUnpackSuccess = "archive.unpack_success"
+	// MsgArchiveGfehRefused indicates the archive endpoints will not address a
+	// gfeh partition: unpacking a tar into one would create files gfeh's index
+	// has never seen.
+	MsgArchiveGfehRefused = "archive.gfeh_refused"
+
+	// MsgGfehNotConfigured indicates no gfeh partition serves the request.
+	MsgGfehNotConfigured = "gfeh.not_configured"
+	// MsgGfehNameRequired indicates the partition name field is required.
+	MsgGfehNameRequired = "gfeh.name_required"
+	// MsgGfehPartitionExists indicates the partition already exists.
+	MsgGfehPartitionExists = "gfeh.partition_exists"
+	// MsgGfehPartitionNotFound indicates the named partition does not exist.
+	MsgGfehPartitionNotFound = "gfeh.partition_not_found"
+	// MsgGfehNetworkRequired indicates the network field is required.
+	MsgGfehNetworkRequired = "gfeh.network_required"
+	// MsgGfehPrincipalRequired indicates the principal field is required.
+	MsgGfehPrincipalRequired = "gfeh.principal_required"
+	// MsgGfehPathRequired indicates the grant path field is required.
+	MsgGfehPathRequired = "gfeh.path_required"
+	// MsgGfehUnknownAccount indicates the named Town OS account does not exist.
+	MsgGfehUnknownAccount = "gfeh.unknown_account"
+	// MsgGfehServiceAccountProtected indicates the object-storage service
+	// account cannot be disabled.
+	MsgGfehServiceAccountProtected = "gfeh.service_account_protected"
 
 	// MsgPagesDirNotConfigured indicates the pages directory is not configured.
 	MsgPagesDirNotConfigured = "pages.dir_not_configured"
@@ -221,6 +245,23 @@ const (
 	MsgAuditRemoveNetworkPeer = "audit.action.remove_network_peer"
 	// MsgAuditRefreshNetworkPeer is the audit action for refreshing a peer's TTL.
 	MsgAuditRefreshNetworkPeer = "audit.action.refresh_network_peer"
+
+	// MsgAuditCreateGfehPartition is the audit action for creating a partition.
+	MsgAuditCreateGfehPartition = "audit.action.create_gfeh_partition"
+	// MsgAuditModifyGfehPartition is the audit action for resizing a partition.
+	MsgAuditModifyGfehPartition = "audit.action.modify_gfeh_partition"
+	// MsgAuditRemoveGfehPartition is the audit action for removing a partition.
+	MsgAuditRemoveGfehPartition = "audit.action.remove_gfeh_partition"
+	// MsgAuditAddGfehPrincipal is the audit action for adding a partition user.
+	MsgAuditAddGfehPrincipal = "audit.action.add_gfeh_principal"
+	// MsgAuditRemoveGfehPrincipal is the audit action for removing a partition user.
+	MsgAuditRemoveGfehPrincipal = "audit.action.remove_gfeh_principal"
+	// MsgAuditAddGfehGrant is the audit action for granting a path.
+	MsgAuditAddGfehGrant = "audit.action.add_gfeh_grant"
+	// MsgAuditRevokeGfehGrant is the audit action for revoking a grant.
+	MsgAuditRevokeGfehGrant = "audit.action.revoke_gfeh_grant"
+	// MsgAuditWithdrawGfehExposure is the audit action for withdrawing a published link.
+	MsgAuditWithdrawGfehExposure = "audit.action.withdraw_gfeh_exposure"
 
 	// MsgAuthWireGuardRestricted indicates a WireGuard-only account tried to
 	// reach an endpoint outside the WireGuard enrollment allowlist.

@@ -52,15 +52,11 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgAccountListError), err)
 		}
 
-		hasAdmin := false
-		for _, a := range accounts {
-			if !a.Disabled && a.Admin {
-				hasAdmin = true
-				break
-			}
-		}
-
-		if hasAdmin {
+		// Service accounts excluded: see isServiceAccount. Counting the gfeh
+		// daemon's account here means the first human account can never be
+		// created, because creating it is what would produce the token this
+		// branch then demands.
+		if hasHumanAdmin(accounts) {
 			token := extractBearerToken(c.Request())
 			if token == "" {
 				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
@@ -135,6 +131,14 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 		return err
 	}
 
+	// An SMB credential is rendered into every partition's gfehd.yaml, so
+	// enrolling or withdrawing one has to reach the daemons. Without this the
+	// operator sets a password, nothing happens, and the change appears to
+	// have been lost until the next reboot.
+	if req.Fields.SMBPassword != nil {
+		s.reconcileGfeh(c.Request().Context())
+	}
+
 	return c.JSON(200, acct)
 }
 
@@ -146,9 +150,22 @@ func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 		return err
 	}
 
+	// Refused rather than silently undone. The object-storage daemons
+	// authenticate as this account, so disabling it breaks provisioning on
+	// every partition — and the next reconcile puts it back, which would make
+	// the button appear to do nothing at all. Saying so is better than either.
+	if req.Username == GfehServiceAccount {
+		return echo.NewHTTPError(400, i18n.T(s.getLocale(), i18n.MsgGfehServiceAccountProtected))
+	}
+
 	if err := s.Controller.GetAccountManager().Disable(req.Username); err != nil {
 		return err
 	}
+
+	// A disabled account must not be able to mount a share either, and the
+	// credential table is rendered per partition rather than checked per
+	// request -- so the daemons have to be told.
+	s.reconcileGfeh(c.Request().Context())
 
 	c.Response().WriteHeader(200)
 	return nil
@@ -165,6 +182,10 @@ func (s *SystemControllerHandlers) enableAccount(c *echo.Context) error {
 	if err := s.Controller.GetAccountManager().Enable(req.Username); err != nil {
 		return err
 	}
+
+	// The other half of disable: a re-enabled account gets its SMB credential
+	// back in the partitions it is scoped to.
+	s.reconcileGfeh(c.Request().Context())
 
 	c.Response().WriteHeader(200)
 	return nil

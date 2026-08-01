@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 )
@@ -18,13 +19,25 @@ type Call struct {
 	Error     error
 }
 
+// Owner is a recorded uid:gid pair, so a test can assert what a subvolume was
+// handed to without needing a real inode or the privileges to change one.
+type Owner struct {
+	UID uint32
+	GID uint32
+}
+
 type MockBtrFSController struct {
 	Lock          *sync.Mutex
 	Call          []Call
 	NextID        uint64
 	Filesystems   []SubvolInfo
 	Quotas        map[string]uint64
+	Owners        map[string]Owner
 	SubvolListErr error
+	// ChownErr, when non-nil, is returned by Chown so tests can prove a
+	// failed ownership hand-off aborts the create rather than yielding a
+	// subvolume the service cannot write to.
+	ChownErr error
 	// QGroupShowFunc, when non-nil, replaces the default quota lookup so
 	// tests can inject errors (for example, to simulate concurrent
 	// deletion during ListFilesystems).
@@ -32,7 +45,34 @@ type MockBtrFSController struct {
 }
 
 func InitBtrFSMockController() *MockBtrFSController {
-	return &MockBtrFSController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []SubvolInfo{}, NextID: 0, Quotas: map[string]uint64{}}
+	return &MockBtrFSController{Lock: new(sync.Mutex), Call: []Call{}, Filesystems: []SubvolInfo{}, NextID: 0, Quotas: map[string]uint64{}, Owners: map[string]Owner{}}
+}
+
+// Chown records the ownership hand-off CreateFilesystem and ModifyFilesystem
+// perform for a subvolume that declares a UID/GID.
+func (m *MockBtrFSController) Chown(path string, uid, gid uint32) error {
+	m.Lock.Lock()
+	defer m.Lock.Unlock()
+
+	m.addCallLocked("Chown", m.ChownErr, path, uid, gid)
+	if m.ChownErr != nil {
+		return m.ChownErr
+	}
+	if m.Owners == nil {
+		m.Owners = map[string]Owner{}
+	}
+	m.Owners[path] = Owner{UID: uid, GID: gid}
+	return nil
+}
+
+// GetOwners returns a copy of the recorded ownership map.
+func (m *MockBtrFSController) GetOwners() map[string]Owner {
+	m.Lock.Lock()
+	defer m.Lock.Unlock()
+
+	out := make(map[string]Owner, len(m.Owners))
+	maps.Copy(out, m.Owners)
+	return out
 }
 
 func (m *MockBtrFSController) GetLog() []Call {

@@ -61,6 +61,9 @@ nc-image-dev:
 ingress-image:
 	@make/build.sh ingress-local
 
+gfeh-image:
+	@make/build.sh gfeh-local
+
 ui-integration-image:
 	@make/build.sh ui-integration
 
@@ -183,6 +186,9 @@ release-nc-image:
 release-ingress-image:
 	@make/build.sh release-ingress
 
+release-gfeh-image:
+	@make/build.sh release-gfeh
+
 push:
 	@$(MAKE) push-rc
 
@@ -223,6 +229,12 @@ push-ingress-rc: release-ingress-image quay-login
 
 push-ingress-release: release-ingress-image quay-login
 	@make/build.sh push-ingress-release
+
+push-gfeh-rc: release-gfeh-image quay-login
+	@make/build.sh push-gfeh-rc
+
+push-gfeh-release: release-gfeh-image quay-login
+	@make/build.sh push-gfeh-release
 
 ifeq ($(PROTON_ENABLED),1)
 push-tag: release-image release-ui-image release-proton-image release-nc-image quay-login

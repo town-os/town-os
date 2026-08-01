@@ -41,7 +41,7 @@ func TestBuildIngressRoutesPackages(t *testing.T) {
 	}
 
 	lister := &stubLister{items: []string{"asdf/gitea@1.0"}}
-	routes := buildIngressRoutes(nil, nil, lister, nil, "", stateDir, "home", "")
+	routes := buildIngressRoutes(context.Background(), nil, nil, lister, nil, nil, "", stateDir, "home", "")
 
 	if len(routes) != 1 {
 		t.Fatalf("expected exactly 1 package route, got %d: %+v", len(routes), routes)
@@ -82,7 +82,7 @@ func TestRebuildIngressPushesRoutes(t *testing.T) {
 
 	ic := &mockIngressClient{}
 	lister := &stubLister{items: []string{"asdf/gitea@1.0"}}
-	if err := RebuildIngress(context.Background(), ic, nil, nil, lister, nil, "", stateDir, "home", ""); err != nil {
+	if err := RebuildIngress(context.Background(), ic, nil, nil, lister, nil, nil, "", stateDir, "home", ""); err != nil {
 		t.Fatalf("RebuildIngress: %v", err)
 	}
 	if len(ic.setCalls) != 1 {
@@ -114,7 +114,7 @@ func TestBuildIngressRoutesPagesUseNetworkTLD(t *testing.T) {
 
 	// ca == nil, so no leaf is issued and CertDir stays empty; we are asserting
 	// the hostnames the ingress vhosts are keyed by.
-	routes := buildIngressRoutes(pagesMgr, nm, &stubLister{}, nil, "", "", "home", "")
+	routes := buildIngressRoutes(context.Background(), pagesMgr, nm, &stubLister{}, nil, nil, "", "", "home", "")
 
 	hosts := map[string]bool{}
 	for _, r := range routes {

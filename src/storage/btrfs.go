@@ -322,6 +322,16 @@ func (c BtrFSController) QGroupShow(path string) (uint64, error) {
 	return parseQGroupShow(string(out), id)
 }
 
+// Chown hands a subvolume root to the uid that will write into it.
+//
+// Non-recursive, deliberately, for the same reason systemd.HostVolumeMount's
+// chown is: the owning process creates its own children as itself, so only the
+// top of the tree can ever be wrong, and a recursive walk over a partition that
+// may hold terabytes would be work that never finds anything to fix.
+func (c BtrFSController) Chown(path string, uid, gid uint32) error {
+	return os.Chown(filepath.Clean(path), int(uid), int(gid))
+}
+
 type BtrFS struct {
 	BasePath          string
 	BinPath           string
@@ -389,6 +399,20 @@ func (b *BtrFS) CreateFilesystem(f Filesystem) error {
 		}
 	}
 
+	// Hand the subvolume to the uid that will actually write into it. Fatal
+	// rather than best-effort: a subvolume its owner cannot write to is a
+	// service that starts cleanly and then fails on its first write, which is
+	// a much worse place to discover this.
+	//
+	// Both or neither. A uid with no gid is a caller mistake, and defaulting
+	// the group to whatever the zero value happens to mean would quietly hand
+	// the subvolume to group 0.
+	if f.UID != nil && f.GID != nil {
+		if err := b.Controller.Chown(path, *f.UID, *f.GID); err != nil {
+			return fmt.Errorf("chown %q to %d:%d: %w", path, *f.UID, *f.GID, err)
+		}
+	}
+
 	return nil
 }
 
@@ -428,6 +452,17 @@ func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
 			if err != nil {
 				return fmt.Errorf("clear quota: %w", err)
 			}
+		}
+	}
+
+	// Re-assert ownership. Modify is the idempotent path reconcile takes on
+	// every boot for a subvolume that already exists, so this is where a
+	// drifted owner gets repaired — without it, a partition whose uid changed
+	// (or one created before the owner was declared) would stay unwritable
+	// forever, since CreateFilesystem never runs again.
+	if f.UID != nil && f.GID != nil {
+		if err := b.Controller.Chown(oldPath, *f.UID, *f.GID); err != nil {
+			return fmt.Errorf("chown %q to %d:%d: %w", oldPath, *f.UID, *f.GID, err)
 		}
 	}
 

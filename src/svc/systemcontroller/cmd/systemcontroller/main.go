@@ -98,6 +98,135 @@ func setupPodmanEnv() error {
 	return os.Setenv("CONTAINER_HOST", HostPodmanSocket)
 }
 
+// gfehControllerURL is the base URL a partition's daemon authenticates to.
+//
+// Loopback rather than the box's LAN address: gfehd runs in a container on the
+// host network namespace, so the published port is reachable there, and naming
+// the LAN address would break the moment DHCP moved it.
+func gfehControllerURL(listenAddr string) string {
+	port := listenAddr
+	if idx := strings.LastIndex(listenAddr, ":"); idx >= 0 {
+		port = listenAddr[idx+1:]
+	}
+	if port == "" {
+		return ""
+	}
+	return "http://127.0.0.1:" + port
+}
+
+
+// gfehPublishConfig is what publishGfehNames needs to re-derive the record and
+// route sets once the partitions are answering.
+type gfehPublishConfig struct {
+	Registry         systemcontroller.GfehRegistry
+	Rolodex          *rolodex.Manager
+	Ingress          *ingressctl.Manager
+	Installer        *packages.InstallManager
+	RepositoryRoot   *packages.RepositoryRoot
+	PagesMgr         account.PagesManager
+	NetworkMgr       account.NetworkManager
+	SettingsMgr      account.SettingsManager
+	TLSCA            *townostls.CA
+	BtrfsBasePath    string
+	NetworkStatePath string
+	TLD              string
+}
+
+// publishGfehNames waits for the object-storage partitions to come up, then
+// folds their names into DNS and the ingress.
+//
+// Runs after the handler swap because that is the earliest a partition can
+// finish starting: gfehd polls /status/ping, which answers 503 until the full
+// router is live. Everything DNS-related in the boot sequence has already run
+// by then, so without this a partition's names would first appear on the hourly
+// reconcile.
+//
+// ReconcileDNS rather than RebuildDNS: this is an incremental add to a zone
+// that is already serving, and tearing it down would blip every package and
+// page on the box to publish some object-storage records.
+//
+// Entirely best-effort. A partition that never comes up costs its own names and
+// nothing else.
+func publishGfehNames(ctx context.Context, cfg gfehPublishConfig) {
+	if !waitForGfehPartitions(ctx, cfg.Registry) {
+		fmt.Fprintf(os.Stderr, "gfeh: no partition became ready; its names will be published by the next reconcile\n")
+		return
+	}
+
+	dnsCfg := systemcontroller.ReconcileDNSConfig{
+		Installer:        cfg.Installer,
+		RepositoryRoot:   cfg.RepositoryRoot,
+		SettingsMgr:      cfg.SettingsMgr,
+		PagesManager:     cfg.PagesMgr,
+		NetworkMgr:       cfg.NetworkMgr,
+		InternalIP:       getInternalIP(),
+		InternalIPv6:     getInternalIPv6(),
+		NetworkStatePath: cfg.NetworkStatePath,
+		BtrfsBasePath:    cfg.BtrfsBasePath,
+		Gfeh:             cfg.Registry,
+	}
+
+	if cfg.Rolodex != nil {
+		rolClient, dialErr := rolodex.Dial(ctx, cfg.Rolodex.SocketPath())
+		if dialErr != nil {
+			fmt.Fprintf(os.Stderr, "gfeh: dial rolodex: %v\n", dialErr)
+		} else {
+			dnsCfg.Client = rolClient
+			if err := systemcontroller.ReconcileDNS(ctx, dnsCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "gfeh: reconcile DNS: %v\n", err)
+			}
+			if err := systemcontroller.RebuildNetworkDNS(ctx, dnsCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "gfeh: rebuild network DNS: %v\n", err)
+			}
+			if closeErr := rolClient.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "gfeh: close rolodex client: %v\n", closeErr)
+			}
+		}
+	}
+
+	if cfg.Ingress != nil {
+		ic, dialErr := ingress.Dial(ctx, cfg.Ingress.SocketPath())
+		if dialErr != nil {
+			fmt.Fprintf(os.Stderr, "gfeh: dial ingress: %v\n", dialErr)
+			return
+		}
+		if err := systemcontroller.RebuildIngress(ctx, ic, cfg.PagesMgr, cfg.NetworkMgr,
+			cfg.Installer, cfg.Registry, cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath,
+			cfg.TLD, getInternalIP()); err != nil {
+			fmt.Fprintf(os.Stderr, "gfeh: rebuild ingress: %v\n", err)
+		}
+		if closeErr := ic.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "gfeh: close ingress client: %v\n", closeErr)
+		}
+	}
+}
+
+// waitForGfehPartitions blocks until at least one partition answers, or the
+// deadline passes.
+//
+// At least one rather than all: a box with several networks should publish the
+// partitions that did come up rather than withhold everything because one
+// did not. The deadline is longer than gfehd's own startup because it includes
+// provisioning -- the daemon authenticates, creates or resizes its subvolume,
+// and opens its index before it binds the admin socket.
+func waitForGfehPartitions(ctx context.Context, reg systemcontroller.GfehRegistry) bool {
+	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	for {
+		for _, client := range reg.Clients() {
+			if _, err := client.Health(waitCtx); err == nil {
+				return true
+			}
+		}
+		select {
+		case <-waitCtx.Done():
+			return false
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
 func run() (err error) {
 	if err := setupPodmanEnv(); err != nil {
 		return fmt.Errorf("setup podman env: %w", err)
@@ -482,6 +611,42 @@ func run() (err error) {
 		}
 	}
 
+	// Object storage: one gfeh partition per network, each its own daemon.
+	//
+	// GFEH_IMAGE explicitly empty skips it entirely (dev mode), the same
+	// LookupEnv convention UI_IMAGE and INGRESS_IMAGE use — Getenv would make
+	// an empty value mean "use the default" and there would be no off switch.
+	gfehImage := os.Getenv("GFEH_IMAGE")
+	if _, set := os.LookupEnv("GFEH_IMAGE"); !set {
+		gfehImage = "quay.io/town/gfeh:" + tag
+	}
+	var gfehReg systemcontroller.GfehRegistry
+	if gfehImage != "" {
+		// Gated on the ingress: the four HTTP views publish no host port and
+		// are reachable only through it, so starting partitions with no
+		// ingress would produce four names per network that nothing serves.
+		if ingressMgr == nil {
+			fmt.Fprintf(os.Stderr, "gfeh: skipped, the ingress is disabled and the HTTP views are only reachable through it\n")
+		} else {
+			reg := systemcontroller.NewGfehRegistry(systemcontroller.ReconcileGfehConfig{
+				NetworkMgr:    networkMgr,
+				AccountMgr:    acctMgr,
+				Storage:       st,
+				Systemd:       sd,
+				SettingsMgr:   settingsMgr,
+				BtrfsBasePath: *btrfsPath,
+				Image:         gfehImage,
+				// gfehd reaches the controller over the host podman network,
+				// so loopback on the published port. It waits on /status/ping
+				// before authenticating, which is why starting it here -- long
+				// before the full router is up -- is safe.
+				ControllerURL: gfehControllerURL(*listenAddr),
+			})
+			systemcontroller.ReconcileGfeh(ctx, reg)
+			gfehReg = reg
+		}
+	}
+
 	// Detect whether the systemcontroller image changed since the last
 	// run. When it has, reconcile will restart all units whose generated
 	// content differs from what is on disk.
@@ -502,6 +667,7 @@ func run() (err error) {
 		InternalIP:             getInternalIP(),
 		VersionChanged:         versionChanged,
 		TLSCA:                  tlsCA,
+		Gfeh:                   gfehReg,
 		Git:                    &git.GoGitClient{},
 		PostUpdateExec: func(ctx context.Context, containerName string, command string) error {
 			execCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -550,6 +716,7 @@ func run() (err error) {
 				InternalIPv6:     getInternalIPv6(),
 				NetworkStatePath: *networkStatePath,
 				BtrfsBasePath:    *btrfsPath,
+				Gfeh:             gfehReg,
 			}
 			if dnsErr := systemcontroller.RebuildDNS(ctx, dnsCfg); dnsErr != nil {
 				fmt.Fprintf(os.Stderr, "rebuild DNS: %v\n", dnsErr)
@@ -598,7 +765,7 @@ func run() (err error) {
 		if dialErr != nil {
 			fmt.Fprintf(os.Stderr, "ingress dial: %v\n", dialErr)
 		} else {
-			if irErr := systemcontroller.RebuildIngress(ctx, ic, pagesMgr, networkMgr, inst, tlsCA, *btrfsPath, *networkStatePath, dnsTLD, getInternalIP()); irErr != nil {
+			if irErr := systemcontroller.RebuildIngress(ctx, ic, pagesMgr, networkMgr, inst, gfehReg, tlsCA, *btrfsPath, *networkStatePath, dnsTLD, getInternalIP()); irErr != nil {
 				fmt.Fprintf(os.Stderr, "rebuild ingress: %v\n", irErr)
 			}
 			if closeErr := ic.Close(); closeErr != nil {
@@ -655,6 +822,7 @@ func run() (err error) {
 		Rolodex:                    rolMgr,
 		Ingress:                    ingressMgr,
 		UI:                         uiMgr,
+		GfehRegistry:               gfehReg,
 		ResolvedConfigurator:       rolodex.ConfigureResolvedRouting,
 		SystemControllerImage:      "quay.io/town/town:" + tag,
 		SystemControllerListenAddr: *listenAddr,
@@ -672,6 +840,34 @@ func run() (err error) {
 	rootHandler.Swap(handler)
 	bs.Step("ready")
 	bs.Done()
+
+	// Object storage publishes its names here, after the swap, and not with
+	// the rest of the DNS and ingress work above.
+	//
+	// The ordering is forced: each partition's gfehd waits for /status/ping to
+	// stop answering 503 before it authenticates and opens its partition, and
+	// that only happens on the line above. Asking it for GET /v1/names any
+	// earlier gets nothing, and RebuildDNS having already run means nothing
+	// would republish them until the hourly reconcile an hour later.
+	//
+	// Backgrounded so a partition that never comes up cannot hold the process
+	// short of serving requests -- the router is already live at this point.
+	if gfehReg != nil {
+		go publishGfehNames(ctx, gfehPublishConfig{
+			Registry:         gfehReg,
+			Rolodex:          rolMgr,
+			Ingress:          ingressMgr,
+			Installer:        inst,
+			RepositoryRoot:   rr,
+			PagesMgr:         pagesMgr,
+			NetworkMgr:       networkMgr,
+			SettingsMgr:      settingsMgr,
+			TLSCA:            tlsCA,
+			BtrfsBasePath:    *btrfsPath,
+			NetworkStatePath: *networkStatePath,
+			TLD:              dnsTLD,
+		})
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
