@@ -74,7 +74,7 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
-- **The storage layer manages volumes; gfeh provides object storage.** `src/storage` deals in btrfs subvolumes and quotas and nothing else -- it does not handle object storage at all. Objects, per-file metadata and permissions, the hierarchical user/ACL database, sharing, per-file HTTP exposure, federation, and every protocol view (S3, SMB/CIFS, IPFS, Google Drive, plain HTTP) belong to gfeh, which is the responsible party. Never add object/blob/per-file endpoints to `src/storage` or `/storage/*`, and never teach `storage.Storage` or `storage.Controller` about users, permissions, or protocols. See [Storage](#storage).
+- **The storage layer manages volumes; gfeh provides object storage.** `src/storage` deals in btrfs subvolumes and quotas and nothing else -- it does not handle object storage at all. Objects, per-file metadata and permissions, the hierarchical user/ACL database, sharing, per-file HTTP exposure, federation, and every protocol view (S3, IPFS, Google Drive, plain HTTP — and SMB/CIFS, which gfehd implements but Town OS does not serve) belong to gfeh, which is the responsible party. Never add object/blob/per-file endpoints to `src/storage` or `/storage/*`, and never teach `storage.Storage` or `storage.Controller` about users, permissions, or protocols. See [Storage](#storage).
 
 - **Pages feature is always enabled** — the pages subsystem (static site hosting via Caddy) is initialized unconditionally at startup; there is no `TOWN_OS_PAGES` env gate. The pages manager is non-nil in a normal boot, so the pages API is always available. The handlers still keep a defensive nil-manager guard that returns "pages not configured" (exercised by tests that build a server without `ServerConfig.PagesMgr`), but real boots never hit it.
 
@@ -528,7 +528,7 @@ Storage uses btrfs subvolumes with quota enforcement.
 
 `src/storage` creates, resizes, renames, snapshots, and deletes btrfs subvolumes, and reports disk usage. That is its entire remit. It must never learn what an object, a bucket, a key, a file handle, a content identifier (CID), an ACL, a share, or a protocol view is. To the storage layer a subvolume is an opaque byte arena with a quota.
 
-gfeh (`gitea.com/town-os/gfeh`, a Rust system service shipped as `town-os-system--gfeh`) owns everything above that line: the object namespace, per-file metadata and permissions, the hierarchical user/ACL database, sharing, per-file HTTP exposure, federation to external services, and every protocol view (S3, SMB/CIFS, IPFS, Google Drive, plain HTTP). It consumes the storage layer purely to provision and resize the subvolumes its partitions live in, then does its own direct I/O on the bind-mounted subtree.
+gfeh (`gitea.com/town-os/gfeh`, a Rust system service shipped as `town-os-system--gfeh`) owns everything above that line: the object namespace, per-file metadata and permissions, the hierarchical user/ACL database, sharing, per-file HTTP exposure, federation to external services, and every protocol view (S3, IPFS, Google Drive, plain HTTP; SMB/CIFS exists in gfehd but [Town OS does not serve it](#no-smb-view)). It consumes the storage layer purely to provision and resize the subvolumes its partitions live in, then does its own direct I/O on the bind-mounted subtree.
 
 Consequences to respect when changing either side:
 
@@ -536,7 +536,7 @@ Consequences to respect when changing either side:
 - Do **not** teach `storage.Storage` or `storage.Controller` about users, permissions, or protocols. Quota is the only policy the storage layer enforces.
 - gfeh partitions live under the reserved `gfeh/` subvolume prefix. They are provisioned through `storage.Storage`'s `CreateFilesystem`/`ModifyFilesystem` **in-process**, not through the `/storage/*` HTTP API: `createFilesystem` rewrites every submitted name to `user/<name>` unconditionally (`controller_storage.go`), so that route cannot produce a volume under any other prefix. Partition provisioning therefore needs its own `/gfeh/partitions/*` handlers, which also keeps reserved-prefix enforcement, quota policy, and the audit log in one place instead of duplicating them in gfeh.
 
-- **gfeh depends on a written contract, and changes here can break it.** `TOWNOS_CONTRACT.md` in the gfeh repository lists every route, behavior, and invariant gfeh relies on from Town OS -- the `user/` rewrite, the reserved-prefix rules, indistinguishable auth failures, per-request session revalidation against the account, and the fail-closed meaning of an empty `Account.Networks` -- and pins the Town OS revision it was verified against. gfeh emulates that contract so its tests can run without root, systemd, podman, or btrfs.
+- **gfeh depends on a written contract, and changes here can break it.** `TOWNOS_CONTRACT.md` in the gfeh repository lists every route, behavior, and invariant gfeh relies on from Town OS -- the `user/` rewrite, the reserved-prefix rules, the `/gfeh/partitions/*` status codes, indistinguishable auth failures, and the fail-closed meaning of an empty `Account.Networks` -- and pins the Town OS revision it was verified against. gfeh emulates that contract so its tests can run without root, systemd, podman, or btrfs.
 
   **When changing `src/storage`, `src/account`, or the system controller's routes, re-run `make check-townos-sync` in the gfeh checkout.** A drifted emulator gives gfeh a green test suite and a broken deployment. Reconcile the emulator and the contract document together; never one without the other.
 
@@ -708,7 +708,7 @@ The socket sits on the btrfs because that is the one filesystem both the gfehd c
 
 **Ports.** The four HTTP views bind **fixed, identical container ports on every partition** — s3 9000, http 9001, drive 9002, ipfs 9003 — and publish **no host port**. That is safe precisely because they publish none: each container has its own netns and the ingress reaches it by container name, exactly as it reaches a package. Two partitions both serving S3 on 9000 cannot collide, including under a concurrent `make test-full`.
 
-SMB is the exception and the only view needing a real host port, because it is not HTTP and cannot sit behind the ingress. 445 is privileged and singular, so it is never used: the port is `DefaultSMBPortBase + <network index>` (base `4450`), overridable with `GFEH_SMB_PORT_BASE` so the integration harness can take a range of its own — the IRON RULE again. This mirrors `wireguard.DefaultListenPortBase`.
+**No partition publishes a host port at all**, because SMB — the one view that would need one, being neither HTTP nor able to sit behind the ingress — is [not served](#no-smb-view). `DefaultSMBPortBase` (`4450`) and `GFEH_SMB_PORT_BASE` survive unused, so the harness setting stays harmless if the view ever returns.
 
 ### Protocol 1: partition provisioning (`/gfeh/partitions/*`)
 
@@ -758,7 +758,7 @@ Publication matches packages and pages exactly:
 - **TLS** — a local-CA leaf per name, carrying the box's overlay IP on that network as a SAN so a peer can dial by raw WireGuard address.
 - **Ingress** — one vhost per HTTP view, backend `<container>:<port>` on the shared `town-os-ingress` podman network. `dedupeIngressRoutes` guards the route set first-wins, because Caddy rejects an entire config over one duplicate vhost.
 
-`IsHTTPView` gates that last step, and an **unknown** view is treated as not-HTTP: a vhost for something that does not speak HTTP accepts a TLS handshake and then fails, which is worse than no route at all. SMB contributes a DNS record and no ingress route.
+`IsHTTPView` gates that last step, and an **unknown** view is treated as not-HTTP: a vhost for something that does not speak HTTP accepts a TLS handshake and then fails, which is worse than no route at all. (A non-HTTP view would contribute a DNS record and no ingress route; today all four served views are HTTP.)
 
 ### Protocol 4: the UI proxy (`/gfeh/*`)
 
@@ -798,7 +798,7 @@ Consequences: no partition declares an `smb:` block, no host port is allocated f
 
 ### Config file
 
-`src/gfeh/config.go` mirrors gfehd's YAML **exactly**. Every gfehd config struct is `#[serde(deny_unknown_fields)]`, so a stray key is not ignored — it is a hard startup failure. Top level: `data_dir`, `partition`, `network` (a **pointer**: absent means the default partition, and an empty string is a different, invalid request), `admin_socket`, the five optional view blocks, `credentials`, and `town_os`. Written `0600` under `<btrfsBase>/gfeh-control/<network>/`.
+`src/gfeh/config.go` mirrors gfehd's YAML **exactly**. Every gfehd config struct is `#[serde(deny_unknown_fields)]`, so a stray key is not ignored — it is a hard startup failure. Top level: `data_dir`, `partition`, `network` (a **pointer**: absent means the default partition, and an empty string is a different, invalid request), `admin_socket`, the five optional view blocks, `credentials`, and `town_os`. Town OS renders four of the five views and neither an `smb:` block nor a `town_os:` account. Written `0640` and group-readable by gfeh's gid under `<btrfsBase>/gfeh-control/<network>/`, since the daemon runs as uid 2000 and must read it.
 
 ### Boot and reconcile
 
