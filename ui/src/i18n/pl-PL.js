@@ -150,8 +150,10 @@ const plPL = {
   'users.col_edit': 'Edytuj',
   'users.role_admin': 'Administrator',
   'users.role_user': 'Użytkownik',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Konto tylko WireGuard',
+  'users.grants_label': 'Uprawnienia',
+  'users.grants_help': 'Uprawnienia tego konta w poniższych sieciach. Administratorzy mają wszystkie.',
+  'users.grant_wireguard': 'Peery WireGuard',
+  'users.grant_gfeh': 'Magazyn obiektów',
   'users.networks_label': 'Zakres sieci',
   'users.networks_none': 'Brak dostępnych sieci.',
   'users.error_networks_required': 'Wybierz co najmniej jedną sieć dla konta tylko WireGuard',
@@ -193,7 +195,6 @@ const plPL = {
   'create_user.phone_label': 'Telefon',
   'create_user.email_label': 'E-mail',
   'create_user.admin_label': 'Uprawnienia administratora',
-  'create_user.wireguard_label': 'Konto tylko WireGuard',
   'create_user.networks_label': 'Zakres sieci',
   'create_user.networks_description': 'Sieci, w których to konto może rejestrować węzły WireGuard. Nie może robić nic więcej.',
   'create_user.networks_none': 'Brak dostępnych sieci. Najpierw utwórz sieć.',
@@ -891,11 +892,6 @@ const plPL = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default plPL

@@ -10,6 +10,18 @@ import (
 // default DNS TLD (dns_tld, "home") and can never be removed.
 const DefaultNetworkName = "home"
 
+// DefaultNetwork is the home network as it exists before anything configures
+// it: named, enabled, and carrying no WireGuard transport at all.
+//
+// The empty Subnet/keys/ListenPort are the truth rather than a placeholder --
+// the home network is DNS-only (applyNetworkTransport tears down any interface
+// it finds on it), so a derived subnet and keypair would be fields nothing ever
+// reads. Its TLD is the bare default; the controller reconciles it to the
+// dns_tld setting at boot, which is the only place that setting is known.
+func DefaultNetwork() *Network {
+	return &Network{Name: DefaultNetworkName, TLD: DefaultNetworkName, Enabled: true}
+}
+
 var (
 	ErrNetworkNotFound      = errors.New("network not found")
 	ErrDuplicateNetwork     = errors.New("network already exists")
@@ -63,7 +75,7 @@ type NetworkPeer struct {
 	Rolodex bool `json:"rolodex"`
 	// CreatedBy is the username of the account that enrolled this peer, or empty
 	// for peers added by a localhost/legacy path. It is the ownership key: a
-	// WireGuard-only account may refresh (and the operator audit) only the peers
+	// network-only account may refresh (and the operator audit) only the peers
 	// it created, so a scoped account cannot keep another account's peer alive.
 	CreatedBy string `json:"created_by,omitempty"`
 	// ExpiresAt is when this enrollment lapses and the reaper removes it. A nil
@@ -85,6 +97,12 @@ type NetworkManager interface {
 	List() ([]Network, error)
 	Remove(name string) error
 	SetEnabled(name string, enabled bool) error
+	// SetTLD repoints a network at a different DNS TLD. It exists for the home
+	// network, whose TLD is the dns_tld setting: the row is seeded before that
+	// setting can be read, and `POST /dns/tld` can change it afterwards, so the
+	// controller reconciles the two at boot. Returns [ErrNetworkNotFound] if the
+	// network does not exist.
+	SetTLD(name, tld string) error
 	Count() (int, error)
 
 	AddPeer(p *NetworkPeer) (*NetworkPeer, error)

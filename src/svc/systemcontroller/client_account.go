@@ -38,20 +38,19 @@ func (c *SystemdClient) CreateAccount(ctx context.Context, username, password, e
 	return &acct, json.NewDecoder(resp.Body).Decode(&acct)
 }
 
-// CreateWireGuardAccount creates a WireGuard-only account scoped to networks.
-// The resulting account is never an admin and may reach only the WireGuard
-// enrollment endpoints.
-func (c *SystemdClient) CreateWireGuardAccount(ctx context.Context, username, password, email, phone, realName string, networks []string) (_ *account.Account, err error) {
+// CreateGrantedAccount creates a non-admin account holding grants, scoped to
+// networks. It may reach only the routes those grants unlock, on those networks.
+func (c *SystemdClient) CreateGrantedAccount(ctx context.Context, username, password, email, phone, realName string, grants, networks []string) (_ *account.Account, err error) {
 	pr, pw := io.Pipe()
 	go pipeEncode(pw, CreateAccountRequest{
 		Username: username, Password: password,
 		Email: email, Phone: phone, RealName: realName,
-		WireGuard: true, Networks: networks,
+		Grants: grants, Networks: networks,
 	})
 
 	resp, err := c.postJSON(ctx, "account/create", pr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: CreateWireGuardAccount: %w", ErrHTTPRequest, err)
+		return nil, fmt.Errorf("%w: CreateGrantedAccount: %w", ErrHTTPRequest, err)
 	}
 	defer func() {
 		err = errors.Join(err, resp.Body.Close())

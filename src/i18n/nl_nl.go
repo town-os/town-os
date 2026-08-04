@@ -130,10 +130,11 @@ var nlNLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "netwerkpeer verwijderen",
 	MsgAuditRefreshNetworkPeer:      "netwerkpeer vernieuwen",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "dit account mag alleen wireguard-inschrijvingsendpoints gebruiken",
-	MsgAuthWireGuardNetworkDenied: "dit account is niet toegestaan op dat netwerk",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "dit account mag alleen endpoints voor netwerkinschrijving en objectopslag gebruiken",
+	MsgAuthNetworkOnlyNetworkDenied: "dit account is niet toegestaan op dat netwerk",
 	MsgAuthWireGuardPeerNotOwned:  "dit account mag alleen peers vernieuwen die het zelf heeft ingeschreven",
+	MsgAuthObjectStorageRequired:  "beheerders- of objectopslagtoegang vereist",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "archiefuploads en -downloads kunnen geen objectopslagpartitie aanspreken",
@@ -145,7 +146,6 @@ var nlNLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "principal-veld is verplicht",
 	MsgGfehPathRequired:          "padveld is verplicht",
 	MsgGfehUnknownAccount:        "account bestaat niet",
-	MsgGfehServiceAccountProtected: "het serviceaccount van de objectopslag kan niet worden uitgeschakeld; elke partitie authenticeert ermee",
 	MsgAuditCreateGfehPartition:  "objectopslagpartitie aanmaken",
 	MsgAuditModifyGfehPartition:  "objectopslagpartitie wijzigen",
 	MsgAuditRemoveGfehPartition:  "objectopslagpartitie verwijderen",

@@ -111,6 +111,17 @@ const mockSetSystemServiceStatus = vi.fn(() => Promise.resolve())
 const mockRefreshSystemServices = vi.fn(() => Promise.resolve())
 const mockPing = vi.fn(() => Promise.resolve({ username: 'admin' }))
 
+// Object storage is a section of this screen now, so its calls belong on this
+// mock. A partition IS a system service -- one town-os-system--gfeh-<network>
+// unit -- which is why it lives here rather than on a nav entry of its own.
+const mockListGfehPartitions = vi.fn(() =>
+  Promise.resolve([
+    { network: 'home', tld: 'home', quota: 0, running: true, names: [] },
+  ]),
+)
+const mockGetAccount = vi.fn(() => Promise.resolve({ username: 'admin', admin: true }))
+const mockListGfehPrincipals = vi.fn(() => Promise.resolve([]))
+
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
     listUnits: mockListUnits,
@@ -122,6 +133,14 @@ vi.mock('@/lib/client-instance.js', () => ({
     setSystemServiceStatus: mockSetSystemServiceStatus,
     refreshSystemServices: mockRefreshSystemServices,
     ping: mockPing,
+    listGfehPartitions: mockListGfehPartitions,
+    getAccount: mockGetAccount,
+    listGfehPrincipals: mockListGfehPrincipals,
+    listGfehGrants: vi.fn(() => Promise.resolve([])),
+    listGfehExposures: vi.fn(() => Promise.resolve([])),
+    listAccounts: vi.fn(() =>
+      Promise.resolve({ entries: [], has_more: false, total_pages: 1, total_count: 0 }),
+    ),
   }),
 }))
 
@@ -161,7 +180,55 @@ describe('SystemManagement', () => {
     mockRefreshSystemServices.mockClear()
     mockPing.mockReset()
     mockPing.mockResolvedValue({ username: 'admin' })
+    mockListGfehPartitions.mockClear()
+    mockListGfehPrincipals.mockClear()
     resetSessionChecks()
+  })
+
+  // --- Object storage ---
+
+  // Object storage also appears here, collapsed: the partitions are system
+  // services and the question people arrive with is whether theirs is up. The
+  // full screen at /dashboard/objects is unaffected and has its own tests.
+  it('offers an object storage section', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Object Storage')).toBeTruthy()
+    })
+  })
+
+  // Collapsed means collapsed: the panel polls the partition list, and doing
+  // that on every visit to the services screen would be a request nobody asked
+  // for.
+  it('does not load partitions until the section is opened', async () => {
+    renderSystemManagement()
+    await waitFor(() => {
+      expect(screen.getByText('Object Storage')).toBeTruthy()
+    })
+    expect(mockListGfehPartitions).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Object Storage'))
+    await waitFor(() => {
+      expect(mockListGfehPartitions).toHaveBeenCalled()
+    })
+  })
+
+  // ?expand=objects opens it directly.
+  it('opens the section from the query string', async () => {
+    renderSystemManagement(['/dashboard/system?expand=objects'])
+    await waitFor(() => {
+      expect(mockListGfehPartitions).toHaveBeenCalled()
+    })
+  })
+
+  // The section's sub-tab rides its own query key. This screen already spends
+  // ?tab= on its own state, so sharing it would make opening a partition's
+  // grants also move the services screen underneath it.
+  it('drives the section sub-tab from objects_tab, not tab', async () => {
+    renderSystemManagement(['/dashboard/system?expand=objects&objects_tab=users&network=home'])
+    await waitFor(() => {
+      expect(mockListGfehPrincipals).toHaveBeenCalledWith('home')
+    })
   })
 
   it('renders the Services heading', async () => {

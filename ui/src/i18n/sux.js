@@ -150,8 +150,10 @@ const sux = {
   'users.col_edit': '𒋗𒆳 (šu-kur₂)',
   'users.role_admin': '𒈗 (lugal)',
   'users.role_user': '𒇽 (lu₂)',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'WireGuard 𒁾𒈗 (dub-lugal)',
+  'users.grants_label': '𒌣 (šum)',
+  'users.grants_help': '𒃻𒉏 𒆳𒂷 𒌣 (niĝ-šid kur-ĝa šum)',
+  'users.grant_wireguard': 'WireGuard 𒇽 (lu₂)',
+  'users.grant_gfeh': '𒂍𒃻 (e-ĝar)',
   'users.networks_label': '𒆳 (kur) 𒆠 (ki)',
   'users.networks_none': '𒆳 (kur) 𒉡𒃼 (nu-ĝar).',
   'users.error_networks_required': 'WireGuard 𒁾𒈗 (dub-lugal) 1 𒆳 (kur) 𒃼 (ĝar)',
@@ -193,7 +195,6 @@ const sux = {
   'create_user.phone_label': 'Phone',
   'create_user.email_label': 'Email',
   'create_user.admin_label': '𒈗 (lugal) 𒃼 (ĝar)',
-  'create_user.wireguard_label': 'WireGuard 𒁾𒈗 (dub-lugal)',
   'create_user.networks_label': '𒆳 (kur) 𒆠 (ki)',
   'create_user.networks_description': '𒆳 (kur) 𒇽 (lu₂) WireGuard 𒃼 (ĝar). 𒃻𒉡 (niĝ₂-nu).',
   'create_user.networks_none': '𒆳 (kur) 𒉡𒃼 (nu-ĝar). 𒆳 (kur) 𒊕 (saĝ) 𒁶 (dim₂).',
@@ -891,11 +892,6 @@ const sux = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default sux

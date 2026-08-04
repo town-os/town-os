@@ -7,6 +7,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import JournalViewer from '@/components/JournalViewer.jsx'
 import PackageServiceTree from '@/components/system/PackageServiceTree.jsx'
 import BootStatusStepper from '@/components/system/BootStatusStepper.jsx'
+import ObjectStoragePanel from '@/routes/objects/ObjectStoragePanel.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
@@ -37,6 +38,7 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  Database,
 } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 
@@ -99,6 +101,16 @@ export default function SystemManagement() {
 
   const [systemServicesOpen, setSystemServicesOpen] = useState(
     searchParams.get('expand') === 'system'
+  )
+
+  // Object storage also appears here, because its partitions ARE system
+  // services -- one town-os-system--gfeh-<network> unit each, listed in the
+  // section above -- so the question "is my storage up?" is answered next to
+  // the row that answers it. The full screen at /dashboard/objects remains.
+  // Opens on ?expand=objects, and its sub-tab rides a distinct query key since
+  // this screen already spends ?tab= and ?expand= on its own state.
+  const [objectStorageOpen, setObjectStorageOpen] = useState(
+    searchParams.get('expand') === 'objects'
   )
 
   const [systemServices] = usePolling(
@@ -470,6 +482,31 @@ export default function SystemManagement() {
           )}
         </div>
       )}
+
+      {/* Object Storage Section */}
+      <div>
+        <Button
+          variant="ghost"
+          className="w-full justify-start px-4 py-3 h-auto border rounded-lg"
+          onClick={() => setObjectStorageOpen((v) => !v)}
+        >
+          <div className="flex items-center gap-2">
+            {objectStorageOpen ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            <Database className="h-4 w-4" />
+            <span className="font-semibold">{t('objects.title')}</span>
+            <span className="text-muted-foreground text-sm">{t('objects.description')}</span>
+          </div>
+        </Button>
+        {objectStorageOpen && (
+          <div className="mt-2">
+            <ObjectStoragePanel account={account} tabParam="objects_tab" />
+          </div>
+        )}
+      </div>
 
       {unitsLoading && units.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">{t('system.loading')}</div>

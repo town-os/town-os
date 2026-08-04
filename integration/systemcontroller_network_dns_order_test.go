@@ -109,12 +109,15 @@ func TestOverlayDNSListenerIsProgrammedAfterInterfaceStarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListNetworks: %v", err)
 	}
-	if len(nets) != 1 {
-		t.Fatalf("expected 1 network, got %d", len(nets))
+	// By name, not by position: the always-present home network is in this list
+	// too, and it has no overlay address at all.
+	office := findNetworkView(nets, "office")
+	if office == nil {
+		t.Fatalf("no office network in %+v", nets)
 	}
 	// The listener address is the box's own overlay address (.1 of the subnet),
 	// which is exactly what renderPeerDeviceConfig hands peers as their DNS.
-	wantIP := nets[0].Address
+	wantIP := office.Address
 	if idx := len(wantIP) - len("/24"); idx > 0 && wantIP[idx:] == "/24" {
 		wantIP = wantIP[:idx]
 	}

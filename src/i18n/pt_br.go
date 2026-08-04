@@ -130,10 +130,11 @@ var ptBRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "remover peer de rede",
 	MsgAuditRefreshNetworkPeer:      "atualizar peer de rede",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "esta conta só pode usar endpoints de inscrição wireguard",
-	MsgAuthWireGuardNetworkDenied: "esta conta não tem permissão nessa rede",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "esta conta só pode usar endpoints de inscrição de rede e armazenamento de objetos",
+	MsgAuthNetworkOnlyNetworkDenied: "esta conta não tem permissão nessa rede",
 	MsgAuthWireGuardPeerNotOwned:  "esta conta só pode atualizar peers que ela inscreveu",
+	MsgAuthObjectStorageRequired:  "é necessário acesso de administrador ou de armazenamento de objetos",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "envios e downloads de arquivos não podem endereçar uma partição de armazenamento de objetos",
@@ -145,7 +146,6 @@ var ptBRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "o campo principal é obrigatório",
 	MsgGfehPathRequired:          "o campo caminho é obrigatório",
 	MsgGfehUnknownAccount:        "conta inexistente",
-	MsgGfehServiceAccountProtected: "a conta de serviço do armazenamento de objetos não pode ser desativada; cada partição se autentica com ela",
 	MsgAuditCreateGfehPartition:  "criar partição de armazenamento de objetos",
 	MsgAuditModifyGfehPartition:  "modificar partição de armazenamento de objetos",
 	MsgAuditRemoveGfehPartition:  "remover partição de armazenamento de objetos",

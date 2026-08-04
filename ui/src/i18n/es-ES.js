@@ -150,8 +150,10 @@ const esES = {
   'users.col_edit': 'Editar',
   'users.role_admin': 'Administrador',
   'users.role_user': 'Usuario',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Cuenta solo de WireGuard',
+  'users.grants_label': 'Permisos',
+  'users.grants_help': 'Capacidades de esta cuenta en las redes de abajo. Los administradores las tienen todas.',
+  'users.grant_wireguard': 'Pares WireGuard',
+  'users.grant_gfeh': 'Almacenamiento de objetos',
   'users.networks_label': 'Ámbito de red',
   'users.networks_none': 'No hay redes disponibles.',
   'users.error_networks_required': 'Seleccione al menos una red para una cuenta solo de WireGuard',
@@ -193,7 +195,6 @@ const esES = {
   'create_user.phone_label': 'Teléfono',
   'create_user.email_label': 'Correo electrónico',
   'create_user.admin_label': 'Privilegios de administrador',
-  'create_user.wireguard_label': 'Cuenta solo de WireGuard',
   'create_user.networks_label': 'Ámbito de red',
   'create_user.networks_description': 'Redes en las que esta cuenta puede inscribir pares de WireGuard. No puede hacer nada más.',
   'create_user.networks_none': 'No hay redes disponibles. Cree una red primero.',
@@ -891,11 +892,6 @@ const esES = {
   'objects.toast_grant_added': 'Permiso añadido',
   'objects.toast_grant_revoked': 'Permiso revocado',
   'objects.toast_link_withdrawn': 'Enlace retirado',
-  'users.smb_credential': 'Contraseña SMB',
-  'users.smb_credential_help': 'Una contraseña independiente, usada solo para montar el recurso SMB. No puede derivarse de la contraseña de la cuenta; dejarla vacía significa que la cuenta no puede montar ningún recurso. Déjela sin cambios para conservar la actual.',
-  'users.smb_enrolled': 'SMB habilitado',
-  'users.smb_not_enrolled': 'Sin acceso SMB',
-  'users.smb_clear': 'Quitar acceso SMB',
 }
 
 export default esES

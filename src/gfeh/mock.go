@@ -31,6 +31,18 @@ type MockClient struct {
 	// records rather than taking the whole reconcile down.
 	Errors map[string]error
 
+	// GrantClamp narrows a requested permission set the way gfehd narrows one
+	// against the principal's ceiling. Nil stores the grant exactly as asked.
+	//
+	// A hook rather than a table, because the table is gfehd's and belongs to
+	// gfeh's own suite: reimplementing it here would let this mock agree with
+	// a rule Town OS invented and disagree with the daemon. What Town OS is
+	// responsible for — and what a test using this proves — is reporting the
+	// perms that came *back* rather than echoing the ones it sent, so an
+	// administrator can see that a grant was narrowed instead of believing
+	// they handed out access nobody has.
+	GrantClamp func([]string) []string
+
 	// Calls records method names in order.
 	Calls []string
 }
@@ -167,6 +179,9 @@ func (m *MockClient) CreateGrant(_ context.Context, g Grant) (Grant, error) {
 
 	if err := m.record("CreateGrant"); err != nil {
 		return Grant{}, err
+	}
+	if m.GrantClamp != nil {
+		g.Perm = m.GrantClamp(g.Perm)
 	}
 	g.ID = int64(len(m.Grants) + 1)
 	m.Grants = append(m.Grants, g)

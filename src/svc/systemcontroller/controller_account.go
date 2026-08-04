@@ -17,11 +17,12 @@ type CreateAccountRequest struct {
 	Phone    string `json:"phone"`
 	RealName string `json:"real_name"`
 	Admin    bool   `json:"admin"`
-	// WireGuard, when true, creates a WireGuard-only account scoped to Networks
-	// instead of a normal account. Admin is ignored in that case — the two are
-	// mutually exclusive and CreateWireGuard never grants admin.
-	WireGuard bool     `json:"wireguard"`
-	Networks  []string `json:"networks"`
+	// Grants are the named capabilities the new account holds, from
+	// account.AllGrants. Non-empty means a non-admin account confined to the
+	// routes those grants unlock, scoped to Networks; Admin is ignored then,
+	// since an administrator holds every grant already.
+	Grants   []string `json:"grants"`
+	Networks []string `json:"networks"`
 }
 
 type GetAccountRequest struct {
@@ -52,11 +53,11 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgAccountListError), err)
 		}
 
-		// Service accounts excluded: see isServiceAccount. Counting the gfeh
-		// daemon's account here means the first human account can never be
-		// created, because creating it is what would produce the token this
-		// branch then demands.
-		if hasHumanAdmin(accounts) {
+		// Bootstrap: with no administrator on the box yet, the first one is
+		// created without a token, because there is no account to obtain one
+		// from. Shares hasEnabledAdmin with the setup flag in /status/ping so
+		// the two can never disagree about whether that window is open.
+		if hasEnabledAdmin(accounts) {
 			token := extractBearerToken(c.Request())
 			if token == "" {
 				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
@@ -80,8 +81,8 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 
 	var acct *account.Account
 	var err error
-	if req.WireGuard {
-		acct, err = s.Controller.GetAccountManager().CreateWireGuard(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Networks)
+	if len(req.Grants) > 0 {
+		acct, err = s.Controller.GetAccountManager().CreateGranted(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Grants, req.Networks)
 	} else {
 		acct, err = s.Controller.GetAccountManager().Create(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Admin)
 	}
@@ -89,7 +90,8 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 		if errors.Is(err, account.ErrDuplicateUsername) {
 			return echo.NewHTTPError(400, i18n.T(locale, i18n.MsgAccountCreateFailed))
 		}
-		if errors.Is(err, account.ErrWireGuardNoNetworks) || errors.Is(err, account.ErrInvalidNetworkName) {
+		if errors.Is(err, account.ErrGrantsNoNetworks) || errors.Is(err, account.ErrInvalidNetworkName) ||
+			errors.Is(err, account.ErrInvalidGrant) {
 			return echo.NewHTTPError(400, err.Error())
 		}
 		return err
@@ -126,17 +128,27 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 		return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAccountAdminStatusImmutable))
 	}
 
+	// This route is requireAuth, not requireAdmin -- any authenticated account
+	// may edit an account. That is fine for contact details and a password, and
+	// would be a privilege escalation for the account kind: without this check a
+	// normal user could POST /account/update on itself with
+	// {"network_only":true,"networks":["home"]} and walk into that network's
+	// partition user database and its peer enrollment. Which kind an account is
+	// stays an administrator's decision.
+	//
+	// A nil session manager means authentication is not configured at all (the
+	// same condition every auth middleware treats as "let it through"), so the
+	// check applies only where there is a caller to identify.
+	if (req.Fields.Grants != nil || req.Fields.Networks != nil) && s.Controller.GetSessionManager() != nil {
+		caller := s.callingAccount(c)
+		if caller == nil || !caller.Admin {
+			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthAdminRequired))
+		}
+	}
+
 	acct, err := s.Controller.GetAccountManager().Update(req.Username, req.Fields)
 	if err != nil {
 		return err
-	}
-
-	// An SMB credential is rendered into every partition's gfehd.yaml, so
-	// enrolling or withdrawing one has to reach the daemons. Without this the
-	// operator sets a password, nothing happens, and the change appears to
-	// have been lost until the next reboot.
-	if req.Fields.SMBPassword != nil {
-		s.reconcileGfeh(c.Request().Context())
 	}
 
 	return c.JSON(200, acct)
@@ -150,22 +162,9 @@ func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 		return err
 	}
 
-	// Refused rather than silently undone. The object-storage daemons
-	// authenticate as this account, so disabling it breaks provisioning on
-	// every partition — and the next reconcile puts it back, which would make
-	// the button appear to do nothing at all. Saying so is better than either.
-	if req.Username == GfehServiceAccount {
-		return echo.NewHTTPError(400, i18n.T(s.getLocale(), i18n.MsgGfehServiceAccountProtected))
-	}
-
 	if err := s.Controller.GetAccountManager().Disable(req.Username); err != nil {
 		return err
 	}
-
-	// A disabled account must not be able to mount a share either, and the
-	// credential table is rendered per partition rather than checked per
-	// request -- so the daemons have to be told.
-	s.reconcileGfeh(c.Request().Context())
 
 	c.Response().WriteHeader(200)
 	return nil
@@ -182,10 +181,6 @@ func (s *SystemControllerHandlers) enableAccount(c *echo.Context) error {
 	if err := s.Controller.GetAccountManager().Enable(req.Username); err != nil {
 		return err
 	}
-
-	// The other half of disable: a re-enabled account gets its SMB credential
-	// back in the partitions it is scoped to.
-	s.reconcileGfeh(c.Request().Context())
 
 	c.Response().WriteHeader(200)
 	return nil

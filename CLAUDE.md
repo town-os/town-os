@@ -105,19 +105,19 @@ The boot is **observable**: `:5309` is bound before any work happens, backed by 
 3. **Bind `:5309` with the boot handler** — `NewBootStatus()` + `NewRootHandler(NewBootHandler(bs))` bind the listener immediately, before any startup work. Until the swap in step 24 the socket answers only `GET /status/ping` (503 with `{booting, step, done, boot_id}`) and `GET /boot-status` (SSE); everything else is 403.
 4. **Stage `boot_controller`** — temp working dir; create btrfs base and network state dir; remove any stale `town-os.db` left at the btrfs root by older deployments (`cleanupStaleRootDB`) and reject a `-db` path that would recreate it (`validateDBPath`) — the runtime DB lives at `<btrfsBase>/data/db/system.db`, never at the root.
 5. **Open SQLite database** — persistent if `-db` is set, otherwise ephemeral temp file.
-6. **Init account manager** — creates accounts table.
+6. **Init account manager** — creates the accounts table and migrates a legacy one (capability columns become grants; `smb_nt_hash` is dropped). Then `PurgeLegacyServiceAccounts` **(non-fatal)** removes the object-storage daemon's old administrator account and its stored password, once, on the first boot after an upgrade — see [No service accounts](#no-service-accounts).
 7. **Generate ephemeral JWT signing key** — 32 random bytes via `crypto/rand`, overridable with `TOWN_OS_SIGNING_KEY`. Init session manager, which clears all prior sessions (old tokens are invalid with the new key).
-8. **Init audit, settings, pages, and network managers** — settings are seeded with defaults (`default_quota`, `max_archive_size`, `locale`, `dns_tld`, `dns_resolution_mode`, `peer_ttl`, …); pages is always initialized; the network manager owns the WireGuard network and peer tables.
+8. **Init audit, settings, pages, and network managers** — settings are seeded with defaults (`default_quota`, `max_archive_size`, `locale`, `dns_tld`, `dns_resolution_mode`, `peer_ttl`, …); pages is always initialized; the network manager owns the WireGuard network and peer tables **and seeds the home network**, so from this point on it always exists (see [The home network always exists](#the-home-network-always-exists)).
 9. **Seed repositories** — if `repositories.json` does not exist, write default repos (or test repos if `TOWN_OS_TEST`/`DEBUG`). Apply `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` credentials.
 10. **Init repository root and force refresh** — clones/fetches all configured repos via go-git.
 11. **Init install manager, btrfs storage, systemd manager**.
 12. **Resolve image tag** — `resolveImageTag()`: the `TOWN_OS_TAG` env var (set by the install build system), else `rc.latest-<arch>` (`defaultVersionTag()`, arch from `runtime.GOARCH` mapped to `x86_64`/`aarch64` via `archTag()`). No `/town-os.tag` file and no compile-time `Version` pin. Every sibling image tag (UI, rolodex, network controller, ingress) derives from this one value; push tags are per-arch, so derived sibling tags are too.
 13. **Derive the NC image** — `quay.io/town/networkcontroller:<tag>`, overridable via `NC_IMAGE`. Pulled (step 17), never built.
 14. **Start background repo refresh** — goroutine polls every 5 minutes.
-15. **Stage `boot_dns`: write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if the file is newer than the binary and the content is unchanged) and restarts the service only when the file was written. `resolution.mode` comes from the `dns_resolution_mode` setting, and an unparseable stored value falls back to the default rather than rendering a config rolodex would refuse. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly. Then wait for DNS readiness (TCP connect poll), and configure systemd-resolved to route the TLD to rolodex.
+15. **Stage `boot_dns`: write Rolodex config and restart if changed** **(non-fatal)** — Rolodex is a boot service managed by systemd. The systemcontroller writes `rolodex.yml` (idempotent: skips if the file is newer than the binary and the content is unchanged) and restarts the service only when the file was written. `resolution.mode` comes from the `dns_resolution_mode` setting, and an unparseable stored value falls back to the default rather than rendering a config rolodex would refuse. The rolodex container runs with `--net host` and binds DNS to `127.0.0.2:{port}` directly. Then wait for DNS readiness (TCP connect poll), and configure systemd-resolved to route the TLD to rolodex — **skipped when `TOWN_OS_DNS_PORT` has moved rolodex off `:53`**, since a resolved per-domain server address carries no port and would blackhole every query for that TLD.
 16. **Read the monitoring backend and discover btrfs disk devices** — `monitoring_backend` (default `uplot`); `monitoring.BtrfsDevices(btrfsPath)` **(non-fatal)** surfaces the backing block devices through `/monitoring/status`.
 17. **Stage `boot_services`: pull core container images** **(non-fatal)** — the NC image, Prometheus, Node Exporter, the UI image, and Grafana when that backend is selected, in parallel via `parallelEnsureImages` (skips a pull when the image is already loaded).
-18. **Start monitoring system services** **(all non-fatal)** — legacy NC/socket monitoring units from the previous design are torn down first (they still hold `-p 9090`/`-p 5308` and would crash-loop the new services). Node Exporter, Prometheus, and the Monitoring UI all run `--net host`; node-exporter and Prometheus bind loopback, and only the monitoring UI's `:5308` is LAN-facing. Then install the nightly podman prune timer **(non-fatal)**.
+18. **Start monitoring system services** **(all non-fatal)** — legacy NC/socket monitoring units from the previous design are torn down first (they still hold `-p 9090`/`-p 5308` and would crash-loop the new services). Node Exporter, Prometheus, and the Monitoring UI all run `--net host`; node-exporter and Prometheus bind loopback, and only the monitoring UI's `:5308` is LAN-facing. All three ports come from `monitoringPortsFromEnv()`, whose zero value is the production defaults ([System-service host ports](#system-service-host-ports)). Then install the nightly podman prune timer **(non-fatal)**.
 19. **Ensure the local TLS CA** **(non-fatal)** — `tls.EnsureCA(<btrfsPath>/tls)` before reconcile, so reconcile can issue leaf certs as it walks installed packages.
 20. **Start the ingress and the pages service** **(non-fatal)** — `ingressctl.Manager` installs and starts `town-os-system--ingress` (shared `:443` SNI + `:80` Host router), dual-stack only when the host has a global IPv6. The pages Caddy service starts alongside it. Both are skipped when `INGRESS_IMAGE` is explicitly set to empty (dev mode).
 21. **Reconcile object storage** **(non-fatal)** — `ReconcileGfeh` ensures one gfeh partition per network: the `gfeh/<network>` subvolume (chowned to uid 2000), the rendered `gfehd.yaml`, and the `town-os-system--gfeh-<network>` unit, restarted only when the rendered content changed. Skipped entirely when `GFEH_IMAGE` is explicitly empty, and skipped when the ingress is disabled (the four HTTP views are only reachable through it). The partitions' *names* are published later and asynchronously — see step 30. See [Object Storage (gfeh)](#object-storage-gfeh).
@@ -128,11 +128,11 @@ The boot is **observable**: `:5309` is bound before any work happens, backed by 
     - If `versionChanged`: restarts units whose content changed (NC first, then deps, then services), then runs `post_update` commands.
     - Reconciles pages: ensures subvolumes, symlinks, and page content.
     Then persist the current image SHA to `<btrfsPath>/town-os-version`.
-24. **Reconcile DNS and networks** — dial the rolodex gRPC socket (retry up to 30s). `RebuildDNS` wipes and rebuilds rolodex from scratch so drift from a crashed prior run is discarded; `RebuildNetworkDNS` re-registers the LAN-facing global records (and DANE pins) for non-default-network packages. `ReconcileNetworks` then ensures the default network exists and brings up every enabled network's WireGuard interface, passing the rolodex client so each network's TLD scope is owned — including the DNS-only home scope. All non-fatal.
+24. **Reconcile DNS and networks** — dial the rolodex gRPC socket (retry up to 30s). `RebuildDNS` wipes and rebuilds rolodex from scratch so drift from a crashed prior run is discarded; `RebuildNetworkDNS` re-registers the LAN-facing global records (and DANE pins) for non-default-network packages. `ReconcileNetworks` then reconciles the home network's TLD against `dns_tld` and brings up every enabled network's WireGuard interface, passing the rolodex client so each network's TLD scope is owned — including the DNS-only home scope. All non-fatal. Object storage is then reconciled **a second time** (idempotent), so a network this step brought up gets its partition without waiting for a restart.
 25. **Program the ingress** **(non-fatal)** — wait for readiness, dial its gRPC socket, and `RebuildIngress` pushes the full route set (HTTP packages + pages) declaratively, the same model as `RebuildDNS`.
 26. **Start the UI container** **(non-fatal)** — `town-os-system--ui.service`; skipped when `UI_IMAGE` is explicitly empty (dev mode, where bun serves the UI).
 27. **Stage `restart_packages`: freshness stage** — if the previous process left a refresh marker, restart every installed package unit serially, emitting a per-package progress event so the UI renders a row each. A stale marker from a crash is harmless.
-28. **Create the HTTP handler** — wires all managers into `ServerConfig`, starts the background pollers (external IP hourly, DNS drift repair, expired-peer reaper), configures the Echo router with CORS, the WireGuard allowlist, auth, and audit middleware.
+28. **Create the HTTP handler** — wires all managers into `ServerConfig`, starts the background pollers (external IP hourly, DNS drift repair, expired-peer reaper), configures the Echo router with CORS, the fail-closed grant allowlist, auth, and audit middleware.
 29. **Stage `ready`: swap the root handler** — the boot stub is atomically replaced by the full Echo router on the already-bound listener, so no port flap occurs and in-flight `/boot-status` SSE subscribers survive the handoff. `BootStatus.Done()` then closes the stream. **System is now ready.**
 30. **Publish the object-storage names** **(non-fatal, background)** — `publishGfehNames` waits for at least one partition to answer its admin socket, then re-runs the DNS and ingress rebuilds so each partition's `/v1/names` output becomes A records, TLSA pins, leaf SANs, and ingress vhosts. It runs **after** the swap, and asynchronously, because gfehd polls `/status/ping` — which answers 503 until step 29 — before authenticating, so waiting for it inline would deadlock the boot it is waiting on. If nothing becomes ready in time the names are published by the next reconcile.
 31. **Graceful shutdown** — on SIGINT: cancel context, shutdown HTTP server with a 30s timeout. All background goroutines exit via context cancellation.
@@ -728,7 +728,7 @@ Two details are load-bearing:
 
 Status codes gfeh's client branches on: **409** already exists (its provisioning is a create-or-resize and distinguishes the two by this status — a daemon whose partition exists on every boot but the first would otherwise only ever start once), **404** missing, **400** bad name, **403** non-admin. A name containing a path separator is refused at this boundary because gfehd refuses it at its own; disagreeing about what a legal partition name is would let `../user/something` address a volume outside the object-storage root.
 
-Handlers call `storage.Storage` in-process, never `/storage/*`, so reserved-prefix enforcement, quota policy, and the audit log stay in one place. These routes are **not** on the WireGuard allowlist — provisioning the root of a permission tree is not something a scoped peer account does.
+Handlers call `storage.Storage` in-process, never `/storage/*`, so reserved-prefix enforcement, quota policy, and the audit log stay in one place. These routes are **not** in `grantRoutes` — provisioning the root of a permission tree is not something a grant buys, so a grant-holding account is refused them by the global allowlist before any handler runs.
 
 ### Protocol 2: the admin socket (`/v1/*`)
 
@@ -768,30 +768,33 @@ The admin socket is unauthenticated and not network-reachable, so Town OS proxie
 |---|---|
 | `GET /gfeh` | auth — partitions with network, TLD, quota, unit status, and `/v1/names` output |
 | `GET /gfeh/principals?network=` | auth |
-| `POST /gfeh/principals/add` / `remove` | admin |
+| `POST /gfeh/principals/add` / `remove` | `requireObjectStorage` (admin or the `gfeh` grant) |
 | `GET /gfeh/grants?network=&principal=` | auth |
-| `POST /gfeh/grants/add` / `revoke` | admin |
+| `POST /gfeh/grants/add` / `revoke` | `requireObjectStorage` |
 | `GET /gfeh/exposures?network=` | auth |
-| `POST /gfeh/exposures/withdraw` | admin |
+| `POST /gfeh/exposures/withdraw` | `requireObjectStorage` |
 
-The four `GET`s are audit-excluded; the five mutators carry audit keys. None are on the WireGuard allowlist. With no partitions configured, `GET /gfeh` reports that object storage is not configured rather than erroring.
+The four `GET`s are audit-excluded; the five mutators carry audit keys. With no partitions configured, `GET /gfeh` reports that object storage is not configured rather than erroring.
 
-### Two unrelated credential systems
+**Every one of these — reads included — is confined by `requireNetworkScope` to the caller's networks**, because "which network" lives in the body or query that only the handler has parsed. A scoped account listing another network's principals or published links would be exactly the leak the scope exists to prevent, and reads are `requireAuth`, so nothing upstream would have stopped it. `GET /gfeh` names no network (it enumerates them), so it filters rows instead — on the same `Restricted()` predicate, since filtering a plain account against its empty scope would render every partition invisible to every ordinary account rather than confining anybody.
 
-These are confused easily and reasoning about one as if it were the other gives the wrong answer about lifetime, rotation, and blast radius. They live in separate files with separate names for that reason.
+**The order inside `gfehClientFor` is load-bearing: shape, then authority, then existence.** An empty network is a 400 for everybody (a typo is not a permissions problem); an out-of-scope network is 403 *before* any partition lookup; only then does a missing registry earn its 503 and an unknown network its 404. With the lookup first, a caller who had no business asking learned whether that partition existed and whether its daemon was up, and got it as a *successful* refusal of a different kind — so nothing recorded that a scoped account had reached outside its scope.
 
-- **`town_os:` in `gfehd.yaml`** authenticates **the daemon to Town OS's control plane**. It is a dedicated admin account, `gfeh` (`GfehServiceAccount`), with a 256-bit `crypto/rand` password persisted once at the `gfeh_service_password` setting and re-asserted on every boot so a drifted hash cannot silently strand a daemon. A **password rather than a session token**, and that is forced by Town OS's own session model: the JWT signing key is regenerated every start and `InitSessionManager` deletes every session, so a stored token is invalid the moment the controller restarts and the daemon could not recover on its own.
-- **`credentials:`, `drive.tokens:`, `smb.users:`** authenticate **end users to gfeh's views**. Town OS's account system never sees these as logins; they are rendered into the config and checked by gfehd.
+### No service accounts
 
-**The service account must never satisfy a setup check.** It is an enabled administrator created during boot, and both places that ask "does this box have an administrator" — the setup flag in `/status/ping` and the bootstrap branch of `POST /account/create` — mean "has a *person* been set up". Counting it makes a brand-new system report itself already set up and then demand a token for the account creation that would have produced one: the operator can never get in, and nothing on screen says why. `hasHumanAdmin` backs both call sites so they cannot drift onto different answers, and `isServiceAccount` is the exclusion. It is deliberately narrow — the account still appears in the users list and the account totals, because an administrative account on your box is something you should be able to see. Disabling it is refused rather than silently undone, since the next reconcile would put it back.
+An earlier release created a dedicated administrator account, `gfeh`, whose password was stored at the `gfeh_service_password` setting, so the daemon could authenticate to the control plane. **That is gone.** Town OS provisions each partition's subvolume and quota itself before the daemon starts and creates principals over the admin socket, so the credential paid for nothing — while costing an *enabled administrator account nobody created*, sitting in every box's users list with enough privilege to uninstall everything, and forcing every "does this box have an admin?" question to mean "a *human* admin".
 
-### SMB and NTLMv2
+`hasEnabledAdmin` (`src/svc/systemcontroller/admin_presence.go`) is now the plain question, shared by the setup flag in `/status/ping` and the bootstrap branch of `POST /account/create` so the two can never disagree — a box where one says "set up" and the other does not is a box nobody can get into.
 
-The SMB view verifies **NTLMv2** (`crates/gfeh-core/src/ntlm.rs` in gfeh; added in 0.1.2). Every command except Negotiate and SessionSetup requires an authenticated session — a client told `STATUS_LOGON_FAILURE` that simply ignored it could otherwise still use the share, which made the refusal cosmetic.
+`account.PurgeLegacyServiceAccounts` deletes the row and the stored password on the first boot after an upgrade, reporting whether it removed anything so the box says so once rather than logging every boot. It is deliberately raw SQL: `Manager` has no `Delete`, and an account-deletion capability is not something to introduce as a side effect of a cleanup.
 
-Verification needs an **NT hash** (`MD4(UTF16LE(password))`), which **cannot be derived from bcrypt**, so an account that wants SMB enrols a second credential: `Account.SMBNTHash`/`SMBEnrolled`, set through `UpdateFields.SMBPassword`. That field is a `*string` with three meanings — nil leaves the credential alone, a value enrols, and the **empty string revokes** — because collapsing the last two would make "no change" and "revoke" the same request. `NTHash` (`src/account/smb_credential.go`) is pinned against MS-NLMP's own worked vector rather than against itself: the value is consumed by a different program in a different language over a wire protocol, so a self-consistently wrong hash would pass every test here and fail every login there.
+What remains in `gfehd.yaml` is `credentials:` and `drive.tokens:` — **end users authenticating to gfeh's views**, never Town OS logins. The `town_os:` block still exists in the config schema (gfehd's YAML is mirrored exactly) but Town OS renders no account into it.
 
-`collectSMBUsers` renders the enrolled accounts into each partition's `smb.users`. A disabled account keeps its row but is omitted. An account with no SMB credential can still use the other four views; it just cannot mount the share.
+### No SMB view
+
+SMB is **not served**. It is the one view that cannot sit behind the ingress and the one needing a credential of its own: an NT hash (`MD4(UTF16LE(password))`), which cannot be derived from the stored password hash, so every user who wanted a share had to carry a second password. Town OS accounts do not have one, so there is nobody gfehd could authenticate — and an unauthenticated share on the LAN is not the fallback to take.
+
+Consequences: no partition declares an `smb:` block, no host port is allocated for it (`SMBPortBase` is kept only so the harness's `GFEH_SMB_PORT_BASE` stays wired), `Account.SMBNTHash` and `src/account/smb_credential.go` are gone, and the `smb_nt_hash` column is dropped by `migrateLegacyAccountColumns` — an NT hash is unsalted, work-factor-free and password-equivalent to anything still speaking NTLM, so leaving it at rest for a view nobody serves is the worst of both. The other four views are unaffected.
 
 ### Config file
 
@@ -799,11 +802,15 @@ Verification needs an **NT hash** (`MD4(UTF16LE(password))`), which **cannot be 
 
 ### Boot and reconcile
 
-`ReconcileGfeh` runs at boot **after the ingress and pages** and **before `Reconcile`** — the TLS CA and storage exist by then, and the names must be available to the `RebuildDNS`/`RebuildIngress` calls further down. It is also called from `/networks/create`, `/networks/remove`, `/networks/enable`, and `/networks/disable`, so a network added at runtime gets a partition. Non-fatal throughout.
+`ReconcileGfeh` runs at boot **after the ingress and pages** and **before `Reconcile`** — the TLS CA and storage exist by then, and the names must be available to the `RebuildDNS`/`RebuildIngress` calls further down. It runs **a second time after `ReconcileNetworks`**, which is idempotent (an unchanged partition is left alone rather than bounced) and covers any network the reconcile brought into being. It is also called from `/networks/create`, `/networks/remove`, `/networks/enable`, and `/networks/disable`, so a network added at runtime gets a partition. Non-fatal throughout.
 
-Per network it ensures the subvolume (with UID/GID), renders the config, installs and restarts the unit **only when the rendered content changed** (the `ReadUnit`-diff idiom reconcile already uses — which is why the service password must be stable across boots, or every partition would restart on every reconcile), and waits for the socket. `pruneGfehPartitions` removes units for networks that no longer exist.
+Per network it ensures the subvolume (with UID/GID), renders the config, installs and restarts the unit **only when the rendered content changed** (the `ReadUnit`-diff idiom reconcile already uses), and waits for the socket. `pruneGfehPartitions` removes units for networks that no longer exist.
 
-It is gated on the ingress: with `INGRESS_IMAGE` empty the four HTTP views are reachable by nothing, so starting partitions would publish four names per network that nothing serves. `GFEH_IMAGE` explicitly empty skips object storage entirely (dev mode) — the same `LookupEnv` convention `UI_IMAGE` and `INGRESS_IMAGE` use, because `Getenv` would make an empty value mean "use the default" and leave no off switch.
+**Object storage has no on/off setting.** Storing files is what the box is for, so it runs the way DNS and the ingress run — as part of what Town OS is, not as a feature to be enabled. A switch bought only the chance to be found in the off position while somebody debugged where their files went; an administrator who wants the daemons down stops them from the services panel like any other system service. A stale `object_storage_enabled` row left in an upgraded box's settings table is read by nothing.
+
+The remaining escape hatches are about a *build*, not policy: it is gated on the ingress (with `INGRESS_IMAGE` empty the four HTTP views are reachable by nothing, so starting partitions would publish names nothing serves), and `GFEH_IMAGE` explicitly empty skips object storage entirely (dev mode) — the same `LookupEnv` convention `UI_IMAGE` and `INGRESS_IMAGE` use, because `Getenv` would make an empty value mean "use the default" and leave no off switch.
+
+**The first account is seated in the home partition.** `ensureFirstUserPrincipal` creates a principal named for the box's earliest-created account (by `CreatedAt`, username as tie-break, so the founder cannot change between reconciles on map iteration order), with `gfeh.CeilingForAccount(admin)`. A partition whose forest is empty serves nobody: the operator opens the Users tab, finds nothing, and has to work out that their own account is not in it. **Home only** — every box has that partition, whereas a network added later belongs to whoever is given a grant on it, and seating the founder there would hand them a namespace somebody else created. Idempotent by way of gfehd, which answers 409 for a principal that already exists.
 
 **Names are published after the handler swap.** `publishGfehNames` runs in the background: gfehd polls `/status/ping`, which answers **503 until the full router is up** ([Boot Status](#boot-status-and-refresh)), so a partition cannot finish starting until boot is essentially done. Waiting for it inline would deadlock the boot it is waiting on. If no partition becomes ready in time the names are simply published by the next reconcile.
 
@@ -811,13 +818,13 @@ Partitions register in `collectSystemServices()`, so `POST /system-services/refr
 
 ### Version coupling
 
-**Town OS pins a gfehd floor, and it is a floor rather than a preference.** `Containerfile.gfeh` builds from crates.io at `GFEH_VERSION` (override, or `GFEH_LATEST` non-empty to take whatever crates.io holds today — the same shape as `TTYFORCE_LATEST` in the install repo). The current floor is **0.1.2**, because Town OS renders two things a 0.1.1 daemon cannot survive: `smb.users`, which `deny_unknown_fields` turns into a config-parse failure, and the readiness wait, without which the daemon authenticates against the boot stub's 403 and dies.
+**Town OS pins a gfehd floor, and it is a floor rather than a preference.** `Containerfile.gfeh` builds from crates.io at `GFEH_VERSION` (override, or `GFEH_LATEST` non-empty to take whatever crates.io holds today — the same shape as `TTYFORCE_LATEST` in the install repo). The current floor is **0.1.2**.
 
 Neither failure is visible to `make test` — the unit and integration suites both stand in a **fake gfehd**, so pinning below the floor buys a green suite and a box where object storage is silently dead. Raise the pin when Town OS starts depending on new daemon behavior, and let the image build fail loudly if that version is not published yet.
 
 ### UI
 
-`/dashboard/objects` (nav `nav.objects`, "Object Storage"). A network selector across the top, then `?tab=` sub-tabs: **Overview** (per-partition status, quota, and the published names with the port and whether each is reached through the ingress or dialed directly), **Users** (principals and ceilings; add projects a Town OS account), **Grants**, and **Links** (exposures, with withdraw). Reads are `requireAuth`, so the tab is not admin-only; the mutating controls are.
+`/dashboard/objects` (nav `nav.objects`, "Object Storage"). A network selector across the top, then `?tab=` sub-tabs, one file each under `ui/src/routes/objects/`: **Overview** (per-partition status, quota, and the published names with the port and whether each is reached through the ingress or dialed directly), **Users** (principals and ceilings; add projects a Town OS account), **Grants**, and **Links** (exposures, with withdraw). Reads are `requireAuth`, so the tab is not admin-only; the mutating controls need admin or the `gfeh` grant, and either way only on the caller's networks.
 
 ## Services
 
@@ -904,7 +911,11 @@ Two endpoints serve log data:
 
 ### Account Model
 
-Each account has: username (primary key), password hash (never exposed in JSON), email, phone, real name, admin flag, disabled flag, a WireGuard-only flag, a network scope, and creation/update timestamps. Accounts are stored in a SQLite table.
+Each account has: username (primary key), password hash (never exposed in JSON), email, phone, real name, admin flag, disabled flag, a **grant set**, a network scope, and creation/update timestamps. Accounts are stored in a SQLite table.
+
+There is **no account "kind"**. An account is an administrator (holds every grant, on every network) or it is not, and a non-admin carries whatever grants are toggled on. `Account.Restricted()` — a non-admin holding at least one grant — is derived, never stored.
+
+**There are no service accounts.** An earlier release gave the object-storage daemon its own administrator account; it is gone, and `account.PurgeLegacyServiceAccounts` deletes it (and its stored password) on the first boot after the upgrade. See [No service accounts](#no-service-accounts).
 
 ### Validation Rules
 
@@ -912,38 +923,74 @@ Each account has: username (primary key), password hash (never exposed in JSON),
 - **Email** -- standard email format (`user@domain.tld`).
 - **Phone** -- digits with optional formatting (`+`, spaces, dashes, parentheses).
 - **Contact info** -- email, phone, and real name are all required (non-empty).
-- **WireGuard scope** -- a WireGuard-only account must be scoped to at least one network (`ErrWireGuardNoNetworks`), and every entry must be a valid network name (`ErrInvalidNetworkName`). An empty list is never read as "any network".
+- **Grants** -- every name must be in `account.AllGrants` (`ErrInvalidGrant`), an administrator may hold none explicitly (`ErrGrantsAdmin` — it holds them all already, so a stored subset could only disagree), and an account holding any must be scoped to at least one network (`ErrGrantsNoNetworks`).
+- **Network scope** -- every entry must be a valid network name (`ErrInvalidNetworkName`). An empty list is never read as "any network".
 
-### WireGuard-Only Accounts
+### Grants
 
-An account may be **WireGuard-only**: it exists to hold a peer rather than to sign in to the dashboard, and it is scoped to the networks the operator picks for it. The scope is carried through rolodex, so DNS answers for that account are limited to the same set.
+A **grant** is a named capability a non-admin account can hold. Two exist:
 
-The restriction is a **fail-closed capability**, not a set of per-route checks. `wireGuardAllowlist` is a *global* middleware, so a newly added route is denied to WireGuard accounts by default until it is explicitly added to `wireGuardAllowedRoutes` (`src/svc/systemcontroller/controller_auth.go`), keyed by `"METHOD PATH"`. The whole allowlist is:
+| Grant | Constant | Buys |
+|---|---|---|
+| `wireguard` | `account.GrantWireGuard` | enrolling and refreshing WireGuard peers on the account's networks |
+| `gfeh` | `account.GrantGfeh` | administering the object storage those same networks own — principals, their grants, published links |
+
+`account.AllGrants` is the registry: a grant absent from it cannot be stored, which is what stops a typo in an API request from becoming a permission that silently never matches anything. Adding a capability is one entry there plus its routes in `grantRoutes` — no new column, no new migration, no new `UpdateFields` pointer. The UI renders its checkboxes from the mirrored `ui/src/lib/grants.js`, so a new grant needs no new markup either.
+
+The two are **independent**. Holding `wireguard` buys nothing in object storage and holding `gfeh` buys no peer enrollment; an account may hold both. `Account.HasGrant` answers "may this caller do this at all" and `Account.MayAdministerNetwork` answers "on which network" — never each other.
+
+#### Enforcement is three layers, and the composition is the point
+
+1. **`grantAllowlist`** is a *global*, fail-closed middleware. A route added tomorrow is denied to a restricted account by default until somebody lists it in `grantRoutes` (`src/svc/systemcontroller/controller_auth.go`), keyed by `"METHOD PATH"`. Requests with no valid token, from an administrator, or from an ordinary account holding no grants pass straight through to the route's own auth — a grant is *additive* authority for an account that exists to exercise it, and this confines only those.
+2. **The route's own middleware** — `requirePeerEnroll` (the `wireguard` grant) and `requireObjectStorage` (the `gfeh` grant), both built from `requireGrant`, which admits administrators because they hold every grant. Reads stay `requireAuth`.
+3. **`requireNetworkScope`**, inside the handler, because the network lives in the request body or query and only the handler has parsed it. It **confines**; it does not grant, and it confines `Restricted()` accounts only — an ordinary account holds no grants and therefore no scope, and an empty scope denies every network, so applying it to a plain account would 403 every read on routes that are `requireAuth` on purpose.
+
+`grantRoutes` is the whole of what a grant buys:
 
 ```
-POST /account/authenticate    GET /networks           POST /networks/peers/add
-GET  /account/me              GET /networks/peers     POST /networks/peers/refresh
-GET  /dns/services            GET /tls/ca.crt
+wireguard: GET  /networks/peers   POST /networks/peers/add   POST /networks/peers/refresh
+gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principals/add
+           POST /gfeh/principals/remove                      GET  /gfeh/grants
+           POST /gfeh/grants/add  POST /gfeh/grants/revoke   GET  /gfeh/exposures
+           POST /gfeh/exposures/withdraw
 ```
 
-That is the entire control-plane attack surface a scoped account has, and it is deliberately minimal: enough to authenticate, discover the network, fetch the CA, and enroll or refresh a peer, and nothing else. Note what is absent — `GET /networks/peers/connected` aggregates every account's peers and observed source addresses across every network, so it is `requireAdmin` *and* off the allowlist.
+plus `grantCommonRoutes`, reachable by any grant-holder regardless of which grant: `POST /account/authenticate`, `GET /account/me`, `GET /networks`, `GET /dns/services`, `GET /tls/ca.crt`. Without those a grant is unusable — you cannot exercise one without first signing in — so they are common rather than duplicated into every grant.
 
-`requirePeerEnroll` guards `peers/add` and `peers/refresh`: it admits admins and WireGuard accounts (per-network scope and per-peer ownership enforced in the handler) but rejects a plain non-admin account, so peer management stays privileged.
+Note what is deliberately **absent**: `/gfeh/partitions/*` stays `requireAdmin` (provisioning a partition creates the root of a permission tree and allocates a btrfs subvolume; `TOWNOS_CONTRACT.md` reserves it for administrators and gfeh's client branches on the 403), and `GET /networks/peers/connected` aggregates every account's peers and observed source addresses across every network.
 
-Unlike `Admin` — which is immutable after creation — `WireGuard` is mutable, and `account.Manager.CreateWireGuard` is a separate method from `Create` so the invariant (a WireGuard account is never an admin and always has a non-empty scope) is enforced in one place at creation time rather than assembled from a widened positional signature.
+Unlike `Admin` — immutable after creation — grants are mutable, and `account.Manager.CreateGranted` is a separate method from `Create` so the invariants (a grant-holder is never an admin and always has a non-empty scope) are enforced in one place at creation time rather than assembled from a widened positional signature.
+
+#### Migration from the old columns
+
+Earlier releases carried a boolean column per capability. `legacyGrantColumns` (`src/account/sqlite.go`) maps each to the grant it becomes and `migrateLegacyAccountColumns` carries it over and drops the column:
+
+| Legacy column | Becomes |
+|---|---|
+| `wireguard` | `wireguard` |
+| `object_storage` | `gfeh` |
+| `network_only` (an in-flight schema that folded both into one flag) | both |
+
+**One column, one grant.** An account that could enroll peers still can, and one that could not does not silently gain it — widening authority during an upgrade is the direction you cannot take back, since the account keeps its password and nothing on screen says it grew. `smb_nt_hash` is dropped outright (see [No SMB view](#no-smb-view)).
+
+### Every account belongs to the home network
+
+`Manager.Create` — the path the **first** account and every ordinary account take — writes `networks: ["home"]`. `CreateGranted` does not merge it in: there, the scope an administrator chose is exactly the networks the account may reach, and folding `home` into it would widen a portal scoped to `office`.
+
+This is safe because for a grantless account the scope is **membership, not confinement**: `Restricted()` is false, so no layer above consults it. And it can never name a network that is not there — see [The home network always exists](#the-home-network-always-exists).
 
 ### Account API
 
-- `POST /account/create` -- create a new account. In bootstrap mode (no enabled admin accounts exist), unauthenticated access is allowed; otherwise admin authentication is required. Accepts the WireGuard flag and network scope (routed to `CreateWireGuard` when set). Duplicate username errors return a generic failure message to prevent user enumeration.
+- `POST /account/create` -- create a new account. In bootstrap mode (no enabled admin account exists), unauthenticated access is allowed; otherwise admin authentication is required. A non-empty `grants` array routes to `CreateGranted` with the supplied `networks`; otherwise the account is created through `Create` and joins the home network. Duplicate username errors return a generic failure message to prevent user enumeration.
 - `POST /account` -- get account by username (auth required).
 - `GET /account` -- list all accounts with pagination and search (auth required).
-- `POST /account/update` -- update account fields (auth required). Admin status cannot be changed after account creation; the WireGuard flag and network scope can. A nil `networks` leaves the stored scope untouched; a non-nil one replaces it wholesale.
+- `POST /account/update` -- update account fields (auth required). Admin status cannot be changed after account creation; grants and the network scope can, **by an administrator only** — `/account/update` is `requireAuth`, so without that check any authenticated account could grant itself `gfeh` and walk into a partition. A nil `networks` leaves the stored scope untouched; a non-nil one replaces it wholesale. `validateGrantResult` checks the row's state *after* the update, so granting an administrator, promoting a grant-holder, and clearing the scope out from under a grant are all caught.
 - `POST /account/disable` -- disable an account, preventing authentication (admin required).
 - `POST /account/enable` -- re-enable a disabled account (admin required).
 
 ### Account Management UI
 
-The users management screen (`/dashboard/users`) displays a paginated, sortable, searchable data table of accounts. Each row shows username, email, phone, real name, admin/user role badge, and enabled/disabled status. Actions per row include an Edit button (opens a dialog for updating password, email, phone, real name, the WireGuard-only toggle, and the network-scope selector) and an Enable/Disable toggle with confirmation. A link navigates to a dedicated create user page (`/dashboard/users/create`) with a registration form carrying the same WireGuard controls. Both forms reject enabling WireGuard with no networks chosen.
+The users management screen (`/dashboard/users`) displays a paginated, sortable, searchable data table of accounts. Each row shows username, email, phone, real name, admin/user role badge, and enabled/disabled status. Actions per row include an Edit button (opens a dialog for updating password, email, phone, real name, the **grant checkboxes**, and the network-scope selector) and an Enable/Disable toggle with confirmation. A link navigates to a dedicated create user page (`/dashboard/users/create`) with a registration form carrying the same controls. Both forms render their checkboxes from `ui/src/lib/grants.js` and reject granting anything with no networks chosen.
 
 ### Session Management
 
@@ -970,7 +1017,7 @@ Read-only endpoints are explicitly excluded from audit logging. Excluded paths i
 
 ### Settings Management
 
-Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), `archive_unpack_timeout` (600 seconds), `locale` (en-US), `dns_tld` (home), `dns_resolution_mode` (auto), `peer_ttl` (7200 seconds), and `gfeh_partition_quota` (0). `proton_image` is registered only in `proton`-tagged builds. `gfeh_service_password` is generated on first boot rather than seeded as a default. See [Settings](#settings) for the full table.
+Key-value settings are stored in SQLite. Default settings include `default_quota` (50 GB), `max_archive_size` (1 GB), `archive_unpack_timeout` (600 seconds), `locale` (en-US), `dns_tld` (home), `dns_resolution_mode` (auto), `peer_ttl` (7200 seconds), and `gfeh_partition_quota` (0). `proton_image` is registered only in `proton`-tagged builds. See [Settings](#settings) for the full table.
 
 - `GET /settings` -- get all settings (admin required).
 - `POST /settings/get` -- get a specific setting by key (admin required).
@@ -1215,15 +1262,31 @@ A **network** is a named WireGuard overlay paired with a DNS TLD. Packages insta
 
 `account.Network` (`src/account/network.go`) carries: `Name`, `TLD`, `Subnet`, `Address` (the box's own overlay address, always the `.1` host), `PublicKey`, `PrivateKey` (never serialized), `ListenPort`, `Enabled`, and timestamps. Names are DNS-label-safe (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, max 32 chars) because they are reused as WireGuard interface suffixes and systemd unit names.
 
-`DefaultNetworkName` is `home`. It always exists, cannot be removed, and takes its TLD from the `dns_tld` setting. It is **DNS-only**: `applyNetworkTransport` gives it no WireGuard interface, no overlay subnet, and no peers, so it can never have a tunnelled device.
-
 `Enabled` controls only the *transport*: when false the WireGuard interface is not brought up, cutting remote access while local DNS resolution and the containers themselves keep running.
+
+### The home network always exists
+
+`DefaultNetworkName` is `home`, and it is **seeded by `account.InitNetworkManager`**, alongside the tables — not by boot reconcile. So it is there from the moment there is a database: before the controller boots, in every test server, and for the first request the box ever serves. `account.DefaultNetwork()` is the canonical row.
+
+That matters because everything downstream is written assuming it: the first account is scoped to it ([Every account belongs to the home network](#every-account-belongs-to-the-home-network)), the default TLD is its TLD, and gfeh gives it a partition and seats the founder there. A box where it had to be created first has a window in which all of that is false — which is what used to make object storage sit dead on a first boot until some later restart happened to find the network already there.
+
+It **cannot be removed** (`ErrNetworkProtected`, and `POST /networks/remove` refuses it), and it cannot be created a second time — `POST /networks/create` for `home` gets a 409 from the TLD-collision check.
+
+It is **DNS-only**: `applyNetworkTransport` gives it no WireGuard interface, no overlay subnet, and no peers, so it can never have a tunnelled device. The seeded row therefore carries **no transport fields at all** — empty subnet, no keypair, port 0. That is the truth rather than a placeholder; a derived subnet and keys would be fields nothing ever reads.
+
+**Its TLD comes from `dns_tld`, and the controller keeps them in step.** The seed cannot know it (the account package has no settings manager), so the row arrives with the bare default and `ensureDefaultNetwork` reconciles it at boot, writing only when the two disagree. `POST /dns/tld` repoints it at the same time it writes the setting. Both go through `NetworkManager.SetTLD`, which exists for exactly this. Getting it wrong is not cosmetic: `applyNetworkTransport` hands `n.TLD` to `rolodex.EnsureNetworkScope`, which decides which zone the home scope owns.
 
 ### Addressing and Interfaces
 
-- **Subnet** — `wireguard.SubnetForNetwork(machineID, name)` derives a deterministic `/24` from the host's systemd machine-id and the network name. Keying on the machine-id means two Town OS boxes that both serve peers pick distinct subnets, so a device joining both never sees a collision. Subnets are drawn from `10.64.0.0/10` to bias away from the `10.0`/`10.1` ranges consumer routers hand out. The seed falls back to the hostname, then a constant, so derivation never fails.
-- **Interface name** — `wireguard.InterfaceName(name)` is `"town" + 4 hex` of a SHA-256 of the network name: stable across create order, independent of how many networks exist, and within the kernel's 15-character limit. wg-quick derives the interface from the config filename, so the config is written as `<InterfaceName>.conf`.
-- **Listen port** — offsets from `DefaultListenPortBase` (51820) by the network's index.
+- **Subnet** — `wireguard.SubnetForNetwork(seed, name)` derives a deterministic `/24` from a box-identity seed and the network name. Keying on box identity means two Town OS boxes that both serve peers pick distinct subnets, so a device joining both never sees a collision. Subnets are drawn from `10.64.0.0/10` to bias away from the `10.0`/`10.1` ranges consumer routers hand out. The seed is `networkIPAMSeed()`: the systemd machine-id, else the hostname, else a constant, so derivation never fails — with the instance salt folded in.
+- **Interface name** — `wireguard.InterfaceName(salt, name)` is `"town" + 4 hex` of a SHA-256 of the salted network name: stable across create order, independent of how many networks exist, and within the kernel's 15-character limit. wg-quick derives the interface from the config filename, so the config is written as `<InterfaceName>.conf`. `systemcontroller.NetworkInterfaceName(name)` is the salt-applied form the integration tests use, so a test never asserts against a device nothing created.
+- **Listen port** — `wireguard.ListenPortForName(salt, name)` offsets from `DefaultListenPortBase` (51820) by a hash of the salted name, probing forward past a port another network already holds.
+
+#### The instance salt
+
+A WireGuard interface name, its UDP listen port, and its overlay subnet are all **namespace-global**, and the test and dev containers both run `--net host` (deliberately — bridge-network DNS breaks on captive networks). Without a salt, a `make test-full` box and a `make dev` box derive the *same* interface name and listen port for the same network name: the second one up cannot create its device, and its overlay is simply dead. Two concurrent test worktrees collide the same way — IRON RULE.
+
+`TOWN_OS_WG_SALT` (`EnvWireGuardSalt`) is read once into `wireGuardSalt`. The harness sets it to `<role>-<INSTANCE_ID>` via `wireguard_salt` in `make/lib.sh` — the role separates a test box from a dev box in one checkout, `INSTANCE_ID` separates checkouts, and both halves are needed. It is stable for a given role and checkout, which matters for dev, whose database survives across runs and whose stored subnets would otherwise point at devices named for the previous salt. **A real box sets nothing and keeps the historical unsalted names**; an empty salt returns every derivation untouched.
 
 **Podman's default subnet pools must stay out of `10.64.0.0/10`.** The runtime image writes `/etc/containers/containers.conf` with `default_subnet_pools = [{"base" = "172.16.0.0/12", "size" = 24}]` precisely because podman's defaults (10.89/16, 10.90/15, 10.96/11, …) all sit inside the overlay range: in-range `/24`s get skipped as conflicting with overlay routes, the pool exhausts under load with "could not find free subnet from subnet pools", and package container networks stop working. Do not remove that file or widen the pools back into `10.64.0.0/10`.
 
@@ -1236,7 +1299,7 @@ The `wireguard` package performs **no interface control itself**. It generates k
 `account.NetworkPeer` carries `Network`, `PublicKey`, `Name`, `AllowedIP`, `Endpoint`, `Rolodex`, `CreatedBy`, `ExpiresAt`, and `CreatedAt`.
 
 - **`Rolodex`** marks a peer that runs a rolodex DNS server on its overlay address. The box then registers that address as a per-TLD forwarder, so names under the shared TLD that are authoritative on the peer resolve across the overlay. Phones and laptops leave it false.
-- **`CreatedBy`** is the ownership key: a WireGuard-only account may refresh only the peers it created, so a scoped account cannot keep another account's peer alive.
+- **`CreatedBy`** is the ownership key: an account holding the `wireguard` grant may refresh only the peers it created, so a scoped account cannot keep another account's peer alive.
 - **`Endpoint`** is derived from **the address the enrolling client dialed** (the `Host` header of its `peers/add` request), not from the box's own view of itself. The box's public IP (from ipinfo.io) or LAN address is unreachable behind a NAT, a port forward, or a relay — a phone on the same Wi-Fi cannot hairpin to the public IP and cannot route to the private LAN address at all, and the peer then handshakes into a void that looks to the user like broken DNS. The dialed address is reachable by construction: the request arrived over it. With no dialable address (a loopback enrollment) the endpoint is **omitted** rather than set to something that cannot work.
 
 ### Peer Enrollment TTL and the Reaper
@@ -1260,13 +1323,13 @@ The systemcontroller runs `--net host`, so it already shares the namespace where
 ### Networks API
 
 - `GET /networks` (auth required) -- list all networks with peer count, derived interface name, and running state. The private key is never exposed.
-- `POST /networks/create` (admin required) -- create a network. Accepts name and optional TLD (defaults to the name). Derives the subnet, generates a keypair, assigns a listen port, and returns the created network.
-- `POST /networks/remove` (admin required) -- delete a network by name. The default network cannot be removed.
+- `POST /networks/create` (admin required) -- create a network. Accepts name and optional TLD (defaults to the name). Derives the subnet, generates a keypair, assigns a listen port, and returns the created network. A name or TLD already taken is a 409 — including `home`, which always exists.
+- `POST /networks/remove` (admin required) -- delete a network by name. The home network cannot be removed.
 - `POST /networks/enable` / `POST /networks/disable` (admin required) -- bring the overlay interface up or down.
 - `GET /networks/peers?network=<name>` (auth required) -- list the peers registered on a network.
-- `GET /networks/peers/connected` (**admin required**) -- every peer across every WireGuard network joined with live tunnel state. Deliberately tighter than its `requireAuth` siblings and absent from the WireGuard allowlist.
-- `POST /networks/peers/add` (peer-enroll: admin or WireGuard account) -- register a peer. When `public_key` is empty the server generates a keypair and returns the private key plus a ready-to-import device config. Accepts an optional `endpoint` and a `rolodex` flag.
-- `POST /networks/peers/refresh` (peer-enroll: admin or WireGuard account) -- extend a peer's TTL by `peer_ttl` and return the new expiry, so a client can pace its next heartbeat well before the TTL elapses.
+- `GET /networks/peers/connected` (**admin required**) -- every peer across every WireGuard network joined with live tunnel state. Deliberately tighter than its `requireAuth` siblings and absent from `grantRoutes`.
+- `POST /networks/peers/add` (`requirePeerEnroll`: admin or the `wireguard` grant, confined to the caller's networks) -- register a peer. When `public_key` is empty the server generates a keypair and returns the private key plus a ready-to-import device config. Accepts an optional `endpoint` and a `rolodex` flag.
+- `POST /networks/peers/refresh` (`requirePeerEnroll`, and only for a peer the caller enrolled) -- extend a peer's TTL by `peer_ttl` and return the new expiry, so a client can pace its next heartbeat well before the TTL elapses.
 - `POST /networks/peers/remove` (admin required) -- remove a peer by public key.
 
 ### Networks UI
@@ -1279,7 +1342,7 @@ Town OS runs its own X.509 certificate authority so package and page traffic is 
 
 - **The CA** (`src/tls/ca.go`) is an ECDSA P-256 key pair under the btrfs `tls` subvolume (`ca.crt`, `ca.key`), 10-year validity, so it survives reboots. `EnsureCA` loads an existing CA or generates one on demand; the cert is world-readable and the key is owner-only and must never be served. CA failure is non-fatal — the system boots without HTTPS rather than not at all.
 - **Leaves** (`src/tls/leaf.go`) are per-package and per-page, written as `cert.pem`/`key.pem` in one directory so a consumer needs only a single mount path. `IssueLeaf` is **idempotent**: when an existing certificate already covers exactly the requested SAN set and is still valid it returns without touching disk, which is what lets reconcile call it on every boot without churning cert files. Hostnames may be DNS names or IP literals; anything that parses as an IP goes into `IPAddresses`, everything else into `DNSNames`.
-- **`GET /tls/ca.crt`** is **public** (and on the WireGuard allowlist) so any client — a browser, a phone joining over the overlay — can fetch the root and trust the box.
+- **`GET /tls/ca.crt`** is **public** (and in `grantCommonRoutes`) so any client — a browser, a phone joining over the overlay — can fetch the root and trust the box.
 
 A package's leaf SAN set is derived from the same single FQDN as its A record, its DANE TLSA owner, and its ingress vhost; see [The package FQDN is one string](#the-package-fqdn-is-one-string--a-record-leaf-san-tlsa-owner-ingress-vhost). Leaves also carry the box's overlay IP on the install network so a peer can reach the package by raw WireGuard address, not only by name.
 
@@ -1547,7 +1610,7 @@ An integrated Prometheus + Node Exporter monitoring stack provides system metric
 
 ### Monitoring Port
 
-Port **5308** is the dedicated monitoring dashboard port. The active backend determines what listens on this port:
+Port **5308** is the dedicated monitoring dashboard port (`TOWN_OS_MONITORING_PORT` relocates it; likewise `TOWN_OS_PROMETHEUS_PORT` and `TOWN_OS_NODE_EXPORTER_PORT` for the two loopback ports — see [System-service host ports](#system-service-host-ports)). Ports reach the three services as a single `monitoring.Ports` value whose empty fields are filled by `withDefaults()`, so the defaulting lives in one place. The active backend determines what listens on the dashboard port:
 
 - **uPlot mode** (default): a socat forwarder (`socat TCP-LISTEN:5308,fork,reuseaddr TCP:localhost:9090`) exposes the Prometheus HTTP API on port 5308. The React UI queries Prometheus's `/api/v1/query_range` directly and renders charts via uPlot.
 - **Grafana mode**: Grafana listens on port 5308 directly (via podman port mapping). The React UI embeds a Grafana iframe.
@@ -1725,7 +1788,7 @@ The authoritative step-by-step boot ordering lives in [System Controller Boot Se
 
 1. `setupPodmanEnv()` points `CONTAINER_HOST` at the host podman socket.
 2. Flag parsing, then `:5309` is bound immediately with the boot-status stub.
-3. Directory creation, stale-root-DB cleanup, database, and the account, session, audit, settings, pages, and network managers.
+3. Directory creation, stale-root-DB cleanup, database, and the account (plus legacy-service-account purge), session, audit, settings, pages, and network managers — the last of which seeds the home network.
 4. Repository seeding, repository root force-refresh.
 5. Install manager, btrfs storage, systemd manager; image tag resolution.
 6. Rolodex config write + readiness wait (rolodex itself is supervised by systemd).
@@ -1733,7 +1796,7 @@ The authoritative step-by-step boot ordering lives in [System Controller Boot Se
 8. Local TLS CA, ingress, and pages service.
 9. Object-storage reconcile (one gfeh partition per network).
 10. Version-change detection, reconcile, post-update commands.
-11. DNS rebuild, network reconcile, ingress programming, UI container start.
+11. DNS rebuild, network reconcile, a second (idempotent) object-storage reconcile, ingress programming, UI container start.
 12. Freshness stage (per-package restarts after a refresh).
 13. Handler construction and the atomic swap from the boot stub to the full router.
 14. Background publication of the object-storage names, once a partition answers.
@@ -1785,7 +1848,20 @@ The network controller image is not a flag either; it is derived from the resolv
 - `NC_IMAGE` -- override the network controller image (defaults to `quay.io/town/networkcontroller:<tag>`). Used by the integration harness to inject a locally built NC.
 - `INGRESS_IMAGE` -- override the ingress image (defaults to `quay.io/town/ingress:<tag>`). Setting it to the empty string skips the ingress and the pages service — dev mode.
 - `GFEH_IMAGE` -- override the object-storage image (defaults to `quay.io/town/gfeh:<tag>`). Setting it to the **empty string** skips object storage entirely — dev mode. Object storage is also skipped when the ingress is disabled, since the four HTTP views are reachable only through it.
-- `GFEH_SMB_PORT_BASE` -- override the host port SMB listeners start from (default `4450`, one per network by index). The integration harness sets it so a concurrent `make test-full` cannot collide.
+- `GFEH_SMB_PORT_BASE` -- override the host port SMB listeners would start from (default `4450`). Vestigial: [no partition serves SMB](#no-smb-view), so no host port is allocated. Kept wired so the harness setting stays harmless.
+- `TOWN_OS_WG_SALT` -- the instance salt that separates this box's WireGuard interface names, listen ports, and overlay subnets from another Town OS sharing the network namespace. Unset on a real box; set by the test and dev harnesses. See [The instance salt](#the-instance-salt).
+
+#### System-service host ports
+
+Every system service runs `--net host`, so all of these bind in whatever network namespace the controller is in — the *host* namespace, including inside the integration harness (whose container also runs `--net host`, deliberately, so builds keep working on captive networks where bridge DNS is broken). A `make test-full` box and a `make dev` box therefore fight over the same six ports and, under `Restart=always`, crash-loop each other forever.
+
+Each of these relocates one of them and **defaults to the production port**, so an unset environment reproduces today's boot exactly. `make/lib.sh`'s `system_port_env` allocates them per run into `SYSTEM_PORT_FILES` and passes them to the test container — IRON RULE. `make dev` deliberately sets **none** of them: dev mirrors a real box, where `redirect_host_dns` needs rolodex on `:53` and a browser needs the ingress on `:443`. An unparseable value is reported on stderr and falls back to the default, because a typo would otherwise look exactly like not setting it.
+
+- `TOWN_OS_DNS_PORT` -- the port rolodex serves DNS on (default `53`, on `DNSLoopback`). **systemd-resolved routing is skipped entirely when this is non-default**: a per-domain DNS server address carries no port, so pointing resolved at `DNSLoopback` would silently blackhole every `.tld` query instead of leaving them to the normal resolver path.
+- `TOWN_OS_NODE_EXPORTER_PORT` -- node-exporter's loopback metrics port (default `9100`).
+- `TOWN_OS_PROMETHEUS_PORT` -- Prometheus's loopback HTTP API port (default `9090`).
+- `TOWN_OS_MONITORING_PORT` -- the single LAN-facing monitoring port (default `5308`).
+- `INGRESS_HTTPS_PORT` / `INGRESS_HTTP_PORT` -- the ingress's published ports (defaults `443` / `80`).
 
 ## Development Prerequisites
 
@@ -1900,4 +1976,8 @@ Integration tests run inside privileged podman containers with systemd, btrfs, a
 | `gfeh_partition_quota`   | `0`                              | Quota in bytes for each object-storage partition (0 = unlimited) |
 | `proton_image`           | `quay.io/town/proton:latest`     | Proton runner image — **registered only under the `proton` build tag** |
 
-`DefaultSettings` (`src/account/settings.go`) is seeded on first init and existing values are never overwritten. `proton_image` is not in the base map: `src/account/settings_proton.go` is `//go:build proton` and registers the default in `init()`, so a build without the tag has no Proton setting, no Proton install path, and reports `proton_enabled: false` in the status ping. Build-tag-gated registration is used rather than an exported `Register` function so no caller acquires a call-order dependency on `DefaultSettings`.
+`DefaultSettings` (`src/account/settings.go`) is seeded on first init and existing values are never overwritten.
+
+**There is no `object_storage_enabled` and no service-account password.** Object storage is not a feature to switch on ([Boot and reconcile](#boot-and-reconcile)), and the daemon holds no Town OS credential ([No service accounts](#no-service-accounts)). A row for either, left behind on an upgraded box, is read by nothing.
+
+`proton_image` is not in the base map: `src/account/settings_proton.go` is `//go:build proton` and registers the default in `init()`, so a build without the tag has no Proton setting, no Proton install path, and reports `proton_enabled: false` in the status ping. Build-tag-gated registration is used rather than an exported `Register` function so no caller acquires a call-order dependency on `DefaultSettings`.

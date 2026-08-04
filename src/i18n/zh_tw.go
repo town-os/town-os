@@ -130,10 +130,11 @@ var zhTWMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "移除網路對等點",
 	MsgAuditRefreshNetworkPeer:      "重新整理網路對等點",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "此帳號僅能使用 WireGuard 註冊端點",
-	MsgAuthWireGuardNetworkDenied: "此帳號未獲授權使用該網路",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "此帳號僅能使用網路註冊與物件儲存端點",
+	MsgAuthNetworkOnlyNetworkDenied: "此帳號未獲授權使用該網路",
 	MsgAuthWireGuardPeerNotOwned:  "此帳號僅能重新整理自己註冊的對等點",
+	MsgAuthObjectStorageRequired:  "需要管理員或物件儲存權限",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "封存上傳與下載無法指向物件儲存分割區",
@@ -145,7 +146,6 @@ var zhTWMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "主體欄位為必填",
 	MsgGfehPathRequired:          "路徑欄位為必填",
 	MsgGfehUnknownAccount:        "沒有這個帳戶",
-	MsgGfehServiceAccountProtected: "物件儲存服務帳戶無法停用；每個分割區都以它進行驗證",
 	MsgAuditCreateGfehPartition:  "建立物件儲存分割區",
 	MsgAuditModifyGfehPartition:  "修改物件儲存分割區",
 	MsgAuditRemoveGfehPartition:  "移除物件儲存分割區",

@@ -6,8 +6,8 @@
  * @property {string} real_name
  * @property {boolean} admin
  * @property {boolean} disabled
- * @property {boolean} wireguard - When true, a WireGuard-only account restricted to enrolling on the networks in `networks`.
- * @property {string[]} networks - Networks a WireGuard-only account may enroll peers on. Meaningful only when `wireguard` is true.
+ * @property {string[]} grants - Named capabilities this account holds. Empty is an ordinary dashboard account; an administrator holds every grant implicitly.
+ * @property {string[]} networks - Networks the account acts on. Meaningful only when `grants` is non-empty, and never empty then.
  * @property {string} created_at
  * @property {string} updated_at
  */
@@ -19,7 +19,7 @@
  * @property {string} [phone]
  * @property {string} [real_name]
  * @property {boolean} [admin]
- * @property {boolean} [wireguard] - Toggle the WireGuard-only restriction. Enabling it requires a non-empty `networks`.
+ * @property {string[]} [grants] - Replace the grant set. A non-empty set requires a non-empty `networks`, and is rejected on an administrator.
  * @property {string[]} [networks] - Replace the WireGuard-only network scope.
  */
 

@@ -20,6 +20,7 @@ import (
 	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/ingress/ingressctl"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -161,6 +162,9 @@ func (b *archiveTestBackend) GetInternalIP() string                             
 func (b *archiveTestBackend) GetInternalIPv6() string                             { return "" }
 func (b *archiveTestBackend) GetMonitoringBackend() string { return "" }
 func (b *archiveTestBackend) GetDiskDevices() []string     { return nil }
+func (b *archiveTestBackend) GetMonitoringPorts() monitoring.Ports {
+	return monitoring.Ports{}
+}
 func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ string) error {
 	return nil
 }

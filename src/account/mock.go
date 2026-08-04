@@ -44,21 +44,27 @@ func (m *MockManager) GetCalls() []MockCall {
 	return out
 }
 
+// Create mirrors SQLiteManager.Create, including the home-network membership:
+// an account that came back scoped only against the real store would make every
+// test over the mock disagree with the box.
 func (m *MockManager) Create(username, password, email, phone, realName string, admin bool) (*Account, error) {
-	return m.create("Create", username, password, email, phone, realName, admin, false, nil)
+	return m.create("Create", username, password, email, phone, realName, admin, nil, []string{DefaultNetworkName})
 }
 
-func (m *MockManager) CreateWireGuard(username, password, email, phone, realName string, networks []string) (*Account, error) {
+func (m *MockManager) CreateGranted(username, password, email, phone, realName string, grants, networks []string) (*Account, error) {
+	if err := validateGrants(grants); err != nil {
+		return nil, err
+	}
 	if err := validateNetworkScope(networks); err != nil {
 		return nil, err
 	}
-	return m.create("CreateWireGuard", username, password, email, phone, realName, false, true, normalizeNetworkScope(networks))
+	return m.create("CreateGranted", username, password, email, phone, realName, false, normalizeGrants(grants), normalizeNetworkScope(networks))
 }
 
-func (m *MockManager) create(method, username, password, email, phone, realName string, admin, wireguard bool, networks []string) (*Account, error) {
+func (m *MockManager) create(method, username, password, email, phone, realName string, admin bool, grants, networks []string) (*Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: method, Args: []any{username, password, email, phone, realName, admin, wireguard, networks}})
+	m.Calls = append(m.Calls, MockCall{Method: method, Args: []any{username, password, email, phone, realName, admin, grants, networks}})
 
 	if m.CreateErr != nil {
 		return nil, m.CreateErr
@@ -81,7 +87,7 @@ func (m *MockManager) create(method, username, password, email, phone, realName 
 		Phone:        phone,
 		RealName:     realName,
 		Admin:        admin,
-		WireGuard:    wireguard,
+		Grants:       grants,
 		Networks:     networks,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -129,19 +135,30 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 		return nil, ErrNotFound
 	}
 
-	// Resolve the resulting WireGuard/scope state and validate it before
-	// mutating, mirroring the SQLite manager. acct is a live pointer into the
-	// map, so applying first and failing after would corrupt stored state.
-	wireguard := acct.WireGuard
-	if fields.WireGuard != nil {
-		wireguard = *fields.WireGuard
+	// Resolve the resulting grant/admin/scope state and validate it before
+	// mutating, mirroring the SQLite manager. acct is a live pointer into
+	// the map, so applying first and failing after would corrupt stored state.
+	//
+	// The two implementations have to agree here: a mock that permitted a state
+	// the real store refuses would let a handler test pass against a row
+	// production can never hold.
+	grants := acct.Grants
+	if fields.Grants != nil {
+		grants = normalizeGrants(*fields.Grants)
+	}
+	admin := acct.Admin
+	if fields.Admin != nil {
+		admin = *fields.Admin
 	}
 	networks := acct.Networks
 	if fields.Networks != nil {
 		networks = normalizeNetworkScope(*fields.Networks)
 	}
-	if wireguard && len(networks) == 0 {
-		return nil, ErrWireGuardNoNetworks
+	if len(grants) > 0 && admin {
+		return nil, ErrGrantsAdmin
+	}
+	if len(grants) > 0 && len(networks) == 0 {
+		return nil, ErrGrantsNoNetworks
 	}
 
 	if fields.Password != nil {
@@ -159,22 +176,7 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 	if fields.Admin != nil {
 		acct.Admin = *fields.Admin
 	}
-	if fields.SMBPassword != nil {
-		// Hashed here rather than stored as plaintext, so a test that asserts
-		// on the stored value is asserting on what production stores. The
-		// empty string withdraws the credential.
-		hash := ""
-		if *fields.SMBPassword != "" {
-			derived, err := NTHash(*fields.SMBPassword)
-			if err != nil {
-				return nil, err
-			}
-			hash = derived
-		}
-		acct.SMBNTHash = hash
-		acct.SMBEnrolled = hash != ""
-	}
-	acct.WireGuard = wireguard
+	acct.Grants = grants
 	acct.Networks = networks
 	acct.UpdatedAt = time.Now()
 

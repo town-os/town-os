@@ -83,9 +83,7 @@ func TestApplyNetworkTransportBindsOverlayDNSListener(t *testing.T) {
 func TestApplyNetworkTransportDefaultNetworkNoOverlayDNSListener(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	n := &account.Network{Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.64.0.0/24", Address: "10.64.0.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
-	if _, err := mock.Create(n); err != nil {
-		t.Fatalf("seed network: %v", err)
-	}
+	mock.Seed(n)
 	mc := &rolodex.MockClient{}
 	s := newNetworksHandlerWithRolodex(mock, mc)
 
@@ -103,9 +101,7 @@ func TestApplyNetworkTransportDefaultNetworkNoOverlayDNSListener(t *testing.T) {
 func TestApplyNetworkTransportDefaultNetworkNoScopedApex(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	n := &account.Network{Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.64.0.0/24", Address: "10.64.0.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
-	if _, err := mock.Create(n); err != nil {
-		t.Fatalf("seed network: %v", err)
-	}
+	mock.Seed(n)
 	mc := &rolodex.MockClient{}
 	s := newNetworksHandlerWithRolodex(mock, mc)
 
@@ -125,9 +121,7 @@ func TestApplyNetworkTransportDefaultNetworkNoScopedApex(t *testing.T) {
 func TestApplyNetworkTransportDefaultNetworkNoWireGuardTransport(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	n := &account.Network{Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.64.0.0/24", Address: "10.64.0.1/24", PublicKey: "PUB", PrivateKey: "PRIV", ListenPort: 51820, Enabled: true}
-	if _, err := mock.Create(n); err != nil {
-		t.Fatalf("seed network: %v", err)
-	}
+	mock.Seed(n)
 	mc := &rolodex.MockClient{}
 	sd := systemd.InitMockManager()
 	sb := &serverBase{ServerConfig: ServerConfig{

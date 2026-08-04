@@ -37,6 +37,18 @@ var DefaultSettings = map[string]string{
 	"gfeh_partition_quota": "0",
 }
 
+// Object storage has no on/off setting. Storing files is what the box is for,
+// so it runs the way DNS and the ingress run: as part of what Town OS is,
+// not as a feature to be enabled. A switch bought only the chance to be found
+// in the off position while somebody debugged why their files were gone, and
+// an administrator who genuinely wants the daemons down can stop the services
+// from the services panel, where every other system service is stopped.
+//
+// The dev-mode escape hatches remain, because they are about a *build* rather
+// than about policy: an explicitly empty GFEH_IMAGE skips object storage, and
+// it is skipped when the ingress is disabled, since the HTTP views are only
+// reachable through it.
+
 type SettingsManager interface {
 	Get(key string) (string, error)
 	Set(key, value string) error

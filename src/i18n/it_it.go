@@ -130,10 +130,11 @@ var itITMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "rimuovi peer di rete",
 	MsgAuditRefreshNetworkPeer:      "aggiorna peer di rete",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "questo account può utilizzare solo gli endpoint di registrazione wireguard",
-	MsgAuthWireGuardNetworkDenied: "questo account non è autorizzato su tale rete",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "questo account può utilizzare solo gli endpoint di registrazione di rete e archiviazione oggetti",
+	MsgAuthNetworkOnlyNetworkDenied: "questo account non è autorizzato su tale rete",
 	MsgAuthWireGuardPeerNotOwned:  "questo account può aggiornare solo i peer che ha registrato",
+	MsgAuthObjectStorageRequired:  "è richiesto l'accesso di amministratore o all'archiviazione a oggetti",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "i caricamenti e i download di archivi non possono indirizzare una partizione di archiviazione a oggetti",
@@ -145,7 +146,6 @@ var itITMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "il campo principal è obbligatorio",
 	MsgGfehPathRequired:          "il campo percorso è obbligatorio",
 	MsgGfehUnknownAccount:        "account inesistente",
-	MsgGfehServiceAccountProtected: "l'account di servizio dell'archiviazione a oggetti non può essere disabilitato; ogni partizione si autentica con esso",
 	MsgAuditCreateGfehPartition:  "crea partizione di archiviazione a oggetti",
 	MsgAuditModifyGfehPartition:  "modifica partizione di archiviazione a oggetti",
 	MsgAuditRemoveGfehPartition:  "rimuovi partizione di archiviazione a oggetti",

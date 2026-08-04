@@ -130,10 +130,11 @@ var svSEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "ta bort nätverkspeer",
 	MsgAuditRefreshNetworkPeer:      "uppdatera nätverkspeer",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "detta konto får endast använda slutpunkter för wireguard-registrering",
-	MsgAuthWireGuardNetworkDenied: "detta konto är inte tillåtet på det nätverket",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "detta konto får endast använda slutpunkter för nätverksregistrering och objektlagring",
+	MsgAuthNetworkOnlyNetworkDenied: "detta konto är inte tillåtet på det nätverket",
 	MsgAuthWireGuardPeerNotOwned:  "detta konto får endast uppdatera peers som det registrerat",
+	MsgAuthObjectStorageRequired:  "administratörs- eller objektlagringsåtkomst krävs",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "arkivuppladdningar och -nedladdningar kan inte adressera en objektlagringspartition",
@@ -145,7 +146,6 @@ var svSEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "principalfältet krävs",
 	MsgGfehPathRequired:          "sökvägsfältet krävs",
 	MsgGfehUnknownAccount:        "kontot finns inte",
-	MsgGfehServiceAccountProtected: "objektlagringens tjänstekonto kan inte inaktiveras; varje partition autentiserar som det",
 	MsgAuditCreateGfehPartition:  "skapa objektlagringspartition",
 	MsgAuditModifyGfehPartition:  "ändra objektlagringspartition",
 	MsgAuditRemoveGfehPartition:  "ta bort objektlagringspartition",

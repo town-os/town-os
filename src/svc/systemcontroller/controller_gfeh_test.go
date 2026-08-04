@@ -163,7 +163,7 @@ func TestGfehAddPrincipalProjectsTheAccountsCeiling(t *testing.T) {
 	client := allViews("office", "office")
 	h, acctMgr := gfehUITest(t, map[string]gfeh.Client{"office": client})
 
-	mustAccount(t, acctMgr, "alice", false, nil)
+	mustAccount(t, acctMgr, "alice", false)
 	if _, err := acctMgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestGfehAddPrincipalProjectsTheAccountsCeiling(t *testing.T) {
 // rather than reporting a server error.
 func TestGfehAddPrincipalConflictsOnADuplicate(t *testing.T) {
 	h, acctMgr := gfehUITest(t, map[string]gfeh.Client{"office": allViews("office", "office")})
-	mustAccount(t, acctMgr, "alice", false, nil)
+	mustAccount(t, acctMgr, "alice", false)
 
 	body := GfehPrincipalRequest{Network: "office", Principal: "alice"}
 	if rec := callGfeh(t, h.addGfehPrincipal, http.MethodPost, "/gfeh/principals/add", body); rec.Code != http.StatusOK {

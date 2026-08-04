@@ -130,10 +130,11 @@ var thTHMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "ลบเพียร์เครือข่าย",
 	MsgAuditRefreshNetworkPeer:      "รีเฟรชเพียร์เครือข่าย",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "บัญชีนี้สามารถใช้ได้เฉพาะปลายทางการลงทะเบียน WireGuard เท่านั้น",
-	MsgAuthWireGuardNetworkDenied: "บัญชีนี้ไม่ได้รับอนุญาตบนเครือข่ายนั้น",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "บัญชีนี้สามารถใช้ได้เฉพาะปลายทางการลงทะเบียนเครือข่ายและที่เก็บอ็อบเจ็กต์เท่านั้น",
+	MsgAuthNetworkOnlyNetworkDenied: "บัญชีนี้ไม่ได้รับอนุญาตบนเครือข่ายนั้น",
 	MsgAuthWireGuardPeerNotOwned:  "บัญชีนี้สามารถรีเฟรชได้เฉพาะเพียร์ที่ตนลงทะเบียนไว้เท่านั้น",
+	MsgAuthObjectStorageRequired:  "ต้องมีสิทธิ์ผู้ดูแลระบบหรือสิทธิ์ที่เก็บอ็อบเจกต์",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "การอัปโหลดและดาวน์โหลดอาร์ไคฟ์ไม่สามารถระบุพาร์ทิชันที่เก็บอ็อบเจกต์ได้",
@@ -145,7 +146,6 @@ var thTHMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "ต้องระบุฟิลด์ผู้ใช้สิทธิ์",
 	MsgGfehPathRequired:          "ต้องระบุฟิลด์เส้นทาง",
 	MsgGfehUnknownAccount:        "ไม่มีบัญชีดังกล่าว",
-	MsgGfehServiceAccountProtected: "ไม่สามารถปิดใช้งานบัญชีบริการที่เก็บอ็อบเจกต์ได้ ทุกพาร์ทิชันยืนยันตัวตนด้วยบัญชีนี้",
 	MsgAuditCreateGfehPartition:  "สร้างพาร์ทิชันที่เก็บอ็อบเจกต์",
 	MsgAuditModifyGfehPartition:  "แก้ไขพาร์ทิชันที่เก็บอ็อบเจกต์",
 	MsgAuditRemoveGfehPartition:  "ลบพาร์ทิชันที่เก็บอ็อบเจกต์",

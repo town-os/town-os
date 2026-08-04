@@ -26,7 +26,7 @@ import {
  * knows whether the account is an administrator — which is the only thing the
  * ceiling depends on.
  */
-export default function UsersTab({ network, isAdmin, onChanged }) {
+export default function UsersTab({ network, canManage, onChanged }) {
   const { t } = useI18n()
   const [refreshKey, setRefreshKey] = useState(0)
   const [addOpen, setAddOpen] = useState(false)
@@ -43,8 +43,13 @@ export default function UsersTab({ network, isAdmin, onChanged }) {
 
   // A normal interval, not 0: usePolling passes it straight to setInterval, so
   // zero means "poll as fast as the event loop allows" rather than "once".
+  //
+  // `entries` is the key every paginated Town OS list answers with. Narrowing
+  // to an array rather than falling back to the response itself is deliberate:
+  // an envelope reaching `candidates` as a non-array throws out of render and
+  // white-screens the tab, which is a far worse failure than showing nobody.
   const [accounts] = usePolling(
-    () => getClient().listAccounts().then((r) => r.items || r || []).catch(() => []),
+    () => getClient().listAccounts().then((r) => (Array.isArray(r?.entries) ? r.entries : [])).catch(() => []),
     [],
     [refreshKey],
     60000,
@@ -112,7 +117,7 @@ export default function UsersTab({ network, isAdmin, onChanged }) {
       key: 'actions',
       label: '',
       transform: (_v, row) =>
-        isAdmin ? (
+        canManage ? (
           <Button variant="ghost" size="sm" onClick={() => setRemoveTarget(row)}>
             {t('objects.remove_user')}
           </Button>
@@ -122,7 +127,7 @@ export default function UsersTab({ network, isAdmin, onChanged }) {
 
   return (
     <div className="space-y-4">
-      {isAdmin && (
+      {canManage && (
         <div className="flex justify-end">
           <Button onClick={() => setAddOpen(true)} disabled={candidates.length === 0}>
             {t('objects.add_user')}

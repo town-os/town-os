@@ -130,10 +130,11 @@ var deDEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:        "Netzwerk-Peer entfernen",
 	MsgAuditRefreshNetworkPeer:       "Netzwerk-Peer aktualisieren",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "dieses Konto darf nur WireGuard-Enrollment-Endpunkte verwenden",
-	MsgAuthWireGuardNetworkDenied: "dieses Konto ist in diesem Netzwerk nicht zugelassen",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "dieses Konto darf nur Endpunkte für Netzwerk-Enrollment und Objektspeicher verwenden",
+	MsgAuthNetworkOnlyNetworkDenied: "dieses Konto ist in diesem Netzwerk nicht zugelassen",
 	MsgAuthWireGuardPeerNotOwned:  "dieses Konto darf nur Peers aktualisieren, die es selbst registriert hat",
+	MsgAuthObjectStorageRequired:  "Administrator- oder Objektspeicherzugriff erforderlich",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "Archiv-Uploads und -Downloads können keine Objektspeicher-Partition adressieren",
@@ -145,7 +146,6 @@ var deDEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "Principal-Feld ist erforderlich",
 	MsgGfehPathRequired:          "Pfadfeld ist erforderlich",
 	MsgGfehUnknownAccount:        "Konto nicht vorhanden",
-	MsgGfehServiceAccountProtected: "das Dienstkonto des Objektspeichers kann nicht deaktiviert werden; jede Partition authentifiziert sich damit",
 	MsgAuditCreateGfehPartition:  "Objektspeicher-Partition erstellen",
 	MsgAuditModifyGfehPartition:  "Objektspeicher-Partition ändern",
 	MsgAuditRemoveGfehPartition:  "Objektspeicher-Partition entfernen",

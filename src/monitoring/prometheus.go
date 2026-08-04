@@ -21,9 +21,10 @@ const (
 // PrometheusUnitConfig returns the system-service unit config for Prometheus.
 // Prometheus runs in the HOST network namespace (--net host) so it can scrape
 // node-exporter over the loopback with no cross-podman-network hairpin, and it
-// binds 127.0.0.1:9090 so it is private to the host — the browser reaches its
-// data only through the monitoring UI forwarder on :5308, never :9090 directly.
-func PrometheusUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
+// binds its port on 127.0.0.1 so it is private to the host — the browser
+// reaches its data only through the monitoring UI forwarder, never directly.
+func PrometheusUnitConfig(btrfsBase string, ports Ports) systemd.SystemServiceUnitConfig {
+	ports = ports.withDefaults()
 	configDir := filepath.Join(btrfsBase, "monitoring", "prometheus-config")
 	dataDir := filepath.Join(btrfsBase, "monitoring", "prometheus-data")
 
@@ -40,7 +41,7 @@ func PrometheusUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
 			"--config.file=/etc/prometheus/prometheus.yml",
 			"--storage.tsdb.path=/prometheus",
 			"--storage.tsdb.retention.time=30d",
-			"--web.listen-address=127.0.0.1:" + PrometheusPort,
+			"--web.listen-address=127.0.0.1:" + ports.Prometheus,
 		},
 		VolumeDirs: []string{configDir, dataDir},
 		// Prometheus's data dir must be owned by its uid:gid (bind mounts pass
@@ -54,10 +55,8 @@ func PrometheusUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
 
 // WritePrometheusConfig writes the prometheus.yml configuration file to the
 // monitoring config directory under the btrfs base path.
-func WritePrometheusConfig(btrfsBase, nodeExporterPort string) error {
-	if nodeExporterPort == "" {
-		nodeExporterPort = NodeExporterPort
-	}
+func WritePrometheusConfig(btrfsBase string, ports Ports) error {
+	ports = ports.withDefaults()
 	configDir := filepath.Join(btrfsBase, "monitoring", "prometheus-config")
 	if err := os.MkdirAll(configDir, 0755); err != nil { //nolint:gosec // config dir must be readable by container process
 		return fmt.Errorf("create prometheus config dir: %w", err)
@@ -70,11 +69,11 @@ func WritePrometheusConfig(btrfsBase, nodeExporterPort string) error {
 scrape_configs:
   - job_name: "prometheus"
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ["localhost:%s"]
   - job_name: "node-exporter"
     static_configs:
       - targets: ["localhost:%s"]
-`, nodeExporterPort)
+`, ports.Prometheus, ports.NodeExporter)
 	if err := os.WriteFile(filepath.Join(configDir, "prometheus.yml"), []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
 		return fmt.Errorf("write prometheus.yml: %w", err)
 	}
@@ -83,22 +82,22 @@ scrape_configs:
 
 // StartPrometheus writes the prometheus config and installs/starts the
 // host-networked Prometheus system-service unit.
-func StartPrometheus(ctx context.Context, sd systemd.Manager, btrfsBase, nodeExporterPort string) error {
-	if err := WritePrometheusConfig(btrfsBase, nodeExporterPort); err != nil {
+func StartPrometheus(ctx context.Context, sd systemd.Manager, btrfsBase string, ports Ports) error {
+	if err := WritePrometheusConfig(btrfsBase, ports); err != nil {
 		return fmt.Errorf("write prometheus config: %w", err)
 	}
-	uf := systemd.GenerateSystemServiceUnit(PrometheusUnitConfig(btrfsBase))
+	uf := systemd.GenerateSystemServiceUnit(PrometheusUnitConfig(btrfsBase, ports))
 	return installAndStartSystemServiceUnit(ctx, sd, uf)
 }
 
 // PrometheusSystemService returns metadata for the Prometheus system
 // service, used by the system services API.
-func PrometheusSystemService() SystemService {
+func PrometheusSystemService(ports Ports) SystemService {
 	return SystemService{
 		Key:         "prometheus",
 		DisplayName: "Prometheus",
 		Image:       PrometheusImage,
-		Port:        PrometheusPort,
+		Port:        ports.withDefaults().Prometheus,
 		UnitName:    systemd.SystemServiceUnitName("prometheus"),
 	}
 }

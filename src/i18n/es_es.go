@@ -130,10 +130,11 @@ var esESMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "eliminar par de red",
 	MsgAuditRefreshNetworkPeer:      "actualizar par de red",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "esta cuenta solo puede usar los endpoints de inscripción de wireguard",
-	MsgAuthWireGuardNetworkDenied: "esta cuenta no está autorizada en esa red",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "esta cuenta solo puede usar los endpoints de inscripción de red y almacenamiento de objetos",
+	MsgAuthNetworkOnlyNetworkDenied: "esta cuenta no está autorizada en esa red",
 	MsgAuthWireGuardPeerNotOwned:  "esta cuenta solo puede actualizar los pares que ha inscrito",
+	MsgAuthObjectStorageRequired:  "se requiere acceso de administrador o de almacenamiento de objetos",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "las cargas y descargas de archivos no pueden dirigirse a una partición de almacenamiento de objetos",
@@ -145,7 +146,6 @@ var esESMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "el campo principal es obligatorio",
 	MsgGfehPathRequired:          "el campo ruta es obligatorio",
 	MsgGfehUnknownAccount:        "no existe esa cuenta",
-	MsgGfehServiceAccountProtected: "la cuenta de servicio del almacenamiento de objetos no se puede deshabilitar; cada partición se autentica con ella",
 	MsgAuditCreateGfehPartition:  "crear partición de almacenamiento de objetos",
 	MsgAuditModifyGfehPartition:  "modificar partición de almacenamiento de objetos",
 	MsgAuditRemoveGfehPartition:  "eliminar partición de almacenamiento de objetos",

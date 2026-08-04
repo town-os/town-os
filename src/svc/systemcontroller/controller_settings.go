@@ -2,8 +2,10 @@ package systemcontroller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/packages"
@@ -28,6 +30,15 @@ type GetSettingRequest struct {
 var settingsValidators = map[string]func(string) error{
 	"dns_tld":             ValidateTLD,
 	"dns_resolution_mode": ValidateDNSResolutionMode,
+}
+
+// ValidateBool accepts what strconv.ParseBool accepts, which is what every
+// consumer of a boolean setting uses to read it back.
+func ValidateBool(v string) error {
+	if _, err := strconv.ParseBool(strings.TrimSpace(v)); err != nil {
+		return errors.New("must be true or false")
+	}
+	return nil
 }
 
 // ValidateDNSResolutionMode accepts only the modes rolodex understands.

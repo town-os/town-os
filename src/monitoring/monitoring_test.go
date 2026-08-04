@@ -18,7 +18,7 @@ import (
 // --- Node Exporter tests (unchanged — still a system service) ---
 
 func TestNodeExporterUnitConfig(t *testing.T) {
-	cfg := NodeExporterUnitConfig("")
+	cfg := NodeExporterUnitConfig(Ports{})
 
 	if cfg.Key != "node-exporter" {
 		t.Fatalf("expected key node-exporter, got %q", cfg.Key)
@@ -40,7 +40,7 @@ func TestNodeExporterUnitConfig(t *testing.T) {
 }
 
 func TestNodeExporterUnitConfigCustomPort(t *testing.T) {
-	cfg := NodeExporterUnitConfig("19100")
+	cfg := NodeExporterUnitConfig(Ports{NodeExporter: "19100"})
 
 	found := false
 	for _, cmd := range cfg.Command {
@@ -60,7 +60,7 @@ func TestNodeExporterUnitConfigCustomPort(t *testing.T) {
 // the integration-test btrfs loopback). The upstream default excludes
 // all of those and leaves the panel empty.
 func TestNodeExporterUnitConfigDiskstatsExcludeAllowsRealDevices(t *testing.T) {
-	cfg := NodeExporterUnitConfig("")
+	cfg := NodeExporterUnitConfig(Ports{})
 
 	var flag string
 	for _, cmd := range cfg.Command {
@@ -98,7 +98,7 @@ func TestNodeExporterUnitConfigDiskstatsExcludeAllowsRealDevices(t *testing.T) {
 func TestStartNodeExporter(t *testing.T) {
 	sd := systemd.InitMockManager()
 
-	if err := StartNodeExporter(t.Context(), sd, ""); err != nil {
+	if err := StartNodeExporter(t.Context(), sd, Ports{}); err != nil {
 		t.Fatalf("StartNodeExporter: %v", err)
 	}
 
@@ -142,14 +142,14 @@ func TestStartNodeExporterInstallError(t *testing.T) {
 	sd := systemd.InitMockManager()
 	sd.InstallUnitErr = os.ErrPermission
 
-	err := StartNodeExporter(t.Context(), sd, "")
+	err := StartNodeExporter(t.Context(), sd, Ports{})
 	if err == nil {
 		t.Fatal("expected error when InstallUnit fails")
 	}
 }
 
 func TestNodeExporterSystemService(t *testing.T) {
-	svc := NodeExporterSystemService("")
+	svc := NodeExporterSystemService(Ports{})
 
 	if svc.Key != "node-exporter" {
 		t.Fatalf("expected key node-exporter, got %q", svc.Key)
@@ -163,7 +163,7 @@ func TestNodeExporterSystemService(t *testing.T) {
 }
 
 func TestNodeExporterSystemServiceCustomPort(t *testing.T) {
-	svc := NodeExporterSystemService("19100")
+	svc := NodeExporterSystemService(Ports{NodeExporter: "19100"})
 	if svc.Port != "19100" {
 		t.Fatalf("expected custom port 19100, got %q", svc.Port)
 	}
@@ -195,7 +195,7 @@ func commandListenAddr(command []string) string {
 // the host netns (required for host metrics) but must be private — only
 // Prometheus (also host netns) scrapes it over the loopback, nothing on the LAN.
 func TestNodeExporterListensOnLoopback(t *testing.T) {
-	if got := commandListenAddr(NodeExporterUnitConfig("").Command); got != "127.0.0.1:"+NodeExporterPort {
+	if got := commandListenAddr(NodeExporterUnitConfig(Ports{}).Command); got != "127.0.0.1:"+NodeExporterPort {
 		t.Fatalf("node-exporter must listen on 127.0.0.1:%s (private), got %q", NodeExporterPort, got)
 	}
 }
@@ -204,7 +204,7 @@ func TestNodeExporterListensOnLoopback(t *testing.T) {
 
 func TestPrometheusUnitConfig(t *testing.T) {
 	btrfsBase := t.TempDir()
-	cfg := PrometheusUnitConfig(btrfsBase)
+	cfg := PrometheusUnitConfig(btrfsBase, Ports{})
 
 	if cfg.Key != "prometheus" {
 		t.Fatalf("expected key prometheus, got %q", cfg.Key)
@@ -251,7 +251,7 @@ func TestPrometheusUnitConfig(t *testing.T) {
 
 func TestPrometheusGeneratesSystemServiceUnit(t *testing.T) {
 	btrfsBase := t.TempDir()
-	uf := systemd.GenerateSystemServiceUnit(PrometheusUnitConfig(btrfsBase))
+	uf := systemd.GenerateSystemServiceUnit(PrometheusUnitConfig(btrfsBase, Ports{}))
 
 	expectedSvcName := systemd.SystemServiceUnitName("prometheus")
 	if uf.Name != expectedSvcName {
@@ -281,7 +281,7 @@ func TestPrometheusGeneratesSystemServiceUnit(t *testing.T) {
 func TestWritePrometheusConfig(t *testing.T) {
 	btrfsBase := t.TempDir()
 
-	if err := WritePrometheusConfig(btrfsBase, ""); err != nil {
+	if err := WritePrometheusConfig(btrfsBase, Ports{}); err != nil {
 		t.Fatalf("WritePrometheusConfig: %v", err)
 	}
 
@@ -307,7 +307,7 @@ func TestWritePrometheusConfig(t *testing.T) {
 func TestWritePrometheusConfigCustomPort(t *testing.T) {
 	btrfsBase := t.TempDir()
 
-	if err := WritePrometheusConfig(btrfsBase, "19100"); err != nil {
+	if err := WritePrometheusConfig(btrfsBase, Ports{NodeExporter: "19100"}); err != nil {
 		t.Fatalf("WritePrometheusConfig: %v", err)
 	}
 
@@ -326,7 +326,7 @@ func TestStartPrometheus(t *testing.T) {
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
 
-	if err := StartPrometheus(t.Context(), sd, btrfsBase, ""); err != nil {
+	if err := StartPrometheus(t.Context(), sd, btrfsBase, Ports{}); err != nil {
 		t.Fatalf("StartPrometheus: %v", err)
 	}
 
@@ -360,14 +360,14 @@ func TestStartPrometheusInstallError(t *testing.T) {
 	sd.InstallUnitErr = os.ErrPermission
 	btrfsBase := t.TempDir()
 
-	err := StartPrometheus(t.Context(), sd, btrfsBase, "")
+	err := StartPrometheus(t.Context(), sd, btrfsBase, Ports{})
 	if err == nil {
 		t.Fatal("expected error when InstallUnit fails")
 	}
 }
 
 func TestPrometheusSystemService(t *testing.T) {
-	svc := PrometheusSystemService()
+	svc := PrometheusSystemService(Ports{})
 
 	if svc.Key != "prometheus" {
 		t.Fatalf("expected key prometheus, got %q", svc.Key)
@@ -384,7 +384,7 @@ func TestPrometheusSystemService(t *testing.T) {
 }
 
 func TestPrometheusUnitIsSystemService(t *testing.T) {
-	uf := systemd.GenerateSystemServiceUnit(PrometheusUnitConfig(t.TempDir()))
+	uf := systemd.GenerateSystemServiceUnit(PrometheusUnitConfig(t.TempDir(), Ports{}))
 	if !systemd.IsSystemServiceUnit(uf.Name) {
 		t.Fatalf("prometheus unit %q should be a system service unit", uf.Name)
 	}
@@ -393,7 +393,7 @@ func TestPrometheusUnitIsSystemService(t *testing.T) {
 // --- Monitoring UI tests (host-networked system service) ---
 
 func TestUPlotUnitConfig(t *testing.T) {
-	cfg := UPlotUnitConfig("nc:test")
+	cfg := UPlotUnitConfig("nc:test", Ports{})
 
 	if cfg.Key != "monitoring-ui" {
 		t.Fatalf("expected key monitoring-ui, got %q", cfg.Key)
@@ -426,14 +426,14 @@ func TestUPlotUnitConfig(t *testing.T) {
 }
 
 func TestUPlotDefaultSocatImage(t *testing.T) {
-	cfg := UPlotUnitConfig("")
+	cfg := UPlotUnitConfig("", Ports{})
 	if cfg.Image != DefaultSocatImage {
 		t.Fatalf("empty ncImage should default to %q, got %q", DefaultSocatImage, cfg.Image)
 	}
 }
 
 func TestUPlotGeneratesSystemServiceUnit(t *testing.T) {
-	uf := systemd.GenerateSystemServiceUnit(UPlotUnitConfig("nc:test"))
+	uf := systemd.GenerateSystemServiceUnit(UPlotUnitConfig("nc:test", Ports{}))
 
 	expectedSvcName := systemd.SystemServiceUnitName("monitoring-ui")
 	if uf.Name != expectedSvcName {
@@ -449,7 +449,7 @@ func TestUPlotGeneratesSystemServiceUnit(t *testing.T) {
 
 func TestGrafanaUnitConfig(t *testing.T) {
 	btrfsBase := t.TempDir()
-	cfg := GrafanaUnitConfig(btrfsBase)
+	cfg := GrafanaUnitConfig(btrfsBase, Ports{})
 
 	if cfg.Key != "monitoring-ui" {
 		t.Fatalf("expected key monitoring-ui, got %q", cfg.Key)
@@ -501,7 +501,7 @@ func TestGrafanaUnitConfig(t *testing.T) {
 
 func TestGrafanaGeneratesSystemServiceUnit(t *testing.T) {
 	btrfsBase := t.TempDir()
-	uf := systemd.GenerateSystemServiceUnit(GrafanaUnitConfig(btrfsBase))
+	uf := systemd.GenerateSystemServiceUnit(GrafanaUnitConfig(btrfsBase, Ports{}))
 
 	expectedSvcName := systemd.SystemServiceUnitName("monitoring-ui")
 	if uf.Name != expectedSvcName {
@@ -677,7 +677,7 @@ func TestStartMonitoringUIGrafanaCreatesSubvolumes(t *testing.T) {
 	ctrl := storage.InitBtrFSMockController()
 	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
 
-	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", nil); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", nil, Ports{}); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -708,7 +708,7 @@ func TestStartMonitoringUIGrafanaCreatesSubvolumes(t *testing.T) {
 func TestWriteGrafanaProvisioningFiles(t *testing.T) {
 	btrfsBase := t.TempDir()
 
-	if err := WriteGrafanaProvisioningFiles(btrfsBase, []string{"sda3", "nvme0n1p3"}); err != nil {
+	if err := WriteGrafanaProvisioningFiles(btrfsBase, []string{"sda3", "nvme0n1p3"}, Ports{}); err != nil {
 		t.Fatalf("WriteGrafanaProvisioningFiles: %v", err)
 	}
 
@@ -768,7 +768,7 @@ func TestWriteGrafanaProvisioningFiles(t *testing.T) {
 func TestStartMonitoringUIUPlot(t *testing.T) {
 	sd := systemd.InitMockManager()
 
-	if err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", nil); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", nil, Ports{}); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -790,7 +790,7 @@ func TestStartMonitoringUIGrafana(t *testing.T) {
 	btrfsBase := t.TempDir()
 	st := storage.InitBtrFSFromController(btrfsBase, storage.InitBtrFSMockController())
 
-	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", nil); err != nil {
+	if err := StartMonitoringUI(t.Context(), sd, st, BackendGrafana, btrfsBase, "nc:test", nil, Ports{}); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -813,14 +813,14 @@ func TestStartMonitoringUIInstallError(t *testing.T) {
 	sd := systemd.InitMockManager()
 	sd.InstallUnitErr = os.ErrPermission
 
-	err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", nil)
+	err := StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), BackendUPlot, "", "nc:test", nil, Ports{})
 	if err == nil {
 		t.Fatal("expected error when InstallUnit fails")
 	}
 }
 
 func TestMonitoringUISystemServiceUPlot(t *testing.T) {
-	svc := MonitoringUISystemService(BackendUPlot, "nc:test")
+	svc := MonitoringUISystemService(BackendUPlot, "nc:test", Ports{})
 
 	if svc.Key != "monitoring-ui" {
 		t.Fatalf("expected key monitoring-ui, got %q", svc.Key)
@@ -834,7 +834,7 @@ func TestMonitoringUISystemServiceUPlot(t *testing.T) {
 }
 
 func TestMonitoringUISystemServiceGrafana(t *testing.T) {
-	svc := MonitoringUISystemService(BackendGrafana, "")
+	svc := MonitoringUISystemService(BackendGrafana, "", Ports{})
 
 	if svc.Image != GrafanaImage {
 		t.Fatalf("expected grafana image, got %q", svc.Image)
@@ -845,14 +845,14 @@ func TestMonitoringUISystemServiceGrafana(t *testing.T) {
 }
 
 func TestMonitoringUIUnitIsSystemService(t *testing.T) {
-	uf := systemd.GenerateSystemServiceUnit(UPlotUnitConfig("nc:test"))
+	uf := systemd.GenerateSystemServiceUnit(UPlotUnitConfig("nc:test", Ports{}))
 	if !systemd.IsSystemServiceUnit(uf.Name) {
 		t.Fatalf("monitoring-ui unit %q should be a system service unit", uf.Name)
 	}
 }
 
 func TestMonitoringUIGrafanaUnitIsSystemService(t *testing.T) {
-	uf := systemd.GenerateSystemServiceUnit(GrafanaUnitConfig(t.TempDir()))
+	uf := systemd.GenerateSystemServiceUnit(GrafanaUnitConfig(t.TempDir(), Ports{}))
 	if !systemd.IsSystemServiceUnit(uf.Name) {
 		t.Fatalf("monitoring-ui unit %q should be a system service unit", uf.Name)
 	}

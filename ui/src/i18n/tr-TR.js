@@ -150,8 +150,10 @@ const trTR = {
   'users.col_edit': 'Düzenle',
   'users.role_admin': 'Yönetici',
   'users.role_user': 'Kullanıcı',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Yalnızca WireGuard hesabı',
+  'users.grants_label': 'İzinler',
+  'users.grants_help': 'Bu hesabın aşağıdaki ağlardaki yetkileri. Yöneticiler hepsine sahiptir.',
+  'users.grant_wireguard': 'WireGuard eşleri',
+  'users.grant_gfeh': 'Nesne depolama',
   'users.networks_label': 'Ağ kapsamı',
   'users.networks_none': 'Kullanılabilir ağ yok.',
   'users.error_networks_required': 'Yalnızca WireGuard hesabı için en az bir ağ seçin',
@@ -193,7 +195,6 @@ const trTR = {
   'create_user.phone_label': 'Telefon',
   'create_user.email_label': 'E-posta',
   'create_user.admin_label': 'Yönetici ayrıcalıkları',
-  'create_user.wireguard_label': 'Yalnızca WireGuard hesabı',
   'create_user.networks_label': 'Ağ kapsamı',
   'create_user.networks_description': 'Bu hesabın WireGuard eşleri kaydedebileceği ağlar. Başka hiçbir şey yapamaz.',
   'create_user.networks_none': 'Kullanılabilir ağ yok. Önce bir ağ oluşturun.',
@@ -891,11 +892,6 @@ const trTR = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default trTR

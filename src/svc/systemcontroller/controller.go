@@ -9,6 +9,7 @@ import (
 	"gitea.com/town-os/town-os/src/git"
 	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/ingress/ingressctl"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -41,6 +42,7 @@ type systemControllerBackend interface {
 	GetNetworkManager() account.NetworkManager
 	GetMonitoringBackend() string
 	GetDiskDevices() []string
+	GetMonitoringPorts() monitoring.Ports
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
 	// RefreshDNSResolutionMode switches rolodex between recursive-from-roots
 	// and forwarding to its upstream resolvers, taking effect immediately.
@@ -146,7 +148,7 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	//
 	// Creation is admin-only because provisioning a partition is also creating
 	// the root of a permission tree; everything below that root is self-service.
-	// Deliberately absent from wireGuardAllowedRoutes: the allowlist is
+	// Deliberately absent from networkOnlyAllowedRoutes: the allowlist is
 	// fail-closed, and a scoped account holding a live tunnel into the overlay
 	// has no business provisioning storage.
 	e.Add("POST", "/gfeh/partitions/create", s.createGfehPartition, s.requireAdmin)
@@ -158,18 +160,23 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// that checks no credential -- filesystem permissions are its whole access
 	// control -- so a browser cannot reach it and these proxy to it after
 	// authenticating the caller. Reads are requireAuth (GET /account already
-	// exposes the account list, so who holds which grant is no more sensitive);
-	// writes are requireAdmin, because creating a principal is creating a root
-	// of the permission forest.
+	// exposes the account list, so who holds which grant is no more sensitive).
+	//
+	// Writes are requireObjectStorage: an administrator, or an account an
+	// administrator gave the object-storage capability to. Running a
+	// partition's user database is a day-to-day job -- adding a family member,
+	// revoking a share -- and requiring full control of the box to do it means
+	// the only person who can is the one who can also uninstall every package.
+	// Provisioning the partitions themselves stays admin-only above.
 	e.Add("GET", "/gfeh", s.listGfeh, s.requireAuth)
 	e.Add("GET", "/gfeh/principals", s.listGfehPrincipals, s.requireAuth)
-	e.Add("POST", "/gfeh/principals/add", s.addGfehPrincipal, s.requireAdmin)
-	e.Add("POST", "/gfeh/principals/remove", s.removeGfehPrincipal, s.requireAdmin)
+	e.Add("POST", "/gfeh/principals/add", s.addGfehPrincipal, s.requireObjectStorage)
+	e.Add("POST", "/gfeh/principals/remove", s.removeGfehPrincipal, s.requireObjectStorage)
 	e.Add("GET", "/gfeh/grants", s.listGfehGrants, s.requireAuth)
-	e.Add("POST", "/gfeh/grants/add", s.addGfehGrant, s.requireAdmin)
-	e.Add("POST", "/gfeh/grants/revoke", s.revokeGfehGrant, s.requireAdmin)
+	e.Add("POST", "/gfeh/grants/add", s.addGfehGrant, s.requireObjectStorage)
+	e.Add("POST", "/gfeh/grants/revoke", s.revokeGfehGrant, s.requireObjectStorage)
 	e.Add("GET", "/gfeh/exposures", s.listGfehExposures, s.requireAuth)
-	e.Add("POST", "/gfeh/exposures/withdraw", s.withdrawGfehExposure, s.requireAdmin)
+	e.Add("POST", "/gfeh/exposures/withdraw", s.withdrawGfehExposure, s.requireObjectStorage)
 
 	e.Add("POST", "/storage/remove-package-volume", s.removePackageVolume, s.requireAdmin)
 	e.Add("POST", "/storage/remove-package-volume-group", s.removePackageVolumeGroup, s.requireAdmin)
@@ -277,16 +284,16 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// Networks (per-network WireGuard overlays paired with DNS)
 	e.Add("GET", "/networks", s.listNetworks, s.requireAuth)
 	e.Add("GET", "/networks/peers", s.listNetworkPeers, s.requireAuth)
-	// Deliberately absent from wireGuardAllowedRoutes: this aggregates every
+	// Deliberately absent from networkOnlyAllowedRoutes: this aggregates every
 	// account's peers and observed source addresses across every network, which a
-	// scoped WireGuard account has no business enumerating. The allowlist is
+	// scoped network-only account has no business enumerating. The allowlist is
 	// fail-closed, so omitting it here is what denies it.
 	e.Add("GET", "/networks/peers/connected", s.listConnectedPeers, s.requireAdmin)
 	e.Add("POST", "/networks/create", s.createNetwork, s.requireAdmin)
 	e.Add("POST", "/networks/remove", s.removeNetwork, s.requireAdmin)
 	e.Add("POST", "/networks/enable", s.enableNetwork, s.requireAdmin)
 	e.Add("POST", "/networks/disable", s.disableNetwork, s.requireAdmin)
-	// peers/add and peers/refresh admit WireGuard-only accounts (scope and
+	// peers/add and peers/refresh admit network-only accounts (scope and
 	// ownership enforced in the handlers), not just admins.
 	e.Add("POST", "/networks/peers/add", s.addNetworkPeer, s.requirePeerEnroll)
 	e.Add("POST", "/networks/peers/refresh", s.refreshNetworkPeer, s.requirePeerEnroll)
@@ -318,6 +325,11 @@ type ServerConfig struct {
 	// Grafana dashboard can sum node_disk_* metrics over only those
 	// devices. Nil when discovery fails.
 	DiskDevices []string
+	// MonitoringPorts are the host ports the three monitoring system services
+	// bind. The zero value means the documented defaults (9100/9090/5308); the
+	// integration harness sets ephemeral ports so a test box never collides
+	// with a dev or production box in the shared host network namespace.
+	MonitoringPorts monitoring.Ports
 	PagesMgr                 account.PagesManager
 	NetworkMgr               account.NetworkManager
 	GitCloner                packages.GitCloner

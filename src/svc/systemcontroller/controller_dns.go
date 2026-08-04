@@ -244,6 +244,16 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 		}
 	}
 
+	// The home network's row carries this same TLD, and applyNetworkTransport
+	// hands it to rolodex.EnsureNetworkScope -- which decides which zone the
+	// home scope owns. Move it with the setting rather than leaving the two to
+	// disagree until the next boot repairs it.
+	if nm := s.Controller.GetNetworkManager(); nm != nil {
+		if err := nm.SetTLD(account.DefaultNetworkName, req.TLD); err != nil {
+			return echo.NewHTTPError(500, fmt.Sprintf("repoint the home network: %v", err))
+		}
+	}
+
 	// Page content directories are keyed by the served FQDN, which for internal
 	// pages embeds the TLD — rename them so served content follows the new TLD.
 	s.migratePageDirsForTLD(oldTLD, req.TLD)

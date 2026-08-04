@@ -50,7 +50,7 @@ func TestWriteGrafanaProvisioningFilesEmbedsDiskRegex(t *testing.T) {
 	btrfsBase := t.TempDir()
 	devices := []string{"sda3", "nvme0n1p3"}
 
-	if err := monitoring.WriteGrafanaProvisioningFiles(btrfsBase, devices); err != nil {
+	if err := monitoring.WriteGrafanaProvisioningFiles(btrfsBase, devices, monitoring.Ports{}); err != nil {
 		t.Fatalf("WriteGrafanaProvisioningFiles: %v", err)
 	}
 

@@ -92,7 +92,7 @@ func seedOfficeNetwork(t *testing.T) *account.MockNetworkManager {
 
 func TestListConnectedPeersJoinsLiveStatus(t *testing.T) {
 	mock := seedOfficeNetwork(t)
-	iface := wireguard.InterfaceName("office")
+	iface := wireguard.InterfaceName(wireGuardSalt, "office")
 	// laptop handshook just now; phone has never handshook.
 	stubWGDump(t, map[string]string{
 		iface: ifaceHeader +
@@ -154,7 +154,7 @@ func TestListConnectedPeersStaleHandshakeIsDisconnectedButListed(t *testing.T) {
 	mock := seedOfficeNetwork(t)
 	stale := time.Now().Add(-wireguard.HandshakeStaleAfter - time.Minute).Unix()
 	stubWGDump(t, map[string]string{
-		wireguard.InterfaceName("office"): ifaceHeader +
+		wireguard.InterfaceName(wireGuardSalt, "office"): ifaceHeader +
 			dumpLine("k-laptop", "203.0.113.9:48123", "10.90.12.2/32", stale, 4096, 2048) +
 			dumpLine("k-phone", "", "10.90.12.3/32", 0, 0, 0),
 	})
@@ -175,12 +175,13 @@ func TestListConnectedPeersStaleHandshakeIsDisconnectedButListed(t *testing.T) {
 // can never have peers, so it must never contribute a row.
 func TestListConnectedPeersExcludesDefaultNetwork(t *testing.T) {
 	mock := seedOfficeNetwork(t)
-	if _, err := mock.Create(&account.Network{
+	// The home network always exists, so it is seeded rather than created:
+	// giving it a subnet, an address, and an enabled transport is the worst
+	// case for this filter, and Create would (correctly) refuse the duplicate.
+	mock.Seed(&account.Network{
 		Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.90.1.0/24",
 		Address: "10.90.1.1/24", PublicKey: "HOMEPUB", ListenPort: 51999, Enabled: true,
-	}); err != nil {
-		t.Fatalf("seed home network: %v", err)
-	}
+	})
 	// A legacy row on home, which must still not surface.
 	if _, err := mock.AddPeer(&account.NetworkPeer{
 		Network: account.DefaultNetworkName, PublicKey: "k-legacy",
@@ -189,7 +190,7 @@ func TestListConnectedPeersExcludesDefaultNetwork(t *testing.T) {
 		t.Fatalf("add home peer: %v", err)
 	}
 	stubWGDump(t, map[string]string{
-		wireguard.InterfaceName("office"): ifaceHeader,
+		wireguard.InterfaceName(wireGuardSalt, "office"): ifaceHeader,
 	})
 
 	for _, p := range callConnectedPeers(t, newNetworksHandler(mock)) {
@@ -274,7 +275,7 @@ func TestListConnectedPeersFallsBackToConfiguredEndpoint(t *testing.T) {
 		t.Fatalf("add peer: %v", err)
 	}
 	stubWGDump(t, map[string]string{
-		wireguard.InterfaceName("office"): ifaceHeader + dumpLine("k-1", "", "10.90.12.2/32", 0, 0, 0),
+		wireguard.InterfaceName(wireGuardSalt, "office"): ifaceHeader + dumpLine("k-1", "", "10.90.12.2/32", 0, 0, 0),
 	})
 
 	got := callConnectedPeers(t, newNetworksHandler(mock))
@@ -303,7 +304,7 @@ func TestListConnectedPeersObservedEndpointBeatsConfigured(t *testing.T) {
 		t.Fatalf("add peer: %v", err)
 	}
 	stubWGDump(t, map[string]string{
-		wireguard.InterfaceName("office"): ifaceHeader +
+		wireguard.InterfaceName(wireGuardSalt, "office"): ifaceHeader +
 			dumpLine("k-1", "198.51.100.7:33333", "10.90.12.2/32", time.Now().Unix(), 1, 1),
 	})
 
@@ -375,7 +376,7 @@ func TestListConnectedPeersEmptyWhenNoNetworkManager(t *testing.T) {
 	}
 }
 
-// The TTL fields drive the panel's expiry column: a WireGuard-only account's
+// The TTL fields drive the panel's expiry column: a network-only account's
 // enrollment lapses, an admin's does not.
 func TestListConnectedPeersReportsExpiry(t *testing.T) {
 	mock := account.InitMockNetworkManager()

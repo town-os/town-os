@@ -130,10 +130,11 @@ var ruRUMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:        "удалить узел сети",
 	MsgAuditRefreshNetworkPeer:       "обновить узел сети",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "эта учётная запись может использовать только конечные точки регистрации wireguard",
-	MsgAuthWireGuardNetworkDenied: "этой учётной записи не разрешён доступ к этой сети",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "эта учётная запись может использовать только конечные точки регистрации в сети и объектного хранилища",
+	MsgAuthNetworkOnlyNetworkDenied: "этой учётной записи не разрешён доступ к этой сети",
 	MsgAuthWireGuardPeerNotOwned:  "эта учётная запись может обновлять только зарегистрированные ею узлы",
+	MsgAuthObjectStorageRequired:  "требуется доступ администратора или к объектному хранилищу",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "загрузка и выгрузка архивов не может адресовать раздел объектного хранилища",
@@ -145,7 +146,6 @@ var ruRUMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "поле субъекта обязательно",
 	MsgGfehPathRequired:          "поле пути обязательно",
 	MsgGfehUnknownAccount:        "такой учётной записи нет",
-	MsgGfehServiceAccountProtected: "учётную запись службы объектного хранилища нельзя отключить: через неё аутентифицируется каждый раздел",
 	MsgAuditCreateGfehPartition:  "создать раздел объектного хранилища",
 	MsgAuditModifyGfehPartition:  "изменить раздел объектного хранилища",
 	MsgAuditRemoveGfehPartition:  "удалить раздел объектного хранилища",

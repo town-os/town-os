@@ -14,7 +14,6 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
-	"gitea.com/town-os/town-os/src/wireguard"
 )
 
 // connectedPeersEnv is the fixture for the connected-peers endpoint tests.
@@ -118,8 +117,8 @@ func TestConnectedPeersHTTPListsEnrolledPeers(t *testing.T) {
 	if laptop.TLD != "office" {
 		t.Errorf("laptop tld = %q, want office", laptop.TLD)
 	}
-	if laptop.Interface != wireguard.InterfaceName("office") {
-		t.Errorf("laptop interface = %q, want %q", laptop.Interface, wireguard.InterfaceName("office"))
+	if laptop.Interface != systemcontroller.NetworkInterfaceName("office") {
+		t.Errorf("laptop interface = %q, want %q", laptop.Interface, systemcontroller.NetworkInterfaceName("office"))
 	}
 	if laptop.ExpiresAt != nil {
 		t.Errorf("laptop expiry = %v, want nil (admin enrollments are permanent)", laptop.ExpiresAt)
@@ -161,9 +160,8 @@ func TestConnectedPeersHTTPExcludesHomeNetwork(t *testing.T) {
 	env := initConnectedPeersTest(t)
 	c, nm := env.client, env.nm
 
-	if _, err := c.CreateNetwork(ctx, account.DefaultNetworkName, "home"); err != nil {
-		t.Fatalf("CreateNetwork home: %v", err)
-	}
+	// The home network is not created here: it always exists (InitNetworkManager
+	// seeds it), and POST /networks/create refuses the duplicate.
 	if _, err := c.CreateNetwork(ctx, "office", "office"); err != nil {
 		t.Fatalf("CreateNetwork office: %v", err)
 	}
@@ -223,7 +221,7 @@ func TestConnectedPeersHTTPDisconnectRevokesPeer(t *testing.T) {
 		t.Fatalf("got %d peers before disconnect, want 2", len(peers))
 	}
 
-	iface := wireguard.InterfaceName("office")
+	iface := systemcontroller.NetworkInterfaceName("office")
 	cfgPath := filepath.Join(stateDir, iface+".conf")
 	cfg, err := os.ReadFile(cfgPath) //nolint:gosec // G304 -- test-controlled path
 	if err != nil {

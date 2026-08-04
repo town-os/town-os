@@ -131,7 +131,7 @@ func (s *SystemControllerHandlers) listConnectedPeers(c *echo.Context) error {
 			continue
 		}
 
-		iface := wireguard.InterfaceName(n.Name)
+		iface := wireguard.InterfaceName(wireGuardSalt, n.Name)
 		// Only query the device when the network is actually up. A disabled
 		// network has no interface, and shelling out per-network to learn that
 		// would log a spurious failure on every poll.

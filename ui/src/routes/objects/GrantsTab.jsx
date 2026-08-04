@@ -51,7 +51,7 @@ const PERMISSIONS = [
  * one — an absent principal is an error there rather than "every grant", and
  * pretending otherwise here would make the UI disagree with what it talks to.
  */
-export default function GrantsTab({ network, isAdmin }) {
+export default function GrantsTab({ network, canManage }) {
   const { t } = useI18n()
   const [refreshKey, setRefreshKey] = useState(0)
   const [principal, setPrincipal] = useState('')
@@ -145,7 +145,7 @@ export default function GrantsTab({ network, isAdmin }) {
       key: 'actions',
       label: '',
       transform: (_v, row) =>
-        isAdmin ? (
+        canManage ? (
           <Button variant="ghost" size="sm" onClick={() => setRevokeTarget(row)}>
             {t('objects.revoke_grant')}
           </Button>
@@ -172,7 +172,7 @@ export default function GrantsTab({ network, isAdmin }) {
             ))}
           </select>
         </div>
-        {isAdmin && (
+        {canManage && (
           <Button onClick={() => setAddOpen(true)} disabled={!principal}>
             {t('objects.add_grant')}
           </Button>

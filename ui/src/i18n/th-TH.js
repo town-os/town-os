@@ -150,8 +150,10 @@ const thTH = {
   'users.col_edit': 'แก้ไข',
   'users.role_admin': 'ผู้ดูแลระบบ',
   'users.role_user': 'ผู้ใช้',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'บัญชีเฉพาะ WireGuard',
+  'users.grants_label': 'สิทธิ์',
+  'users.grants_help': 'สิทธิ์ของบัญชีนี้บนเครือข่ายด้านล่าง ผู้ดูแลระบบมีทั้งหมด',
+  'users.grant_wireguard': 'เพียร์ WireGuard',
+  'users.grant_gfeh': 'ที่เก็บอ็อบเจ็กต์',
   'users.networks_label': 'ขอบเขตเครือข่าย',
   'users.networks_none': 'ไม่มีเครือข่ายที่พร้อมใช้งาน',
   'users.error_networks_required': 'เลือกอย่างน้อยหนึ่งเครือข่ายสำหรับบัญชีเฉพาะ WireGuard',
@@ -193,7 +195,6 @@ const thTH = {
   'create_user.phone_label': 'โทรศัพท์',
   'create_user.email_label': 'อีเมล',
   'create_user.admin_label': 'สิทธิ์ผู้ดูแลระบบ',
-  'create_user.wireguard_label': 'บัญชีเฉพาะ WireGuard',
   'create_user.networks_label': 'ขอบเขตเครือข่าย',
   'create_user.networks_description': 'เครือข่ายที่บัญชีนี้สามารถลงทะเบียนเพียร์ WireGuard ได้ ไม่สามารถทำอย่างอื่นได้',
   'create_user.networks_none': 'ไม่มีเครือข่ายที่พร้อมใช้งาน กรุณาสร้างเครือข่ายก่อน',
@@ -891,11 +892,6 @@ const thTH = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default thTH

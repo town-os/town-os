@@ -130,10 +130,11 @@ var bnBDMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "নেটওয়ার্ক পিয়ার সরান",
 	MsgAuditRefreshNetworkPeer:      "নেটওয়ার্ক পিয়ার রিফ্রেশ করুন",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "এই অ্যাকাউন্টটি শুধুমাত্র wireguard এনরোলমেন্ট এন্ডপয়েন্ট ব্যবহার করতে পারে",
-	MsgAuthWireGuardNetworkDenied: "এই অ্যাকাউন্টটি সেই নেটওয়ার্কে অনুমোদিত নয়",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "এই অ্যাকাউন্টটি শুধুমাত্র নেটওয়ার্ক এনরোলমেন্ট এবং অবজেক্ট স্টোরেজ এন্ডপয়েন্ট ব্যবহার করতে পারে",
+	MsgAuthNetworkOnlyNetworkDenied: "এই অ্যাকাউন্টটি সেই নেটওয়ার্কে অনুমোদিত নয়",
 	MsgAuthWireGuardPeerNotOwned:  "এই অ্যাকাউন্টটি শুধুমাত্র সেই পিয়ারগুলি রিফ্রেশ করতে পারে যা এটি এনরোল করেছে",
+	MsgAuthObjectStorageRequired:  "প্রশাসক বা অবজেক্ট স্টোরেজ অ্যাক্সেস প্রয়োজন",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "আর্কাইভ আপলোড ও ডাউনলোড অবজেক্ট স্টোরেজ পার্টিশনে প্রয়োগ করা যায় না",
@@ -145,7 +146,6 @@ var bnBDMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "প্রিন্সিপাল ক্ষেত্রটি আবশ্যক",
 	MsgGfehPathRequired:          "পাথ ক্ষেত্রটি আবশ্যক",
 	MsgGfehUnknownAccount:        "এমন কোনো অ্যাকাউন্ট নেই",
-	MsgGfehServiceAccountProtected: "অবজেক্ট স্টোরেজ সার্ভিস অ্যাকাউন্ট নিষ্ক্রিয় করা যায় না; প্রতিটি পার্টিশন এটি দিয়ে প্রমাণীকরণ করে",
 	MsgAuditCreateGfehPartition:  "অবজেক্ট স্টোরেজ পার্টিশন তৈরি",
 	MsgAuditModifyGfehPartition:  "অবজেক্ট স্টোরেজ পার্টিশন পরিবর্তন",
 	MsgAuditRemoveGfehPartition:  "অবজেক্ট স্টোরেজ পার্টিশন অপসারণ",

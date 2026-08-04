@@ -130,10 +130,11 @@ var plPLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "usuń węzeł sieci",
 	MsgAuditRefreshNetworkPeer:      "odśwież węzeł sieci",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "to konto może używać wyłącznie punktów końcowych rejestracji wireguard",
-	MsgAuthWireGuardNetworkDenied: "to konto nie ma uprawnień w tej sieci",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "to konto może używać wyłącznie punktów końcowych rejestracji sieci i magazynu obiektów",
+	MsgAuthNetworkOnlyNetworkDenied: "to konto nie ma uprawnień w tej sieci",
 	MsgAuthWireGuardPeerNotOwned:  "to konto może odświeżać tylko węzły, które samo zarejestrowało",
+	MsgAuthObjectStorageRequired:  "wymagany dostęp administratora lub magazynu obiektów",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "przesyłanie i pobieranie archiwów nie może dotyczyć partycji magazynu obiektów",
@@ -145,7 +146,6 @@ var plPLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "pole podmiotu jest wymagane",
 	MsgGfehPathRequired:          "pole ścieżki jest wymagane",
 	MsgGfehUnknownAccount:        "nie ma takiego konta",
-	MsgGfehServiceAccountProtected: "konta usługi magazynu obiektów nie można wyłączyć; każda partycja uwierzytelnia się nim",
 	MsgAuditCreateGfehPartition:  "utwórz partycję magazynu obiektów",
 	MsgAuditModifyGfehPartition:  "zmień partycję magazynu obiektów",
 	MsgAuditRemoveGfehPartition:  "usuń partycję magazynu obiektów",

@@ -135,10 +135,11 @@ var suxMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mess
 	MsgAuditRemoveNetworkPeer:        "𒄢 𒇽 𒆳 (gul lu₂ kur)",
 	MsgAuditRefreshNetworkPeer:       "𒄈 𒇽 𒆳 (gibil lu₂ kur)",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "𒃻𒉏 𒉻𒂊 wireguard 𒁹 (niĝ-šid-e wireguard aš)",
-	MsgAuthWireGuardNetworkDenied: "𒃻𒉏 𒆳𒁀 𒉡𒋧 (niĝ-šid kur-ba nu-šum₂)",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "𒃻𒉏 𒆳 𒂍𒃻 𒁹 (niĝ-šid-e kur e-ĝar aš)",
+	MsgAuthNetworkOnlyNetworkDenied: "𒃻𒉏 𒆳𒁀 𒉡𒋧 (niĝ-šid kur-ba nu-šum₂)",
 	MsgAuthWireGuardPeerNotOwned:  "𒃻𒉏 𒇽𒉌 𒄈 (niĝ-šid lu₂-ni gibil)",
+	MsgAuthObjectStorageRequired:  "𒈗 𒂍𒃻 𒃶 (lugal e-ĝar he₂)",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "𒉑𒁾 𒉡 𒂍𒃻 (pisaĝ-dub nu e-ĝar)",
@@ -150,7 +151,6 @@ var suxMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mess
 	MsgGfehPrincipalRequired:     "𒇽 𒃶 (lu₂ he₂)",
 	MsgGfehPathRequired:          "𒆠 𒃶 (ki he₂)",
 	MsgGfehUnknownAccount:        "𒃻𒉏 𒉡𒅅 (niĝ-šid nu-ĝal₂)",
-	MsgGfehServiceAccountProtected: "𒃻𒉏 𒂍𒃻 𒉡𒄢 (niĝ-šid e-ĝar nu-gul)",
 	MsgAuditCreateGfehPartition:  "𒁶 𒁀 𒂍𒃻 (dim₂ ba e-ĝar)",
 	MsgAuditModifyGfehPartition:  "𒆐 𒁀 𒂍𒃻 (kur₂ ba e-ĝar)",
 	MsgAuditRemoveGfehPartition:  "𒄢 𒁀 𒂍𒃻 (gul ba e-ĝar)",

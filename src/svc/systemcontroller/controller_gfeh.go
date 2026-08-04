@@ -109,15 +109,44 @@ type (
 	}
 )
 
-// gfehClientFor resolves the admin client for a partition, validating that the
-// network exists first so a typo reads as "no such network" rather than as
-// object storage being unavailable.
-func (s *SystemControllerHandlers) gfehClientFor(network string) (gfeh.Client, error) {
+// gfehClientFor resolves the admin client for a partition: it checks the
+// request names a network, that the caller is allowed on it, and only then that
+// the partition is actually there.
+//
+// Every /gfeh/* route funnels through here — reads included — which is what
+// makes the scope check unmissable. A network-only account scoped to `office`
+// listing `home`'s principals would be an information leak of exactly the kind
+// the scope exists to prevent, and a check bolted onto the mutating routes
+// alone would have permitted it.
+//
+// **The order is load-bearing: shape, then authority, then existence.**
+// Authorization must not depend on the state of the thing being addressed. With
+// the lookup first, a caller who had no business asking about `home` learned
+// whether `home` had a partition (404 vs 200) and whether its daemon was
+// configured (503) — and got that answer as a *successful* refusal of a
+// different kind, so nothing recorded that a scoped account had reached outside
+// its scope at all. Authorizing first makes the refusal the same 403 whether
+// object storage is up, down, or absent.
+//
+// The empty-network 400 stays ahead of the scope check so a malformed request
+// gets the same answer for everybody: "" is in nobody's scope, and 403ing it
+// would tell a scoped account its own request was a permissions problem when it
+// was a typo.
+//
+// 404 and 403 remain distinguishable for a caller who IS allowed on the
+// network, which is deliberate: the set of networks on the box is already
+// readable through GET /networks (on the allowlist), so hiding it from an
+// in-scope caller would cost clarity and conceal nothing.
+func (s *SystemControllerHandlers) gfehClientFor(c *echo.Context, network string) (gfeh.Client, error) {
 	locale := s.getLocale()
 
 	network = strings.TrimSpace(network)
 	if network == "" {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgGfehNetworkRequired))
+	}
+
+	if err := s.requireNetworkScope(c, network); err != nil {
+		return nil, err
 	}
 
 	reg := s.Controller.GetGfehRegistry()
@@ -129,6 +158,45 @@ func (s *SystemControllerHandlers) gfehClientFor(network string) (gfeh.Client, e
 		return nil, echo.NewHTTPError(http.StatusNotFound, i18n.T(locale, i18n.MsgGfehPartitionNotFound))
 	}
 	return client, nil
+}
+
+// requireNetworkScope confines a non-admin caller to the networks it is scoped
+// to.
+//
+// It *confines*; it does not grant. Whether a caller may do the thing at all is
+// the route's own middleware: reads stay requireAuth and writes are
+// requireObjectStorage. This adds the one question neither can answer — "which
+// network?" — because the answer lives in the request body or query that only
+// the handler has parsed. An administrator holds every grant on every network
+// and is unaffected.
+//
+// A nil session manager means authentication is not configured at all — the
+// same condition every auth middleware treats as "let it through" — and an
+// unidentifiable caller has already been rejected by the route's own auth
+// middleware before reaching any handler, so both fall through here rather than
+// being denied a second time on weaker information.
+//
+// It confines the *restricted* accounts only — a non-admin holding at least one
+// grant — because a stored network scope is what a grant is exercised against,
+// and only such an account has one. An ordinary dashboard account holds no
+// grants and therefore no scope, and an empty scope denies every network
+// (deliberately, see Account.MayAdministerNetwork): applying it here would 403
+// every read for every plain account, which is not a confinement but an
+// accidental tightening of routes that are requireAuth on purpose. What such an
+// account may do remains the route's own question — it cannot reach any of the
+// mutators, which are requireObjectStorage.
+func (s *SystemControllerHandlers) requireNetworkScope(c *echo.Context, network string) error {
+	if s.Controller.GetSessionManager() == nil {
+		return nil
+	}
+	acct := s.callingAccount(c)
+	if acct == nil || !acct.Restricted() {
+		return nil
+	}
+	if !acct.MayAdministerNetwork(network) {
+		return echo.NewHTTPError(http.StatusForbidden, i18n.T(s.getLocale(), i18n.MsgAuthNetworkOnlyNetworkDenied))
+	}
+	return nil
 }
 
 // gfehStatus maps a gfeh admin-socket error onto an HTTP status.
@@ -165,8 +233,24 @@ func (s *SystemControllerHandlers) listGfeh(c *echo.Context) error {
 	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
 	quota := gfehPartitionQuota(s.Controller.GetSettingsManager())
 
+	// The one /gfeh/* read that names no network, so gfehClientFor's scope check
+	// cannot cover it: it enumerates them. A scoped account gets the partitions
+	// its networks own and no rows for the rest -- omitted rather than rendered
+	// as unavailable, since a partition it may not administer is not a partition
+	// that is down.
+	//
+	// Restricted() is the same gate requireNetworkScope uses, and for the same
+	// reason: a plain account holds no grants and so no scope, and filtering it
+	// against an empty scope would render every partition invisible to every
+	// ordinary account rather than confining anybody.
+	caller := s.callingAccount(c)
+	confined := caller != nil && caller.Restricted()
+
 	out := make([]GfehPartitionView, 0, len(reg.Clients()))
 	for network, client := range reg.Clients() {
+		if confined && !caller.MayAdministerNetwork(network) {
+			continue
+		}
 		view := GfehPartitionView{
 			Network: network,
 			TLD:     gfehNetworkTLD(nm, network, tld),
@@ -202,7 +286,7 @@ func (s *SystemControllerHandlers) listGfeh(c *echo.Context) error {
 
 // listGfehPrincipals handles GET /gfeh/principals?network=.
 func (s *SystemControllerHandlers) listGfehPrincipals(c *echo.Context) error {
-	client, err := s.gfehClientFor(c.Request().URL.Query().Get("network"))
+	client, err := s.gfehClientFor(c, c.Request().URL.Query().Get("network"))
 	if err != nil {
 		return err
 	}
@@ -246,7 +330,7 @@ func (s *SystemControllerHandlers) addGfehPrincipal(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	client, err := s.gfehClientFor(req.Network)
+	client, err := s.gfehClientFor(c, req.Network)
 	if err != nil {
 		return err
 	}
@@ -295,7 +379,7 @@ func (s *SystemControllerHandlers) removeGfehPrincipal(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	client, err := s.gfehClientFor(req.Network)
+	client, err := s.gfehClientFor(c, req.Network)
 	if err != nil {
 		return err
 	}
@@ -316,7 +400,7 @@ func (s *SystemControllerHandlers) removeGfehPrincipal(c *echo.Context) error {
 // make the proxy disagree with what it proxies.
 func (s *SystemControllerHandlers) listGfehGrants(c *echo.Context) error {
 	query := c.Request().URL.Query()
-	client, err := s.gfehClientFor(query.Get("network"))
+	client, err := s.gfehClientFor(c, query.Get("network"))
 	if err != nil {
 		return err
 	}
@@ -348,7 +432,7 @@ func (s *SystemControllerHandlers) addGfehGrant(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	client, err := s.gfehClientFor(req.Network)
+	client, err := s.gfehClientFor(c, req.Network)
 	if err != nil {
 		return err
 	}
@@ -388,7 +472,7 @@ func (s *SystemControllerHandlers) revokeGfehGrant(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	client, err := s.gfehClientFor(req.Network)
+	client, err := s.gfehClientFor(c, req.Network)
 	if err != nil {
 		return err
 	}
@@ -401,7 +485,7 @@ func (s *SystemControllerHandlers) revokeGfehGrant(c *echo.Context) error {
 
 // listGfehExposures handles GET /gfeh/exposures?network=.
 func (s *SystemControllerHandlers) listGfehExposures(c *echo.Context) error {
-	client, err := s.gfehClientFor(c.Request().URL.Query().Get("network"))
+	client, err := s.gfehClientFor(c, c.Request().URL.Query().Get("network"))
 	if err != nil {
 		return err
 	}
@@ -429,7 +513,7 @@ func (s *SystemControllerHandlers) withdrawGfehExposure(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	client, err := s.gfehClientFor(req.Network)
+	client, err := s.gfehClientFor(c, req.Network)
 	if err != nil {
 		return err
 	}

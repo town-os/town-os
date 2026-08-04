@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   LayoutDashboard,
+  Database,
   HardDrive,
   Users,
   Cog,
@@ -20,7 +21,6 @@ import {
   Activity,
   Wifi,
   Network,
-  Database,
   AlertTriangle,
 } from 'lucide-react'
 

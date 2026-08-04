@@ -56,6 +56,24 @@ export BTRFS_IMAGE_DIR
 LOG_DIR := /tmp/town-os/log
 export LOG_DIR
 
+# Per-run ephemeral port files. Pure bookkeeping (no data), so STATE_DIR is the
+# right home for them.
+#
+# SYSTEM_PORT_FILES relocate the otherwise-fixed ports the system services bind:
+# rolodex :53, node-exporter :9100, Prometheus :9090, the monitoring UI :5308,
+# and the ingress :443/:80. The test container runs --net host (deliberately —
+# bridge-network DNS breaks on captive networks), so those services bind in the
+# *host* namespace, and without these a `make test-full` and a `make dev` fight
+# over every one of them and crash-loop each other under Restart=always.
+# `make dev` allocates none of these and keeps the production ports, because dev
+# is meant to mirror a real box — IRON RULE.
+SYSTEM_PORT_FILES := $(STATE_DIR)/.dns-port $(STATE_DIR)/.node-exporter-port \
+                     $(STATE_DIR)/.prometheus-port $(STATE_DIR)/.monitoring-port \
+                     $(STATE_DIR)/.ingress-https-port $(STATE_DIR)/.ingress-http-port
+PORT_FILES := $(STATE_DIR)/.integration-port $(STATE_DIR)/.registry-port \
+              $(STATE_DIR)/.gitea-port $(SYSTEM_PORT_FILES)
+export SYSTEM_PORT_FILES PORT_FILES
+
 # Image names (unique per working directory).
 # Integration and dev use separate production base images so builds
 # cannot interfere with each other.
@@ -166,17 +184,15 @@ gfeh-image: check-podman check-runc
 nc-image-dev: check-podman check-runc dev-production-image
 ui-integration-image: $(STATE_DIR)/.images-pulled
 production-image: check-podman check-runc $(STATE_DIR)/.images-pulled
-$(STATE_DIR)/.integration-port: check-python3
-$(STATE_DIR)/.registry-port: check-python3
+$(PORT_FILES): check-python3
 $(STATE_DIR)/.registry-images: gitea-populate
 registry: check-podman check-runc ensure-image-cache $(STATE_DIR)/.registry-port
 registry-populate: registry $(STATE_DIR)/.registry-images
 $(STATE_DIR)/registries.conf: $(STATE_DIR)/.registry-port
-$(STATE_DIR)/.gitea-port: check-python3
 gitea: check-podman check-runc ensure-image-cache $(STATE_DIR)/.gitea-port
 gitea-populate: gitea
-test-ui-integration: test-image ui-image nc-image ingress-image ui-integration-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
-test-integration-build: lint test-image ui-image nc-image ingress-image $(STATE_DIR)/.integration-port registry-populate $(STATE_DIR)/registries.conf gitea-populate
+test-ui-integration: test-image ui-image nc-image ingress-image gfeh-image ui-integration-image $(STATE_DIR)/.integration-port $(SYSTEM_PORT_FILES) registry-populate $(STATE_DIR)/registries.conf gitea-populate
+test-integration-build: lint test-image ui-image nc-image ingress-image gfeh-image $(STATE_DIR)/.integration-port $(SYSTEM_PORT_FILES) registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration: test-integration-build
 test-full: pull-images test ui-integration-image
 test-full-log:
@@ -186,7 +202,7 @@ dev-image: dev-production-image
 btrfs-dev: check-btrfs clean-btrfs-dev
 dev-stop:
 dev-image: dev-stop
-dev: check-podman check-runc check-bun check-btrfs dev-image nc-image-dev dev-btrfs ensure-image-cache
+dev: check-podman check-runc check-bun check-btrfs dev-image nc-image-dev gfeh-image dev-btrfs ensure-image-cache
 preflight-dev: ensure-image-cache $(STATE_DIR)/.integration-port
 clean-dev: dev-stop-all clean-cache
 clean-integration: registry-stop gitea-stop

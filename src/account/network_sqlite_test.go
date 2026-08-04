@@ -44,7 +44,7 @@ func sampleNetwork(name string) *Network {
 func TestNetworkCreateGetList(t *testing.T) {
 	mgr := initNetworkTestDB(t)
 
-	created, err := mgr.Create(sampleNetwork("home"))
+	created, err := mgr.Create(sampleNetwork("lab"))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestNetworkCreateGetList(t *testing.T) {
 		t.Error("created_at not set")
 	}
 
-	got, err := mgr.Get("home")
+	got, err := mgr.Get("lab")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -67,18 +67,107 @@ func TestNetworkCreateGetList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 2 || list[0].Name != "home" || list[1].Name != "office" {
+	// The seeded home network is in here too, and sorts first.
+	if len(list) != 3 || list[0].Name != DefaultNetworkName || list[1].Name != "lab" || list[2].Name != "office" {
 		t.Errorf("unexpected list: %+v", list)
+	}
+}
+
+// The home network exists from the moment the table does, before anything has
+// created one. Everything downstream is written assuming it is there -- the
+// first account is scoped to it, the default TLD is its TLD, and gfeh gives it
+// a partition -- so a box where it had to be created first has a window in
+// which all of that is false.
+func TestNetworkManagerSeedsTheDefaultNetwork(t *testing.T) {
+	mgr := initNetworkTestDB(t)
+
+	home, err := mgr.Get(DefaultNetworkName)
+	if err != nil {
+		t.Fatalf("the home network was not seeded: %v", err)
+	}
+	if home.TLD != DefaultNetworkName {
+		t.Errorf("TLD = %q, want %q", home.TLD, DefaultNetworkName)
+	}
+	if !home.Enabled {
+		t.Error("the home network came back disabled")
+	}
+	// DNS-only: it never gets a WireGuard interface, so carrying a subnet or a
+	// keypair would be inventing transport nothing brings up.
+	if home.Subnet != "" || home.Address != "" || home.PublicKey != "" || home.PrivateKey != "" || home.ListenPort != 0 {
+		t.Errorf("the home network carries WireGuard transport it never uses: %+v", home)
+	}
+}
+
+// Seeding runs on every InitNetworkManager, including against a database that
+// already has the row -- an existing box opens its accounts DB on every boot.
+func TestNetworkManagerSeedIsIdempotent(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	first, err := InitNetworkManager(db)
+	if err != nil {
+		t.Fatalf("InitNetworkManager: %v", err)
+	}
+	if err := first.SetTLD(DefaultNetworkName, "lan"); err != nil {
+		t.Fatalf("SetTLD: %v", err)
+	}
+
+	second, err := InitNetworkManager(db)
+	if err != nil {
+		t.Fatalf("InitNetworkManager again: %v", err)
+	}
+	home, err := second.Get(DefaultNetworkName)
+	if err != nil {
+		t.Fatalf("Get home after reopen: %v", err)
+	}
+	// Re-seeding must not clobber a TLD the controller reconciled from dns_tld.
+	if home.TLD != "lan" {
+		t.Errorf("TLD = %q after reopen, want lan", home.TLD)
+	}
+	if n, err := second.Count(); err != nil {
+		t.Fatalf("Count: %v", err)
+	} else if n != 1 {
+		t.Errorf("count = %d after reopening, want 1", n)
+	}
+}
+
+// SetTLD is how the controller reconciles the home network against dns_tld.
+func TestNetworkSetTLD(t *testing.T) {
+	mgr := initNetworkTestDB(t)
+
+	if err := mgr.SetTLD(DefaultNetworkName, "lan"); err != nil {
+		t.Fatalf("SetTLD: %v", err)
+	}
+	got, err := mgr.Get(DefaultNetworkName)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.TLD != "lan" {
+		t.Errorf("TLD = %q, want lan", got.TLD)
+	}
+	if err := mgr.SetTLD("nope", "lan"); !errors.Is(err, ErrNetworkNotFound) {
+		t.Fatalf("SetTLD on a missing network = %v, want ErrNetworkNotFound", err)
 	}
 }
 
 func TestNetworkDuplicateRejected(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("home")); err != nil {
+	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := mgr.Create(sampleNetwork("home")); !errors.Is(err, ErrDuplicateNetwork) {
+	if _, err := mgr.Create(sampleNetwork("office")); !errors.Is(err, ErrDuplicateNetwork) {
 		t.Fatalf("expected ErrDuplicateNetwork, got %v", err)
+	}
+	// Including the seeded one, which nothing may create a second time.
+	if _, err := mgr.Create(sampleNetwork(DefaultNetworkName)); !errors.Is(err, ErrDuplicateNetwork) {
+		t.Fatalf("creating the home network = %v, want ErrDuplicateNetwork", err)
 	}
 }
 
@@ -116,9 +205,6 @@ func TestNetworkRemove(t *testing.T) {
 
 func TestNetworkDefaultProtected(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("home")); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
 	if err := mgr.Remove("home"); !errors.Is(err, ErrNetworkProtected) {
 		t.Fatalf("expected ErrNetworkProtected, got %v", err)
 	}
@@ -150,10 +236,11 @@ func TestNetworkCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("count = %d, want 0", n)
+	// The seeded home network, before anything else is created.
+	if n != 1 {
+		t.Fatalf("count = %d, want 1", n)
 	}
-	for _, name := range []string{"home", "office", "lab"} {
+	for _, name := range []string{"office", "lab"} {
 		if _, err := mgr.Create(sampleNetwork(name)); err != nil {
 			t.Fatalf("Create %s: %v", name, err)
 		}

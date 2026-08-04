@@ -495,14 +495,14 @@ describe('SystemControllerClient', () => {
             phone: '555-1234',
             real_name: 'Bob Smith',
             admin: false,
-            wireguard: false,
+            grants: [],
             networks: [],
           }),
         },
       )
     })
 
-    it('sends wireguard flag and network scope', async () => {
+    it('sends the grant set and its scope', async () => {
       const acct = {
         username: 'portal',
         email: 'p@example.com',
@@ -510,7 +510,7 @@ describe('SystemControllerClient', () => {
         real_name: 'Portal',
         admin: false,
         disabled: false,
-        wireguard: true,
+        grants: ['gfeh'],
         networks: ['office'],
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
@@ -525,7 +525,7 @@ describe('SystemControllerClient', () => {
         '555-9',
         'Portal',
         false,
-        true,
+        ['gfeh'],
         ['office'],
       )
       expect(result).toEqual(acct)
@@ -544,7 +544,7 @@ describe('SystemControllerClient', () => {
             phone: '555-9',
             real_name: 'Portal',
             admin: false,
-            wireguard: true,
+            grants: ['gfeh'],
             networks: ['office'],
           }),
         },

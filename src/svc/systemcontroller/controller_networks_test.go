@@ -124,8 +124,12 @@ func TestCreateAndListNetworksHandler(t *testing.T) {
 	if err := json.Unmarshal(lrec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if len(list) != 1 || list[0].Name != "office" || list[0].Interface == "" {
+	// The always-present home network is in the list too, and sorts first.
+	if len(list) != 2 || list[0].Name != account.DefaultNetworkName {
 		t.Fatalf("unexpected list: %+v", list)
+	}
+	if list[1].Name != "office" || list[1].Interface == "" {
+		t.Fatalf("unexpected office entry: %+v", list[1])
 	}
 }
 
@@ -187,9 +191,6 @@ func TestEnableDisableNetworkHandler(t *testing.T) {
 
 func TestRemoveDefaultNetworkRejected(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{Name: account.DefaultNetworkName, TLD: "home", Enabled: true}); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
 	s := newNetworksHandler(mock)
 	e := echo.New()
 

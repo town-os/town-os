@@ -130,10 +130,11 @@ var zhCNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "删除网络对等端",
 	MsgAuditRefreshNetworkPeer:      "刷新网络对等端",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "此账户只能使用 WireGuard 注册端点",
-	MsgAuthWireGuardNetworkDenied: "此账户无权访问该网络",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "此账户只能使用网络注册和对象存储端点",
+	MsgAuthNetworkOnlyNetworkDenied: "此账户无权访问该网络",
 	MsgAuthWireGuardPeerNotOwned:  "此账户只能刷新自己注册的对等端",
+	MsgAuthObjectStorageRequired:  "需要管理员或对象存储权限",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "归档上传和下载不能指向对象存储分区",
@@ -145,7 +146,6 @@ var zhCNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "主体字段为必填项",
 	MsgGfehPathRequired:          "路径字段为必填项",
 	MsgGfehUnknownAccount:        "该账户不存在",
-	MsgGfehServiceAccountProtected: "对象存储服务账户不能被禁用；每个分区都以它进行身份验证",
 	MsgAuditCreateGfehPartition:  "创建对象存储分区",
 	MsgAuditModifyGfehPartition:  "修改对象存储分区",
 	MsgAuditRemoveGfehPartition:  "删除对象存储分区",

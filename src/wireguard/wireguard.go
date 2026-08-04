@@ -17,13 +17,38 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
+// saltedKey mixes an instance salt into a derivation input.
+//
+// The empty salt returns the bare key, so every salted derivation reproduces
+// its historical unsalted value bit-for-bit on a production box. That is the
+// whole contract: a salt is an opt-in for instances that share a network
+// namespace with another Town OS, never something a real box carries. If this
+// ever stops being an identity for "", live interfaces get renamed and stored
+// subnets stop matching the devices they were allocated for.
+func saltedKey(salt, key string) string {
+	if salt == "" {
+		return key
+	}
+	return salt + "|" + key
+}
+
 // InterfaceName derives a stable, kernel-legal (<=15 char) WireGuard interface
 // name for a network. wg-quick derives the interface from the config filename,
 // so the config is written as "<InterfaceName>.conf". The name is a hash of the
 // network name so it is stable across create order and independent of how many
 // networks currently exist.
-func InterfaceName(networkName string) string {
-	h := sha256.Sum256([]byte(networkName))
+//
+// salt differentiates instances that share a network namespace. A kernel
+// interface name is namespace-global, so a `make test-full` box and a `make dev`
+// box — both running --net host — otherwise derive the same "townXXXX" for the
+// same network name and the second one to come up fails to create its device.
+// Production passes "" and gets the historical name; see saltedKey.
+//
+// The salt only widens the hash input, so the result is the same 8 characters
+// regardless of how long the salt is — it can never push the name past the
+// kernel's 15-character limit.
+func InterfaceName(salt, networkName string) string {
+	h := sha256.Sum256([]byte(saltedKey(salt, networkName)))
 	return "town" + hex.EncodeToString(h[:2]) // "town" + 4 hex = 8 chars
 }
 

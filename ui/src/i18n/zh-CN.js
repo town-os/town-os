@@ -150,8 +150,10 @@ const zhCN = {
   'users.col_edit': '编辑',
   'users.role_admin': '管理员',
   'users.role_user': '用户',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': '仅 WireGuard 账户',
+  'users.grants_label': '权限',
+  'users.grants_help': '此账户在下方网络上的权限。管理员拥有全部权限。',
+  'users.grant_wireguard': 'WireGuard 对等端',
+  'users.grant_gfeh': '对象存储',
   'users.networks_label': '网络范围',
   'users.networks_none': '没有可用的网络。',
   'users.error_networks_required': '请为仅 WireGuard 账户至少选择一个网络',
@@ -193,7 +195,6 @@ const zhCN = {
   'create_user.phone_label': '电话',
   'create_user.email_label': '邮箱',
   'create_user.admin_label': '管理员权限',
-  'create_user.wireguard_label': '仅 WireGuard 账户',
   'create_user.networks_label': '网络范围',
   'create_user.networks_description': '此账户可在其上注册 WireGuard 对等端的网络。除此之外它不能执行任何操作。',
   'create_user.networks_none': '没有可用的网络。请先创建一个网络。',
@@ -891,11 +892,6 @@ const zhCN = {
   'objects.toast_grant_added': '已添加授权',
   'objects.toast_grant_revoked': '已撤销授权',
   'objects.toast_link_withdrawn': '已撤回链接',
-  'users.smb_credential': 'SMB 密码',
-  'users.smb_credential_help': '一个单独的密码，仅用于挂载 SMB 共享。它无法从账户密码派生；留空表示该账户不能挂载共享。保持不变即可沿用当前密码。',
-  'users.smb_enrolled': '已启用 SMB',
-  'users.smb_not_enrolled': '无 SMB 访问权限',
-  'users.smb_clear': '移除 SMB 访问权限',
 }
 
 export default zhCN

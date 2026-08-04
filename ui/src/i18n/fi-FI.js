@@ -150,8 +150,10 @@ const fiFI = {
   'users.col_edit': 'Muokkaa',
   'users.role_admin': 'Ylläpitäjä',
   'users.role_user': 'Käyttäjä',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Vain WireGuard -tili',
+  'users.grants_label': 'Oikeudet',
+  'users.grants_help': 'Tämän tilin oikeudet alla oleviin verkkoihin. Ylläpitäjillä on ne kaikki.',
+  'users.grant_wireguard': 'WireGuard-vertaiset',
+  'users.grant_gfeh': 'Objektitallennus',
   'users.networks_label': 'Verkkojen laajuus',
   'users.networks_none': 'Ei verkkoja saatavilla.',
   'users.error_networks_required': 'Valitse vähintään yksi verkko vain WireGuard -tilille',
@@ -193,7 +195,6 @@ const fiFI = {
   'create_user.phone_label': 'Puhelin',
   'create_user.email_label': 'Sähköposti',
   'create_user.admin_label': 'Ylläpitäjän oikeudet',
-  'create_user.wireguard_label': 'Vain WireGuard -tili',
   'create_user.networks_label': 'Verkkojen laajuus',
   'create_user.networks_description': 'Verkot, joihin tämä tili voi rekisteröidä WireGuard-vertaislaitteita. Se ei voi tehdä mitään muuta.',
   'create_user.networks_none': 'Ei verkkoja saatavilla. Luo ensin verkko.',
@@ -891,11 +892,6 @@ const fiFI = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default fiFI

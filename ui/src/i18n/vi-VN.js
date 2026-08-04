@@ -150,8 +150,10 @@ const viVN = {
   'users.col_edit': 'Sửa',
   'users.role_admin': 'Quản trị',
   'users.role_user': 'Người dùng',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Tài khoản chỉ dùng WireGuard',
+  'users.grants_label': 'Quyền',
+  'users.grants_help': 'Quyền của tài khoản này trên các mạng bên dưới. Quản trị viên có tất cả.',
+  'users.grant_wireguard': 'Peer WireGuard',
+  'users.grant_gfeh': 'Lưu trữ đối tượng',
   'users.networks_label': 'Phạm vi mạng',
   'users.networks_none': 'Không có mạng khả dụng.',
   'users.error_networks_required': 'Chọn ít nhất một mạng cho tài khoản chỉ dùng WireGuard',
@@ -193,7 +195,6 @@ const viVN = {
   'create_user.phone_label': 'Điện thoại',
   'create_user.email_label': 'Email',
   'create_user.admin_label': 'Quyền quản trị',
-  'create_user.wireguard_label': 'Tài khoản chỉ dùng WireGuard',
   'create_user.networks_label': 'Phạm vi mạng',
   'create_user.networks_description': 'Các mạng mà tài khoản này có thể ghi danh peer WireGuard. Nó không thể làm gì khác.',
   'create_user.networks_none': 'Không có mạng khả dụng. Hãy tạo một mạng trước.',
@@ -891,11 +892,6 @@ const viVN = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default viVN

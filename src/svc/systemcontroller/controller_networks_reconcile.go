@@ -277,7 +277,7 @@ func (s *SystemControllerHandlers) buildNetwork(name, tld string, enabled bool) 
 	// Derive a name-stable listen port, then probe forward past any port
 	// already held by an existing network so remove-then-create can never
 	// reuse a live port.
-	port := wireguard.ListenPortForName(name)
+	port := wireguard.ListenPortForName(wireGuardSalt, name)
 	if nm := s.Controller.GetNetworkManager(); nm != nil {
 		if nets, lerr := nm.List(); lerr == nil {
 			used := make(map[int]bool, len(nets))
@@ -305,7 +305,7 @@ func (s *SystemControllerHandlers) buildNetwork(name, tld string, enabled bool) 
 // networkConfigPath returns the host path of a network's wg-quick config file.
 // wg-quick derives the interface name from the file basename.
 func networkConfigPath(statePath, networkName string) string {
-	return filepath.Join(statePath, wireguard.InterfaceName(networkName)+".conf")
+	return filepath.Join(statePath, wireguard.InterfaceName(wireGuardSalt, networkName)+".conf")
 }
 
 // applyNetworkTransport renders the WireGuard config for a network, installs its
@@ -750,14 +750,34 @@ func (s *SystemControllerHandlers) reconcilePeerForwarders(ctx context.Context, 
 	}
 }
 
-// ensureDefaultNetwork creates the "home" network row if it does not exist,
-// deriving its TLD from the dns_tld setting. Idempotent.
+// ensureDefaultNetwork reconciles the "home" network row against the dns_tld
+// setting. Idempotent.
+//
+// The row itself is seeded by account.InitNetworkManager, so the home network
+// exists from the moment there is a database -- before boot reconcile, in every
+// test server, and for the first account created on a fresh box. What that
+// layer cannot know is the TLD: dns_tld is a setting, and the account package
+// has no settings manager. So the seed carries the bare default and this
+// repairs it.
+//
+// The repair is not just for the seeded row. `POST /dns/tld` writes the setting
+// and re-registers every package, but never touched this row, so a box whose
+// TLD had been changed kept a home network claiming the old one -- and
+// applyNetworkTransport hands n.TLD to rolodex.EnsureNetworkScope, which is
+// what decides which zone the home scope owns.
 func (s *SystemControllerHandlers) ensureDefaultNetwork() error {
 	nm := s.Controller.GetNetworkManager()
 	if nm == nil {
 		return nil
 	}
-	if _, err := nm.Get(account.DefaultNetworkName); err == nil {
+	tld := s.getDNSTLDValue()
+	if existing, err := nm.Get(account.DefaultNetworkName); err == nil {
+		if existing.TLD == tld {
+			return nil
+		}
+		if err := nm.SetTLD(account.DefaultNetworkName, tld); err != nil {
+			return fmt.Errorf("reconcile default network TLD: %w", err)
+		}
 		return nil
 	} else if !errors.Is(err, account.ErrNetworkNotFound) {
 		return fmt.Errorf("get default network: %w", err)

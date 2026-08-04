@@ -30,6 +30,48 @@ const (
 	BackendGrafana = "grafana"
 )
 
+// Ports are the host ports the three monitoring system services bind.
+//
+// All three run --net host, so they bind in whatever network namespace the
+// systemcontroller itself is in. On a real box that is the host and the
+// defaults are what everything (the UI, the Grafana datasource, the Prometheus
+// scrape config) expects. Inside the integration harness it is *also* the host
+// namespace — the test container runs --net host too — so a test box and a
+// `make dev` box would fight over 9100/9090/5308 and crash-loop each other
+// under Restart=always. The harness therefore assigns every field an ephemeral
+// port, exactly as it already does for TOWN_OS_LISTEN — IRON RULE.
+//
+// The zero value means "use the documented defaults", so a caller that does
+// not care about ports passes Ports{} and gets today's behavior unchanged.
+type Ports struct {
+	// NodeExporter is the loopback port node-exporter serves metrics on
+	// (default NodeExporterPort). Only Prometheus ever connects to it.
+	NodeExporter string
+	// Prometheus is the loopback port Prometheus serves its HTTP API on
+	// (default PrometheusPort). Reached from the browser only through the
+	// monitoring UI forwarder, never directly.
+	Prometheus string
+	// External is the single LAN-facing monitoring port (default
+	// MonitoringExternalPort): socat in uPlot mode, Grafana in grafana mode.
+	External string
+}
+
+// withDefaults returns a copy with every empty field filled in with its
+// documented default. Every consumer in this package calls it, so the
+// defaulting lives in exactly one place rather than at each use site.
+func (p Ports) withDefaults() Ports {
+	if p.NodeExporter == "" {
+		p.NodeExporter = NodeExporterPort
+	}
+	if p.Prometheus == "" {
+		p.Prometheus = PrometheusPort
+	}
+	if p.External == "" {
+		p.External = MonitoringExternalPort
+	}
+	return p
+}
+
 // SystemService describes a system service managed outside the package system.
 type SystemService struct {
 	Key         string `json:"key"`

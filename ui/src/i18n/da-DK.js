@@ -150,8 +150,10 @@ const daDK = {
   'users.col_edit': 'Redigér',
   'users.role_admin': 'Administrator',
   'users.role_user': 'Bruger',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'WireGuard-kun konto',
+  'users.grants_label': 'Tilladelser',
+  'users.grants_help': 'Rettigheder denne konto har på netværkene nedenfor. Administratorer har dem alle.',
+  'users.grant_wireguard': 'WireGuard-peers',
+  'users.grant_gfeh': 'Objektlagring',
   'users.networks_label': 'Netværksomfang',
   'users.networks_none': 'Ingen netværk tilgængelige.',
   'users.error_networks_required': 'Vælg mindst ét netværk for en WireGuard-kun konto',
@@ -193,7 +195,6 @@ const daDK = {
   'create_user.phone_label': 'Telefon',
   'create_user.email_label': 'E-mail',
   'create_user.admin_label': 'Administratorrettigheder',
-  'create_user.wireguard_label': 'WireGuard-kun konto',
   'create_user.networks_label': 'Netværksomfang',
   'create_user.networks_description': 'Netværk, som denne konto må tilmelde WireGuard-peers på. Den kan ikke gøre andet.',
   'create_user.networks_none': 'Ingen netværk tilgængelige. Opret et netværk først.',
@@ -891,11 +892,6 @@ const daDK = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default daDK

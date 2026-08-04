@@ -150,8 +150,10 @@ const deDE = {
   'users.col_edit': 'Bearbeiten',
   'users.role_admin': 'Admin',
   'users.role_user': 'Benutzer',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Reines WireGuard-Konto',
+  'users.grants_label': 'Berechtigungen',
+  'users.grants_help': 'Rechte dieses Kontos auf den Netzwerken unten. Administratoren haben alle.',
+  'users.grant_wireguard': 'WireGuard-Peers',
+  'users.grant_gfeh': 'Objektspeicher',
   'users.networks_label': 'Netzwerkbereich',
   'users.networks_none': 'Keine Netzwerke verfügbar.',
   'users.error_networks_required': 'Wählen Sie mindestens ein Netzwerk für ein reines WireGuard-Konto aus',
@@ -193,7 +195,6 @@ const deDE = {
   'create_user.phone_label': 'Telefon',
   'create_user.email_label': 'E-Mail',
   'create_user.admin_label': 'Administratorrechte',
-  'create_user.wireguard_label': 'Reines WireGuard-Konto',
   'create_user.networks_label': 'Netzwerkbereich',
   'create_user.networks_description': 'Netzwerke, in denen dieses Konto WireGuard-Peers registrieren darf. Mehr kann es nicht tun.',
   'create_user.networks_none': 'Keine Netzwerke verfügbar. Erstellen Sie zuerst ein Netzwerk.',
@@ -891,11 +892,6 @@ const deDE = {
   'objects.toast_grant_added': 'Berechtigung hinzugefügt',
   'objects.toast_grant_revoked': 'Berechtigung widerrufen',
   'objects.toast_link_withdrawn': 'Link zurückgezogen',
-  'users.smb_credential': 'SMB-Passwort',
-  'users.smb_credential_help': 'Ein separates Passwort, nur zum Einbinden der SMB-Freigabe. Es kann nicht aus dem Kontopasswort abgeleitet werden; bleibt es leer, kann das Konto keine Freigabe einbinden. Unverändert lassen, um das aktuelle beizubehalten.',
-  'users.smb_enrolled': 'SMB aktiviert',
-  'users.smb_not_enrolled': 'Kein SMB-Zugriff',
-  'users.smb_clear': 'SMB-Zugriff entfernen',
 }
 
 export default deDE

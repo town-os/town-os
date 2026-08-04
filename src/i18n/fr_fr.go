@@ -130,10 +130,11 @@ var frFRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:        "supprimer un pair réseau",
 	MsgAuditRefreshNetworkPeer:       "actualiser un pair réseau",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "ce compte ne peut utiliser que les points d'accès d'enrôlement wireguard",
-	MsgAuthWireGuardNetworkDenied: "ce compte n'est pas autorisé sur ce réseau",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "ce compte ne peut utiliser que les points d'accès d'enrôlement réseau et de stockage objet",
+	MsgAuthNetworkOnlyNetworkDenied: "ce compte n'est pas autorisé sur ce réseau",
 	MsgAuthWireGuardPeerNotOwned:  "ce compte ne peut actualiser que les pairs qu'il a enrôlés",
+	MsgAuthObjectStorageRequired:  "accès administrateur ou stockage d'objets requis",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "les envois et téléchargements d'archives ne peuvent pas viser une partition de stockage d'objets",
@@ -145,7 +146,6 @@ var frFRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "le champ principal est obligatoire",
 	MsgGfehPathRequired:          "le champ chemin est obligatoire",
 	MsgGfehUnknownAccount:        "compte inexistant",
-	MsgGfehServiceAccountProtected: "le compte de service du stockage d'objets ne peut pas être désactivé ; chaque partition s'authentifie avec lui",
 	MsgAuditCreateGfehPartition:  "créer une partition de stockage d'objets",
 	MsgAuditModifyGfehPartition:  "modifier une partition de stockage d'objets",
 	MsgAuditRemoveGfehPartition:  "supprimer une partition de stockage d'objets",

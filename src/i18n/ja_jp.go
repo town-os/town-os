@@ -130,10 +130,11 @@ var jaJPMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:        "ネットワークピアの削除",
 	MsgAuditRefreshNetworkPeer:       "ネットワークピアの更新",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "このアカウントは WireGuard 登録エンドポイントのみ使用できます",
-	MsgAuthWireGuardNetworkDenied: "このアカウントはそのネットワークで許可されていません",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "このアカウントはネットワーク登録とオブジェクトストレージのエンドポイントのみ使用できます",
+	MsgAuthNetworkOnlyNetworkDenied: "このアカウントはそのネットワークで許可されていません",
 	MsgAuthWireGuardPeerNotOwned:  "このアカウントは自身が登録したピアのみ更新できます",
+	MsgAuthObjectStorageRequired:  "管理者またはオブジェクトストレージの権限が必要です",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "アーカイブのアップロードとダウンロードはオブジェクトストレージのパーティションを対象にできません",
@@ -145,7 +146,6 @@ var jaJPMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "プリンシパルフィールドは必須です",
 	MsgGfehPathRequired:          "パスフィールドは必須です",
 	MsgGfehUnknownAccount:        "そのアカウントは存在しません",
-	MsgGfehServiceAccountProtected: "オブジェクトストレージのサービスアカウントは無効化できません。すべてのパーティションがこれで認証します",
 	MsgAuditCreateGfehPartition:  "オブジェクトストレージパーティションの作成",
 	MsgAuditModifyGfehPartition:  "オブジェクトストレージパーティションの変更",
 	MsgAuditRemoveGfehPartition:  "オブジェクトストレージパーティションの削除",

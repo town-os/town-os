@@ -130,10 +130,11 @@ var daDKMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "fjern netværkspeer",
 	MsgAuditRefreshNetworkPeer:      "opdatér netværkspeer",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "denne konto må kun bruge WireGuard-tilmeldingsendepunkter",
-	MsgAuthWireGuardNetworkDenied: "denne konto har ikke tilladelse på det netværk",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "denne konto må kun bruge endepunkter for netværkstilmelding og objektlagring",
+	MsgAuthNetworkOnlyNetworkDenied: "denne konto har ikke tilladelse på det netværk",
 	MsgAuthWireGuardPeerNotOwned:  "denne konto må kun opdatere peers, den selv har tilmeldt",
+	MsgAuthObjectStorageRequired:  "administrator- eller objektlageradgang kræves",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "arkivupload og -download kan ikke adressere en objektlagerpartition",
@@ -145,7 +146,6 @@ var daDKMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "principalfeltet er påkrævet",
 	MsgGfehPathRequired:          "stifeltet er påkrævet",
 	MsgGfehUnknownAccount:        "ingen sådan konto",
-	MsgGfehServiceAccountProtected: "objektlagerets tjenestekonto kan ikke deaktiveres; hver partition autentificerer som den",
 	MsgAuditCreateGfehPartition:  "opret objektlagerpartition",
 	MsgAuditModifyGfehPartition:  "ændr objektlagerpartition",
 	MsgAuditRemoveGfehPartition:  "fjern objektlagerpartition",

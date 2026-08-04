@@ -150,8 +150,10 @@ const svSE = {
   'users.col_edit': 'Redigera',
   'users.role_admin': 'Administratör',
   'users.role_user': 'Användare',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Konto endast för WireGuard',
+  'users.grants_label': 'Behörigheter',
+  'users.grants_help': 'Rättigheter detta konto har på nätverken nedan. Administratörer har alla.',
+  'users.grant_wireguard': 'WireGuard-peers',
+  'users.grant_gfeh': 'Objektlagring',
   'users.networks_label': 'Nätverksomfattning',
   'users.networks_none': 'Inga nätverk tillgängliga.',
   'users.error_networks_required': 'Välj minst ett nätverk för ett konto endast för WireGuard',
@@ -193,7 +195,6 @@ const svSE = {
   'create_user.phone_label': 'Telefon',
   'create_user.email_label': 'E-post',
   'create_user.admin_label': 'Administratörsbehörighet',
-  'create_user.wireguard_label': 'Konto endast för WireGuard',
   'create_user.networks_label': 'Nätverksomfattning',
   'create_user.networks_description': 'Nätverk som detta konto får registrera WireGuard-peers på. Det kan inte göra något annat.',
   'create_user.networks_none': 'Inga nätverk tillgängliga. Skapa ett nätverk först.',
@@ -891,11 +892,6 @@ const svSE = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default svSE

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
+import { GRANTS } from '@/lib/grants.js'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,7 +19,7 @@ export default function CreateUser() {
   const { t } = useI18n()
   useEffect(() => { document.title = t('create_user.page_title') }, [t])
   const [loading, setLoading] = useState(false)
-  const [wireguard, setWireguard] = useState(false)
+  const [grants, setGrants] = useState([])
   const [networks, setNetworks] = useState([])
   const [selectedNetworks, setSelectedNetworks] = useState([])
   const navigate = useNavigate()
@@ -60,7 +61,7 @@ export default function CreateUser() {
       toast.error(t('create_user.error_passwords_mismatch'))
       return
     }
-    if (wireguard && selectedNetworks.length === 0) {
+    if (grants.length > 0 && selectedNetworks.length === 0) {
       toast.error(t('create_user.error_networks_required'))
       return
     }
@@ -73,10 +74,12 @@ export default function CreateUser() {
         form.email.value || '',
         form.phone.value || '',
         form.realname.value || '',
-        // A WireGuard-only account is never an admin; the two are exclusive.
-        wireguard ? false : !!form.admin?.checked,
-        wireguard,
-        wireguard ? selectedNetworks : [],
+        // A network-only account is never an admin: one holds every grant
+        // everywhere, the other a fixed few on a named set, and the account
+        // layer refuses the pair outright.
+        grants.length > 0 ? false : !!form.admin?.checked,
+        grants,
+        grants.length > 0 ? selectedNetworks : [],
       )
       navigate('/dashboard/users')
     } catch (err) {
@@ -134,7 +137,7 @@ export default function CreateUser() {
                 <Input id="email" name="email" type="email" />
               </div>
             </div>
-            {!wireguard && (
+            {grants.length === 0 && (
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -145,18 +148,30 @@ export default function CreateUser() {
                 <Label htmlFor="admin">{t('create_user.admin_label')}</Label>
               </div>
             )}
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="wireguard"
-                name="wireguard"
-                className="rounded"
-                checked={wireguard}
-                onChange={(e) => setWireguard(e.target.checked)}
-              />
-              <Label htmlFor="wireguard">{t('create_user.wireguard_label')}</Label>
+            <div className="space-y-1">
+              <Label>{t('users.grants_label')}</Label>
+              {GRANTS.map((g) => (
+                <div key={g.name} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={`grant-${g.name}`}
+                    name={`grant-${g.name}`}
+                    className="rounded"
+                    checked={grants.includes(g.name)}
+                    onChange={() =>
+                      setGrants((current) =>
+                        current.includes(g.name)
+                          ? current.filter((n) => n !== g.name)
+                          : [...current, g.name],
+                      )
+                    }
+                  />
+                  <Label htmlFor={`grant-${g.name}`}>{t(g.labelKey)}</Label>
+                </div>
+              ))}
+              <p className="text-sm text-muted-foreground">{t('users.grants_help')}</p>
             </div>
-            {wireguard && (
+            {grants.length > 0 && (
               <div className="space-y-2">
                 <Label>{t('create_user.networks_label')}</Label>
                 <p className="text-sm text-muted-foreground">{t('create_user.networks_description')}</p>

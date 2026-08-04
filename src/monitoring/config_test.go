@@ -77,7 +77,7 @@ func TestTownOSOverviewDashboardEmpty(t *testing.T) {
 // hardcode the expected uid break.
 func TestGrafanaDatasourceYAMLPinsUID(t *testing.T) {
 	t.Parallel()
-	yaml := GrafanaDatasourceYAML("host.containers.internal")
+	yaml := GrafanaDatasourceYAML("host.containers.internal", "")
 	if !strings.Contains(yaml, "uid: "+GrafanaDatasourceUID) {
 		t.Errorf("datasource YAML missing pinned uid %q:\n%s", GrafanaDatasourceUID, yaml)
 	}

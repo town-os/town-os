@@ -82,8 +82,13 @@ func ListenPortForIndex(index int) int {
 // the port stable and avoids the collision where removing then re-creating a
 // network reuses a port still held by another network. Callers probe forward
 // from this candidate to resolve the rare hash collision between two names.
-func ListenPortForName(name string) int {
-	h := sha256.Sum256([]byte("port|" + name))
+//
+// salt differentiates instances sharing a network namespace, exactly as it does
+// for InterfaceName: the UDP port is bound in that namespace, so two boxes that
+// derive the same port for the same network name cannot both bring their
+// interface up. Production passes "" and gets the historical port.
+func ListenPortForName(salt, name string) int {
+	h := sha256.Sum256([]byte("port|" + saltedKey(salt, name)))
 	offset := (int(h[0])<<8 | int(h[1])) % 4096
 	return DefaultListenPortBase + offset
 }

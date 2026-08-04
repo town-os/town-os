@@ -130,10 +130,11 @@ var arSAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "إزالة نظير شبكة",
 	MsgAuditRefreshNetworkPeer:      "تحديث نظير شبكة",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "قد يستخدم هذا الحساب نقاط تسجيل wireguard فقط",
-	MsgAuthWireGuardNetworkDenied: "هذا الحساب غير مسموح له على تلك الشبكة",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "قد يستخدم هذا الحساب نقاط تسجيل الشبكة وتخزين الكائنات فقط",
+	MsgAuthNetworkOnlyNetworkDenied: "هذا الحساب غير مسموح له على تلك الشبكة",
 	MsgAuthWireGuardPeerNotOwned:  "قد يحدّث هذا الحساب النظراء الذين سجّلهم فقط",
+	MsgAuthObjectStorageRequired:  "مطلوب وصول المسؤول أو صلاحية تخزين الكائنات",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "لا يمكن لعمليات رفع وتنزيل الأرشيف استهداف قسم تخزين الكائنات",
@@ -145,7 +146,6 @@ var arSAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "حقل المستخدم مطلوب",
 	MsgGfehPathRequired:          "حقل المسار مطلوب",
 	MsgGfehUnknownAccount:        "لا يوجد حساب بهذا الاسم",
-	MsgGfehServiceAccountProtected: "لا يمكن تعطيل حساب خدمة تخزين الكائنات؛ فكل قسم يصادق باستخدامه",
 	MsgAuditCreateGfehPartition:  "إنشاء قسم تخزين الكائنات",
 	MsgAuditModifyGfehPartition:  "تعديل قسم تخزين الكائنات",
 	MsgAuditRemoveGfehPartition:  "إزالة قسم تخزين الكائنات",

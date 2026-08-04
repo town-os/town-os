@@ -150,8 +150,10 @@ const koKR = {
   'users.col_edit': '편집',
   'users.role_admin': '관리자',
   'users.role_user': '사용자',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'WireGuard 전용 계정',
+  'users.grants_label': '권한',
+  'users.grants_help': '아래 네트워크에서 이 계정이 가진 권한입니다. 관리자는 모두 가집니다.',
+  'users.grant_wireguard': 'WireGuard 피어',
+  'users.grant_gfeh': '오브젝트 스토리지',
   'users.networks_label': '네트워크 범위',
   'users.networks_none': '사용 가능한 네트워크가 없습니다.',
   'users.error_networks_required': 'WireGuard 전용 계정에는 하나 이상의 네트워크를 선택하세요',
@@ -193,7 +195,6 @@ const koKR = {
   'create_user.phone_label': '전화번호',
   'create_user.email_label': '이메일',
   'create_user.admin_label': '관리자 권한',
-  'create_user.wireguard_label': 'WireGuard 전용 계정',
   'create_user.networks_label': '네트워크 범위',
   'create_user.networks_description': '이 계정이 WireGuard 피어를 등록할 수 있는 네트워크입니다. 그 외에는 아무 작업도 할 수 없습니다.',
   'create_user.networks_none': '사용 가능한 네트워크가 없습니다. 먼저 네트워크를 생성하세요.',
@@ -891,11 +892,6 @@ const koKR = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default koKR

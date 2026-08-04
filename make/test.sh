@@ -15,7 +15,8 @@ case "$1" in
     step "Running Go unit tests"
     go test "${GO_TAGS_ARG[@]}" -v -timeout 60m ./src/...
     step "Running UI unit tests"
-    cd ui && bun install && bun run test
+    bun_install ui
+    cd ui && bun run test
     ;;
   # Build integration test image and start the container with all images loaded.
   # Does not run any tests. Called by test-integration; can also be used standalone
@@ -24,6 +25,7 @@ case "$1" in
     step "Creating btrfs volume for integration tests"
     ${MAKE} btrfs
     step "Starting integration test container"
+    system_port_env
     remove_container "${PODMAN_CONTAINER}"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run -e "LOG_LEVEL=${LOG_LEVEL}" -e TOWN_OS_TEST=1 \
@@ -36,6 +38,9 @@ case "$1" in
       -e "UI_IMAGE=${UI_IMAGE}" \
       -e "NC_IMAGE=${NC_IMAGE}" \
       -e "INGRESS_IMAGE=${INGRESS_IMAGE}" \
+      -e "GFEH_IMAGE=${GFEH_IMAGE}" \
+      "${SYSTEM_PORT_ENV[@]}" \
+      -e "TOWN_OS_WG_SALT=$(wireguard_salt test)" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -57,6 +62,12 @@ case "$1" in
     load_images_into_container "${PODMAN_CONTAINER}" ${NC_IMAGE}
     step "Loading ingress image into test container"
     load_images_into_container "${PODMAN_CONTAINER}" ${INGRESS_IMAGE}
+    # The real gfehd. Object storage is skipped entirely when GFEH_IMAGE is
+    # empty, so an integration test of it needs the actual daemon here -- there
+    # is no stand-in that would prove a partition starts, answers its admin
+    # socket, and enforces its own ceilings.
+    step "Loading gfeh image into test container"
+    load_images_into_container "${PODMAN_CONTAINER}" ${GFEH_IMAGE}
     step "Restarting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
@@ -93,17 +104,20 @@ case "$1" in
     ;;
   ui-unit)
     step "Running UI unit tests"
-    cd ui && bun install && bun run test
+    bun_install ui
+    cd ui && bun run test
     ;;
   ui-integration-local)
     step "Running UI integration tests (local backend)"
-    cd ui && bun install && bun run test:integration
+    bun_install ui
+    cd ui && bun run test:integration
     ;;
   # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
   ui-integration)
     step "Creating btrfs volume for UI integration tests"
     ${MAKE} btrfs
     step "Starting UI integration backend container"
+    system_port_env
     remove_container "${PODMAN_UI_CONTAINER}"
     remove_container "${PODMAN_UI_BACKEND}"
     # --replace: ensure concurrent make test-full runs never conflict on container names
@@ -117,6 +131,9 @@ case "$1" in
       -e "UI_IMAGE=${UI_IMAGE}" \
       -e "NC_IMAGE=${NC_IMAGE}" \
       -e "INGRESS_IMAGE=${INGRESS_IMAGE}" \
+      -e "GFEH_IMAGE=${GFEH_IMAGE}" \
+      "${SYSTEM_PORT_ENV[@]}" \
+      -e "TOWN_OS_WG_SALT=$(wireguard_salt test)" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -138,6 +155,11 @@ case "$1" in
     load_images_into_container "${PODMAN_UI_BACKEND}" ${NC_IMAGE}
     step "Loading ingress image into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" ${INGRESS_IMAGE}
+    # The UI's object storage panel is empty without a running partition, and
+    # GFEH_IMAGE is already injected above -- an image that is named but absent
+    # leaves the daemon failing to pull on every reconcile.
+    step "Loading gfeh image into UI integration container"
+    load_images_into_container "${PODMAN_UI_BACKEND}" ${GFEH_IMAGE}
     step "Restarting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl restart town-os-systemcontroller.service
@@ -167,6 +189,11 @@ case "$1" in
       remove_container "${REGISTRY_CONTAINER}"
       remove_container "${GITEA_CONTAINER}"
       rm -f "${STATE_DIR}/.integration-port" "${STATE_DIR}/.registry-port" "${STATE_DIR}/.gitea-port"
+      # System-service ports (SYSTEM_PORT_FILES) are per run too — leaving them
+      # behind would pin the next run to the same host ports.
+      rm -f "${STATE_DIR}/.dns-port" "${STATE_DIR}/.node-exporter-port" \
+        "${STATE_DIR}/.prometheus-port" "${STATE_DIR}/.monitoring-port" \
+        "${STATE_DIR}/.ingress-https-port" "${STATE_DIR}/.ingress-http-port"
       make/btrfs.sh clean 2>/dev/null || true
       # Prune orphaned volumes to free podman locks. Without this, repeated
       # test runs exhaust the lock table (default 2048).

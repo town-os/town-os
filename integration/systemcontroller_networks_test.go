@@ -15,7 +15,6 @@ import (
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
-	"gitea.com/town-os/town-os/src/wireguard"
 )
 
 func initNetworkDB(t *testing.T) *account.SQLiteNetworkManager {
@@ -88,7 +87,7 @@ func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 
 	// A wg-quick config file and systemd unit are written for NON-DEFAULT networks
 	// only. The default/home network is LAN-only and gets no WireGuard transport.
-	iface := wireguard.InterfaceName("office")
+	iface := systemcontroller.NetworkInterfaceName("office")
 	p := filepath.Join(stateDir, iface+".conf")
 	data, rerr := os.ReadFile(p) //nolint:gosec // G304 -- test-controlled path
 	if rerr != nil {
@@ -107,7 +106,7 @@ func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 
 	// The default/home network has NO WireGuard interface: no wg-quick config file
 	// and no systemd unit. .home resolves only on the LAN, never over an overlay.
-	if _, serr := os.Stat(filepath.Join(stateDir, wireguard.InterfaceName("home")+".conf")); !os.IsNotExist(serr) {
+	if _, serr := os.Stat(filepath.Join(stateDir, systemcontroller.NetworkInterfaceName("home")+".conf")); !os.IsNotExist(serr) {
 		t.Errorf("home network must not have a wg-quick config file, stat err = %v", serr)
 	}
 	if _, ok := sd.InstalledUnits[systemd.NetworkUnitName("home")]; ok {
@@ -225,7 +224,7 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected unit file %s on disk: %v", unitPath, err)
 		}
-		cfgPath := filepath.Join(stateDir, wireguard.InterfaceName("lab")+".conf")
+		cfgPath := filepath.Join(stateDir, systemcontroller.NetworkInterfaceName("lab")+".conf")
 		if !strings.Contains(string(content), "wg-quick up "+cfgPath) {
 			t.Errorf("unit %s does not reference config %s:\n%s", unit, cfgPath, content)
 		}
@@ -255,7 +254,7 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 	if _, err := os.Stat(homeUnitPath); !os.IsNotExist(err) {
 		t.Errorf("default network must not install a unit file %s, stat err = %v", homeUnitPath, err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, wireguard.InterfaceName(account.DefaultNetworkName)+".conf")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(stateDir, systemcontroller.NetworkInterfaceName(account.DefaultNetworkName)+".conf")); !os.IsNotExist(err) {
 		t.Errorf("default network must not have a wg-quick config file, stat err = %v", err)
 	}
 }
@@ -311,19 +310,31 @@ func initNetworkHTTPTest(t *testing.T) (*systemcontroller.SystemdClient, *system
 // (this is exactly how "remote access off" cuts the overlay); remove peer and
 // remove network → everything is torn down; and the default network is
 // protected from removal.
+// findNetworkView picks one network out of a list view by name. Lists carry the
+// always-present home network alongside whatever the test made, so indexing
+// into position 0 would silently assert about the wrong network.
+func findNetworkView(nets []systemcontroller.NetworkView, name string) *systemcontroller.NetworkView {
+	for i := range nets {
+		if nets[i].Name == name {
+			return &nets[i]
+		}
+	}
+	return nil
+}
+
 func TestNetworkHTTPLifecycle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	c, sd, stateDir := initNetworkHTTPTest(t)
 
-	// The default "home" network is seeded by boot reconcile, not by DB init,
-	// so a fresh server backed only by the network manager starts empty.
+	// The home network always exists: account.InitNetworkManager seeds it with
+	// the table, so a fresh server has it before anything is created.
 	nets, err := c.ListNetworks(ctx)
 	if err != nil {
 		t.Fatalf("ListNetworks: %v", err)
 	}
-	if len(nets) != 0 {
-		t.Fatalf("expected 0 networks initially, got %d", len(nets))
+	if len(nets) != 1 || nets[0].Name != account.DefaultNetworkName {
+		t.Fatalf("expected only the home network initially, got %+v", nets)
 	}
 
 	// Create an enabled network.
@@ -343,7 +354,7 @@ func TestNetworkHTTPLifecycle(t *testing.T) {
 	}
 
 	// A wg-quick config file was written and the unit installed + started.
-	iface := wireguard.InterfaceName("office")
+	iface := systemcontroller.NetworkInterfaceName("office")
 	cfgPath := filepath.Join(stateDir, iface+".conf")
 	if _, serr := os.Stat(cfgPath); serr != nil {
 		t.Fatalf("expected config file %s: %v", cfgPath, serr)
@@ -361,8 +372,8 @@ func TestNetworkHTTPLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListNetworks: %v", err)
 	}
-	if len(nets) != 1 || nets[0].Name != "office" {
-		t.Fatalf("expected [office], got %+v", nets)
+	if len(nets) != 2 || nets[0].Name != account.DefaultNetworkName || nets[1].Name != "office" {
+		t.Fatalf("expected [home office], got %+v", nets)
 	}
 
 	// Add a peer with no supplied key → the server generates the keypair and
@@ -402,8 +413,8 @@ func TestNetworkHTTPLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListNetworks: %v", err)
 	}
-	if len(nets) != 1 || nets[0].PeerCount != 1 {
-		t.Errorf("expected peer_count 1, got %+v", nets)
+	if office := findNetworkView(nets, "office"); office == nil || office.PeerCount != 1 {
+		t.Errorf("expected peer_count 1 on office, got %+v", nets)
 	}
 
 	// Disable → the unit is stopped (remote path down; record + container stay).
@@ -441,8 +452,9 @@ func TestNetworkHTTPLifecycle(t *testing.T) {
 	if rerr := c.RemoveNetwork(ctx, "office"); rerr != nil {
 		t.Fatalf("RemoveNetwork office: %v", rerr)
 	}
-	if n, lerr := c.ListNetworks(ctx); lerr != nil || len(n) != 0 {
-		t.Errorf("expected no networks after removal, got (%+v, %v)", n, lerr)
+	// Only the home network is left -- it is the one that cannot be removed.
+	if n, lerr := c.ListNetworks(ctx); lerr != nil || len(n) != 1 || n[0].Name != account.DefaultNetworkName {
+		t.Errorf("expected only the home network after removal, got (%+v, %v)", n, lerr)
 	}
 	if _, serr := os.Stat(cfgPath); !os.IsNotExist(serr) {
 		t.Errorf("expected config file removed, stat err = %v", serr)

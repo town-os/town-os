@@ -28,15 +28,9 @@ var (
 	// reject them at creation time rather than trust every layer to
 	// round-trip them correctly.
 	ErrPasswordInvalidChars = errors.New("password may only contain printable ASCII characters (no spaces)")
-	// ErrWireGuardNoNetworks is returned when a WireGuard-only account is
-	// created or updated without at least one network. A WireGuard account's
-	// entire purpose is to enroll peers on specific networks; one with no
-	// networks could authenticate but do nothing, and — worse — an empty
-	// network list must never be read as "any network".
-	ErrWireGuardNoNetworks = errors.New("a wireguard-only account must be scoped to at least one network")
 	// ErrInvalidNetworkName is returned when a scoped network name is not a
 	// legal network identifier.
-	ErrInvalidNetworkName = errors.New("invalid network name in wireguard account scope")
+	ErrInvalidNetworkName = errors.New("invalid network name in account scope")
 )
 
 var emailRegexp = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -53,43 +47,20 @@ type Account struct {
 	RealName     string    `json:"real_name"`
 	Admin        bool      `json:"admin"`
 	Disabled     bool      `json:"disabled"`
-	// WireGuard marks an account whose privileges are restricted to enrolling
-	// on the WireGuard networks named in Networks and nothing else. It is a
-	// fail-closed capability, enforced by wireGuardAllowlistMiddleware: such an
-	// account is denied every endpoint that is not on the allowlist, so it
-	// cannot reach the control plane the way a normal (non-admin) account can.
-	// Unlike Admin, WireGuard is mutable after creation.
-	WireGuard bool `json:"wireguard"`
-	// Networks is the set of networks a WireGuard account may enroll peers on.
-	// It is meaningful only when WireGuard is true, and must be non-empty then.
-	// An empty list is never "any network".
-	Networks []string `json:"networks"`
-	// SMBNTHash is MD4(UTF16LE(smb password)), hex-encoded, or empty when the
-	// account has not enrolled an SMB credential — in which case it cannot
-	// mount an object-storage share at all.
+	// Grants are the named capabilities this account holds, from AllGrants.
 	//
-	// A second credential, and necessarily so: NTLMv2 is computed under this
-	// value, and it cannot be derived from PasswordHash. bcrypt and MD4 are
-	// different one-way functions over the same input, with no conversion in
-	// either direction, which is the same reason Samba keeps its own password
-	// database.
-	//
-	// Never serialised. It is unsalted MD4 with no work factor — weaker at
-	// rest than the bcrypt hash beside it, and password-equivalent for SMB, so
-	// it is treated like PasswordHash rather than like a hash.
-	SMBNTHash string `json:"-"`
-	// SMBEnrolled reports whether SMBNTHash is set, so the UI can show an
-	// account's enrolment state without the hash itself ever reaching a
-	// response body. Derived on read, never stored.
-	SMBEnrolled bool      `json:"smb_enrolled"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	// Toggles, not a kind: an account is an administrator — which holds every
+	// grant, present and future — or it is not, and a non-admin carries
+	// whichever of these are switched on. Empty is an ordinary dashboard
+	// account. Unlike Admin, Grants is mutable after creation.
+	Grants []string `json:"grants"`
+	// Networks is the set of networks this account's grants apply to. It is
+	// meaningful only when Grants is non-empty, and must be non-empty then. An
+	// empty list is never "any network".
+	Networks  []string  `json:"networks"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
-
-// HasSMBCredential reports whether the account may authenticate to the SMB
-// view. Exposed so the UI can show enrolment state without the hash itself
-// ever reaching a response body.
-func (a Account) HasSMBCredential() bool { return a.SMBNTHash != "" }
 
 // UpdateFields holds optional fields for updating an account. Only non-nil
 // pointer fields are applied during an update. Password must be at least
@@ -101,23 +72,14 @@ type UpdateFields struct {
 	Phone    *string `json:"phone,omitempty"`
 	RealName *string `json:"real_name,omitempty"`
 	Admin    *bool   `json:"admin,omitempty"`
-	// WireGuard toggles the WireGuard-only restriction. Unlike Admin (which is
-	// immutable after creation), an operator may turn this on or off on an
-	// existing account. When it is turned on, Networks must resolve to a
-	// non-empty set (either supplied here or already stored).
-	WireGuard *bool `json:"wireguard,omitempty"`
+	// Grants replaces the account's grant set wholesale. A nil pointer leaves
+	// it untouched; a non-nil one is the new set, so clearing is an empty
+	// slice rather than a second field. Every name must be in AllGrants, and a
+	// non-empty set requires a non-empty network scope.
+	Grants *[]string `json:"grants,omitempty"`
 	// Networks replaces the account's network scope. A nil pointer leaves the
 	// stored scope untouched; a non-nil pointer replaces it wholesale.
 	Networks *[]string `json:"networks,omitempty"`
-	// SMBPassword enrols or replaces the account's SMB credential. The
-	// plaintext is hashed to MD4(UTF16LE(...)) on the way in and never stored,
-	// exactly like Password.
-	//
-	// A pointer so three states are distinguishable: nil leaves the stored
-	// credential alone, a non-empty string sets one, and the empty string
-	// withdraws it — after which the account can no longer mount a share. Two
-	// states would make "no change" and "revoke" the same request.
-	SMBPassword *string `json:"smb_password,omitempty"` //nolint:gosec // G117 -- request field, not a hardcoded credential
 }
 
 // Manager defines the interface for account CRUD and authentication operations.
@@ -126,15 +88,14 @@ type Manager interface {
 	// 8 characters. Email, phone, and realName are all required. When admin
 	// is true the account receives administrator privileges.
 	Create(username, password, email, phone, realName string, admin bool) (*Account, error)
-	// CreateWireGuard creates a WireGuard-only account scoped to networks.
+	// CreateGranted creates a non-admin account holding grants, scoped to
+	// networks.
 	//
-	// It is a separate method rather than a flag on Create so the dozens of
-	// existing Create call sites are untouched, and so the security-relevant
-	// invariant — a WireGuard account is never an admin, and always has a
-	// non-empty network scope — is enforced in one place at creation time
-	// rather than assembled from a widened positional signature. networks must
-	// be non-empty; each entry must be a valid network name.
-	CreateWireGuard(username, password, email, phone, realName string, networks []string) (*Account, error)
+	// A separate method rather than more positional arguments on Create so the
+	// dozens of existing call sites are untouched, and so the security-relevant
+	// invariants — such an account is never an admin, every grant is known, and
+	// the scope is never empty — are enforced in one place at creation time.
+	CreateGranted(username, password, email, phone, realName string, grants, networks []string) (*Account, error)
 	// Get retrieves an account by username. Returns [ErrNotFound] if the
 	// account does not exist.
 	Get(username string) (*Account, error)
@@ -220,12 +181,17 @@ func validateUpdateFields(fields UpdateFields) error {
 			return err
 		}
 	}
+	if fields.Grants != nil {
+		if err := validateGrants(*fields.Grants); err != nil {
+			return err
+		}
+	}
 	if fields.Networks != nil {
 		// Only the *names* are validated here, not the non-emptiness. Clearing
-		// the scope to empty is legal on an update — e.g. turning WireGuard off
+		// the scope to empty is legal on an update — e.g. dropping every grant
 		// in the same call. Whether the *resulting* account may have an empty
-		// scope is decided by validateWireGuardResult (SQLite) / the mock's
-		// resolution, which know the post-update WireGuard state; enforcing
+		// scope is decided by validateGrantResult (SQLite) / the mock's
+		// resolution, which know the post-update grant set; enforcing
 		// non-emptiness here would reject that legitimate case.
 		if err := validateNetworkNames(*fields.Networks); err != nil {
 			return err
@@ -234,22 +200,22 @@ func validateUpdateFields(fields UpdateFields) error {
 	return nil
 }
 
-// validateNetworkScope checks that a WireGuard account's network list is
+// validateNetworkScope checks that a grant-holding account's network list is
 // non-empty and every entry is a legal network name. It is deliberately strict:
-// a malformed or empty scope on a WireGuard account is a fail-open risk, so it
-// is rejected at the boundary rather than stored and interpreted later. Used on
-// the create path, where the account is WireGuard by construction.
+// a malformed or empty scope on such an account is a fail-open risk, so it is
+// rejected at the boundary rather than stored and interpreted later. Used on
+// the create path, where the account holds grants by construction.
 func validateNetworkScope(networks []string) error {
 	if len(networks) == 0 {
-		return ErrWireGuardNoNetworks
+		return ErrGrantsNoNetworks
 	}
 	return validateNetworkNames(networks)
 }
 
 // validateNetworkNames checks that every entry is a legal network name, without
 // any opinion on whether the list may be empty. The emptiness rule is
-// context-dependent (only a WireGuard account must be non-empty), so it lives
-// with the code that knows that context.
+// context-dependent (only a grant-holding account must be non-empty), so it
+// lives with the code that knows that context.
 func validateNetworkNames(networks []string) error {
 	for _, n := range networks {
 		if !ValidNetworkName(n) {

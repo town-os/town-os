@@ -150,8 +150,10 @@ const ruRU = {
   'users.col_edit': 'Редактировать',
   'users.role_admin': 'Администратор',
   'users.role_user': 'Пользователь',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'Учётная запись только для WireGuard',
+  'users.grants_label': 'Права',
+  'users.grants_help': 'Права этой учётной записи в сетях ниже. У администраторов есть все.',
+  'users.grant_wireguard': 'Пиры WireGuard',
+  'users.grant_gfeh': 'Объектное хранилище',
   'users.networks_label': 'Область сетей',
   'users.networks_none': 'Нет доступных сетей.',
   'users.error_networks_required': 'Выберите хотя бы одну сеть для учётной записи только для WireGuard',
@@ -193,7 +195,6 @@ const ruRU = {
   'create_user.phone_label': 'Телефон',
   'create_user.email_label': 'Эл. почта',
   'create_user.admin_label': 'Права администратора',
-  'create_user.wireguard_label': 'Учётная запись только для WireGuard',
   'create_user.networks_label': 'Область сетей',
   'create_user.networks_description': 'Сети, в которых эта учётная запись может регистрировать узлы WireGuard. Больше она ничего не может делать.',
   'create_user.networks_none': 'Нет доступных сетей. Сначала создайте сеть.',
@@ -891,11 +892,6 @@ const ruRU = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default ruRU

@@ -98,7 +98,7 @@ func TestMonitoringNodeExporterRealStart(t *testing.T) {
 	// other's unit state. The production key "node-exporter" is only
 	// used by the real boot path in main.go.
 	suffix := strconv.FormatUint(rand.Uint64(), 36)
-	cfg := monitoring.NodeExporterUnitConfig(nePort)
+	cfg := monitoring.NodeExporterUnitConfig(monitoring.Ports{NodeExporter: nePort})
 	cfg.Key = "node-exporter-test-" + suffix
 	uf := systemd.GenerateSystemServiceUnit(cfg)
 	unitName := uf.Name
@@ -168,7 +168,7 @@ func TestMonitoringNodeExporterEmitsDiskMetricsForFilteredDevices(t *testing.T) 
 	defer cancel()
 
 	suffix := strconv.FormatUint(rand.Uint64(), 36)
-	cfg := monitoring.NodeExporterUnitConfig(nePort)
+	cfg := monitoring.NodeExporterUnitConfig(monitoring.Ports{NodeExporter: nePort})
 	cfg.Key = "node-exporter-test-" + suffix
 	uf := systemd.GenerateSystemServiceUnit(cfg)
 	unitName := uf.Name
@@ -318,7 +318,7 @@ func TestMonitoringPrometheusSystemServiceUnit(t *testing.T) {
 	sd := systemd.InitMockManager()
 	btrfsBase := t.TempDir()
 
-	if err := monitoring.StartPrometheus(t.Context(), sd, btrfsBase, ""); err != nil {
+	if err := monitoring.StartPrometheus(t.Context(), sd, btrfsBase, monitoring.Ports{}); err != nil {
 		t.Fatalf("StartPrometheus: %v", err)
 	}
 
@@ -354,7 +354,7 @@ func TestMonitoringUIUPlotSystemServiceUnit(t *testing.T) {
 
 	sd := systemd.InitMockManager()
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), monitoring.BackendUPlot, "", "nc:test", nil); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, storage.InitBtrFSMock(), monitoring.BackendUPlot, "", "nc:test", nil, monitoring.Ports{}); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -398,7 +398,7 @@ func TestMonitoringUIGrafanaSystemServiceUnit(t *testing.T) {
 	ctrl := storage.InitBtrFSMockController()
 	st := storage.InitBtrFSFromController(btrfsBase, ctrl)
 
-	if err := monitoring.StartMonitoringUI(t.Context(), sd, st, monitoring.BackendGrafana, btrfsBase, "nc:test", nil); err != nil {
+	if err := monitoring.StartMonitoringUI(t.Context(), sd, st, monitoring.BackendGrafana, btrfsBase, "nc:test", nil, monitoring.Ports{}); err != nil {
 		t.Fatalf("StartMonitoringUI: %v", err)
 	}
 
@@ -459,7 +459,7 @@ func TestMonitoringPrometheusRealStart(t *testing.T) {
 	// this test can run in parallel against the shared system bus
 	// without clobbering each other's unit names or bind-mount paths.
 	suffix := strconv.FormatUint(rand.Uint64(), 36)
-	cfg := monitoring.PrometheusUnitConfig(btrfsBase)
+	cfg := monitoring.PrometheusUnitConfig(btrfsBase, monitoring.Ports{})
 	cfg.Key = "prometheus-test-" + suffix
 	uf := systemd.GenerateSystemServiceUnit(cfg)
 	unitName := uf.Name

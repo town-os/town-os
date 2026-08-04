@@ -132,9 +132,9 @@ func TestSystemUpdatePullsAndRestartsEverySystemImage(t *testing.T) {
 		"rolodex":          rolMgr.SystemServices()[0].Image,
 		"ui":               uiMgr.SystemServices()[0].Image,
 		"ingress":          ingMgr.SystemServices()[0].Image,
-		"node-exporter":    monitoring.NodeExporterSystemService("").Image,
-		"prometheus":       monitoring.PrometheusSystemService().Image,
-		"monitoring-ui":    monitoring.MonitoringUISystemService(monitoring.BackendUPlot, ncImg).Image,
+		"node-exporter":    monitoring.NodeExporterSystemService(monitoring.Ports{}).Image,
+		"prometheus":       monitoring.PrometheusSystemService(monitoring.Ports{}).Image,
+		"monitoring-ui":    monitoring.MonitoringUISystemService(monitoring.BackendUPlot, ncImg, monitoring.Ports{}).Image,
 	}
 
 	mu.Lock()
@@ -170,9 +170,9 @@ func TestSystemUpdatePullsAndRestartsEverySystemImage(t *testing.T) {
 		"rolodex":       rolMgr.SystemServices()[0].UnitName,
 		"ui":            uiMgr.SystemServices()[0].UnitName,
 		"ingress":       ingMgr.SystemServices()[0].UnitName,
-		"node-exporter": monitoring.NodeExporterSystemService("").UnitName,
-		"prometheus":    monitoring.PrometheusSystemService().UnitName,
-		"monitoring-ui": monitoring.MonitoringUISystemService(monitoring.BackendUPlot, ncImg).UnitName,
+		"node-exporter": monitoring.NodeExporterSystemService(monitoring.Ports{}).UnitName,
+		"prometheus":    monitoring.PrometheusSystemService(monitoring.Ports{}).UnitName,
+		"monitoring-ui": monitoring.MonitoringUISystemService(monitoring.BackendUPlot, ncImg, monitoring.Ports{}).UnitName,
 	}
 	for svc, unit := range wantRestarts {
 		if !unitRestarted(sd, unit) {

@@ -130,10 +130,11 @@ var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "remove network peer",
 	MsgAuditRefreshNetworkPeer:      "refresh network peer",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "this account may only use wireguard enrollment endpoints",
-	MsgAuthWireGuardNetworkDenied: "this account is not permitted on that network",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "this account may only use network enrollment and object storage endpoints",
+	MsgAuthNetworkOnlyNetworkDenied: "this account is not permitted on that network",
 	MsgAuthWireGuardPeerNotOwned:  "this account may only refresh peers it enrolled",
+	MsgAuthObjectStorageRequired:  "administrator or object storage access required",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "archive uploads and downloads cannot address an object storage partition",
@@ -145,7 +146,6 @@ var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "principal field is required",
 	MsgGfehPathRequired:          "path field is required",
 	MsgGfehUnknownAccount:        "no such account",
-	MsgGfehServiceAccountProtected: "the object storage service account cannot be disabled; every partition authenticates as it",
 	MsgAuditCreateGfehPartition:  "create object storage partition",
 	MsgAuditModifyGfehPartition:  "modify object storage partition",
 	MsgAuditRemoveGfehPartition:  "remove object storage partition",

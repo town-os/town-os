@@ -149,6 +149,7 @@ func (s *serverBase) GetPagesManager() account.PagesManager       { return s.Pag
 func (s *serverBase) GetNetworkManager() account.NetworkManager   { return s.NetworkMgr }
 func (s *serverBase) GetMonitoringBackend() string                { return s.MonitoringBackend }
 func (s *serverBase) GetDiskDevices() []string              { return s.DiskDevices }
+func (s *serverBase) GetMonitoringPorts() monitoring.Ports  { return s.MonitoringPorts }
 
 // RefreshMonitoringBackend switches the monitoring UI to the given backend
 // by regenerating and restarting the monitoring-ui system service. The
@@ -159,7 +160,7 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 	if sd == nil {
 		return nil
 	}
-	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.DiskDevices)
+	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.DiskDevices, s.MonitoringPorts)
 }
 // RefreshDNSResolutionMode switches rolodex between resolving unmatched names
 // iteratively from the root servers ("recursive") and forwarding them to the
@@ -738,7 +739,7 @@ func (s *serverBase) startNetworkPoller(ctx context.Context) {
 		}
 	}()
 
-	// Expired-peer reaper. WireGuard-only enrollments carry a TTL; a device
+	// Expired-peer reaper. Network-only enrollments carry a TTL; a device
 	// that stops refreshing must have its peer (and overlay address) reclaimed.
 	// Own goroutine so the reap + transport re-render can't stall the IP/DNS
 	// ticks. Cheap at steady state — ReapExpiredPeers is a single indexed delete.
@@ -839,10 +840,10 @@ func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handl
 		}
 	})
 	e.Use(handlers.auditMiddleware)
-	// Fail-closed gate for WireGuard-only accounts. Registered after audit so a
+	// Fail-closed gate for grant-holding accounts. Registered after audit so a
 	// denied request is still recorded, and before the routes so a scoped account
 	// is confined regardless of any single route's own middleware.
-	e.Use(handlers.wireGuardAllowlist)
+	e.Use(handlers.grantAllowlist)
 	handlers.configureRoutes(e)
 	return e
 }

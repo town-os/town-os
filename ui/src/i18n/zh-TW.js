@@ -150,8 +150,10 @@ const zhTW = {
   'users.col_edit': '編輯',
   'users.role_admin': '管理員',
   'users.role_user': '使用者',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': '僅限 WireGuard 的帳號',
+  'users.grants_label': '權限',
+  'users.grants_help': '此帳號在下方網路上的權限。管理員擁有全部權限。',
+  'users.grant_wireguard': 'WireGuard 對等端',
+  'users.grant_gfeh': '物件儲存',
   'users.networks_label': '網路範圍',
   'users.networks_none': '沒有可用的網路。',
   'users.error_networks_required': '請為僅限 WireGuard 的帳號至少選擇一個網路',
@@ -193,7 +195,6 @@ const zhTW = {
   'create_user.phone_label': '電話',
   'create_user.email_label': '電子郵件',
   'create_user.admin_label': '管理員權限',
-  'create_user.wireguard_label': '僅限 WireGuard 的帳號',
   'create_user.networks_label': '網路範圍',
   'create_user.networks_description': '此帳號可在其上註冊 WireGuard 對等點的網路。它無法執行其他任何操作。',
   'create_user.networks_none': '沒有可用的網路。請先建立一個網路。',
@@ -891,11 +892,6 @@ const zhTW = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default zhTW

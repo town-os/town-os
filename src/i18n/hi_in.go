@@ -130,10 +130,11 @@ var hiINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "नेटवर्क पीयर हटाएँ",
 	MsgAuditRefreshNetworkPeer:      "नेटवर्क पीयर ताज़ा करें",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "यह खाता केवल wireguard एनरोलमेंट एंडपॉइंट का उपयोग कर सकता है",
-	MsgAuthWireGuardNetworkDenied: "इस खाते को उस नेटवर्क पर अनुमति नहीं है",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "यह खाता केवल नेटवर्क एनरोलमेंट और ऑब्जेक्ट स्टोरेज एंडपॉइंट का उपयोग कर सकता है",
+	MsgAuthNetworkOnlyNetworkDenied: "इस खाते को उस नेटवर्क पर अनुमति नहीं है",
 	MsgAuthWireGuardPeerNotOwned:  "यह खाता केवल उन्हीं पीयर को ताज़ा कर सकता है जिन्हें उसने एनरोल किया",
+	MsgAuthObjectStorageRequired:  "प्रशासक या ऑब्जेक्ट स्टोरेज पहुँच आवश्यक है",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "संग्रह अपलोड और डाउनलोड ऑब्जेक्ट स्टोरेज पार्टीशन को संबोधित नहीं कर सकते",
@@ -145,7 +146,6 @@ var hiINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "प्रिंसिपल फ़ील्ड आवश्यक है",
 	MsgGfehPathRequired:          "पथ फ़ील्ड आवश्यक है",
 	MsgGfehUnknownAccount:        "ऐसा कोई खाता नहीं",
-	MsgGfehServiceAccountProtected: "ऑब्जेक्ट स्टोरेज सेवा खाता अक्षम नहीं किया जा सकता; प्रत्येक पार्टीशन इसी से प्रमाणित होता है",
 	MsgAuditCreateGfehPartition:  "ऑब्जेक्ट स्टोरेज पार्टीशन बनाएँ",
 	MsgAuditModifyGfehPartition:  "ऑब्जेक्ट स्टोरेज पार्टीशन बदलें",
 	MsgAuditRemoveGfehPartition:  "ऑब्जेक्ट स्टोरेज पार्टीशन हटाएँ",

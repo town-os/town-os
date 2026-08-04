@@ -16,14 +16,17 @@ const GrafanaDatasourceUID = "townos-prometheus"
 
 // GrafanaDatasourceYAML returns the Grafana datasource provisioning YAML
 // that auto-configures Prometheus as the default data source.
-func GrafanaDatasourceYAML(prometheusHost string) string {
+func GrafanaDatasourceYAML(prometheusHost, prometheusPort string) string {
+	if prometheusPort == "" {
+		prometheusPort = PrometheusPort
+	}
 	return `apiVersion: 1
 datasources:
   - name: Prometheus
     uid: ` + GrafanaDatasourceUID + `
     type: prometheus
     access: proxy
-    url: http://` + prometheusHost + `:9090
+    url: http://` + prometheusHost + `:` + prometheusPort + `
     isDefault: true
     editable: false
 `

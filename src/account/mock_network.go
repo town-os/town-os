@@ -17,6 +17,7 @@ type MockNetworkManager struct {
 	ListErr             error
 	RemoveErr           error
 	SetEnabledErr       error
+	SetTLDErr           error
 	AddPeerErr          error
 	RemovePeerErr       error
 	ListPeersErr        error
@@ -24,11 +25,24 @@ type MockNetworkManager struct {
 	ReapExpiredPeersErr error
 }
 
+// InitMockNetworkManager builds an empty mock, carrying the home network the
+// SQLite manager seeds. A mock that started with no networks would let a test
+// pass against a state the real manager cannot be in -- the home network always
+// exists -- and every caller that resolves the default network would take its
+// not-found branch only here.
 func InitMockNetworkManager() *MockNetworkManager {
-	return &MockNetworkManager{
+	m := &MockNetworkManager{
 		networks: map[string]*Network{},
 		peers:    map[string][]*NetworkPeer{},
 	}
+	// Seeded through the map rather than through Create, so it does not appear
+	// in Calls: a test asserting on the calls it made must not have to know the
+	// constructor made one of its own.
+	home := DefaultNetwork()
+	home.CreatedAt = time.Now()
+	home.UpdatedAt = home.CreatedAt
+	m.networks[DefaultNetworkName] = home
+	return m
 }
 
 func (m *MockNetworkManager) GetCalls() []MockCall {
@@ -37,6 +51,25 @@ func (m *MockNetworkManager) GetCalls() []MockCall {
 	out := make([]MockCall, len(m.Calls))
 	copy(out, m.Calls)
 	return out
+}
+
+// Seed installs a network directly, replacing any row of the same name and
+// recording no call.
+//
+// It exists for the home network: the constructor seeds a bare one, so a test
+// that wants it to carry a specific subnet, address, or TLD cannot get there
+// through Create -- which would (correctly) refuse the duplicate. Seed says
+// "this is the row" rather than "create this row", which is what such a fixture
+// means.
+func (m *MockNetworkManager) Seed(n *Network) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	stored := *n
+	now := time.Now()
+	stored.CreatedAt = now
+	stored.UpdatedAt = now
+	m.networks[n.Name] = &stored
 }
 
 func (m *MockNetworkManager) Create(n *Network) (*Network, error) {
@@ -131,6 +164,23 @@ func (m *MockNetworkManager) SetEnabled(name string, enabled bool) error {
 		return ErrNetworkNotFound
 	}
 	n.Enabled = enabled
+	n.UpdatedAt = time.Now()
+	return nil
+}
+
+func (m *MockNetworkManager) SetTLD(name, tld string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "SetTLD", Args: []any{name, tld}})
+
+	if m.SetTLDErr != nil {
+		return m.SetTLDErr
+	}
+	n, ok := m.networks[name]
+	if !ok {
+		return ErrNetworkNotFound
+	}
+	n.TLD = tld
 	n.UpdatedAt = time.Now()
 	return nil
 }

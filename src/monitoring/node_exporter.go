@@ -23,10 +23,8 @@ const DiskstatsDeviceExclude = `^(ram|fd)\d+$`
 // NodeExporterUnitConfig returns the systemd system service configuration
 // for Node Exporter. It runs with host networking, PID namespace, and
 // SYS_TIME capability to collect host-level metrics.
-func NodeExporterUnitConfig(port string) systemd.SystemServiceUnitConfig {
-	if port == "" {
-		port = NodeExporterPort
-	}
+func NodeExporterUnitConfig(ports Ports) systemd.SystemServiceUnitConfig {
+	port := ports.withDefaults().NodeExporter
 	return systemd.SystemServiceUnitConfig{
 		Key:         "node-exporter",
 		Description: "Node Exporter",
@@ -41,8 +39,8 @@ func NodeExporterUnitConfig(port string) systemd.SystemServiceUnitConfig {
 			"--path.rootfs=/host",
 			// Bind to loopback only: node-exporter is on the host netns
 			// (required for host network metrics), but it is a private
-			// "back" service — only Prometheus (also host netns) scrapes it
-			// at localhost:9100. Nothing on the LAN should reach :9100.
+			// "back" service — only Prometheus (also host netns) scrapes
+			// it. Nothing on the LAN should reach this port.
 			"--web.listen-address=127.0.0.1:" + port,
 			"--collector.diskstats.device-exclude=" + DiskstatsDeviceExclude,
 		},
@@ -52,8 +50,8 @@ func NodeExporterUnitConfig(port string) systemd.SystemServiceUnitConfig {
 // StartNodeExporter installs and starts the Node Exporter system service.
 // Node Exporter requires host networking and cannot run inside a podman
 // network, so it remains a system service rather than a package.
-func StartNodeExporter(ctx context.Context, sd systemd.Manager, port string) error {
-	cfg := NodeExporterUnitConfig(port)
+func StartNodeExporter(ctx context.Context, sd systemd.Manager, ports Ports) error {
+	cfg := NodeExporterUnitConfig(ports)
 	uf := systemd.GenerateSystemServiceUnit(cfg)
 
 	if err := sd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
@@ -71,15 +69,12 @@ func StartNodeExporter(ctx context.Context, sd systemd.Manager, port string) err
 
 // NodeExporterSystemService returns metadata for the Node Exporter system
 // service, used by the system services API.
-func NodeExporterSystemService(port string) SystemService {
-	if port == "" {
-		port = NodeExporterPort
-	}
+func NodeExporterSystemService(ports Ports) SystemService {
 	return SystemService{
 		Key:         "node-exporter",
 		DisplayName: "Node Exporter",
 		Image:       NodeExporterImage,
-		Port:        port,
+		Port:        ports.withDefaults().NodeExporter,
 		UnitName:    systemd.SystemServiceUnitName("node-exporter"),
 	}
 }

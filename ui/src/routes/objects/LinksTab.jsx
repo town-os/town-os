@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
  * a client with the share mounted, or gfeh's own CLI — because it needs a path
  * inside the partition, and this page has no file browser to pick one from.
  */
-export default function LinksTab({ network, isAdmin }) {
+export default function LinksTab({ network, canManage }) {
   const { t } = useI18n()
   const [refreshKey, setRefreshKey] = useState(0)
   const [withdrawTarget, setWithdrawTarget] = useState(null)
@@ -61,7 +61,7 @@ export default function LinksTab({ network, isAdmin }) {
       key: 'actions',
       label: '',
       transform: (_v, row) =>
-        isAdmin ? (
+        canManage ? (
           <Button variant="ghost" size="sm" onClick={() => setWithdrawTarget(row)}>
             {t('objects.withdraw_link')}
           </Button>

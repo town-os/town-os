@@ -130,10 +130,11 @@ var trTRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "ağ eşini kaldır",
 	MsgAuditRefreshNetworkPeer:      "ağ eşini yenile",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "bu hesap yalnızca wireguard kayıt uç noktalarını kullanabilir",
-	MsgAuthWireGuardNetworkDenied: "bu hesabın o ağda bulunmasına izin verilmiyor",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "bu hesap yalnızca ağ kaydı ve nesne depolama uç noktalarını kullanabilir",
+	MsgAuthNetworkOnlyNetworkDenied: "bu hesabın o ağda bulunmasına izin verilmiyor",
 	MsgAuthWireGuardPeerNotOwned:  "bu hesap yalnızca kendi kaydettiği eşleri yenileyebilir",
+	MsgAuthObjectStorageRequired:  "yönetici veya nesne depolama erişimi gerekli",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "arşiv yüklemeleri ve indirmeleri bir nesne depolama bölümünü hedefleyemez",
@@ -145,7 +146,6 @@ var trTRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "asıl alanı gereklidir",
 	MsgGfehPathRequired:          "yol alanı gereklidir",
 	MsgGfehUnknownAccount:        "böyle bir hesap yok",
-	MsgGfehServiceAccountProtected: "nesne depolama hizmet hesabı devre dışı bırakılamaz; her bölüm bu hesapla kimlik doğrular",
 	MsgAuditCreateGfehPartition:  "nesne depolama bölümü oluştur",
 	MsgAuditModifyGfehPartition:  "nesne depolama bölümünü değiştir",
 	MsgAuditRemoveGfehPartition:  "nesne depolama bölümünü kaldır",

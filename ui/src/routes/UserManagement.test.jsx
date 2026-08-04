@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -20,7 +20,7 @@ vi.mock('@/lib/client-instance.js', () => ({
             phone: '555-0001',
             admin: true,
             disabled: false,
-            wireguard: false,
+            grants: [],
             networks: [],
           },
           {
@@ -30,7 +30,7 @@ vi.mock('@/lib/client-instance.js', () => ({
             phone: '555-0002',
             admin: false,
             disabled: true,
-            wireguard: false,
+            grants: [],
             networks: [],
           },
           {
@@ -40,7 +40,7 @@ vi.mock('@/lib/client-instance.js', () => ({
             phone: '555-0003',
             admin: false,
             disabled: false,
-            wireguard: true,
+            grants: ['wireguard', 'gfeh'],
             networks: ['office'],
           },
         ],
@@ -81,6 +81,20 @@ function openEditDialog(username) {
 }
 
 describe('UserManagement', () => {
+  // Somebody is always logged in when this screen is on screen, and who they
+  // are decides what the edit dialog offers: the account kind and its scope are
+  // admin-only fields, so the controls for them are hidden from anybody else.
+  // Without a viewer, getAccount() returns null, every viewer reads as a
+  // non-admin, and the admin-only assertions below would pass by rendering
+  // nothing at all.
+  beforeEach(() => {
+    localStorage.setItem('town-os-account', JSON.stringify({ username: 'alice', admin: true }))
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+  })
+
   it('renders role badges for admin and user', async () => {
     renderUserManagement()
     await waitFor(() => {
@@ -89,12 +103,14 @@ describe('UserManagement', () => {
     expect(screen.getByText('User')).toBeTruthy()
   })
 
-  it('renders a WireGuard badge for a wireguard account', async () => {
+  it('renders a badge per grant an account holds', async () => {
     renderUserManagement()
     await waitFor(() => {
-      expect(screen.getByText('WireGuard')).toBeTruthy()
+      expect(screen.getByText('Object storage')).toBeTruthy()
     })
-    const badge = screen.getByText('WireGuard')
+    // One badge per grant held, from the shared GRANTS registry.
+    expect(screen.getByText('WireGuard peers')).toBeTruthy()
+    const badge = screen.getByText('Object storage')
     // Role badges are display-only, not inside a tooltip trigger.
     expect(badge.closest('[data-slot="tooltip-trigger"]')).toBeNull()
   })
@@ -162,7 +178,7 @@ describe('UserManagement', () => {
     expect(editButtons.length).toBeGreaterThanOrEqual(3)
   })
 
-  it('prefills the WireGuard toggle and scope when editing a wireguard account', async () => {
+  it('prefills the grant toggles and scope when editing a granted account', async () => {
     renderUserManagement()
     await waitFor(() => {
       expect(screen.getByText('carol')).toBeTruthy()
@@ -170,16 +186,16 @@ describe('UserManagement', () => {
     openEditDialog('carol')
 
     await waitFor(() => {
-      expect(screen.getByLabelText('WireGuard-only account')).toBeTruthy()
+      expect(screen.getByLabelText('Object storage')).toBeTruthy()
     })
-    expect(screen.getByLabelText('WireGuard-only account').checked).toBe(true)
+    expect(screen.getByLabelText('Object storage').checked).toBe(true)
     // The scope selector offers office and lab (home filtered out), office ticked.
     expect(screen.getByLabelText('office').checked).toBe(true)
     expect(screen.getByLabelText('lab').checked).toBe(false)
     expect(screen.queryByLabelText('home')).toBeNull()
   })
 
-  it('saves updated wireguard scope', async () => {
+  it('saves an updated network scope', async () => {
     mockUpdateAccount.mockClear()
     renderUserManagement()
     await waitFor(() => {
@@ -198,12 +214,11 @@ describe('UserManagement', () => {
     })
     const [username, fields] = mockUpdateAccount.mock.calls[0]
     expect(username).toBe('carol')
-    expect(fields.wireguard).toBe(true)
     expect(fields.networks.sort()).toEqual(['lab', 'office'])
     expect(fields.admin).toBeUndefined()
   })
 
-  it('rejects enabling wireguard with no networks selected', async () => {
+  it('rejects enabling a grant with no networks selected', async () => {
     mockUpdateAccount.mockClear()
     renderUserManagement()
     await waitFor(() => {
@@ -212,16 +227,145 @@ describe('UserManagement', () => {
     // bob is a plain, non-admin account.
     openEditDialog('bob')
     await waitFor(() => {
-      expect(screen.getByLabelText('WireGuard-only account')).toBeTruthy()
+      expect(screen.getByLabelText('Object storage')).toBeTruthy()
     })
-    // Turn WireGuard on but pick no networks, then save.
-    fireEvent.click(screen.getByLabelText('WireGuard-only account'))
+    // Turn a grant on but pick no networks, then save.
+    fireEvent.click(screen.getByLabelText('Object storage'))
     fireEvent.click(screen.getByText('Save Changes'))
 
     // The client is never called; the form is rejected client-side.
     await waitFor(() => {
-      expect(screen.getByLabelText('WireGuard-only account')).toBeTruthy()
+      expect(screen.getByLabelText('Object storage')).toBeTruthy()
     })
     expect(mockUpdateAccount).not.toHaveBeenCalled()
+  })
+
+  // --- Grants ---
+
+  // Changing what kind an account is, is an administrator's decision: the
+  // server rejects both `grants` and `networks` from anybody else, so
+  // offering the control to a non-admin would be offering a toggle whose every
+  // use fails the whole edit.
+  it('hides the grant controls from a non-admin viewer', async () => {
+    localStorage.setItem('town-os-account', JSON.stringify({ username: 'bob', admin: false }))
+    try {
+      renderUserManagement()
+      await waitFor(() => {
+        expect(screen.getByText('bob')).toBeTruthy()
+      })
+      openEditDialog('bob')
+      await waitFor(() => {
+        expect(screen.getByLabelText('Email')).toBeTruthy()
+      })
+      expect(screen.queryByLabelText('Object storage')).toBeNull()
+    } finally {
+      localStorage.clear()
+    }
+  })
+
+  // ... and an ordinary edit by that same non-admin still has to work, which is
+  // the reason the kind fields are omitted rather than merely disabled: sending
+  // them unchanged would 403 a password change.
+  it('omits the grant fields from an edit that did not touch them', async () => {
+    localStorage.setItem('town-os-account', JSON.stringify({ username: 'bob', admin: false }))
+    mockUpdateAccount.mockClear()
+    try {
+      renderUserManagement()
+      await waitFor(() => {
+        expect(screen.getByText('bob')).toBeTruthy()
+      })
+      openEditDialog('bob')
+      await waitFor(() => {
+        expect(screen.getByLabelText('Email')).toBeTruthy()
+      })
+      fireEvent.click(screen.getByText('Save Changes'))
+
+      await waitFor(() => {
+        expect(mockUpdateAccount).toHaveBeenCalled()
+      })
+      const [, fields] = mockUpdateAccount.mock.calls[0]
+      expect(fields.grants).toBeUndefined()
+      expect(fields.networks).toBeUndefined()
+    } finally {
+      localStorage.clear()
+    }
+  })
+
+  // An administrator opening a scoped account and saving without touching the
+  // scope must not send `networks` either. The stored scope is normalized
+  // (deduped and sorted) while the dialog holds it in click order, so comparing
+  // the two directly would report a change on every single open.
+  it('omits an unchanged scope even when the order differs', async () => {
+    mockUpdateAccount.mockClear()
+    renderUserManagement()
+    await waitFor(() => {
+      expect(screen.getByText('carol')).toBeTruthy()
+    })
+    openEditDialog('carol')
+    await waitFor(() => {
+      expect(screen.getByLabelText('Object storage')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('Save Changes'))
+
+    await waitFor(() => {
+      expect(mockUpdateAccount).toHaveBeenCalled()
+    })
+    const [, fields] = mockUpdateAccount.mock.calls[0]
+    expect(fields.grants).toBeUndefined()
+    expect(fields.networks).toBeUndefined()
+  })
+
+  // An administrator may not make an administrator network-only: the two are
+  // opposite statements about the same account and the server refuses the pair.
+  it('does not offer grant controls on an administrator', async () => {
+    renderUserManagement()
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeTruthy()
+    })
+    openEditDialog('alice')
+    await waitFor(() => {
+      expect(screen.getByLabelText('Email')).toBeTruthy()
+    })
+    expect(screen.queryByLabelText('Object storage')).toBeNull()
+  })
+
+  // The toggles are independent: ticking one grant must not carry the other.
+  // They are separate capabilities on the server, and a form that sent both
+  // would hand out object storage to somebody granted only peer enrollment.
+  it('sends only the grants that were ticked', async () => {
+    mockUpdateAccount.mockClear()
+    renderUserManagement()
+    await waitFor(() => {
+      expect(screen.getByText('bob')).toBeTruthy()
+    })
+    openEditDialog('bob')
+    await waitFor(() => {
+      expect(screen.getByLabelText('WireGuard peers')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByLabelText('WireGuard peers'))
+    fireEvent.click(screen.getByLabelText('office'))
+    fireEvent.click(screen.getByText('Save Changes'))
+
+    await waitFor(() => {
+      expect(mockUpdateAccount).toHaveBeenCalled()
+    })
+    const [, fields] = mockUpdateAccount.mock.calls[0]
+    expect(fields.grants).toEqual(['wireguard'])
+    expect(fields.networks).toEqual(['office'])
+  })
+
+  // Every grant in the shared registry gets a checkbox, so adding one needs no
+  // new markup here or in the create form.
+  it('renders a checkbox for every grant in the registry', async () => {
+    renderUserManagement()
+    await waitFor(() => {
+      expect(screen.getByText('bob')).toBeTruthy()
+    })
+    openEditDialog('bob')
+    await waitFor(() => {
+      expect(screen.getByLabelText('WireGuard peers')).toBeTruthy()
+    })
+    expect(screen.getByLabelText('Object storage')).toBeTruthy()
   })
 })

@@ -66,7 +66,11 @@ func InitNetworkManager(db *sql.DB) (*SQLiteNetworkManager, error) {
 		}
 	}
 
-	return &SQLiteNetworkManager{db: db}, nil
+	m := &SQLiteNetworkManager{db: db}
+	if _, err := m.Create(DefaultNetwork()); err != nil && !errors.Is(err, ErrDuplicateNetwork) {
+		return nil, fmt.Errorf("seed default network: %w", err)
+	}
+	return m, nil
 }
 
 func (m *SQLiteNetworkManager) Create(n *Network) (*Network, error) {
@@ -207,6 +211,26 @@ func (m *SQLiteNetworkManager) SetEnabled(name string, enabled bool) error {
 		"UPDATE networks SET enabled = ?, updated_at = ? WHERE name = ?", enabled, nowStr, name)
 	if err != nil {
 		return fmt.Errorf("set network enabled: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNetworkNotFound
+	}
+	return nil
+}
+
+func (m *SQLiteNetworkManager) SetTLD(name, tld string) error {
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	nowStr := time.Now().UTC().Format(time.RFC3339)
+	res, err := m.db.ExecContext(ctx,
+		"UPDATE networks SET tld = ?, updated_at = ? WHERE name = ?", tld, nowStr, name)
+	if err != nil {
+		return fmt.Errorf("set network tld: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {

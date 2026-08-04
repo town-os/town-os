@@ -130,10 +130,11 @@ var viVNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:        "xóa peer mạng",
 	MsgAuditRefreshNetworkPeer:       "làm mới peer mạng",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "tài khoản này chỉ có thể sử dụng các điểm cuối đăng ký wireguard",
-	MsgAuthWireGuardNetworkDenied: "tài khoản này không được phép trên mạng đó",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "tài khoản này chỉ có thể sử dụng các điểm cuối đăng ký mạng và lưu trữ đối tượng",
+	MsgAuthNetworkOnlyNetworkDenied: "tài khoản này không được phép trên mạng đó",
 	MsgAuthWireGuardPeerNotOwned:  "tài khoản này chỉ có thể làm mới các peer mà nó đã đăng ký",
+	MsgAuthObjectStorageRequired:  "tài khoản quản trị hoặc quyền lưu trữ đối tượng là bắt buộc",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "tải lên và tải xuống kho lưu trữ không thể nhắm tới một phân vùng lưu trữ đối tượng",
@@ -145,7 +146,6 @@ var viVNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "trường chủ thể là bắt buộc",
 	MsgGfehPathRequired:          "trường đường dẫn là bắt buộc",
 	MsgGfehUnknownAccount:        "không có tài khoản như vậy",
-	MsgGfehServiceAccountProtected: "không thể vô hiệu hóa tài khoản dịch vụ lưu trữ đối tượng; mọi phân vùng đều xác thực bằng nó",
 	MsgAuditCreateGfehPartition:  "tạo phân vùng lưu trữ đối tượng",
 	MsgAuditModifyGfehPartition:  "sửa phân vùng lưu trữ đối tượng",
 	MsgAuditRemoveGfehPartition:  "xóa phân vùng lưu trữ đối tượng",

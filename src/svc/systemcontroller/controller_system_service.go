@@ -72,10 +72,11 @@ func (s *SystemControllerHandlers) collectSystemServices() []systemServiceInfo {
 
 	// Monitoring services are all system services.
 	if backend := s.Controller.GetMonitoringBackend(); backend != "" {
+		ports := s.Controller.GetMonitoringPorts()
 		for _, svc := range []monitoring.SystemService{
-			monitoring.NodeExporterSystemService(""),
-			monitoring.PrometheusSystemService(),
-			monitoring.MonitoringUISystemService(backend, s.Controller.GetNetworkControllerImage()),
+			monitoring.NodeExporterSystemService(ports),
+			monitoring.PrometheusSystemService(ports),
+			monitoring.MonitoringUISystemService(backend, s.Controller.GetNetworkControllerImage(), ports),
 		} {
 			all = append(all, systemServiceInfo{
 				Key:         svc.Key,

@@ -23,15 +23,16 @@ const (
 
 // UPlotUnitConfig returns the system-service unit config for the uPlot socat
 // forwarder. It runs in the HOST network namespace so it can reach the
-// loopback-only Prometheus (127.0.0.1:9090) with no cross-podman-network
-// hairpin. socat binds host :5308 (the single LAN-exposed monitoring port,
-// where the browser queries the Prometheus API) and forwards to Prometheus.
+// loopback-only Prometheus with no cross-podman-network hairpin. socat binds
+// the single LAN-exposed monitoring port (where the browser queries the
+// Prometheus API) and forwards to Prometheus.
 // The NC image is reused as the socat container (it has socat pre-installed);
 // an empty ncImage falls back to DefaultSocatImage.
-func UPlotUnitConfig(ncImage string) systemd.SystemServiceUnitConfig {
+func UPlotUnitConfig(ncImage string, ports Ports) systemd.SystemServiceUnitConfig {
 	if ncImage == "" {
 		ncImage = DefaultSocatImage
 	}
+	ports = ports.withDefaults()
 	return systemd.SystemServiceUnitConfig{
 		Key:         "monitoring-ui",
 		Description: "Monitoring UI (uPlot)",
@@ -39,17 +40,18 @@ func UPlotUnitConfig(ncImage string) systemd.SystemServiceUnitConfig {
 		PullNever:   true,
 		Args:        []string{"--net", "host"},
 		Command: []string{
-			"socat", "TCP-LISTEN:" + MonitoringExternalPort + ",fork,reuseaddr", "TCP:127.0.0.1:" + PrometheusPort,
+			"socat", "TCP-LISTEN:" + ports.External + ",fork,reuseaddr", "TCP:127.0.0.1:" + ports.Prometheus,
 		},
 	}
 }
 
 // GrafanaUnitConfig returns the system-service unit config for Grafana. Only
 // used when the monitoring backend is "grafana". Like the uPlot forwarder it
-// runs in the HOST network namespace: Grafana listens directly on :5308
-// (GF_SERVER_HTTP_PORT) — the single LAN-exposed monitoring port — and its
-// datasource reaches the loopback-only Prometheus at 127.0.0.1:9090.
-func GrafanaUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
+// runs in the HOST network namespace: Grafana listens directly on the single
+// LAN-exposed monitoring port (GF_SERVER_HTTP_PORT) and its datasource reaches
+// the loopback-only Prometheus on 127.0.0.1.
+func GrafanaUnitConfig(btrfsBase string, ports Ports) systemd.SystemServiceUnitConfig {
+	ports = ports.withDefaults()
 	provisioningDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
 	dataDir := filepath.Join(btrfsBase, "monitoring", "grafana-data")
 
@@ -64,9 +66,9 @@ func GrafanaUnitConfig(btrfsBase string) systemd.SystemServiceUnitConfig {
 			"-e", "GF_SECURITY_ALLOW_EMBEDDING=true",
 			"-e", "GF_USERS_DEFAULT_THEME=light",
 			"-e", "GF_SERVER_ENABLE_GZIP=true",
-			// Grafana binds :5308 directly (host netns), replacing the old
-			// -p 5308:3000 publish now that there is no podman network.
-			"-e", "GF_SERVER_HTTP_PORT=" + MonitoringExternalPort,
+			// Grafana binds the external port directly (host netns), replacing
+			// the old -p 5308:3000 publish now that there is no podman network.
+			"-e", "GF_SERVER_HTTP_PORT=" + ports.External,
 			// Provisioning files are read-only from Grafana's perspective;
 			// 0755/0644 perms set in WriteGrafanaProvisioningFiles let uid
 			// 472 read them without owning them, so no chown is needed.
@@ -138,7 +140,8 @@ func EnsureGrafanaStorage(st storage.Storage, btrfsBase string) error {
 // diskDevices, the kernel device basenames backing the btrfs filesystem
 // at /town-os; pass nil to render the panel with a sentinel regex that
 // matches nothing.
-func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string) error {
+func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string, ports Ports) error {
+	ports = ports.withDefaults()
 	provDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning")
 
 	// Datasource directory.
@@ -147,8 +150,8 @@ func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string) error
 		return fmt.Errorf("create grafana datasources dir: %w", err)
 	}
 	// Grafana runs --net host, so it reaches the loopback-only Prometheus
-	// at 127.0.0.1:9090 (not the old host.containers.internal gateway hop).
-	dsYAML := GrafanaDatasourceYAML("127.0.0.1")
+	// on 127.0.0.1 (not the old host.containers.internal gateway hop).
+	dsYAML := GrafanaDatasourceYAML("127.0.0.1", ports.Prometheus)
 	if err := os.WriteFile(filepath.Join(dsDir, "prometheus.yml"), []byte(dsYAML), 0644); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("write grafana datasource: %w", err)
 	}
@@ -180,19 +183,19 @@ func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string) error
 // subvolume where possible, plain directory fallback otherwise) and the
 // provisioning files are written; ownership of the data tree is then set by the
 // non-recursive ExecStartPre chown emitted by the generated unit.
-func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage string, diskDevices []string) error {
+func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Storage, backend, btrfsBase, ncImage string, diskDevices []string, ports Ports) error {
 	var cfg systemd.SystemServiceUnitConfig
 
 	if backend == BackendGrafana {
 		if err := EnsureGrafanaStorage(st, btrfsBase); err != nil {
 			return fmt.Errorf("ensure grafana storage: %w", err)
 		}
-		if err := WriteGrafanaProvisioningFiles(btrfsBase, diskDevices); err != nil {
+		if err := WriteGrafanaProvisioningFiles(btrfsBase, diskDevices, ports); err != nil {
 			return fmt.Errorf("write grafana provisioning: %w", err)
 		}
-		cfg = GrafanaUnitConfig(btrfsBase)
+		cfg = GrafanaUnitConfig(btrfsBase, ports)
 	} else {
-		cfg = UPlotUnitConfig(ncImage)
+		cfg = UPlotUnitConfig(ncImage, ports)
 	}
 
 	return installAndStartSystemServiceUnit(ctx, sd, systemd.GenerateSystemServiceUnit(cfg))
@@ -202,7 +205,7 @@ func StartMonitoringUI(ctx context.Context, sd systemd.Manager, st storage.Stora
 // service, used by the system services API. The image varies by backend:
 // Grafana in grafana mode, or the NC image (which has socat pre-installed)
 // in uPlot mode.
-func MonitoringUISystemService(backend, ncImage string) SystemService {
+func MonitoringUISystemService(backend, ncImage string, ports Ports) SystemService {
 	image := ncImage
 	if image == "" {
 		image = DefaultSocatImage
@@ -214,7 +217,7 @@ func MonitoringUISystemService(backend, ncImage string) SystemService {
 		Key:         "monitoring-ui",
 		DisplayName: "Monitoring UI",
 		Image:       image,
-		Port:        MonitoringExternalPort,
+		Port:        ports.withDefaults().External,
 		UnitName:    systemd.SystemServiceUnitName("monitoring-ui"),
 	}
 }

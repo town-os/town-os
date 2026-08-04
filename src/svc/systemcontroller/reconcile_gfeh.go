@@ -109,19 +109,16 @@ type ReconcileGfehConfig struct {
 	BtrfsBasePath string
 	Image         string
 	PullNever     bool
-	// SMBPortBase overrides the port SMB listeners start from. The integration
-	// harness sets a range of its own so a test daemon can never collide with
-	// a production one or with a concurrent run — IRON RULE.
+	// SMBPortBase is no longer consulted: Town OS accounts carry no SMB
+	// credential, so no partition serves the SMB view and no host port is
+	// allocated for it. Kept so the integration harness's GFEH_SMB_PORT_BASE
+	// keeps compiling until that knob is retired with the view itself.
 	SMBPortBase int
 	// NetworkName overrides the podman network, for the same reason.
 	NetworkName string
 	// KeyPrefix, when set, is prepended to every service key so a test's units
 	// are distinguishable from production's.
 	KeyPrefix string
-	// ControllerURL is the base URL gfehd authenticates to. Empty renders no
-	// town_os section, which is how a test drives a partition without a live
-	// control plane.
-	ControllerURL string
 }
 
 // ReconcileGfeh converges the running gfeh daemons onto the set of networks.
@@ -146,50 +143,51 @@ func ReconcileGfeh(ctx context.Context, reg *gfehRegistry) {
 		return
 	}
 
-	// Sorted so a network's SMB port is a function of the network set rather
-	// than of map iteration order — otherwise the port moves whenever another
-	// network is added, and every client that had mounted the share breaks.
+	// Sorted so the reconcile visits networks in a stable order: the rendered
+	// configs, and therefore which daemons restart, are then a function of the
+	// network set rather than of map iteration order.
 	sort.Slice(nets, func(i, j int) bool { return nets[i].Name < nets[j].Name })
 
-	names := make([]string, 0, len(nets))
-	for _, n := range nets {
-		names = append(names, n.Name)
-	}
-
 	quota := gfehPartitionQuota(cfg.SettingsMgr)
-	smbUsers := collectSMBUsers(cfg.AccountMgr, names)
 
-	// The account gfehd authenticates as. Distinct from every credential in
-	// smbUsers: that table is end users authenticating to gfeh's SMB view, this
-	// is the daemon authenticating to the control plane.
+	// No town_os section is rendered, and so no credential exists for one.
 	//
-	// A partition can still serve without it -- it just cannot provision its own
-	// subvolume or project an account into its forest -- so a failure here is
-	// logged and the reconcile continues.
-	var townOS *gfeh.TownOSConfig
-	if cfg.ControllerURL != "" {
-		username, password, credErr := ensureGfehServiceAccount(cfg.AccountMgr, cfg.SettingsMgr)
-		if credErr != nil {
-			logNonFatal("gfeh service account", credErr)
-		} else {
-			townOS = &gfeh.TownOSConfig{
-				BaseURL:  cfg.ControllerURL,
-				Username: username,
-				Password: password,
-				Quota:    quota,
-			}
-		}
-	}
+	// The daemon does not call the control plane at all: reconcileGfehPartition
+	// creates and sizes the partition's subvolume below, before the daemon is
+	// started, and principals are created from this side over the partition's
+	// admin socket by the /gfeh/principals/* handlers. The two things gfehd
+	// would have authenticated in order to do are already done for it, so the
+	// account it used to authenticate as bought nothing and cost an unexplained
+	// administrator in every box's user list.
+	//
+	// Nor is any SMB credential rendered: a Town OS account does not carry an
+	// SMB password. gfehd serves the SMB view only for accounts it can
+	// authenticate, so with none enrolled the view is simply not served, and
+	// the other four remain.
 
 	desired := make(map[string]bool, len(nets))
-	for i, n := range nets {
+	for _, n := range nets {
 		desired[n.Name] = true
-		if err := reconcileGfehPartition(ctx, cfg, n.Name, i, quota, smbUsers[n.Name], townOS); err != nil {
+		if err := reconcileGfehPartition(ctx, cfg, n.Name, quota); err != nil {
 			logNonFatal("gfeh partition "+n.Name, err)
 		}
 	}
 
-	pruneGfehPartitions(ctx, cfg, desired)
+	pruneGfehPartitions(ctx, cfg, desired, "its network no longer exists")
+}
+
+// ReconcileGfehRegistry re-runs the reconcile for a registry held behind the
+// GfehRegistry interface, which is how main.go and the handlers keep it.
+//
+// A nil registry, or one that is not the live implementation (a mock, in the
+// tests that drive the DNS and ingress collectors), is a no-op rather than a
+// panic: those callers have no daemons to converge.
+func ReconcileGfehRegistry(ctx context.Context, reg GfehRegistry) {
+	impl, ok := reg.(*gfehRegistry)
+	if !ok || impl == nil {
+		return
+	}
+	ReconcileGfeh(ctx, impl)
 }
 
 // reconcileGfeh re-converges the partitions from a handler, then republishes
@@ -211,24 +209,14 @@ func (s *SystemControllerHandlers) reconcileGfeh(ctx context.Context) {
 }
 
 // reconcileGfehPartition brings one network's partition to the desired state.
-func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, network string, index int, quota uint64, users []gfeh.SmbUserConfig, townOS *gfeh.TownOSConfig) error {
-	port := gfehctl.SMBPortFor(cfg.SMBPortBase, index)
-	if !gfehctl.ValidSMBPort(port) {
-		// A base that reached into the privileged range would produce a unit
-		// that starts and immediately dies, so the view is dropped instead:
-		// four of the five still work, and the failure is named here rather
-		// than found in a crash loop.
-		slog.Warn("gfeh: derived SMB port is unusable; serving without SMB", "network", network, "port", port)
-		port = 0
-	}
-	// SMB with no credential enrolled verifies nothing, so it is served only
-	// once somebody can actually authenticate to it. "A view that is not
-	// served contributes nothing" is gfeh's own doctrine and it is the right
-	// default for the one view whose alternative is an unauthenticated share
-	// on the LAN.
-	if len(users) == 0 {
-		port = 0
-	}
+func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, network string, quota uint64) error {
+	// SMB is not served. It is the one view that cannot sit behind the ingress
+	// and the one that needs a credential of its own -- an NT hash, which
+	// cannot be derived from the account password and so meant every user
+	// carrying a second password. Town OS accounts do not have one, so there is
+	// nobody gfehd could authenticate, and an unauthenticated share on the LAN
+	// is not the fallback to take. The other four views are unaffected.
+	port := 0
 
 	m := gfehctl.NewManager(gfehctl.Config{
 		Systemd:       cfg.Systemd,
@@ -237,7 +225,6 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 		Image:         cfg.Image,
 		PullNever:     cfg.PullNever,
 		SMBPort:       port,
-		TownOS:        townOS,
 		Key:           cfg.KeyPrefix + gfeh.ServiceKey(network),
 		NetworkName:   cfg.NetworkName,
 	})
@@ -246,7 +233,7 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 		return err
 	}
 
-	rendered, err := m.RenderConfig(users)
+	rendered, err := m.RenderConfig(nil)
 	if err != nil {
 		return fmt.Errorf("render config: %w", err)
 	}
@@ -258,7 +245,13 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 	if err := m.Start(ctx, configChanged || gfehUnitChanged(cfg.Systemd, m)); err != nil {
 		return err
 	}
-	if err := m.WaitForReady(ctx); err != nil {
+	if err := m.WaitForReady(ctx); err == nil {
+		// The partition is answering, so the box's first account can be seated
+		// in it. Only the home partition: that is the one every box has, and
+		// the one an operator who has never opened this screen would expect
+		// their own files to be in.
+		ensureFirstUserPrincipal(ctx, cfg.AccountMgr, m.Client(), network)
+	} else {
 		// Not fatal: the daemon may still be opening its partition, and the
 		// name collectors treat a partition that does not answer as
 		// contributing nothing rather than as a reason to fail.
@@ -372,7 +365,9 @@ func gfehUnitChanged(sd systemd.Manager, m *gfehctl.Manager) bool {
 // The subvolume is deliberately left behind. Removing a network is not a
 // statement about the bytes stored under it, and deleting them here would make
 // a mistyped network name unrecoverable. Purging is POST /gfeh/partitions/remove.
-func pruneGfehPartitions(ctx context.Context, cfg ReconcileGfehConfig, desired map[string]bool) {
+// reason names why a partition is being taken down, so the log does not claim
+// a network disappeared when object storage was simply switched off.
+func pruneGfehPartitions(ctx context.Context, cfg ReconcileGfehConfig, desired map[string]bool, reason string) {
 	if cfg.Systemd == nil {
 		return
 	}
@@ -399,7 +394,7 @@ func pruneGfehPartitions(ctx context.Context, cfg ReconcileGfehConfig, desired m
 			logNonFatal("remove gfeh partition "+network, err)
 		}
 		cfg.Registry.drop(network)
-		slog.Info("removed a gfeh partition whose network is gone", "network", network)
+		slog.Info("removed a gfeh partition", "network", network, "reason", reason)
 	}
 }
 
@@ -444,64 +439,71 @@ func gfehPartitionQuota(settingsMgr account.SettingsManager) uint64 {
 	return quota
 }
 
-// collectSMBUsers builds each network's SMB credential table from the accounts
-// that have enrolled one.
+
+// ensureFirstUserPrincipal seats the box's first account in the home partition.
 //
-// An account with no SMB credential simply does not appear anywhere, and cannot
-// mount any share. That is the correct default: the credential is a second
-// secret, weaker at rest than the account's password hash, and only worth
-// holding for accounts that actually want SMB.
+// Object storage is what the box is for, and a partition whose forest is empty
+// serves nobody: the operator opens the Users tab, finds nothing, and has to
+// work out that their own account is not in it. The first account is the one
+// that set the box up, so it is the one that gets seated.
 //
-// networks is every network that exists, because scope has to be expanded here
-// rather than represented as an absence — a nil "means every network" would be
-// indistinguishable from "no networks" to the caller, and getting that backwards
-// either locks everyone out or lets a scoped account onto every partition.
-func collectSMBUsers(accountMgr account.Manager, networks []string) map[string][]gfeh.SmbUserConfig {
-	out := map[string][]gfeh.SmbUserConfig{}
-	if accountMgr == nil {
-		return out
+// Home only. Every box has that partition, and a network added later belongs to
+// whoever is given a grant on it -- seating the founder there would hand them a
+// namespace somebody else created.
+//
+// Idempotent by way of gfehd: a principal that already exists comes back 409,
+// which is success here, so this runs on every reconcile without accumulating
+// anything. Non-fatal throughout -- a partition that cannot seat its first user
+// still serves every user already in it.
+func ensureFirstUserPrincipal(ctx context.Context, accountMgr account.Manager, client gfeh.Client, network string) {
+	if accountMgr == nil || client == nil || !gfeh.IsDefaultNetwork(network) {
+		return
 	}
-	accounts, err := accountMgr.List()
+
+	first, err := firstAccount(accountMgr)
 	if err != nil {
-		logNonFatal("list accounts for gfeh smb credentials", err)
-		return out
+		logNonFatal("first account for gfeh home partition", err)
+		return
+	}
+	if first == nil {
+		return // a box nobody has set up yet; the next reconcile will find one
 	}
 
-	for _, a := range accounts {
-		// A disabled account keeps its credential row but must not be able to
-		// authenticate — the same rule requireAuth applies to a live session.
-		if a.Disabled || a.SMBNTHash == "" {
-			continue
-		}
-		entry := gfeh.SmbUserConfig{
-			Username:  a.Username,
-			NTHash:    a.SMBNTHash,
-			Principal: a.Username,
-		}
-		for _, network := range smbNetworksFor(a, networks) {
-			out[network] = append(out[network], entry)
-		}
+	_, err = client.CreatePrincipal(ctx, gfeh.Principal{
+		Name:    first.Username,
+		Ceiling: gfeh.CeilingForAccount(first.Admin),
+	})
+	switch {
+	case err == nil:
+		slog.Info("seated the first account in the home object-storage partition", "account", first.Username)
+	case errors.Is(err, gfeh.ErrAlreadyExists):
+		// Already seated, which is the steady state.
+	default:
+		logNonFatal("seat first account in gfeh home partition", err)
 	}
-
-	// Deterministic order, so an unchanged account set renders an unchanged
-	// config and does not restart every daemon on the next reconcile.
-	for network := range out {
-		users := out[network]
-		sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
-		out[network] = users
-	}
-	return out
 }
 
-// smbNetworksFor is the set of networks an account may authenticate to.
+// firstAccount is the earliest-created account on the box, or nil when there is
+// none.
 //
-// A WireGuard account carries an explicit scope, and an empty scope is never
-// read as "any" — Town OS refuses to create such an account, and gfeh's
-// clamping has to be equally fail-closed. Any other account is not
-// network-scoped at all and reaches every partition.
-func smbNetworksFor(a account.Account, all []string) []string {
-	if !a.WireGuard {
-		return all
+// Earliest by CreatedAt, with the username as the tie-break: two accounts can
+// share a timestamp at second resolution, and a partition whose founder changed
+// between reconciles depending on map iteration order would be worse than one
+// that picked either consistently.
+func firstAccount(accountMgr account.Manager) (*account.Account, error) {
+	accounts, err := accountMgr.List()
+	if err != nil {
+		return nil, err
 	}
-	return a.Networks
+
+	var first *account.Account
+	for i := range accounts {
+		candidate := &accounts[i]
+		if first == nil ||
+			candidate.CreatedAt.Before(first.CreatedAt) ||
+			(candidate.CreatedAt.Equal(first.CreatedAt) && candidate.Username < first.Username) {
+			first = candidate
+		}
+	}
+	return first, nil
 }

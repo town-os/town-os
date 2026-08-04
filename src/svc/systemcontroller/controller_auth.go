@@ -202,71 +202,128 @@ func (s *SystemControllerHandlers) callingAccount(c *echo.Context) *account.Acco
 	return acct
 }
 
-// wireGuardAllowedRoutes is the fail-closed allowlist for WireGuard-only
-// accounts, keyed by "METHOD PATH". Such an account may reach ONLY these
-// endpoints — the ones needed to authenticate, discover the network, fetch the
-// CA, and enroll/refresh a peer. Everything else is denied. Keep this list
-// minimal: it is the entire attack surface a scoped account has against the
-// control plane, and the portal holds a live tunnel into the overlay.
-var wireGuardAllowedRoutes = map[string]bool{
-	"POST /account/authenticate":   true,
-	"GET /account/me":              true,
-	"GET /networks":                true,
-	"GET /networks/peers":          true,
-	"POST /networks/peers/add":     true,
-	"POST /networks/peers/refresh": true,
-	"GET /dns/services":            true,
-	"GET /tls/ca.crt":              true,
+// grantRoutes maps a route to the grant that unlocks it, keyed by
+// "METHOD PATH".
+//
+// This is the whole of what a grant buys. Adding a grant is an entry in
+// account.AllGrants plus its routes here — no new middleware, no new field.
+var grantRoutes = map[string]string{
+	"GET /networks/peers":          account.GrantWireGuard,
+	"POST /networks/peers/add":     account.GrantWireGuard,
+	"POST /networks/peers/refresh": account.GrantWireGuard,
+
+	"GET /gfeh":                     account.GrantGfeh,
+	"GET /gfeh/principals":          account.GrantGfeh,
+	"POST /gfeh/principals/add":     account.GrantGfeh,
+	"POST /gfeh/principals/remove":  account.GrantGfeh,
+	"GET /gfeh/grants":              account.GrantGfeh,
+	"POST /gfeh/grants/add":         account.GrantGfeh,
+	"POST /gfeh/grants/revoke":      account.GrantGfeh,
+	"GET /gfeh/exposures":           account.GrantGfeh,
+	"POST /gfeh/exposures/withdraw": account.GrantGfeh,
 }
 
-func wireGuardAllowedPath(method, path string) bool {
-	return wireGuardAllowedRoutes[method+" "+path]
+// grantCommonRoutes are reachable by any grant-holding account regardless of
+// which grants it holds: authenticate, find out who you are, discover the
+// networks you are scoped to, and fetch the CA so you can trust the box.
+//
+// Without these a grant is unusable — you cannot exercise one without first
+// signing in — so they are common rather than duplicated into every grant.
+var grantCommonRoutes = map[string]bool{
+	"POST /account/authenticate": true,
+	"GET /account/me":            true,
+	"GET /networks":              true,
+	"GET /dns/services":          true,
+	"GET /tls/ca.crt":            true,
 }
 
-// wireGuardAllowlist is the fail-closed gate for WireGuard-only accounts. It is
-// a global middleware so that a newly added route is denied to WireGuard
-// accounts by default — the safe direction — until it is explicitly added to
-// wireGuardAllowedRoutes. Requests with no valid token, and requests from normal
-// or admin accounts, pass straight through to the route's own auth middleware;
-// only an authenticated WireGuard account is constrained here.
-func (s *SystemControllerHandlers) wireGuardAllowlist(next echo.HandlerFunc) echo.HandlerFunc {
+// Notably absent from grantRoutes: /gfeh/partitions/*, which stays admin-only.
+// Provisioning a partition creates the root of a permission tree and allocates
+// a btrfs subvolume with a quota — TOWNOS_CONTRACT.md reserves it for
+// administrators, and gfeh's client branches on the 403 a non-admin gets. Also
+// absent is GET /networks/peers/connected, which aggregates every account's
+// peers across every network.
+
+// grantAllows reports whether an account's grants admit a route.
+func grantAllows(acct *account.Account, method, path string) bool {
+	route := method + " " + path
+	if grantCommonRoutes[route] {
+		return true
+	}
+	needed, known := grantRoutes[route]
+	return known && acct.HasGrant(needed)
+}
+
+// grantAllowlist is the fail-closed gate for an account that holds grants.
+//
+// A global middleware, so a route added tomorrow is denied to such an account
+// by default — the safe direction — until somebody lists it in grantRoutes
+// deliberately. Requests with no valid token, from an administrator, or from an
+// ordinary account holding no grants pass straight through to the route's own
+// auth middleware: a grant is additive authority for an account that exists to
+// exercise it, and this confines only those.
+func (s *SystemControllerHandlers) grantAllowlist(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		acct := s.callingAccount(c)
-		if acct == nil || !acct.WireGuard {
+		if acct == nil || !acct.Restricted() {
 			return next(c)
 		}
-		if !wireGuardAllowedPath(c.Request().Method, c.Request().URL.Path) {
-			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthWireGuardRestricted))
+		if !grantAllows(acct, c.Request().Method, c.Request().URL.Path) {
+			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthNetworkOnlyRestricted))
 		}
 		return next(c)
 	}
 }
 
-// requirePeerEnroll guards the peer enrollment endpoints (peers/add,
-// peers/refresh). It admits admins and WireGuard-only accounts — whose
-// per-network scope and per-peer ownership are enforced in the handler — but
-// rejects a plain non-admin account, so peer management stays privileged. The
-// global wireGuardAllowlist has already confined a WireGuard account to these
-// routes by the time this runs.
-func (s *SystemControllerHandlers) requirePeerEnroll(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		if s.Controller.GetSessionManager() == nil {
+// requireGrant builds a middleware admitting administrators — who hold every
+// grant — and accounts carrying the named one.
+//
+// The grant answers "may this caller do this at all", never "on which network":
+// that needs the network named in the request body or query, which only the
+// handler has parsed by then. Splitting it that way is deliberate — a
+// middleware guessing where the network lives in each request shape would
+// silently pass the one it could not find.
+func (s *SystemControllerHandlers) requireGrant(grant, message string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if s.Controller.GetSessionManager() == nil {
+				return next(c)
+			}
+			locale := s.getLocale()
+			token := extractBearerToken(c.Request())
+			if token == "" {
+				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
+			}
+			_, acct, err := s.Controller.GetSessionManager().Validate(token)
+			if err != nil {
+				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
+			}
+			if !acct.HasGrant(grant) {
+				return echo.NewHTTPError(403, i18n.T(locale, message))
+			}
 			return next(c)
 		}
-		locale := s.getLocale()
-		token := extractBearerToken(c.Request())
-		if token == "" {
-			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
-		}
-		_, acct, err := s.Controller.GetSessionManager().Validate(token)
-		if err != nil {
-			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
-		}
-		if !acct.Admin && !acct.WireGuard {
-			return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthAdminRequired))
-		}
-		return next(c)
 	}
+}
+
+// requirePeerEnroll guards the peer enrollment endpoints. The wireguard grant
+// is what admits a non-admin; per-network scope and per-peer ownership are
+// enforced in the handler.
+func (s *SystemControllerHandlers) requirePeerEnroll(next echo.HandlerFunc) echo.HandlerFunc {
+	return s.requireGrant(account.GrantWireGuard, i18n.MsgAuthAdminRequired)(next)
+}
+
+// requireObjectStorage guards the mutating object-storage routes: a partition's
+// principal forest, its grants, and the links published out of it.
+//
+// The grant deliberately stops there. It does NOT extend to
+// /gfeh/partitions/*, which stays requireAdmin: provisioning a partition
+// creates the root of a permission tree and allocates a btrfs subvolume with a
+// quota, TOWNOS_CONTRACT.md reserves it for administrators, and gfeh's client
+// branches on the 403 a non-admin gets. Running the users inside a partition
+// that already exists is a smaller thing than deciding that it should.
+func (s *SystemControllerHandlers) requireObjectStorage(next echo.HandlerFunc) echo.HandlerFunc {
+	return s.requireGrant(account.GrantGfeh, i18n.MsgAuthObjectStorageRequired)(next)
 }
 
 func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.HandlerFunc {

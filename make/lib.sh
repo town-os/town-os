@@ -156,6 +156,63 @@ warn_missing_repo_creds() {
 # Container helpers
 # ---------------------------------------------------------------------------
 
+# system_port_env — populate the SYSTEM_PORT_ENV array with the podman -e flags
+#   that relocate the otherwise-fixed host ports the system services bind:
+#   rolodex :53, node-exporter :9100, Prometheus :9090, the monitoring UI :5308,
+#   and the ingress :443/:80.
+#
+#   The test container runs --net host (deliberately: bridge-network DNS breaks
+#   on captive networks), so every one of those services binds in the *host*
+#   network namespace — the same namespace `make dev` binds in. Without these
+#   overrides a `make test-full` and a `make dev` fight over all six ports and
+#   crash-loop each other under Restart=always. The values are allocated per run
+#   by make/port.sh into SYSTEM_PORT_FILES — IRON RULE.
+#
+#   `make dev` deliberately does NOT call this: dev keeps the production ports
+#   because it is meant to mirror a real box (redirect_host_dns needs rolodex on
+#   :53, and a browser needs the ingress on :443).
+system_port_env() {
+  SYSTEM_PORT_ENV=()
+  local pair var file
+  for pair in \
+    "TOWN_OS_DNS_PORT:.dns-port" \
+    "TOWN_OS_NODE_EXPORTER_PORT:.node-exporter-port" \
+    "TOWN_OS_PROMETHEUS_PORT:.prometheus-port" \
+    "TOWN_OS_MONITORING_PORT:.monitoring-port" \
+    "INGRESS_HTTPS_PORT:.ingress-https-port" \
+    "INGRESS_HTTP_PORT:.ingress-http-port"; do
+    var="${pair%%:*}"
+    file="${STATE_DIR}/${pair#*:}"
+    if [ ! -f "${file}" ]; then
+      echo "ERROR: missing port file ${file}. Run this through make so SYSTEM_PORT_FILES are allocated." >&2
+      exit 1
+    fi
+    SYSTEM_PORT_ENV+=(-e "${var}=$(cat "${file}")")
+  done
+}
+
+# wireguard_salt ROLE — echo the TOWN_OS_WG_SALT value for a container.
+#
+#   A WireGuard interface name, its UDP listen port, and its overlay subnet are
+#   all namespace-global, and the test and dev containers both run --net host.
+#   Without a salt, a test box and a dev box derive the *same* interface name and
+#   listen port for the same network name, so the second one up cannot create its
+#   device and its overlay is dead. Two concurrent test worktrees collide the
+#   same way — IRON RULE.
+#
+#   ROLE ("test" / "dev") separates the two boxes in one checkout; INSTANCE_ID
+#   separates checkouts. Both halves are needed: INSTANCE_ID alone is identical
+#   for a test and a dev run in the same working directory.
+#
+#   The value is stable for a given role+checkout, which matters for dev: its
+#   database survives across `make dev` runs, and a salt that moved would leave
+#   stored subnets pointing at devices named for the previous salt.
+#
+#   A real box sets nothing and keeps the historical unsalted names.
+wireguard_salt() {
+  printf '%s-%s' "$1" "${INSTANCE_ID}"
+}
+
 # remove_container NAME — force-remove a container, ignoring errors.
 # Part of the iron rule: every container must be cleanable for concurrent runs.
 remove_container() {
@@ -313,4 +370,32 @@ load_images_into_container() {
       warn "Missing cached image ${safe}.tar for ${img}"
     fi
   done
+}
+
+# ---------------------------------------------------------------------------
+# UI dependency install
+# ---------------------------------------------------------------------------
+
+# bun_install [DIR] — install the UI's JS dependencies with visible progress.
+#
+# Bare `bun install` prints nothing until it is finished, so a cold cache (or a
+# captive network stalling the registry) looks exactly like a hung build: the
+# last thing on screen is whatever ran before it, sometimes for minutes. Every
+# other slow step in these scripts announces itself; this one did not, and it is
+# the one people actually wait on.
+#
+# --verbose is deliberately NOT used: it prints a line per resolved package and
+# buries the failure that matters. What is missing is a start line, the elapsed
+# time, and enough context (which directory, which bun) to tell a slow install
+# from a wedged one.
+bun_install() {
+  local dir="${1:-ui}"
+  local start=${SECONDS}
+
+  substep "bun install (${dir}, $(bun --version 2>/dev/null || echo 'bun version unknown'))"
+  if ! (cd "${dir}" && bun install); then
+    warn "bun install failed in ${dir} after $((SECONDS - start))s"
+    return 1
+  fi
+  substep "bun install finished in $((SECONDS - start))s"
 }

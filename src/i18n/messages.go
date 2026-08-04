@@ -121,9 +121,6 @@ const (
 	MsgGfehPathRequired = "gfeh.path_required"
 	// MsgGfehUnknownAccount indicates the named Town OS account does not exist.
 	MsgGfehUnknownAccount = "gfeh.unknown_account"
-	// MsgGfehServiceAccountProtected indicates the object-storage service
-	// account cannot be disabled.
-	MsgGfehServiceAccountProtected = "gfeh.service_account_protected"
 
 	// MsgPagesDirNotConfigured indicates the pages directory is not configured.
 	MsgPagesDirNotConfigured = "pages.dir_not_configured"
@@ -263,13 +260,21 @@ const (
 	// MsgAuditWithdrawGfehExposure is the audit action for withdrawing a published link.
 	MsgAuditWithdrawGfehExposure = "audit.action.withdraw_gfeh_exposure"
 
-	// MsgAuthWireGuardRestricted indicates a WireGuard-only account tried to
-	// reach an endpoint outside the WireGuard enrollment allowlist.
-	MsgAuthWireGuardRestricted = "auth.wireguard_restricted"
-	// MsgAuthWireGuardNetworkDenied indicates a WireGuard-only account tried to
-	// act on a network outside its permitted scope.
-	MsgAuthWireGuardNetworkDenied = "auth.wireguard_network_denied"
-	// MsgAuthWireGuardPeerNotOwned indicates a WireGuard-only account tried to
+	// MsgAuthNetworkOnlyRestricted indicates a network-only account tried to
+	// reach an endpoint outside its allowlist.
+	MsgAuthNetworkOnlyRestricted = "auth.network_only_restricted"
+	// MsgAuthNetworkOnlyNetworkDenied indicates a network-only account tried to
+	// act on a network outside its permitted scope — enroll a peer on it, or
+	// administer the object storage it owns.
+	MsgAuthNetworkOnlyNetworkDenied = "auth.network_only_network_denied"
+	// MsgAuthWireGuardPeerNotOwned indicates a network-only account tried to
 	// refresh a peer it did not enroll.
 	MsgAuthWireGuardPeerNotOwned = "auth.wireguard_peer_not_owned"
+
+	// MsgAuthObjectStorageRequired indicates an account that is neither an
+	// administrator nor network-only tried to change a partition's users,
+	// grants, or published links. Distinct from MsgAuthAdminRequired because
+	// the answer to "what do I need" is different: not administrator, but
+	// either administrator or an account scoped to that network.
+	MsgAuthObjectStorageRequired = "auth.object_storage_required"
 )

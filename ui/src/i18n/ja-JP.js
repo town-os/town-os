@@ -150,8 +150,10 @@ const jaJP = {
   'users.col_edit': '編集',
   'users.role_admin': '管理者',
   'users.role_user': 'ユーザー',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'WireGuard 専用アカウント',
+  'users.grants_label': '権限',
+  'users.grants_help': '以下のネットワークでこのアカウントが持つ権限。管理者はすべてを持ちます。',
+  'users.grant_wireguard': 'WireGuard ピア',
+  'users.grant_gfeh': 'オブジェクトストレージ',
   'users.networks_label': 'ネットワークスコープ',
   'users.networks_none': '利用可能なネットワークがありません。',
   'users.error_networks_required': 'WireGuard 専用アカウントには少なくとも1つのネットワークを選択してください',
@@ -193,7 +195,6 @@ const jaJP = {
   'create_user.phone_label': '電話番号',
   'create_user.email_label': 'メールアドレス',
   'create_user.admin_label': '管理者権限',
-  'create_user.wireguard_label': 'WireGuard 専用アカウント',
   'create_user.networks_label': 'ネットワークスコープ',
   'create_user.networks_description': 'このアカウントが WireGuard ピアを登録できるネットワーク。それ以外の操作はできません。',
   'create_user.networks_none': '利用可能なネットワークがありません。先にネットワークを作成してください。',
@@ -891,11 +892,6 @@ const jaJP = {
   'objects.toast_grant_added': '権限を追加しました',
   'objects.toast_grant_revoked': '権限を取り消しました',
   'objects.toast_link_withdrawn': 'リンクを取り下げました',
-  'users.smb_credential': 'SMB パスワード',
-  'users.smb_credential_help': 'SMB 共有のマウント専用の別パスワードです。アカウントのパスワードからは導出できないため、空のままにするとこのアカウントは共有をマウントできません。現在のものを保持するには変更しないでください。',
-  'users.smb_enrolled': 'SMB 有効',
-  'users.smb_not_enrolled': 'SMB アクセスなし',
-  'users.smb_clear': 'SMB アクセスを削除',
 }
 
 export default jaJP

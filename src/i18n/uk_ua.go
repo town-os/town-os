@@ -130,10 +130,11 @@ var ukUAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "видалити вузол мережі",
 	MsgAuditRefreshNetworkPeer:      "оновити вузол мережі",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "цей обліковий запис може використовувати лише кінцеві точки реєстрації wireguard",
-	MsgAuthWireGuardNetworkDenied: "цьому обліковому запису не дозволено в цій мережі",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "цей обліковий запис може використовувати лише кінцеві точки реєстрації в мережі та об'єктного сховища",
+	MsgAuthNetworkOnlyNetworkDenied: "цьому обліковому запису не дозволено в цій мережі",
 	MsgAuthWireGuardPeerNotOwned:  "цей обліковий запис може оновлювати лише вузли, які він зареєстрував",
+	MsgAuthObjectStorageRequired:  "потрібен доступ адміністратора або до об'єктного сховища",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "завантаження та вивантаження архівів не може адресувати розділ об'єктного сховища",
@@ -145,7 +146,6 @@ var ukUAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "поле суб'єкта обов'язкове",
 	MsgGfehPathRequired:          "поле шляху обов'язкове",
 	MsgGfehUnknownAccount:        "такого облікового запису немає",
-	MsgGfehServiceAccountProtected: "обліковий запис служби об'єктного сховища не можна вимкнути: через нього автентифікується кожен розділ",
 	MsgAuditCreateGfehPartition:  "створити розділ об'єктного сховища",
 	MsgAuditModifyGfehPartition:  "змінити розділ об'єктного сховища",
 	MsgAuditRemoveGfehPartition:  "вилучити розділ об'єктного сховища",

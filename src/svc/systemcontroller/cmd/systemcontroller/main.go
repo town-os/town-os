@@ -98,23 +98,6 @@ func setupPodmanEnv() error {
 	return os.Setenv("CONTAINER_HOST", HostPodmanSocket)
 }
 
-// gfehControllerURL is the base URL a partition's daemon authenticates to.
-//
-// Loopback rather than the box's LAN address: gfehd runs in a container on the
-// host network namespace, so the published port is reachable there, and naming
-// the LAN address would break the moment DHCP moved it.
-func gfehControllerURL(listenAddr string) string {
-	port := listenAddr
-	if idx := strings.LastIndex(listenAddr, ":"); idx >= 0 {
-		port = listenAddr[idx+1:]
-	}
-	if port == "" {
-		return ""
-	}
-	return "http://127.0.0.1:" + port
-}
-
-
 // gfehPublishConfig is what publishGfehNames needs to re-derive the record and
 // route sets once the partitions are answering.
 type gfehPublishConfig struct {
@@ -338,6 +321,19 @@ func run() (err error) {
 		return fmt.Errorf("init settings manager: %w", err)
 	}
 
+	// Boxes upgraded from a release that gave the object-storage daemon its own
+	// administrator account still carry that account, and nothing else would
+	// ever remove it -- it would go on appearing in the users list and the admin
+	// count as an account the operator never created. The daemon no longer
+	// authenticates to anything, so it is deleted here, once, on the first boot
+	// after the upgrade. Non-fatal: a box that keeps a stale row is worse than
+	// one that will not boot.
+	if purged, purgeErr := account.PurgeLegacyServiceAccounts(db); purgeErr != nil {
+		fmt.Fprintf(os.Stderr, "purge legacy service account: %v\n", purgeErr)
+	} else if purged {
+		slog.Info("removed the legacy object-storage service account", "username", account.LegacyGfehServiceAccount)
+	}
+
 	pagesMgr, err := account.InitPagesManager(db)
 	if err != nil {
 		return fmt.Errorf("init pages manager: %w", err)
@@ -451,12 +447,17 @@ func run() (err error) {
 		resolutionMode = v
 	}
 
+	// Empty (the normal case) means rolodex.DefaultDNSPort — see ports.go for
+	// why the integration harness relocates it.
+	dnsPort := dnsPortFromEnv()
+
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
 		DataDir:        rolDataDir,
 		Image:          rolImage,
 		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
 		ResolutionMode: resolutionMode,
+		DNSPort:        dnsPort,
 	})
 	configWritten, configErr := rolMgr.WriteConfig()
 	if configErr != nil {
@@ -484,7 +485,14 @@ func run() (err error) {
 	if v, tldErr := settingsMgr.Get("dns_tld"); tldErr == nil && v != "" {
 		dnsTLD = v
 	}
-	rolodex.ConfigureResolvedRouting(ctx, dnsTLD, rolodex.DNSLoopback)
+	// resolved can only route a domain to a resolver on :53, so this is skipped
+	// entirely when rolodex has been relocated off the standard port. Pointing
+	// resolved at DNSLoopback in that case would blackhole every .tld query.
+	if dnsPortIsDefault(dnsPort) {
+		rolodex.ConfigureResolvedRouting(ctx, dnsTLD, rolodex.DNSLoopback)
+	} else {
+		fmt.Fprintf(os.Stderr, "rolodex DNS on non-standard port %s; skipping systemd-resolved routing\n", dnsPort)
+	}
 
 	// Derive UI image. When UI_IMAGE is explicitly empty the UI container
 	// is skipped entirely (useful in dev where bun serves the UI).
@@ -492,6 +500,10 @@ func run() (err error) {
 	if _, uiSet := os.LookupEnv("UI_IMAGE"); !uiSet {
 		uiImage = "quay.io/town/ui:" + tag
 	}
+
+	// Host ports for the three monitoring system services. The zero value means
+	// the production defaults; the harness relocates them (see ports.go).
+	monPorts := monitoringPortsFromEnv()
 
 	// Determine monitoring backend (uplot or grafana).
 	monBackend := monitoring.BackendUPlot
@@ -543,19 +555,19 @@ func run() (err error) {
 	monWG.Add(3)
 	go func() {
 		defer monWG.Done()
-		if err := monitoring.StartNodeExporter(ctx, sd, ""); err != nil {
+		if err := monitoring.StartNodeExporter(ctx, sd, monPorts); err != nil {
 			fmt.Fprintf(os.Stderr, "node-exporter: %v\n", err)
 		}
 	}()
 	go func() {
 		defer monWG.Done()
-		if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, ""); err != nil {
+		if err := monitoring.StartPrometheus(ctx, sd, *btrfsPath, monPorts); err != nil {
 			fmt.Fprintf(os.Stderr, "prometheus: %v\n", err)
 		}
 	}()
 	go func() {
 		defer monWG.Done()
-		if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, diskDevices); err != nil {
+		if err := monitoring.StartMonitoringUI(ctx, sd, st, monBackend, *btrfsPath, ncImage, diskDevices, monPorts); err != nil {
 			fmt.Fprintf(os.Stderr, "monitoring-ui: %v\n", err)
 		}
 	}()
@@ -599,6 +611,11 @@ func run() (err error) {
 			// Serve dual-stack only when the host has a global IPv6 (otherwise
 			// `podman network create --ipv6` fails and the unit won't start).
 			EnableIPv6: getInternalIPv6() != "",
+			// Zero means the privileged production ports (443/80); the harness
+			// relocates them so a test ingress cannot collide with a dev or
+			// production ingress in the shared host netns (see ports.go).
+			HostPort:     envPortInt(EnvIngressHTTPSPort),
+			HTTPHostPort: envPortInt(EnvIngressHTTPPort),
 		})
 		if startErr := ingressMgr.Start(ctx); startErr != nil {
 			fmt.Fprintf(os.Stderr, "ingress: %v\n", startErr)
@@ -636,11 +653,6 @@ func run() (err error) {
 				SettingsMgr:   settingsMgr,
 				BtrfsBasePath: *btrfsPath,
 				Image:         gfehImage,
-				// gfehd reaches the controller over the host podman network,
-				// so loopback on the published port. It waits on /status/ping
-				// before authenticating, which is why starting it here -- long
-				// before the full router is up -- is safe.
-				ControllerURL: gfehControllerURL(*listenAddr),
 			})
 			systemcontroller.ReconcileGfeh(ctx, reg)
 			gfehReg = reg
@@ -754,6 +766,19 @@ func run() (err error) {
 		}
 	}
 
+	// Object storage again, now that the networks exist.
+	//
+	// A partition is per network, and the earlier pass runs BEFORE
+	// ReconcileNetworks — which is what creates the default network on a box
+	// that has never booted. So on a first boot the earlier pass saw an empty
+	// network list, provisioned nothing, and object storage stayed off until
+	// some later restart happened to find the network already there. Running it
+	// again here is idempotent (an unchanged partition is left alone rather
+	// than bounced) and cannot be replaced by moving the first pass, which has
+	// to precede Reconcile so a package's names and the partitions' names are
+	// derived in one go.
+	systemcontroller.ReconcileGfehRegistry(ctx, gfehReg)
+
 	// Program the shared :443 ingress with the full route set (HTTP packages +
 	// pages), at the same point in boot as rolodex. Push/declarative: on a
 	// fresh ingress this rebuilds everything (same model as RebuildDNS).
@@ -819,6 +844,7 @@ func run() (err error) {
 		TLSCA:                      tlsCA,
 		MonitoringBackend:          monBackend,
 		DiskDevices:                diskDevices,
+		MonitoringPorts:            monPorts,
 		Rolodex:                    rolMgr,
 		Ingress:                    ingressMgr,
 		UI:                         uiMgr,

@@ -150,8 +150,10 @@ const hiIN = {
   'users.col_edit': 'संपादित करें',
   'users.role_admin': 'व्यवस्थापक',
   'users.role_user': 'उपयोगकर्ता',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'केवल-WireGuard खाता',
+  'users.grants_label': 'अनुमतियाँ',
+  'users.grants_help': 'नीचे दिए नेटवर्क पर इस खाते की क्षमताएँ। प्रशासकों के पास सभी हैं।',
+  'users.grant_wireguard': 'WireGuard पीयर',
+  'users.grant_gfeh': 'ऑब्जेक्ट स्टोरेज',
   'users.networks_label': 'नेटवर्क क्षेत्र',
   'users.networks_none': 'कोई नेटवर्क उपलब्ध नहीं है।',
   'users.error_networks_required': 'केवल-WireGuard खाते के लिए कम से कम एक नेटवर्क चुनें',
@@ -193,7 +195,6 @@ const hiIN = {
   'create_user.phone_label': 'फ़ोन',
   'create_user.email_label': 'ईमेल',
   'create_user.admin_label': 'व्यवस्थापक विशेषाधिकार',
-  'create_user.wireguard_label': 'केवल-WireGuard खाता',
   'create_user.networks_label': 'नेटवर्क क्षेत्र',
   'create_user.networks_description': 'वे नेटवर्क जिन पर यह खाता WireGuard पीयर एनरोल कर सकता है। यह और कुछ नहीं कर सकता।',
   'create_user.networks_none': 'कोई नेटवर्क उपलब्ध नहीं है। पहले एक नेटवर्क बनाएँ।',
@@ -891,11 +892,6 @@ const hiIN = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default hiIN

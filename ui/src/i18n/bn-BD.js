@@ -150,8 +150,10 @@ const bnBD = {
   'users.col_edit': 'সম্পাদনা',
   'users.role_admin': 'অ্যাডমিন',
   'users.role_user': 'ব্যবহারকারী',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'শুধুমাত্র WireGuard অ্যাকাউন্ট',
+  'users.grants_label': 'অনুমতি',
+  'users.grants_help': 'নিচের নেটওয়ার্কগুলিতে এই অ্যাকাউন্টের ক্ষমতা। প্রশাসকরা সবগুলিই রাখেন।',
+  'users.grant_wireguard': 'WireGuard পিয়ার',
+  'users.grant_gfeh': 'অবজেক্ট স্টোরেজ',
   'users.networks_label': 'নেটওয়ার্ক স্কোপ',
   'users.networks_none': 'কোনো নেটওয়ার্ক উপলব্ধ নেই।',
   'users.error_networks_required': 'শুধুমাত্র WireGuard অ্যাকাউন্টের জন্য অন্তত একটি নেটওয়ার্ক নির্বাচন করুন',
@@ -193,7 +195,6 @@ const bnBD = {
   'create_user.phone_label': 'ফোন',
   'create_user.email_label': 'ইমেল',
   'create_user.admin_label': 'অ্যাডমিন সুবিধা',
-  'create_user.wireguard_label': 'শুধুমাত্র WireGuard অ্যাকাউন্ট',
   'create_user.networks_label': 'নেটওয়ার্ক স্কোপ',
   'create_user.networks_description': 'এই অ্যাকাউন্টটি যে নেটওয়ার্কগুলিতে WireGuard পিয়ার এনরোল করতে পারে। এটি আর কিছুই করতে পারে না।',
   'create_user.networks_none': 'কোনো নেটওয়ার্ক উপলব্ধ নেই। প্রথমে একটি নেটওয়ার্ক তৈরি করুন।',
@@ -891,11 +892,6 @@ const bnBD = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default bnBD

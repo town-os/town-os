@@ -78,6 +78,17 @@ case "$1" in
     done
     ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
     mkdir -p "${STATE_DIR}/dev-data" "${STATE_DIR}/dev-repos" "${STATE_DIR}/dev-rolodex"
+    # Object storage runs for real in dev only if `make gfeh-image` has been run:
+    # quay.io/town/gfeh is not public, so a GFEH_IMAGE the dev container cannot
+    # load is worse than none — the partition unit crash-loops on the pull and
+    # every /gfeh/* route answers 503 behind a UI that still offers the tabs.
+    # An explicitly empty value is the documented off switch, so the page says
+    # "not configured" instead, which is at least true.
+    DEV_GFEH_IMAGE="${GFEH_IMAGE}"
+    if [ ! -f "$(image_cache_tar "${GFEH_IMAGE}")" ]; then
+      warn "No cached ${GFEH_IMAGE}; disabling object storage in dev (run 'make gfeh-image' to enable it)"
+      DEV_GFEH_IMAGE=""
+    fi
     substep "Launching dev container"
     ${SUDO} podman run -d --replace --net host -e LOG_LEVEL=debug -e DEBUG=1 \
       -e "TOWN_OS_REPO_USERNAME=${TOWN_OS_REPO_USERNAME}" \
@@ -86,6 +97,8 @@ case "$1" in
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=" \
       -e "NC_IMAGE=${NC_IMAGE}" \
+      -e "GFEH_IMAGE=${DEV_GFEH_IMAGE}" \
+      -e "TOWN_OS_WG_SALT=$(wireguard_salt dev)" \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os-dev.mount"):/town-os:z" \
@@ -110,6 +123,11 @@ case "$1" in
     # container needed hardcoded public DNS, which captive networks block.
     step "Loading network controller image into dev container"
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${NC_IMAGE}
+    # Built on the host by `make gfeh-image`, for the same reason as the NC.
+    if [ -n "${DEV_GFEH_IMAGE}" ]; then
+      step "Loading object storage (gfeh) image into dev container"
+      load_images_into_container "${PODMAN_DEV_CONTAINER}" ${DEV_GFEH_IMAGE}
+    fi
     step "Restarting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl restart town-os-systemcontroller.service
@@ -139,7 +157,8 @@ case "$1" in
     else
       substep "Dashboard:  http://$(hostname):5173"
     fi
-    cd ui && bun install && bun run dev -- --host
+    bun_install ui
+    cd ui && bun run dev -- --host
     # Stop services inside the dev container before removing it so
     # monitoring containers (which share the host network/PID namespace)
     # do not orphan conmon processes that hold ports.

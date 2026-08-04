@@ -15,13 +15,13 @@ import (
 	"time"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
-	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/gfeh"
 	"gitea.com/town-os/town-os/src/gfeh/gfehctl"
 	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
+	"gitea.com/town-os/town-os/src/systemd"
 	townostls "gitea.com/town-os/town-os/src/tls"
 	"go.yaml.in/yaml/v4"
 )
@@ -358,72 +358,6 @@ func TestIntegrationGfehPartitionsAreNotReachableThroughStorage(t *testing.T) {
 	}
 }
 
-// TestIntegrationGfehSMBCredentialReachesTheConfig: enrolling an SMB password
-// has to change what the partition is configured with, or the operator sets a
-// password and nothing happens.
-func TestIntegrationGfehSMBCredentialReachesTheConfig(t *testing.T) {
-	t.Parallel()
-
-	mgr := account.InitMockManager()
-	if _, err := mgr.Create("alice", "hunter2hunter2", "a@example.com", "5551234", "Alice", false); err != nil {
-		t.Fatalf("create account: %v", err)
-	}
-
-	// No credential: the account cannot mount a share anywhere.
-	if users := collectSMBUsersForTest(t, mgr, []string{"home"}); len(users["home"]) != 0 {
-		t.Fatalf("an account with no credential was enrolled: %v", users)
-	}
-
-	pw := "smbpassword"
-	if _, err := mgr.Update("alice", account.UpdateFields{SMBPassword: &pw}); err != nil {
-		t.Fatalf("enrol: %v", err)
-	}
-
-	users := collectSMBUsersForTest(t, mgr, []string{"home"})
-	if len(users["home"]) != 1 {
-		t.Fatalf("got %d users, want 1: %v", len(users["home"]), users)
-	}
-	want, err := account.NTHash(pw)
-	if err != nil {
-		t.Fatalf("NTHash: %v", err)
-	}
-	if users["home"][0].NTHash != want {
-		t.Errorf("nt_hash = %q, want the derived hash", users["home"][0].NTHash)
-	}
-
-	// Withdrawing takes the access away again.
-	empty := ""
-	if _, err := mgr.Update("alice", account.UpdateFields{SMBPassword: &empty}); err != nil {
-		t.Fatalf("withdraw: %v", err)
-	}
-	if users := collectSMBUsersForTest(t, mgr, []string{"home"}); len(users["home"]) != 0 {
-		t.Errorf("withdrawing left the account able to mount: %v", users)
-	}
-}
-
-// collectSMBUsersForTest renders the credential table the way reconcile does,
-// through the manager's public surface.
-func collectSMBUsersForTest(t *testing.T, mgr account.Manager, networks []string) map[string][]gfeh.SmbUserConfig {
-	t.Helper()
-
-	accounts, err := mgr.List()
-	if err != nil {
-		t.Fatalf("list accounts: %v", err)
-	}
-	out := map[string][]gfeh.SmbUserConfig{}
-	for _, a := range accounts {
-		if a.Disabled || a.SMBNTHash == "" {
-			continue
-		}
-		for _, n := range networks {
-			out[n] = append(out[n], gfeh.SmbUserConfig{
-				Username: a.Username, NTHash: a.SMBNTHash, Principal: a.Username,
-			})
-		}
-	}
-	return out
-}
-
 // TestIntegrationGfehConfigRendersWhatGfehdAccepts. gfehd parses with
 // deny_unknown_fields, so a key it does not know is a hard startup failure —
 // and the container would crash-loop with a serde message rather than say
@@ -431,28 +365,23 @@ func collectSMBUsersForTest(t *testing.T, mgr account.Manager, networks []string
 func TestIntegrationGfehConfigRendersWhatGfehdAccepts(t *testing.T) {
 	t.Parallel()
 
-	cfg := gfeh.Config{
-		DataDir:     gfeh.ContainerDataDir,
-		Partition:   "home",
-		AdminSocket: gfeh.ContainerSocketPath,
-		S3:          &gfeh.S3Config{Bind: "0.0.0.0:9000", Hostname: "s3.gfeh"},
-		HTTP:        &gfeh.HTTPConfig{Bind: "0.0.0.0:9001", Hostname: "http.gfeh"},
-		TownOS: &gfeh.TownOSConfig{
-			BaseURL:  "http://127.0.0.1:5309",
-			Username: "gfeh",
-			Password: "0123456789abcdef0123456789abcdef",
-			Quota:    0,
-		},
-		SMB: &gfeh.SMBConfig{
-			Bind: "0.0.0.0:4450", Share: "home", Principal: "smb-unverified",
-			Hostname: "smb.gfeh",
-			Users: []gfeh.SmbUserConfig{
-				{Username: "alice", NTHash: "a4f49c406510bdcab6824ee7c30fd852", Principal: "alice"},
-			},
-		},
-	}
+	// Rendered through the manager production uses, not from a hand-built
+	// Config: the point is what Town OS actually writes to disk. A literal
+	// assembled here could assert a shape reconcile never produces and pass
+	// while every real partition failed to start.
+	m := gfehctl.NewManager(gfehctl.Config{
+		Systemd:       systemd.InitMockManager(),
+		Network:       "home",
+		BtrfsBasePath: t.TempDir(),
+		Image:         "localhost/town-os-gfeh:test",
+		// Exactly what reconcileGfehPartition passes: SMB is not served, and
+		// no credential table goes with it.
+		SMBPort:     0,
+		Key:         "test-" + gfeh.ServiceKey("home"),
+		NetworkName: "town-os-ingress-test",
+	})
 
-	out, err := gfeh.RenderConfig(cfg)
+	out, err := m.RenderConfig(nil)
 	if err != nil {
 		t.Fatalf("RenderConfig: %v", err)
 	}
@@ -461,6 +390,9 @@ func TestIntegrationGfehConfigRendersWhatGfehdAccepts(t *testing.T) {
 	if err := yaml.Unmarshal(out, &parsed); err != nil {
 		t.Fatalf("reparse: %v", err)
 	}
+
+	// Every gfehd config struct is #[serde(deny_unknown_fields)], so a stray
+	// key is not ignored -- it is a hard startup failure.
 	allowed := map[string]bool{
 		"data_dir": true, "partition": true, "network": true, "admin_socket": true,
 		"s3": true, "http": true, "drive": true, "ipfs": true, "smb": true,
@@ -472,39 +404,30 @@ func TestIntegrationGfehConfigRendersWhatGfehdAccepts(t *testing.T) {
 		}
 	}
 
-	// The town_os section is present: it is how gfehd provisions its own
-	// subvolume and projects accounts into its forest, which is the whole of
-	// what TOWNOS_CONTRACT.md scopes gfeh's use of Town OS to.
-	//
-	// It is also the credential most easily confused with the others in this
-	// file. This one authenticates the DAEMON to the control plane; the SMB
-	// users beside it authenticate END USERS to gfeh's own view, and Town OS's
-	// account system never sees those.
-	townOS, ok := parsed["town_os"].(map[string]any)
-	if !ok {
-		t.Fatalf("no town_os section; gfehd could not provision or authenticate anybody: %v", parsed)
-	}
-	if townOS["username"] != "gfeh" {
-		t.Errorf("town_os username = %v, want the service account", townOS["username"])
-	}
-	if pw, _ := townOS["password"].(string); pw == "" {
-		t.Error("town_os names no credential; gfehd refuses to start without one")
+	// No town_os section, because gfehd no longer authenticates to anything:
+	// Town OS creates and sizes the partition's subvolume before the daemon
+	// starts, and creates principals from its own side over the admin socket.
+	// A section here would mean a credential exists somewhere, and the account
+	// it named was an enabled administrator nobody created.
+	if _, present := parsed["town_os"]; present {
+		t.Errorf("a town_os section was rendered; gfehd needs no credential: %v", parsed["town_os"])
 	}
 
-	// And the two are genuinely distinct values, not the same secret reused.
-	smb, ok := parsed["smb"].(map[string]any)
-	if !ok {
-		t.Fatal("no smb section")
+	// No SMB view, and above all no credential table: a Town OS account carries
+	// no SMB password, so there is nobody gfehd could authenticate to a share,
+	// and an unauthenticated share on the LAN is not the fallback to take.
+	if _, present := parsed["smb"]; present {
+		t.Errorf("an SMB view was rendered: %v", parsed["smb"])
 	}
-	users, ok := smb["users"].([]any)
-	if !ok || len(users) == 0 {
-		t.Fatal("no smb users")
+	if strings.Contains(string(out), "nt_hash") {
+		t.Errorf("an NT hash reached the rendered config:\n%s", out)
 	}
-	user, ok := users[0].(map[string]any)
-	if !ok {
-		t.Fatal("malformed smb user")
-	}
-	if user["nt_hash"] == townOS["password"] {
-		t.Error("the daemon credential and a user credential are the same value")
+
+	// The four views that ARE served, so "nothing is configured" cannot pass
+	// this test by rendering an empty file.
+	for _, view := range []string{"s3", "http", "drive", "ipfs"} {
+		if _, present := parsed[view]; !present {
+			t.Errorf("the %s view was not rendered; the partition would serve nothing", view)
+		}
 	}
 }

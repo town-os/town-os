@@ -44,17 +44,21 @@ func gfehTestRegistry(t *testing.T, networks ...string) (*gfehRegistry, *systemd
 	st := storage.InitBtrFSMock()
 	base := t.TempDir()
 
+	// Seed rather than Create: the home network is already there (every network
+	// manager has one), and a fixture naming it means "this is the row", not
+	// "add a row".
 	nm := account.InitMockNetworkManager()
 	for _, name := range networks {
-		if _, err := nm.Create(&account.Network{Name: name, TLD: name, Enabled: true}); err != nil {
-			t.Fatalf("create network %s: %v", name, err)
-		}
+		nm.Seed(&account.Network{Name: name, TLD: name, Enabled: true})
 	}
 
 	reg := NewGfehRegistry(ReconcileGfehConfig{
-		NetworkMgr:    nm,
-		Storage:       st,
-		Systemd:       sd,
+		NetworkMgr: nm,
+		Storage:    st,
+		Systemd:    sd,
+		// Object storage has no on/off setting, so the manager starts empty.
+		// The always-on tests below add keys to prove none of them matter.
+		SettingsMgr: &mockSettingsManager{values: map[string]string{}},
 		BtrfsBasePath: base,
 		Image:         "localhost/town-os-gfeh:test",
 		// A unique key prefix and podman network so a test's units can never
@@ -126,7 +130,7 @@ func TestReconcileGfehIsIdempotent(t *testing.T) {
 }
 
 // TestReconcileGfehRestartsWhenTheConfigChanges is the other half: a real
-// change has to take effect, or an operator enrolling an SMB credential would
+// change has to take effect, or an operator changing a partition setting would
 // see nothing happen until the next reboot.
 func TestReconcileGfehRestartsWhenTheConfigChanges(t *testing.T) {
 	reg, sd, _, base := gfehTestRegistry(t, "home")
@@ -192,69 +196,6 @@ func TestReconcileGfehPrunesAPartitionWhoseNetworkIsGone(t *testing.T) {
 	}
 }
 
-// TestReconcileGfehSkipsSMBWithNoCredential. SMB with an empty credential table
-// verifies nothing, so serving it would put an unauthenticated share on the LAN
-// for every network on the box.
-func TestReconcileGfehSkipsSMBWithNoCredential(t *testing.T) {
-	reg, _, _, base := gfehTestRegistry(t, "home")
-
-	ReconcileGfeh(gfehReconcileCtx(t), reg)
-
-	rendered, err := os.ReadFile(gfeh.ConfigPath(base, "home"))
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	if strings.Contains(string(rendered), "smb:") {
-		t.Errorf("SMB was served with nobody able to authenticate to it:\n%s", rendered)
-	}
-}
-
-// TestCollectSMBUsersExpandsScope: a WireGuard account carries an explicit
-// scope and an empty one is never "any"; any other account reaches every
-// partition. Getting this backwards either locks everyone out or puts a scoped
-// account on every network's share.
-func TestCollectSMBUsersExpandsScope(t *testing.T) {
-	mgr := account.InitMockManager()
-	all := []string{"home", "office"}
-
-	mustAccount(t, mgr, "alice", false, nil)
-	mustAccount(t, mgr, "scoped", true, []string{"office"})
-	mustAccount(t, mgr, "nocred", false, nil)
-
-	setSMBCredential(t, mgr, "alice")
-	setSMBCredential(t, mgr, "scoped")
-	// nocred deliberately has none.
-
-	users := collectSMBUsers(mgr, all)
-
-	if got := usernames(users["home"]); len(got) != 1 || got[0] != "alice" {
-		t.Errorf("home users = %v, want [alice]", got)
-	}
-	got := usernames(users["office"])
-	if len(got) != 2 || got[0] != "alice" || got[1] != "scoped" {
-		t.Errorf("office users = %v, want [alice scoped] sorted", got)
-	}
-}
-
-// TestCollectSMBUsersExcludesDisabledAccounts: a disabled account keeps its
-// credential row but must not be able to authenticate, matching the rule
-// requireAuth applies to a live session.
-func TestCollectSMBUsersExcludesDisabledAccounts(t *testing.T) {
-	mgr := account.InitMockManager()
-	mustAccount(t, mgr, "alice", false, nil)
-	setSMBCredential(t, mgr, "alice")
-
-	if got := usernames(collectSMBUsers(mgr, []string{"home"})["home"]); len(got) != 1 {
-		t.Fatalf("precondition: alice should be enrolled, got %v", got)
-	}
-	if err := mgr.Disable("alice"); err != nil {
-		t.Fatalf("disable: %v", err)
-	}
-	if got := usernames(collectSMBUsers(mgr, []string{"home"})["home"]); len(got) != 0 {
-		t.Errorf("a disabled account can still mount the share: %v", got)
-	}
-}
-
 // TestGfehNetworkFromUnit is what the teardown pass has to work from.
 func TestGfehNetworkFromUnit(t *testing.T) {
 	for _, tc := range []struct {
@@ -294,7 +235,7 @@ func TestWriteGfehConfigOnlyReportsRealChanges(t *testing.T) {
 }
 
 // TestWriteGfehConfigIsNotWorldReadable: the file carries NT hashes, which are
-// password-equivalent for SMB.
+// the daemon's whole configuration.
 func TestWriteGfehConfigIsNotWorldReadable(t *testing.T) {
 	path := t.TempDir() + "/gfehd.yaml"
 	if _, err := writeGfehConfig(path, []byte("a: 1\n")); err != nil {
@@ -306,7 +247,7 @@ func TestWriteGfehConfigIsNotWorldReadable(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 	if info.Mode().Perm()&0o007 != 0 {
-		t.Errorf("mode %v is world-accessible; the file holds SMB credentials", info.Mode().Perm())
+		t.Errorf("mode %v is world-accessible; the file holds the partition's credentials", info.Mode().Perm())
 	}
 }
 
@@ -329,33 +270,210 @@ func countStops(sd *systemd.MockManager) int {
 	return n
 }
 
-func usernames(users []gfeh.SmbUserConfig) []string {
-	out := make([]string, 0, len(users))
-	for _, u := range users {
-		out = append(out, u.Username)
-	}
-	return out
-}
-
-func mustAccount(t *testing.T, mgr account.Manager, username string, wireguard bool, networks []string) {
+// mustAccount creates a Town OS account for a test to project into a partition.
+//
+// admin is the one axis that matters here: it decides the ceiling
+// gfeh.CeilingForAccount projects, and therefore what a grant can be clamped to
+// on the other side.
+func mustAccount(t *testing.T, mgr account.Manager, username string, admin bool) {
 	t.Helper()
-	var err error
-	if wireguard {
-		_, err = mgr.CreateWireGuard(username, "hunter2hunter2", username+"@example.com", "5551234", username, networks)
-	} else {
-		_, err = mgr.Create(username, "hunter2hunter2", username+"@example.com", "5551234", username, false)
-	}
-	if err != nil {
+	if _, err := mgr.Create(username, "hunter2hunter2", username+"@example.com", "5551234", username, admin); err != nil {
 		t.Fatalf("create account %s: %v", username, err)
 	}
 }
 
-func setSMBCredential(t *testing.T, mgr account.Manager, username string) {
-	t.Helper()
-	pw := "smbpassword"
-	if _, err := mgr.Update(username, account.UpdateFields{SMBPassword: &pw}); err != nil {
-		t.Fatalf("set smb credential for %s: %v", username, err)
+// --- Always on ---
+
+// Object storage has no switch. It runs the way DNS and the ingress run: as
+// part of what Town OS is. A settings manager holding nothing at all must
+// therefore still bring the partitions up -- the old behaviour, where an absent
+// or unreadable decision meant "off", would leave a box with no object storage
+// and nothing on screen explaining why.
+func TestReconcileGfehRunsWithNoSettingsAtAll(t *testing.T) {
+	reg, _, _, base := gfehTestRegistry(t, "home", "office")
+
+	ReconcileGfeh(gfehReconcileCtx(t), reg)
+
+	if managers := reg.Managers(); len(managers) != 2 {
+		t.Fatalf("expected both partitions, got %v", managers)
+	}
+	for _, network := range []string{"home", "office"} {
+		if _, err := os.Stat(gfeh.ConfigPath(base, network)); err != nil {
+			t.Errorf("no config rendered for %q: %v", network, err)
+		}
 	}
 }
 
+// Several controller tests build a registry with no settings manager at all.
+// That used to read as "off"; it now reads as "on, with no quota", which is the
+// only answer that keeps object storage from silently depending on a manager
+// that was never the thing deciding whether it should exist.
+func TestReconcileGfehRunsWithNoSettingsManager(t *testing.T) {
+	reg, _, _, base := gfehTestRegistry(t, "home")
+	reg.cfg.SettingsMgr = nil
 
+	ReconcileGfeh(gfehReconcileCtx(t), reg)
+
+	if managers := reg.Managers(); len(managers) != 1 {
+		t.Fatalf("expected one partition, got %v", managers)
+	}
+	if _, err := os.Stat(gfeh.ConfigPath(base, "home")); err != nil {
+		t.Errorf("no config rendered: %v", err)
+	}
+}
+
+// A box upgraded from the release that had the switch still has the row in its
+// settings table -- seeding never deletes keys -- and it may well say "false".
+// Nothing reads it, and a partition must not stay down because of a decision
+// about a control that no longer exists.
+func TestReconcileGfehIgnoresAStaleOffSetting(t *testing.T) {
+	reg, _, _, base := gfehTestRegistry(t, "home")
+	if err := reg.cfg.SettingsMgr.Set("object_storage_enabled", "false"); err != nil {
+		t.Fatalf("seed stale setting: %v", err)
+	}
+
+	ReconcileGfeh(gfehReconcileCtx(t), reg)
+
+	if managers := reg.Managers(); len(managers) != 1 {
+		t.Fatalf("a stale setting kept object storage down: %v", managers)
+	}
+	if _, err := os.Stat(gfeh.ConfigPath(base, "home")); err != nil {
+		t.Errorf("no config rendered: %v", err)
+	}
+}
+
+// --- SMB ---
+
+// Town OS accounts carry no SMB password, so there is nobody gfehd could
+// authenticate to a share and the view is not served at all. The alternative --
+// an unauthenticated share on the LAN -- is not a fallback worth having.
+func TestReconcileGfehNeverServesSMB(t *testing.T) {
+	reg, _, _, base := gfehTestRegistry(t, "home")
+
+	ReconcileGfeh(gfehReconcileCtx(t), reg)
+
+	rendered, err := os.ReadFile(gfeh.ConfigPath(base, "home"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(rendered), "smb:") {
+		t.Errorf("an SMB view was configured:\n%s", rendered)
+	}
+	// ... and no credential table of any kind reached the file.
+	if strings.Contains(string(rendered), "nt_hash") {
+		t.Errorf("an NT hash reached the rendered config:\n%s", rendered)
+	}
+}
+
+// --- The first account is seated in the home partition ---
+
+// firstUserEnv builds an account manager plus a stand-in partition client.
+func firstUserEnv(t *testing.T) (*account.MockManager, *gfeh.MockClient) {
+	t.Helper()
+	return account.InitMockManager(), &gfeh.MockClient{}
+}
+
+// The operator who set the box up finds their own account already in the home
+// partition. An empty forest means opening the Users tab, seeing nothing, and
+// having to work out that your own account is not in it.
+func TestFirstAccountIsSeatedInTheHomePartition(t *testing.T) {
+	mgr, client := firstUserEnv(t)
+	if _, err := mgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
+
+	principals, err := client.ListPrincipals(t.Context())
+	if err != nil {
+		t.Fatalf("ListPrincipals: %v", err)
+	}
+	if len(principals) != 1 || principals[0].Name != "root" {
+		t.Fatalf("principals = %+v, want just root", principals)
+	}
+	// An administrator projects the superuser ceiling, so the founder can
+	// actually run the partition they were seated in.
+	if got := principals[0].Ceiling; len(got) == 0 || got[0] != gfeh.PermAll {
+		t.Errorf("ceiling = %v, want the superuser ceiling", got)
+	}
+}
+
+// The FIRST account, not whichever one the account list happened to yield.
+func TestOnlyTheFirstAccountIsSeated(t *testing.T) {
+	mgr, client := firstUserEnv(t)
+	for _, name := range []string{"root", "alice", "bob"} {
+		if _, err := mgr.Create(name, "hunter2hunter2", name+"@example.com", "5551234", name, name == "root"); err != nil {
+			t.Fatalf("Create %s: %v", name, err)
+		}
+	}
+
+	ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
+
+	principals, err := client.ListPrincipals(t.Context())
+	if err != nil {
+		t.Fatalf("ListPrincipals: %v", err)
+	}
+	if len(principals) != 1 {
+		t.Fatalf("seated %d accounts, want only the first: %+v", len(principals), principals)
+	}
+	if principals[0].Name != "root" {
+		t.Errorf("seated %q, want the earliest-created account", principals[0].Name)
+	}
+}
+
+// Home only. A network added later belongs to whoever is granted it, and
+// seating the founder there would hand them a namespace somebody else created.
+func TestOtherPartitionsDoNotSeatTheFirstAccount(t *testing.T) {
+	mgr, client := firstUserEnv(t)
+	if _, err := mgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ensureFirstUserPrincipal(t.Context(), mgr, client, "office")
+
+	principals, err := client.ListPrincipals(t.Context())
+	if err != nil {
+		t.Fatalf("ListPrincipals: %v", err)
+	}
+	if len(principals) != 0 {
+		t.Errorf("a non-home partition seated somebody: %+v", principals)
+	}
+}
+
+// Runs on every reconcile, so seating has to be idempotent: gfehd answers 409
+// for a principal that already exists, and that is success here.
+func TestSeatingTheFirstAccountIsIdempotent(t *testing.T) {
+	mgr, client := firstUserEnv(t)
+	if _, err := mgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	for range 3 {
+		ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
+	}
+
+	principals, err := client.ListPrincipals(t.Context())
+	if err != nil {
+		t.Fatalf("ListPrincipals: %v", err)
+	}
+	if len(principals) != 1 {
+		t.Errorf("repeated reconciles accumulated principals: %+v", principals)
+	}
+}
+
+// A box nobody has set up yet has no first account. Seating must be a no-op
+// rather than an error, so the next reconcile picks it up once somebody
+// registers.
+func TestNoAccountsSeatsNobody(t *testing.T) {
+	mgr, client := firstUserEnv(t)
+
+	ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
+
+	principals, err := client.ListPrincipals(t.Context())
+	if err != nil {
+		t.Fatalf("ListPrincipals: %v", err)
+	}
+	if len(principals) != 0 {
+		t.Errorf("an empty box seated somebody: %+v", principals)
+	}
+}

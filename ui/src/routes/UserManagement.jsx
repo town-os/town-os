@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
+import { GRANTS } from '@/lib/grants.js'
+import { getAccount } from '@/lib/auth.js'
 import { usePolling } from '@/lib/hooks.js'
 import { PAGE_SIZE } from '@/lib/utils.js'
 import DataTable from '@/components/DataTable.jsx'
@@ -26,12 +28,34 @@ import {
 } from '@/components/ui/dialog'
 import { Plus } from 'lucide-react'
 
+/**
+ * Whether two network scopes name the same set.
+ *
+ * Order-insensitive because the server stores the scope normalized (deduped and
+ * sorted) while the dialog holds it in click order -- comparing them directly
+ * would report a change on every open and send a `networks` field that a
+ * non-admin edit is then rejected for.
+ * @param {string[]} a
+ * @param {string[]} b
+ * @returns {boolean}
+ */
+function sameNetworks(a, b) {
+  if (a.length !== b.length) return false
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  return sortedA.every((n, i) => n === sortedB[i])
+}
+
 export default function UserManagement() {
   const { t } = useI18n()
   useEffect(() => { document.title = t('users.page_title') }, [t])
   const [editDialog, setEditDialog] = useState({ open: false })
-  const [editWireguard, setEditWireguard] = useState(false)
+  const [editGrants, setEditGrants] = useState([])
   const [editNetworks, setEditNetworks] = useState([])
+  // Only an administrator may grant the object-storage capability, and the
+  // server enforces that. Rendering the control for anybody else would offer a
+  // toggle whose every use is a 403 that fails the whole edit.
+  const viewerIsAdmin = !!getAccount()?.admin
   const [networks, setNetworks] = useState([])
   const [statusConfirm, setStatusConfirm] = useState(null)
   const [adminCount, setAdminCount] = useState(null)
@@ -42,7 +66,7 @@ export default function UserManagement() {
   const [search, setSearch] = useState('')
 
   // The default "home" network has no WireGuard transport, so it is never a
-  // valid scope for a WireGuard-only account.
+  // valid scope for a network-only account.
   useEffect(() => {
     getClient().listNetworks()
       .then((nets) => setNetworks((nets || []).filter((n) => n.name !== 'home')))
@@ -50,9 +74,15 @@ export default function UserManagement() {
   }, [])
 
   function openEdit(row) {
-    setEditWireguard(!!row.wireguard)
+    setEditGrants(row.grants || [])
     setEditNetworks(row.networks || [])
     setEditDialog({ open: true, ...row })
+  }
+
+  function toggleEditGrant(name) {
+    setEditGrants((current) =>
+      current.includes(name) ? current.filter((g) => g !== name) : [...current, name],
+    )
   }
 
   function toggleEditNetwork(name) {
@@ -89,7 +119,7 @@ export default function UserManagement() {
       return
     }
 
-    if (editWireguard && editNetworks.length === 0) {
+    if (editGrants.length > 0 && editNetworks.length === 0) {
       toast.error(t('users.error_networks_required'))
       return
     }
@@ -99,19 +129,15 @@ export default function UserManagement() {
     if (form.email.value) fields.email = form.email.value
     if (form.phone.value) fields.phone = form.phone.value
     if (form.real_name.value) fields.real_name = form.real_name.value
-    // The dialog is authoritative over the WireGuard restriction and its scope.
-    // admin is immutable and is never sent.
-    fields.wireguard = editWireguard
-    fields.networks = editWireguard ? editNetworks : []
-
-    // Three states, and they have to stay distinguishable: an untouched field
-    // leaves the credential alone, a password sets one, and the clear checkbox
-    // revokes it. Sending the empty string for an untouched field would
-    // silently withdraw SMB access on every unrelated edit.
-    if (form.smb_password.value) {
-      fields.smb_password = form.smb_password.value
-    } else if (form.smb_clear && form.smb_clear.checked) {
-      fields.smb_password = ''
+    // The account kind and its scope are sent only by an administrator, and
+    // only when they actually changed: the route rejects both fields from a
+    // non-admin, so including them unconditionally would turn every ordinary
+    // edit made by a normal user -- a password change, a new phone number --
+    // into a 403. admin is immutable and is never sent at all.
+    if (viewerIsAdmin) {
+      const nextNetworks = editGrants.length > 0 ? editNetworks : []
+      if (!sameNetworks(editGrants, editDialog.grants || [])) fields.grants = editGrants
+      if (!sameNetworks(nextNetworks, editDialog.networks || [])) fields.networks = nextNetworks
     }
 
     try {
@@ -150,8 +176,19 @@ export default function UserManagement() {
       key: 'admin',
       label: t('users.col_role'),
       transform: (v, row) => {
-        if (row.wireguard) {
-          return <Badge variant="outline">{t('users.role_wireguard')}</Badge>
+        // One badge, because there is now one kind. A network-only account is
+        // never an admin, so the three are mutually exclusive and a row can
+        // never need two.
+        if ((row.grants || []).length > 0) {
+          return (
+            <div className="flex flex-wrap items-center gap-1">
+              {GRANTS.filter((g) => row.grants.includes(g.name)).map((g) => (
+                <Badge key={g.name} variant="outline">
+                  {t(g.labelKey)}
+                </Badge>
+              ))}
+            </div>
+          )
         }
         return (
           <Badge variant={v ? 'default' : 'secondary'}>
@@ -301,39 +338,28 @@ export default function UserManagement() {
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="smb_password">{t('users.smb_credential')}</Label>
-                <Input
-                  id="smb_password"
-                  name="smb_password"
-                  type="password"
-                  autoComplete="new-password"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('users.smb_credential_help')}
-                </p>
-                {editDialog.smb_enrolled ? (
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" id="smb_clear" name="smb_clear" className="rounded" />
-                    {t('users.smb_clear')}
-                  </label>
-                ) : (
-                  <p className="text-xs text-muted-foreground">{t('users.smb_not_enrolled')}</p>
-                )}
-              </div>
-              {!editDialog.admin && (
+              {/* Only an administrator may change what kind an account is, and
+                  never on an administrator: promoting or demoting one is not
+                  something the account editor does. */}
+              {!editDialog.admin && viewerIsAdmin && (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="edit-wireguard"
-                      className="rounded"
-                      checked={editWireguard}
-                      onChange={(e) => setEditWireguard(e.target.checked)}
-                    />
-                    <Label htmlFor="edit-wireguard">{t('users.wireguard_label')}</Label>
-                  </div>
-                  {editWireguard && (
+                  <Label>{t('users.grants_label')}</Label>
+                  {GRANTS.map((g) => (
+                    <div key={g.name} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={`edit-grant-${g.name}`}
+                        className="rounded"
+                        checked={editGrants.includes(g.name)}
+                        onChange={() => toggleEditGrant(g.name)}
+                      />
+                      <Label htmlFor={`edit-grant-${g.name}`}>{t(g.labelKey)}</Label>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">
+                    {t('users.grants_help')}
+                  </p>
+                  {editGrants.length > 0 && (
                     <div className="space-y-1">
                       <Label>{t('users.networks_label')}</Label>
                       {networks.length === 0 ? (

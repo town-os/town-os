@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,10 +21,66 @@ import (
 // across reboots.
 var machineIDPath = "/etc/machine-id"
 
+// EnvWireGuardSalt names the environment variable that differentiates this
+// instance's WireGuard identity — interface name, UDP listen port, and overlay
+// subnet — from another Town OS sharing the same network namespace.
+//
+// All three of those live in the network namespace, and the test and dev
+// containers both run --net host, so without a salt a `make test-full` box and a
+// `make dev` box derive an identical interface name and listen port for the same
+// network name: the second one to come up cannot create its device or bind its
+// port, and its overlay is simply dead. Two concurrent test worktrees collide
+// the same way — IRON RULE.
+//
+// Unset on a real box, which is what keeps production names unchanged.
+const EnvWireGuardSalt = "TOWN_OS_WG_SALT"
+
+// wireGuardSalt is the instance salt, read once from the environment. A package
+// var (rather than a plumbed-through config field) mirrors machineIDPath above:
+// both are boot-constant properties of the box's identity that several free
+// functions here need, and both are settable by tests.
+var wireGuardSalt = os.Getenv(EnvWireGuardSalt)
+
+// NetworkInterfaceName is the WireGuard interface name this instance uses for a
+// network, with the salt already applied.
+//
+// Exported for the integration tests, which live outside this package and have
+// to name the same device the controller does. Deriving it there through
+// wireguard.InterfaceName means also remembering to pass the salt, and the
+// value that is easiest to pass is "" — which is correct on a production box
+// and wrong in every container the tests run in, where a salt is precisely what
+// stops two checkouts fighting over one kernel device. Naming the pairing once,
+// here, is what keeps a test from asserting against a device nothing created.
+func NetworkInterfaceName(network string) string {
+	return wireguard.InterfaceName(wireGuardSalt, network)
+}
+
 // networkIPAMSeed returns a stable seed for subnet derivation: the systemd
 // machine-id when available, else the hostname, else a constant. It never
 // returns "" so wireguard.SubnetForNetwork always succeeds.
+//
+// The salt is folded in here rather than passed to SubnetForNetwork separately,
+// because a salt is precisely more box identity — the same role the machine-id
+// already plays — and this keeps the subnet derivation to one seed argument.
+// Note that /etc/machine-id is generated per container boot, so two containers
+// usually differ anyway; usually is not a guarantee worth resting a shared
+// routing table on, and the hostname fallback is not distinct at all.
 func networkIPAMSeed() string {
+	return saltIPAMSeed(wireGuardSalt, rawIPAMSeed())
+}
+
+// saltIPAMSeed mixes the instance salt into an IPAM seed. An empty salt returns
+// the seed untouched so an existing box keeps the subnets it already allocated.
+func saltIPAMSeed(salt, seed string) string {
+	if salt == "" {
+		return seed
+	}
+	return salt + "|" + seed
+}
+
+// rawIPAMSeed is the unsalted box identity: machine-id, else hostname, else a
+// constant.
+func rawIPAMSeed() string {
 	if data, err := os.ReadFile(machineIDPath); err == nil {
 		if s := strings.TrimSpace(string(data)); s != "" {
 			return s
@@ -116,7 +171,7 @@ func (s *SystemControllerHandlers) listNetworks(c *echo.Context) error {
 		views = append(views, NetworkView{
 			Network:   n,
 			PeerCount: len(peers),
-			Interface: wireguard.InterfaceName(n.Name),
+			Interface: wireguard.InterfaceName(wireGuardSalt, n.Name),
 			Running:   s.networkUnitRunning(c.Request().Context(), n.Name),
 		})
 	}
@@ -181,7 +236,7 @@ func (s *SystemControllerHandlers) createNetwork(c *echo.Context) error {
 	s.reconcileGfeh(c.Request().Context())
 
 	created.PrivateKey = ""
-	return c.JSON(200, NetworkView{Network: *created, Interface: wireguard.InterfaceName(created.Name)})
+	return c.JSON(200, NetworkView{Network: *created, Interface: wireguard.InterfaceName(wireGuardSalt, created.Name)})
 }
 
 // removeNetwork handles POST /networks/remove.
@@ -337,9 +392,9 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	}
 	allowedIP := fmt.Sprintf("%s/32", peerAddr)
 
-	// Attribute the enrollment and, for WireGuard-only accounts, enforce network
-	// scope and stamp a TTL. A WireGuard account may enroll only on a network in
-	// its scope, and its peers expire on their own unless refreshed, so an
+	// Attribute the enrollment and, for a non-admin, enforce network scope and
+	// stamp a TTL. Such an account may enroll only on a network in its scope,
+	// and its peers expire on their own unless refreshed, so an
 	// abandoned device cannot hold an overlay address forever. Admin enrollments
 	// stay permanent (nil expiry), preserving the pre-TTL behavior.
 	acct := s.callingAccount(c)
@@ -347,9 +402,9 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	var expiresAt *time.Time
 	if acct != nil {
 		createdBy = acct.Username
-		if acct.WireGuard {
-			if !wireGuardScopeAllows(acct, n.Name) {
-				return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthWireGuardNetworkDenied))
+		if !acct.HoldsEveryGrant() {
+			if !acct.MayAdministerNetwork(n.Name) {
+				return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthNetworkOnlyNetworkDenied))
 			}
 			exp := time.Now().Add(s.peerTTL()).UTC()
 			expiresAt = &exp
@@ -416,7 +471,7 @@ func (s *SystemControllerHandlers) removeNetworkPeer(c *echo.Context) error {
 
 // refreshNetworkPeer handles POST /networks/peers/refresh. It slides a peer's
 // TTL forward by peer_ttl — the heartbeat that keeps a long-lived enrollment
-// (the portal) alive. A WireGuard-only caller may refresh only a peer it
+// (the portal) alive. A non-admin caller may refresh only a peer it
 // enrolled on a network in its scope; an admin may refresh any peer. No
 // transport reload is needed: the peer set is unchanged, only its expiry.
 func (s *SystemControllerHandlers) refreshNetworkPeer(c *echo.Context) error {
@@ -433,9 +488,9 @@ func (s *SystemControllerHandlers) refreshNetworkPeer(c *echo.Context) error {
 		return echo.NewHTTPError(503, "network manager not available")
 	}
 
-	if acct := s.callingAccount(c); acct != nil && acct.WireGuard {
-		if !wireGuardScopeAllows(acct, req.Network) {
-			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthWireGuardNetworkDenied))
+	if acct := s.callingAccount(c); acct != nil && !acct.HoldsEveryGrant() {
+		if !acct.MayAdministerNetwork(req.Network) {
+			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthNetworkOnlyNetworkDenied))
 		}
 		owned, err := s.peerOwnedBy(nm, req.Network, req.PublicKey, acct.Username)
 		if err != nil {
@@ -472,13 +527,6 @@ func (s *SystemControllerHandlers) peerOwnedBy(nm account.NetworkManager, networ
 		}
 	}
 	return false, nil
-}
-
-// wireGuardScopeAllows reports whether a WireGuard-only account is scoped to the
-// named network. The scope is stored normalized (deduped, sorted) so a linear
-// scan is fine for the handful of networks an account is realistically scoped to.
-func wireGuardScopeAllows(acct *account.Account, network string) bool {
-	return slices.Contains(acct.Networks, network)
 }
 
 // peerTTL returns the configured peer enrollment lifetime. It reads the peer_ttl

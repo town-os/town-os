@@ -70,14 +70,13 @@ ui-integration-image:
 production-image:
 	@make/build.sh production
 
-$(STATE_DIR)/.integration-port:
-	@make/port.sh $(STATE_DIR)/.integration-port
-
-$(STATE_DIR)/.registry-port:
-	@make/port.sh $(STATE_DIR)/.registry-port
-
-$(STATE_DIR)/.gitea-port:
-	@make/port.sh $(STATE_DIR)/.gitea-port
+# Every per-run ephemeral port file is allocated the same way, so one pattern
+# rule covers them all: .integration-port, .registry-port, .gitea-port, and the
+# system-service ports (.dns-port, .node-exporter-port, .prometheus-port,
+# .monitoring-port, .ingress-https-port, .ingress-http-port) that keep a test
+# box from colliding with a dev box in the shared host netns — IRON RULE.
+$(STATE_DIR)/.%-port:
+	@make/port.sh $@
 
 $(STATE_DIR)/.registry-images:
 	@make/registry.sh discover-images

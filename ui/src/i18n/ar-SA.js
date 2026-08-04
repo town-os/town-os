@@ -150,8 +150,10 @@ const arSA = {
   'users.col_edit': 'تعديل',
   'users.role_admin': 'مسؤول',
   'users.role_user': 'مستخدم',
-  'users.role_wireguard': 'WireGuard',
-  'users.wireguard_label': 'حساب WireGuard فقط',
+  'users.grants_label': 'المنح',
+  'users.grants_help': 'الصلاحيات التي يحملها هذا الحساب على الشبكات أدناه. المسؤولون يحملونها جميعًا.',
+  'users.grant_wireguard': 'أقران WireGuard',
+  'users.grant_gfeh': 'تخزين الكائنات',
   'users.networks_label': 'نطاق الشبكة',
   'users.networks_none': 'لا توجد شبكات متاحة.',
   'users.error_networks_required': 'حدد شبكة واحدة على الأقل لحساب WireGuard فقط',
@@ -193,7 +195,6 @@ const arSA = {
   'create_user.phone_label': 'الهاتف',
   'create_user.email_label': 'البريد الإلكتروني',
   'create_user.admin_label': 'صلاحيات المسؤول',
-  'create_user.wireguard_label': 'حساب WireGuard فقط',
   'create_user.networks_label': 'نطاق الشبكة',
   'create_user.networks_description': 'الشبكات التي قد يسجّل هذا الحساب نظراء WireGuard عليها. لا يمكنه فعل أي شيء آخر.',
   'create_user.networks_none': 'لا توجد شبكات متاحة. أنشئ شبكة أولًا.',
@@ -891,11 +892,6 @@ const arSA = {
   'objects.toast_grant_added': 'Grant added',
   'objects.toast_grant_revoked': 'Grant revoked',
   'objects.toast_link_withdrawn': 'Link withdrawn',
-  'users.smb_credential': 'SMB password',
-  'users.smb_credential_help': 'A separate password, used only for mounting the SMB share. It cannot be derived from the account password, so leaving this blank means the account cannot mount a share. Leave unchanged to keep the current one.',
-  'users.smb_enrolled': 'SMB enabled',
-  'users.smb_not_enrolled': 'No SMB access',
-  'users.smb_clear': 'Remove SMB access',
 }
 
 export default arSA

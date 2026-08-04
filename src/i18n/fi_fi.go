@@ -130,10 +130,11 @@ var fiFIMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:       "poista verkon vertaislaite",
 	MsgAuditRefreshNetworkPeer:      "päivitä verkon vertaislaite",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "tämä tili voi käyttää vain wireguard-rekisteröintipäätepisteitä",
-	MsgAuthWireGuardNetworkDenied: "tällä tilillä ei ole käyttöoikeutta kyseiseen verkkoon",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "tämä tili voi käyttää vain verkkoon liittymisen ja objektitallennuksen päätepisteitä",
+	MsgAuthNetworkOnlyNetworkDenied: "tällä tilillä ei ole käyttöoikeutta kyseiseen verkkoon",
 	MsgAuthWireGuardPeerNotOwned:  "tämä tili voi päivittää vain itse rekisteröimiään vertaislaitteita",
+	MsgAuthObjectStorageRequired:  "vaaditaan järjestelmänvalvojan tai objektitallennuksen käyttöoikeus",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "arkistojen lataus ei voi kohdistua objektitallennuksen osioon",
@@ -145,7 +146,6 @@ var fiFIMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "principal-kenttä vaaditaan",
 	MsgGfehPathRequired:          "polkukenttä vaaditaan",
 	MsgGfehUnknownAccount:        "tiliä ei ole",
-	MsgGfehServiceAccountProtected: "objektitallennuksen palvelutiliä ei voi poistaa käytöstä; jokainen osio tunnistautuu sillä",
 	MsgAuditCreateGfehPartition:  "luo objektitallennuksen osio",
 	MsgAuditModifyGfehPartition:  "muokkaa objektitallennuksen osiota",
 	MsgAuditRemoveGfehPartition:  "poista objektitallennuksen osio",

@@ -28,6 +28,16 @@ type wgTestEnv struct {
 
 func initWireGuardTestEnv(t *testing.T) *wgTestEnv {
 	t.Helper()
+	return initWireGuardTestEnvWith(t, nil)
+}
+
+// initWireGuardTestEnvWith is initWireGuardTestEnv with a hook that may adjust
+// the ServerConfig before the server starts — the only way to give the env
+// something the plain constructor leaves nil (a gfeh registry, say) while still
+// driving the real router, so the middleware chain under test is the shipped
+// one rather than a handler called directly.
+func initWireGuardTestEnvWith(t *testing.T, tweak func(*ServerConfig)) *wgTestEnv {
+	t.Helper()
 	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
@@ -59,14 +69,18 @@ func initWireGuardTestEnv(t *testing.T) *wgTestEnv {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
 
-	ts := InitTestServer(ServerConfig{
+	cfg := ServerConfig{
 		Storage:     storage.InitBtrFSMock(),
 		AccountMgr:  mgr,
 		SessionMgr:  sessMgr,
 		AuditMgr:    auditMgr,
 		SettingsMgr: settingsMgr,
 		NetworkMgr:  nm,
-	})
+	}
+	if tweak != nil {
+		tweak(&cfg)
+	}
+	ts := InitTestServer(cfg)
 	t.Cleanup(ts.Close)
 
 	c, err := ts.Client()
@@ -140,36 +154,36 @@ func (e *wgTestEnv) authToken(t *testing.T, username, password string) string {
 
 // --- Account creation over HTTP ---
 
-func TestHTTPCreateWireGuardAccount(t *testing.T) {
+func TestHTTPCreateGrantedAccount(t *testing.T) {
 	e := initWireGuardTestEnv(t)
 
-	acct, err := e.client.CreateWireGuardAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", []string{"office"})
+	acct, err := e.client.CreateGrantedAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", account.AllGrants, []string{"office"})
 	if err != nil {
-		t.Fatalf("CreateWireGuardAccount: %v", err)
+		t.Fatalf("CreateGrantedAccount: %v", err)
 	}
-	if !acct.WireGuard || acct.Admin {
-		t.Errorf("account WireGuard=%v Admin=%v, want true/false", acct.WireGuard, acct.Admin)
+	if !acct.HasGrant(account.GrantWireGuard) || !acct.HasGrant(account.GrantGfeh) || acct.Admin {
+		t.Errorf("account grants=%v Admin=%v, want both grants and a non-admin", acct.Grants, acct.Admin)
 	}
 	if len(acct.Networks) != 1 || acct.Networks[0] != "office" {
 		t.Errorf("Networks = %v, want [office]", acct.Networks)
 	}
 }
 
-func TestHTTPCreateWireGuardAccountEmptyScopeRejected(t *testing.T) {
+func TestHTTPCreateGrantedAccountEmptyScopeRejected(t *testing.T) {
 	e := initWireGuardTestEnv(t)
 
-	_, err := e.client.CreateWireGuardAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", nil)
+	_, err := e.client.CreateGrantedAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", account.AllGrants, nil)
 	if err == nil {
-		t.Fatal("expected error creating WireGuard account with empty scope")
+		t.Fatal("expected error creating a network-only account with empty scope")
 	}
 }
 
 // --- Fail-closed allowlist ---
 
-func TestWireGuardAllowlistConfinesAccount(t *testing.T) {
+func TestGrantAllowlistConfinesAccount(t *testing.T) {
 	e := initWireGuardTestEnv(t)
-	if _, err := e.client.CreateWireGuardAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", []string{"office"}); err != nil {
-		t.Fatalf("CreateWireGuardAccount: %v", err)
+	if _, err := e.client.CreateGrantedAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", account.AllGrants, []string{"office"}); err != nil {
+		t.Fatalf("CreateGrantedAccount: %v", err)
 	}
 	token := e.authToken(t, "portal", "portalpass1")
 
@@ -179,6 +193,21 @@ func TestWireGuardAllowlistConfinesAccount(t *testing.T) {
 	}
 	if code, _ := e.do(t, http.MethodGet, "account/me", token, ""); code != http.StatusOK {
 		t.Errorf("GET /account/me = %d, want 200", code)
+	}
+
+	// The object-storage routes are on the allowlist now, because administering
+	// the storage a network owns is the other half of what "network-only"
+	// means. 503 is the authorized answer here (no gfeh registry), so anything
+	// other than 403 means the gate let it through.
+	if code, body := e.do(t, http.MethodGet, "gfeh", token, ""); code == http.StatusForbidden {
+		t.Errorf("GET /gfeh = 403 (%s), want it admitted", body)
+	}
+	if code, body := e.do(t, http.MethodPost, "gfeh/principals/add", token, `{"network":"office","principal":"portal"}`); code == http.StatusForbidden {
+		t.Errorf("POST /gfeh/principals/add on its own network = 403 (%s), want it admitted", body)
+	}
+	// ... but provisioning a partition is not, and stays admin-only.
+	if code, _ := e.do(t, http.MethodPost, "gfeh/partitions/create", token, `{"name":"office","quota":0}`); code != http.StatusForbidden {
+		t.Errorf("POST /gfeh/partitions/create = %d, want 403", code)
 	}
 
 	// A non-allowlisted endpoint is denied even though it is a plain requireAuth
@@ -196,7 +225,7 @@ func TestWireGuardAllowlistConfinesAccount(t *testing.T) {
 	}
 }
 
-func TestWireGuardAllowlistLeavesNormalAccountsAlone(t *testing.T) {
+func TestGrantAllowlistLeavesNormalAccountsAlone(t *testing.T) {
 	e := initWireGuardTestEnv(t)
 	if _, err := e.client.CreateAccount(context.Background(), "alice", "alicepass1", "a@test.com", "555-2", "Alice", false); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
@@ -204,7 +233,7 @@ func TestWireGuardAllowlistLeavesNormalAccountsAlone(t *testing.T) {
 	token := e.authToken(t, "alice", "alicepass1")
 
 	// A normal account still reaches its requireAuth endpoints; the allowlist
-	// only constrains WireGuard accounts.
+	// only constrains network-only accounts.
 	if code, _ := e.do(t, http.MethodGet, "account", token, ""); code != http.StatusOK {
 		t.Errorf("GET /account for normal user = %d, want 200", code)
 	}
@@ -214,8 +243,8 @@ func TestWireGuardAllowlistLeavesNormalAccountsAlone(t *testing.T) {
 
 func TestWireGuardPeerEnrollWithinScope(t *testing.T) {
 	e := initWireGuardTestEnv(t)
-	if _, err := e.client.CreateWireGuardAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", []string{"office"}); err != nil {
-		t.Fatalf("CreateWireGuardAccount: %v", err)
+	if _, err := e.client.CreateGrantedAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", account.AllGrants, []string{"office"}); err != nil {
+		t.Fatalf("CreateGrantedAccount: %v", err)
 	}
 	token := e.authToken(t, "portal", "portalpass1")
 
@@ -244,8 +273,8 @@ func TestWireGuardPeerEnrollWithinScope(t *testing.T) {
 
 func TestWireGuardPeerEnrollOutOfScopeDenied(t *testing.T) {
 	e := initWireGuardTestEnv(t)
-	if _, err := e.client.CreateWireGuardAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", []string{"office"}); err != nil {
-		t.Fatalf("CreateWireGuardAccount: %v", err)
+	if _, err := e.client.CreateGrantedAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", account.AllGrants, []string{"office"}); err != nil {
+		t.Fatalf("CreateGrantedAccount: %v", err)
 	}
 	token := e.authToken(t, "portal", "portalpass1")
 
@@ -290,8 +319,8 @@ func TestPeerEnrollRejectsPlainAccount(t *testing.T) {
 
 func TestWireGuardPeerRefreshOwnership(t *testing.T) {
 	e := initWireGuardTestEnv(t)
-	if _, err := e.client.CreateWireGuardAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", []string{"office"}); err != nil {
-		t.Fatalf("CreateWireGuardAccount: %v", err)
+	if _, err := e.client.CreateGrantedAccount(context.Background(), "portal", "portalpass1", "p@test.com", "555-1", "Portal", account.AllGrants, []string{"office"}); err != nil {
+		t.Fatalf("CreateGrantedAccount: %v", err)
 	}
 	token := e.authToken(t, "portal", "portalpass1")
 

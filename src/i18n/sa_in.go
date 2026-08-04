@@ -130,10 +130,11 @@ var saINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:        "जाल-सहचर-निष्कासनम्",
 	MsgAuditRefreshNetworkPeer:       "जाल-सहचर-पुनःसंस्करणम्",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "इदं खातम् केवलं wireguard-नामाङ्कन-अन्तर्मुखानि उपयोक्तुं शक्नोति",
-	MsgAuthWireGuardNetworkDenied: "इदं खातं तस्मिन् जाले न अनुमतम्",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "इदं खातम् केवलं जाल-नामाङ्कनस्य वस्तु-कोशस्य च अन्तर्मुखानि उपयोक्तुं शक्नोति",
+	MsgAuthNetworkOnlyNetworkDenied: "इदं खातं तस्मिन् जाले न अनुमतम्",
 	MsgAuthWireGuardPeerNotOwned:  "इदं खातं केवलं स्वेन नामाङ्कितान् सहचरान् पुनःसंस्कर्तुं शक्नोति",
+	MsgAuthObjectStorageRequired:  "प्रबन्धकस्य वस्तुसंग्रहस्य वा प्रवेशः आवश्यकः",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "सञ्चयिका-आरोपणम् अवतरणं च वस्तुसंग्रहविभागं न स्पृशति",
@@ -145,7 +146,6 @@ var saINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "प्रधानक्षेत्रम् आवश्यकम्",
 	MsgGfehPathRequired:          "मार्गक्षेत्रम् आवश्यकम्",
 	MsgGfehUnknownAccount:        "तादृशं खातं नास्ति",
-	MsgGfehServiceAccountProtected: "वस्तुसंग्रहसेवाखातं निष्क्रियं कर्तुं न शक्यते; प्रत्येकं विभागः तेनैव प्रमाणीक्रियते",
 	MsgAuditCreateGfehPartition:  "वस्तुसंग्रहविभागस्य निर्माणम्",
 	MsgAuditModifyGfehPartition:  "वस्तुसंग्रहविभागस्य परिवर्तनम्",
 	MsgAuditRemoveGfehPartition:  "वस्तुसंग्रहविभागस्य अपनयनम्",

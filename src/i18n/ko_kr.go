@@ -130,10 +130,11 @@ var koKRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgAuditRemoveNetworkPeer:        "네트워크 피어 삭제",
 	MsgAuditRefreshNetworkPeer:       "네트워크 피어 새로고침",
 
-	// WireGuard-only account restrictions.
-	MsgAuthWireGuardRestricted:    "이 계정은 WireGuard 등록 엔드포인트만 사용할 수 있습니다",
-	MsgAuthWireGuardNetworkDenied: "이 계정은 해당 네트워크에서 허용되지 않습니다",
+	// Network-only account restrictions.
+	MsgAuthNetworkOnlyRestricted:    "이 계정은 네트워크 등록 및 오브젝트 스토리지 엔드포인트만 사용할 수 있습니다",
+	MsgAuthNetworkOnlyNetworkDenied: "이 계정은 해당 네트워크에서 허용되지 않습니다",
 	MsgAuthWireGuardPeerNotOwned:  "이 계정은 자신이 등록한 피어만 새로고침할 수 있습니다",
+	MsgAuthObjectStorageRequired:  "관리자 또는 오브젝트 스토리지 권한이 필요합니다",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "아카이브 업로드와 다운로드는 오브젝트 스토리지 파티션을 대상으로 할 수 없습니다",
@@ -145,7 +146,6 @@ var koKRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	MsgGfehPrincipalRequired:     "주체 필드는 필수입니다",
 	MsgGfehPathRequired:          "경로 필드는 필수입니다",
 	MsgGfehUnknownAccount:        "해당 계정이 없습니다",
-	MsgGfehServiceAccountProtected: "오브젝트 스토리지 서비스 계정은 비활성화할 수 없습니다. 모든 파티션이 이 계정으로 인증합니다",
 	MsgAuditCreateGfehPartition:  "오브젝트 스토리지 파티션 생성",
 	MsgAuditModifyGfehPartition:  "오브젝트 스토리지 파티션 수정",
 	MsgAuditRemoveGfehPartition:  "오브젝트 스토리지 파티션 제거",
