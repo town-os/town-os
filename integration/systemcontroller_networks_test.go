@@ -38,8 +38,15 @@ func initNetworkDB(t *testing.T) *account.SQLiteNetworkManager {
 // TestReconcileNetworksSeedsHomeAndAppliesTransport drives the boot-time
 // ReconcileNetworks entry point end-to-end across the sqlite network manager,
 // the wireguard config renderer, and the systemd unit generator. It confirms
-// the default network is created, config files are written for every network,
-// and each network's unit is installed.
+// the home network is present with its TLD reconciled against dns_tld, that a
+// config file and unit are written for a non-default network, and that home
+// gets neither.
+//
+// Home is NOT created here: account.InitNetworkManager seeds it alongside the
+// tables, so it exists from the moment there is a database. All
+// ensureDefaultNetwork does at boot is reconcile its TLD against the dns_tld
+// setting (the account package has no settings manager, so the seeded row
+// carries the bare default).
 func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -72,17 +79,24 @@ func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 		SettingsMgr:      settings,
 	})
 
-	// The default "home" network must have been created with a derived subnet,
-	// address, keypair, and TLD from the dns_tld setting.
+	// The "home" network is present and its TLD matches the dns_tld setting.
 	home, err := nm.Get("home")
 	if err != nil {
-		t.Fatalf("home network not created: %v", err)
+		t.Fatalf("home network not present: %v", err)
 	}
-	if home.TLD != "home" || home.Subnet == "" || home.Address == "" || home.PrivateKey == "" || home.PublicKey == "" {
-		t.Fatalf("home network not fully derived: %+v", home)
+	if home.TLD != "home" {
+		t.Errorf("home TLD = %q, want %q", home.TLD, "home")
 	}
 	if !home.Enabled {
 		t.Error("home network should be enabled by default")
+	}
+	// Home is DNS-only, so it carries NO transport fields at all: no overlay
+	// subnet, no address, no keypair, no listen port. That is the truth rather
+	// than a placeholder — a derived subnet and keys would be fields nothing
+	// ever reads, and asserting they are populated would contradict the
+	// no-config-file/no-unit assertions below.
+	if home.Subnet != "" || home.Address != "" || home.PrivateKey != "" || home.PublicKey != "" || home.ListenPort != 0 {
+		t.Errorf("home network must carry no transport fields, got %+v", home)
 	}
 
 	// A wg-quick config file and systemd unit are written for NON-DEFAULT networks
@@ -160,28 +174,25 @@ func TestNetworkTransportTogglesUnitStatus(t *testing.T) {
 // by systemd, and then removed on teardown — the real-systemd path the mock
 // manager cannot cover.
 //
-// Both networks are seeded *disabled* on purpose: reconcile then issues a
-// systemctl stop (a no-op on a never-started oneshot, so no wg-quick runs and no
-// WireGuard interface is ever created) rather than bringing an interface up,
-// which would require the wireguard kernel module + NET_ADMIN that the test
-// container does not guarantee and which UninstallUnit would not tear back down.
-// The enabled → start / disabled → stop action selection is covered separately
-// by TestNetworkTransportTogglesUnitStatus against the mock manager.
+// "lab" is seeded *disabled* on purpose: reconcile then issues a systemctl stop
+// (a no-op on a never-started oneshot, so no wg-quick runs and no WireGuard
+// interface is ever created) rather than bringing an interface up, which would
+// require the wireguard kernel module + NET_ADMIN that the test container does
+// not guarantee and which UninstallUnit would not tear back down. The
+// enabled → start / disabled → stop action selection is covered separately by
+// TestNetworkTransportTogglesUnitStatus against the mock manager.
+//
+// Home needs no such precaution and is deliberately not seeded here:
+// account.InitNetworkManager already created it (a second Create would fail
+// with ErrDuplicateNetwork), and applyNetworkTransport tears its transport down
+// unconditionally regardless of the Enabled flag, so it can never auto-start an
+// interface.
 func TestNetworkReconcileRealSystemd(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	nm := initNetworkDB(t)
 
-	// Pre-seed "home" disabled so ensureDefaultNetwork sees it already exists and
-	// does not create an enabled (auto-starting) default.
-	if _, err := nm.Create(&account.Network{
-		Name: account.DefaultNetworkName, TLD: "home",
-		Subnet: "10.91.1.0/24", Address: "10.91.1.1/24",
-		PublicKey: "HOMEPUB", PrivateKey: "HOMEPRIV", ListenPort: 51930, Enabled: false,
-	}); err != nil {
-		t.Fatalf("seed home: %v", err)
-	}
 	if _, err := nm.Create(&account.Network{
 		Name: "lab", TLD: "lab",
 		Subnet: "10.91.3.0/24", Address: "10.91.3.1/24",
