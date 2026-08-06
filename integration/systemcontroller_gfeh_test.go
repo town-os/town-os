@@ -63,7 +63,7 @@ func startFakeGfehd(t *testing.T, socket string, list gfeh.NameList) *fakeGfehd 
 	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(gfeh.Health{
-			Status: "ok", Partition: list.Partition, TownOS: true,
+			Status: "ok", Partition: list.Partition,
 		}); err != nil {
 			t.Errorf("encode health: %v", err)
 		}

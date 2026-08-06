@@ -58,13 +58,16 @@ type Config struct {
 	// it: a view with no bind address contributes no name and serves nothing.
 	SMBPort int
 
-	// TownOS is how gfehd reaches the system controller: the account it
-	// authenticates as, and the quota its partition should carry. Nil renders
-	// no town_os section, which leaves the daemon unable to provision or to
-	// authenticate anybody -- a legitimate standalone deployment, but not the
-	// one Town OS runs.
-	TownOS *gfeh.TownOSConfig
-
+	// No TownOS field, and so no way to render a town_os section.
+	//
+	// That section names an account gfehd would authenticate to the control
+	// plane as, and Town OS has none to give it: the partition's subvolume and
+	// quota are provisioned from this side before the daemon starts, and its
+	// principals are created over the admin socket, so the credential bought
+	// nothing and cost an administrator account nobody created sitting in every
+	// box's user list. Rendering it is not merely unused here -- there is no
+	// longer any way to ask for it.
+	//
 	// Key overrides the derived service key. Tests set a unique value so a
 	// test daemon can never collide with a production one — IRON RULE.
 	Key string
@@ -188,13 +191,9 @@ func (m *Manager) RenderConfig(smbUsers []gfeh.SmbUserConfig) ([]byte, error) {
 		cfg.Network = &network
 	}
 
-	// How the daemon reaches the control plane. Unrelated to the credentials
-	// below it in the same file: this authenticates gfehd, those authenticate
-	// end users to gfehd's views.
-	if m.cfg.TownOS != nil {
-		townOS := *m.cfg.TownOS
-		cfg.TownOS = &townOS
-	}
+	// Nothing renders a town_os section. The credentials below are unrelated to
+	// it: those authenticate end users to gfehd's views, whereas town_os named
+	// a Town OS account for the daemon itself, which no longer exists.
 
 	// SMB is the one view that needs a real host port, because it is not HTTP
 	// and cannot sit behind the ingress. Off unless a port was assigned.

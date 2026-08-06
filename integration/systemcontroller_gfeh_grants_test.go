@@ -39,6 +39,19 @@ import (
 // partition, without touching each other. IRON RULE.
 func startRealPartition(t *testing.T) gfeh.Client {
 	t.Helper()
+	client, _ := startRealPartitionReconcilable(t)
+	return client
+}
+
+// startRealPartitionReconcilable is startRealPartition plus a handle on the
+// production reconcile that built the partition, so a caller can run it again
+// against the same live daemon.
+//
+// Separate from re-calling startRealPartition, which would build a second
+// partition on a second network and prove nothing about what a repeated pass
+// does to an existing one.
+func startRealPartitionReconcilable(t *testing.T) (gfeh.Client, func(context.Context)) {
+	t.Helper()
 
 	image := os.Getenv("GFEH_IMAGE")
 	if image == "" {
@@ -99,7 +112,7 @@ func startRealPartition(t *testing.T) gfeh.Client {
 		}
 		time.Sleep(time.Second)
 	}
-	return client
+	return client, func(again context.Context) { systemcontroller.ReconcileGfehRegistry(again, reg) }
 }
 
 // An administrator projects the superuser ceiling, and a grant carrying the

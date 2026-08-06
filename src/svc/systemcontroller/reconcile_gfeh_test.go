@@ -5,8 +5,14 @@ package systemcontroller
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -365,115 +371,79 @@ func TestReconcileGfehNeverServesSMB(t *testing.T) {
 	}
 }
 
-// --- The first account is seated in the home partition ---
+// --- Nothing seats anybody: object storage creates no account ---
 
-// firstUserEnv builds an account manager plus a stand-in partition client.
-func firstUserEnv(t *testing.T) (*account.MockManager, *gfeh.MockClient) {
-	t.Helper()
-	return account.InitMockManager(), &gfeh.MockClient{}
-}
+// The reconcile used to create a principal named for the box's earliest account
+// every time it ran -- an object-storage user nobody asked for, in the home
+// partition, appearing in the Users tab as if somebody had added it. It is
+// gone, along with the account manager the reconcile needed in order to look
+// that account up.
+//
+// These two tests are shaped to fail if it comes back by any route, rather than
+// asserting the absence of one deleted function: one pins the only place in the
+// package allowed to create a principal, the other pins the reconcile's inputs
+// so it cannot reach the account table at all.
 
-// The operator who set the box up finds their own account already in the home
-// partition. An empty forest means opening the Users tab, seeing nothing, and
-// having to work out that your own account is not in it.
-func TestFirstAccountIsSeatedInTheHomePartition(t *testing.T) {
-	mgr, client := firstUserEnv(t)
-	if _, err := mgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
-
-	principals, err := client.ListPrincipals(t.Context())
+// The only code that creates a principal is the handler an administrator calls.
+//
+// A source-level assertion because the guarantee is a negative one about the
+// whole package: a reconcile, a boot path, or a poller that started creating
+// principals would satisfy every behavioural test in this file while
+// reintroducing exactly what was removed. Re-seating logic added anywhere but
+// the handler fails here.
+func TestOnlyTheAdminHandlerCreatesPrincipals(t *testing.T) {
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("ListPrincipals: %v", err)
+		t.Fatalf("read package dir: %v", err)
 	}
-	if len(principals) != 1 || principals[0].Name != "root" {
-		t.Fatalf("principals = %+v, want just root", principals)
-	}
-	// An administrator projects the superuser ceiling, so the founder can
-	// actually run the partition they were seated in.
-	if got := principals[0].Ceiling; len(got) == 0 || got[0] != gfeh.PermAll {
-		t.Errorf("ceiling = %v, want the superuser ceiling", got)
-	}
-}
 
-// The FIRST account, not whichever one the account list happened to yield.
-func TestOnlyTheFirstAccountIsSeated(t *testing.T) {
-	mgr, client := firstUserEnv(t)
-	for _, name := range []string{"root", "alice", "bob"} {
-		if _, err := mgr.Create(name, "hunter2hunter2", name+"@example.com", "5551234", name, name == "root"); err != nil {
-			t.Fatalf("Create %s: %v", name, err)
+	fset := token.NewFileSet()
+	var callers []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok || sel.Sel == nil || sel.Sel.Name != "CreatePrincipal" {
+				return true
+			}
+			callers = append(callers, filepath.Base(name))
+			return true
+		})
 	}
+	sort.Strings(callers)
 
-	ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
-
-	principals, err := client.ListPrincipals(t.Context())
-	if err != nil {
-		t.Fatalf("ListPrincipals: %v", err)
-	}
-	if len(principals) != 1 {
-		t.Fatalf("seated %d accounts, want only the first: %+v", len(principals), principals)
-	}
-	if principals[0].Name != "root" {
-		t.Errorf("seated %q, want the earliest-created account", principals[0].Name)
+	want := []string{"controller_gfeh.go"}
+	if !slices.Equal(callers, want) {
+		t.Errorf("CreatePrincipal is called from %v, want only %v.\n"+
+			"Object storage must create no user on its own: a partition's forest "+
+			"is populated by an administrator over /gfeh/principals/add and by "+
+			"nothing else.", callers, want)
 	}
 }
 
-// Home only. A network added later belongs to whoever is granted it, and
-// seating the founder there would hand them a namespace somebody else created.
-func TestOtherPartitionsDoNotSeatTheFirstAccount(t *testing.T) {
-	mgr, client := firstUserEnv(t)
-	if _, err := mgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+// The reconcile cannot read the box's accounts, because it is not given them.
+//
+// Deleting the seating call while leaving the account manager wired in would
+// leave the next person one line away from restoring it, and the compiler with
+// nothing to say about it. Removing the field is what makes re-adding it a
+// deliberate act.
+func TestReconcileGfehConfigCarriesNoAccountManager(t *testing.T) {
+	cfg := reflect.TypeFor[ReconcileGfehConfig]()
+	accountMgr := reflect.TypeFor[account.Manager]()
 
-	ensureFirstUserPrincipal(t.Context(), mgr, client, "office")
-
-	principals, err := client.ListPrincipals(t.Context())
-	if err != nil {
-		t.Fatalf("ListPrincipals: %v", err)
-	}
-	if len(principals) != 0 {
-		t.Errorf("a non-home partition seated somebody: %+v", principals)
-	}
-}
-
-// Runs on every reconcile, so seating has to be idempotent: gfehd answers 409
-// for a principal that already exists, and that is success here.
-func TestSeatingTheFirstAccountIsIdempotent(t *testing.T) {
-	mgr, client := firstUserEnv(t)
-	if _, err := mgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	for range 3 {
-		ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
-	}
-
-	principals, err := client.ListPrincipals(t.Context())
-	if err != nil {
-		t.Fatalf("ListPrincipals: %v", err)
-	}
-	if len(principals) != 1 {
-		t.Errorf("repeated reconciles accumulated principals: %+v", principals)
-	}
-}
-
-// A box nobody has set up yet has no first account. Seating must be a no-op
-// rather than an error, so the next reconcile picks it up once somebody
-// registers.
-func TestNoAccountsSeatsNobody(t *testing.T) {
-	mgr, client := firstUserEnv(t)
-
-	ensureFirstUserPrincipal(t.Context(), mgr, client, account.DefaultNetworkName)
-
-	principals, err := client.ListPrincipals(t.Context())
-	if err != nil {
-		t.Fatalf("ListPrincipals: %v", err)
-	}
-	if len(principals) != 0 {
-		t.Errorf("an empty box seated somebody: %+v", principals)
+	for i := range cfg.NumField() {
+		f := cfg.Field(i)
+		if f.Type == accountMgr {
+			t.Errorf("ReconcileGfehConfig.%s is an account.Manager: the gfeh "+
+				"reconcile has no business reading the box's accounts, because "+
+				"it creates no object-storage user for any of them", f.Name)
+		}
 	}
 }
