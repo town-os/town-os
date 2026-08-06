@@ -279,3 +279,72 @@ func getGfehPartitions(t *testing.T, baseURL string) []systemcontroller.GfehPart
 	}
 	return partitions
 }
+
+// TestIntegrationGfehPartitionsAreListedAsSystemServices is the backend fact
+// the services screen is built on.
+//
+// The screen shows object storage as rows in the System Services table and
+// nowhere else — there is no separate section for it, because a partition IS a
+// system service: one town-os-system--gfeh-<network> unit each. That row is the
+// whole of what the screen says about a partition, so if one dropped out of
+// /system-services it would not degrade to a second-best view, it would vanish.
+// It would also stop being re-pulled and restarted by "refresh system
+// services", leaving its image pinned to whatever it first started with.
+//
+// The display name is asserted too, since it is what identifies which network's
+// partition a row belongs to.
+func TestIntegrationGfehPartitionsAreListedAsSystemServices(t *testing.T) {
+	t.Parallel()
+
+	sd, st, nm, base := gfehBootReconcile(t, "home", "office")
+
+	reg := systemcontroller.NewGfehRegistry(systemcontroller.ReconcileGfehConfig{
+		NetworkMgr:    nm,
+		Storage:       st,
+		Systemd:       sd,
+		BtrfsBasePath: base,
+		Image:         "localhost/town-os-gfeh:test",
+		KeyPrefix:     "test-",
+		NetworkName:   "town-os-ingress-test",
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	systemcontroller.ReconcileGfeh(ctx, reg)
+
+	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
+		Storage:      st,
+		Systemd:      sd,
+		NetworkMgr:   nm,
+		GfehRegistry: reg,
+	})
+	t.Cleanup(ts.Close)
+
+	c, err := ts.Client()
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+
+	entries, err := c.ListSystemServices(ctx)
+	if err != nil {
+		t.Fatalf("ListSystemServices: %v", err)
+	}
+
+	byKey := map[string]string{}
+	for _, e := range entries {
+		byKey[e.Key] = e.DisplayName
+	}
+	for _, network := range []string{"home", "office"} {
+		wantKey := "test-" + gfeh.ServiceKey(network)
+		name, ok := byKey[wantKey]
+		if !ok {
+			t.Errorf("no system service for the %s partition (key %q); got %v", network, wantKey, byKey)
+			continue
+		}
+		if wantName := "Object Storage (" + network + ")"; name != wantName {
+			t.Errorf("partition %s display name = %q, want %q: the row is all the "+
+				"services screen says about a partition, so it has to name its network",
+				network, name, wantName)
+		}
+	}
+}

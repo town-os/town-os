@@ -162,6 +162,9 @@ dev-stop:
 dev-stop-all:
 	@make/dev.sh stop-all
 
+dev-restore-dns:
+	@make/dev.sh restore-dns
+
 auto-test:
 	@make/test.sh auto
 

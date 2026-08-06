@@ -187,48 +187,66 @@ describe('SystemManagement', () => {
 
   // --- Object storage ---
 
-  // Object storage also appears here, collapsed: the partitions are system
-  // services and the question people arrive with is whether theirs is up. The
-  // full screen at /dashboard/objects is unaffected and has its own tests.
-  it('offers an object storage section', async () => {
+  // A partition IS a system service -- one town-os-system--gfeh-<network> unit
+  // each -- so it is a row in the system services table, with the same status
+  // badge and the same actions as every other one. There is no separate
+  // object-storage section on this screen: it repeated that row and then
+  // polled independently of it, so one unit had two controls at two levels
+  // that could disagree. Managing partitions is /dashboard/objects, which has
+  // its own tests.
+  it('lists a partition as a system service row, not a section of its own', async () => {
+    mockListSystemServices.mockResolvedValueOnce([
+      {
+        key: 'gfeh-home',
+        display_name: 'Object Storage (home)',
+        Name: 'town-os-system--gfeh-home.service',
+        ActiveState: 'active',
+        SubState: 'running',
+      },
+    ])
     renderSystemManagement()
     await waitFor(() => {
-      expect(screen.getByText('Object Storage')).toBeTruthy()
+      expect(screen.getByText('System Services')).toBeTruthy()
     })
+    fireEvent.click(screen.getByText('System Services'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Object Storage (home)')).toBeTruthy()
+    })
+    // The row, and nothing else claiming to be object storage.
+    expect(screen.queryByText('Object Storage')).toBeNull()
   })
 
-  // Collapsed means collapsed: the panel polls the partition list, and doing
-  // that on every visit to the services screen would be a request nobody asked
-  // for.
-  it('does not load partitions until the section is opened', async () => {
+  // The panel is gone, so nothing on this screen polls the partition list --
+  // opened or closed. That request belongs to /dashboard/objects.
+  it('never fetches partitions from the services screen', async () => {
     renderSystemManagement()
     await waitFor(() => {
-      expect(screen.getByText('Object Storage')).toBeTruthy()
+      expect(screen.getByText('System Services')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('System Services'))
+    await waitFor(() => {
+      expect(screen.getByText('Prometheus')).toBeTruthy()
     })
     expect(mockListGfehPartitions).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByText('Object Storage'))
-    await waitFor(() => {
-      expect(mockListGfehPartitions).toHaveBeenCalled()
-    })
   })
 
-  // ?expand=objects opens it directly.
-  it('opens the section from the query string', async () => {
+  // ?expand=objects still lands somewhere useful: the partition's row is in
+  // the system services table, so the link opens that section.
+  it('opens system services from the objects query string', async () => {
+    mockListSystemServices.mockResolvedValueOnce([
+      {
+        key: 'gfeh-home',
+        display_name: 'Object Storage (home)',
+        Name: 'town-os-system--gfeh-home.service',
+        ActiveState: 'active',
+      },
+    ])
     renderSystemManagement(['/dashboard/system?expand=objects'])
     await waitFor(() => {
-      expect(mockListGfehPartitions).toHaveBeenCalled()
+      expect(screen.getByText('Object Storage (home)')).toBeTruthy()
     })
-  })
-
-  // The section's sub-tab rides its own query key. This screen already spends
-  // ?tab= on its own state, so sharing it would make opening a partition's
-  // grants also move the services screen underneath it.
-  it('drives the section sub-tab from objects_tab, not tab', async () => {
-    renderSystemManagement(['/dashboard/system?expand=objects&objects_tab=users&network=home'])
-    await waitFor(() => {
-      expect(mockListGfehPrincipals).toHaveBeenCalledWith('home')
-    })
+    expect(mockListGfehPartitions).not.toHaveBeenCalled()
   })
 
   it('renders the Services heading', async () => {
