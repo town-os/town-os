@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/gfeh"
@@ -276,6 +277,13 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 	return nil
 }
 
+// gfehHealthProbeTimeout bounds one partition's health probe.
+//
+// It is a round trip on a Unix socket that is either accepting or not, so this
+// is a ceiling on a pathological case rather than a budget anything legitimate
+// spends.
+const gfehHealthProbeTimeout = 2 * time.Second
+
 // GfehReadyNetworks is the sorted set of partitions whose daemon answers right
 // now.
 //
@@ -284,6 +292,16 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 // for yet, and one that has stopped has names still being served for it. Both
 // need a rebuild; a pass where nothing changed needs none, which is what keeps
 // the tick from reloading the ingress every few minutes forever.
+//
+// Each probe gets its own budget instead of drawing on whatever the caller has
+// left, because the caller has almost always just run the reconcile — and a
+// partition that never answers spends up to WaitForReady's full timeout in
+// there. On a context with a deadline that is the whole of it, so the very
+// partitions this function exists to tell apart become indistinguishable: every
+// client's Health fails on the exhausted deadline, a box whose daemons are fine
+// reports that none of them are answering, and the poller republishes as though
+// object storage had gone away. Cancellation is still honoured — that is a
+// shutdown, and there is nothing to report then.
 func GfehReadyNetworks(ctx context.Context, reg GfehRegistry) []string {
 	if reg == nil {
 		return nil
@@ -293,7 +311,14 @@ func GfehReadyNetworks(ctx context.Context, reg GfehRegistry) []string {
 		if client == nil {
 			continue
 		}
-		if _, err := client.Health(ctx); err == nil {
+		// Cancellation still stops the sweep; an exhausted deadline does not.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil
+		}
+		probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gfehHealthProbeTimeout)
+		_, err := client.Health(probeCtx)
+		cancel()
+		if err == nil {
 			ready = append(ready, network)
 		}
 	}

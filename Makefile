@@ -219,7 +219,7 @@ include make/include.mk
 ifeq ($(PROTON_ENABLED),1)
 .PHONY: release-proton-image push-proton-rc push-proton-release
 endif
-.PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-bun-cache clean-containers clean-all
+.PHONY: btrfs clean-btrfs clean-integration clean clean-build-cache clean-cache clean-image-cache clean-bun-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
 test-ui-unit: check-bun
@@ -263,9 +263,13 @@ dev: check-podman check-runc check-bun check-btrfs pull-images-daily dev-image n
 preflight-dev: ensure-image-cache $(STATE_DIR)/.integration-port
 clean-dev: dev-stop-all clean-cache
 clean-integration: registry-stop gitea-stop
-clean: clean-cache
+# `clean` deliberately has no prerequisites: its recipe drives every other
+# cleanup target through ${MAKE}, in an order make cannot be asked to guarantee
+# (prerequisites of one target are unordered under -j, and .cache must go last
+# because it holds the btrfs loopback backing images). See make/clean.sh.
 clean-cache: dev-stop clean-btrfs-dev
-clean-all: clean-containers clean clean-dev clean-integration clean-btrfs
+# Kept as the name people and scripts already type; `clean` is now the aggregate.
+clean-all: clean
 release-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-nc-image: check-podman check-runc $(STATE_DIR)/.images-pulled

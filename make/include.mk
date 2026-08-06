@@ -262,8 +262,15 @@ clean-btrfs:
 clean-integration:
 	@make/clean.sh integration
 
+# The one target that leaves nothing behind: containers, both btrfs loopbacks,
+# the dev data, the shared image and bun caches, and .cache — which it verifies
+# is actually gone rather than assuming. See make/clean.sh for why the order
+# matters. clean-build-cache is the narrower behaviour this target used to have.
 clean:
-	@make/clean.sh main
+	@make/clean.sh all
+
+clean-build-cache:
+	@make/clean.sh build-cache
 
 clean-cache:
 	@make/clean.sh cache

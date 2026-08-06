@@ -13,7 +13,21 @@ fi
 case "$1" in
   unit)
     step "Running Go unit tests"
-    go test "${GO_TAGS_ARG[@]}" -v -timeout 60m ./src/...
+    # -count=1 defeats Go's test cache, and it is not belt-and-braces here.
+    #
+    # ./src/... is not a pure unit suite: the TestIntegration* tests live in
+    # these same packages, and they touch state Go's cache cannot see —
+    # containers, btrfs subvolumes, systemd units, host ports. The cache keys on
+    # the test binary and the files a test read, so a run that touched none of
+    # those is replayed as a PASS even though the box it asserts about has
+    # changed underneath it. A cached PASS is then not evidence the test passes
+    # now, which is the one thing a test run is for.
+    #
+    # The build cache is untouched, so this costs re-execution, not
+    # re-compilation. ./integration/... needs nothing equivalent: it is compiled
+    # to a binary with `go test -c` and executed directly, and the test cache
+    # only ever applies to `go test` runs.
+    go test "${GO_TAGS_ARG[@]}" -count=1 -v -timeout 60m ./src/...
     step "Running UI unit tests"
     bun_install ui
     cd ui && bun run test
@@ -238,6 +252,17 @@ case "$1" in
     # ping poll below, which has a deadline.
     timeout 60 ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart --no-block town-os-systemcontroller.service
     wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
+    # Put the baked fixture unit back. It was collateral from the
+    # `town-os-package--*` stop above, which exists to keep real package
+    # containers from restart-storming the wipe -- but this one is a
+    # Type=oneshot echo with no volumes and no podman, so it has nothing to do
+    # with that hazard and nothing restarts it afterwards. The UI suite asserts
+    # it is listed active, which is the whole reason the image bakes and enables
+    # it; leaving it stopped means the UI phase sees a different box than the
+    # integration phase did.
+    substep "Restarting the baked fixture unit for the UI phase"
+    timeout 60 ${SUDO} podman exec "${PODMAN_CONTAINER}" \
+      systemctl start town-os-package--repo-test-1.0.service
     step "Running UI integration tests"
     ${SUDO} podman run \
       --net host \

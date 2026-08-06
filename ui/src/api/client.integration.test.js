@@ -578,18 +578,30 @@ describe('SystemControllerClient integration', () => {
       expect(parsed.email).toBe('user1@test.com')
       expect(parsed.real_name).toBe('Regular User')
       expect(parsed.admin).toBe(false)
-      // Password must never appear in detail
-      expect(parsed.password).toBeUndefined()
+      // The sanitizer masks rather than deletes: the key stays so an audit
+      // reader can tell a request that carried a password from one that never
+      // did. What must never survive is the value.
+      expect(parsed.password).toBe('[REDACTED]')
+      expect(createEntry.detail).not.toContain('userpass')
     })
 
-    it('detail never contains password for any entry', async () => {
+    // The property is that no credential VALUE survives anywhere in the log —
+    // not that the key is absent. Asserting on the key was the weaker test and
+    // the wrong one: it passed for a body whose password was deleted while a
+    // `smtp_password` beside it went through untouched.
+    it('detail never contains a credential value for any entry', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       const page = await client.listAuditLog({ limit: 200 })
       for (const entry of page.entries) {
         if (entry.detail) {
           expect(entry.detail).not.toContain('adminpass')
-          expect(entry.detail).not.toContain('"password"')
+          expect(entry.detail).not.toContain('userpass')
+          // Where a password key is present, its value is the mask.
+          const parsed = JSON.parse(entry.detail)
+          if ('password' in parsed) {
+            expect(parsed.password).toBe('[REDACTED]')
+          }
         }
       }
     })
@@ -604,7 +616,8 @@ describe('SystemControllerClient integration', () => {
       expect(authEntry).toBeDefined()
       const parsed = JSON.parse(authEntry.detail)
       expect(parsed.username).toBe('admin')
-      expect(parsed.password).toBeUndefined()
+      expect(parsed.password).toBe('[REDACTED]')
+      expect(authEntry.detail).not.toContain('adminpass')
     })
   })
 

@@ -110,17 +110,18 @@ Proton (defined only when PROTON_ENABLED=1; see Variables below)
   push-proton-release     Push the Proton runner image with per-arch release tags.
 
 Cleanup
-  clean                   Remove cached state for this working tree.
-  clean-cache             Remove the per-working-tree cache directory.
+  clean                   Run every cleanup below, in a safe order, and verify
+                          .cache is gone. Sweeps the shared image and bun
+                          caches too, so the next build re-pulls and re-fetches
+                          — the "leave nothing" hammer, not a between-runs tidy.
+  clean-build-cache       Remove this working tree's .cache directory only.
+  clean-cache             Remove the dev data, repos, and rolodex state.
   clean-image-cache       Remove the shared image cache.
-  clean-bun-cache         Remove the host-wide bun package cache. Not swept by
-                          clean: it is meant to outlive a checkout.
+  clean-bun-cache         Remove the host-wide bun package cache.
   clean-btrfs             Unmount and detach the btrfs loopback device.
   clean-btrfs-dev         Unmount and detach the dev btrfs loopback device.
   clean-containers        Remove all town-os-* containers on the host.
   clean-integration       Stop registry and Gitea containers.
-  clean-dev               Stop dev containers and clean their cache.
-  clean-all               Run every cleanup target.
 
 Variables
   Pass on the command line (`make VAR=value <target>`) or set in .env, which
