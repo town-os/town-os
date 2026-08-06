@@ -9,6 +9,14 @@ DNS_BACKUP="${STATE_DIR}/resolv.conf.bak"
 RESOLVED_BACKUP="${STATE_DIR}/resolved-dns.bak"
 ROLODEX_DNS="127.0.0.2"
 
+# The two host paths the DNS redirect touches, overridable ONLY so the test
+# suite can drive the whole restore path against a temp directory. A test able
+# to reach the real /etc/resolv.conf is a test that can take the machine
+# running it off the network, which is the failure this code exists to repair.
+# Unset in every real invocation, so production behavior is the literals.
+RESOLV_CONF="${TOWN_OS_RESOLV_CONF:-/etc/resolv.conf}"
+STATE_GLOB="${TOWN_OS_STATE_GLOB:-/tmp/town-os-*}"
+
 # resolved_running — true when systemd-resolved is the host's resolver.
 #
 # Rewriting /etc/resolv.conf is not enough on a resolved box: anything that
@@ -101,7 +109,7 @@ restore_resolved_dns() {
   rm -f "${RESOLVED_BACKUP}"
 }
 
-# restore_resolv_conf — restore /etc/resolv.conf from backup if it exists.
+# restore_resolv_conf — restore resolv.conf from backup if it exists.
 restore_resolv_conf() {
   if [ -f "${DNS_BACKUP}" ]; then
     local first_line
@@ -109,13 +117,13 @@ restore_resolv_conf() {
     if [ "${first_line}" = "__SYMLINK__" ]; then
       local target
       target="$(sed -n '2p' "${DNS_BACKUP}")"
-      ${SUDO} rm -f /etc/resolv.conf
-      ${SUDO} ln -s "${target}" /etc/resolv.conf
+      ${SUDO} rm -f "${RESOLV_CONF}"
+      ${SUDO} ln -s "${target}" "${RESOLV_CONF}"
     else
-      ${SUDO} cp "${DNS_BACKUP}" /etc/resolv.conf
+      ${SUDO} cp "${DNS_BACKUP}" "${RESOLV_CONF}"
     fi
     rm -f "${DNS_BACKUP}"
-    step "Restored /etc/resolv.conf"
+    step "Restored ${RESOLV_CONF}"
   fi
 }
 
@@ -124,6 +132,72 @@ restore_resolv_conf() {
 restore_host_dns() {
   restore_resolved_dns
   restore_resolv_conf
+}
+
+# host_dns_redirected — true when the host still resolves through rolodex, by
+# either half of the redirect.
+host_dns_redirected() {
+  if grep -qs "^[[:space:]]*nameserver[[:space:]]\+${ROLODEX_DNS}[[:space:]]*\$" "${RESOLV_CONF}"; then
+    return 0
+  fi
+  if ! resolved_running; then
+    return 1
+  fi
+  resolvectl status 2>/dev/null | grep -q "Current DNS Server: ${ROLODEX_DNS}"
+}
+
+# adopt_orphan_dns_backup — repoint DNS_BACKUP/RESOLVED_BACKUP at a leftover
+# backup that belongs to a checkout which no longer exists.
+#
+# STATE_DIR is keyed to the md5 of the working directory, so the backup a
+# `make dev` took is only reachable from the directory that took it. Delete that
+# worktree — the normal end of a worktree's life — and the escape hatch can no
+# longer find the file it exists to restore: restore_resolv_conf opens with
+# `[ -f "${DNS_BACKUP}" ] || return 0`, so `make dev-restore-dns` from any
+# surviving checkout exits 0 having done nothing, while the host stays pointed
+# at a rolodex that is gone and every name on the box fails to resolve.
+#
+# Only the explicit restore-dns path calls this. The trap-driven restore at the
+# end of a normal dev run must consume its own backup and nothing else, or one
+# dev box would put the host back the way a different one found it.
+#
+# Three guards, because this writes /etc/resolv.conf from a file nobody asked
+# for by name:
+#
+#   1. Nothing is adopted unless this instance has no backup of its own — a real
+#      one always wins.
+#   2. Nothing is adopted unless the host is STILL redirected at rolodex. A
+#      backup left behind by a run that did restore is stale, and copying it
+#      over a working resolv.conf would break the thing this repairs.
+#   3. Only files we own, since /tmp is world-writable and another user's
+#      leftovers are neither ours to consume nor readable anyway.
+adopt_orphan_dns_backup() {
+  if [ -f "${DNS_BACKUP}" ] || [ -f "${RESOLVED_BACKUP}" ]; then
+    return 0
+  fi
+  if ! host_dns_redirected; then
+    return 0
+  fi
+
+  local newest="" candidate
+  # Unquoted on purpose: STATE_GLOB is a glob, not a path.
+  # shellcheck disable=SC2231
+  for candidate in ${STATE_GLOB}/resolv.conf.bak; do
+    [ -f "${candidate}" ] || continue
+    [ -O "${candidate}" ] || continue
+    if [ -z "${newest}" ] || [ "${candidate}" -nt "${newest}" ]; then
+      newest="${candidate}"
+    fi
+  done
+  if [ -z "${newest}" ]; then
+    return 0
+  fi
+
+  local dir
+  dir="$(dirname "${newest}")"
+  warn "No DNS backup for this checkout; adopting the orphan left in ${dir}"
+  DNS_BACKUP="${newest}"
+  RESOLVED_BACKUP="${dir}/resolved-dns.bak"
 }
 
 # redirect_host_dns — route the host's name resolution through the dev rolodex,
@@ -147,22 +221,22 @@ redirect_host_dns() {
 
   redirect_resolved_dns
 
-  # Back up current /etc/resolv.conf (handle symlinks)
-  if [ -L /etc/resolv.conf ]; then
+  # Back up the current resolv.conf (handle symlinks)
+  if [ -L "${RESOLV_CONF}" ]; then
     local target
-    target="$(readlink -f /etc/resolv.conf)"
+    target="$(readlink -f "${RESOLV_CONF}")"
     printf '__SYMLINK__\n%s\n' "${target}" > "${DNS_BACKUP}"
     # Drop the symlink instead of writing through it. It usually points at
     # resolved's generated stub-resolv.conf, and clobbering that file leaves
     # the host pointed at a dead rolodex long after dev has exited — the
     # restore below puts the symlink back, but not the file's contents.
-    ${SUDO} rm -f /etc/resolv.conf
+    ${SUDO} rm -f "${RESOLV_CONF}"
   else
-    cp /etc/resolv.conf "${DNS_BACKUP}"
+    cp "${RESOLV_CONF}" "${DNS_BACKUP}"
   fi
 
   # Rewrite resolv.conf
-  printf 'nameserver %s\n' "${ROLODEX_DNS}" | ${SUDO} tee /etc/resolv.conf >/dev/null
+  printf 'nameserver %s\n' "${ROLODEX_DNS}" | ${SUDO} tee "${RESOLV_CONF}" >/dev/null
 
   printf "${_yellow}%s${_reset}\n" \
     "╔══════════════════════════════════════════════════════════════╗" \
@@ -174,6 +248,14 @@ redirect_host_dns() {
     "║  'make dev-stop' / 'make clean-dev'.                         ║" \
     "╚══════════════════════════════════════════════════════════════╝"
 }
+
+# Sourcing this file defines the functions above and stops here, without
+# dispatching and without requiring an argument. That is what lets the DNS
+# restore logic be tested directly (see src/rolodex/dev_restore_dns_test.go)
+# rather than only through a `make dev` that rewrites the host's resolver.
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+  return 0
+fi
 
 case "$1" in
   start)
@@ -330,8 +412,11 @@ case "$1" in
     ;;
   restore-dns)
     # Escape hatch for a dev run that died hard enough to skip its own restore
-    # (SIGKILL, a lost terminal). No-op when there is nothing to put back.
+    # (SIGKILL, a lost terminal), including one whose checkout has since been
+    # deleted — see adopt_orphan_dns_backup. No-op when there is nothing to put
+    # back, or when the host is not pointed at rolodex in the first place.
     step "Restoring host DNS"
+    adopt_orphan_dns_backup
     restore_host_dns
     ;;
   *)
