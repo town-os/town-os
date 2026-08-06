@@ -61,6 +61,46 @@ func TestUnregisterPackageTLSA(t *testing.T) {
 	}
 }
 
+// TestUnregisterScopedPackageTLSA pins the inverse of
+// RegisterScopedPackageTLSA. The scoped pin lives at the _<port>._tcp owner
+// name, NOT at the host name, so removing a host's scoped address records
+// leaves it untouched — which is why this function has to exist at all.
+func TestUnregisterScopedPackageTLSA(t *testing.T) {
+	mc := &MockClient{
+		ScopedRecords: map[string][]*upstream.DnsRecord{
+			"fart": {
+				{Name: "secret.fart.", RecordType: upstream.RecordTypeA, Value: "10.65.0.1"},
+				{Name: "_443._tcp.secret.fart.", RecordType: upstream.RecordTypeTLSA, Value: "3 1 1 abc"},
+			},
+		},
+	}
+
+	// Removing the host's scoped records does NOT reach the pin.
+	if _, err := mc.RemoveScopedRecord(context.Background(), "fart", "secret.fart.", nil); err != nil {
+		t.Fatalf("RemoveScopedRecord: %v", err)
+	}
+	if len(mc.ScopedRecords["fart"]) != 1 {
+		t.Fatalf("expected the TLSA pin to survive an address-record removal, got %+v", mc.ScopedRecords["fart"])
+	}
+
+	entries := []TLSAEntry{{Name: "secret.fart", Port: 443}}
+	if err := UnregisterScopedPackageTLSA(context.Background(), mc, "fart", entries); err != nil {
+		t.Fatalf("UnregisterScopedPackageTLSA: %v", err)
+	}
+	if len(mc.ScopedRecords["fart"]) != 0 {
+		t.Fatalf("expected the scoped TLSA pin removed, got %+v", mc.ScopedRecords["fart"])
+	}
+
+	calls := mc.GetCalls()
+	last := calls[len(calls)-1]
+	scope, scopeOK := last.Args[0].(string)
+	name, nameOK := last.Args[1].(string)
+	if last.Method != "RemoveScopedRecord" || !scopeOK || !nameOK ||
+		scope != "fart" || name != "_443._tcp.secret.fart." {
+		t.Fatalf("unexpected remove call: %+v", last)
+	}
+}
+
 func TestTLSANameFormat(t *testing.T) {
 	if got := tlsaName("app.repo.home", 8443); got != "_8443._tcp.app.repo.home." {
 		t.Fatalf("tlsaName = %q", got)

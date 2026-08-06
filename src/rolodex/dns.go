@@ -83,6 +83,22 @@ func UnregisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) e
 	return nil
 }
 
+// UnregisterScopedPackageTLSA removes each entry's TLSA record from a network
+// scope, the inverse of RegisterScopedPackageTLSA. A scoped pin lives in the
+// scope's own table at the same _<port>._tcp owner name, so removing the scoped
+// ADDRESS record for a host does not touch it — the owner names differ. The
+// Value field is ignored (removal is keyed by name + type).
+func UnregisterScopedPackageTLSA(ctx context.Context, c Client, scope string, entries []TLSAEntry) error {
+	tlsaType := upstream.RecordTypeTLSA
+	for _, e := range entries {
+		owner := tlsaName(e.Name, e.Port)
+		if _, err := c.RemoveScopedRecord(ctx, scope, owner, &upstream.RemoveScopedRecordOptions{RecordType: &tlsaType}); err != nil {
+			return fmt.Errorf("remove scoped TLSA record %s: %w", owner, err)
+		}
+	}
+	return nil
+}
+
 // PackageDNSInfo holds the information needed to register or unregister
 // DNS records for a single installed package.
 type PackageDNSInfo struct {

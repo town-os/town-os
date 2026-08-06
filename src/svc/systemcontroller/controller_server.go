@@ -1074,8 +1074,20 @@ func (ts *TestServer) SetExternalIP(ip string) {
 // SetExternalIP — lets integration tests pin a known value that feeds
 // leaf-cert SANs, DNS records, and anything else keyed on
 // GetInternalIP without depending on the host's live interface list.
+//
+// It also claims the IPv6 slot, and that is load-bearing rather than tidiness.
+// GetInternalIPv6 lazily refreshes an empty cache, and RefreshInternalIP
+// rediscovers BOTH families — so the first read of the IPv6 address on a server
+// that had only its IPv4 pinned silently replaced that pin with the host's real
+// address. A test that pinned 192.168.122.50 then wrote a DNS record got the
+// machine's own LAN IP instead, in whichever record happened to be written
+// after the first IPv6 read. Claiming both here makes a pin mean what it reads
+// as: this box's addresses are fixed, and nothing rediscovers them.
 func (ts *TestServer) SetInternalIP(ip string) {
 	ts.internalIP.Store(ip)
+	// Only when unclaimed, so this is order-independent: pinning the IPv4 after
+	// the IPv6 must not erase the IPv6.
+	ts.internalIPv6.CompareAndSwap(nil, "")
 }
 
 // SetInternalIPv6 stores the host's global IPv6 for testing. Parallel to
@@ -1084,8 +1096,11 @@ func (ts *TestServer) SetInternalIP(ip string) {
 // depending on the host's live interface list. Storing "" is meaningful:
 // GetInternalIPv6 sees a non-nil cache entry and returns "" without falling
 // back to live discovery, so a v4-only host can be modelled deterministically.
+//
+// Claims the IPv4 slot for the same reason SetInternalIP claims this one.
 func (ts *TestServer) SetInternalIPv6(ip string) {
 	ts.internalIPv6.Store(ip)
+	ts.internalIP.CompareAndSwap(nil, "")
 }
 
 func (ts *TestServer) Run() error {

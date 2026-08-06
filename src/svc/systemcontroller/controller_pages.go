@@ -73,6 +73,16 @@ func (s *SystemControllerHandlers) refreshPages(ctx context.Context) {
 // Public-FQDN pages are resolved by the user's own DNS and are skipped. The
 // periodic DNS reconcile keeps records converged regardless, so errors here are
 // only logged.
+//
+// Add and remove must cover the SAME record set, and the set is wider than the
+// A record this used to write. A page's name accumulates three things: an A
+// record, an AAAA record on any dual-stack box, and a DANE TLSA pin at
+// _443._tcp.<host> pinning the page's leaf. Removing only the A left the other
+// two behind, so a deleted page kept resolving over IPv6 and kept advertising a
+// certificate pin for content that no longer existed. The TLSA leak never
+// self-healed either: ReconcileDNS (the hourly drift repair) diffs A and AAAA
+// records only, so an orphan pin survived until the next controller restart
+// tore the whole zone down.
 func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, network string, add bool) {
 	cl := s.Controller.GetRolodexClient()
 	if cl == nil {
@@ -92,8 +102,14 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, netwo
 	// Overlay-facing scoped record for a non-default-network page. Owning the
 	// TLD via the scope is also what partitions it: rolodex hides a scope's TLD
 	// from peers joined to any other scope.
+	//
+	// Publishing needs an overlay address to point the record AT; retiring does
+	// not, and must not be gated on one. A network whose transport is down has
+	// no overlay IP right now but may well have published a scoped record when
+	// it was up, and that record would then outlive the page it names.
 	overlay := networkOverlayIPValue(nm, network)
-	scoped := !pageOnDefaultNetworkName(network) && overlay != ""
+	onNetwork := !pageOnDefaultNetworkName(network) && nm != nil
+	scoped := onNetwork && overlay != ""
 
 	if add {
 		if scoped {
@@ -107,10 +123,12 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, netwo
 				}
 			}
 		}
-		// LAN-facing global record (both the default and the non-default case).
+		// LAN-facing global records (both the default and the non-default case).
 		// A bare global A resolves on the LAN with no authoritative zone —
 		// rolodex's LAN->owning-scope fallback makes the network TLD
-		// authoritative for LAN sources.
+		// authoritative for LAN sources. The AAAA is published here rather than
+		// left to the next reconcile so create and remove touch the same set;
+		// it is skipped on a v4-only host, where GetInternalIPv6 is empty.
 		ip := s.Controller.GetInternalIP()
 		if ip == "" {
 			return
@@ -123,19 +141,42 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, netwo
 		}); err != nil {
 			slog.Debug(fmt.Sprintf("page DNS add %s: %v", host, err))
 		}
+		if ipv6 := s.Controller.GetInternalIPv6(); ipv6 != "" {
+			if err := cl.AddRecord(ctx, &upstream.DnsRecord{
+				Name:       host + ".",
+				RecordType: upstream.RecordTypeAAAA,
+				Value:      ipv6,
+				Ttl:        300,
+			}); err != nil {
+				slog.Debug(fmt.Sprintf("page DNS add AAAA %s: %v", host, err))
+			}
+		}
 		return
 	}
 
-	if scoped {
+	// The page's DANE pin, at _443._tcp.<host> — a different owner name from the
+	// address records, so nothing above removes it.
+	tlsa := []rolodex.TLSAEntry{{Name: host, Port: PagesHTTPSPort}}
+
+	if onNetwork {
 		if n, err := nm.Get(network); err == nil {
+			// nil options: every record type at this name, so the scoped AAAA
+			// goes with the scoped A.
 			if _, err := cl.RemoveScopedRecord(ctx, n.Name, host+".", nil); err != nil {
 				slog.Debug(fmt.Sprintf("page scoped DNS remove %s: %v", host, err))
 			}
+			if err := rolodex.UnregisterScopedPackageTLSA(ctx, cl, n.Name, tlsa); err != nil {
+				slog.Debug(fmt.Sprintf("page scoped TLSA remove %s: %v", host, err))
+			}
 		}
 	}
-	aType := upstream.RecordTypeA
-	if _, err := cl.RemoveRecord(ctx, host+".", &upstream.RemoveRecordOptions{RecordType: &aType}); err != nil {
-		slog.Debug(fmt.Sprintf("page DNS remove %s: %v", host, err))
+	for _, rtype := range []upstream.RecordType{upstream.RecordTypeA, upstream.RecordTypeAAAA} {
+		if _, err := cl.RemoveRecord(ctx, host+".", &upstream.RemoveRecordOptions{RecordType: &rtype}); err != nil {
+			slog.Debug(fmt.Sprintf("page DNS remove %s %s: %v", rtype, host, err))
+		}
+	}
+	if err := rolodex.UnregisterPackageTLSA(ctx, cl, tlsa); err != nil {
+		slog.Debug(fmt.Sprintf("page TLSA remove %s: %v", host, err))
 	}
 }
 
@@ -356,10 +397,17 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 		}
 	}
 
-	// Drop the page's vhost from the Caddyfile and its A record from DNS.
+	// Drop the page's vhost from the Caddyfile and every record naming it from
+	// DNS. When the record could not be read, fall back to the page's name on
+	// the default network — the same fallback the directory resolution above
+	// uses. Skipping the teardown outright would leave the name resolving with
+	// nothing behind it, which is strictly worse than removing the wrong name's
+	// records (there is no such page either way).
 	ctx := c.Request().Context()
 	if removed != nil {
 		s.setPageDNS(ctx, pageDomain(*removed), removed.Network, false)
+	} else {
+		s.setPageDNS(ctx, req.Name, "", false)
 	}
 	s.refreshPages(ctx)
 
