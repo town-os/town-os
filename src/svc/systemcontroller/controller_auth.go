@@ -294,6 +294,20 @@ var grantCommonRoutes = map[string]bool{
 	"GET /networks":              true,
 	"GET /dns/services":          true,
 	"GET /tls/ca.crt":            true,
+	// /status/ping is PUBLIC — it is registered with no auth middleware at all,
+	// and an unauthenticated stranger gets a 200. Leaving it off this list meant
+	// a grant-holder was the only kind of caller it refused: presenting a valid
+	// token turned a 200 into a 403, which is the one direction authentication
+	// must never move you.
+	//
+	// It is also what makes the grant usable at all. The dashboard polls this
+	// every 60s as its session heartbeat and renders its whole status surface
+	// from the reply, so an account holding `gfeh` — an account that exists to
+	// use the object-storage screen in a browser — could reach every /gfeh
+	// route and still not get a working page. The fix is not to hand it
+	// `wireguard` as well; the two grants are independent, and neither is a
+	// prerequisite for signing in.
+	"GET /status/ping": true,
 }
 
 // Notably absent from grantRoutes: /gfeh/partitions/*, which stays admin-only.
