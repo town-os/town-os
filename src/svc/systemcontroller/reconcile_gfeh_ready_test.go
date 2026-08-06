@@ -6,6 +6,7 @@ package systemcontroller
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -109,5 +110,52 @@ func TestGfehReadyNetworksListsAnsweringPartitionsSorted(t *testing.T) {
 func TestGfehReadyNetworksNilRegistry(t *testing.T) {
 	if ready := GfehReadyNetworks(context.Background(), nil); ready != nil {
 		t.Fatalf("ready = %v, want nil", ready)
+	}
+}
+
+// TestReconcileGfehDoesNotLetOneDeadPartitionStarveTheRest.
+//
+// The wait for a partition's socket used to happen inside the per-partition
+// loop, so the first daemon that never answered spent the caller's whole
+// remaining deadline in WaitForReady. Everything after it — the other
+// partitions' Start, and the prune — then ran on an expired context, which on a
+// real systemd means they simply do not happen. One network's dead daemon took
+// the rest of object storage with it, in whatever order the names sorted.
+//
+// The reconcile now performs exactly one wait, for the home partition, capped,
+// and after the work rather than through the middle of it.
+func TestReconcileGfehDoesNotLetOneDeadPartitionStarveTheRest(t *testing.T) {
+	// attic sorts before home, so under the old shape the partition that ate
+	// the budget was not even the one the wait existed for.
+	reg, _, _, base := gfehTestRegistry(t, "attic", "home", "office")
+	reg.cfg.FounderWaitBudget = 50 * time.Millisecond
+
+	// Generous relative to the work, and far larger than the budget above: if
+	// any partition still waits on its own socket, this is what it consumes.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	ReconcileGfeh(ctx, reg)
+	elapsed := time.Since(start)
+
+	// One capped wait, not one per partition and not the whole deadline.
+	if elapsed > 3*time.Second {
+		t.Errorf("reconcile took %s: a partition is still waiting on its own socket", elapsed)
+	}
+	if ctx.Err() != nil {
+		t.Errorf("the reconcile exhausted its caller's context: %v", ctx.Err())
+	}
+
+	// And every partition was actually converged, including the ones after the
+	// dead one in sort order.
+	managers := reg.Managers()
+	for _, network := range []string{"attic", "home", "office"} {
+		if _, ok := managers[network]; !ok {
+			t.Errorf("no partition registered for %q", network)
+		}
+		if _, err := os.Stat(gfeh.ConfigPath(base, network)); err != nil {
+			t.Errorf("no rendered config for %q: %v", network, err)
+		}
 	}
 }

@@ -120,6 +120,10 @@ type ReconcileGfehConfig struct {
 	// KeyPrefix, when set, is prepended to every service key so a test's units
 	// are distinguishable from production's.
 	KeyPrefix string
+	// FounderWaitBudget overrides how long seatGfehFounder waits for the home
+	// partition to answer. Zero means gfehFounderWaitBudget. Set by tests, where
+	// no daemon ever answers and the wait would otherwise be the whole runtime.
+	FounderWaitBudget time.Duration
 }
 
 // ReconcileGfeh converges the running gfeh daemons onto the set of networks.
@@ -175,6 +179,8 @@ func ReconcileGfeh(ctx context.Context, reg *gfehRegistry) {
 	}
 
 	pruneGfehPartitions(ctx, cfg, desired, "its network no longer exists")
+
+	seatGfehFounder(ctx, cfg)
 }
 
 // ReconcileGfehRegistry re-runs the reconcile for a registry held behind the
@@ -258,23 +264,58 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 		return err
 	}
 
-	if err := m.Start(ctx, configChanged || gfehUnitChanged(cfg.Systemd, m)); err != nil {
-		return err
+	// Started, and not waited on. Whether the daemon is answering yet is asked
+	// separately, by GfehReadyNetworks and by the name collectors, both of
+	// which treat a partition that does not answer as contributing nothing
+	// rather than as a reason to fail. The one thing that genuinely needs a
+	// live daemon — seating the box's first account — is seatGfehFounder, at
+	// the end of the reconcile.
+	return m.Start(ctx, configChanged || gfehUnitChanged(cfg.Systemd, m))
+}
+
+// gfehFounderWaitBudget caps the single wait the reconcile still performs.
+//
+// Long enough for a daemon whose image is already local, short enough that a
+// partition which is never coming up cannot hold the reconcile open. A cold
+// start that misses it is seated by the next pass, which boot runs immediately
+// after ReconcileNetworks.
+const gfehFounderWaitBudget = 10 * time.Second
+
+// seatGfehFounder waits for the home partition to answer, then seats the box's
+// first account in it.
+//
+// Deliberately last, and deliberately capped. This wait used to live inside
+// reconcileGfehPartition, once per partition — including every partition it
+// does nothing for, since ensureFirstUserPrincipal returns on its first line
+// for any network but home. On a context with a deadline that was not merely
+// slow, it was the failure: the first partition whose daemon never answered
+// spent the whole remaining budget in WaitForReady, so every partition after it
+// tried to Start on an expired context and pruneGfehPartitions never ran at
+// all. One dead daemon took the rest of object storage down with it, in the
+// exact order the networks happened to sort.
+//
+// Here it can only delay work that is already finished.
+func seatGfehFounder(ctx context.Context, cfg ReconcileGfehConfig) {
+	if cfg.AccountMgr == nil || cfg.Registry == nil {
+		return
 	}
-	if err := m.WaitForReady(ctx); err == nil {
-		// The partition is answering, so the box's first account can be seated
-		// in it. Only the home partition: that is the one every box has, and
-		// the one an operator who has never opened this screen would expect
-		// their own files to be in.
-		ensureFirstUserPrincipal(ctx, cfg.AccountMgr, m.Client(), network)
-	} else {
-		// Not fatal: the daemon may still be opening its partition, and the
-		// name collectors treat a partition that does not answer as
-		// contributing nothing rather than as a reason to fail.
-		slog.Debug("gfeh partition not ready yet", "network", network, "error", err)
+	m, ok := cfg.Registry.Managers()[account.DefaultNetworkName]
+	if !ok || m == nil {
+		return
 	}
 
-	return nil
+	budget := cfg.FounderWaitBudget
+	if budget <= 0 {
+		budget = gfehFounderWaitBudget
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	if err := m.WaitForReady(waitCtx); err != nil {
+		// Not fatal: the daemon may still be opening its partition.
+		slog.Debug("gfeh home partition not ready; deferring first-user seating", "error", err)
+		return
+	}
+	ensureFirstUserPrincipal(ctx, cfg.AccountMgr, m.Client(), account.DefaultNetworkName)
 }
 
 // gfehHealthProbeTimeout bounds one partition's health probe.
