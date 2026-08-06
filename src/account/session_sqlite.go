@@ -149,6 +149,17 @@ func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error
 		return nil, nil, err
 	}
 
+	// A disabled account's token stops working immediately. Authenticate
+	// refuses to issue a new one, but every request after that point is
+	// authorized from this function alone — so without this check disabling an
+	// account only stopped it logging in again, and a token it already held
+	// stayed good for SessionMaxAge, refreshed by its own use. Disable also
+	// revokes the rows; this is what makes the guarantee independent of that
+	// having succeeded.
+	if acct.Disabled {
+		return nil, nil, ErrAccountDisabled
+	}
+
 	sess := &Session{
 		ID:        sessionID,
 		Username:  username,

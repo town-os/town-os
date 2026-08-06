@@ -417,7 +417,16 @@ func (b *BtrFS) CreateFilesystem(f Filesystem) error {
 }
 
 func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
-	err := ValidateFilesystemName(f.Name)
+	// Both names, not just the target. filepath.Join collapses "..", so an
+	// unvalidated `name` addresses any subvolume on the filesystem — and since
+	// a rename moves oldPath to a validated newPath, validating only the target
+	// let a caller move somebody else's subvolume into their own namespace.
+	err := ValidateFilesystemName(name)
+	if err != nil {
+		return err
+	}
+
+	err = ValidateFilesystemName(f.Name)
 	if err != nil {
 		return err
 	}
@@ -470,6 +479,15 @@ func (b *BtrFS) ModifyFilesystem(name string, f Filesystem) error {
 }
 
 func (b *BtrFS) RemoveFilesystem(name string) error {
+	// Every other entry point validates; this one did not, and it is the
+	// destructive one. filepath.Join cleans "..", so `user/../gfeh/home`
+	// resolved to a real subvolume outside the caller's namespace and deleted
+	// it — the prefix the caller's handler prepended is not a boundary unless
+	// the name that follows it cannot climb back out.
+	if err := ValidateFilesystemName(name); err != nil {
+		return err
+	}
+
 	return b.Controller.SubvolDelete(filepath.Join(b.BasePath, name))
 }
 

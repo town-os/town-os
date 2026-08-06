@@ -343,6 +343,12 @@ func (m *MockSessionManager) Validate(token string) (*Session, *Account, error) 
 		return nil, nil, err
 	}
 
+	// Mirrors SQLiteSessionManager.Validate: a disabled account's token is
+	// dead on arrival, whatever rows survive.
+	if acct.Disabled {
+		return nil, nil, ErrAccountDisabled
+	}
+
 	outSess := *sess
 	return &outSess, acct, nil
 }

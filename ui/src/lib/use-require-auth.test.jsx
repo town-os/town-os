@@ -25,7 +25,15 @@ describe('useRequireAuth', () => {
   })
 
   afterEach(() => {
-    resetSessionChecks()
+    // Wrapped in act: resetSessionChecks notifies the suspension store's
+    // subscribers, and useRequireAuth reads it through useSyncExternalStore —
+    // so for any test that ends while still holding a suspension, this drops
+    // it and re-renders a hook that is still mounted. Vitest runs this file's
+    // afterEach before the testing-library cleanup that would have unmounted
+    // it, so the update lands on a live component and React warns.
+    act(() => {
+      resetSessionChecks()
+    })
   })
 
   it('logs out and navigates to login when the ping reports no session', async () => {

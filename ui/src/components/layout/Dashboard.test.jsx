@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 let mockPingResponse = null
@@ -44,9 +44,16 @@ describe('Dashboard sidebar', () => {
   // gate — so the Pages entry must render with the rest of the sidebar on the
   // very first paint. It used to be gated on a ping field, which made it pop
   // in a beat late (and never at all if the ping failed).
-  it('renders the Pages nav entry immediately, before any ping resolves', () => {
+  it('renders the Pages nav entry immediately, before any ping resolves', async () => {
     renderDashboard()
+    // Asserted before any await, which is the claim: the entry is in the first
+    // paint and does not wait on the ping.
     expect(screen.getByText('Pages')).toBeTruthy()
+    // Then drain the ping the mount kicked off. Without this the test returns
+    // with the promise still in flight, it resolves against a component React
+    // is no longer expecting updates for, and React warns about a state update
+    // outside act — attributing it to whichever test happens to be running.
+    await act(async () => {})
   })
 
   it('keeps the Pages nav entry when the ping fails', async () => {

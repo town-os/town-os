@@ -128,20 +128,32 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 		return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAccountAdminStatusImmutable))
 	}
 
-	// This route is requireAuth, not requireAdmin -- any authenticated account
-	// may edit an account. That is fine for contact details and a password, and
-	// would be a privilege escalation for the account kind: without this check a
-	// normal user could POST /account/update on itself with
-	// {"network_only":true,"networks":["home"]} and walk into that network's
-	// partition user database and its peer enrollment. Which kind an account is
-	// stays an administrator's decision.
+	// This route is requireAuth, not requireAdmin, because an ordinary account
+	// has to be able to change its own password and contact details without an
+	// administrator. What it must NOT be able to do is edit somebody else's:
+	// the username being updated comes from the body, so without this check any
+	// authenticated account could POST
+	// {"username":"admin","fields":{"password":"..."}} and take the box over —
+	// the controller drives the host podman socket, so that is root.
+	//
+	// Editing another account is therefore an administrator's job, and two
+	// fields are an administrator's job even on your own account: Grants and
+	// Networks. Without that second check a normal user could grant itself
+	// `gfeh` on `home` and walk into that network's partition user database, or
+	// `wireguard` and enroll a peer on the overlay.
 	//
 	// A nil session manager means authentication is not configured at all (the
 	// same condition every auth middleware treats as "let it through"), so the
-	// check applies only where there is a caller to identify.
-	if (req.Fields.Grants != nil || req.Fields.Networks != nil) && s.Controller.GetSessionManager() != nil {
+	// checks apply only where there is a caller to identify.
+	if s.Controller.GetSessionManager() != nil {
 		caller := s.callingAccount(c)
-		if caller == nil || !caller.Admin {
+		if caller == nil {
+			return echo.NewHTTPError(401, i18n.T(s.getLocale(), i18n.MsgAuthInvalidSession))
+		}
+		if !caller.Admin && caller.Username != req.Username {
+			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthAdminRequired))
+		}
+		if (req.Fields.Grants != nil || req.Fields.Networks != nil) && !caller.Admin {
 			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthAdminRequired))
 		}
 	}
@@ -164,6 +176,17 @@ func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 
 	if err := s.Controller.GetAccountManager().Disable(req.Username); err != nil {
 		return err
+	}
+
+	// Drop the account's live sessions. Validate refuses a disabled account's
+	// token on its own, so this is not what makes disable take effect — it is
+	// what stops a token issued before the disable from working again if the
+	// account is later re-enabled, which is not what an administrator means by
+	// "enable" after having revoked someone's access.
+	if sm := s.Controller.GetSessionManager(); sm != nil {
+		if err := sm.RevokeAllForUser(req.Username); err != nil {
+			return fmt.Errorf("revoke sessions for %s: %w", req.Username, err)
+		}
 	}
 
 	c.Response().WriteHeader(200)

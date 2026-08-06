@@ -205,16 +205,38 @@ case "$1" in
     # container images. Just wipe btrfs subvolumes, reset the DB, and
     # restart the systemcontroller.
     step "Resetting state for UI integration tests"
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl stop town-os-systemcontroller.service || true
+    # Stop the CONTAINERS before wiping what they are mounted on, not just the
+    # systemcontroller. Every package unit and system service from the
+    # integration run is still up, bind-mounting a subvolume under /town-os and
+    # carrying Restart=always -- so deleting those subvolumes out from under
+    # them starts a restart storm whose ExecStart is `podman run` against the
+    # host podman socket. The next `systemctl restart` then waits on a systemd
+    # that is busy servicing it, and the step hangs with no timeout to end it.
+    # Reset-failed afterwards so the storm's failures do not survive into the
+    # UI run's unit status.
+    #
+    # Every command here runs under `timeout`. Not belt-and-braces: this step
+    # is a straight line of `podman exec`s with no deadline anywhere in it, so
+    # a wedged systemd or a contended host podman socket (several concurrent
+    # `make test-full` runs share one) turns the whole suite into a silent hang
+    # holding the terminal. A non-zero exit is recoverable; a hang is not. The
+    # exit code is not swallowed -- timeout's 124 propagates under set -e.
+    substep "Stopping package and system units before the wipe"
+    timeout 300 ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c \
+      'systemctl stop "town-os-package--*" "town-os-system--*" town-os-systemcontroller.service 2>/dev/null; systemctl reset-failed "town-os-*" 2>/dev/null; true' || true
     # Delete all btrfs subvolumes under /town-os to get a clean slate.
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c \
+    timeout 300 ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c \
       'btrfs subvolume list -o /town-os 2>/dev/null | awk "{print \$NF}" | sort -r | while read sv; do btrfs subvolume delete "/town-os/${sv}" 2>/dev/null; done; true'
     # Remove the DB so the systemcontroller re-initializes accounts/sessions.
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c 'rm -f /data/db/*.db'
+    timeout 60 ${SUDO} podman exec "${PODMAN_CONTAINER}" /bin/sh -c 'rm -f /data/db/*.db'
     # Set DEBUG+LOG_LEVEL for UI tests.
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl set-environment DEBUG=1 LOG_LEVEL=debug
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
-    ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
+    timeout 60 ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl set-environment DEBUG=1 LOG_LEVEL=debug
+    timeout 60 ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
+    # --no-block: with Type=simple there is nothing to wait for that
+    # wait_for_url does not already wait for, and a blocking restart is what
+    # turns a busy systemd into an unbounded hang. Readiness is proven by the
+    # ping poll below, which has a deadline.
+    timeout 60 ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart --no-block town-os-systemcontroller.service
     wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
     step "Running UI integration tests"
     ${SUDO} podman run \

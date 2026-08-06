@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 let mockPingResponse = null
@@ -176,10 +176,15 @@ describe('DashboardHome', () => {
     expect(screen.queryByText(/failed service/)).toBeNull()
   })
 
-  it('shows loading state before data arrives', () => {
+  it('shows loading state before data arrives', async () => {
     mockPing.mockImplementation(() => new Promise(() => {}))
     renderDashboard()
+    // Asserted before any await: the loading state is the first paint.
     expect(screen.getByText('Loading...')).toBeTruthy()
+    // The ping is pinned unresolved on purpose, but the mount fires the other
+    // fetches too, and those do resolve — after this test returns, unless they
+    // are drained here inside act.
+    await act(async () => {})
   })
 
   it('displays installed count in package stat card', async () => {

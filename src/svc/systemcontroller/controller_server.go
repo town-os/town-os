@@ -787,6 +787,76 @@ func parseLogLevel() slog.Level {
 	}
 }
 
+// originAllowed reports whether a cross-origin request may be served.
+//
+// The rule this replaces was "the Origin's hostname equals the Host header's
+// hostname", meant to permit the UI on :80 calling the API on :5309. It does
+// permit that — and it permits anything else, because BOTH halves come from the
+// same attacker-chosen URL: point `box.evil.example` at the box's LAN address
+// and a browser sends Origin: http://box.evil.example and Host:
+// box.evil.example:5309, which match. That is the DNS-rebinding shape, and with
+// AllowCredentials it hands a drive-by page the bootstrap window
+// (POST /account/create answers unauthenticated while no enabled admin exists).
+//
+// So the Host header is checked against what this box may legitimately be
+// called before it is used as evidence of anything: its own hostname, the
+// loopback and LAN addresses it answers on, and whatever the operator
+// configured. An IP literal is accepted on its own — an address cannot be
+// aliased by DNS, so `http://192.168.1.10/` reaching `http://192.168.1.10:5309`
+// is the same box by construction, which is the common way this is actually
+// used.
+func originAllowed(c *echo.Context, origin string, allowedHosts []string) bool {
+	if origin == "" {
+		return false
+	}
+	if os.Getenv("DEBUG") != "" {
+		return true
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	originHost := u.Hostname()
+	if originHost == "" {
+		return false
+	}
+
+	for _, h := range allowedHosts {
+		if strings.EqualFold(originHost, h) {
+			return true
+		}
+	}
+
+	// Cross-port from the same host, but only when the Host header names
+	// something this box is entitled to be called.
+	reqHost := c.Request().Host
+	if reqHost == "" {
+		return false
+	}
+	if h, _, splitErr := net.SplitHostPort(reqHost); splitErr == nil {
+		reqHost = h
+	}
+	if !strings.EqualFold(originHost, reqHost) {
+		return false
+	}
+	return hostIsSelf(reqHost, allowedHosts)
+}
+
+// hostIsSelf reports whether a Host header names this box rather than an
+// arbitrary DNS name that merely resolves to it.
+func hostIsSelf(host string, allowedHosts []string) bool {
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		return true
+	}
+	for _, h := range allowedHosts {
+		if strings.EqualFold(host, h) {
+			return true
+		}
+	}
+	return false
+}
+
 func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handler {
 	handlers := getHandler(ctx, sc)
 	e := echo.New()
@@ -795,33 +865,28 @@ func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handl
 	e.Logger = logger
 	slog.SetDefault(logger)
 	e.Use(middleware.RequestLogger())
+	// Private Network Access is answered only for an origin CORS would accept.
+	// Registered BEFORE the CORS middleware so it still runs on a preflight,
+	// which CORS answers itself without calling further down the chain.
+	//
+	// Echoing the header unconditionally, as this did, hands every origin on
+	// the internet the browser's permission to reach a private address — the
+	// one protection PNA exists to add on top of CORS.
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if c.Request().Header.Get("Access-Control-Request-Private-Network") == "true" {
+				if origin := c.Request().Header.Get("Origin"); originAllowed(c, origin, sc.GetAllowedHosts()) {
+					c.Response().Header().Set("Access-Control-Allow-Private-Network", "true")
+				}
+			}
+			return next(c)
+		}
+	})
 	allowedHosts := sc.GetAllowedHosts()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		UnsafeAllowOriginFunc: func(c *echo.Context, origin string) (string, bool, error) {
-			if os.Getenv("DEBUG") != "" {
+			if originAllowed(c, origin, allowedHosts) {
 				return origin, true, nil
-			}
-			u, err := url.Parse(origin)
-			if err != nil {
-				return "", false, nil //nolint:nilerr // invalid origin is rejected, not an error
-			}
-			originHost := u.Hostname()
-
-			// Allow cross-port requests from the same hostname the
-			// browser used to reach this server.
-			if reqHost := c.Request().Host; reqHost != "" {
-				if h, _, err := net.SplitHostPort(reqHost); err == nil {
-					reqHost = h
-				}
-				if strings.EqualFold(originHost, reqHost) {
-					return origin, true, nil
-				}
-			}
-
-			for _, h := range allowedHosts {
-				if strings.EqualFold(originHost, h) {
-					return origin, true, nil
-				}
 			}
 			return "", false, nil
 		},
@@ -831,14 +896,6 @@ func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handl
 		AllowCredentials: true,
 		MaxAge:           3600,
 	}))
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			if c.Request().Header.Get("Access-Control-Request-Private-Network") == "true" {
-				c.Response().Header().Set("Access-Control-Allow-Private-Network", "true")
-			}
-			return next(c)
-		}
-	})
 	e.Use(handlers.auditMiddleware)
 	// Fail-closed gate for grant-holding accounts. Registered after audit so a
 	// denied request is still recorded, and before the routes so a scoped account
@@ -854,7 +911,21 @@ func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handl
 func NewHandler(ctx context.Context, cfg ServerConfig) http.Handler {
 	cfg.AllowedHosts = append(cfg.AllowedHosts, "localhost")
 	if hostname, err := os.Hostname(); err == nil {
-		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname)
+		// The bare hostname plus the two qualified forms a browser on the LAN
+		// actually reaches this box by: mDNS, and the box's own DNS TLD.
+		//
+		// Enumerated rather than matched by suffix. A rule like "any name whose
+		// first label is the hostname" would accept townos.evil.example, which
+		// an attacker can simply register — and pointing it at the box's LAN
+		// address is the whole DNS-rebinding move originAllowed exists to
+		// refuse. Named access beyond these is an operator's call, through
+		// AllowedHosts.
+		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname, hostname+".local")
+		if cfg.SettingsMgr != nil {
+			if tld, err := cfg.SettingsMgr.Get("dns_tld"); err == nil && tld != "" {
+				cfg.AllowedHosts = append(cfg.AllowedHosts, hostname+"."+tld)
+			}
+		}
 	}
 	sb := &serverBase{ServerConfig: cfg}
 	sb.startNetworkPoller(ctx)

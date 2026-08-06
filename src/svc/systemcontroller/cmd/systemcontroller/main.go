@@ -241,9 +241,39 @@ func run() (err error) {
 		Handler:           rootHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// TLS, when the operator asked for it, has to be resolved BEFORE the bind:
+	// the boot-status stream is the first thing a UI connects to, and a
+	// listener that starts as HTTP and becomes HTTPS partway through boot would
+	// break exactly the client that is watching the boot. Everything this needs
+	// is local and fast — a directory, a P-256 keypair, an idempotent leaf —
+	// so it costs the observable-boot bind nothing measurable.
+	//
+	// Fatal rather than a fall back to plain HTTP: an operator who asked for
+	// TLS and silently got cleartext is worse off than one whose box refuses to
+	// start and says why.
+	if systemcontroller.ControllerTLSRequested() {
+		if *btrfsPath != "" {
+			if mkErr := os.MkdirAll(*btrfsPath, 0750); mkErr != nil {
+				return fmt.Errorf("create btrfs base for TLS: %w", mkErr)
+			}
+		}
+		tlsCfg, tlsErr := systemcontroller.ControllerTLSConfig(*btrfsPath, systemcontroller.ListenAddrSANs(*listenAddr))
+		if tlsErr != nil {
+			return fmt.Errorf("configure controller TLS: %w", tlsErr)
+		}
+		srv.TLSConfig = tlsCfg
+	}
+
 	listenErrCh := make(chan error, 1)
 	go func() {
-		listenErr := srv.ListenAndServe()
+		var listenErr error
+		if srv.TLSConfig != nil {
+			// Cert and key are already in TLSConfig.Certificates.
+			listenErr = srv.ListenAndServeTLS("", "")
+		} else {
+			listenErr = srv.ListenAndServe()
+		}
 		if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
 			listenErrCh <- listenErr
 		}
@@ -403,8 +433,9 @@ func run() (err error) {
 	tag := resolveImageTag()
 
 	// Network controller image: pulled from quay.io like every other
-	// sibling image. NC_IMAGE overrides the derived default (used by
-	// integration tests to inject localhost/town-os-networkcontroller:local).
+	// sibling image. NC_IMAGE overrides the derived default (the test and dev
+	// harnesses inject localhost/town-os-networkcontroller:<instance-id>,
+	// built on the host by the nc-image / nc-image-dev targets).
 	ncImage := os.Getenv("NC_IMAGE")
 	if ncImage == "" {
 		ncImage = "quay.io/town/networkcontroller:" + tag

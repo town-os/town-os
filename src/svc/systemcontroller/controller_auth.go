@@ -41,10 +41,32 @@ func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {
 		return err
 	}
 
-	acct, err := s.Controller.GetAccountManager().Authenticate(req.Username, req.Password)
+	// Throttle before hashing, not after: the cost this protects against is
+	// the argon2 call itself (64 MiB per attempt), so a refusal that still
+	// hashed would have paid for the attack it was refusing.
+	limiter, gate := s.loginThrottle()
+	source := loginSourceKey(c.Request())
+	if !limiter.allow(source) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, i18n.T(s.getLocale(), i18n.MsgAuthInvalidCredentials))
+	}
+	if !gate.acquire() {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(s.getLocale(), i18n.MsgAuthInvalidCredentials))
+	}
+	// Released through a defer inside the closure rather than after the call:
+	// a slot leaked by a panic would be gone for the life of the process, and
+	// four of them would wedge every login on the box until a restart.
+	acct, err := func() (*account.Account, error) {
+		defer gate.release()
+		return s.Controller.GetAccountManager().Authenticate(req.Username, req.Password)
+	}()
 	if err != nil {
 		return echo.NewHTTPError(401, i18n.T(s.getLocale(), i18n.MsgAuthInvalidCredentials))
 	}
+
+	// A proved-good password is not guessing. Clearing the window keeps a
+	// household behind one NAT address from walking into a lockout through
+	// ordinary use.
+	limiter.reset(source)
 
 	token, err := s.Controller.GetSessionManager().Create(req.Username)
 	if err != nil {
@@ -161,6 +183,27 @@ func (s *SystemControllerHandlers) localhostOrAuth(next echo.HandlerFunc) echo.H
 	}
 }
 
+// localhostOrAdmin is localhostOrAuth for data that an ordinary account has no
+// business reading: the systemd journal and the audit log.
+//
+// The journal carries every unit's ExecStart line, which for a package is a
+// `podman run` with its environment on it — database passwords, API keys, the
+// generated answers to `type: secret` questions. The audit log carries the
+// request bodies those answers arrived in. Both were readable by any
+// authenticated account, which made "has a dashboard login" equivalent to
+// "holds every credential on the box".
+//
+// Localhost keeps its pass, unchanged: it is how the controller's own tooling
+// reads these, and reaching loopback already means being on the box.
+func (s *SystemControllerHandlers) localhostOrAdmin(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		if isLocalhost(c.Request()) {
+			return next(c)
+		}
+		return s.requireAdmin(next)(c)
+	}
+}
+
 func (s *SystemControllerHandlers) requireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if s.Controller.GetSessionManager() == nil {
@@ -200,6 +243,22 @@ func (s *SystemControllerHandlers) callingAccount(c *echo.Context) *account.Acco
 		return nil
 	}
 	return acct
+}
+
+// callerIsAdmin answers whether the request carries an administrator's token.
+//
+// It exists for handlers that serve everybody but must serve an administrator
+// more — where the alternative is two routes returning two shapes of the same
+// thing. A nil session manager means authentication is not configured at all,
+// the same condition every auth middleware treats as "let it through", so it
+// answers true there: a handler must not redact its way to being useless on a
+// box that has no accounts.
+func (s *SystemControllerHandlers) callerIsAdmin(c *echo.Context) bool {
+	if s.Controller.GetSessionManager() == nil {
+		return true
+	}
+	acct := s.callingAccount(c)
+	return acct != nil && acct.Admin
 }
 
 // grantRoutes maps a route to the grant that unlocks it, keyed by
@@ -467,6 +526,15 @@ func sanitizeAuditDetail(body []byte) string {
 	if err := json.Unmarshal(body, &m); err != nil {
 		return ""
 	}
+	// A literal `null` unmarshals into a nil map WITHOUT an error, and
+	// json.Marshal of a nil map renders the string "null" — so the one JSON
+	// scalar that decodes into this type would otherwise reach the audit log as
+	// a detail of "null" rather than no detail at all. Every other non-object
+	// body (a bare array, a string, a number) fails the unmarshal above and is
+	// already handled.
+	if m == nil {
+		return ""
+	}
 
 	redactSensitive(m)
 
@@ -477,12 +545,97 @@ func sanitizeAuditDetail(body []byte) string {
 	return string(out)
 }
 
-// redactSensitive recursively removes keys named "password" from a map.
+// auditRedactedKeys are request-body fields whose value is a credential
+// wherever it appears. Matched case-insensitively against the whole key, and
+// against the key's suffix after the last underscore, so `smtp_password` and
+// `registration_secret` are caught without a substring match that would also
+// swallow innocuous names.
+var auditRedactedKeys = map[string]bool{
+	"password":     true,
+	"passwd":       true,
+	"secret":       true,
+	"token":        true,
+	"credential":   true,
+	"credentials":  true,
+	"private_key":  true,
+	"privatekey":   true,
+	"passphrase":   true,
+	"apikey":       true,
+	"api_key":      true,
+	"access_token": true,
+	"auth":         true,
+}
+
+// Deliberately NOT in that list: a bare "key". The suffix rule would then catch
+// `public_key`, which POST /networks/peers/add carries — and a WireGuard public
+// key is public by construction, while being the one field that says WHICH
+// device was enrolled. Redacting it would hide the answer to the question an
+// auditor opens the peer-enrollment log to ask, in exchange for protecting
+// something that is not a secret. The compound spellings that ARE credentials
+// (`private_key`, `api_key`, `apikey`) are listed explicitly instead.
+
+// auditOpaqueKeys are fields whose *entire subtree* is redacted rather than
+// walked.
+//
+// `responses` is a package's question answers keyed by the package author's
+// names, so there is no key vocabulary to match on: a Postgres package calls it
+// `dbpass`, a Synapse one `registration_secret`, a Plex one `plextoken`. The
+// values are exactly the credentials the audit log must not become a copy of,
+// and the audit entry's job is to record that an install happened and with
+// which package — not to reproduce its inputs.
+// Only `responses`. An account update's `fields` is deliberately NOT here: its
+// keys are a known, fixed vocabulary, so `password` inside it is caught by name
+// while `grants`, `networks`, and `real_name` survive — and a grant change is
+// exactly the thing an auditor is reading this log to find.
+var auditOpaqueKeys = map[string]bool{
+	"responses": true,
+}
+
+const auditRedacted = "[REDACTED]"
+
+// redactSensitive walks a decoded JSON body and masks credential-bearing
+// values in place.
+//
+// The previous version deleted a key literally named "password" from the
+// top-level map and from nested maps. That left every other spelling
+// (`smtp_password`, `token`), every credential inside an array, and — most
+// of all — the `responses` map of a package install, which is where the
+// generated `type: secret` answers live. Masking rather than deleting is
+// deliberate: an audit reader should see that a field was present and withheld,
+// not be unable to tell it from a request that never carried one.
 func redactSensitive(m map[string]any) {
-	delete(m, "password")
-	for _, v := range m {
-		if nested, ok := v.(map[string]any); ok {
-			redactSensitive(nested)
+	for k, v := range m {
+		lower := strings.ToLower(k)
+		if auditOpaqueKeys[lower] {
+			m[k] = auditRedacted
+			continue
+		}
+		if auditRedactedKeys[lower] || auditRedactedKeys[keySuffix(lower)] {
+			m[k] = auditRedacted
+			continue
+		}
+		redactSensitiveValue(v)
+	}
+}
+
+// keySuffix returns the part of a key after its last underscore, so
+// `smtp_password` matches `password`. A key with no underscore returns itself.
+func keySuffix(key string) string {
+	if idx := strings.LastIndex(key, "_"); idx >= 0 && idx+1 < len(key) {
+		return key[idx+1:]
+	}
+	return key
+}
+
+// redactSensitiveValue recurses into maps and arrays. Arrays matter: a body
+// carrying a list of objects hid every credential in them from the old walker.
+func redactSensitiveValue(v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		redactSensitive(t)
+	case []any:
+		for _, item := range t {
+			redactSensitiveValue(item)
 		}
 	}
 }

@@ -328,6 +328,14 @@ func (s *SystemControllerHandlers) listNetworkPeers(c *echo.Context) error {
 	if network == "" {
 		return echo.NewHTTPError(400, "network is required")
 	}
+	// Same confinement peers/add and peers/refresh apply, for the same reason:
+	// the route is on the wireguard grant's allowlist, so a scoped account
+	// reaches it, and a peer list names devices, the accounts that enrolled
+	// them, and their overlay addresses. A grant is authority over the caller's
+	// own networks, and a read is where that is easiest to forget.
+	if err := s.requireNetworkScope(c, network); err != nil {
+		return err
+	}
 	nm := s.Controller.GetNetworkManager()
 	if nm == nil {
 		return c.JSON(200, []account.NetworkPeer{})

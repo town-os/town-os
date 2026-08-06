@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import InstallQuestionsDialog from './InstallQuestionsDialog.jsx'
 
@@ -377,13 +377,17 @@ describe('InstallQuestionsDialog oauth questions', () => {
     vi.spyOn(window, 'open').mockImplementation(() => null)
   })
 
-  it('renders a Connect button rather than a text field', () => {
+  it('renders a Connect button rather than a text field', async () => {
     renderDialog({ dialog: oauthDialog })
 
     expect(screen.getByRole('button', { name: 'Connect' })).toBeTruthy()
     // A token is not something anyone types; there must be no text input to type
     // it into.
     expect(screen.queryByRole('textbox')).toBeNull()
+    // Drain the fetches the dialog's mount started, inside act. Without this
+    // they resolve after the test returns and React warns about a state update
+    // outside act — on whichever test is unlucky enough to be running then.
+    await act(async () => {})
   })
 
   it('opens the approval page and submits the token the flow returns', async () => {
@@ -453,7 +457,7 @@ describe('InstallQuestionsDialog oauth questions', () => {
 
   // Reinstalling must not force the operator back through the provider: the token
   // from the previous install is already a valid answer.
-  it('treats a cached token as already connected', () => {
+  it('treats a cached token as already connected', async () => {
     renderDialog({
       dialog: { ...oauthDialog, responses: { plextoken: 'saved-token' } },
     })
@@ -461,6 +465,7 @@ describe('InstallQuestionsDialog oauth questions', () => {
     expect(screen.getByText('Connected')).toBeTruthy()
     expect(document.querySelector('input[name="plextoken"]').value).toBe('saved-token')
     expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy()
+    await act(async () => {})
   })
 })
 

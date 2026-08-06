@@ -63,6 +63,26 @@ func isReservedFilesystem(name string) bool {
 	return false
 }
 
+// validateUserFilesystemName rejects a submitted volume name that could not be
+// confined by the user/ prefix the handlers prepend.
+//
+// The prefix is the whole of a user volume's namespacing, and it is not a
+// boundary on its own: filepath.Join collapses "..", so `../gfeh/home` becomes
+// `user/../gfeh/home` and addresses a partition nobody meant to expose. It also
+// slips past isReservedFilesystem, which matches on a leading prefix the
+// traversal does not have yet. Validating the name BEFORE it is prefixed is
+// what makes the reserved-name check mean what it reads as.
+//
+// storage.ValidateFilesystemName is the same predicate CreateFilesystem
+// applies, so nothing this rejects could have been created here in the first
+// place.
+func validateUserFilesystemName(name string) error {
+	if err := storage.ValidateFilesystemName(name); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return nil
+}
+
 // isPackageVolume returns true when name is an installed or uninstalled package
 // volume path (has an installed/ or uninstalled/ prefix followed by content).
 func isPackageVolume(name string) bool {
@@ -315,6 +335,10 @@ func (s *SystemControllerHandlers) createFilesystem(c *echo.Context) error {
 		return storage.ErrReservedFilesystem
 	}
 
+	if err := validateUserFilesystemName(fs.Name); err != nil {
+		return err
+	}
+
 	if isReservedFilesystem(fs.Name) {
 		return storage.ErrReservedFilesystem
 	}
@@ -346,6 +370,10 @@ func (s *SystemControllerHandlers) removeFilesystem(c *echo.Context) error {
 		return storage.ErrRootFilesystem
 	}
 
+	if err := validateUserFilesystemName(fs.Name); err != nil {
+		return err
+	}
+
 	if isReservedFilesystem(fs.Name) {
 		return storage.ErrReservedFilesystem
 	}
@@ -368,6 +396,19 @@ func (s *SystemControllerHandlers) modifyFilesystem(c *echo.Context) error {
 
 	if req.Name == "" {
 		return storage.ErrRootFilesystem
+	}
+
+	// Both names: the one being modified and the one it is being renamed to.
+	// A traversal in either escapes the user/ namespace — in the target it
+	// writes outside it, in the source it reads (and renames) something that
+	// was never the caller's.
+	if err := validateUserFilesystemName(req.Name); err != nil {
+		return err
+	}
+	if req.Filesystem.Name != "" {
+		if err := validateUserFilesystemName(req.Filesystem.Name); err != nil {
+			return err
+		}
 	}
 
 	if isPackageVolume(req.Name) && req.Filesystem.Name != req.Name {
@@ -540,6 +581,20 @@ func (s *SystemControllerHandlers) listFilesystems(c *echo.Context) error {
 		return err
 	}
 
+	// Deliberately NOT validated as a filesystem name, unlike create, remove,
+	// and modify.
+	//
+	// This is a prefix, not a name: `sc-nest/` means "everything under
+	// sc-nest", and a name validator rejects it for ending in an empty path
+	// component. More to the point, nothing here ever becomes a path — the
+	// storage layer lists from its own base and uses this only as a
+	// strings.HasPrefix filter over the names it found. A traversal in it
+	// cannot escape anything; since user/ is prepended unconditionally, a
+	// prefix like `../gfeh/` simply becomes `user/../gfeh/`, which is not a
+	// prefix of any real subvolume name and matches nothing.
+	//
+	// The write paths are where a name is joined onto the btrfs base and does
+	// become a path. Those validate; see validateUserFilesystemName.
 	prefix := fs.Name
 	if prefix != "" {
 		prefix = fmt.Sprintf("%s/%s", UserVolumePrefix, prefix)
