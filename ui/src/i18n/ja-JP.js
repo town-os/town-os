@@ -856,6 +856,7 @@ const jaJP = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': '直接ポート',
   'objects.no_names': 'このパーティションは公開アドレスを持ちません。',
+  'objects.stopped_no_names': 'このパーティションのデーモンが応答していないため、アドレスは公開されていません。Town OS が数分ごとに再試行します。',
   'objects.col_user': 'ユーザー',
   'objects.col_ceiling': '上限',
   'objects.col_kind': '種類',

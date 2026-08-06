@@ -29,6 +29,13 @@ case "$1" in
     step "Cleaning image cache"
     ${SUDO} rm -rf "${IMAGE_CACHE}"
     ;;
+  bun-cache)
+    # Not swept by `clean`: the point of a host-wide package cache is to outlive
+    # any one checkout, and `make clean` runs often enough that folding it in
+    # would mean re-downloading npmjs most days. Deliberate, and separate.
+    step "Cleaning bun package cache"
+    rm -rf "${BUN_CACHE}"
+    ;;
   containers)
     step "Cleaning all town-os containers"
     # Remove all town-os containers from any working directory / instance.
@@ -47,7 +54,7 @@ case "$1" in
     ${SUDO} podman volume prune -f 2>/dev/null || true
     ;;
   *)
-    echo "Usage: $0 {integration|cache|main|image-cache|containers}"
+    echo "Usage: $0 {integration|cache|main|image-cache|bun-cache|containers}"
     exit 1
     ;;
 esac

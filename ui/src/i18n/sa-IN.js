@@ -856,6 +856,7 @@ const saIN = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'अस्य विभागस्य सेवकः प्रत्युत्तरं न ददाति, अतः कोऽपि सङ्केतः न प्रकाश्यते। Town OS प्रतिकतिपयनिमेषं पुनः प्रयतते।',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

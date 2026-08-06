@@ -24,6 +24,19 @@ mkdir -p "${STATE_DIR}" 2>/dev/null || true
 # Arch/Manjaro/Fedora, so btrfs backing images must NOT live in STATE_DIR.
 BTRFS_IMAGE_DIR="${BTRFS_IMAGE_DIR:-${PWD}/.cache/btrfs}"
 
+# ---------------------------------------------------------------------------
+# Host-wide npmjs package cache
+# ---------------------------------------------------------------------------
+# Defaulted here as well as in the Makefile so a script invoked directly still
+# lands in the shared cache. Bun silently falls back to ~/.bun/install/cache when
+# it is told nothing, which is how a build ends up re-downloading the world into
+# a directory nothing else reads. Every bun in this tree — host-side via
+# bun_install, and the container builds via the /bun-cache mount — resolves to
+# this one directory.
+BUN_CACHE="${BUN_CACHE:-${HOME}/.cache/town-os/bun}"
+BUN_INSTALL_CACHE_DIR="${BUN_INSTALL_CACHE_DIR:-${BUN_CACHE}}"
+export BUN_CACHE BUN_INSTALL_CACHE_DIR
+
 # require_disk_backed DIR — create DIR and abort if it resolves to a tmpfs/
 # ramfs mount. Guards against re-introducing the loop-over-tmpfs host reboot
 # when BTRFS_IMAGE_DIR is overridden or the checkout itself sits on tmpfs.
@@ -286,8 +299,10 @@ image_cache_tar() {
 
 # save_image_cache IMAGE — save an image to the global cache, replacing any existing tar.
 # The write is atomic (temp file + mv) because IMAGE_CACHE is shared across concurrent
-# `make test-full` runs (which now always refresh it via the pull-images prerequisite):
-# a reader loading the tar must never observe a partial `podman save` mid-write. The
+# `make test-full` runs (which refresh it through pull-images-daily, and through the
+# repair pull ensure-cache triggers when a tar is missing): a reader loading the tar
+# must never observe a partial `podman save` mid-write. It also means an interrupted
+# pull leaves at most a stray .tmp file, never a truncated cache entry. The
 # temp name is per-PID unique so concurrent writers don't collide, and `mv` on the same
 # filesystem atomically replaces the target — IRON RULE.
 save_image_cache() {
@@ -373,6 +388,49 @@ load_images_into_container() {
 }
 
 # ---------------------------------------------------------------------------
+# Upstream freshness stamps
+# ---------------------------------------------------------------------------
+#
+# Two registries, one question: how old may our picture of upstream be before we
+# go look again. `make test-full` used to re-pull every image and let every bun
+# install re-resolve against npmjs on every single run — gigabytes of traffic and
+# a hard dependency on the network, usually to learn that nothing had moved.
+#
+# A stamp file per cache records when we last checked. PULL_MAX_AGE (default a
+# day) is the window; `make pull-images` forces an image check regardless, and
+# deleting a stamp forces the other.
+
+# stamp_fresh STAMP — true when STAMP exists and is younger than PULL_MAX_AGE.
+#
+# A missing or unreadable stamp is deliberately NOT fresh: the cost of an extra
+# check is a little time, and the cost of wrongly skipping one is a build against
+# stale dependencies, which is the failure nobody attributes to caching.
+stamp_fresh() {
+  local stamp="$1" max_age="${PULL_MAX_AGE:-86400}" stamped age
+
+  [ -f "${stamp}" ] || return 1
+  stamped="$(stat -c %Y "${stamp}" 2>/dev/null)" || return 1
+  age=$(( $(date +%s) - stamped ))
+  # A negative age is a clock that moved backwards (or a file stamped in the
+  # future); treat it as stale rather than as fresh forever.
+  [ "${age}" -ge 0 ] && [ "${age}" -lt "${max_age}" ]
+}
+
+# stamp_age_human STAMP — the stamp's age as "3h 20m", for log lines.
+stamp_age_human() {
+  local stamped age
+  stamped="$(stat -c %Y "$1" 2>/dev/null)" || { printf 'unknown time'; return; }
+  age=$(( $(date +%s) - stamped ))
+  printf '%dh %dm' "$(( age / 3600 ))" "$(( age % 3600 / 60 ))"
+}
+
+# stamp_touch STAMP — record a successful upstream check.
+stamp_touch() {
+  mkdir -p "$(dirname "$1")"
+  touch "$1"
+}
+
+# ---------------------------------------------------------------------------
 # UI dependency install
 # ---------------------------------------------------------------------------
 
@@ -388,14 +446,56 @@ load_images_into_container() {
 # buries the failure that matters. What is missing is a start line, the elapsed
 # time, and enough context (which directory, which bun) to tell a slow install
 # from a wedged one.
+#
+# The cache directory is passed explicitly rather than left to the environment.
+# Bun falls back to ~/.bun/install/cache when BUN_INSTALL_CACHE_DIR is unset, so
+# any caller reached without the Makefile's environment — a script run by hand,
+# a sudo that dropped it — would quietly fill a second cache while the shared one
+# went unused. --cache-dir makes "always the local cache" true by construction.
+#
+# Within PULL_MAX_AGE of the last check we install --frozen-lockfile: bun then
+# installs exactly what the lockfile pins and asks npmjs for nothing. Once a day
+# a plain install lets it refresh its manifests, which is the only thing here
+# that legitimately needs the network.
 bun_install() {
   local dir="${1:-ui}"
   local start=${SECONDS}
+  local cache="${BUN_INSTALL_CACHE_DIR:-${BUN_CACHE:-${HOME}/.cache/town-os/bun}}"
+  local stamp="${BUN_STAMP:-.cache/.bun-refreshed-daily}"
+  local -a flags=(--cache-dir "${cache}")
+  local refreshing=1
 
-  substep "bun install (${dir}, $(bun --version 2>/dev/null || echo 'bun version unknown'))"
-  if ! (cd "${dir}" && bun install); then
+  mkdir -p "${cache}"
+
+  if stamp_fresh "${stamp}"; then
+    refreshing=0
+    flags+=(--frozen-lockfile)
+    substep "bun install (${dir}, $(bun --version 2>/dev/null || echo 'bun version unknown'), cached — last refresh $(stamp_age_human "${stamp}") ago)"
+  else
+    substep "bun install (${dir}, $(bun --version 2>/dev/null || echo 'bun version unknown'), refreshing from npmjs)"
+  fi
+
+  if ! (cd "${dir}" && bun install "${flags[@]}"); then
+    # --frozen-lockfile fails outright when package.json has moved ahead of the
+    # lockfile, which is an ordinary thing to happen mid-branch and not a reason
+    # to stop the build. Retry against the registry and count it as the day's
+    # refresh, so the next run is cheap again.
+    if [ "${refreshing}" -eq 0 ]; then
+      warn "bun install from cache failed in ${dir} (lockfile likely out of date); refreshing from npmjs"
+      if ! (cd "${dir}" && bun install --cache-dir "${cache}"); then
+        warn "bun install failed in ${dir} after $((SECONDS - start))s"
+        return 1
+      fi
+      stamp_touch "${stamp}"
+      substep "bun install finished in $((SECONDS - start))s"
+      return 0
+    fi
     warn "bun install failed in ${dir} after $((SECONDS - start))s"
     return 1
+  fi
+
+  if [ "${refreshing}" -eq 1 ]; then
+    stamp_touch "${stamp}"
   fi
   substep "bun install finished in $((SECONDS - start))s"
 }

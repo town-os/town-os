@@ -532,6 +532,23 @@ func run() (err error) {
 		uiImage = "quay.io/town/ui:" + tag
 	}
 
+	// Object storage: one gfeh partition per network, each its own daemon.
+	//
+	// GFEH_IMAGE explicitly empty skips it entirely (dev mode), the same
+	// LookupEnv convention UI_IMAGE and INGRESS_IMAGE use — Getenv would make
+	// an empty value mean "use the default" and there would be no off switch.
+	//
+	// Resolved here, well above the partitions themselves, for one reason: the
+	// image has to be in the boot pull set below. It was not, and it is the only
+	// system-service image that was not. On a cold box that meant the very first
+	// `podman run` in the unit did the pull — a Rust daemon's worth of layers —
+	// while the socket-readiness wait counted down, expired, and left object
+	// storage reading as down for the rest of the boot.
+	gfehImage := os.Getenv("GFEH_IMAGE")
+	if _, gfehSet := os.LookupEnv("GFEH_IMAGE"); !gfehSet {
+		gfehImage = "quay.io/town/gfeh:" + tag
+	}
+
 	// Host ports for the three monitoring system services. The zero value means
 	// the production defaults; the harness relocates them (see ports.go).
 	monPorts := monitoringPortsFromEnv()
@@ -552,23 +569,7 @@ func run() (err error) {
 	}
 
 	bs.Step("boot_services")
-	// Pull container images in parallel (non-fatal). The NC image is
-	// included here so the systemd units that reference it have a loaded
-	// image ready before they start. Every package NC unit also includes
-	// an ExecStartPre --pull=never network-create fallback, so a pull
-	// failure here is recoverable on the next boot.
-	coreImages := []string{
-		ncImage,
-		monitoring.PrometheusImage,
-		monitoring.NodeExporterImage,
-	}
-	if uiImage != "" {
-		coreImages = append(coreImages, uiImage)
-	}
-	if monBackend == monitoring.BackendGrafana {
-		coreImages = append(coreImages, monitoring.GrafanaImage)
-	}
-	parallelEnsureImages(ctx, coreImages)
+	parallelEnsureImages(ctx, coreBootImages(ncImage, uiImage, gfehImage, monBackend))
 
 	// Tear down obsolete monitoring units from the previous (NC + socket)
 	// design before starting the new host-net services. On an in-place
@@ -659,15 +660,9 @@ func run() (err error) {
 		}
 	}
 
-	// Object storage: one gfeh partition per network, each its own daemon.
-	//
-	// GFEH_IMAGE explicitly empty skips it entirely (dev mode), the same
-	// LookupEnv convention UI_IMAGE and INGRESS_IMAGE use — Getenv would make
-	// an empty value mean "use the default" and there would be no off switch.
-	gfehImage := os.Getenv("GFEH_IMAGE")
-	if _, set := os.LookupEnv("GFEH_IMAGE"); !set {
-		gfehImage = "quay.io/town/gfeh:" + tag
-	}
+	// The partitions themselves. gfehImage was resolved above so it could join
+	// the boot pull set; by here the image is local and the units start against
+	// it rather than against a registry.
 	var gfehReg systemcontroller.GfehRegistry
 	if gfehImage != "" {
 		// Gated on the ingress: the four HTTP views publish no host port and
@@ -1055,6 +1050,39 @@ var ensureImage = func(ctx context.Context, image string) error {
 		return fmt.Errorf("pull %s: %w: %s", image, pullErr, string(out))
 	}
 	return nil
+}
+
+// coreBootImages is the set of container images pulled before any system
+// service starts.
+//
+// Every image a boot-time unit references belongs here, and the reason is
+// ordering, not speed: a unit whose image is not local does the pull itself
+// inside `podman run`, which means the readiness wait that follows is racing a
+// registry download. That is precisely how object storage came to be reliably
+// down on a cold boot — gfeh was the one system-service image missing from this
+// list, so its daemon started by pulling a Rust binary's worth of layers while
+// the socket wait timed out under it.
+//
+// An empty string means the service is disabled for this build (the LookupEnv
+// convention UI_IMAGE, INGRESS_IMAGE and GFEH_IMAGE share), and there is
+// nothing to pull for something that will not run.
+func coreBootImages(ncImage, uiImage, gfehImage, monBackend string) []string {
+	images := []string{
+		ncImage,
+		monitoring.PrometheusImage,
+		monitoring.NodeExporterImage,
+	}
+	for _, optional := range []string{uiImage, gfehImage} {
+		if optional != "" {
+			images = append(images, optional)
+		}
+	}
+	// Grafana is ~771 MB and only one of the two monitoring backends, so it is
+	// pulled only when it is the selected one.
+	if monBackend == monitoring.BackendGrafana {
+		images = append(images, monitoring.GrafanaImage)
+	}
+	return images
 }
 
 // parallelEnsureImages runs ensureImage concurrently across the given

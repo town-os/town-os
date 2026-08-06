@@ -856,6 +856,7 @@ const hiIN = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'इस पार्टीशन का डेमॉन उत्तर नहीं दे रहा है, इसलिए कोई पता प्रकाशित नहीं किया जा रहा है। Town OS हर कुछ मिनट में पुनः प्रयास करता है।',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

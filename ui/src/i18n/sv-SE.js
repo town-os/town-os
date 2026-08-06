@@ -856,6 +856,7 @@ const svSE = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'Den här partitionens daemon svarar inte, så inga adresser publiceras. Town OS försöker igen med några minuters mellanrum.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

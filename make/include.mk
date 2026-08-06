@@ -49,6 +49,9 @@ $(STATE_DIR)/.images-pulled:
 pull-images:
 	@make/images.sh pull
 
+pull-images-daily:
+	@make/images.sh pull-daily
+
 ui-image:
 	@make/build.sh ui-local
 
@@ -267,6 +270,9 @@ clean-cache:
 
 clean-image-cache:
 	@make/clean.sh image-cache
+
+clean-bun-cache:
+	@make/clean.sh bun-cache
 
 clean-containers:
 	@make/clean.sh containers

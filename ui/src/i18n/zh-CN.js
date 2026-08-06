@@ -856,6 +856,7 @@ const zhCN = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': '直连端口',
   'objects.no_names': '此分区未发布任何地址。',
+  'objects.stopped_no_names': '此分区的守护进程没有响应，因此未发布任何地址。Town OS 会每隔几分钟重试一次。',
   'objects.col_user': '用户',
   'objects.col_ceiling': '上限',
   'objects.col_kind': '类型',

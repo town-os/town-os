@@ -229,6 +229,21 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 		NetworkName:   cfg.NetworkName,
 	})
 
+	// Registered before anything below can fail, and never unregistered by a
+	// failure.
+	//
+	// A partition whose daemon did not come up is a partition that is *down*; a
+	// box with no partitions at all is a box built without object storage. Those
+	// are different facts and they share one screen. Registering at the end made
+	// them indistinguishable: any error here dropped the network from the
+	// registry, GET /gfeh answered with an empty list, and the UI rendered
+	// "object storage is not configured" — the one thing that is never true of a
+	// box that has networks. The name collectors skip a client that does not
+	// answer, so an unhealthy entry publishes nothing and costs nothing; all it
+	// does is let the UI say which partition is down, and let the periodic
+	// reconcile find it again.
+	cfg.Registry.set(network, m)
+
 	if err := ensureGfehPartitionVolume(cfg.Storage, cfg.BtrfsBasePath, network, quota); err != nil {
 		return err
 	}
@@ -258,8 +273,32 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 		slog.Debug("gfeh partition not ready yet", "network", network, "error", err)
 	}
 
-	cfg.Registry.set(network, m)
 	return nil
+}
+
+// GfehReadyNetworks is the sorted set of partitions whose daemon answers right
+// now.
+//
+// The poller compares this across a reconcile to decide whether to republish:
+// a partition that has just started answering has names nothing has asked it
+// for yet, and one that has stopped has names still being served for it. Both
+// need a rebuild; a pass where nothing changed needs none, which is what keeps
+// the tick from reloading the ingress every few minutes forever.
+func GfehReadyNetworks(ctx context.Context, reg GfehRegistry) []string {
+	if reg == nil {
+		return nil
+	}
+	var ready []string
+	for network, client := range reg.Clients() {
+		if client == nil {
+			continue
+		}
+		if _, err := client.Health(ctx); err == nil {
+			ready = append(ready, network)
+		}
+	}
+	sort.Strings(ready)
+	return ready
 }
 
 // ensureGfehPartitionVolume creates or resizes the partition's subvolume, with

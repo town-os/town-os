@@ -856,6 +856,7 @@ const ruRU = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'Демон этого раздела не отвечает, поэтому адреса не публикуются. Town OS повторяет попытку каждые несколько минут.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

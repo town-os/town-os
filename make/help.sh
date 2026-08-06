@@ -20,7 +20,10 @@ Setup
                           go, bun, podman, runc, btrfs, golangci-lint,
                           python3, libsystemd.
   pull-images             Pull every base/monitoring/rolodex image into the
-                          shared image cache.
+                          shared image cache. Always pulls.
+  pull-images-daily       The same pull, but at most once a day (what test-full
+                          and dev run). Same window as the bun refresh; override
+                          with PULL_MAX_AGE=<seconds>.
   ensure-image-cache      Create the shared image cache directory.
   docker-login            Log in to docker.io with DOCKER_USERNAME/PASSWORD.
   quay-login              Log in to quay.io with QUAY_USERNAME/PASSWORD.
@@ -110,6 +113,8 @@ Cleanup
   clean                   Remove cached state for this working tree.
   clean-cache             Remove the per-working-tree cache directory.
   clean-image-cache       Remove the shared image cache.
+  clean-bun-cache         Remove the host-wide bun package cache. Not swept by
+                          clean: it is meant to outlive a checkout.
   clean-btrfs             Unmount and detach the btrfs loopback device.
   clean-btrfs-dev         Unmount and detach the dev btrfs loopback device.
   clean-containers        Remove all town-os-* containers on the host.
@@ -136,6 +141,13 @@ Variables
   PUSH_TAG=<tag>          Tag used by push-tag.
   ARCHES="x86_64 aarch64" Architectures the manifest-* targets assemble.
   IMAGE_CACHE=<dir>       Shared image cache (default /var/cache/town-os/images).
+  BUN_CACHE=<dir>         Host-wide npmjs package cache, shared by host-side bun
+                          installs and the UI container builds
+                          (default ~/.cache/town-os/bun).
+  PULL_MAX_AGE=<seconds>  How stale our picture of upstream may get before
+                          test-full and dev re-pull images and let bun
+                          re-resolve against npmjs (default 86400, one day).
+                          0 checks every run.
   BTRFS_IMAGE_DIR=<dir>   Where btrfs loopback backing images live. Must be a
                           real disk, never tmpfs (default .cache/btrfs).
   ROLODEX_IMAGE_TAG=<tag> Rolodex tag to pull, always arch-suffixed

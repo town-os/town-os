@@ -856,6 +856,7 @@ const nlNL = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'De daemon van deze partitie reageert niet, dus er worden geen adressen gepubliceerd. Town OS probeert het om de paar minuten opnieuw.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

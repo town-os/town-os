@@ -856,6 +856,7 @@ const zhTW = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': '此分割區的守護行程沒有回應，因此未發佈任何位址。Town OS 會每隔幾分鐘重試一次。',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

@@ -856,6 +856,7 @@ const koKR = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': '이 파티션의 데몬이 응답하지 않아 주소가 게시되지 않습니다. Town OS가 몇 분마다 다시 시도합니다.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

@@ -21,12 +21,12 @@ ARCH="$(host_arch_tag)"
 case "$1" in
   production)
     step "Building production image"
-    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${PODMAN_IMAGE}" -f Containerfile .
     ;;
   test)
@@ -41,11 +41,11 @@ case "$1" in
     ;;
   dev-base)
     step "Building dev base image"
-    mkdir -p .cache/dev-go-mod .cache/dev-go-build .cache/bun
+    mkdir -p .cache/dev-go-mod .cache/dev-go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --volume "$(pwd)/.cache/dev-go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/dev-go-build:/root/.cache/go-build:z" \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${PODMAN_DEV_BASE}" -f Containerfile .
     ;;
   dev)
@@ -59,9 +59,9 @@ case "$1" in
     step "Building UI integration image"
     # --no-cache reruns bun install on every build; the mounted bun cache
     # keeps it off the network once warm.
-    mkdir -p .cache/bun
+    mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never --no-cache \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${PODMAN_UI_IMAGE}" -f integration/testdata/Containerfile.ui-integration .
     ;;
   # Local UI image for tests. Built from the in-repo UI source so it always
@@ -70,9 +70,9 @@ case "$1" in
   # load_images_into_container can copy it into test containers.
   ui-local)
     step "Building local UI test image"
-    mkdir -p .cache/bun
+    mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${UI_IMAGE}" -f Containerfile.ui .
     save_image_cache "${UI_IMAGE}"
     ;;
@@ -126,12 +126,12 @@ case "$1" in
     ;;
   release)
     step "Building release image"
-    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${RELEASE_IMAGE}" -f Containerfile .
     ;;
   release-ui)
@@ -143,10 +143,10 @@ case "$1" in
     # the UI the box serves — stays frozen at whatever bun last built. Unlike the
     # controller (whose daily TOWN_OS_TAG build-arg busts its cache) the UI has
     # no changing input, so a cache hit silently ships an old UI. The mounted
-    # .cache/bun keeps bun install fast despite --no-cache.
-    mkdir -p .cache/bun
+    # The mounted host bun cache keeps bun install fast despite --no-cache.
+    mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never --no-cache \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
     ;;
   release-proton)
@@ -205,12 +205,12 @@ case "$1" in
     # derives matching per-arch sibling image tags (UI, rolodex, NC).
     # All quay.io/town/* images MUST use the same tag within a release.
     substep "Building ${RELEASE_IMAGE} with tag rc.${DATE_TAG}-${ARCH}"
-    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" -f Containerfile .
     substep "Tagging ${RELEASE_IMAGE}:rc.latest-${ARCH}"
     ${SUDO} podman tag "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:rc.latest-${ARCH}"
@@ -287,12 +287,12 @@ case "$1" in
     # derives matching per-arch sibling image tags (UI, rolodex, NC).
     # All quay.io/town/* images MUST use the same tag within a release.
     substep "Building ${RELEASE_IMAGE} with tag release.${DATE_TAG}-${ARCH}"
-    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" -f Containerfile .
     substep "Tagging ${RELEASE_IMAGE}:latest-${ARCH}"
     ${SUDO} podman tag "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:latest-${ARCH}"
@@ -503,12 +503,12 @@ case "$1" in
     # controller resolves it at runtime from TOWN_OS_TAG (set on its systemd
     # unit by the install build system), defaulting to rc.latest-<arch>.
     substep "Building ${RELEASE_IMAGE}:${TAG}"
-    mkdir -p .cache/go-mod .cache/go-build .cache/bun
+    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "$(pwd)/.cache/bun:/bun-cache:z" \
+      --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${RELEASE_IMAGE}:${TAG}" -f Containerfile .
     substep "Pushing ${RELEASE_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_IMAGE}:${TAG}"

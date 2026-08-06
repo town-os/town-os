@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,6 +46,25 @@ const (
 	// drift introduced by a rolodex restart or a dropped install/uninstall
 	// DNS call without waiting for the next systemcontroller restart.
 	defaultPollerDNSInterval = 1 * time.Hour
+
+	// Object-storage convergence tick.
+	//
+	// Every comment in the gfeh reconcile path calls the periodic reconcile its
+	// backstop — "the next reconcile will try again", "the periodic reconcile is
+	// the backstop", "the names are published by the next reconcile" — and until
+	// this existed there was no next reconcile. ReconcileGfeh ran once at boot
+	// and again after network CRUD, so a partition that lost a race at boot (the
+	// image still pulling, podman not yet up, the ingress network not yet
+	// created) stayed down until somebody restarted the controller. That is the
+	// "object storage never works on boot" report: it is not that boot is wrong,
+	// it is that boot was the only attempt.
+	//
+	// Five minutes rather than the DNS tick's hour: this is the pass that gets a
+	// partition running at all, and an hour of dead object storage after a cold
+	// boot is indistinguishable from broken. Cheap at steady state — an
+	// unchanged config and unit means no restart, and a republish only happens
+	// when the set of answering partitions actually moved.
+	defaultPollerGfehInterval = 5 * time.Minute
 
 	// externalIPFetchTimeout bounds a single ipinfo.io request (DNS + TCP
 	// connect + TLS handshake + body read). 30s is deliberately generous:
@@ -93,6 +113,7 @@ type serverBase struct {
 	pollerExternalEvery      int
 	pollerStableTicks        int
 	pollerDNSInterval        time.Duration
+	pollerGfehInterval       time.Duration
 	pollerInternalDiscoverer   func() string
 	pollerInternalV6Discoverer func() string
 	pollerReconcileDNS         func(ctx context.Context, oldIP, newIP string) error
@@ -100,6 +121,14 @@ type serverBase struct {
 	// via rolodex); tests inject a fake to observe invocations without
 	// wiring up a full rolodex.
 	pollerDNSReconciler func(ctx context.Context) error
+
+	// gfehLastReady is the set of object-storage partitions that were answering
+	// at the last tick, sorted. The tick republishes on a difference against
+	// this rather than against the start of its own pass — see tickGfehPoll.
+	// Its own mutex: the gfeh tick runs on a separate goroutine from the
+	// network poller, and nothing else reads this.
+	gfehMu        sync.Mutex
+	gfehLastReady []string
 
 	// externalIPURL overrides defaultExternalIPURL; tests set it to an
 	// httptest.Server URL. externalIPStartupBackoffs overrides
@@ -369,6 +398,70 @@ func (s *serverBase) pollerDNSIntervalValue() time.Duration {
 		return s.pollerDNSInterval
 	}
 	return defaultPollerDNSInterval
+}
+
+func (s *serverBase) pollerGfehIntervalValue() time.Duration {
+	if s.pollerGfehInterval > 0 {
+		return s.pollerGfehInterval
+	}
+	return defaultPollerGfehInterval
+}
+
+// tickGfehPoll runs one iteration of the object-storage convergence loop: it
+// re-converges the partitions onto the network set, and republishes the derived
+// names when — and only when — the set of answering partitions moved.
+//
+// Both halves matter. The reconcile is what actually brings up a partition that
+// failed at boot: it re-renders the config, re-installs and restarts the unit if
+// either changed, and waits for the socket. The republish is what makes a
+// partition that has just come up *reachable*: its names are asked for at
+// rebuild time, so a partition that started after the last rebuild contributes
+// nothing to DNS or the ingress until the next one, and the ingress has no other
+// periodic pass at all.
+//
+// Guarded on the ready set rather than run unconditionally: RebuildIngress
+// pushes the whole route set and RebuildDNS tears down and rebuilds the zone, so
+// doing that every five minutes for no reason is a reload storm and a window in
+// which names briefly do not resolve.
+//
+// **The comparison is against the last tick, not against the start of this
+// one.** Most partitions do not come up because this reconcile started them —
+// the units carry Restart=always, so systemd brings them back on its own, and a
+// cold-boot partition finishes pulling its image and starts answering somewhere
+// between two ticks. Comparing the ready set before and after the reconcile
+// inside a single tick only ever sees changes the reconcile itself caused, so
+// exactly the case this poller exists for — a partition that came up by itself
+// after boot gave up publishing — would be silently skipped.
+//
+// The remembered set starts empty, so the first tick on a box with a live
+// partition republishes once. That is deliberate rather than tolerated: boot
+// publishes names asynchronously and gives up if nothing answers in time, and
+// this is the pass that covers it.
+func (s *serverBase) tickGfehPoll(ctx context.Context) {
+	reg := s.GetGfehRegistry()
+	if reg == nil {
+		return
+	}
+
+	ReconcileGfehRegistry(ctx, reg)
+	ready := GfehReadyNetworks(ctx, reg)
+
+	s.gfehMu.Lock()
+	previous := s.gfehLastReady
+	changed := !slices.Equal(previous, ready)
+	if changed {
+		s.gfehLastReady = ready
+	}
+	s.gfehMu.Unlock()
+
+	if !changed {
+		return
+	}
+	slog.Info("object-storage partitions changed state; republishing their names",
+		"was", previous, "now", ready)
+
+	getHandler(ctx, s).reprogramIngress(ctx)
+	s.tickDNSPoll(ctx)
 }
 
 // tickDNSPoll runs one iteration of the hourly DNS drift-repair loop. It
@@ -735,6 +828,21 @@ func (s *serverBase) startNetworkPoller(ctx context.Context) {
 				return
 			case <-ticker.C:
 				s.tickDNSPoll(ctx)
+			}
+		}
+	}()
+
+	// Object-storage convergence tick. Own goroutine so a partition that takes
+	// the full socket-readiness wait to answer cannot stall the IP or DNS ticks.
+	go func() {
+		ticker := time.NewTicker(s.pollerGfehIntervalValue())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.tickGfehPoll(ctx)
 			}
 		}
 	}()

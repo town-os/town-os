@@ -856,6 +856,7 @@ const ptBR = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'O daemon desta partição não está respondendo, portanto nenhum endereço é publicado. O Town OS tenta novamente a cada poucos minutos.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

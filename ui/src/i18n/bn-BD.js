@@ -856,6 +856,7 @@ const bnBD = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'এই পার্টিশনের ডেমন সাড়া দিচ্ছে না, তাই কোনো ঠিকানা প্রকাশ করা হচ্ছে না। Town OS প্রতি কয়েক মিনিটে আবার চেষ্টা করে।',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

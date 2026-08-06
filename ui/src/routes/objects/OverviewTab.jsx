@@ -17,7 +17,19 @@ export default function OverviewTab({ partition }) {
 
   const names = partition.names || []
   if (names.length === 0) {
-    return <p className="text-sm text-muted-foreground">{t('objects.no_names')}</p>
+    // Two different facts, and they used to share one sentence.
+    //
+    // A partition whose daemon is not answering publishes no addresses *because
+    // it is down*, which is a thing to go and look at; a running partition with
+    // nothing published is a configuration. Reporting both as "publishes no
+    // addresses" is most of why "object storage isn't working" was as far as
+    // anybody could get in describing it. Say which one it is, and say that the
+    // box is already retrying, so the answer is not "reboot it".
+    return (
+      <p className="text-sm text-muted-foreground">
+        {partition.running ? t('objects.no_names') : t('objects.stopped_no_names')}
+      </p>
+    )
   }
 
   const columns = [
