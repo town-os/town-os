@@ -218,10 +218,10 @@ Repositories are defined by a name, URL, and optional credentials (username and 
 
 ### Repository API
 
-- `POST /repository/add` (auth required) -- add a new repository. Accepts name, URL, and optional username/password credentials. If no credentials are provided, system-default credentials are used. The repository is cloned via go-git and a refresh is triggered.
-- `POST /repository/remove` (auth required) -- remove a repository by name and trigger a refresh.
+- `POST /repository/add` (admin required) -- add a new repository. Accepts name, URL, and optional username/password credentials. If no credentials are provided, system-default credentials are used. The repository is cloned via go-git and a refresh is triggered.
+- `POST /repository/remove` (admin required) -- remove a repository by name and trigger a refresh.
 - `POST /repository/move` (admin required) -- change the priority position of a repository. Accepts name and target position index.
-- `POST /repository/refresh` (auth required) -- force-refresh all repositories. Returns any refresh errors.
+- `POST /repository/refresh` (admin required) -- force-refresh all repositories. Returns any refresh errors.
 - `GET /repository` (auth required) -- list all repositories with search, sorting, and pagination. Each entry includes name, URL, username, and any refresh error.
 
 ### Repository Refresh
@@ -406,7 +406,7 @@ Responses are saved per version at `responses/<repo>/<pkg>/<version>.json`. A `l
 
 Two API endpoints manage last responses:
 
-- `POST /packages/last-responses` (auth required) -- retrieve cached last responses for a package (by repo and name).
+- `POST /packages/last-responses` (admin required) -- retrieve cached last responses for a package (by repo and name).
 - `POST /packages/clear-last-responses` (admin required) -- delete the cached last responses file.
 
 ### Installation Questions UI
@@ -484,6 +484,8 @@ When not purging, volumes are moved from the `installed/` prefix to the `uninsta
 
 `POST /packages/installed/info` (auth required) returns questions, responses, compiled notes, and note types for an installed package.
 
+**A non-admin gets the notes and nothing else.** The route stays `requireAuth` because the dashboard renders every installed service's notes for every account — that is what notes are for — but a `type: secret` question is answered with a generated credential and a `type: oauth` one with a vendor token, so returning the full response map to anyone with a login would hand them every package's credentials. The questions are withheld too: a question's `query` is harmless, but pairing it with a redacted response map only advertises what is being kept back, and the one screen that renders questions is the admin-only install dialog. Dropping the map is not sufficient on its own — a note is compiled from those same answers, so `redactSecretsInNotes` masks any secret or oauth answer a note quoted, matching by value so a note that never quotes one is left completely intact. Answers shorter than six characters are left alone: a two-character secret is not a credential anybody chose, and masking every occurrence of it would shred unrelated note text.
+
 #### Package Versions
 
 `POST /packages/versions` (auth required) lists available versions of a package by name.
@@ -514,7 +516,7 @@ The UI maintains a static copy of common IANA timezone names with a `getTimezone
 ### Installed Package Management
 
 - `GET /packages/installed` (auth required) -- list all installed packages with search, sorting, and pagination.
-- `POST /packages/responses` (auth required) -- get saved responses for an installed package by repo, name, and version.
+- `POST /packages/responses` (admin required) -- get saved responses for an installed package by repo, name, and version.
 - `POST /packages/purge-volumes` (admin required) -- permanently delete volumes for an installed package.
 
 ### Package Enable/Disable
@@ -588,6 +590,10 @@ Quotas are enforced at the btrfs qgroup level. A quota of 0 means unlimited.
 - **Object-storage partitions** -- `gfeh/<network>`, one per Town OS network, owned by uid/gid 2000. Reserved: `/storage/create` cannot produce one (it rewrites every name to `user/<name>`), so they are provisioned through [`/gfeh/partitions/*`](#protocol-1-partition-provisioning-gfehpartitions).
 
 All prefix root names (`installed`, `uninstalled`, `archives`, `pages`, `vm-images`, `user`, `gfeh`) are reserved and cannot be directly created, modified, or deleted by users. Archive upload and download resolve subvolume names that lack an internal prefix by prepending `user/`.
+
+**A prefix is not a boundary unless the name after it cannot climb back out.** `filepath.Join` collapses `..`, so `../gfeh/home` submitted to a handler that prepends `user/` becomes `user/../gfeh/home` and addresses another network's object-storage partition — and it slips past the reserved-name check too, which matches on a leading prefix the traversal does not carry yet. `storage.ValidateFilesystemName` (no leading slash, no null bytes, no empty or `.`/`..` components, and a restricted character set) is therefore applied to **both** names in `ModifyFilesystem` — validating only the rename target let a caller move somebody else's subvolume into their own namespace — and to `RemoveFilesystem`, which validated nothing at all and is the destructive one. The `/storage/*` handlers validate a submitted name **before** prepending `user/`, which is what makes the reserved-name check mean what it reads as. These routes are `requireAuth`, not `requireAdmin`, so this was reachable by any ordinary account on the box.
+
+The **list** prefix is deliberately exempt: `nest/` is how a caller asks for everything under `nest`, nothing joins it into a filesystem path (the storage layer lists from its own base and uses it as a string filter), and `user/` is prepended unconditionally, so a traversing prefix matches nothing rather than reaching anything.
 
 ### Archive Format Detection
 
@@ -814,7 +820,11 @@ Consequences: no partition declares an `smb:` block, no host port is allocated f
 
 `ReconcileGfeh` runs at boot **after the ingress and pages** and **before `Reconcile`** — the TLS CA and storage exist by then, and the names must be available to the `RebuildDNS`/`RebuildIngress` calls further down. It runs **a second time after `ReconcileNetworks`**, which is idempotent (an unchanged partition is left alone rather than bounced) and covers any network the reconcile brought into being. It is also called from `/networks/create`, `/networks/remove`, `/networks/enable`, and `/networks/disable`, so a network added at runtime gets a partition. Non-fatal throughout.
 
-Per network it ensures the subvolume (with UID/GID), renders the config, installs and restarts the unit **only when the rendered content changed** (the `ReadUnit`-diff idiom reconcile already uses), and waits for the socket. `pruneGfehPartitions` removes units for networks that no longer exist.
+Per network it ensures the subvolume (with UID/GID), renders the config, and installs and restarts the unit **only when the rendered content changed** (the `ReadUnit`-diff idiom reconcile already uses). `pruneGfehPartitions` removes units for networks that no longer exist.
+
+**The per-partition wait is gone, and its absence is load-bearing.** `reconcileGfehPartition` starts the unit and stops there; whether a daemon is answering is asked separately, by `GfehReadyNetworks` and by the name collectors, both of which already treat a silent partition as contributing nothing rather than as a failure. The wait used to sit inside the loop, once per partition — including every partition it did nothing for, since `ensureFirstUserPrincipal` returns on its first line for any network but home. On a context with a deadline that was not merely slow: the first daemon that never answered spent the whole remaining budget in `WaitForReady`, so every partition after it tried to `Start` on an expired context and `pruneGfehPartitions` never ran at all. One dead daemon took the rest of object storage down with it, in whatever order the network names happened to sort.
+
+The one remaining wait is `seatGfehFounder`, at the very end of the reconcile: it waits for the **home** partition only, capped at `gfehFounderWaitBudget` (10s, overridable per-config for tests), and then seats the box's first account. Being last, overrunning it can only delay work that is already done; a daemon still cold-starting is seated by the next pass, which boot runs immediately after `ReconcileNetworks`. For the same reason `GfehReadyNetworks` gives each health probe its own budget via `context.WithoutCancel` rather than drawing on whatever the caller has left — a spent deadline would otherwise make every partition look dead at once. Cancellation is still honoured; that is a shutdown.
 
 **Object storage has no on/off setting.** Storing files is what the box is for, so it runs the way DNS and the ingress run — as part of what Town OS is, not as a feature to be enabled. A switch bought only the chance to be found in the off position while somebody debugged where their files went; an administrator who wants the daemons down stops them from the services panel like any other system service. A stale `object_storage_enabled` row left in an upgraded box's settings table is read by nothing.
 
@@ -835,6 +845,8 @@ Neither failure is visible to `make test` — the unit and integration suites bo
 ### UI
 
 `/dashboard/objects` (nav `nav.objects`, "Object Storage"). A network selector across the top, then `?tab=` sub-tabs, one file each under `ui/src/routes/objects/`: **Overview** (per-partition status, quota, and the published names with the port and whether each is reached through the ingress or dialed directly), **Users** (principals and ceilings; add projects a Town OS account), **Grants**, and **Links** (exposures, with withdraw). Reads are `requireAuth`, so the tab is not admin-only; the mutating controls need admin or the `gfeh` grant, and either way only on the caller's networks.
+
+**This screen is the only place object storage is managed.** The services screen carries no object-storage section: a partition IS a system service — one `town-os-system--gfeh-<network>` unit each — so it is already a row in that screen's System Services table, `Object Storage (<network>)`, with the same status badge and the same start/stop/restart/logs actions as every other system service. A panel beside it repeated that row and polled independently of it, so one unit had two controls at two levels that could disagree; it also rendered unconditionally while the table was gated on its poll having returned, which put object storage alone at the top of the screen on first paint and dropped system services in above it a moment later. `?expand=objects` on the services screen opens System Services, where the row lives.
 
 ## Services
 
@@ -913,9 +925,9 @@ The journal viewer dialog provides:
 
 Two endpoints serve log data:
 
-- `GET /systemd/logs` (localhost or auth) -- streams historical journal entries via Server-Sent Events. The `unit` query parameter selects the service; empty or `__system__` returns system-wide logs.
-- `GET /systemd/logs/tail` (localhost or auth) -- returns a JSON page of journal entries. Supports parameters: `unit`, `lines` (default 100), `before`/`after` (cursor pagination), `grep` (case-insensitive search), `since`/`until` (Unix timestamps), and `priority` (syslog severity filter, 0 = no filter).
-- `GET /systemd/logs/tree` and `GET /systemd/logs/tree/tail` (localhost or auth) -- the tree-scoped counterparts. Instead of a `unit`, they take `repo`, `name`, and `version` (all required) and cover **every** systemd unit in that package's dependency tree, so a parent's logs and its deps' logs interleave in one view. Replay and paging semantics otherwise match `/systemd/logs` and `/systemd/logs/tail`.
+- `GET /systemd/logs` (localhost or admin) -- streams historical journal entries via Server-Sent Events. The `unit` query parameter selects the service; empty or `__system__` returns system-wide logs.
+- `GET /systemd/logs/tail` (localhost or admin) -- returns a JSON page of journal entries. Supports parameters: `unit`, `lines` (default 100), `before`/`after` (cursor pagination), `grep` (case-insensitive search), `since`/`until` (Unix timestamps), and `priority` (syslog severity filter, 0 = no filter).
+- `GET /systemd/logs/tree` and `GET /systemd/logs/tree/tail` (localhost or admin) -- the tree-scoped counterparts. Instead of a `unit`, they take `repo`, `name`, and `version` (all required) and cover **every** systemd unit in that package's dependency tree, so a parent's logs and its deps' logs interleave in one view. Replay and paging semantics otherwise match `/systemd/logs` and `/systemd/logs/tail`.
 
 ## Account Management
 
@@ -965,7 +977,9 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
            POST /gfeh/exposures/withdraw
 ```
 
-plus `grantCommonRoutes`, reachable by any grant-holder regardless of which grant: `POST /account/authenticate`, `GET /account/me`, `GET /networks`, `GET /dns/services`, `GET /tls/ca.crt`. Without those a grant is unusable — you cannot exercise one without first signing in — so they are common rather than duplicated into every grant.
+plus `grantCommonRoutes`, reachable by any grant-holder regardless of which grant: `POST /account/authenticate`, `GET /account/me`, `GET /networks`, `GET /dns/services`, `GET /tls/ca.crt`, and `GET /status/ping`. Without those a grant is unusable — you cannot exercise one without first signing in — so they are common rather than duplicated into every grant.
+
+`GET /status/ping` is on that list for a second reason: it is **public**, registered with no auth middleware at all, so an anonymous stranger gets a 200. Because the allowlist is global and fail-closed, omitting it meant a valid token turned that 200 into a 403 — authenticating made a caller strictly worse off than presenting nothing. It is also the dashboard's 60-second session heartbeat and the source of its whole status surface, so an account holding `gfeh` could reach every `/gfeh` route and still not get a usable page. Granting `wireguard` as well never helped: ping is keyed to neither grant.
 
 Note what is deliberately **absent**: `/gfeh/partitions/*` stays `requireAdmin` (provisioning a partition creates the root of a permission tree and allocates a btrfs subvolume; `TOWNOS_CONTRACT.md` reserves it for administrators and gfeh's client branches on the 403), and `GET /networks/peers/connected` aggregates every account's peers and observed source addresses across every network.
 
@@ -994,8 +1008,8 @@ This is safe because for a grantless account the scope is **membership, not conf
 - `POST /account/create` -- create a new account. In bootstrap mode (no enabled admin account exists), unauthenticated access is allowed; otherwise admin authentication is required. A non-empty `grants` array routes to `CreateGranted` with the supplied `networks`; otherwise the account is created through `Create` and joins the home network. Duplicate username errors return a generic failure message to prevent user enumeration.
 - `POST /account` -- get account by username (auth required).
 - `GET /account` -- list all accounts with pagination and search (auth required).
-- `POST /account/update` -- update account fields (auth required). Admin status cannot be changed after account creation; grants and the network scope can, **by an administrator only** — `/account/update` is `requireAuth`, so without that check any authenticated account could grant itself `gfeh` and walk into a partition. A nil `networks` leaves the stored scope untouched; a non-nil one replaces it wholesale. `validateGrantResult` checks the row's state *after* the update, so granting an administrator, promoting a grant-holder, and clearing the scope out from under a grant are all caught.
-- `POST /account/disable` -- disable an account, preventing authentication (admin required).
+- `POST /account/update` -- update account fields (auth required). The username being updated comes from the **body**, so editing anybody else's account is admin-only: without that check any authenticated account could POST `{"username":"admin","fields":{"password":"..."}}` and take the box over — the controller drives the host podman socket, so that is root. An ordinary account may still edit its own contact details and password, which is why the route is not `requireAdmin` outright. Admin status cannot be changed after account creation; grants and the network scope can, **by an administrator only, even on your own account** — otherwise a normal user could grant itself `gfeh` and walk into a partition, or `wireguard` and enroll a peer on the overlay. A nil `networks` leaves the stored scope untouched; a non-nil one replaces it wholesale. `validateGrantResult` checks the row's state *after* the update, so granting an administrator, promoting a grant-holder, and clearing the scope out from under a grant are all caught.
+- `POST /account/disable` -- disable an account, preventing authentication (admin required). Also revokes the account's live sessions. That is not what makes disable take effect — `SessionManager.Validate` refuses a disabled account's token on its own, so the guarantee does not depend on the revocation having succeeded — it is what stops a token issued before the disable from working again if the account is later re-enabled, which is not what an administrator means by "enable" after having revoked someone's access.
 - `POST /account/enable` -- re-enable a disabled account (admin required).
 
 ### Account Management UI
@@ -1005,6 +1019,8 @@ The users management screen (`/dashboard/users`) displays a paginated, sortable,
 ### Session Management
 
 Sessions use JWT tokens (HS256) with claims for session ID (UUID), username, and issued timestamp. The signing key is ephemeral: 32 random bytes generated via `crypto/rand` on every service start, never persisted to disk. When `InitSessionManager` runs at startup, all existing sessions are cleared (`DELETE FROM sessions`) since prior tokens are invalid with the new key. The `TOWN_OS_SIGNING_KEY` environment variable can override the generated key. Sessions expire after 7 days from last use. A background cleanup task periodically removes expired sessions.
+
+**A disabled account's token is dead on arrival.** `Validate` checks `Disabled` and refuses, because every request after sign-in is authorized from that function alone: without the check, disabling an account only stopped it logging in *again*, while a token it already held stayed good for the full session lifetime and refreshed itself by its own use.
 
 The `SessionManager` interface provides: `Create`, `Validate`, `Revoke`, `RevokeAllForUser`, `Cleanup`, `List`, `GetUsername`, `HasActiveAdminSessions`, and `StartCleanup`.
 
@@ -1017,13 +1033,15 @@ Session API endpoints:
 
 ### Audit Logging
 
-All administrative actions are recorded in an audit log. Each entry has: auto-increment ID, account (username), action description, request path, sanitized detail (passwords redacted), success flag, error message, and creation timestamp.
+All administrative actions are recorded in an audit log. Each entry has: auto-increment ID, account (username), action description, request path, sanitized detail (credentials masked), success flag, error message, and creation timestamp.
+
+**The sanitizer masks rather than deletes**, replacing a credential value with `[REDACTED]` and leaving the key. An audit reader should be able to see that a field was present and withheld, not be unable to tell it from a request that never carried one. It matches `auditRedactedKeys` case-insensitively against the whole key and against the key's suffix after the last underscore, so `smtp_password` is caught without a substring rule that would also swallow innocuous names, and it recurses into arrays as well as maps. A package install's `responses` map is treated as **opaque** and masked whole: its keys belong to the package author, so there is no vocabulary to match on, and its values are exactly the generated `type: secret` and `type: oauth` answers the log must not become a copy of. A bare `key` is deliberately NOT on the list — the suffix rule would then catch `public_key`, which `POST /networks/peers/add` carries, and a WireGuard public key is public by construction while being the one field that says which device was enrolled.
 
 Tracked actions include: create/modify/remove filesystem, add/remove/move/refresh repository, install/uninstall package, purge volumes, disable/enable package, set unit status, create/update/disable account, authenticate, revoke session, update setting, dismiss upgrades, upload/download archive, create/update/remove/rebuild page, upload/delete VM image.
 
 Read-only endpoints are explicitly excluded from audit logging. Excluded paths include the root path (`/`), all GET list/query endpoints, info endpoints (`/packages/installed/info`), response retrieval (`/packages/last-responses`, `/packages/responses`), install preview (`/packages/install-preview`), version/question lookups, timezone listing, the pages list endpoint, status ping, system services listing (`/system-services`), audit log queries, settings reads, and log streaming endpoints.
 
-- `POST /audit/log` (localhost or auth) -- query the audit log with cursor-based or offset pagination, account filtering, sorting, and search.
+- `POST /audit/log` (localhost or admin) -- query the audit log with cursor-based or offset pagination, account filtering, sorting, and search.
 
 ### Settings Management
 
@@ -1336,7 +1354,7 @@ The systemcontroller runs `--net host`, so it already shares the namespace where
 - `POST /networks/create` (admin required) -- create a network. Accepts name and optional TLD (defaults to the name). Derives the subnet, generates a keypair, assigns a listen port, and returns the created network. A name or TLD already taken is a 409 — including `home`, which always exists.
 - `POST /networks/remove` (admin required) -- delete a network by name. The home network cannot be removed.
 - `POST /networks/enable` / `POST /networks/disable` (admin required) -- bring the overlay interface up or down.
-- `GET /networks/peers?network=<name>` (auth required) -- list the peers registered on a network.
+- `GET /networks/peers?network=<name>` (auth required, and confined by `requireNetworkScope`) -- list the peers registered on a network. The route is on the `wireguard` grant's allowlist, so a scoped account reaches it, and a peer list names devices, the accounts that enrolled them, and their overlay addresses — a grant is authority over the caller's own networks, and a read is where that is easiest to forget.
 - `GET /networks/peers/connected` (**admin required**) -- every peer across every WireGuard network joined with live tunnel state. Deliberately tighter than its `requireAuth` siblings and absent from `grantRoutes`.
 - `POST /networks/peers/add` (`requirePeerEnroll`: admin or the `wireguard` grant, confined to the caller's networks) -- register a peer. When `public_key` is empty the server generates a keypair and returns the private key plus a ready-to-import device config. Accepts an optional `endpoint` and a `rolodex` flag.
 - `POST /networks/peers/refresh` (`requirePeerEnroll`, and only for a peer the caller enrolled) -- extend a peer's TTL by `peer_ttl` and return the new expiry, so a client can pace its next heartbeat well before the TTL elapses.
@@ -1825,9 +1843,23 @@ All API errors are returned as RFC 9457 Problem Detail objects (structured JSON 
 
 Echo's `RequestLogger()` middleware is enabled globally, logging all HTTP requests to stderr. The verbosity is controlled by the `LOG_LEVEL` environment variable.
 
+### Login Throttling
+
+`POST /account/authenticate` is public and every attempt costs one argon2id hash at 64 MiB. That is the right cost for a password hash and the wrong thing to let an unauthenticated caller schedule without limit: a few hundred concurrent attempts is tens of gigabytes of allocation on a box whose whole design point is running from RAM, and the failure is not a slow login — it is the OOM killer taking the controller.
+
+Two independent limits, because they answer different questions. `loginLimiter` caps **attempts per source** over a window (20 per 5 minutes), which is what makes online password guessing infeasible, and it is keyed per source address so one abusive client cannot lock out the household. `loginGate` caps **concurrent hashes** across all sources (4, bounding peak argon2 memory near a quarter gigabyte), which is what the per-source limiter alone cannot do. Both are in-memory and per-process: they protect this process's memory and CPU, and persisting them would make a failed login a database write.
+
+Both are checked **before** hashing, not after — the cost being defended against is the hash itself, so a refusal that still hashed would have paid for the attack it was refusing. The gate slot is released through a `defer` inside a closure rather than after the call, because a slot leaked by a panic would be gone for the life of the process and four of them would wedge every login on the box until a restart. A proved-good password clears the source's window, so a household behind one NAT address cannot walk into a lockout through ordinary use.
+
 ### CORS
 
-In `DEBUG` mode, all origins are allowed. Otherwise, cross-port requests from the same hostname are permitted (e.g., browser on port 80 talks to API on port 5309). Allowed methods: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS. Credentials are allowed with a 3600-second max age. The Private Network Access API is supported (`Access-Control-Allow-Private-Network` header).
+In `DEBUG` mode, all origins are allowed. Otherwise, cross-port requests from the same hostname are permitted (e.g., browser on port 80 talks to API on port 5309), **but only once the Host header has been checked against what this box may legitimately be called**. Allowed methods: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS. Credentials are allowed with a 3600-second max age.
+
+The check matters because the old rule — "the Origin's hostname equals the Host header's hostname" — compared two values that both come from the same attacker-chosen URL. Point `box.evil.example` at the box's LAN address and a browser sends `Origin: http://box.evil.example` and `Host: box.evil.example:5309`, which match. That is the DNS-rebinding shape, and with `AllowCredentials` it handed a drive-by page the bootstrap window (`POST /account/create` answers unauthenticated while no enabled admin exists).
+
+`originAllowed` therefore requires the Host header to name this box: its own hostname, `<hostname>.local`, `<hostname>.<dns_tld>`, the loopback and LAN addresses it answers on, or whatever the operator configured in `AllowedHosts`. Those forms are **enumerated, not matched by suffix** — a rule like "any name whose first label is the hostname" would accept `townos.evil.example`, which an attacker can simply register. An IP literal is accepted on its own: an address cannot be aliased by DNS, so `http://192.168.1.10/` reaching `http://192.168.1.10:5309` is the same box by construction, which is the common way this is actually used.
+
+**Private Network Access is answered only for an origin CORS would accept.** The `Access-Control-Allow-Private-Network` header was previously echoed unconditionally, which hands every origin on the internet the browser's permission to reach a private address — the one protection PNA exists to add on top of CORS. Its middleware is registered **before** the CORS middleware so it still runs on a preflight, which CORS answers itself without calling further down the chain.
 
 ### Graceful Shutdown
 
@@ -1848,6 +1880,9 @@ The network controller image is not a flag either; it is derived from the resolv
 - `CONTAINER_HOST` -- unix socket URL for the host podman daemon. Set automatically at startup to `unix:///run/podman/podman.sock` (see `HostPodmanSocket`). Every `podman` invocation — including child processes forked by the systemcontroller — inherits this from the process environment and routes through the host socket instead of the systemcontroller container's isolated podman storage. The install-repo systemd unit should also set `Environment=CONTAINER_HOST=...` for visibility in `systemctl` output, but the `setupPodmanEnv()` call is the runtime source of truth.
 - `TOWN_OS_LISTEN` -- overrides `-listen` flag.
 - `TOWN_OS_SIGNING_KEY` -- override the ephemeral JWT signing key (see Session Management).
+- `TOWN_OS_TLS` -- serve the control plane's own listener (`:5309`) over HTTPS, terminated by the box's local CA with a leaf issued exactly like a package's. **Off by default, and that is sequencing rather than a hedge**: a browser that has not been given the box's CA cannot complete an XHR to an untrusted certificate, and unlike a navigation there is no interstitial to click through — the UI would simply stop working with no way to reach the screen that explains why. The UI is also served over plain HTTP today (it is the ingress's default `:80` backend), so a box that turned this on without installing the CA first would go from "unencrypted" to "down". The operator installs the CA (`GET /tls/ca.crt`, public), then sets this. Accepts `1`/`true`/`yes`/`on`. Resolved **before** the listener binds, so a boot-status stream that starts as HTTP never becomes HTTPS underneath its client, and **fatal** on failure rather than falling back to cleartext: an operator who asked for TLS and silently got plaintext is worse off than one whose box refuses to start and says why.
+- `TOWN_OS_TLS_CERT` / `TOWN_OS_TLS_KEY` -- an operator-supplied certificate and key, for a box fronted by a name that already has a publicly trusted cert. Setting **both** enables TLS on its own and the local CA is not consulted; setting one alone does nothing.
+- `TOWN_OS_TLS_SANS` -- comma-separated extra names or IPs for the generated leaf, for a box reached by a name the controller cannot derive (a CNAME, a router-assigned DHCP name).
 - `TOWN_OS_TEST` -- if set, use test repositories instead of production defaults.
 - `DEBUG` -- if set, allow all CORS origins and prepend test repositories to defaults.
 - `LOG_LEVEL` -- logging level: `debug`, `info`, `warn`, `error` (defaults to `error`).
