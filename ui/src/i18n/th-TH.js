@@ -856,6 +856,7 @@ const thTH = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'เดมอนของพาร์ทิชันนี้ไม่ตอบสนอง จึงไม่มีการเผยแพร่ที่อยู่ Town OS จะลองใหม่ทุกไม่กี่นาที',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

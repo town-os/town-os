@@ -865,6 +865,7 @@ const frFR = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Port direct',
   'objects.no_names': 'Cette partition ne publie aucune adresse.',
+  'objects.stopped_no_names': 'Le démon de cette partition ne répond pas, aucune adresse n’est donc publiée. Town OS réessaie toutes les quelques minutes.',
   'objects.col_user': 'Utilisateur',
   'objects.col_ceiling': 'Plafond',
   'objects.col_kind': 'Type',

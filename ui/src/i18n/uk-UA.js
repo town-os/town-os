@@ -865,6 +865,7 @@ const ukUA = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'Демон цього розділу не відповідає, тому адреси не публікуються. Town OS повторює спробу кожні кілька хвилин.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

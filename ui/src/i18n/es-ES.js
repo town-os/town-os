@@ -856,6 +856,7 @@ const esES = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Puerto directo',
   'objects.no_names': 'Esta partición no publica ninguna dirección.',
+  'objects.stopped_no_names': 'El demonio de esta partición no responde, por lo que no se publica ninguna dirección. Town OS lo reintenta cada pocos minutos.',
   'objects.col_user': 'Usuario',
   'objects.col_ceiling': 'Techo',
   'objects.col_kind': 'Tipo',

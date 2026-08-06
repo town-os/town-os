@@ -864,6 +864,7 @@ const itIT = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'Il daemon di questa partizione non risponde, quindi non viene pubblicato alcun indirizzo. Town OS riprova ogni pochi minuti.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

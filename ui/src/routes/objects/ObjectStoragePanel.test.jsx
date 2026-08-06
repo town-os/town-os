@@ -161,6 +161,26 @@ describe('ObjectStoragePanel', () => {
     })
   })
 
+  // The distinction the whole fix turns on. A partition whose daemon is down
+  // arrives as a row with running=false, and the panel must render it as a
+  // stopped partition — NOT fall through to "not configured", which is the
+  // message for a box that has no object storage at all. The server used to
+  // omit a partition it could not start, so a down daemon and an absent feature
+  // were the same screen and neither could be acted on.
+  it('renders a stopped partition instead of claiming nothing is configured', async () => {
+    mockClient.listGfehPartitions.mockResolvedValue([
+      { network: 'home', tld: 'home', quota: 0, running: false, names: [] },
+    ])
+    renderPanel()
+
+    await waitFor(() => {
+      expect(screen.getByText('Stopped')).toBeTruthy()
+    })
+    expect(screen.queryByText('Object storage is not configured on this system.')).toBeNull()
+    // ... and the overview says which of the two empty states this is.
+    expect(screen.getByText(/daemon is not answering/i)).toBeTruthy()
+  })
+
   it('offers a tab for each concern', async () => {
     renderPanel()
 

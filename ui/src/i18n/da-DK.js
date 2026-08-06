@@ -856,6 +856,7 @@ const daDK = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direct port',
   'objects.no_names': 'This partition publishes no addresses.',
+  'objects.stopped_no_names': 'Denne partitions dæmon svarer ikke, så der offentliggøres ingen adresser. Town OS prøver igen med få minutters mellemrum.',
   'objects.col_user': 'User',
   'objects.col_ceiling': 'Ceiling',
   'objects.col_kind': 'Kind',

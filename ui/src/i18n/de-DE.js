@@ -856,6 +856,7 @@ const deDE = {
   'objects.via_ingress': 'Ingress (HTTPS)',
   'objects.via_port': 'Direkter Port',
   'objects.no_names': 'Diese Partition veröffentlicht keine Adressen.',
+  'objects.stopped_no_names': 'Der Daemon dieser Partition antwortet nicht, daher werden keine Adressen veröffentlicht. Town OS versucht es alle paar Minuten erneut.',
   'objects.col_user': 'Benutzer',
   'objects.col_ceiling': 'Obergrenze',
   'objects.col_kind': 'Art',
