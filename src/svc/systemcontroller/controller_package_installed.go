@@ -159,12 +159,72 @@ func (s *SystemControllerHandlers) getInstalledInfo(c *echo.Context) error {
 		}
 	}
 
+	// This route is requireAuth, because the dashboard renders every installed
+	// service's notes for every account — that is what the notes are for. The
+	// answers behind them are a different matter: a `type: secret` question is
+	// answered with a generated credential and a `type: oauth` one with a
+	// vendor token, so returning the full response map to any account with a
+	// login would hand it every package's credentials.
+	//
+	// A non-admin therefore gets the notes and nothing else. The questions go
+	// too: a question's `query` is harmless, but pairing it with a redacted
+	// response map only advertises what is being withheld, and the only screen
+	// that renders questions is the install dialog, which is admin-only.
+	if !s.callerIsAdmin(c) {
+		return c.JSON(200, InstalledInfoResponse{
+			Notes:     redactSecretsInNotes(notes, ip.Questions, responses),
+			NoteTypes: noteTypes,
+		})
+	}
+
 	return c.JSON(200, InstalledInfoResponse{
 		Questions: ip.Questions,
 		Responses: responses,
 		Notes:     notes,
 		NoteTypes: noteTypes,
 	})
+}
+
+// redactSecretsInNotes replaces any secret answer that a compiled note embedded
+// with a mask.
+//
+// Dropping the response map is not enough on its own: a note is compiled from
+// those same answers, so a package whose note reads
+// `postgres://user:@dbpass@@host/db` publishes the credential in its text. The
+// mask is applied by value, for exactly the question types whose answers are
+// credentials — matching on the answer rather than on the note means a note
+// that never quotes one is left completely intact, which is the common case and
+// the one the dashboard depends on.
+//
+// Short answers are left alone: a two-character secret is not a credential
+// anybody chose, and masking every occurrence of it would shred unrelated note
+// text.
+func redactSecretsInNotes(notes map[string]string, questions map[string]packages.Question, responses packages.Responses) map[string]string {
+	const minMaskable = 6
+
+	secrets := make([]string, 0, len(questions))
+	for name, q := range questions {
+		switch q.Type {
+		case packages.Secret, packages.Oauth:
+		default:
+			continue
+		}
+		if v, ok := responses[name]; ok && len(v) >= minMaskable {
+			secrets = append(secrets, v)
+		}
+	}
+	if len(secrets) == 0 {
+		return notes
+	}
+
+	out := make(map[string]string, len(notes))
+	for k, v := range notes {
+		for _, secret := range secrets {
+			v = strings.ReplaceAll(v, secret, "********")
+		}
+		out[k] = v
+	}
+	return out
 }
 
 func (s *SystemControllerHandlers) listChildren(c *echo.Context) error {

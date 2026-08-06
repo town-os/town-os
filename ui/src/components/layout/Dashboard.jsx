@@ -35,7 +35,9 @@ const NAV_KEYS = [
   { to: '/dashboard/dns', key: 'nav.dns', icon: Wifi },
   { to: '/dashboard/networks', key: 'nav.networks', icon: Network, adminOnly: true },
   { to: '/dashboard/monitoring', key: 'nav.monitoring', icon: Activity },
-  { to: '/dashboard/log', key: 'nav.audit_log', icon: FileText },
+  // Admin-only to match the server: audit detail is the sanitized request body
+  // of every administrative action, including install bodies.
+  { to: '/dashboard/log', key: 'nav.audit_log', icon: FileText, adminOnly: true },
   { to: '/dashboard/settings', key: 'nav.settings', icon: Settings, adminOnly: true },
 ]
 

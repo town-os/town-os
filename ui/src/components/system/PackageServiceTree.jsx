@@ -149,15 +149,21 @@ function TreeRow({
                 <RotateCcw className="h-3 w-3 mr-2" />
                 {t('system.action_restart')}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onViewLogs(node)
-                }}
-              >
-                <FileText className="h-3 w-3 mr-2" />
-                {t('system.action_service_logs')}
-              </DropdownMenuItem>
+              {/* The journal is admin-only server-side (a unit's ExecStart line
+                  carries its environment), so the caller withholds these
+                  callbacks for a non-admin rather than offering a menu item
+                  that 403s. Same guard the group-logs item already used. */}
+              {onViewLogs && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onViewLogs(node)
+                  }}
+                >
+                  <FileText className="h-3 w-3 mr-2" />
+                  {t('system.action_service_logs')}
+                </DropdownMenuItem>
+              )}
               {isRoot && node.children && node.children.length > 0 && onViewGroupLogs && (
                 <DropdownMenuItem
                   onClick={(e) => {
@@ -169,7 +175,7 @@ function TreeRow({
                   {t('system.action_group_logs')}
                 </DropdownMenuItem>
               )}
-              {node.nc_active && (
+              {node.nc_active && onViewNetworkLogs && (
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation()

@@ -127,6 +127,16 @@ func (s *SystemControllerHandlers) refreshRepositories(c *echo.Context) error {
 
 func (s *SystemControllerHandlers) listRepositories(c *echo.Context) error {
 	rr := s.Controller.GetRepositoryRoot()
+	// Defensive, in the same spirit as the pages handlers' nil-manager guard: a
+	// real boot always has a repository root (step 10, long before the router is
+	// built), but RefreshErrors() below returns rr.Errors — a field deref that
+	// panics on a nil receiver, which drops the connection and surfaces to the
+	// caller as a bare EOF rather than any status code. An unconfigured
+	// repository root means no repositories, which is what an empty page says.
+	if rr == nil {
+		p := readListParams(c)
+		return c.JSON(200, paginate([]RepositoryInfo{}, p.Limit, p.Offset))
+	}
 
 	repos, err := rr.List()
 	if err != nil {

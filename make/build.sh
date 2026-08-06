@@ -161,9 +161,10 @@ case "$1" in
   release-nc)
     step "Building network controller image"
     mkdir -p .cache/go-mod .cache/go-build
-    # No --pull=never: alpine:latest is the runtime base and is not in
-    # BASE_IMAGES, so the host image store may not have it yet on a
-    # fresh checkout. Let podman pull it on demand.
+    # No --pull=never: release-nc-image has no dependency on the image-cache
+    # load, so the bases (golang:1.25-bookworm, caddy:2-alpine, alpine:latest)
+    # may not be in the host store on a fresh checkout even though all three
+    # are in BASE_IMAGES/ALL_IMAGES. Let podman pull them on demand.
     ${SUDO} podman build --network=host \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -172,9 +173,11 @@ case "$1" in
   release-ingress)
     step "Building ingress image"
     mkdir -p .cache/go-mod .cache/go-build
-    # No --pull=never: alpine:latest is the runtime base and is not in
-    # BASE_IMAGES, so the host image store may not have it yet on a fresh
-    # checkout. Let podman pull it on demand.
+    # No --pull=never: release-ingress-image has no dependency on the
+    # image-cache load, so the bases (golang:1.25-bookworm, caddy:2-alpine,
+    # alpine:latest) may not be in the host store on a fresh checkout even
+    # though all three are in BASE_IMAGES/ALL_IMAGES. Let podman pull them on
+    # demand.
     ${SUDO} podman build --network=host \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \

@@ -521,22 +521,28 @@ export default function SystemManagement() {
         />
       </div>
 
+      {/* The journal endpoints are admin-only: a package unit's ExecStart line
+          carries its whole environment, so reading a unit's log means reading
+          its credentials. Withhold the callbacks rather than render menu items
+          that would 403. */}
       <PackageServiceTree
         roots={units.length > 0 ? roots : []}
         onCascadeAction={handleTreeCascadeAction}
         onUnitAction={handleTreeUnitAction}
-        onViewLogs={handleTreeViewLogs}
-        onViewGroupLogs={handleTreeViewGroupLogs}
-        onViewNetworkLogs={handleTreeViewNetworkLogs}
+        onViewLogs={account?.admin ? handleTreeViewLogs : undefined}
+        onViewGroupLogs={account?.admin ? handleTreeViewGroupLogs : undefined}
+        onViewNetworkLogs={account?.admin ? handleTreeViewNetworkLogs : undefined}
         actionInProgress={actionInProgress}
       />
 
-      <div className="flex justify-end">
-        <Button variant="outline" size="sm" onClick={() => setCustomLogDialog(true)}>
-          <Terminal className="h-4 w-4 mr-1" />
-          {t('system.advanced_logs_btn')}
-        </Button>
-      </div>
+      {account?.admin && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => setCustomLogDialog(true)}>
+            <Terminal className="h-4 w-4 mr-1" />
+            {t('system.advanced_logs_btn')}
+          </Button>
+        </div>
+      )}
 
       {/* Advanced Logs Dialog */}
       <Dialog open={customLogDialog} onOpenChange={(v) => !v && setCustomLogDialog(false)}>

@@ -106,11 +106,22 @@ export PREFLIGHT_CONTAINER REGISTRY_CONTAINER GITEA_CONTAINER
 IMAGE_CACHE ?= /var/cache/town-os/images
 export IMAGE_CACHE
 
-# Image lists.
+# Image lists. Every entry is the canonical upstream repository, fully
+# qualified: docker.io/library/* for the docker-library official images, and
+# the vendor's own namespace otherwise (oven/bun, grafana/grafana,
+# gitea/gitea, quay.io/prometheus/*). Never use an unqualified short name —
+# it would resolve through podman's unqualified-search-registries and pull
+# whatever that host happens to list first.
+#
 # debian:bookworm-slim is the systemcontroller runtime base (Containerfile);
 # debian:bookworm (non-slim) is still the Proton runner base (Containerfile.proton).
 # Both must be pre-pulled because release builds run podman with --pull=never.
-BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest
+# caddy:2-alpine is the donor stage the ingress and NC images copy the caddy
+# binary out of (Containerfile.ingress, Containerfile.networkcontroller);
+# caddy:latest is the UI runtime base (Containerfile.ui). The only FROM base
+# deliberately left out is rust:1-bookworm (~1.5G, gfeh builder only) — see
+# the release-gfeh comment in make/build.sh.
+BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest docker.io/library/caddy:2-alpine
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
 # Rolodex publishes per-arch tags (rc.latest-x86_64 / rc.latest-aarch64) pushed
 # natively from each host. Internal Town OS image pulls default to the host's

@@ -525,15 +525,18 @@ func TestSanitizeAuditDetail(t *testing.T) {
 		body string
 		want string
 	}{
+		// The sanitizer masks rather than deletes: an auditor should be able to
+		// tell a field that was present and withheld from one that was never
+		// sent at all. See auditRedactedKeys / auditOpaqueKeys.
 		{
-			name: "removes password from top level",
+			name: "masks password at top level",
 			body: `{"username":"admin","password":"secret"}`,
-			want: `{"username":"admin"}`,
+			want: `{"password":"[REDACTED]","username":"admin"}`,
 		},
 		{
-			name: "removes password from nested fields",
+			name: "masks password inside fields, keeping the rest",
 			body: `{"username":"admin","fields":{"password":"new","real_name":"Bob"}}`,
-			want: `{"fields":{"real_name":"Bob"},"username":"admin"}`,
+			want: `{"fields":{"password":"[REDACTED]","real_name":"Bob"},"username":"admin"}`,
 		},
 		{
 			name: "preserves body without password",
@@ -551,14 +554,17 @@ func TestSanitizeAuditDetail(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "preserves nested objects",
+			// A package's answers are keyed by names only its author knows, so
+			// there is no vocabulary to match on and the whole subtree goes.
+			// This is where `type: secret` answers live.
+			name: "redacts the whole install responses subtree",
 			body: `{"name":"nginx","responses":{"port":"8080"}}`,
-			want: `{"name":"nginx","responses":{"port":"8080"}}`,
+			want: `{"name":"nginx","responses":"[REDACTED]"}`,
 		},
 		{
-			name: "removes password from deeply nested objects",
+			name: "masks password in deeply nested objects",
 			body: `{"data":{"inner":{"password":"deep","name":"ok"}}}`,
-			want: `{"data":{"inner":{"name":"ok"}}}`,
+			want: `{"data":{"inner":{"name":"ok","password":"[REDACTED]"}}}`,
 		},
 	}
 
@@ -681,8 +687,14 @@ func TestHTTPAuditDetailValidJSON(t *testing.T) {
 			if parsed["real_name"] != "Admin User" {
 				t.Fatalf("expected real_name 'Admin User', got %v", parsed["real_name"])
 			}
-			if _, exists := parsed["password"]; exists {
-				t.Fatal("detail must not contain password field")
+			// The key survives; its value must not. The sanitizer masks
+			// credentials rather than deleting the key, so the log still
+			// records that a password was submitted — itself the auditable
+			// fact — without recording what it was.
+			if pw, exists := parsed["password"]; !exists {
+				t.Error("detail should keep the password key as a redaction marker")
+			} else if pw != auditRedacted {
+				t.Errorf("password = %v, want %q", pw, auditRedacted)
 			}
 			return
 		}
@@ -718,8 +730,14 @@ func TestHTTPAuditDetailAuthenticateRedactsPassword(t *testing.T) {
 			if err := json.Unmarshal([]byte(e.Detail), &parsed); err != nil {
 				t.Fatalf("detail is not valid JSON: %q", e.Detail)
 			}
-			if _, exists := parsed["password"]; exists {
-				t.Fatal("detail must not contain password field")
+			// The key survives; its value must not. The sanitizer masks
+			// credentials rather than deleting the key, so the log still
+			// records that a password was submitted — itself the auditable
+			// fact — without recording what it was.
+			if pw, exists := parsed["password"]; !exists {
+				t.Error("detail should keep the password key as a redaction marker")
+			} else if pw != auditRedacted {
+				t.Errorf("password = %v, want %q", pw, auditRedacted)
 			}
 			return
 		}
@@ -818,8 +836,12 @@ func TestHTTPAuditDetailNeverContainsPassword(t *testing.T) {
 		if strings.Contains(e.Detail, "newpassword") {
 			t.Fatalf("entry %q detail contains password 'newpassword': %q", e.Action, e.Detail)
 		}
-		if strings.Contains(e.Detail, `"password"`) {
-			t.Fatalf("entry %q detail contains password field: %q", e.Action, e.Detail)
+		// The key itself may appear — the sanitizer masks values rather than
+		// deleting keys — but only ever carrying the redaction marker. The
+		// detail is compact JSON, so the marker is adjacent to the key.
+		if strings.Contains(e.Detail, `"password"`) &&
+			!strings.Contains(e.Detail, `"password":"`+auditRedacted+`"`) {
+			t.Errorf("entry %q detail has an unredacted password field: %q", e.Action, e.Detail)
 		}
 	}
 }

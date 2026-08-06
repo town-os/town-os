@@ -90,6 +90,12 @@ type SystemControllerHandlers struct {
 	// are short-lived and worthless once redeemed, so they never leave memory.
 	oauthOnce  sync.Once
 	oauthStore *oauthFlows
+
+	// Login throttling state. Built on first use so a handler set constructed
+	// without one still works. See controller_auth_throttle.go.
+	loginOnce         sync.Once
+	loginLimiterStore *loginLimiter
+	loginGateStore    *loginGate
 }
 
 // oauthFlows returns the pending-device-flow store, creating it on first use so
@@ -181,10 +187,17 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/storage/remove-package-volume", s.removePackageVolume, s.requireAdmin)
 	e.Add("POST", "/storage/remove-package-volume-group", s.removePackageVolumeGroup, s.requireAdmin)
 
-	e.Add("POST", "/repository/add", s.addRepository, s.requireAuth)
-	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAuth)
+	// A repository is a code-supply channel, not a bookmark: whatever a
+	// repository serves becomes systemd units, container images, and volume
+	// seeds on this box the moment somebody installs from it. Registering one
+	// is therefore an administrator's decision — the same one /repository/move
+	// already required, which is what made the other three reading as
+	// requireAuth look like an oversight rather than a policy. Listing stays
+	// open; knowing which repositories are configured grants nothing.
+	e.Add("POST", "/repository/add", s.addRepository, s.requireAdmin)
+	e.Add("POST", "/repository/remove", s.removeRepository, s.requireAdmin)
 	e.Add("POST", "/repository/move", s.moveRepository, s.requireAdmin)
-	e.Add("POST", "/repository/refresh", s.refreshRepositories, s.requireAuth)
+	e.Add("POST", "/repository/refresh", s.refreshRepositories, s.requireAdmin)
 	e.Add("GET", "/repository", s.listRepositories, s.requireAuth)
 
 	e.Add("GET", "/packages", s.listPackages, s.requireAuth)
@@ -192,18 +205,31 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/packages/featured", s.listFeaturedPackages, s.requireAuth)
 	e.Add("POST", "/packages/versions", s.listPackageVersions, s.requireAuth)
 	e.Add("GET", "/packages/installed", s.listInstalled, s.requireAuth)
+	// Saved responses are the answers to a package's questions, and a question
+	// of `type: secret` or `type: oauth` is answered with a credential — a
+	// database password, a Plex token. These two return them verbatim, so they
+	// are admin-only; both are called from the install dialog, which is an
+	// administrator's screen already.
+	//
+	// /packages/installed/info stays requireAuth because the dashboard renders
+	// every service's notes for every account. It redacts instead: a non-admin
+	// gets the notes and nothing else. See getInstalledInfo.
 	e.Add("POST", "/packages/installed/info", s.getInstalledInfo, s.requireAuth)
-	e.Add("POST", "/packages/responses", s.getResponses, s.requireAuth)
-	e.Add("POST", "/packages/last-responses", s.getLastResponses, s.requireAuth)
+	e.Add("POST", "/packages/responses", s.getResponses, s.requireAdmin)
+	e.Add("POST", "/packages/last-responses", s.getLastResponses, s.requireAdmin)
 	e.Add("POST", "/packages/manifest", s.packageManifest, s.requireAuth)
 	e.Add("POST", "/packages/clear-last-responses", s.clearLastResponses, s.requireAdmin)
 
 	e.Add("GET", "/systemd/units", s.listUnits, s.localhostOrAuth)
 	e.Add("GET", "/systemd/units-tree", s.listUnitsTree, s.localhostOrAuth)
-	e.Add("GET", "/systemd/logs", s.logReplay, s.localhostOrAuth)
-	e.Add("GET", "/systemd/logs/tail", s.logTail, s.localhostOrAuth)
-	e.Add("GET", "/systemd/logs/tree", s.treeLogReplay, s.localhostOrAuth)
-	e.Add("GET", "/systemd/logs/tree/tail", s.treeLogTail, s.localhostOrAuth)
+	// The journal is admin-only: a package's ExecStart line carries its whole
+	// environment, so `-e POSTGRES_PASSWORD=…` is in the log of every unit
+	// start, and the `unit` parameter is free-form (empty or __system__ means
+	// the entire host journal). See localhostOrAdmin.
+	e.Add("GET", "/systemd/logs", s.logReplay, s.localhostOrAdmin)
+	e.Add("GET", "/systemd/logs/tail", s.logTail, s.localhostOrAdmin)
+	e.Add("GET", "/systemd/logs/tree", s.treeLogReplay, s.localhostOrAdmin)
+	e.Add("GET", "/systemd/logs/tree/tail", s.treeLogTail, s.localhostOrAdmin)
 
 	e.Add("POST", "/account/create", s.createAccount)
 	e.Add("POST", "/account", s.getAccount, s.requireAuth)
@@ -233,7 +259,11 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/systemd/status/tree", s.setUnitStatusTree, s.requireAdmin)
 	e.Add("POST", "/account/disable", s.disableAccount, s.requireAdmin)
 	e.Add("POST", "/account/enable", s.enableAccount, s.requireAdmin)
-	e.Add("POST", "/audit/log", s.listAuditLog, s.localhostOrAuth)
+	// Audit detail is the sanitized request body of every administrative
+	// action, which includes install bodies — and an install body is a map of
+	// question answers. The sanitizer redacts what it can recognize; the access
+	// check is what stops the rest from being readable by anyone with a login.
+	e.Add("POST", "/audit/log", s.listAuditLog, s.localhostOrAdmin)
 	e.Add("GET", "/settings", s.getSettings, s.requireAdmin)
 	e.Add("POST", "/settings/get", s.getSetting, s.requireAdmin)
 	e.Add("POST", "/settings/set", s.setSetting, s.requireAdmin)
