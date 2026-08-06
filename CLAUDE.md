@@ -62,6 +62,16 @@ CLAUDE, YOU ARE NOT ALLOWED TO EDIT THIS FILE UNLESS I TELL YOU TO.
 
 - **Test services use random high ports** — integration tests that start network services (DNS, HTTP, gRPC, etc.) must bind to random high ports via `findFreePort`, never well-known ports like 53 or 80. This prevents conflicts when multiple test runs execute simultaneously.
 
+- **DNS in tests must NEVER touch the host.** No test, test harness, or anything a make test target launches may alter the host's name resolution or occupy the host's DNS port. Specifically, a test run must never:
+    - rewrite `/etc/resolv.conf` (that is `redirect_host_dns` in `make/dev.sh`, and it belongs to `make dev` alone),
+    - write `/etc/systemd/resolved.conf.d/town-os.conf` or otherwise call `rolodex.ConfigureResolvedRouting`,
+    - signal or restart `systemd-resolved` (`pkill -HUP systemd-resolved`),
+    - bind **`127.0.0.2:53`**, or any `:53`, in the host network namespace.
+
+  The test container runs `--net host` deliberately (bridge-network DNS breaks on captive networks), so every port a system service binds lands in the **host** namespace. That is exactly why `TOWN_OS_DNS_PORT` is allocated per run into `$(STATE_DIR)/.dns-port` and passed in by `system_port_env` (`make/lib.sh`), and why `main.go` skips resolved routing whenever `dnsPortIsDefault()` is false — a per-domain resolved server address carries no port, so pointing resolved at `DNSLoopback` on a relocated rolodex would blackhole every query for that TLD.
+
+  Treat a test run that leaves `127.0.0.2:53` bound, or a `town-os.conf` drop-in on the host, as a **bug in the harness, not a flaky test**: it means the port override did not reach the container and rolodex fell back to the default. Verify with `ss -lnup | grep 127.0.0.2` and `ls /etc/systemd/resolved.conf.d/` — the only listener on the host's `:53` should be the machine's own resolver, never ours. `make dev` is the sole exception and is opt-in by the operator, because it is meant to mirror a real box.
+
 - **Never write tests that push to remote Gitea or GitHub.**
 
 - **When I tell you to do something, do not argue.**
