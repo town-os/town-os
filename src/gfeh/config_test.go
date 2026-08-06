@@ -4,6 +4,7 @@
 package gfeh
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -60,6 +61,30 @@ func TestValidateRejectsAnEmptyNetwork(t *testing.T) {
 
 	if _, err := RenderConfig(cfg); err == nil {
 		t.Fatal("rendered a config with a set-but-empty network")
+	}
+}
+
+// A town_os section cannot be represented, let alone rendered.
+//
+// That section named a Town OS account for gfehd to authenticate to the control
+// plane as. There is no such account and there is not going to be one: the
+// partition's subvolume and quota are provisioned from the Town OS side before
+// the daemon starts, and principals are created over the admin socket, so the
+// credential bought nothing while costing an administrator account nobody
+// created, sitting in every box's user list with enough privilege to uninstall
+// the machine.
+//
+// A field guard rather than a render assertion, because the render tests can
+// only prove that today's inputs produce no such section. Restoring the field
+// fails here immediately, whether or not anything populates it yet.
+func TestConfigHasNoTownOSField(t *testing.T) {
+	cfg := reflect.TypeFor[Config]()
+	for i := range cfg.NumField() {
+		f := cfg.Field(i)
+		if strings.Split(f.Tag.Get("yaml"), ",")[0] == "town_os" {
+			t.Errorf("Config.%s renders a town_os section: gfehd authenticates "+
+				"to nothing, and Town OS has no account to put there", f.Name)
+		}
 	}
 }
 
@@ -198,18 +223,6 @@ func TestValidateRejectsAnUnprincipledListener(t *testing.T) {
 				t.Fatal("expected a validation error")
 			}
 		})
-	}
-}
-
-// TestValidateRejectsATownOSSectionWithNoCredential: gfehd would fail at
-// startup with a less obvious message, after it had already decided which
-// directory to serve out of.
-func TestValidateRejectsATownOSSectionWithNoCredential(t *testing.T) {
-	cfg := baseConfig()
-	cfg.TownOS = &TownOSConfig{BaseURL: "http://127.0.0.1:5309", Username: "root"}
-
-	if _, err := RenderConfig(cfg); err == nil {
-		t.Fatal("rendered a town_os section naming neither a password nor a token")
 	}
 }
 

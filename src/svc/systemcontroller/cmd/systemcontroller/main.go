@@ -351,19 +351,6 @@ func run() (err error) {
 		return fmt.Errorf("init settings manager: %w", err)
 	}
 
-	// Boxes upgraded from a release that gave the object-storage daemon its own
-	// administrator account still carry that account, and nothing else would
-	// ever remove it -- it would go on appearing in the users list and the admin
-	// count as an account the operator never created. The daemon no longer
-	// authenticates to anything, so it is deleted here, once, on the first boot
-	// after the upgrade. Non-fatal: a box that keeps a stale row is worse than
-	// one that will not boot.
-	if purged, purgeErr := account.PurgeLegacyServiceAccounts(db); purgeErr != nil {
-		fmt.Fprintf(os.Stderr, "purge legacy service account: %v\n", purgeErr)
-	} else if purged {
-		slog.Info("removed the legacy object-storage service account", "username", account.LegacyGfehServiceAccount)
-	}
-
 	pagesMgr, err := account.InitPagesManager(db)
 	if err != nil {
 		return fmt.Errorf("init pages manager: %w", err)
@@ -673,7 +660,6 @@ func run() (err error) {
 		} else {
 			reg := systemcontroller.NewGfehRegistry(systemcontroller.ReconcileGfehConfig{
 				NetworkMgr:    networkMgr,
-				AccountMgr:    acctMgr,
 				Storage:       st,
 				Systemd:       sd,
 				SettingsMgr:   settingsMgr,

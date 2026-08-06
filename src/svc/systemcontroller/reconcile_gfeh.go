@@ -101,9 +101,11 @@ func (r *gfehRegistry) drop(network string) {
 
 // ReconcileGfehConfig carries what the reconcile needs.
 type ReconcileGfehConfig struct {
-	Registry      *gfehRegistry
-	NetworkMgr    account.NetworkManager
-	AccountMgr    account.Manager
+	Registry   *gfehRegistry
+	NetworkMgr account.NetworkManager
+	// No AccountMgr. The reconcile creates no gfeh user of any kind, so it has
+	// no business reading the box's accounts: a partition's forest is populated
+	// by an administrator over /gfeh/principals/add and by nothing else.
 	Storage       storage.Storage
 	Systemd       systemd.Manager
 	SettingsMgr   account.SettingsManager
@@ -120,10 +122,6 @@ type ReconcileGfehConfig struct {
 	// KeyPrefix, when set, is prepended to every service key so a test's units
 	// are distinguishable from production's.
 	KeyPrefix string
-	// FounderWaitBudget overrides how long seatGfehFounder waits for the home
-	// partition to answer. Zero means gfehFounderWaitBudget. Set by tests, where
-	// no daemon ever answers and the wait would otherwise be the whole runtime.
-	FounderWaitBudget time.Duration
 }
 
 // ReconcileGfeh converges the running gfeh daemons onto the set of networks.
@@ -179,8 +177,6 @@ func ReconcileGfeh(ctx context.Context, reg *gfehRegistry) {
 	}
 
 	pruneGfehPartitions(ctx, cfg, desired, "its network no longer exists")
-
-	seatGfehFounder(ctx, cfg)
 }
 
 // ReconcileGfehRegistry re-runs the reconcile for a registry held behind the
@@ -267,55 +263,9 @@ func reconcileGfehPartition(ctx context.Context, cfg ReconcileGfehConfig, networ
 	// Started, and not waited on. Whether the daemon is answering yet is asked
 	// separately, by GfehReadyNetworks and by the name collectors, both of
 	// which treat a partition that does not answer as contributing nothing
-	// rather than as a reason to fail. The one thing that genuinely needs a
-	// live daemon — seating the box's first account — is seatGfehFounder, at
-	// the end of the reconcile.
+	// rather than as a reason to fail. Nothing in the reconcile needs a live
+	// daemon, so nothing in it waits for one.
 	return m.Start(ctx, configChanged || gfehUnitChanged(cfg.Systemd, m))
-}
-
-// gfehFounderWaitBudget caps the single wait the reconcile still performs.
-//
-// Long enough for a daemon whose image is already local, short enough that a
-// partition which is never coming up cannot hold the reconcile open. A cold
-// start that misses it is seated by the next pass, which boot runs immediately
-// after ReconcileNetworks.
-const gfehFounderWaitBudget = 10 * time.Second
-
-// seatGfehFounder waits for the home partition to answer, then seats the box's
-// first account in it.
-//
-// Deliberately last, and deliberately capped. This wait used to live inside
-// reconcileGfehPartition, once per partition — including every partition it
-// does nothing for, since ensureFirstUserPrincipal returns on its first line
-// for any network but home. On a context with a deadline that was not merely
-// slow, it was the failure: the first partition whose daemon never answered
-// spent the whole remaining budget in WaitForReady, so every partition after it
-// tried to Start on an expired context and pruneGfehPartitions never ran at
-// all. One dead daemon took the rest of object storage down with it, in the
-// exact order the networks happened to sort.
-//
-// Here it can only delay work that is already finished.
-func seatGfehFounder(ctx context.Context, cfg ReconcileGfehConfig) {
-	if cfg.AccountMgr == nil || cfg.Registry == nil {
-		return
-	}
-	m, ok := cfg.Registry.Managers()[account.DefaultNetworkName]
-	if !ok || m == nil {
-		return
-	}
-
-	budget := cfg.FounderWaitBudget
-	if budget <= 0 {
-		budget = gfehFounderWaitBudget
-	}
-	waitCtx, cancel := context.WithTimeout(ctx, budget)
-	defer cancel()
-	if err := m.WaitForReady(waitCtx); err != nil {
-		// Not fatal: the daemon may still be opening its partition.
-		slog.Debug("gfeh home partition not ready; deferring first-user seating", "error", err)
-		return
-	}
-	ensureFirstUserPrincipal(ctx, cfg.AccountMgr, m.Client(), account.DefaultNetworkName)
 }
 
 // gfehHealthProbeTimeout bounds one partition's health probe.
@@ -542,73 +492,4 @@ func gfehPartitionQuota(settingsMgr account.SettingsManager) uint64 {
 		return 0
 	}
 	return quota
-}
-
-
-// ensureFirstUserPrincipal seats the box's first account in the home partition.
-//
-// Object storage is what the box is for, and a partition whose forest is empty
-// serves nobody: the operator opens the Users tab, finds nothing, and has to
-// work out that their own account is not in it. The first account is the one
-// that set the box up, so it is the one that gets seated.
-//
-// Home only. Every box has that partition, and a network added later belongs to
-// whoever is given a grant on it -- seating the founder there would hand them a
-// namespace somebody else created.
-//
-// Idempotent by way of gfehd: a principal that already exists comes back 409,
-// which is success here, so this runs on every reconcile without accumulating
-// anything. Non-fatal throughout -- a partition that cannot seat its first user
-// still serves every user already in it.
-func ensureFirstUserPrincipal(ctx context.Context, accountMgr account.Manager, client gfeh.Client, network string) {
-	if accountMgr == nil || client == nil || !gfeh.IsDefaultNetwork(network) {
-		return
-	}
-
-	first, err := firstAccount(accountMgr)
-	if err != nil {
-		logNonFatal("first account for gfeh home partition", err)
-		return
-	}
-	if first == nil {
-		return // a box nobody has set up yet; the next reconcile will find one
-	}
-
-	_, err = client.CreatePrincipal(ctx, gfeh.Principal{
-		Name:    first.Username,
-		Ceiling: gfeh.CeilingForAccount(first.Admin),
-	})
-	switch {
-	case err == nil:
-		slog.Info("seated the first account in the home object-storage partition", "account", first.Username)
-	case errors.Is(err, gfeh.ErrAlreadyExists):
-		// Already seated, which is the steady state.
-	default:
-		logNonFatal("seat first account in gfeh home partition", err)
-	}
-}
-
-// firstAccount is the earliest-created account on the box, or nil when there is
-// none.
-//
-// Earliest by CreatedAt, with the username as the tie-break: two accounts can
-// share a timestamp at second resolution, and a partition whose founder changed
-// between reconciles depending on map iteration order would be worse than one
-// that picked either consistently.
-func firstAccount(accountMgr account.Manager) (*account.Account, error) {
-	accounts, err := accountMgr.List()
-	if err != nil {
-		return nil, err
-	}
-
-	var first *account.Account
-	for i := range accounts {
-		candidate := &accounts[i]
-		if first == nil ||
-			candidate.CreatedAt.Before(first.CreatedAt) ||
-			(candidate.CreatedAt.Equal(first.CreatedAt) && candidate.Username < first.Username) {
-			first = candidate
-		}
-	}
-	return first, nil
 }

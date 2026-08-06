@@ -52,7 +52,12 @@ type Config struct {
 
 	Credentials []CredentialConfig `yaml:"credentials,omitempty"`
 
-	TownOS *TownOSConfig `yaml:"town_os,omitempty"`
+	// No town_os field. That section named a Town OS account for gfehd to
+	// authenticate to the control plane as, and there is no such account: the
+	// partition's subvolume and quota are provisioned from the Town OS side
+	// before the daemon starts, and its principals are created over the admin
+	// socket. gfehd's schema still accepts the key from a standalone
+	// deployment; Town OS has no way to produce it.
 }
 
 // S3Config is the S3 listener.
@@ -133,36 +138,6 @@ type CredentialConfig struct {
 	Principal string `yaml:"principal"`
 }
 
-// TownOSConfig tells gfehd how to reach the system controller.
-//
-// Rendered into every partition's config: this is how gfehd provisions its own
-// subvolume through /gfeh/partitions/* and how it authenticates accounts into
-// its ACL forest. Both are in TOWNOS_CONTRACT.md's Scope, and they are the only
-// two things gfeh uses Town OS for.
-//
-// The credential here is a **Town OS account**, and it is unrelated to every
-// other credential in the file. The S3 access keys, Drive tokens, and SMB NT
-// hashes authenticate end users to gfeh's own views; this authenticates the
-// daemon to the control plane. Conflating them is how one ends up reasoning
-// about the wrong lifetime for the wrong secret.
-//
-// Ordering is handled on gfeh's side rather than avoided here: TownOs::connect
-// polls /status/ping, which Town OS's boot stub answers 503 on until the full
-// router is up, so a daemon started during Town OS's own boot waits instead of
-// dying on the stub's 403.
-type TownOSConfig struct {
-	BaseURL  string `yaml:"base_url"`
-	Username string `yaml:"username"`
-	// Password and Token: exactly one is required, and a token wins if both
-	// are given. Town OS renders a password rather than a token because its
-	// signing key is ephemeral per boot and sessions are deleted at startup —
-	// a token would leave a daemon that crash-restarts days later unable to
-	// start at all.
-	Password string `yaml:"password,omitempty"`
-	Token    string `yaml:"token,omitempty"`
-	Quota    uint64 `yaml:"quota"`
-}
-
 // Validate applies the checks gfehd itself applies, so a bad render is caught
 // where the fields have names rather than as a container that exits non-zero
 // with a serde message.
@@ -205,14 +180,6 @@ func (c Config) Validate() error {
 			if strings.TrimSpace(tok.Principal) == "" || tok.Token == "" {
 				return errors.New("gfeh config: a drive token names no principal, or has no value")
 			}
-		}
-	}
-	if c.TownOS != nil {
-		if strings.TrimSpace(c.TownOS.BaseURL) == "" {
-			return errors.New("gfeh config: the town_os section has no base_url")
-		}
-		if c.TownOS.Password == "" && c.TownOS.Token == "" {
-			return fmt.Errorf("gfeh config: the town_os section names neither a password nor a token for %s", c.TownOS.Username)
 		}
 	}
 	return nil

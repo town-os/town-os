@@ -122,16 +122,17 @@ func TestGfehReadyNetworksNilRegistry(t *testing.T) {
 // real systemd means they simply do not happen. One network's dead daemon took
 // the rest of object storage with it, in whatever order the names sorted.
 //
-// The reconcile now performs exactly one wait, for the home partition, capped,
-// and after the work rather than through the middle of it.
+// The reconcile now waits on no socket at all. The one thing that needed a live
+// daemon was seating a first user, and that is gone — nothing is created in a
+// partition's forest except by an administrator asking for it — so there is no
+// longer any point in the reconcile where a silent daemon can cost time.
 func TestReconcileGfehDoesNotLetOneDeadPartitionStarveTheRest(t *testing.T) {
 	// attic sorts before home, so under the old shape the partition that ate
 	// the budget was not even the one the wait existed for.
 	reg, _, _, base := gfehTestRegistry(t, "attic", "home", "office")
-	reg.cfg.FounderWaitBudget = 50 * time.Millisecond
 
-	// Generous relative to the work, and far larger than the budget above: if
-	// any partition still waits on its own socket, this is what it consumes.
+	// Generous relative to the work: if any partition still waits on its own
+	// socket, this is what it consumes.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -139,7 +140,8 @@ func TestReconcileGfehDoesNotLetOneDeadPartitionStarveTheRest(t *testing.T) {
 	ReconcileGfeh(ctx, reg)
 	elapsed := time.Since(start)
 
-	// One capped wait, not one per partition and not the whole deadline.
+	// No wait at all, so this is slack against scheduling noise rather than a
+	// budget the reconcile is entitled to spend.
 	if elapsed > 3*time.Second {
 		t.Errorf("reconcile took %s: a partition is still waiting on its own socket", elapsed)
 	}

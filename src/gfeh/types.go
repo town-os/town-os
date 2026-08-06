@@ -13,11 +13,9 @@ type Health struct {
 	Status      string `json:"status"`
 	Partition   string `json:"partition"`
 	PartitionID string `json:"partition_id"`
-	// TownOS reports whether the daemon was configured with a system
-	// controller. Town OS renders no town_os section — it provisions the
-	// subvolume itself and mints principals over this socket — so this is
-	// expected to be false in a Town OS deployment.
-	TownOS bool `json:"town_os"`
+	// No town_os field is decoded. Town OS cannot render that section, so the
+	// answer is always false and reporting it would only invite somebody to
+	// branch on it.
 }
 
 // Name is one hostname gfeh asks Town OS to publish.
