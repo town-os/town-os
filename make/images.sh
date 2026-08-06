@@ -41,9 +41,26 @@ case "$1" in
       save_image_cache "${img}"
     done
     touch "${STATE_DIR}/.images-pulled"
+    # Stamped here rather than only in pull-daily so the repair pull that
+    # ensure-cache runs also counts as today's check: two full pulls back to
+    # back is exactly what this is meant to stop.
+    stamp_touch "${IMAGE_PULL_STAMP}"
+    ;;
+  pull-daily)
+    # The throttle itself: pull only when the last check has aged out.
+    #
+    # A missing or unreadable stamp pulls, which is the safe direction — the
+    # cost of an extra pull is time, and the cost of skipping one that was
+    # needed is a test run against stale images.
+    if stamp_fresh "${IMAGE_PULL_STAMP}"; then
+      step "Image pull check: last ran $(stamp_age_human "${IMAGE_PULL_STAMP}") ago, skipping"
+      substep "run 'make pull-images' to check upstream now"
+      exit 0
+    fi
+    ${MAKE} pull-images
     ;;
   *)
-    echo "Usage: $0 {docker-login|quay-login|ensure-cache|load-base|pull}"
+    echo "Usage: $0 {docker-login|quay-login|ensure-cache|load-base|pull|pull-daily}"
     exit 1
     ;;
 esac

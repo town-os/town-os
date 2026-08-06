@@ -106,6 +106,47 @@ export PREFLIGHT_CONTAINER REGISTRY_CONTAINER GITEA_CONTAINER
 IMAGE_CACHE ?= /var/cache/town-os/images
 export IMAGE_CACHE
 
+# How often `make test-full` and `make dev` re-check upstream for new tags.
+#
+# Both used to hang an unconditional pull-images off the front, so every run
+# re-pulled every entry in ALL_IMAGES — several gigabytes of registry traffic to
+# usually learn nothing had moved, and a hard dependency on the network for a
+# test run that had all its images locally. The stamp file records when the last
+# check ran; pull-images-daily skips entirely (no pull, no registry login) while
+# it is younger than PULL_MAX_AGE.
+#
+# The stamp lives in the gitignored .cache/ rather than beside IMAGE_CACHE
+# because /var/cache/town-os is root-owned and this is per-checkout bookkeeping,
+# not data. Force a check with `make pull-images`, which is still unconditional
+# and is what release-build uses — a release must never ship an image the box
+# happened to have lying around.
+IMAGE_PULL_STAMP := $(CURDIR)/.cache/.images-pulled-daily
+BUN_STAMP := $(CURDIR)/.cache/.bun-refreshed-daily
+# One window for both, because they are the same question asked of two
+# registries: how old may our picture of upstream be before we go look again.
+PULL_MAX_AGE ?= 86400
+export IMAGE_PULL_STAMP BUN_STAMP PULL_MAX_AGE
+
+# Host-wide npmjs package cache, the JS half of IMAGE_CACHE.
+#
+# The bun cache used to be $(CURDIR)/.cache/bun, mounted only into the UI
+# container builds — so every new worktree started cold against npmjs, and
+# host-side `bun install` (lint, test, dev) shared none of it. One host-wide
+# directory means a second checkout costs nothing and the container builds and
+# the host draw from the same downloads.
+#
+# Under $HOME rather than /var/cache/town-os because host-side bun runs as the
+# user and could not write a root-owned tree; rootful podman can still bind-mount
+# it into the image builds. Must be disk-backed — $HOME is, /tmp on Arch and
+# Fedora is not. Bun's cache is content-addressed and safe for concurrent use
+# (it is the machine-global cache by default), so parallel test runs sharing it
+# is the ordinary case, not a hazard — IRON RULE.
+BUN_CACHE ?= $(HOME)/.cache/town-os/bun
+# Every host-side bun in this build reads it from the environment; the
+# Containerfiles set the same variable to the mount point.
+BUN_INSTALL_CACHE_DIR := $(BUN_CACHE)
+export BUN_CACHE BUN_INSTALL_CACHE_DIR
+
 # Image lists.
 # debian:bookworm-slim is the systemcontroller runtime base (Containerfile);
 # debian:bookworm (non-slim) is still the Proton runner base (Containerfile.proton).
@@ -155,7 +196,7 @@ include make/include.mk
 
 .PHONY: help deps
 .PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
-.PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images
+.PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images pull-images-daily
 .PHONY: ui-image nc-image nc-image-dev ingress-image gfeh-image ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
@@ -167,7 +208,7 @@ include make/include.mk
 ifeq ($(PROTON_ENABLED),1)
 .PHONY: release-proton-image push-proton-rc push-proton-release
 endif
-.PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-containers clean-all
+.PHONY: btrfs clean-btrfs clean-integration clean clean-cache clean-image-cache clean-bun-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
 test-ui-unit: check-bun
@@ -194,7 +235,12 @@ gitea-populate: gitea
 test-ui-integration: test-image ui-image nc-image ingress-image gfeh-image ui-integration-image $(STATE_DIR)/.integration-port $(SYSTEM_PORT_FILES) registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration-build: lint test-image ui-image nc-image ingress-image gfeh-image $(STATE_DIR)/.integration-port $(SYSTEM_PORT_FILES) registry-populate $(STATE_DIR)/registries.conf gitea-populate
 test-integration: test-integration-build
-test-full: pull-images test ui-integration-image
+
+# pull-images-daily deliberately has no prerequisites of its own: when the stamp
+# is fresh the whole step is a stat() and a printed line, with no podman check
+# and no registry login. The recursive pull-images it runs on a stale stamp
+# brings those in for the pass that actually needs them.
+test-full: pull-images-daily test ui-integration-image
 test-full-log:
 test-image: production-image
 dev-production-image: $(STATE_DIR)/.images-pulled
@@ -202,7 +248,7 @@ dev-image: dev-production-image
 btrfs-dev: check-btrfs clean-btrfs-dev
 dev-stop:
 dev-image: dev-stop
-dev: check-podman check-runc check-bun check-btrfs dev-image nc-image-dev gfeh-image dev-btrfs ensure-image-cache
+dev: check-podman check-runc check-bun check-btrfs pull-images-daily dev-image nc-image-dev gfeh-image dev-btrfs ensure-image-cache
 preflight-dev: ensure-image-cache $(STATE_DIR)/.integration-port
 clean-dev: dev-stop-all clean-cache
 clean-integration: registry-stop gitea-stop
