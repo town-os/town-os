@@ -212,7 +212,7 @@ include make/include.mk
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
 .PHONY: test-ui-integration test-integration-build test-integration test-integration-rerun test-full
-.PHONY: dev dev-logs dev-stop dev-stop-all dev-btrfs btrfs-dev clean-btrfs-dev
+.PHONY: dev dev-logs dev-stop dev-stop-all dev-restore-dns dev-btrfs btrfs-dev clean-btrfs-dev
 .PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
 .PHONY: ssh
 .PHONY: release-build release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag quay-login

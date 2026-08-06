@@ -65,6 +65,8 @@ Dev loop
   dev-logs                Tail the dev container logs.
   dev-stop                Stop the dev container for this working tree.
   dev-stop-all            Stop every town-os-dev container on the host.
+  dev-restore-dns         Put host DNS back (resolv.conf + systemd-resolved)
+                          after a dev run that died without restoring it.
   ssh                     SSH into the running town-os.local image.
 
 Storage
