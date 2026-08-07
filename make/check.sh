@@ -30,8 +30,20 @@ case "$1" in
     command -v pkg-config >/dev/null 2>&1 || { echo "ERROR: pkg-config not found in PATH. Install build-essential (Ubuntu/Debian) or pkgconf (Arch): see README.md Prerequisites section"; exit 1; }
     pkg-config --exists libsystemd 2>/dev/null || { echo "ERROR: libsystemd development headers not found. Install libsystemd-dev (Ubuntu/Debian) or systemd-libs (Arch): see README.md Prerequisites section"; exit 1; }
     ;;
+  binfmt)
+    # Cross-build precondition, checked here so `make check-binfmt` answers the
+    # question without starting a release build. Native builds never need it.
+    case "$(uname -m)" in
+      x86_64 | amd64) want=aarch64 ;;
+      aarch64 | arm64) want=x86_64 ;;
+      *) echo "ERROR: unsupported host architecture $(uname -m)"; exit 1 ;;
+    esac
+    test -e "/proc/sys/fs/binfmt_misc/qemu-${want}" || { echo "ERROR: no qemu-${want} binfmt handler registered; cross builds (TARGET=${want}) cannot run their runtime stages. Run 'make deps', or register one by hand: see README.md"; exit 1; }
+    grep -qx enabled "/proc/sys/fs/binfmt_misc/qemu-${want}" || { echo "ERROR: binfmt handler qemu-${want} is registered but disabled"; exit 1; }
+    grep -q '^flags:.*F' "/proc/sys/fs/binfmt_misc/qemu-${want}" || { echo "ERROR: binfmt handler qemu-${want} lacks the F (fix binary) flag, so the interpreter cannot be found inside a build container. Install the STATIC qemu-user build: run 'make deps'"; exit 1; }
+    ;;
   *)
-    echo "Usage: $0 {go|bun|podman|runc|btrfs|golangci-lint|python3|libsystemd}"
+    echo "Usage: $0 {go|bun|podman|runc|btrfs|golangci-lint|python3|libsystemd|binfmt}"
     exit 1
     ;;
 esac

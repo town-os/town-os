@@ -120,6 +120,92 @@ host_arch_tag() {
   esac
 }
 
+# build_arch_tag — print the tag suffix (x86_64/aarch64) this invocation is
+#   BUILDING for, which is the host's unless TARGET asked for another. The
+#   Makefile exports BUILD_ARCH after validating TARGET; the fallback is for
+#   running these scripts directly, where there is no TARGET to honor.
+build_arch_tag() {
+  if [ -n "${BUILD_ARCH:-}" ]; then
+    echo "${BUILD_ARCH}"
+  else
+    host_arch_tag
+  fi
+}
+
+# build_oci_arch — the same value as build_arch_tag in podman's platform
+#   spelling (amd64/arm64), for `--platform linux/<arch>`.
+build_oci_arch() {
+  case "$(build_arch_tag)" in
+    x86_64) echo amd64 ;;
+    aarch64) echo arm64 ;;
+    *)
+      echo "unsupported build architecture: $(build_arch_tag)" >&2
+      return 1
+      ;;
+  esac
+}
+
+# cross_building — true when the build arch differs from the host's.
+cross_building() {
+  [ "$(build_oci_arch)" != "$(host_arch)" ]
+}
+
+# require_native_target LABEL — refuse a cross TARGET for work that runs the
+#   images it builds on this host (the test harness, dev). A foreign-arch image
+#   cannot execute here, so the useful failure is this one, up front and named,
+#   rather than an `exec format error` from inside a container twenty minutes in.
+require_native_target() {
+  cross_building || return 0
+  echo "${1}: TARGET=${TARGET:-} builds $(build_arch_tag) images, but this is an $(host_arch_tag) host." >&2
+  echo "  These images are run here, not shipped, so a foreign arch cannot work." >&2
+  echo "  Drop TARGET (or set it to $(host_arch_tag)); TARGET is for release/push targets." >&2
+  return 1
+}
+
+# require_cross_binfmt — a cross build compiles natively but still executes a
+#   handful of target-arch binaries in the runtime stages (apt-get, groupadd,
+#   apk), so the kernel needs a binfmt_misc handler for that arch. This is the
+#   one piece of the cross path that cannot be arranged from inside the build,
+#   and it needs root, so check it up front and print the remediation rather
+#   than letting podman fail with `exec format error` on a RUN line.
+#
+#   The F ("fix binary") flag matters as much as the registration: without it
+#   the interpreter is resolved inside the container's mount namespace, where
+#   it does not exist. That is also why the interpreter must be the STATIC
+#   qemu-user build — a dynamically linked one still needs its shared libraries
+#   present in the target rootfs.
+require_cross_binfmt() {
+  cross_building || return 0
+
+  local want handler
+  case "$(build_oci_arch)" in
+    arm64) want=aarch64 ;;
+    amd64) want=x86_64 ;;
+  esac
+  handler="/proc/sys/fs/binfmt_misc/qemu-${want}"
+
+  if [ -e "${handler}" ] && grep -qx enabled "${handler}" 2>/dev/null; then
+    if ! grep -q '^flags:.*F' "${handler}" 2>/dev/null; then
+      warn "binfmt handler qemu-${want} is registered without the F flag; runtime stages may fail inside the build container"
+    fi
+    substep "cross build: binfmt handler qemu-${want} present"
+    return 0
+  fi
+
+  echo "cross build to $(build_arch_tag) needs a qemu-${want} binfmt handler, and this host has none." >&2
+  echo "  Compilation is native (the builder stages are pinned to the build platform)," >&2
+  echo "  but the runtime stages still exec a few ${want} binaries (apt-get, groupadd)." >&2
+  echo >&2
+  echo "  Register one, as root, by whichever route fits the host:" >&2
+  echo "    Arch:    pacman -S qemu-user-static qemu-user-static-binfmt" >&2
+  echo "    Debian:  apt-get install qemu-user-static binfmt-support" >&2
+  echo "    Either:  podman run --rm --privileged docker.io/multiarch/qemu-user-static --reset -p yes" >&2
+  echo >&2
+  echo "  Note it must be the STATIC qemu build; a dynamically linked interpreter" >&2
+  echo "  cannot find its shared libraries inside the build container." >&2
+  return 1
+}
+
 # build_manifest IMAGE TAG — assemble and push the multi-arch manifest list
 #   IMAGE:TAG from the per-arch tags IMAGE:TAG-<arch> (one per entry in
 #   ARCHES). Every per-arch tag must already be pushed from its native host.

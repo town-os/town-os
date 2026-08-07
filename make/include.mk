@@ -22,6 +22,9 @@ check-runc:
 check-btrfs:
 	@make/check.sh btrfs
 
+check-binfmt:
+	@make/check.sh binfmt
+
 check-golangci-lint:
 	@make/check.sh golangci-lint
 

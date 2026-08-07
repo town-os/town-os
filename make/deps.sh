@@ -64,7 +64,9 @@ install_arch_packages() {
     git \
     unzip \
     qemu-base \
-    qemu-img
+    qemu-img \
+    qemu-user-static \
+    qemu-user-static-binfmt
   # golangci-lint is intentionally NOT taken from pacman: check-golangci-lint
   # and lint.sh look for it under $(go env GOPATH)/bin, but the pacman package
   # lands in /usr/bin. install_golangci_lint installs it to GOPATH/bin instead
@@ -89,7 +91,9 @@ install_debian_packages() {
     git \
     unzip \
     qemu-system-x86 \
-    qemu-utils
+    qemu-utils \
+    qemu-user-static \
+    binfmt-support
 }
 
 install_fedora_packages() {
@@ -114,6 +118,7 @@ install_fedora_packages() {
     unzip
     qemu-system-x86-core
     qemu-img
+    qemu-user-static
   )
   # Fedora's base image ships curl-minimal; only pull full curl when there is
   # no curl at all, so we never trigger a curl-minimal -> curl swap prompt.
@@ -255,6 +260,39 @@ install_ui_deps() {
   echo ">>> eslint installed at ui/node_modules/.bin/eslint."
 }
 
+# Cross-architecture container builds (`make release TARGET=aarch64` on an
+# x86_64 host) compile natively — every toolchain stage is pinned to the build
+# platform — but the runtime stages still exec a few target-arch binaries
+# (apt-get, groupadd). That needs a binfmt_misc handler, which is the one piece
+# the build cannot arrange for itself.
+#
+# The STATIC qemu build is what matters: registration carries the F ("fix
+# binary") flag, which resolves the interpreter once at registration time so it
+# works inside a build container's mount namespace. A dynamically linked
+# interpreter would still need its shared libraries present in the target
+# rootfs, and they are not.
+enable_cross_binfmt() {
+  if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+    echo ">>> Skipping binfmt registration (no systemd); cross builds will need it registered by hand."
+    return 0
+  fi
+  echo ">>> Registering qemu binfmt handlers for cross-architecture builds..."
+  $SUDO systemctl restart systemd-binfmt 2>/dev/null || true
+
+  local want
+  case "$(uname -m)" in
+    x86_64 | amd64) want=aarch64 ;;
+    aarch64 | arm64) want=x86_64 ;;
+    *) return 0 ;;
+  esac
+  if [ -e "/proc/sys/fs/binfmt_misc/qemu-${want}" ]; then
+    echo ">>> binfmt handler qemu-${want} registered; cross builds to that arch are available."
+  else
+    echo ">>> WARNING: no qemu-${want} binfmt handler after install."
+    echo "    Native builds are unaffected; only \`make <release target> TARGET=${want}\` needs it."
+  fi
+}
+
 enable_podman_socket() {
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     echo ">>> Enabling rootful podman socket (required by the systemcontroller)..."
@@ -274,6 +312,7 @@ install_go
 install_golangci_lint
 install_bun
 install_ui_deps
+enable_cross_binfmt
 enable_podman_socket
 
 echo

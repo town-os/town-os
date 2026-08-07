@@ -11,15 +11,59 @@ export QUAY_USERNAME
 export QUAY_PASSWORD
 export VITE_API_URL
 
-# Host arch in registry tag form (x86_64/aarch64, the uname -m form) for
-# per-arch image tags. rc tags are partitioned per arch (rc.latest-x86_64 /
-# rc.latest-aarch64) and pushed natively from each host; plain rc.latest exists
-# only as a multi-arch manifest list assembled by manifest-rc.
+# The REAL host arch in registry tag form (x86_64/aarch64, the uname -m form).
+# BUILD_ARCH is derived from TARGET below and is what every per-arch image tag
+# is suffixed with; HOST_ARCH never changes, so the build machinery can always
+# tell which architecture it is actually standing on.
 HOST_ARCH := $(shell uname -m | sed -e 's/amd64/x86_64/' -e 's/arm64/aarch64/')
 # All architectures a release covers (used by manifest assembly).
 ARCHES ?= x86_64 aarch64
-export HOST_ARCH ARCHES
 
+# TARGET names the architecture this invocation builds and pushes for, spelled
+# exactly as ../install spells it so one value drives both repos in a release
+# run. Empty (the default) is the native host arch. Recognized values:
+#   x86_64 (x86, amd64)
+#   aarch64 (arm64)
+#   rpi, rg35xxpro (rg35xx-pro, rg35xx, anbernic)   — ../install image flavors,
+#       accepted here and folded to aarch64, since a flavor changes how that
+#       repo boots the box and not which container images it runs.
+#
+# A TARGET naming a foreign arch cross-builds (release/push targets only — see
+# CROSS below). ../install emulates a whole aarch64 MACHINE for its disk image;
+# these are container images, so instead every builder stage is pinned to the
+# BUILD platform and cross-compiles. bun, the Go toolchain and cargo all run
+# natively at full speed, which matters because bun is JavaScriptCore and its
+# JIT does not survive qemu-user. Only the runtime stages (apt-get, groupadd)
+# execute target-arch binaries, and those need a binfmt handler — build.sh
+# checks for one and says how to register it.
+TARGET ?=
+ifeq ($(TARGET),)
+BUILD_ARCH := $(HOST_ARCH)
+else ifneq ($(filter x86_64 x86 amd64,$(TARGET)),)
+BUILD_ARCH := x86_64
+else ifneq ($(filter aarch64 arm64 rpi rg35xxpro rg35xx-pro rg35xx anbernic,$(TARGET)),)
+BUILD_ARCH := aarch64
+else
+$(error unknown TARGET '$(TARGET)' — expected one of: x86_64, aarch64, rpi, rg35xxpro)
+endif
+
+# CROSS is derived, not a user knob — set TARGET. It is what the release
+# targets consult to decide whether to pass --platform and demand binfmt, and
+# what the test and dev targets consult to refuse outright: those RUN the
+# images they build, on this host, so a foreign arch there is never what
+# somebody meant.
+CROSS :=
+ifneq ($(BUILD_ARCH),$(HOST_ARCH))
+CROSS := 1
+endif
+
+export HOST_ARCH ARCHES TARGET BUILD_ARCH CROSS
+
+# Runtime tags stay on HOST_ARCH even under a cross build, and deliberately:
+# this is the tag the controller derives its sibling images from when it is
+# RUNNING (dev, and the systemcontroller's own default), so it must name images
+# that can execute on this box. Only release artifacts carry BUILD_ARCH — see
+# ARCH in make/build.sh.
 TOWN_OS_TAG ?= rc.latest-$(HOST_ARCH)
 export TOWN_OS_TAG
 
@@ -170,6 +214,8 @@ MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/nod
 # track the rc channel by default. The plain rc.latest (no arch suffix) is a
 # multi-arch manifest list and must never be pulled directly. Override with
 # ROLODEX_IMAGE_TAG=... (e.g. latest-$(HOST_ARCH) for a released rolodex).
+# HOST_ARCH, not BUILD_ARCH: this image is pulled to be RUN here, by the test
+# harness and by dev, so it tracks the host even when TARGET cross-builds.
 ROLODEX_IMAGE_TAG ?= rc.latest-$(HOST_ARCH)
 ROLODEX_IMAGE := quay.io/town/rolodex:$(ROLODEX_IMAGE_TAG)
 # The UI image for tests is built locally from Containerfile.ui (ui-image
@@ -206,7 +252,7 @@ include make/include.mk
 # ---------------------------------------------------------------------------
 
 .PHONY: help deps
-.PHONY: check-go check-bun check-podman check-runc check-btrfs check-golangci-lint check-python3 check-libsystemd
+.PHONY: check-go check-bun check-podman check-runc check-btrfs check-binfmt check-golangci-lint check-python3 check-libsystemd
 .PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images pull-images-daily
 .PHONY: ui-image nc-image nc-image-dev ingress-image gfeh-image ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop

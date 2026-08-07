@@ -1,10 +1,16 @@
-FROM docker.io/library/golang:1.25-bookworm AS builder
+# Pinned to the BUILD platform and cross-compiled: CGO_ENABLED=0, so GOARCH
+# alone produces the target binary with no toolchain to install and nothing
+# emulated.
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.25-bookworm AS builder
+ARG TARGETARCH
 COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
 COPY . /src
-RUN CGO_ENABLED=0 go build -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
+RUN GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" CGO_ENABLED=0 go build -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
+# NOT pinned to the build platform: the caddy binary is copied into the runtime
+# image and has to be the TARGET arch.
 FROM docker.io/library/caddy:2-alpine AS caddy
 
 FROM docker.io/library/alpine:latest

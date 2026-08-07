@@ -16,7 +16,36 @@ set -e
 # rc.latest-<arch>; manifest-rc assembles the plain multi-arch manifest lists
 # after every arch has pushed. This is the tag suffix, not the OCI platform
 # name (host_arch) podman pulls with.
-ARCH="$(host_arch_tag)"
+#
+# BUILD_ARCH is exported by the Makefile, which derives it from TARGET.
+# host_arch_tag is the fallback for running this script directly.
+ARCH="$(build_arch_tag)"
+
+# Cross-build plumbing, empty on a native build so the command lines below are
+# byte-identical to what they have always been.
+#
+# BUILD_PLATFORM_ARGS sets the platform every *runtime* stage resolves to; the
+# toolchain stages override it back with FROM --platform=$BUILDPLATFORM and
+# cross-compile, so nothing large is ever emulated. PULL_ARGS drops the
+# --pull=never that the native release path relies on: the image cache holds
+# host-arch bases only (its tars are keyed by image name, not by arch), so on a
+# cross build podman has to be allowed to fetch the target-arch base itself.
+BUILD_PLATFORM_ARGS=()
+PULL_ARGS=(--pull=never)
+if cross_building; then
+  BUILD_PLATFORM_ARGS=(--platform "linux/$(build_oci_arch)")
+  PULL_ARGS=()
+fi
+
+# The local targets build images that are RUN on this host — the test harness,
+# dev, and the locally built UI/NC/ingress/gfeh images the harness injects into
+# its containers. A cross TARGET cannot produce anything usable for any of them,
+# so refuse it here rather than at exec time inside a container.
+case "$1" in
+  production | test | dev-base | dev | ui-integration | ui-local | nc-local | ingress-local | gfeh-local)
+    require_native_target "$1"
+    ;;
+esac
 
 case "$1" in
   production)
@@ -126,8 +155,9 @@ case "$1" in
     ;;
   release)
     step "Building release image"
+    require_cross_binfmt
     mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
-    ${SUDO} podman build --network=host --pull=never \
+    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -144,8 +174,9 @@ case "$1" in
     # controller (whose daily TOWN_OS_TAG build-arg busts its cache) the UI has
     # no changing input, so a cache hit silently ships an old UI. The mounted
     # The mounted host bun cache keeps bun install fast despite --no-cache.
+    require_cross_binfmt
     mkdir -p "${BUN_CACHE}"
-    ${SUDO} podman build --network=host --pull=never --no-cache \
+    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" --no-cache \
       --volume "${BUN_CACHE}:/bun-cache:z" \
       -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
     ;;
@@ -154,45 +185,57 @@ case "$1" in
       echo "release-proton requires PROTON_ENABLED=1 (build tag and runner image are off by default)" >&2
       exit 1
     fi
+    # No cross build, and not an oversight: GE-Proton is x86_64 Wine and the
+    # image adds the i386 multiarch to run 32-bit Windows executables. There is
+    # nothing to cross-compile TO — an aarch64 Proton runner would be an image
+    # with no runner in it.
+    if [ "${ARCH}" != "x86_64" ]; then
+      echo "release-proton builds x86_64 only (GE-Proton ships x86_64 Wine); TARGET=${TARGET:-} asks for ${ARCH}" >&2
+      exit 1
+    fi
     step "Building Proton runner image"
-    ${SUDO} podman build --network=host \
+    ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       -t "${RELEASE_PROTON_IMAGE}" -f Containerfile.proton .
     ;;
   release-nc)
     step "Building network controller image"
+    require_cross_binfmt
     mkdir -p .cache/go-mod .cache/go-build
     # No --pull=never: release-nc-image has no dependency on the image-cache
     # load, so the bases (golang:1.25-bookworm, caddy:2-alpine, alpine:latest)
     # may not be in the host store on a fresh checkout even though all three
     # are in BASE_IMAGES/ALL_IMAGES. Let podman pull them on demand.
-    ${SUDO} podman build --network=host \
+    ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_NC_IMAGE}" -f Containerfile.networkcontroller .
     ;;
   release-ingress)
     step "Building ingress image"
+    require_cross_binfmt
     mkdir -p .cache/go-mod .cache/go-build
     # No --pull=never: release-ingress-image has no dependency on the
     # image-cache load, so the bases (golang:1.25-bookworm, caddy:2-alpine,
     # alpine:latest) may not be in the host store on a fresh checkout even
     # though all three are in BASE_IMAGES/ALL_IMAGES. Let podman pull them on
     # demand.
-    ${SUDO} podman build --network=host \
+    ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       -t "${RELEASE_INGRESS_IMAGE}" -f Containerfile.ingress .
     ;;
   release-gfeh)
     step "Building gfeh image"
+    require_cross_binfmt
     mkdir -p .cache/cargo-registry
-    ${SUDO} podman build --network=host \
+    ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       --build-arg "GFEH_VERSION=${GFEH_VERSION:-}" \
       --build-arg "GFEH_LATEST=${GFEH_LATEST:-}" \
       --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
       -t "${RELEASE_GFEH_IMAGE}" -f Containerfile.gfeh .
     ;;
   push-rc)
+    require_cross_binfmt
     require_registry_login quay.io
     step "Pushing release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
@@ -206,7 +249,7 @@ case "$1" in
     # All quay.io/town/* images MUST use the same tag within a release.
     substep "Building ${RELEASE_IMAGE} with tag rc.${DATE_TAG}-${ARCH}"
     mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
-    ${SUDO} podman build --network=host --pull=never \
+    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -275,6 +318,7 @@ case "$1" in
     fi
     ;;
   push-release)
+    require_cross_binfmt
     require_registry_login quay.io
     step "Pushing release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
@@ -288,7 +332,7 @@ case "$1" in
     # All quay.io/town/* images MUST use the same tag within a release.
     substep "Building ${RELEASE_IMAGE} with tag release.${DATE_TAG}-${ARCH}"
     mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
-    ${SUDO} podman build --network=host --pull=never \
+    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -496,6 +540,7 @@ case "$1" in
       echo "Usage: $0 push-tag <tag>"
       exit 1
     fi
+    require_cross_binfmt
     require_registry_login quay.io
     step "Pushing all images with tag ${TAG}"
 
@@ -504,7 +549,7 @@ case "$1" in
     # unit by the install build system), defaulting to rc.latest-<arch>.
     substep "Building ${RELEASE_IMAGE}:${TAG}"
     mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
-    ${SUDO} podman build --network=host --pull=never \
+    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \

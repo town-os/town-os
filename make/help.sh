@@ -18,7 +18,7 @@ Setup
   preflight-dev           Verify podman, btrfs, repo creds, and bridge networking.
   check-<tool>            Verify one host dependency is present. One of:
                           go, bun, podman, runc, btrfs, golangci-lint,
-                          python3, libsystemd.
+                          python3, libsystemd, binfmt (cross builds only).
   pull-images             Pull every base/monitoring/rolodex image into the
                           shared image cache. Always pulls.
   pull-images-daily       The same pull, but at most once a day (what test-full
@@ -142,6 +142,16 @@ Variables
   TEST_RUN=<regex>        Restrict the integration run to matching tests.
   TEST_TIMEOUT=<dur>      Integration test timeout (default 60m).
   PUSH_TAG=<tag>          Tag used by push-tag.
+  TARGET=<arch>           Architecture the release/push targets build for,
+                          spelled as ../install spells it: x86_64|aarch64, or
+                          an image flavor (rpi, rg35xxpro) that folds to
+                          aarch64. Default: the native host arch. A foreign
+                          arch cross-compiles (toolchain stages run natively;
+                          only the runtime stages are emulated, so a qemu
+                          binfmt handler is required — `make deps` installs
+                          one). Refused for test/dev targets, which run the
+                          images they build, and for the Proton runner, which
+                          is x86_64-only.
   ARCHES="x86_64 aarch64" Architectures the manifest-* targets assemble.
   IMAGE_CACHE=<dir>       Shared image cache (default /var/cache/town-os/images).
   BUN_CACHE=<dir>         Host-wide npmjs package cache, shared by host-side bun

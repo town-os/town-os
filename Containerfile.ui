@@ -1,4 +1,9 @@
-FROM docker.io/oven/bun:latest AS ui-builder
+# Pinned to the BUILD platform: bun's output is arch-independent JS/CSS, so a
+# cross build (make release-ui TARGET=aarch64) runs it natively at full speed.
+# It also has to be pinned — bun is JavaScriptCore and its JIT does not survive
+# qemu-user, so an emulated bun stage does not merely crawl, it crashes. Only
+# the caddy runtime stage below is target-arch.
+FROM --platform=$BUILDPLATFORM docker.io/oven/bun:latest AS ui-builder
 # Fixed cache path so the make pipeline can mount .cache/bun into the build
 # (same pattern as the go-mod/go-build volumes) and bun install stays offline
 # once the cache is warm.

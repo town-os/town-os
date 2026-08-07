@@ -1,7 +1,37 @@
-FROM docker.io/library/golang:1.25-bookworm AS go-deps
-RUN apt-get update && apt-get install -y libsystemd-dev
+# --platform=$BUILDPLATFORM pins the toolchain stages to the arch of the machine
+# doing the building, so `make release TARGET=aarch64` on an x86_64 host
+# cross-compiles at native speed instead of running a compiler under emulation.
+# TARGETARCH/BUILDARCH are supplied automatically by podman (amd64/arm64) and
+# are what every stage below branches on. Only the runtime stages further down
+# run target-arch binaries, and those need a binfmt handler — make/build.sh
+# checks for one before starting a cross build.
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.25-bookworm AS go-deps
+ARG TARGETARCH
+ARG BUILDARCH
+# The systemcontroller is CGO_ENABLED=1 (libsystemd), so a cross build needs a
+# cross gcc plus the target arch's libsystemd headers and library, pulled in
+# through dpkg multiarch. Debian's mirrors serve every arch from the same
+# sources, so adding the foreign arch is all it takes.
+RUN set -eux; \
+    if [ "${TARGETARCH}" = "${BUILDARCH}" ]; then \
+      apt-get update; \
+      apt-get install -y --no-install-recommends libsystemd-dev; \
+    else \
+      case "${TARGETARCH}" in \
+        arm64) cross_gcc=gcc-aarch64-linux-gnu ;; \
+        amd64) cross_gcc=gcc-x86-64-linux-gnu ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+      esac; \
+      dpkg --add-architecture "${TARGETARCH}"; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends "${cross_gcc}" "libsystemd-dev:${TARGETARCH}"; \
+    fi; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 FROM go-deps AS go-builder
+ARG TARGETARCH
+ARG BUILDARCH
 COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
@@ -12,10 +42,28 @@ ARG TOWN_OS_GO_TAGS=
 # The image tag is no longer baked into the binary. At runtime the controller
 # defaults to rc.latest-<arch> and the install build system pins a specific tag
 # via the TOWN_OS_TAG env var on the systemcontroller systemd unit.
-RUN CGO_ENABLED=1 go build -tags "${TOWN_OS_GO_TAGS}" -ldflags "-s -w" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
+#
+# PKG_CONFIG_LIBDIR (not PKG_CONFIG_PATH) is what redirects the sdjournal cgo
+# `#cgo pkg-config: libsystemd` lookup at the target arch's .pc files: PATH is
+# searched in ADDITION to the default dirs, so the host's own libsystemd.pc
+# would still win and the link would pull in the wrong architecture.
+RUN set -eux; \
+    if [ "${TARGETARCH}" != "${BUILDARCH}" ]; then \
+      case "${TARGETARCH}" in \
+        arm64) export CC=aarch64-linux-gnu-gcc; triple=aarch64-linux-gnu ;; \
+        amd64) export CC=x86_64-linux-gnu-gcc;  triple=x86_64-linux-gnu ;; \
+      esac; \
+      export PKG_CONFIG_LIBDIR="/usr/lib/${triple}/pkgconfig:/usr/share/pkgconfig"; \
+    fi; \
+    GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" CGO_ENABLED=1 \
+      go build -tags "${TOWN_OS_GO_TAGS}" -ldflags "-s -w" -o /systemcontroller ./src/svc/systemcontroller/cmd/systemcontroller
+RUN GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" CGO_ENABLED=0 go build -ldflags "-s -w" -o /town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
 
-FROM docker.io/oven/bun:latest AS ui-builder
+# The bun stage is pinned to the BUILD platform and stays there: its output is
+# arch-independent JS/CSS, copied into the runtime image below. That is the
+# whole reason this repo cross-compiles rather than emulating — bun is
+# JavaScriptCore, and its JIT does not survive qemu-user.
+FROM --platform=$BUILDPLATFORM docker.io/oven/bun:latest AS ui-builder
 # Fixed cache path so the make pipeline can mount .cache/bun into the build
 # (same pattern as the go-mod/go-build volumes) and bun install stays offline
 # once the cache is warm.
