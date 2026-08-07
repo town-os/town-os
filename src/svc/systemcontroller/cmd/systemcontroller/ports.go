@@ -20,8 +20,8 @@ import (
 // integration harness it is *also* the host namespace — the test container runs
 // --net host too, deliberately, so builds keep working on captive networks where
 // bridge-network DNS is broken. A test box and a `make dev` box therefore fight
-// over 127.0.0.2:53, 9100, 9090, 5308, 443 and 80, and lose under
-// Restart=always: whichever service loses the race crash-loops forever.
+// over 127.0.0.2:53, 127.0.0.2:9153, 9100, 9090, 5308, 443 and 80, and lose
+// under Restart=always: whichever service loses the race crash-loops forever.
 //
 // The harness sets these to ephemeral ports the same way it already sets
 // TOWN_OS_LISTEN. `make dev` sets none of them and keeps the production ports,
@@ -36,6 +36,9 @@ const (
 	EnvMonitoringPort = "TOWN_OS_MONITORING_PORT"
 	// EnvDNSPort relocates the port rolodex serves DNS on (on DNSLoopback).
 	EnvDNSPort = "TOWN_OS_DNS_PORT"
+	// EnvRolodexMetricsPort relocates the port rolodex serves its Prometheus
+	// /metrics endpoint on (also on DNSLoopback).
+	EnvRolodexMetricsPort = "TOWN_OS_ROLODEX_METRICS_PORT"
 	// EnvIngressHTTPSPort relocates the ingress's published HTTPS port.
 	EnvIngressHTTPSPort = "INGRESS_HTTPS_PORT"
 	// EnvIngressHTTPPort relocates the ingress's published HTTP port.
@@ -97,6 +100,12 @@ func monitoringPortsFromEnv() monitoring.Ports {
 // rolodex.DefaultDNSPort when unset.
 func dnsPortFromEnv() string {
 	return envPort(EnvDNSPort)
+}
+
+// rolodexMetricsPortFromEnv resolves rolodex's Prometheus endpoint port. An
+// empty result means rolodex.DefaultMetricsPort, exactly as with the DNS port.
+func rolodexMetricsPortFromEnv() string {
+	return envPort(EnvRolodexMetricsPort)
 }
 
 // dnsPortIsDefault reports whether rolodex is serving DNS on the standard port.

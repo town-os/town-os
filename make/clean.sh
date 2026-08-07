@@ -19,7 +19,8 @@ clean_integration() {
   remove_container "${PODMAN_UI_BACKEND}"
   remove_container "${PODMAN_UI_CONTAINER}"
   rm -f "${STATE_DIR}/.integration-port"
-  rm -f "${STATE_DIR}/.dns-port" "${STATE_DIR}/.node-exporter-port" \
+  rm -f "${STATE_DIR}/.dns-port" "${STATE_DIR}/.rolodex-metrics-port" \
+    "${STATE_DIR}/.node-exporter-port" \
     "${STATE_DIR}/.prometheus-port" "${STATE_DIR}/.monitoring-port" \
     "${STATE_DIR}/.ingress-https-port" "${STATE_DIR}/.ingress-http-port"
   ${MAKE} clean-btrfs

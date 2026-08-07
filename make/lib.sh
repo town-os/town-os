@@ -257,13 +257,13 @@ warn_missing_repo_creds() {
 
 # system_port_env — populate the SYSTEM_PORT_ENV array with the podman -e flags
 #   that relocate the otherwise-fixed host ports the system services bind:
-#   rolodex :53, node-exporter :9100, Prometheus :9090, the monitoring UI :5308,
-#   and the ingress :443/:80.
+#   rolodex :53 and its Prometheus endpoint :9153, node-exporter :9100,
+#   Prometheus :9090, the monitoring UI :5308, and the ingress :443/:80.
 #
 #   The test container runs --net host (deliberately: bridge-network DNS breaks
 #   on captive networks), so every one of those services binds in the *host*
 #   network namespace — the same namespace `make dev` binds in. Without these
-#   overrides a `make test-full` and a `make dev` fight over all six ports and
+#   overrides a `make test-full` and a `make dev` fight over every one of them and
 #   crash-loop each other under Restart=always. The values are allocated per run
 #   by make/port.sh into SYSTEM_PORT_FILES — IRON RULE.
 #
@@ -275,6 +275,7 @@ system_port_env() {
   local pair var file
   for pair in \
     "TOWN_OS_DNS_PORT:.dns-port" \
+    "TOWN_OS_ROLODEX_METRICS_PORT:.rolodex-metrics-port" \
     "TOWN_OS_NODE_EXPORTER_PORT:.node-exporter-port" \
     "TOWN_OS_PROMETHEUS_PORT:.prometheus-port" \
     "TOWN_OS_MONITORING_PORT:.monitoring-port" \

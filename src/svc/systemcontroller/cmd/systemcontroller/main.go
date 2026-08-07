@@ -476,6 +476,7 @@ func run() (err error) {
 		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
 		ResolutionMode: resolutionMode,
 		DNSPort:        dnsPort,
+		MetricsPort:    rolodexMetricsPortFromEnv(),
 	})
 	configWritten, configErr := rolMgr.WriteConfig()
 	if configErr != nil {
@@ -539,6 +540,11 @@ func run() (err error) {
 	// Host ports for the three monitoring system services. The zero value means
 	// the production defaults; the harness relocates them (see ports.go).
 	monPorts := monitoringPortsFromEnv()
+	// Scrape rolodex alongside node-exporter. The address comes from the
+	// rolodex manager rather than being recomposed here, so the Prometheus
+	// target is by construction the same string rolodex.yml binds — the same
+	// single-source-of-truth reason PackageNetworkState.FQDN exists.
+	monPorts.RolodexMetrics = rolMgr.MetricsAddr()
 
 	// Determine monitoring backend (uplot or grafana).
 	monBackend := monitoring.BackendUPlot

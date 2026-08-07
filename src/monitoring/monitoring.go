@@ -30,7 +30,8 @@ const (
 	BackendGrafana = "grafana"
 )
 
-// Ports are the host ports the three monitoring system services bind.
+// Ports are the host ports the three monitoring system services bind, plus the
+// address of the one external service Prometheus scrapes (rolodex).
 //
 // All three run --net host, so they bind in whatever network namespace the
 // systemcontroller itself is in. On a real box that is the host and the
@@ -54,6 +55,17 @@ type Ports struct {
 	// External is the single LAN-facing monitoring port (default
 	// MonitoringExternalPort): socat in uPlot mode, Grafana in grafana mode.
 	External string
+	// RolodexMetrics is the "host:port" address rolodex serves its Prometheus
+	// endpoint on, and is the one field here that is an address rather than a
+	// port this stack binds: rolodex is a separate system service that chooses
+	// its own listener, so monitoring is told where to scrape rather than
+	// deciding it. rolodex.Manager.MetricsAddr() is the value to pass, which is
+	// the same string it writes into rolodex.yml — that is what keeps the
+	// target from drifting from the listener.
+	//
+	// Empty means no rolodex scrape job, which is what every test that builds a
+	// bare Ports{} gets, so the generated config is unchanged for them.
+	RolodexMetrics string
 }
 
 // withDefaults returns a copy with every empty field filled in with its

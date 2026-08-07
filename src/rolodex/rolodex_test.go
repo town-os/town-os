@@ -160,14 +160,14 @@ func TestWriteConfigOverwritesStaleContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(data) != rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode) {
+	if string(data) != rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode, DefaultMetricsPort) {
 		t.Fatalf("expected canonical config, got:\n%s", data)
 	}
 }
 
 func TestRolodexConfigDefaultForwarders(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode)
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode, DefaultMetricsPort)
 	if !strings.Contains(cfg, "forwarders:\n  - \"8.8.8.8:53\"\n  - \"8.8.4.4:53\"\n") {
 		t.Fatalf("expected default forwarders in config, got:\n%s", cfg)
 	}
@@ -175,7 +175,7 @@ func TestRolodexConfigDefaultForwarders(t *testing.T) {
 
 func TestRolodexConfigDefaultsToAuto(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, "")
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, "", DefaultMetricsPort)
 	if !strings.Contains(cfg, "resolution:\n  mode: auto\n") {
 		t.Fatalf("expected auto resolution mode by default, got:\n%s", cfg)
 	}
@@ -183,7 +183,7 @@ func TestRolodexConfigDefaultsToAuto(t *testing.T) {
 
 func TestRolodexConfigRecursiveMode(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, ResolutionModeRecursive)
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, ResolutionModeRecursive, DefaultMetricsPort)
 	if !strings.Contains(cfg, "resolution:\n  mode: recursive\n") {
 		t.Fatalf("expected recursive resolution mode, got:\n%s", cfg)
 	}
@@ -191,7 +191,7 @@ func TestRolodexConfigRecursiveMode(t *testing.T) {
 
 func TestRolodexConfigForwardMode(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, ResolutionModeForward)
+	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, ResolutionModeForward, DefaultMetricsPort)
 	if !strings.Contains(cfg, "resolution:\n  mode: forward\n") {
 		t.Fatalf("expected forward resolution mode, got:\n%s", cfg)
 	}

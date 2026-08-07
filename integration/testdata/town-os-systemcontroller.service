@@ -6,7 +6,13 @@ StartLimitIntervalSec=0
 Type=simple
 Restart=on-failure
 RestartSec=2
-PassEnvironment=LOG_LEVEL DEBUG TOWN_OS_REPO_USERNAME TOWN_OS_REPO_PASSWORD TOWN_OS_LISTEN TOWN_OS_TEST TOWN_OS_TEST_REPO_CORE_URL TOWN_OS_TEST_REPO_EXTRAS_URL ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE TOWN_OS_DNS_PORT TOWN_OS_NODE_EXPORTER_PORT TOWN_OS_PROMETHEUS_PORT TOWN_OS_MONITORING_PORT INGRESS_HTTPS_PORT INGRESS_HTTP_PORT TOWN_OS_WG_SALT
+# PassEnvironment is an allowlist, so every SYSTEM_PORT_FILES variable the
+# harness sets on the container must be named here too. A variable missing from
+# this line is not an error anywhere — the controller simply sees it unset and
+# falls back to the production port, which is exactly the collision the
+# overrides exist to prevent (IRON RULE). When adding a port override to
+# make/lib.sh's system_port_env, add it here in the same commit.
+PassEnvironment=LOG_LEVEL DEBUG TOWN_OS_REPO_USERNAME TOWN_OS_REPO_PASSWORD TOWN_OS_LISTEN TOWN_OS_TEST TOWN_OS_TEST_REPO_CORE_URL TOWN_OS_TEST_REPO_EXTRAS_URL ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE TOWN_OS_DNS_PORT TOWN_OS_ROLODEX_METRICS_PORT TOWN_OS_NODE_EXPORTER_PORT TOWN_OS_PROMETHEUS_PORT TOWN_OS_MONITORING_PORT INGRESS_HTTPS_PORT INGRESS_HTTP_PORT TOWN_OS_WG_SALT
 ExecStart=/systemcontroller -db /data/db/dev.db -btrfs /town-os -repo-dir /data/repos
 
 [Install]

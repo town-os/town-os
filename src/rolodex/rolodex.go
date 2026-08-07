@@ -27,6 +27,11 @@ const (
 	// Using 127.0.0.2 avoids conflicts with systemd-resolved (127.0.0.53)
 	// and other services commonly bound to 127.0.0.1.
 	DNSLoopback = "127.0.0.2"
+	// DefaultMetricsPort is the port rolodex serves its Prometheus text
+	// exposition on. 9153 is CoreDNS's convention for a DNS exporter and is
+	// rolodex's own default; it is written explicitly so the scrape target
+	// Town OS configures cannot drift from what rolodex binds.
+	DefaultMetricsPort = "9153"
 
 	// ResolutionModeAuto is a tiered fallback chain: iterate from the root
 	// servers first, then DoH/DoT, then the local forwarder, then a public
@@ -83,6 +88,15 @@ type Config struct {
 	// DNSPort is the host-side port for DNS queries. If empty,
 	// DefaultDNSPort ("53") is used.
 	DNSPort string
+	// MetricsPort is the host-side port rolodex serves its Prometheus
+	// /metrics endpoint on, bound to DNSLoopback. If empty,
+	// DefaultMetricsPort ("9153") is used.
+	//
+	// Like DNSPort this is relocatable because the rolodex container runs
+	// --net host: the listener lands in the host namespace, so a test box and
+	// a `make dev` box would otherwise fight over the same port and one of
+	// them would crash-loop under Restart=always — IRON RULE.
+	MetricsPort string
 	// Key overrides the service key used for systemd unit and container
 	// naming. Defaults to "rolodex". Tests should set a unique value to
 	// avoid colliding with a production rolodex service.
@@ -142,6 +156,33 @@ func (m *Manager) dnsPort() string {
 	return DefaultDNSPort
 }
 
+// metricsPort returns the configured metrics port, defaulting to
+// DefaultMetricsPort.
+func (m *Manager) metricsPort() string {
+	if m.cfg.MetricsPort != "" {
+		return m.cfg.MetricsPort
+	}
+	return DefaultMetricsPort
+}
+
+// MetricsPort returns the port rolodex serves /metrics on.
+func (m *Manager) MetricsPort() string {
+	return m.metricsPort()
+}
+
+// MetricsAddr returns the "host:port" Prometheus must scrape to collect
+// rolodex's metrics. It is the single value both sides agree on: this manager
+// writes it into rolodex.yml as the listener's bind address, and the caller
+// hands the same string to the Prometheus scrape config, so the target cannot
+// drift from the listener.
+//
+// The address is DNSLoopback rather than 127.0.0.1: rolodex already owns that
+// loopback address for DNS, and Prometheus runs --net host too, so it reaches
+// it with no podman-network hop — exactly like the node-exporter target.
+func (m *Manager) MetricsAddr() string {
+	return net.JoinHostPort(DNSLoopback, m.metricsPort())
+}
+
 // resolutionMode returns the configured upstream resolution mode, defaulting
 // to DefaultResolutionMode ("auto").
 func (m *Manager) resolutionMode() string {
@@ -182,7 +223,7 @@ func (m *Manager) RewriteConfig() (bool, error) {
 		return false, fmt.Errorf("create data dir: %w", err)
 	}
 
-	config := rolodexConfig(m.dnsPort(), m.forwarders(), m.resolutionMode())
+	config := rolodexConfig(m.dnsPort(), m.forwarders(), m.resolutionMode(), m.metricsPort())
 	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
 
 	if existing, err := os.ReadFile(configPath); err == nil && string(existing) == config { //nolint:gosec // G304 -- configPath is built from the controlled DataDir
@@ -210,9 +251,20 @@ func (m *Manager) forwarders() []string {
 }
 
 // rolodexConfig returns the canonical rolodex YAML configuration with the
-// given DNS port, upstream forwarders, and resolution mode. The bind address
-// is always DNSLoopback (127.0.0.2) because the rolodex container runs with
-// --net host.
+// given DNS port, upstream forwarders, resolution mode, and metrics port. The
+// bind address is always DNSLoopback (127.0.0.2) because the rolodex container
+// runs with --net host.
+//
+// The metrics section is written unconditionally so Prometheus always has a
+// rolodex target: DNS is the subsystem whose failures are hardest to see from
+// the outside (a SERVFAIL looks like a broken app), and the counters that make
+// the split-horizon pipeline legible — which stage answered, which upstream
+// tier is live, cache hit rate — exist only here. It is opt-in upstream and
+// absent by default, so writing it is what turns it on. The endpoint is
+// unauthenticated plain HTTP, which is why it binds a loopback address and is
+// never published to the LAN. A rolodex older than 0.4.3 does not know the key
+// and ignores it (its config struct does not deny unknown fields), so the only
+// cost of an old image is a scrape target that reads as down.
 //
 // resolution.mode defaults to "auto": rolodex tries the root servers first and
 // falls back through DoH/DoT, the local forwarder, and a public :53 resolver,
@@ -225,9 +277,12 @@ func (m *Manager) forwarders() []string {
 // Town OS behavior does not move when upstream changes its default. The
 // forwarders are still written; they are consulted only in "forward" mode and as
 // auto's local-forwarder tier.
-func rolodexConfig(port string, forwarders []string, mode string) string {
+func rolodexConfig(port string, forwarders []string, mode string, metricsPort string) string {
 	if mode == "" {
 		mode = DefaultResolutionMode
+	}
+	if metricsPort == "" {
+		metricsPort = DefaultMetricsPort
 	}
 	var fwd strings.Builder
 	for _, f := range forwarders {
@@ -248,7 +303,9 @@ forwarders:
 rbl:
   enabled: false
   providers: []
-`, DNSLoopback, port, DNSLoopback, port, fwd.String(), mode)
+metrics:
+  bind: "%s:%s"
+`, DNSLoopback, port, DNSLoopback, port, fwd.String(), mode, DNSLoopback, metricsPort)
 }
 
 // executableMtime is the function used to get the systemcontroller binary's
@@ -277,7 +334,7 @@ func (m *Manager) WriteConfig() (bool, error) {
 		return false, fmt.Errorf("create data dir: %w", err)
 	}
 
-	config := rolodexConfig(m.dnsPort(), m.forwarders(), m.resolutionMode())
+	config := rolodexConfig(m.dnsPort(), m.forwarders(), m.resolutionMode(), m.metricsPort())
 	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
 
 	fi, statErr := os.Stat(configPath)

@@ -104,14 +104,16 @@ export LOG_DIR
 # right home for them.
 #
 # SYSTEM_PORT_FILES relocate the otherwise-fixed ports the system services bind:
-# rolodex :53, node-exporter :9100, Prometheus :9090, the monitoring UI :5308,
-# and the ingress :443/:80. The test container runs --net host (deliberately —
+# rolodex :53 and its metrics :9153, node-exporter :9100, Prometheus :9090, the
+# monitoring UI :5308, and the ingress :443/:80. The test container runs
+# --net host (deliberately —
 # bridge-network DNS breaks on captive networks), so those services bind in the
 # *host* namespace, and without these a `make test-full` and a `make dev` fight
 # over every one of them and crash-loop each other under Restart=always.
 # `make dev` allocates none of these and keeps the production ports, because dev
 # is meant to mirror a real box — IRON RULE.
-SYSTEM_PORT_FILES := $(STATE_DIR)/.dns-port $(STATE_DIR)/.node-exporter-port \
+SYSTEM_PORT_FILES := $(STATE_DIR)/.dns-port $(STATE_DIR)/.rolodex-metrics-port \
+                     $(STATE_DIR)/.node-exporter-port \
                      $(STATE_DIR)/.prometheus-port $(STATE_DIR)/.monitoring-port \
                      $(STATE_DIR)/.ingress-https-port $(STATE_DIR)/.ingress-http-port
 PORT_FILES := $(STATE_DIR)/.integration-port $(STATE_DIR)/.registry-port \

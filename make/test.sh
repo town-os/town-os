@@ -205,7 +205,8 @@ case "$1" in
       rm -f "${STATE_DIR}/.integration-port" "${STATE_DIR}/.registry-port" "${STATE_DIR}/.gitea-port"
       # System-service ports (SYSTEM_PORT_FILES) are per run too — leaving them
       # behind would pin the next run to the same host ports.
-      rm -f "${STATE_DIR}/.dns-port" "${STATE_DIR}/.node-exporter-port" \
+      rm -f "${STATE_DIR}/.dns-port" "${STATE_DIR}/.rolodex-metrics-port" \
+        "${STATE_DIR}/.node-exporter-port" \
         "${STATE_DIR}/.prometheus-port" "${STATE_DIR}/.monitoring-port" \
         "${STATE_DIR}/.ingress-https-port" "${STATE_DIR}/.ingress-http-port"
       make/btrfs.sh clean 2>/dev/null || true

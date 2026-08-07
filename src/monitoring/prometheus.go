@@ -5,9 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gitea.com/town-os/town-os/src/systemd"
 )
+
+// RolodexJobName is the Prometheus job label carried by every rolodex series.
+// It is a constant because it is what any dashboard or alert selecting rolodex
+// metrics has to name; changing it orphans every one of them.
+const RolodexJobName = "rolodex"
 
 // prometheusUID / prometheusGID are the user and group IDs that the
 // Prometheus container runs as (upstream image uses "nobody"). The
@@ -61,9 +67,12 @@ func WritePrometheusConfig(btrfsBase string, ports Ports) error {
 	if err := os.MkdirAll(configDir, 0755); err != nil { //nolint:gosec // config dir must be readable by container process
 		return fmt.Errorf("create prometheus config dir: %w", err)
 	}
-	// Both targets are on the host loopback: Prometheus and node-exporter run
-	// --net host, so localhost reaches each other with no podman-network hop.
-	config := fmt.Sprintf(`global:
+	// Every target is on the host loopback: Prometheus, node-exporter, and
+	// rolodex all run --net host, so they reach each other with no
+	// podman-network hop. rolodex answers on DNSLoopback (127.0.0.2) rather
+	// than localhost, which is why its target is passed in as a full address.
+	var b strings.Builder
+	fmt.Fprintf(&b, `global:
   scrape_interval: 15s
   evaluation_interval: 15s
 scrape_configs:
@@ -74,7 +83,16 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:%s"]
 `, ports.Prometheus, ports.NodeExporter)
-	if err := os.WriteFile(filepath.Join(configDir, "prometheus.yml"), []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
+	// Omitted rather than pointed at a default when unset: a job aimed at a
+	// guessed address would sit permanently down and read as a broken rolodex
+	// instead of an unconfigured one.
+	if ports.RolodexMetrics != "" {
+		fmt.Fprintf(&b, `  - job_name: %q
+    static_configs:
+      - targets: [%q]
+`, RolodexJobName, ports.RolodexMetrics)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "prometheus.yml"), []byte(b.String()), 0644); err != nil { //nolint:gosec // config must be readable by container process
 		return fmt.Errorf("write prometheus.yml: %w", err)
 	}
 	return nil

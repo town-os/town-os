@@ -20,6 +20,7 @@ import (
 // these must match.
 const (
 	envDNSPort          = "TOWN_OS_DNS_PORT"
+	envRolodexMetrics   = "TOWN_OS_ROLODEX_METRICS_PORT"
 	envNodeExporterPort = "TOWN_OS_NODE_EXPORTER_PORT"
 	envPrometheusPort   = "TOWN_OS_PROMETHEUS_PORT"
 	envMonitoringPort   = "TOWN_OS_MONITORING_PORT"
@@ -134,6 +135,47 @@ func TestRolodexConfigUsesHarnessAssignedDNSPort(t *testing.T) {
 	}
 	if strings.Contains(got, rolodex.DNSLoopback+":"+rolodex.DefaultDNSPort+`"`) {
 		t.Errorf("rolodex.yml still binds the default DNS port:\n%s", got)
+	}
+}
+
+// TestRolodexConfigUsesHarnessAssignedMetricsPort is the same guard for the
+// Prometheus endpoint, which is a second listener in the same host namespace as
+// the DNS one. It also proves the boot path threads the variable through at
+// all: the unit tests can show rolodex.Manager honours a MetricsPort, not that
+// main.go reads the environment and hands it over.
+//
+// The generated prometheus.yml is checked against the same port in the same
+// test on purpose. A relocated listener that Prometheus still scrapes at 9153
+// is not a collision — it is a rolodex that silently reads as down — and the
+// only way to catch that is to assert both ends agree.
+func TestRolodexConfigUsesHarnessAssignedMetricsPort(t *testing.T) {
+	t.Parallel()
+
+	port := requireHarnessPort(t, envRolodexMetrics)
+
+	raw, err := os.ReadFile("/town-os/rolodex/rolodex.yml")
+	if err != nil {
+		t.Fatalf("read rolodex.yml: %v", err)
+	}
+	got := string(raw)
+	addr := rolodex.DNSLoopback + ":" + port
+	if !strings.Contains(got, "bind: \""+addr+"\"") {
+		t.Errorf("rolodex.yml does not bind the metrics endpoint on %s:\n%s", addr, got)
+	}
+	if strings.Contains(got, rolodex.DNSLoopback+":"+rolodex.DefaultMetricsPort+`"`) {
+		t.Errorf("rolodex.yml still binds the default metrics port:\n%s", got)
+	}
+
+	promRaw, err := os.ReadFile("/town-os/monitoring/prometheus-config/prometheus.yml")
+	if err != nil {
+		t.Fatalf("read prometheus.yml: %v", err)
+	}
+	prom := string(promRaw)
+	if !strings.Contains(prom, `- job_name: "`+monitoring.RolodexJobName+`"`) {
+		t.Errorf("prometheus.yml carries no %s job:\n%s", monitoring.RolodexJobName, prom)
+	}
+	if !strings.Contains(prom, `targets: ["`+addr+`"]`) {
+		t.Errorf("prometheus.yml does not scrape rolodex at %s:\n%s", addr, prom)
 	}
 }
 

@@ -94,6 +94,30 @@ func TestDNSPortFromEnv(t *testing.T) {
 	}
 }
 
+// TestRolodexMetricsPortFromEnv asserts the metrics port is read from its own
+// variable and does not share the DNS one. The two listeners are separate
+// sockets in the same (host) namespace, so a harness that could only relocate
+// one of them would still collide on the other — IRON RULE.
+func TestRolodexMetricsPortFromEnv(t *testing.T) {
+	t.Setenv(EnvDNSPort, "35353")
+	t.Setenv(EnvRolodexMetricsPort, "39153")
+	if got := rolodexMetricsPortFromEnv(); got != "39153" {
+		t.Errorf("got %q, want %q", got, "39153")
+	}
+	if got := dnsPortFromEnv(); got != "35353" {
+		t.Errorf("DNS port should be unaffected, got %q", got)
+	}
+}
+
+// TestRolodexMetricsPortFromEnvUnset asserts an unconfigured box gets "", which
+// rolodex.Manager turns into DefaultMetricsPort — production behavior unchanged.
+func TestRolodexMetricsPortFromEnvUnset(t *testing.T) {
+	t.Setenv(EnvRolodexMetricsPort, "")
+	if got := rolodexMetricsPortFromEnv(); got != "" {
+		t.Errorf("unset should yield \"\", got %q", got)
+	}
+}
+
 // TestDNSPortIsDefault asserts the predicate that gates systemd-resolved
 // routing. resolved can only forward a domain to a resolver on :53 (a per-domain
 // DNS server address carries no port), so an explicit 53 and an unset value must
