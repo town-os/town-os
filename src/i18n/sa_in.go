@@ -133,8 +133,9 @@ var saINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "इदं खातम् केवलं जाल-नामाङ्कनस्य वस्तु-कोशस्य च अन्तर्मुखानि उपयोक्तुं शक्नोति",
 	MsgAuthNetworkOnlyNetworkDenied: "इदं खातं तस्मिन् जाले न अनुमतम्",
-	MsgAuthWireGuardPeerNotOwned:  "इदं खातं केवलं स्वेन नामाङ्कितान् सहचरान् पुनःसंस्कर्तुं शक्नोति",
-	MsgAuthObjectStorageRequired:  "प्रबन्धकस्य वस्तुसंग्रहस्य वा प्रवेशः आवश्यकः",
+	MsgAuthWireGuardPeerNotOwned:    "इदं खातं केवलं स्वेन नामाङ्कितान् सहचरान् पुनःसंस्कर्तुं शक्नोति",
+	MsgAuthSessionNotOwned:          "एतत् खातं स्वकीयानि सत्राणि एव निराकर्तुं शक्नोति",
+	MsgAuthObjectStorageRequired:    "प्रबन्धकस्य वस्तुसंग्रहस्य वा प्रवेशः आवश्यकः",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "सञ्चयिका-आरोपणम् अवतरणं च वस्तुसंग्रहविभागं न स्पृशति",

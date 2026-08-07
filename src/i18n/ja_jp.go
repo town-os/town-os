@@ -133,8 +133,9 @@ var jaJPMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "このアカウントはネットワーク登録とオブジェクトストレージのエンドポイントのみ使用できます",
 	MsgAuthNetworkOnlyNetworkDenied: "このアカウントはそのネットワークで許可されていません",
-	MsgAuthWireGuardPeerNotOwned:  "このアカウントは自身が登録したピアのみ更新できます",
-	MsgAuthObjectStorageRequired:  "管理者またはオブジェクトストレージの権限が必要です",
+	MsgAuthWireGuardPeerNotOwned:    "このアカウントは自身が登録したピアのみ更新できます",
+	MsgAuthSessionNotOwned:          "このアカウントは自分のセッションのみ取り消せます",
+	MsgAuthObjectStorageRequired:    "管理者またはオブジェクトストレージの権限が必要です",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "アーカイブのアップロードとダウンロードはオブジェクトストレージのパーティションを対象にできません",

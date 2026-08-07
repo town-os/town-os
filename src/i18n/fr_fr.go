@@ -133,8 +133,9 @@ var frFRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "ce compte ne peut utiliser que les points d'accès d'enrôlement réseau et de stockage objet",
 	MsgAuthNetworkOnlyNetworkDenied: "ce compte n'est pas autorisé sur ce réseau",
-	MsgAuthWireGuardPeerNotOwned:  "ce compte ne peut actualiser que les pairs qu'il a enrôlés",
-	MsgAuthObjectStorageRequired:  "accès administrateur ou stockage d'objets requis",
+	MsgAuthWireGuardPeerNotOwned:    "ce compte ne peut actualiser que les pairs qu'il a enrôlés",
+	MsgAuthSessionNotOwned:          "ce compte ne peut révoquer que ses propres sessions",
+	MsgAuthObjectStorageRequired:    "accès administrateur ou stockage d'objets requis",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "les envois et téléchargements d'archives ne peuvent pas viser une partition de stockage d'objets",

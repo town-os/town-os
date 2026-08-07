@@ -59,8 +59,12 @@ func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, i
 	if strings.TrimSpace(name) == "" {
 		return nil, ErrPageNameRequired
 	}
-	if strings.TrimSpace(domain) == "" {
-		return nil, ErrPageDomainRequired
+	// A domain is not a label -- it names this page's subvolume, its webroot
+	// symlink, its leaf SAN and its ingress vhost -- so it is checked here,
+	// where it enters, rather than by each of those consumers. See
+	// ValidatePageDomain.
+	if err := ValidatePageDomain(domain); err != nil {
+		return nil, err
 	}
 
 	if sourceType == "" {
@@ -165,8 +169,11 @@ func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSi
 		args = append(args, *fields.Branch)
 	}
 	if fields.Domain != nil {
-		if strings.TrimSpace(*fields.Domain) == "" {
-			return nil, ErrPageDomainRequired
+		// The same check Create applies. Its absence here was the gap: an edit
+		// could set a domain that creation would have refused, and migratePageDir
+		// then carried it into os.Remove and os.Symlink.
+		if err := ValidatePageDomain(*fields.Domain); err != nil {
+			return nil, err
 		}
 		sets = append(sets, "domain = ?")
 		args = append(args, *fields.Domain)

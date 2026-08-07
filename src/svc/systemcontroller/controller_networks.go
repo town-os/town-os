@@ -380,6 +380,41 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 		privateKey, publicKey = priv, pub
 	}
 
+	// Both of these are rendered into the wg-quick config, which `wg-quick up`
+	// executes as root from a generated systemd unit -- and wg-quick decides
+	// whether a line is a PostUp hook it will eval from the file's own content.
+	// A value carrying a newline and a second "[Interface]" is therefore root
+	// command execution, reachable by any account holding the wireguard grant,
+	// which is precisely the account that is supposed to be confined to
+	// enrolling its own devices.
+	//
+	// Validated here rather than only in the renderer because this is where the
+	// caller can be told what was wrong; the renderer's own check stays as the
+	// backstop for rows that predate this.
+	name := strings.TrimSpace(req.Name)
+	endpoint := strings.TrimSpace(req.Endpoint)
+	if err := wireguard.ValidateKey(publicKey); err != nil {
+		return echo.NewHTTPError(400, err.Error())
+	}
+	if err := wireguard.ValidateEndpoint(endpoint); err != nil {
+		return echo.NewHTTPError(400, err.Error())
+	}
+	// The name is not rendered into the config today, but it is stored beside
+	// values that are and it is displayed verbatim; keeping it on the same
+	// footing costs nothing and removes the question.
+	if err := wireguard.ValidateConfigValue("name", name); err != nil {
+		return echo.NewHTTPError(400, err.Error())
+	}
+
+	// A peer that runs a rolodex server becomes a DNS forwarder for the whole
+	// network's TLD, so every other peer's name resolution goes through it.
+	// That is not "enroll and refresh your own devices", which is what the
+	// wireguard grant buys -- it is a change to what the network resolves, and
+	// it stays an administrator's call.
+	if req.Rolodex && !s.callerIsAdmin(c) {
+		return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthAdminRequired))
+	}
+
 	subnet, err := netip.ParsePrefix(n.Subnet)
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("parse subnet: %v", err))
@@ -422,9 +457,9 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	stored, err := nm.AddPeer(&account.NetworkPeer{
 		Network:   n.Name,
 		PublicKey: publicKey,
-		Name:      strings.TrimSpace(req.Name),
+		Name:      name,
 		AllowedIP: allowedIP,
-		Endpoint:  strings.TrimSpace(req.Endpoint),
+		Endpoint:  endpoint,
 		Rolodex:   req.Rolodex,
 		CreatedBy: createdBy,
 		ExpiresAt: expiresAt,

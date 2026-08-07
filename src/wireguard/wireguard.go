@@ -12,6 +12,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/curve25519"
@@ -120,12 +122,36 @@ func PublicKeyFromPrivate(privateKey string) (string, error) {
 // RenderInterfaceConfig renders a wg-quick-style configuration document for the
 // interface. Peers are emitted in the order supplied by the caller (callers
 // pass a deterministically sorted slice so the output is stable).
+//
+// A field carrying a newline is DROPPED rather than emitted: the document is
+// executed by `wg-quick up` as root, and wg-quick decides which section it is
+// in — and therefore whether a PostUp line is a hook it will eval — from the
+// file's own content. See validate.go for why that is the whole attack.
+//
+// Dropping rather than erroring is deliberate. Callers write this file during
+// reconcile, where the alternative to rendering something is rendering nothing
+// and taking the whole overlay down; and the values reaching here have already
+// been validated at the API boundary, so anything this catches is a row that
+// predates the check or arrived around it. Silently executing such a row every
+// boot is the failure mode worth removing, so the peer is skipped and the fact
+// is logged loudly.
 func RenderInterfaceConfig(cfg InterfaceConfig) string {
 	var b strings.Builder
 
 	b.WriteString("[Interface]\n")
-	fmt.Fprintf(&b, "PrivateKey = %s\n", cfg.PrivateKey)
-	if cfg.Address != "" {
+	// The interface's own fields are server-generated (a keypair this package
+	// made, a subnet it derived), so an unsafe value here means the database
+	// was written by something other than this code path. Emit the key as empty
+	// rather than dropping the line: wg-quick needs the field to exist, and an
+	// interface that fails to come up is a better outcome than one that comes up
+	// running somebody's hook.
+	privateKey := cfg.PrivateKey
+	if !safeConfigValue(privateKey) {
+		slog.Error("wireguard: refusing to render an interface private key containing newlines")
+		privateKey = ""
+	}
+	fmt.Fprintf(&b, "PrivateKey = %s\n", privateKey)
+	if cfg.Address != "" && safeConfigValue(cfg.Address) {
 		fmt.Fprintf(&b, "Address = %s\n", cfg.Address)
 	}
 	if cfg.ListenPort != 0 {
@@ -133,6 +159,12 @@ func RenderInterfaceConfig(cfg InterfaceConfig) string {
 	}
 
 	for _, p := range cfg.Peers {
+		if !safePeer(p) {
+			slog.Error("wireguard: dropping a peer whose configuration would restructure the wg-quick document; "+
+				"wg-quick executes PostUp/PreUp hooks as root",
+				"allowed_ips", strconv.Quote(p.AllowedIPs))
+			continue
+		}
 		b.WriteString("\n[Peer]\n")
 		fmt.Fprintf(&b, "PublicKey = %s\n", p.PublicKey)
 		if p.AllowedIPs != "" {

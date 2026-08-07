@@ -133,8 +133,9 @@ var viVNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "tài khoản này chỉ có thể sử dụng các điểm cuối đăng ký mạng và lưu trữ đối tượng",
 	MsgAuthNetworkOnlyNetworkDenied: "tài khoản này không được phép trên mạng đó",
-	MsgAuthWireGuardPeerNotOwned:  "tài khoản này chỉ có thể làm mới các peer mà nó đã đăng ký",
-	MsgAuthObjectStorageRequired:  "tài khoản quản trị hoặc quyền lưu trữ đối tượng là bắt buộc",
+	MsgAuthWireGuardPeerNotOwned:    "tài khoản này chỉ có thể làm mới các peer mà nó đã đăng ký",
+	MsgAuthSessionNotOwned:          "tài khoản này chỉ có thể thu hồi phiên của chính nó",
+	MsgAuthObjectStorageRequired:    "tài khoản quản trị hoặc quyền lưu trữ đối tượng là bắt buộc",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "tải lên và tải xuống kho lưu trữ không thể nhắm tới một phân vùng lưu trữ đối tượng",

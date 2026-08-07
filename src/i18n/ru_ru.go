@@ -133,8 +133,9 @@ var ruRUMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "эта учётная запись может использовать только конечные точки регистрации в сети и объектного хранилища",
 	MsgAuthNetworkOnlyNetworkDenied: "этой учётной записи не разрешён доступ к этой сети",
-	MsgAuthWireGuardPeerNotOwned:  "эта учётная запись может обновлять только зарегистрированные ею узлы",
-	MsgAuthObjectStorageRequired:  "требуется доступ администратора или к объектному хранилищу",
+	MsgAuthWireGuardPeerNotOwned:    "эта учётная запись может обновлять только зарегистрированные ею узлы",
+	MsgAuthSessionNotOwned:          "эта учётная запись может отозвать только свои сеансы",
+	MsgAuthObjectStorageRequired:    "требуется доступ администратора или к объектному хранилищу",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "загрузка и выгрузка архивов не может адресовать раздел объектного хранилища",

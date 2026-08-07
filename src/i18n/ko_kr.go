@@ -133,8 +133,9 @@ var koKRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "이 계정은 네트워크 등록 및 오브젝트 스토리지 엔드포인트만 사용할 수 있습니다",
 	MsgAuthNetworkOnlyNetworkDenied: "이 계정은 해당 네트워크에서 허용되지 않습니다",
-	MsgAuthWireGuardPeerNotOwned:  "이 계정은 자신이 등록한 피어만 새로고침할 수 있습니다",
-	MsgAuthObjectStorageRequired:  "관리자 또는 오브젝트 스토리지 권한이 필요합니다",
+	MsgAuthWireGuardPeerNotOwned:    "이 계정은 자신이 등록한 피어만 새로고침할 수 있습니다",
+	MsgAuthSessionNotOwned:          "이 계정은 자신의 세션만 해지할 수 있습니다",
+	MsgAuthObjectStorageRequired:    "관리자 또는 오브젝트 스토리지 권한이 필요합니다",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "아카이브 업로드와 다운로드는 오브젝트 스토리지 파티션을 대상으로 할 수 없습니다",

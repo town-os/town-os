@@ -133,8 +133,9 @@ var deDEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "dieses Konto darf nur Endpunkte für Netzwerk-Enrollment und Objektspeicher verwenden",
 	MsgAuthNetworkOnlyNetworkDenied: "dieses Konto ist in diesem Netzwerk nicht zugelassen",
-	MsgAuthWireGuardPeerNotOwned:  "dieses Konto darf nur Peers aktualisieren, die es selbst registriert hat",
-	MsgAuthObjectStorageRequired:  "Administrator- oder Objektspeicherzugriff erforderlich",
+	MsgAuthWireGuardPeerNotOwned:    "dieses Konto darf nur Peers aktualisieren, die es selbst registriert hat",
+	MsgAuthSessionNotOwned:          "dieses Konto darf nur eigene Sitzungen widerrufen",
+	MsgAuthObjectStorageRequired:    "Administrator- oder Objektspeicherzugriff erforderlich",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "Archiv-Uploads und -Downloads können keine Objektspeicher-Partition adressieren",

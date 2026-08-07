@@ -633,12 +633,23 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 
 // pagesSubvolumePath returns the filesystem path for a page's btrfs subvolume,
 // given its directory name (the served FQDN — see pageDirName).
+//
+// Returns "" when the name would escape the pages tree, which every caller
+// already treats as "no path configured" and skips. account.ValidatePageDomain
+// is what should make that unreachable; this is the backstop for a row written
+// before that check existed, and it is the same safeSubvolumePath the storage
+// archive endpoints use — the helper this path was simply missing.
 func (s *SystemControllerHandlers) pagesSubvolumePath(dir string) string {
 	base := s.Controller.GetBtrfsBasePath()
 	if base == "" {
 		return ""
 	}
-	return filepath.Join(base, PagesVolumePrefix, dir)
+	path, err := safeSubvolumePath(base, PagesVolumePrefix, dir)
+	if err != nil {
+		slog.Error("pages: refusing a page directory that escapes the pages tree", "dir", dir, "error", err)
+		return ""
+	}
+	return path
 }
 
 // pageDirName returns the on-disk directory name for a page: its served FQDN at

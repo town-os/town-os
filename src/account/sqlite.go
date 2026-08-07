@@ -11,6 +11,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/argon2"
@@ -710,17 +711,76 @@ func (m *SQLiteManager) List() ([]Account, error) {
 	return out, nil
 }
 
+// dummyHash is an argon2id hash of a value no password can be, at exactly the
+// parameters hashPassword uses. Authenticate verifies against it on the paths
+// that have no stored hash to verify against, so every failure costs the same
+// argon2 call.
+//
+// Generated once, lazily, rather than at init: producing it is the same 64 MiB
+// derivation it exists to pay for, and a process that never sees a failed login
+// should not pay it at startup.
+var (
+	dummyHashOnce  sync.Once
+	dummyHashValue string
+)
+
+func dummyHash() string {
+	dummyHashOnce.Do(func() {
+		// The input is irrelevant — only the cost and the shape matter — but it
+		// is randomised so two boxes do not share a value that could be
+		// recognised in a memory dump as "this is the miss path".
+		filler := make([]byte, 32)
+		if _, err := rand.Read(filler); err != nil {
+			// Fall back to a constant. A predictable dummy hash leaks nothing:
+			// it is never compared against anything an attacker supplies except
+			// to burn the same CPU.
+			filler = []byte("town-os-authentication-dummy-key")
+		}
+		h, err := hashPassword(base64.RawStdEncoding.EncodeToString(filler))
+		if err != nil {
+			// hashPassword only fails when crypto/rand does. Leave the value
+			// empty; verifyPassword returns false for it after the same string
+			// parsing, which is a smaller constant-time gap than the one this
+			// exists to close and cannot be reached in practice.
+			return
+		}
+		dummyHashValue = h
+	})
+	return dummyHashValue
+}
+
+// Authenticate validates credentials.
+//
+// Every failure runs exactly one argon2id derivation, including the two that
+// have nothing to verify: an unknown username and a disabled account. Returning
+// early on those made the error text's uniformity cosmetic — "invalid
+// credentials" in microseconds and "invalid credentials" in ~100 ms are
+// different answers, and the difference is precisely the account enumeration
+// the uniform text exists to prevent. It also distinguished a disabled account
+// from an enabled one, which tells an attacker which account is worth pursuing
+// somewhere else.
+//
+// The disabled check is deliberately made AFTER the verification rather than
+// skipped: the result is discarded either way, but doing it in this order means
+// there is exactly one place in the function that can be reached without
+// hashing, and it is the success path.
 func (m *SQLiteManager) Authenticate(username, password string) (*Account, error) {
 	acct, err := m.Get(username)
 	if err != nil {
+		// No stored hash to check, so check against a dummy one and throw the
+		// answer away. Without this the lookup failure is the fastest path
+		// through the function by three orders of magnitude.
+		verifyPassword(dummyHash(), password)
 		return nil, ErrInvalidCredentials
 	}
+
+	ok := verifyPassword(acct.PasswordHash, password)
 
 	if acct.Disabled {
 		return nil, ErrAccountDisabled
 	}
 
-	if !verifyPassword(acct.PasswordHash, password) {
+	if !ok {
 		return nil, ErrInvalidCredentials
 	}
 

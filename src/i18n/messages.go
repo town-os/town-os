@@ -270,6 +270,10 @@ const (
 	// MsgAuthWireGuardPeerNotOwned indicates a network-only account tried to
 	// refresh a peer it did not enroll.
 	MsgAuthWireGuardPeerNotOwned = "auth.wireguard_peer_not_owned"
+	// MsgAuthSessionNotOwned indicates an account tried to revoke a session
+	// that is not its own. A session that does not exist is answered with the
+	// same message, so the endpoint cannot be used to probe which ids are live.
+	MsgAuthSessionNotOwned = "auth.session_not_owned"
 
 	// MsgAuthObjectStorageRequired indicates an account that is neither an
 	// administrator nor network-only tried to change a partition's users,

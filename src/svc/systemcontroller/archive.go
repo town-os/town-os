@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -272,8 +273,39 @@ func validDownloadFormat(format string) bool {
 	}
 }
 
+// tarExtractFlags are the flags every unpack runs with.
+//
+// The controller runs as root, and GNU tar extracting as root honours the uid,
+// gid and mode recorded in the archive unless told not to. Without these an
+// uploaded tarball chooses who owns the files it lands and whether any of them
+// is setuid-root — and the target is a btrfs subvolume that package volumes
+// bind-mount into package containers, so those bits are read by something other
+// than this process.
+//
+//   - --no-same-owner: extracted files belong to the controller, not to
+//     whatever uid the archive names. An archive cannot hand a file to the uid
+//     a container happens to run as.
+//   - --no-same-permissions: the mode is filtered through the umask, which
+//     drops setuid and setgid. Ordinary permission bits (including the
+//     executable bit) survive, so this does not break a shipped script.
+//
+// Both are GNU tar's default for a NON-root extraction; this makes the
+// privileged path behave like the unprivileged one, which is the behaviour the
+// rest of the archive code was written against.
+func tarExtractFlags() []string {
+	return []string{"-xf", "-", "--no-same-owner", "--no-same-permissions"}
+}
+
 // validateUnpackedPaths walks the destination directory and ensures all files
 // and resolved symlinks remain within the root directory.
+//
+// An escaping symlink is REMOVED as it is found, not merely reported. This runs
+// after `tar` has finished — it has to, since the check is about where symlinks
+// resolve to once they all exist — so by the time it objects, the link is
+// already on disk. Its callers return the error without unwinding the
+// extraction, which left the volume carrying exactly the thing this refuses,
+// ready for whatever bind-mounts it next. Removing the link and then reporting
+// leaves the volume in a state consistent with the rejection.
 func validateUnpackedPaths(destDir string) error {
 	root, err := filepath.Abs(destDir)
 	if err != nil {
@@ -282,25 +314,59 @@ func validateUnpackedPaths(destDir string) error {
 
 	root = filepath.Clean(root)
 
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // root is sanitized via filepath.Abs and Clean above
+	var escapes []string
+	walkErr := filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // root is sanitized via filepath.Abs and Clean above
 		if err != nil {
 			return err
 		}
 
-		if info.Mode()&os.ModeSymlink != 0 {
-			resolved, err := filepath.EvalSymlinks(path)
-			if err != nil {
-				return fmt.Errorf("%w: cannot resolve symlink %s", ErrPathTraversal, path)
-			}
-			absResolved, err := filepath.Abs(resolved)
-			if err != nil {
-				return err
-			}
-			if !strings.HasPrefix(absResolved, root+"/") && absResolved != root {
-				return fmt.Errorf("%w: symlink %s escapes root (resolves to %s)", ErrPathTraversal, path, absResolved)
-			}
+		if info.Mode()&os.ModeSymlink == 0 {
+			return nil
 		}
 
+		reason, escaped := symlinkEscape(root, path)
+		if escaped {
+			escapes = append(escapes, reason)
+			removeEscapingLink(path)
+		}
 		return nil
 	})
+	if walkErr != nil {
+		return walkErr
+	}
+	if len(escapes) > 0 {
+		return fmt.Errorf("%w: removed %d symlink(s) escaping root: %s",
+			ErrPathTraversal, len(escapes), strings.Join(escapes, ", "))
+	}
+	return nil
+}
+
+// symlinkEscape reports whether a symlink leaves root, and describes how.
+//
+// A link that cannot be resolved counts as escaping: it points outside the tree
+// at something absent, which is no safer than pointing outside at something
+// present, and the resolution can start succeeding later without the archive
+// changing.
+func symlinkEscape(root, path string) (string, bool) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path + " (unresolvable)", true
+	}
+	absResolved, err := filepath.Abs(resolved)
+	if err != nil {
+		return path + " (unresolvable)", true
+	}
+	if strings.HasPrefix(absResolved, root+"/") || absResolved == root {
+		return "", false
+	}
+	return path + " -> " + absResolved, true
+}
+
+// removeEscapingLink unlinks a rejected symlink, logging rather than failing:
+// the caller is already returning an error, and a link that could not be
+// removed must not mask the reason the upload was refused.
+func removeEscapingLink(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		slog.Error("could not remove escaping symlink from a rejected archive", "path", path, "error", err)
+	}
 }

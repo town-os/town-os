@@ -249,7 +249,7 @@ func TestWireGuardPeerEnrollWithinScope(t *testing.T) {
 	token := e.authToken(t, "portal", "portalpass1")
 
 	// In-scope enrollment succeeds.
-	if code, body := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","public_key":"PORTALKEY"}`); code != http.StatusOK {
+	if code, body := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","public_key":"UE9SVEFMS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("peers/add office = %d (%s), want 200", code, body)
 	}
 
@@ -279,7 +279,7 @@ func TestWireGuardPeerEnrollOutOfScopeDenied(t *testing.T) {
 	token := e.authToken(t, "portal", "portalpass1")
 
 	// "lab" is a real network but outside this account's scope.
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"lab","public_key":"K"}`); code != http.StatusForbidden {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"lab","public_key":"T1VUT0ZTQ09QRS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusForbidden {
 		t.Errorf("peers/add lab = %d, want 403", code)
 	}
 	if peers, err := e.nm.ListPeers("lab"); err != nil || len(peers) != 0 {
@@ -290,7 +290,7 @@ func TestWireGuardPeerEnrollOutOfScopeDenied(t *testing.T) {
 func TestAdminPeerEnrollHasNoTTL(t *testing.T) {
 	e := initWireGuardTestEnv(t)
 	// Admin (the bootstrap token) enrolls a peer: it stays permanent.
-	if code, body := e.do(t, http.MethodPost, "networks/peers/add", e.adminToken, `{"network":"office","public_key":"ADMINKEY"}`); code != http.StatusOK {
+	if code, body := e.do(t, http.MethodPost, "networks/peers/add", e.adminToken, `{"network":"office","public_key":"QURNSU5LRVktLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("admin peers/add = %d (%s), want 200", code, body)
 	}
 	peers, err := e.nm.ListPeers("office")
@@ -310,7 +310,7 @@ func TestPeerEnrollRejectsPlainAccount(t *testing.T) {
 	token := e.authToken(t, "alice", "alicepass1")
 
 	// A normal (non-admin, non-WireGuard) account may not manage peers.
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","public_key":"K"}`); code != http.StatusForbidden {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","public_key":"T1VUT0ZTQ09QRS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusForbidden {
 		t.Errorf("plain-account peers/add = %d, want 403", code)
 	}
 }
@@ -325,7 +325,7 @@ func TestWireGuardPeerRefreshOwnership(t *testing.T) {
 	token := e.authToken(t, "portal", "portalpass1")
 
 	// Enroll the portal's own peer.
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","public_key":"PORTALKEY"}`); code != http.StatusOK {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","public_key":"UE9SVEFMS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("peers/add failed")
 	}
 	before, err := e.nm.ListPeers("office")
@@ -335,7 +335,7 @@ func TestWireGuardPeerRefreshOwnership(t *testing.T) {
 	firstExpiry := *before[0].ExpiresAt
 
 	// Refreshing its own peer slides the TTL forward.
-	if code, body := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"office","public_key":"PORTALKEY"}`); code != http.StatusOK {
+	if code, body := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"office","public_key":"UE9SVEFMS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("refresh own peer = %d (%s), want 200", code, body)
 	}
 	after, err := e.nm.ListPeers("office")
@@ -347,24 +347,24 @@ func TestWireGuardPeerRefreshOwnership(t *testing.T) {
 	}
 
 	// An admin enrolls a peer the portal does not own.
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", e.adminToken, `{"network":"office","public_key":"ADMINKEY"}`); code != http.StatusOK {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", e.adminToken, `{"network":"office","public_key":"QURNSU5LRVktLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("admin peers/add failed")
 	}
 	// The portal may not refresh a peer it did not enroll.
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"office","public_key":"ADMINKEY"}`); code != http.StatusForbidden {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"office","public_key":"QURNSU5LRVktLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusForbidden {
 		t.Errorf("refresh unowned peer = %d, want 403", code)
 	}
 	// A peer that does not exist is indistinguishable from unowned (no leak).
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"office","public_key":"GHOST"}`); code != http.StatusForbidden {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"office","public_key":"R0hPU1QtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusForbidden {
 		t.Errorf("refresh ghost peer = %d, want 403", code)
 	}
 	// Out-of-scope refresh is denied.
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"lab","public_key":"PORTALKEY"}`); code != http.StatusForbidden {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"lab","public_key":"UE9SVEFMS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusForbidden {
 		t.Errorf("refresh out-of-scope = %d, want 403", code)
 	}
 
 	// Admin may refresh any peer, owned attribution notwithstanding.
-	if code, body := e.do(t, http.MethodPost, "networks/peers/refresh", e.adminToken, `{"network":"office","public_key":"PORTALKEY"}`); code != http.StatusOK {
+	if code, body := e.do(t, http.MethodPost, "networks/peers/refresh", e.adminToken, `{"network":"office","public_key":"UE9SVEFMS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Errorf("admin refresh any peer = %d (%s), want 200", code, body)
 	}
 }
@@ -373,7 +373,7 @@ func TestRefreshMissingPeerAsAdmin(t *testing.T) {
 	e := initWireGuardTestEnv(t)
 	// Admin refresh of a truly-absent peer surfaces 404 (admin has no ownership
 	// gate to mask it behind a 403).
-	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", e.adminToken, `{"network":"office","public_key":"NOPE"}`); code != http.StatusNotFound {
+	if code, _ := e.do(t, http.MethodPost, "networks/peers/refresh", e.adminToken, `{"network":"office","public_key":"Tk9QRS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusNotFound {
 		t.Errorf("admin refresh absent peer = %d, want 404", code)
 	}
 }

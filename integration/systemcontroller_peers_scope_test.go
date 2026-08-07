@@ -35,6 +35,16 @@ type peerScopeEnv struct {
 
 const peerScopePassword = "portalpass1"
 
+// Peer keys for the scope tests. WireGuard keys are base64 of 32 bytes and the
+// API validates that, so these cannot be readable labels -- and they are named
+// constants rather than repeated literals precisely because the enrolled key
+// and the key an assertion looks for have to be the same string. They decode to
+// "LABPUBKEY"/"OFFICEPUBKEY" followed by dash padding.
+const (
+	labScopePeerKey    = "TEFCUFVCS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="
+	officeScopePeerKey = "T0ZGSUNFUFVCS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0="
+)
+
 func initPeerScopeTest(t *testing.T) *peerScopeEnv {
 	t.Helper()
 
@@ -148,7 +158,7 @@ func TestSystemControllerListPeersOutOfScopeDenied(t *testing.T) {
 	// An admin enrolls a device on the network the portal account has no
 	// business seeing, so a leak would have something to leak.
 	if code, body := e.request(t, http.MethodPost, "networks/peers/add", e.adminToken,
-		`{"network":"lab","name":"lab-laptop","public_key":"LABPUBKEY"}`); code != http.StatusOK {
+		`{"network":"lab","name":"lab-laptop","public_key":"`+labScopePeerKey+`"}`); code != http.StatusOK {
 		t.Fatalf("admin peers/add lab = %d (%s), want 200", code, body)
 	}
 
@@ -156,7 +166,7 @@ func TestSystemControllerListPeersOutOfScopeDenied(t *testing.T) {
 	if code != http.StatusForbidden {
 		t.Fatalf("portal GET peers?network=lab = %d (%s), want 403", code, body)
 	}
-	if strings.Contains(body, "LABPUBKEY") || strings.Contains(body, "lab-laptop") {
+	if strings.Contains(body, labScopePeerKey) || strings.Contains(body, "lab-laptop") {
 		t.Fatalf("out-of-scope peer leaked: %s", body)
 	}
 }
@@ -166,7 +176,7 @@ func TestSystemControllerListPeersInScopeAllowed(t *testing.T) {
 	e := initPeerScopeTest(t)
 
 	if code, body := e.request(t, http.MethodPost, "networks/peers/add", e.portalToken,
-		`{"network":"office","name":"phone","public_key":"OFFICEPUBKEY"}`); code != http.StatusOK {
+		`{"network":"office","name":"phone","public_key":"`+officeScopePeerKey+`"}`); code != http.StatusOK {
 		t.Fatalf("portal peers/add office = %d (%s), want 200", code, body)
 	}
 
@@ -174,7 +184,7 @@ func TestSystemControllerListPeersInScopeAllowed(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("portal GET peers?network=office = %d (%s), want 200", code, body)
 	}
-	if !strings.Contains(body, "OFFICEPUBKEY") {
+	if !strings.Contains(body, officeScopePeerKey) {
 		t.Fatalf("in-scope peer list is missing the enrolled peer: %s", body)
 	}
 }

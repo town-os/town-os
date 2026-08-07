@@ -12,6 +12,17 @@ import (
 	"gitea.com/town-os/town-os/src/account"
 )
 
+// Peer keys used by the scope tests. WireGuard keys are base64 of 32 bytes and
+// the API validates that, so these cannot be readable labels -- and they are
+// named constants rather than repeated literals precisely because the enrolled
+// key and the key an assertion looks for have to be the same string. They
+// decode to "LABKEY"/"OFFICEKEY" followed by dash padding, so a failure message
+// is still identifiable at a glance.
+const (
+	labPeerKey    = "TEFCS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="
+	officePeerKey = "T0ZGSUNFS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="
+)
+
 // GET /networks/peers is on the wireguard grant's allowlist, so a scoped
 // account reaches it — and it named the network in a query parameter that
 // nothing checked against the caller's scope. peers/add and peers/refresh both
@@ -27,7 +38,7 @@ func TestListPeersOutOfScopeDenied(t *testing.T) {
 	token := e.authToken(t, "portal", "portalpass1")
 
 	// Seed a peer on the out-of-scope network so a leak would have content.
-	if code, body := e.do(t, http.MethodPost, "networks/peers/add", e.adminToken, `{"network":"lab","name":"admin-laptop","public_key":"LABKEY"}`); code != http.StatusOK {
+	if code, body := e.do(t, http.MethodPost, "networks/peers/add", e.adminToken, `{"network":"lab","name":"admin-laptop","public_key":"`+labPeerKey+`"}`); code != http.StatusOK {
 		t.Fatalf("admin peers/add lab = %d (%s), want 200", code, body)
 	}
 
@@ -35,7 +46,7 @@ func TestListPeersOutOfScopeDenied(t *testing.T) {
 	if code != http.StatusForbidden {
 		t.Fatalf("GET /networks/peers?network=lab = %d (%s), want 403", code, body)
 	}
-	if strings.Contains(body, "LABKEY") || strings.Contains(body, "admin-laptop") {
+	if strings.Contains(body, labPeerKey) || strings.Contains(body, "admin-laptop") {
 		t.Fatalf("out-of-scope peer leaked in the refusal body: %s", body)
 	}
 }
@@ -47,7 +58,7 @@ func TestListPeersInScopeAllowed(t *testing.T) {
 	}
 	token := e.authToken(t, "portal", "portalpass1")
 
-	if code, body := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","name":"phone","public_key":"OFFICEKEY"}`); code != http.StatusOK {
+	if code, body := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","name":"phone","public_key":"`+officePeerKey+`"}`); code != http.StatusOK {
 		t.Fatalf("peers/add office = %d (%s), want 200", code, body)
 	}
 
@@ -55,7 +66,7 @@ func TestListPeersInScopeAllowed(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /networks/peers?network=office = %d (%s), want 200", code, body)
 	}
-	if !strings.Contains(body, "OFFICEKEY") {
+	if !strings.Contains(body, officePeerKey) {
 		t.Fatalf("in-scope peer list did not include the enrolled peer: %s", body)
 	}
 }

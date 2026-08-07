@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"github.com/labstack/echo/v5"
 )
@@ -201,15 +205,52 @@ func (s *SystemControllerHandlers) deleteVMImage(c *echo.Context) error {
 	return nil
 }
 
+// vmImageClient is the only HTTP client used to fetch a VM image.
+//
+// The URL is submitted by a caller and dialled by the controller, which sits on
+// the host network with the podman socket — so without a guard it reaches
+// loopback services, the LAN, and link-local metadata endpoints from a position
+// no remote caller has. That is the same shape as an OAuth device flow, and the
+// guard is the same one: packages.CheckOAuthAddr in the dialer's Control hook,
+// which runs after resolution with the concrete address about to be connected.
+//
+// Control rather than a check on the URL, for the reason spelled out in
+// oauthClient: a URL check sees a hostname, and a hostname can answer with
+// 127.0.0.1. Redirects are covered because every hop dials through the same
+// dialer, and CheckRedirect refuses a scheme change on top.
+func vmImageClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+		Control: func(network, address string, _ syscall.RawConn) error {
+			return packages.CheckOAuthAddr(network, address)
+		},
+	}
+	return &http.Client{
+		Transport: &http.Transport{DialContext: dialer.DialContext},
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("%w: redirect to %q", packages.ErrOAuthURLNotAllowed, req.URL.Scheme)
+			}
+			return nil
+		},
+	}
+}
+
 // downloadFile downloads a file from a URL to a local path.
 func downloadFile(ctx context.Context, url, destPath string) (err error) {
+	// A scheme check before anything else: file:// would turn this into an
+	// arbitrary local read, and no other scheme is a way to fetch a disk image.
+	if err := validateVMImageURL(url); err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted image config
+	client := vmImageClient()
+	resp, err := client.Do(req) //nolint:gosec // G704 -- URL scheme and every dialled address are checked above
 	if err != nil {
 		return err
 	}
@@ -244,20 +285,57 @@ func convertVMImage(ctx context.Context, srcPath, destPath string) error {
 	return nil
 }
 
+// validateVMImageURL rejects anything that is not an HTTP(S) fetch.
+//
+// file:// is the one that matters — it turns "download a disk image" into an
+// arbitrary local read whose result is then served back as a cached VM image —
+// but there is no scheme other than http and https that names a disk image
+// this code knows how to fetch, so the check is an allowlist.
+func validateVMImageURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %w", packages.ErrOAuthURLNotAllowed, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%w: scheme %q is not allowed for a VM image URL", packages.ErrOAuthURLNotAllowed, u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%w: VM image URL has no host", packages.ErrOAuthURLNotAllowed)
+	}
+	return nil
+}
+
 // resolveVMImagePath resolves the VM image path for a compiled package.
 // If the image is a URL, it returns the cached path in the vm-images subvolume.
 // If it is a plain filename, it looks it up in the vm-images subvolume.
+//
+// filepath.Base is applied to the derived name, matching what uploadVMImage and
+// deleteVMImage already do. Without it a package manifest naming
+// "../../tls/ca.key" resolves outside the subvolume — and the result is handed
+// to qemu as `-drive file=` and to qemu-img as a conversion target, so it is
+// both a read of whatever it names and a write over it.
 func resolveVMImagePath(basePath string, vmImage string) string {
 	if strings.HasPrefix(vmImage, "http://") || strings.HasPrefix(vmImage, "https://") {
 		// Derive cached filename from URL.
 		parts := strings.Split(vmImage, "/")
 		name := parts[len(parts)-1]
 		rawName := strings.TrimSuffix(name, filepath.Ext(name)) + ".raw"
-		return filepath.Join(basePath, VMImagesSubvolume, rawName)
+		return filepath.Join(basePath, VMImagesSubvolume, vmImageBase(rawName))
 	}
 	// Local reference: look in vm-images subvolume.
 	if !strings.HasSuffix(vmImage, ".raw") {
 		vmImage = strings.TrimSuffix(vmImage, filepath.Ext(vmImage)) + ".raw"
 	}
-	return filepath.Join(basePath, VMImagesSubvolume, vmImage)
+	return filepath.Join(basePath, VMImagesSubvolume, vmImageBase(vmImage))
+}
+
+// vmImageBase reduces a reference to a single filename component. A name that
+// reduces to nothing usable becomes a fixed placeholder, so the result is
+// always inside the subvolume rather than being the subvolume itself.
+func vmImageBase(name string) string {
+	base := filepath.Base(name)
+	if base == "." || base == ".." || base == string(filepath.Separator) {
+		return "vm-image.raw"
+	}
+	return base
 }

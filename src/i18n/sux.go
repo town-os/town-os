@@ -138,8 +138,9 @@ var suxMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mess
 	// Network-only account restrictions.
 	MsgAuthNetworkOnlyRestricted:    "𒃻𒉏 𒆳 𒂍𒃻 𒁹 (niĝ-šid-e kur e-ĝar aš)",
 	MsgAuthNetworkOnlyNetworkDenied: "𒃻𒉏 𒆳𒁀 𒉡𒋧 (niĝ-šid kur-ba nu-šum₂)",
-	MsgAuthWireGuardPeerNotOwned:  "𒃻𒉏 𒇽𒉌 𒄈 (niĝ-šid lu₂-ni gibil)",
-	MsgAuthObjectStorageRequired:  "𒈗 𒂍𒃻 𒃶 (lugal e-ĝar he₂)",
+	MsgAuthWireGuardPeerNotOwned:    "𒃻𒉏 𒇽𒉌 𒄈 (niĝ-šid lu₂-ni gibil)",
+	MsgAuthSessionNotOwned:          "𒃻𒉏 𒁺𒉌 𒉡𒋧 (niĝ-šid tuš-ni nu-šum₂)",
+	MsgAuthObjectStorageRequired:    "𒈗 𒂍𒃻 𒃶 (lugal e-ĝar he₂)",
 
 	// Object storage (gfeh).
 	MsgArchiveGfehRefused:        "𒉑𒁾 𒉡 𒂍𒃻 (pisaĝ-dub nu e-ĝar)",

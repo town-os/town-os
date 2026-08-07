@@ -76,7 +76,28 @@ func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {
 	return c.JSON(200, AuthenticateResponse{Token: token, Account: acct})
 }
 
+// revokeSession ends one session.
+//
+// It is registered without middleware, alongside listSessions and
+// sessionUsername, under the rule that these three validate their own token.
+// It did not: it decoded a session id and deleted the row, so an
+// unauthenticated caller could end any session whose id it had — and a session
+// id is not a secret in the way a token is, since GET /account/sessions hands a
+// user their own. Being registered as self-authenticating is not the same as
+// being self-authenticating.
+//
+// Ownership matters as much as authentication. A session belongs to one
+// account, which is already how listSessions is scoped, so an ordinary caller
+// may end its own and no one else's. An administrator may end anybody's:
+// terminating a session is the immediate half of what /account/disable does,
+// and an administrator who can disable the account can obviously drop its
+// sessions.
+//
+// A session that does not exist and a session belonging to somebody else are
+// answered identically (403), so this cannot be used to probe which ids are
+// live.
 func (s *SystemControllerHandlers) revokeSession(c *echo.Context) error {
+	locale := s.getLocale()
 	de := json.NewDecoder(c.Request().Body)
 	req := RevokeSessionRequest{}
 
@@ -84,7 +105,32 @@ func (s *SystemControllerHandlers) revokeSession(c *echo.Context) error {
 		return err
 	}
 
-	if err := s.Controller.GetSessionManager().Revoke(req.SessionID); err != nil {
+	sm := s.Controller.GetSessionManager()
+	if sm == nil {
+		// No session manager means authentication is not configured at all, the
+		// same condition every auth middleware treats as "let it through".
+		// There is also nothing to revoke.
+		c.Response().WriteHeader(200)
+		return nil
+	}
+
+	token := extractBearerToken(c.Request())
+	if token == "" {
+		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
+	}
+	_, acct, err := sm.Validate(token)
+	if err != nil {
+		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
+	}
+
+	if !acct.Admin {
+		owner, err := sm.GetUsername(req.SessionID)
+		if err != nil || owner != acct.Username {
+			return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthSessionNotOwned))
+		}
+	}
+
+	if err := sm.Revoke(req.SessionID); err != nil {
 		return err
 	}
 

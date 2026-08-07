@@ -191,7 +191,7 @@ func (s *SystemControllerHandlers) unpackWithValidation(ctx context.Context, cr 
 	validCh := validateTarStream(ctx, validPR)
 
 	// Start the unpack command reading from the tee.
-	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204 -- targetPath validated by safeSubvolumePath
+	unpackCmd := exec.CommandContext(ctx, "tar", append(tarExtractFlags(), "-C", targetPath)...) //nolint:gosec // G204 -- targetPath validated by safeSubvolumePath
 	unpackCmd.Stdin = teeReader
 
 	unpackStderr, err := unpackCmd.StderrPipe()
@@ -267,7 +267,7 @@ func (s *SystemControllerHandlers) unpackPlainTar(ctx context.Context, cr *count
 
 	validCh := validateTarStream(ctx, validPR)
 
-	unpackCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetPath) //nolint:gosec // G204 -- targetPath validated by safeSubvolumePath
+	unpackCmd := exec.CommandContext(ctx, "tar", append(tarExtractFlags(), "-C", targetPath)...) //nolint:gosec // G204 -- targetPath validated by safeSubvolumePath
 	unpackCmd.Stdin = teeReader
 
 	unpackStderr, err := unpackCmd.StderrPipe()

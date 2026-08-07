@@ -195,11 +195,28 @@ func EnsurePagesWebroot(btrfsBasePath string) error {
 	return os.MkdirAll(dir, 0755) //nolint:gosec // G301 -- webroot directory
 }
 
+// pageSymlinkPath resolves a page's webroot symlink path, refusing a name that
+// would leave the webroot directory.
+//
+// Both callers below unlink whatever is at the path they are given —
+// EnsurePageSymlink removes a "stale entry" before creating the link, and
+// RemovePageSymlink is nothing but an unlink — so an unchecked name here is an
+// arbitrary delete, run by the control plane as root, driven by a page's
+// domain field. account.ValidatePageDomain makes that unreachable from the API;
+// this is the check that makes the two functions safe on their own terms, for a
+// row written before it existed.
+func pageSymlinkPath(btrfsBasePath, pageName string) (string, error) {
+	return safeSubvolumePath(filepath.Join(btrfsBasePath, PagesWebrootDir), pageName)
+}
+
 // EnsurePageSymlink creates a symlink at {btrfsBasePath}/pages-webroot/{name}
 // pointing to /data/pages/{name} (the container-absolute path). Idempotent:
 // if the symlink already exists with the correct target, it is a no-op.
 func EnsurePageSymlink(btrfsBasePath, pageName string) error {
-	linkPath := filepath.Join(btrfsBasePath, PagesWebrootDir, pageName)
+	linkPath, err := pageSymlinkPath(btrfsBasePath, pageName)
+	if err != nil {
+		return fmt.Errorf("page symlink %q: %w", pageName, err)
+	}
 	target := "/data/pages/" + pageName
 
 	// Check if symlink already exists with correct target.
@@ -219,8 +236,11 @@ func EnsurePageSymlink(btrfsBasePath, pageName string) error {
 // RemovePageSymlink removes the symlink at {btrfsBasePath}/pages-webroot/{name}.
 // No error is returned if the symlink does not exist.
 func RemovePageSymlink(btrfsBasePath, pageName string) error {
-	linkPath := filepath.Join(btrfsBasePath, PagesWebrootDir, pageName)
-	err := os.Remove(linkPath)
+	linkPath, err := pageSymlinkPath(btrfsBasePath, pageName)
+	if err != nil {
+		return fmt.Errorf("page symlink %q: %w", pageName, err)
+	}
+	err = os.Remove(linkPath)
 	if os.IsNotExist(err) {
 		return nil
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 )
@@ -180,6 +181,50 @@ func CheckOAuthAddr(network, addr string) error {
 	return checkIP(ip)
 }
 
+// nonPublicPrefixes are the ranges Go's net.IP predicates do not answer for but
+// which are still not somewhere the controller should be dialling.
+//
+// Go covers loopback, private (RFC 1918 and fc00::/7), link-local, multicast
+// and the unspecified address. Everything below is a range that is reserved,
+// unroutable on the public internet, or routes to the local host or a lab
+// network -- i.e. exactly the addresses an SSRF wants and a device-flow
+// provider never has.
+//
+// Written as prefixes rather than as more predicates because the list is the
+// point: each entry is one RFC allocation, and adding the next one is a line
+// rather than a branch.
+var nonPublicPrefixes = []netip.Prefix{
+	// "This network" (RFC 1122). IsUnspecified is only true for 0.0.0.0
+	// itself, but Linux routes the whole /8 to the local host, so
+	// http://0.0.0.1/ reaches loopback.
+	netip.MustParsePrefix("0.0.0.0/8"),
+	// Carrier-grade NAT (RFC 6598) -- routable inside a CGNAT or Tailscale
+	// network. Previously handled by a hand-rolled byte comparison that missed
+	// the IPv4-mapped IPv6 spelling.
+	netip.MustParsePrefix("100.64.0.0/10"),
+	// IETF protocol assignments (RFC 6890), which includes 192.0.0.8 and the
+	// NAT64 discovery addresses.
+	netip.MustParsePrefix("192.0.0.0/24"),
+	// Documentation ranges (RFC 5737). Not routable; a provider that answers
+	// on one is a misconfiguration or a lie.
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	// Benchmarking (RFC 2544) -- genuinely used inside lab networks.
+	netip.MustParsePrefix("198.18.0.0/15"),
+	// Reserved for future use (RFC 1112) and the limited broadcast address,
+	// which 240.0.0.0/4 already covers.
+	netip.MustParsePrefix("240.0.0.0/4"),
+	// IPv6 discard-only (RFC 6666) and deprecated site-local (RFC 3879),
+	// still configured on real networks.
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("fec0::/10"),
+	// The NAT64 well-known prefix (RFC 6052): 64:ff9b::7f00:1 is 127.0.0.1
+	// wearing a v6 hat, and on a NAT64 network it gets there.
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+}
+
 func checkIP(ip net.IP) error {
 	switch {
 	case ip.IsLoopback(),
@@ -191,10 +236,23 @@ func checkIP(ip net.IP) error {
 		ip.IsUnspecified():
 		return fmt.Errorf("%w: %s is not a public address", ErrOAuthURLNotAllowed, ip)
 	}
-	// 100.64.0.0/10 (carrier-grade NAT) is neither "private" nor public to Go,
-	// and is routable inside a CGNAT/Tailscale network -- treat it as internal.
-	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
-		return fmt.Errorf("%w: %s is not a public address", ErrOAuthURLNotAllowed, ip)
+
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return fmt.Errorf("%w: %s is not an address", ErrOAuthURLNotAllowed, ip)
+	}
+	// Unmap first: ::ffff:127.0.0.1 must be judged as the IPv4 address it is,
+	// or every v4 rule below silently stops applying to the v6 spelling of the
+	// same address. (Go's own predicates above already unmap internally, which
+	// is why this only bites the ranges checked here.)
+	addr = addr.Unmap()
+	for _, prefix := range nonPublicPrefixes {
+		if prefix.Addr().Is4() != addr.Is4() {
+			continue
+		}
+		if prefix.Contains(addr) {
+			return fmt.Errorf("%w: %s is not a public address", ErrOAuthURLNotAllowed, ip)
+		}
 	}
 	return nil
 }
