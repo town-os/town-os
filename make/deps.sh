@@ -59,6 +59,7 @@ install_arch_packages() {
     podman \
     runc \
     wireguard-tools \
+    iproute2 \
     python \
     curl \
     git \
@@ -86,6 +87,7 @@ install_debian_packages() {
     podman \
     runc \
     wireguard-tools \
+    iproute2 \
     python3 \
     curl \
     git \
@@ -113,6 +115,7 @@ install_fedora_packages() {
     podman
     runc
     wireguard-tools
+    iproute
     python3
     git
     unzip

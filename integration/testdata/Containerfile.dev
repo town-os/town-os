@@ -1,10 +1,23 @@
 ARG TOWN_OS_IMAGE=town-os
 FROM docker.io/library/debian:bookworm AS runtime-deps
+# wireguard-tools + iproute2 supply `wg-quick` and `ip`. Unlike the production
+# image — where wg-quick runs ON THE HOST and only `wg` is needed in the
+# container (see the comment in ./Containerfile) — this container IS the host
+# from the systemcontroller's point of view: it runs as a systemd service under
+# this container's PID 1, so the town-os-network--<name>.service units it
+# installs are started HERE, and their
+# `ExecStart=/usr/bin/wg-quick up <conf>` (src/systemd/unit.go) execs in this
+# rootfs. Without these, every network creation fails: systemd cannot exec
+# wg-quick, SetStatus's RestartUnit job returns "failed", applyNetworkTransport
+# returns an error, and POST /networks/create answers 500 having already written
+# the network row. wg-quick shells out to `ip` for every link/address/route
+# operation, so iproute2 is a hard runtime dependency, not a nicety.
 RUN apt-get update && apt-get install -y \
     btrfs-progs libsystemd0 podman runc socat \
     systemd systemd-sysv dbus curl git iptables \
     pigz lbzip2 p7zip-full xz-utils unzip less \
     ca-certificates \
+    wireguard-tools iproute2 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 # Keep podman's per-network subnet allocation off 10.64.0.0/10, which town-os
 # reserves for WireGuard overlays (src/wireguard/ipam.go). 172.16.0.0/12 avoids

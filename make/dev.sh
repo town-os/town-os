@@ -9,6 +9,48 @@ set -e
 # adopt_orphan_dns_backup, and the helpers they are built from.
 . make/dns.sh
 
+# WG_MODULE_SYSFS is where the kernel reports the wireguard module as present.
+# Overridable so the unit test can point it at a temp dir and drive both
+# branches without touching the running kernel.
+WG_MODULE_SYSFS="${WG_MODULE_SYSFS:-/sys/module/wireguard}"
+
+# ensure_wireguard_module loads the wireguard kernel module for the dev box.
+#
+# This is host state, and `make dev` is the one target allowed to mutate it --
+# the same exception redirect_host_dns already relies on. The dev container is
+# privileged and runs --net host, so the wg-quick inside it creates its device
+# in the HOST kernel; a module missing there is missing for the dev box.
+#
+# Without it, network creation fails at the point it starts the interface unit
+# and leaves a network row behind with no transport -- the row is committed
+# before applyNetworkTransport runs, so the failure is a 500 on an object that
+# now exists. No test may do any of this (a test must never create a host
+# interface or load a module), which is why this lives in dev.sh and not
+# lib.sh.
+ensure_wireguard_module() {
+  # Present covers both "already loaded" and "built into the kernel", and
+  # neither needs anything done. Checked first so the common case never
+  # prompts for a password.
+  if [ -d "${WG_MODULE_SYSFS}" ]; then
+    substep "WireGuard kernel module already available"
+    return 0
+  fi
+
+  substep "Loading WireGuard kernel module"
+  if ${SUDO} modprobe wireguard; then
+    return 0
+  fi
+
+  # Non-fatal, on the same reasoning as the missing-gfeh-image case in start):
+  # a dev box without WireGuard is still a working dev box for everything that
+  # is not an overlay network, and refusing to start one over an optional
+  # kernel feature is worse than saying plainly what will not work.
+  warn "Could not load the 'wireguard' kernel module."
+  warn "Creating a network will fail: town-os-network--<name>.service cannot"
+  warn "bring an interface up without it. Everything else works normally."
+  return 0
+}
+
 # Sourcing this file pulls in make/dns.sh and stops here, without dispatching
 # and without requiring an argument. That is what lets the DNS restore logic be
 # tested through dev.sh (see src/rolodex/dev_restore_dns_test.go) rather than
@@ -22,6 +64,7 @@ fi
 case "$1" in
   start)
     step "Starting dev environment"
+    ensure_wireguard_module
     # Kill orphaned monitoring containers from a previous dev run that may
     # still be holding host ports (node-exporter on 9100, prometheus NC on
     # 9090, monitoring-ui NC on 5308).

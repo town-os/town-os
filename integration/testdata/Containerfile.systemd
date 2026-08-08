@@ -13,11 +13,19 @@ ARG TOWN_OS_GO_TAGS=
 RUN CGO_ENABLED=1 go test -tags "${TOWN_OS_GO_TAGS}" -c -o /integration-test ./integration/...
 
 FROM docker.io/library/debian:bookworm AS runtime-deps
+# wireguard-tools + iproute2: the integration container runs the generated
+# town-os-network--<name>.service units under its own systemd, so
+# `ExecStart=/usr/bin/wg-quick up <conf>` (src/systemd/unit.go) execs in this
+# rootfs — the same reason Containerfile.dev needs them. Without the binary the
+# only symptom is a unit that is loaded but not active, which is exactly what
+# TestNetworkReconcileRealSystemd already tolerates for a disabled network, so
+# the gap is invisible unless the binary's presence is asserted directly.
 RUN apt-get update && apt-get install -y \
     btrfs-progs libsystemd0 podman runc socat \
     systemd systemd-sysv dbus curl git iptables \
     pigz lbzip2 p7zip-full xz-utils unzip less \
     ca-certificates \
+    wireguard-tools iproute2 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 # Keep podman's per-network subnet allocation off 10.64.0.0/10, which town-os
 # reserves for WireGuard overlays (src/wireguard/ipam.go). Overlapping default

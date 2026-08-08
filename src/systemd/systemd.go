@@ -178,6 +178,39 @@ const SystemServiceUnitPrefix = "town-os-system--"
 // NetworkUnitPrefix is the prefix for per-network WireGuard interface units.
 const NetworkUnitPrefix = "town-os-network--"
 
+// WireGuardQuickPath is the absolute path to wg-quick that the generated
+// per-network unit execs. It is a constant rather than a bare literal because
+// it is a contract with an *image*, not just a string: whichever rootfs runs
+// these units must ship this binary.
+//
+// On a real box that rootfs is the host, which `make deps` provisions. In `make
+// dev` and the integration harness the systemcontroller runs as a service under
+// the container's own PID 1, so the units it installs start in THAT container
+// and wg-quick must be present there too — see the comments in
+// integration/testdata/Containerfile.dev and Containerfile.systemd.
+//
+// The failure mode when it is absent is quiet and misleading: systemd cannot
+// exec the binary, the RestartUnit job comes back "failed",
+// applyNetworkTransport turns that into an error, and POST /networks/create
+// returns 500 having already committed the network row — so the box ends up
+// with a network that exists but has no transport.
+const WireGuardQuickPath = "/usr/bin/wg-quick"
+
+// NetworkUnitExecPaths returns the absolute paths of every binary the generated
+// per-network WireGuard unit execs by absolute path. It exists so a test can
+// assert that the image actually ships what the unit references, rather than
+// discovering the mismatch at runtime as a unit that is loaded but never
+// active.
+//
+// Only absolute paths belong here. wg-quick also shells out to `ip` for every
+// link, address, and route operation — a hard runtime dependency — but it
+// resolves it through PATH rather than a fixed location (/usr/sbin/ip on
+// Debian, /usr/bin/ip on Arch), so pinning a path for it here would assert
+// something neither wg-quick nor systemd actually requires.
+func NetworkUnitExecPaths() []string {
+	return []string{WireGuardQuickPath}
+}
+
 // NetworkUnitName returns the systemd unit name for a network's WireGuard
 // interface (e.g. "town-os-network--home.service").
 func NetworkUnitName(name string) string {

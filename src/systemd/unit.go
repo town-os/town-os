@@ -871,9 +871,9 @@ func GenerateNetworkUnit(cfg NetworkUnitConfig) UnitFile {
 	b.WriteString("Type=oneshot\n")
 	b.WriteString("RemainAfterExit=yes\n")
 	// Tear down any stale interface from a previous run before bringing it up.
-	fmt.Fprintf(&b, "ExecStartPre=-/usr/bin/wg-quick down %s\n", cfg.ConfigPath)
-	fmt.Fprintf(&b, "ExecStart=/usr/bin/wg-quick up %s\n", cfg.ConfigPath)
-	fmt.Fprintf(&b, "ExecStop=-/usr/bin/wg-quick down %s\n", cfg.ConfigPath)
+	fmt.Fprintf(&b, "ExecStartPre=-%s down %s\n", WireGuardQuickPath, cfg.ConfigPath)
+	fmt.Fprintf(&b, "ExecStart=%s up %s\n", WireGuardQuickPath, cfg.ConfigPath)
+	fmt.Fprintf(&b, "ExecStop=-%s down %s\n", WireGuardQuickPath, cfg.ConfigPath)
 	b.WriteString("Restart=on-failure\n")
 
 	b.WriteString("\n[Install]\n")
