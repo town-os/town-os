@@ -5,6 +5,7 @@ package i18n
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -183,7 +184,7 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 }
 
 func TestNewLocalesArePopulated(t *testing.T) {
-	for _, code := range []string{"sux", "vi-VN"} {
+	for _, code := range []string{"vi-VN"} {
 		if !IsPopulated(code) {
 			t.Errorf("IsPopulated(%q) = false, want true", code)
 		}
@@ -217,19 +218,17 @@ func TestPopulatedLocalesCoverEnUSKeys(t *testing.T) {
 	}
 }
 
-func TestSumerianLocaleListed(t *testing.T) {
-	// Sumerian is listed in both the common dropdown (so it shows without
-	// expanding "Show all country codes") and the extended list.
+// TestLocaleCodesAreRegionQualified keeps the locale lists to the `xx-YY` shape
+// every consumer assumes. Sumerian ("sux") was the one entry that broke it — a
+// bare ISO 639-3 code with no region subtag — and it is gone: no font a browser
+// is likely to have covers the cuneiform block, so the catalog rendered as rows
+// of tofu boxes rather than as a language.
+func TestLocaleCodesAreRegionQualified(t *testing.T) {
 	for name, list := range map[string][]Locale{"CommonLanguages": CommonLanguages, "ExtendedLocales": ExtendedLocales} {
-		found := false
 		for _, l := range list {
-			if l.Code == "sux" {
-				found = true
-				break
+			if !strings.Contains(l.Code, "-") {
+				t.Errorf("%s contains %q, which has no region subtag", name, l.Code)
 			}
-		}
-		if !found {
-			t.Errorf("%s does not contain the Sumerian (sux) locale", name)
 		}
 	}
 }

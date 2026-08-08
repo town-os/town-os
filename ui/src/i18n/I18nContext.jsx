@@ -16,7 +16,6 @@ import plPL from './pl-PL.js'
 import ptBR from './pt-BR.js'
 import ruRU from './ru-RU.js'
 import saIN from './sa-IN.js'
-import sux from './sux.js'
 import svSE from './sv-SE.js'
 import thTH from './th-TH.js'
 import trTR from './tr-TR.js'
@@ -44,7 +43,6 @@ const catalogs = {
   'pt-BR': ptBR,
   'ru-RU': ruRU,
   'sa-IN': saIN,
-  'sux': sux,
   'sv-SE': svSE,
   'th-TH': thTH,
   'tr-TR': trTR,
