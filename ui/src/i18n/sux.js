@@ -761,6 +761,7 @@ const sux = {
   // DNS sub-tabs
   'dns.tab_records': '𒁾 (dub)',
   'dns.tab_blocklists': '𒁻 (gub) 𒁾 (dub)',
+  'dns.tab_allowlists': '𒁀𒍣 (ba-zi) 𒁾 (dub)',
   'dns.tab_services': '𒆟 (kiĝ₂)',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const sux = {
   'dns.bl.entry_removed': '𒁻 (gub) 𒁾 (dub) 𒁀𒄢 (ba-gul)',
   'dns.bl.remove_entry_title': '𒁻 (gub) 𒁾 (dub) 𒄢 (gul)',
   'dns.bl.remove_entry_message': '𒁻 (gub) 𒁾 (dub) {name} 𒄢 (gul)?',
+
+  // Allow Lists tab
+  'dns.al.title': '𒁀𒍣 (ba-zi) 𒁾 (dub)',
+  'dns.al.description': '𒆠𒈬 (ki-mu) 𒁻 (gub) 𒂠 𒁀𒍣 (ba-zi). 𒁾 (dub) 𒀸 (aš) 𒈬 (mu) 𒅆 𒈬 𒆠𒁮 (mu ki-ta) 𒁀𒃼 (ba-ĝar); 𒋧𒇽 (šum₂-lu₂) 𒅆 𒂍 (e₂) 𒁻 (gub) 𒂠 𒊕 (saĝ).',
+  'dns.al.col_name': '𒆠𒈬 (ki-mu)',
+  'dns.al.col_reason': '𒅗 (ka)',
+  'dns.al.add_entry': '𒁾 (dub) 𒋧 (šum₂)',
+  'dns.al.add_entry_title': '𒁀𒍣 (ba-zi) 𒁾 (dub) 𒋧 (šum₂)',
+  'dns.al.add_entry_description': '𒆠𒈬 (ki-mu) 𒅆 𒈬 𒆠𒁮 (mu ki-ta) 𒁻 (gub) 𒂠 𒁀𒍣 (ba-zi).',
+  'dns.al.entry_name_label': '𒆠𒈬 (ki-mu)',
+  'dns.al.entry_name_placeholder': '𒁉 (bi): cdn.example.com',
+  'dns.al.entry_reason_label': '𒅗 (ka) (𒅗𒉡 ka-nu)',
+  'dns.al.entry_reason_placeholder': '𒁉 (bi): 𒉡𒍣 (nu-zi)',
+  'dns.al.entry_added': '𒁀𒍣 (ba-zi) 𒁾 (dub) 𒁀𒋧 (ba-šum₂)',
+  'dns.al.entry_removed': '𒁀𒍣 (ba-zi) 𒁾 (dub) 𒁀𒄢 (ba-gul)',
+  'dns.al.remove_entry_title': '𒁀𒍣 (ba-zi) 𒁾 (dub) 𒄢 (gul)',
+  'dns.al.remove_entry_message': '𒁀𒍣 (ba-zi) 𒁾 (dub) {name} 𒄢 (gul)?',
 
   // Services tab
   'dns.svc.title': '𒁀𒅆 (ba-igi) 𒆟 (kiĝ₂)',

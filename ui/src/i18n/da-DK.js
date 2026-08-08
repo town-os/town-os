@@ -761,6 +761,7 @@ const daDK = {
   // DNS sub-tabs
   'dns.tab_records': 'Poster',
   'dns.tab_blocklists': 'Blokeringslister',
+  'dns.tab_allowlists': 'Tilladelseslister',
   'dns.tab_services': 'Tjenester',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const daDK = {
   'dns.bl.entry_removed': 'Blokeringslistepost fjernet',
   'dns.bl.remove_entry_title': 'Fjern blokeringslistepost',
   'dns.bl.remove_entry_message': 'Fjern blokeringslistepost {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Tilladelsesliste',
+  'dns.al.description': 'Domæner, der er undtaget fra domæneblokeringskontrollen. En post dækker navnet og alle navne under det og har forrang for både udbyderzonerne og den lokale blokeringsliste.',
+  'dns.al.col_name': 'Domæne',
+  'dns.al.col_reason': 'Årsag',
+  'dns.al.add_entry': 'Tilføj post',
+  'dns.al.add_entry_title': 'Tilføj tilladelseslistepost',
+  'dns.al.add_entry_description': 'Undtag et domæne og alle dets underdomæner fra blokeringskontrollen.',
+  'dns.al.entry_name_label': 'Domæne',
+  'dns.al.entry_name_placeholder': 'f.eks. cdn.example.com',
+  'dns.al.entry_reason_label': 'Årsag (valgfri)',
+  'dns.al.entry_reason_placeholder': 'f.eks. falsk positiv',
+  'dns.al.entry_added': 'Tilladelseslistepost tilføjet',
+  'dns.al.entry_removed': 'Tilladelseslistepost fjernet',
+  'dns.al.remove_entry_title': 'Fjern tilladelseslistepost',
+  'dns.al.remove_entry_message': 'Fjern tilladelseslistepost {name}?',
 
   // Services tab
   'dns.svc.title': 'Publicerede tjenester',

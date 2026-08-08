@@ -85,3 +85,21 @@ func ValidateLocalRblName(name string) error {
 	}
 	return nil
 }
+
+// ValidateDnsblAllowlistName validates a DNSBL allowlist entry name. Unlike
+// ValidateLocalRblName this deliberately rejects IP literals: the allowlist
+// exempts a name from the *name-based* blocklist step and matches the name plus
+// every name beneath it, so an address is not something it could ever match.
+func ValidateDnsblAllowlistName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("allowlist entry name must not be empty")
+	}
+	if ip := net.ParseIP(name); ip != nil {
+		return fmt.Errorf("allowlist entry %q is invalid: must be a domain name, not an IP address", name)
+	}
+	if err := validateHostname(name); err != nil {
+		return fmt.Errorf("allowlist entry %q is invalid: %w", name, err)
+	}
+	return nil
+}

@@ -761,6 +761,7 @@ const zhTW = {
   // DNS sub-tabs
   'dns.tab_records': '記錄',
   'dns.tab_blocklists': '封鎖清單',
+  'dns.tab_allowlists': '允許清單',
   'dns.tab_services': '服務',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const zhTW = {
   'dns.bl.entry_removed': '封鎖清單項目已移除',
   'dns.bl.remove_entry_title': '移除封鎖清單項目',
   'dns.bl.remove_entry_message': '要移除封鎖清單項目 {name} 嗎？',
+
+  // Allow Lists tab
+  'dns.al.title': '允許清單',
+  'dns.al.description': '免於網域封鎖檢查的網域。一個項目涵蓋該名稱及其之下的所有名稱，並優先於供應商區域與本機封鎖清單。',
+  'dns.al.col_name': '網域',
+  'dns.al.col_reason': '原因',
+  'dns.al.add_entry': '新增項目',
+  'dns.al.add_entry_title': '新增允許清單項目',
+  'dns.al.add_entry_description': '讓某個網域及其所有子網域免於封鎖檢查。',
+  'dns.al.entry_name_label': '網域',
+  'dns.al.entry_name_placeholder': '例如 cdn.example.com',
+  'dns.al.entry_reason_label': '原因（選填）',
+  'dns.al.entry_reason_placeholder': '例如誤判',
+  'dns.al.entry_added': '允許清單項目已新增',
+  'dns.al.entry_removed': '允許清單項目已移除',
+  'dns.al.remove_entry_title': '移除允許清單項目',
+  'dns.al.remove_entry_message': '要移除允許清單項目 {name} 嗎？',
 
   // Services tab
   'dns.svc.title': '已發佈的服務',

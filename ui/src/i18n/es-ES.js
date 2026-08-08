@@ -761,6 +761,7 @@ const esES = {
   // DNS sub-tabs
   'dns.tab_records': 'Registros',
   'dns.tab_blocklists': 'Listas de bloqueo',
+  'dns.tab_allowlists': 'Listas de permitidos',
   'dns.tab_services': 'Servicios',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const esES = {
   'dns.bl.entry_removed': 'Entrada de lista de bloqueo eliminada',
   'dns.bl.remove_entry_title': 'Eliminar entrada de lista de bloqueo',
   'dns.bl.remove_entry_message': '¿Eliminar la entrada de lista de bloqueo {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Lista de permitidos',
+  'dns.al.description': 'Dominios exentos de la comprobación de listas de bloqueo de dominios. Una entrada cubre el nombre y todos los nombres por debajo de él, y prevalece sobre las zonas de proveedores y sobre la lista de bloqueo local.',
+  'dns.al.col_name': 'Dominio',
+  'dns.al.col_reason': 'Motivo',
+  'dns.al.add_entry': 'Añadir entrada',
+  'dns.al.add_entry_title': 'Añadir entrada de lista de permitidos',
+  'dns.al.add_entry_description': 'Eximir un dominio y todos sus subdominios de la comprobación de bloqueo.',
+  'dns.al.entry_name_label': 'Dominio',
+  'dns.al.entry_name_placeholder': 'p. ej. cdn.example.com',
+  'dns.al.entry_reason_label': 'Motivo (opcional)',
+  'dns.al.entry_reason_placeholder': 'p. ej. falso positivo',
+  'dns.al.entry_added': 'Entrada de lista de permitidos añadida',
+  'dns.al.entry_removed': 'Entrada de lista de permitidos eliminada',
+  'dns.al.remove_entry_title': 'Eliminar entrada de lista de permitidos',
+  'dns.al.remove_entry_message': '¿Eliminar la entrada de lista de permitidos {name}?',
 
   // Services tab
   'dns.svc.title': 'Servicios publicados',

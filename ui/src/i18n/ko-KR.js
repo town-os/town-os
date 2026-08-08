@@ -761,6 +761,7 @@ const koKR = {
   // DNS sub-tabs
   'dns.tab_records': '레코드',
   'dns.tab_blocklists': '차단 목록',
+  'dns.tab_allowlists': '허용 목록',
   'dns.tab_services': '서비스',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const koKR = {
   'dns.bl.entry_removed': '차단 목록 항목이 삭제되었습니다',
   'dns.bl.remove_entry_title': '차단 목록 항목 삭제',
   'dns.bl.remove_entry_message': '차단 목록 항목 {name}을(를) 삭제하시겠습니까?',
+
+  // Allow Lists tab
+  'dns.al.title': '허용 목록',
+  'dns.al.description': '도메인 차단 검사에서 제외되는 도메인입니다. 항목은 해당 이름과 그 아래의 모든 이름에 적용되며, 공급자 영역과 로컬 차단 목록 모두보다 우선합니다.',
+  'dns.al.col_name': '도메인',
+  'dns.al.col_reason': '사유',
+  'dns.al.add_entry': '항목 추가',
+  'dns.al.add_entry_title': '허용 목록 항목 추가',
+  'dns.al.add_entry_description': '도메인과 모든 하위 도메인을 차단 검사에서 제외합니다.',
+  'dns.al.entry_name_label': '도메인',
+  'dns.al.entry_name_placeholder': '예: cdn.example.com',
+  'dns.al.entry_reason_label': '사유 (선택 사항)',
+  'dns.al.entry_reason_placeholder': '예: 오탐',
+  'dns.al.entry_added': '허용 목록 항목이 추가되었습니다',
+  'dns.al.entry_removed': '허용 목록 항목이 삭제되었습니다',
+  'dns.al.remove_entry_title': '허용 목록 항목 삭제',
+  'dns.al.remove_entry_message': '허용 목록 항목 {name}을(를) 삭제하시겠습니까?',
 
   // Services tab
   'dns.svc.title': '게시된 서비스',

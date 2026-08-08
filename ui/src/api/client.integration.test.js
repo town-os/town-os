@@ -1818,6 +1818,30 @@ describe('SystemControllerClient integration', () => {
       expect(entries.some((e) => e.name === name)).toBe(false)
     })
 
+    it('dnsbl allowlist entry add/list/remove changes DNS state', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      const name = 'e2e-allow.example.com'
+      await client.addDNSBLAllowlist(name, 'e2e test')
+      let entries = await client.listDNSBLAllowlist()
+      expect(entries.some((e) => e.name === name)).toBe(true)
+
+      await client.removeDNSBLAllowlist(name)
+      entries = await client.listDNSBLAllowlist()
+      expect(entries.some((e) => e.name === name)).toBe(false)
+    })
+
+    it('dnsbl allowlist rejects an IP, which only the blocklist accepts', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      await expect(client.addDNSBLAllowlist('192.0.2.10', '')).rejects.toThrow()
+      await expect(client.addDNSBLAllowlist('singlelabel', '')).rejects.toThrow()
+    })
+
     it('lists dns services', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
@@ -1840,6 +1864,7 @@ describe('SystemControllerClient integration', () => {
       await expect(noAuth.getRBLConfig()).rejects.toThrow(/GET \/dns\/rbl:.*missing authorization token/)
       await expect(noAuth.getDNSBLConfig()).rejects.toThrow(/GET \/dns\/dnsbl:.*missing authorization token/)
       await expect(noAuth.listLocalRBL()).rejects.toThrow(/GET \/dns\/rbl\/local:.*missing authorization token/)
+      await expect(noAuth.listDNSBLAllowlist()).rejects.toThrow(/GET \/dns\/dnsbl\/allowlist:.*missing authorization token/)
       await expect(noAuth.listDNSServices()).rejects.toThrow(/GET \/dns\/services:.*missing authorization token/)
     })
 
@@ -1848,6 +1873,8 @@ describe('SystemControllerClient integration', () => {
       await expect(noAuth.setRBLConfig(true, [])).rejects.toThrow(/POST \/dns\/rbl:/)
       await expect(noAuth.setDNSBLConfig(true, [])).rejects.toThrow(/POST \/dns\/dnsbl:/)
       await expect(noAuth.addLocalRBL('x.example.com', '')).rejects.toThrow(/POST \/dns\/rbl\/local\/add:/)
+      await expect(noAuth.addDNSBLAllowlist('x.example.com', '')).rejects.toThrow(/POST \/dns\/dnsbl\/allowlist\/add:/)
+      await expect(noAuth.removeDNSBLAllowlist('x.example.com')).rejects.toThrow(/POST \/dns\/dnsbl\/allowlist\/remove:/)
       await expect(noAuth.setDNSService('default', 'x', false)).rejects.toThrow(/POST \/dns\/services\/set:/)
     })
   })

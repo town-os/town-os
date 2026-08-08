@@ -761,6 +761,7 @@ const fiFI = {
   // DNS sub-tabs
   'dns.tab_records': 'Tietueet',
   'dns.tab_blocklists': 'Estolistat',
+  'dns.tab_allowlists': 'Sallimislistat',
   'dns.tab_services': 'Palvelut',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const fiFI = {
   'dns.bl.entry_removed': 'Estolistamerkintä poistettu',
   'dns.bl.remove_entry_title': 'Poista estolistamerkintä',
   'dns.bl.remove_entry_message': 'Poistetaanko estolistamerkintä {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Sallimislista',
+  'dns.al.description': 'Verkkotunnukset, jotka on vapautettu verkkotunnusten estolistatarkistuksesta. Merkintä kattaa nimen ja kaikki sen alaiset nimet, ja se ohittaa sekä palveluntarjoajien vyöhykkeet että paikallisen estolistan.',
+  'dns.al.col_name': 'Verkkotunnus',
+  'dns.al.col_reason': 'Syy',
+  'dns.al.add_entry': 'Lisää merkintä',
+  'dns.al.add_entry_title': 'Lisää sallimislistamerkintä',
+  'dns.al.add_entry_description': 'Vapauta verkkotunnus ja kaikki sen aliverkkotunnukset estotarkistuksesta.',
+  'dns.al.entry_name_label': 'Verkkotunnus',
+  'dns.al.entry_name_placeholder': 'esim. cdn.example.com',
+  'dns.al.entry_reason_label': 'Syy (valinnainen)',
+  'dns.al.entry_reason_placeholder': 'esim. väärä hälytys',
+  'dns.al.entry_added': 'Sallimislistamerkintä lisätty',
+  'dns.al.entry_removed': 'Sallimislistamerkintä poistettu',
+  'dns.al.remove_entry_title': 'Poista sallimislistamerkintä',
+  'dns.al.remove_entry_message': 'Poistetaanko sallimislistamerkintä {name}?',
 
   // Services tab
   'dns.svc.title': 'Julkaistut palvelut',

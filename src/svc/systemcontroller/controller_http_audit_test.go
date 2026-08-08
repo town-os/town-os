@@ -334,7 +334,7 @@ func TestHTTPAuditLogExcludesDNSReadOnlyRoutes(t *testing.T) {
 
 	// Hit DNS read-only endpoints. Handlers will likely error (no DNS service
 	// in unit tests), but the audit middleware exclusion fires regardless.
-	dnsReadOnly := []string{"/dns/status", "/dns/records", "/dns/tld"}
+	dnsReadOnly := []string{"/dns/status", "/dns/records", "/dns/tld", "/dns/rbl/local", "/dns/dnsbl/allowlist"}
 	for _, path := range dnsReadOnly {
 		req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, c.route(path[1:]), nil)
 		if err != nil {
@@ -798,6 +798,64 @@ func TestHTTPAuditLogIncludesDNSWriteRoutes(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("expected audit entry with path=%q action=%q", rt.path, rt.action)
+		}
+	}
+}
+
+// The allowlist read is excluded from the audit log but its two writes are not:
+// exempting a name from every blocklist is exactly the kind of change an
+// operator should be able to account for afterwards. Like the blocklist routes
+// they mirror, these carry no named action in account.RouteActions — the path is
+// what identifies them.
+func TestHTTPAuditLogIncludesDnsblAllowlistWrites(t *testing.T) {
+	c, auditMgr := initAccountTestClient(t)
+
+	if _, err := c.CreateAccount(context.TODO(), "admin", "password1", "a@b.com", "555", "Admin", true); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	resp, err := c.Authenticate(context.TODO(), "admin", "password1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	writes := []struct {
+		path string
+		body string
+	}{
+		{"/dns/dnsbl/allowlist/add", `{"name":"cdn.example.com","reason":"false positive"}`},
+		{"/dns/dnsbl/allowlist/remove", `{"name":"cdn.example.com"}`},
+	}
+
+	// The handlers error without a rolodex client; the audit middleware runs
+	// either way, which is the point.
+	for _, w := range writes {
+		req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, c.route(w.path[1:]), bytes.NewBufferString(w.body))
+		if err != nil {
+			t.Fatalf("NewRequest POST %s: %v", w.path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+resp.Token)
+		req.Header.Set("Content-Type", "application/json")
+		httpResp, err := c.HTTP.Do(req)
+		if err == nil {
+			_ = httpResp.Body.Close()
+		}
+	}
+
+	page, err := auditMgr.List(account.AuditListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	for _, w := range writes {
+		found := false
+		for _, e := range page.Entries {
+			if e.Path == w.path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected an audit entry for %q", w.path)
 		}
 	}
 }

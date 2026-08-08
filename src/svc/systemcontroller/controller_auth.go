@@ -503,6 +503,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/dns/status":                   true,
 			"/dns/records":                  true,
 			"/dns/rbl/local":                true,
+			"/dns/dnsbl/allowlist":          true,
 			"/dns/services":                 true,
 			"/networks":                     true,
 			"/networks/peers":               true,

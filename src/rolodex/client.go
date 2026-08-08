@@ -31,6 +31,15 @@ type Client interface {
 	RemoveLocalRblEntry(ctx context.Context, name string) error
 	ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error)
 
+	// DNSBL allowlist entries exempt a name — and every name beneath it —
+	// from the name-based blocklist step entirely, overriding both the
+	// configured DNSBL providers and any matching local RBL entry. This is
+	// the operator's escape hatch from a third-party feed's false positive:
+	// without it the only remedy is to disable the whole provider.
+	AddDnsblAllowlistEntry(ctx context.Context, entry *upstream.DnsblAllowlistEntry) error
+	RemoveDnsblAllowlistEntry(ctx context.Context, name string) error
+	ListDnsblAllowlistEntries(ctx context.Context) ([]*upstream.DnsblAllowlistEntry, error)
+
 	// Network scopes group DNS records and IP associations under a named,
 	// per-network view. Town OS pairs each network with a scope so records
 	// can eventually be resolved per-network; for now scoping is best-effort
@@ -133,6 +142,18 @@ func (c *client) RemoveLocalRblEntry(ctx context.Context, name string) error {
 
 func (c *client) ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error) {
 	return c.c.ListLocalRblEntries(ctx)
+}
+
+func (c *client) AddDnsblAllowlistEntry(ctx context.Context, entry *upstream.DnsblAllowlistEntry) error {
+	return c.c.AddDnsblAllowlistEntry(ctx, entry)
+}
+
+func (c *client) RemoveDnsblAllowlistEntry(ctx context.Context, name string) error {
+	return c.c.RemoveDnsblAllowlistEntry(ctx, name)
+}
+
+func (c *client) ListDnsblAllowlistEntries(ctx context.Context) ([]*upstream.DnsblAllowlistEntry, error) {
+	return c.c.ListDnsblAllowlistEntries(ctx)
 }
 
 func (c *client) CreateNetworkScope(ctx context.Context, scope *upstream.NetworkScope) error {

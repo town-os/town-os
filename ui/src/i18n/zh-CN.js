@@ -761,6 +761,7 @@ const zhCN = {
   // DNS sub-tabs
   'dns.tab_records': '记录',
   'dns.tab_blocklists': '阻止列表',
+  'dns.tab_allowlists': '允许列表',
   'dns.tab_services': '服务',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const zhCN = {
   'dns.bl.entry_removed': '阻止列表条目已删除',
   'dns.bl.remove_entry_title': '删除阻止列表条目',
   'dns.bl.remove_entry_message': '删除阻止列表条目 {name}？',
+
+  // Allow Lists tab
+  'dns.al.title': '允许列表',
+  'dns.al.description': '免于域名阻止检查的域名。一个条目涵盖该名称及其下的所有名称，并优先于提供商区域和本地阻止列表。',
+  'dns.al.col_name': '域名',
+  'dns.al.col_reason': '原因',
+  'dns.al.add_entry': '添加条目',
+  'dns.al.add_entry_title': '添加允许列表条目',
+  'dns.al.add_entry_description': '使某个域名及其所有子域名免于阻止检查。',
+  'dns.al.entry_name_label': '域名',
+  'dns.al.entry_name_placeholder': '例如 cdn.example.com',
+  'dns.al.entry_reason_label': '原因（可选）',
+  'dns.al.entry_reason_placeholder': '例如误报',
+  'dns.al.entry_added': '允许列表条目已添加',
+  'dns.al.entry_removed': '允许列表条目已删除',
+  'dns.al.remove_entry_title': '删除允许列表条目',
+  'dns.al.remove_entry_message': '删除允许列表条目 {name}？',
 
   // Services tab
   'dns.svc.title': '已发布的服务',

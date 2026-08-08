@@ -6,6 +6,7 @@ import getClient from '@/lib/client-instance.js'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
 import BlocklistsTab from '@/routes/dns/BlocklistsTab.jsx'
+import AllowListsTab from '@/routes/dns/AllowListsTab.jsx'
 import ServicesTab from '@/routes/dns/ServicesTab.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -285,6 +286,7 @@ export default function DNSManagement() {
           <TabsList>
             <TabsTrigger value="records">{t('dns.tab_records')}</TabsTrigger>
             <TabsTrigger value="blocklists">{t('dns.tab_blocklists')}</TabsTrigger>
+            <TabsTrigger value="allowlists">{t('dns.tab_allowlists')}</TabsTrigger>
             <TabsTrigger value="services">{t('dns.tab_services')}</TabsTrigger>
           </TabsList>
 
@@ -313,6 +315,10 @@ export default function DNSManagement() {
 
           <TabsContent value="blocklists" className="mt-4">
             <BlocklistsTab isAdmin={!!account?.admin} />
+          </TabsContent>
+
+          <TabsContent value="allowlists" className="mt-4">
+            <AllowListsTab isAdmin={!!account?.admin} />
           </TabsContent>
 
           <TabsContent value="services" className="mt-4">

@@ -44,6 +44,26 @@ type RemoveLocalRblEntryRequest struct {
 	Name string `json:"name"`
 }
 
+// DnsblAllowlistEntryDTO is the JSON shape of a single DNSBL allowlist entry —
+// a name exempted from the name-based blocklist check.
+type DnsblAllowlistEntryDTO struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// AddDnsblAllowlistEntryRequest is the request body for
+// POST /dns/dnsbl/allowlist/add.
+type AddDnsblAllowlistEntryRequest struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// RemoveDnsblAllowlistEntryRequest is the request body for
+// POST /dns/dnsbl/allowlist/remove.
+type RemoveDnsblAllowlistEntryRequest struct {
+	Name string `json:"name"`
+}
+
 func rblProvidersToDTO(providers []*upstream.RblConfig) []RblProviderDTO {
 	out := make([]RblProviderDTO, 0, len(providers))
 	for _, p := range providers {
@@ -238,6 +258,95 @@ func (s *SystemControllerHandlers) removeLocalRblEntry(c *echo.Context) error {
 
 	if err := rc.RemoveLocalRblEntry(c.Request().Context(), name); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("remove local rbl entry: %v", err))
+	}
+	return c.JSON(200, map[string]string{"status": "ok", "name": name})
+}
+
+// trimDNSRoot removes a single trailing root dot.
+//
+// Rolodex normalizes an allowlist name into fully-qualified form on the way in
+// and hands it back that way ("cdn.example.com."), which is a storage detail of
+// its zone-suffix matching. The local blocklist it sits beside stores names
+// verbatim, so without this the Allow Lists table would render a trailing dot
+// that the Blocklists table does not, on names the operator typed identically —
+// which reads as a bug in whichever tab you looked at second. Purely
+// presentational: rolodex normalizes whatever name it is given, so a removal
+// matches with or without the dot.
+func trimDNSRoot(name string) string {
+	if name == "." {
+		return name
+	}
+	return strings.TrimSuffix(name, ".")
+}
+
+// listDnsblAllowlistEntries handles GET /dns/dnsbl/allowlist.
+func (s *SystemControllerHandlers) listDnsblAllowlistEntries(c *echo.Context) error {
+	rc := s.Controller.GetRolodexClient()
+	if rc == nil {
+		return echo.NewHTTPError(503, "rolodex not available")
+	}
+	entries, err := rc.ListDnsblAllowlistEntries(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(500, fmt.Sprintf("list dnsbl allowlist entries: %v", err))
+	}
+	out := make([]DnsblAllowlistEntryDTO, 0, len(entries))
+	for _, e := range entries {
+		if e == nil {
+			continue
+		}
+		out = append(out, DnsblAllowlistEntryDTO{Name: trimDNSRoot(e.Name), Reason: e.Reason})
+	}
+	return c.JSON(200, out)
+}
+
+// addDnsblAllowlistEntry handles POST /dns/dnsbl/allowlist/add.
+func (s *SystemControllerHandlers) addDnsblAllowlistEntry(c *echo.Context) error {
+	rc := s.Controller.GetRolodexClient()
+	if rc == nil {
+		return echo.NewHTTPError(503, "rolodex not available")
+	}
+
+	var req AddDnsblAllowlistEntryRequest
+	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
+	}
+
+	name := trimDNSRoot(strings.ToLower(strings.TrimSpace(req.Name)))
+	if err := ValidateDnsblAllowlistName(name); err != nil {
+		return echo.NewHTTPError(400, err.Error())
+	}
+
+	if err := rc.AddDnsblAllowlistEntry(c.Request().Context(), &upstream.DnsblAllowlistEntry{
+		Name:   name,
+		Reason: strings.TrimSpace(req.Reason),
+	}); err != nil {
+		return echo.NewHTTPError(500, fmt.Sprintf("add dnsbl allowlist entry: %v", err))
+	}
+	return c.JSON(200, map[string]string{"status": "ok", "name": name})
+}
+
+// removeDnsblAllowlistEntry handles POST /dns/dnsbl/allowlist/remove.
+//
+// The name is only normalized, never re-validated: a row that predates a
+// validation change must still be removable.
+func (s *SystemControllerHandlers) removeDnsblAllowlistEntry(c *echo.Context) error {
+	rc := s.Controller.GetRolodexClient()
+	if rc == nil {
+		return echo.NewHTTPError(503, "rolodex not available")
+	}
+
+	var req RemoveDnsblAllowlistEntryRequest
+	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
+	}
+
+	name := trimDNSRoot(strings.ToLower(strings.TrimSpace(req.Name)))
+	if name == "" {
+		return echo.NewHTTPError(400, "name must not be empty")
+	}
+
+	if err := rc.RemoveDnsblAllowlistEntry(c.Request().Context(), name); err != nil {
+		return echo.NewHTTPError(500, fmt.Sprintf("remove dnsbl allowlist entry: %v", err))
 	}
 	return c.JSON(200, map[string]string{"status": "ok", "name": name})
 }

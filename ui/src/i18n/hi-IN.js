@@ -761,6 +761,7 @@ const hiIN = {
   // DNS sub-tabs
   'dns.tab_records': 'रिकॉर्ड',
   'dns.tab_blocklists': 'ब्लॉकलिस्ट',
+  'dns.tab_allowlists': 'अनुमति सूचियाँ',
   'dns.tab_services': 'सेवाएँ',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const hiIN = {
   'dns.bl.entry_removed': 'ब्लॉकलिस्ट प्रविष्टि हटाई गई',
   'dns.bl.remove_entry_title': 'ब्लॉकलिस्ट प्रविष्टि हटाएँ',
   'dns.bl.remove_entry_message': 'ब्लॉकलिस्ट प्रविष्टि {name} हटाएँ?',
+
+  // Allow Lists tab
+  'dns.al.title': 'अनुमति सूची',
+  'dns.al.description': 'वे डोमेन जिन्हें डोमेन ब्लॉकलिस्ट जाँच से छूट प्राप्त है। एक प्रविष्टि उस नाम और उसके नीचे के हर नाम पर लागू होती है, और प्रदाता ज़ोन तथा स्थानीय ब्लॉकलिस्ट दोनों पर वरीयता रखती है।',
+  'dns.al.col_name': 'डोमेन',
+  'dns.al.col_reason': 'कारण',
+  'dns.al.add_entry': 'प्रविष्टि जोड़ें',
+  'dns.al.add_entry_title': 'अनुमति सूची प्रविष्टि जोड़ें',
+  'dns.al.add_entry_description': 'किसी डोमेन और उसके सभी उपडोमेन को ब्लॉक जाँच से छूट दें।',
+  'dns.al.entry_name_label': 'डोमेन',
+  'dns.al.entry_name_placeholder': 'जैसे cdn.example.com',
+  'dns.al.entry_reason_label': 'कारण (वैकल्पिक)',
+  'dns.al.entry_reason_placeholder': 'जैसे ग़लत पहचान',
+  'dns.al.entry_added': 'अनुमति सूची प्रविष्टि जोड़ी गई',
+  'dns.al.entry_removed': 'अनुमति सूची प्रविष्टि हटाई गई',
+  'dns.al.remove_entry_title': 'अनुमति सूची प्रविष्टि हटाएँ',
+  'dns.al.remove_entry_message': 'अनुमति सूची प्रविष्टि {name} हटाएँ?',
 
   // Services tab
   'dns.svc.title': 'प्रकाशित सेवाएँ',

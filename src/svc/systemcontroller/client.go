@@ -309,6 +309,20 @@ type Client interface {
 	//
 	// Calls POST /dns/rbl/local/remove on the Control Plane Service.
 	RemoveLocalRblEntry(ctx context.Context, name string) error
+	// ListDnsblAllowlistEntries returns the DNSBL allowlist entries — names
+	// exempted from the name-based blocklist check.
+	//
+	// Calls GET /dns/dnsbl/allowlist on the Control Plane Service.
+	ListDnsblAllowlistEntries(ctx context.Context) ([]DnsblAllowlistEntryDTO, error)
+	// AddDnsblAllowlistEntry exempts a name (and every name beneath it) from
+	// the name-based blocklist check.
+	//
+	// Calls POST /dns/dnsbl/allowlist/add on the Control Plane Service.
+	AddDnsblAllowlistEntry(ctx context.Context, name, reason string) error
+	// RemoveDnsblAllowlistEntry removes a name from the DNSBL allowlist.
+	//
+	// Calls POST /dns/dnsbl/allowlist/remove on the Control Plane Service.
+	RemoveDnsblAllowlistEntry(ctx context.Context, name string) error
 	// ListDNSServices returns installed package services with their published
 	// (in-DNS-zone) state.
 	//

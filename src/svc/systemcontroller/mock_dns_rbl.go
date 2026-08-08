@@ -94,6 +94,46 @@ func (m *MockClient) RemoveLocalRblEntry(_ context.Context, name string) error {
 	return nil
 }
 
+// ListDnsblAllowlistEntries returns the mock DNSBL allowlist entries.
+func (m *MockClient) ListDnsblAllowlistEntries(_ context.Context) ([]DnsblAllowlistEntryDTO, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "ListDnsblAllowlistEntries"})
+	if m.ListDnsblAllowlistErr != nil {
+		return nil, m.ListDnsblAllowlistErr
+	}
+	return m.DnsblAllowlistEntries, nil
+}
+
+// AddDnsblAllowlistEntry adds an entry to the mock DNSBL allowlist.
+func (m *MockClient) AddDnsblAllowlistEntry(_ context.Context, name, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "AddDnsblAllowlistEntry", Args: []any{name, reason}})
+	if m.AddDnsblAllowlistErr != nil {
+		return m.AddDnsblAllowlistErr
+	}
+	m.DnsblAllowlistEntries = append(m.DnsblAllowlistEntries, DnsblAllowlistEntryDTO{Name: name, Reason: reason})
+	return nil
+}
+
+// RemoveDnsblAllowlistEntry removes an entry from the mock DNSBL allowlist.
+func (m *MockClient) RemoveDnsblAllowlistEntry(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Calls = append(m.Calls, MockCall{Method: "RemoveDnsblAllowlistEntry", Args: []any{name}})
+	if m.RemoveDnsblAllowlistErr != nil {
+		return m.RemoveDnsblAllowlistErr
+	}
+	for i, e := range m.DnsblAllowlistEntries {
+		if e.Name == name {
+			m.DnsblAllowlistEntries = append(m.DnsblAllowlistEntries[:i], m.DnsblAllowlistEntries[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
 // ListDNSServices returns the mock DNS service entries.
 func (m *MockClient) ListDNSServices(_ context.Context) ([]DNSServiceEntry, error) {
 	m.mu.Lock()

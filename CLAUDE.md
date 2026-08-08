@@ -1589,20 +1589,34 @@ container or podman plumbing.
 - `GET /dns/rbl/local` (auth required) -- list the local RBL blocklist entries (`{name, reason}`).
 - `POST /dns/rbl/local/add` (admin required) -- add a local RBL entry. Accepts a name (domain or IP) and an optional reason. The name is validated (domain or IP), lowercased, and trimmed.
 - `POST /dns/rbl/local/remove` (admin required) -- remove a local RBL entry by name.
+- `GET /dns/dnsbl/allowlist` (auth required) -- list the DNSBL allowlist entries (`{name, reason}`).
+- `POST /dns/dnsbl/allowlist/add` (admin required) -- exempt a name from the name-based blocklist check. Accepts a name and an optional reason. The name is lowercased, trimmed, and validated as a **domain name only** -- an IP literal is rejected (`ValidateDnsblAllowlistName`), because the allowlist matches names and their subdomains and could never match an address.
+- `POST /dns/dnsbl/allowlist/remove` (admin required) -- remove an allowlist entry by name. The name is normalized but not re-validated, so an entry that predates a validation change is still removable.
 - `GET /dns/services` (auth required) -- list installed package services with their published (in-DNS-zone) state (`{repo, name, version, fqdn, domains, published}`), deduplicated by repo/name.
 - `POST /dns/services/set` (admin required) -- publish or unpublish a package service in the DNS zone. Accepts `{repo, name, published}`. Persists the choice and immediately registers/unregisters the records.
 
-DNS read-only endpoints (`/dns/status`, `/dns/records`, `/dns/rbl/local`, `/dns/services`, `GET /dns/tld`, `GET /dns/rbl`, `GET /dns/dnsbl`) are excluded from audit logging.
+DNS read-only endpoints (`/dns/status`, `/dns/records`, `/dns/rbl/local`, `/dns/dnsbl/allowlist`, `/dns/services`, `GET /dns/tld`, `GET /dns/rbl`, `GET /dns/dnsbl`) are excluded from audit logging. The allowlist *writes* are audited (exempting a name from every blocklist is an accountable change); like the blocklist writes they mirror, they carry no named action in `account.RouteActions` — the path identifies them.
 
 ### RBL / DNSBL Blocklists
 
-Rolodex (0.2.4+) provides three complementary spam/malware/ad blocking mechanisms, all exposed through the DNS API and the `rolodex.Client` wrapper (`SetRblConfig`/`GetRblConfig`, `SetDnsblConfig`/`GetDnsblConfig`, `AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`). All three are **queried on demand by rolodex** — Town OS never downloads, parses, or pre-caches blocklist feeds.
+Rolodex (0.2.4+) provides three complementary spam/malware/ad blocking mechanisms, plus (0.4.3+) one mechanism for undoing them, all exposed through the DNS API and the `rolodex.Client` wrapper (`SetRblConfig`/`GetRblConfig`, `SetDnsblConfig`/`GetDnsblConfig`, `AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`, `AddDnsblAllowlistEntry`/`RemoveDnsblAllowlistEntry`/`ListDnsblAllowlistEntries`). All are **queried on demand by rolodex** — Town OS never downloads, parses, or pre-caches blocklist feeds.
 
 - **RBL** (Realtime Blackhole List) -- reverse-IP blocklist zones queried on demand with a reversed IP against a zone (e.g. `zen.spamhaus.org`). Checked against IPs found in reverse DNS queries. Configured via `/dns/rbl` as a list of `{zone, enabled}` providers plus a global enabled flag.
 - **DNSBL** (domain blocklist) -- domain blocklist zones queried on demand by prepending the looked-up domain to the zone (e.g. `googleadservices.com` + `dbl.spamhaus.org`). DNSBL listings take precedence over forwarded/iterative answers. Configured via `/dns/dnsbl` with the same shape as RBL.
 - **Local RBL entries** -- a DB-backed list of names/IPs managed manually via `/dns/rbl/local*`, checked before external providers. A **domain-name** local entry blocks forward A/AAAA lookups for that domain with `NXDOMAIN`, and takes effect immediately (rolodex updates an in-memory cache on add).
+- **DNSBL allowlist** (rolodex 0.4.3+) -- the operator's escape hatch from a third-party feed's false positive, managed via `/dns/dnsbl/allowlist*`. An entry covers the name **and every name beneath it**, so allowlisting `vendor.example` also exempts `cdn.vendor.example`. It **short-circuits the whole name-based check**, beating both the configured DNSBL providers and any matching local RBL entry, and it runs *before* the provider lookup so an exempted name never issues one. Also DB-backed with an in-memory cache, so it takes effect immediately.
 
-There is **no feed ingestion / pre-caching**: provider zones are the unit of configuration, and the UI offers a curated list of well-known DNSBL/RBL zones (Spamhaus DBL/ZEN, SURBL, URIBL, NordSpam, SpamCop, Barracuda, SORBS) as one-click quick-adds, but the user may add any zone. Provider-zone writes replace the whole config (validated, lowercased, de-duplicated).
+  Without it the only remedy for a feed that lists a name the household needs is to disable the whole provider. Note the asymmetry with the local blocklist: an allowlist entry is a **name only**, never an IP, because the check it short-circuits is the name-based one. The IP-based RBL path is untouched by it.
+
+  **Version floor:** an older rolodex answers the three allowlist RPCs with gRPC `Unimplemented`, surfacing as a 500. Neither `make test` nor the mocked integration tests catch that — `TestRolodexDnsblAllowlistRoundtripReal` is what proves the pinned image is new enough.
+
+There is **no feed ingestion / pre-caching**: provider zones are the unit of configuration, and the UI offers a curated list of well-known DNSBL/RBL zones as one-click quick-adds, but the user may add any zone. Provider-zone writes replace the whole config (validated, lowercased, de-duplicated).
+
+**The quick-add list is an endorsement, and is curated on that basis** (`DNSBL_SUGGESTIONS` / `RBL_SUGGESTIONS` in `ui/src/routes/dns/BlocklistsTab.jsx`). A zone belongs there only if a household box can use it as shipped: still operating, free, and answering a self-recursing resolver with no registration step. Currently DNSBL — Spamhaus DBL, SURBL, URIBL, NordSpam DBL, Spam Eating Monkey; RBL — Spamhaus ZEN, SpamCop, PSBL.
+
+Three are deliberately **absent**, and `TestBlocklistsTab`'s "offers no decommissioned or registration-gated zones" case keeps them that way: `dnsbl.sorbs.net` was decommissioned on 2024-06-05 and its zones emptied, so it is a permanent no-op that reads as protection; `b.barracudacentral.org` requires registering the querying IP first, and an unregistered box may answer for a while and then be cut off; UCEPROTECT levels 2/3 list whole ASNs, so one bad neighbour blocks an entire ISP. All three fail *silently* — the operator sees a configured zone and assumes it is working.
+
+Note also that the RBL (reverse-IP) zones are only consulted for IPs found in reverse DNS queries, which ordinary browsing barely generates. The DNSBL (domain) zones are the ones that affect browsing, and they are tuned for spam URLs in email rather than ads or trackers — ad/tracker blocking would be feed territory, which is [deliberately out of scope](#rbl--dnsbl-blocklists).
 
 ### Per-Service DNS Publishing
 
@@ -1610,10 +1624,11 @@ Publishing is opt-out: every installed package service is published in the DNS z
 
 ### DNS Management UI
 
-The DNS management screen shows DNS status (enabled, running, TLD, record count) above three deep-linkable sub-tabs (`?tab=`):
+The DNS management screen shows DNS status (enabled, running, TLD, record count) above four deep-linkable sub-tabs (`?tab=`):
 
 - **Records** -- the DNS records table with dialogs for adding records (types: A, AAAA, CNAME, MX, TXT, SRV, PTR), removing records, changing the TLD, and initial DNS setup.
 - **Blocklists** -- DNSBL and RBL provider-zone sections (global enable switch, per-zone enable/remove, suggested-zone quick-adds, custom-zone add — all queried on demand) plus a manual local-entry table (add/remove). No feeds, no apply, nothing cached.
+- **Allow Lists** (`?tab=allowlists`, `ui/src/routes/dns/AllowListsTab.jsx`) -- the DNSBL allowlist: a table of exempted domains with reasons, plus add and remove. Reads are `requireAuth` so the tab is not admin-only; the add/remove controls are admin-only. It is a sibling tab rather than a card on Blocklists because an exemption is what an operator goes looking for by name when something is unreachable, not something to find while scrolling past provider zones.
 - **Services** -- installed package services with a publish switch (publish/unpublish in the DNS zone).
 
 ## Status Endpoint

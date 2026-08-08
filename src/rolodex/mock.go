@@ -41,6 +41,8 @@ type MockClient struct {
 	DnsblProviders  []*upstream.DnsblConfig
 	LocalRblEntries []*upstream.LocalRblEntry
 
+	DnsblAllowlistEntries []*upstream.DnsblAllowlistEntry
+
 	AddRecordErr      error
 	RemoveRecordErr   error
 	RemoveCount       uint32
@@ -58,6 +60,10 @@ type MockClient struct {
 	AddLocalRblEntryErr    error
 	RemoveLocalRblEntryErr error
 	ListLocalRblEntriesErr error
+
+	AddDnsblAllowlistEntryErr    error
+	RemoveDnsblAllowlistEntryErr error
+	ListDnsblAllowlistEntriesErr error
 
 	CreateNetworkScopeErr     error
 	DeleteNetworkScopeErr     error
@@ -282,6 +288,54 @@ func (m *MockClient) ListLocalRblEntries(_ context.Context) ([]*upstream.LocalRb
 	defer m.mu.Unlock()
 	out := make([]*upstream.LocalRblEntry, len(m.LocalRblEntries))
 	copy(out, m.LocalRblEntries)
+	return out, nil
+}
+
+func (m *MockClient) AddDnsblAllowlistEntry(_ context.Context, entry *upstream.DnsblAllowlistEntry) error {
+	m.record("AddDnsblAllowlistEntry", entry)
+	if m.AddDnsblAllowlistEntryErr != nil {
+		return m.AddDnsblAllowlistEntryErr
+	}
+	if entry == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.DnsblAllowlistEntries {
+		if e.Name == entry.Name {
+			e.Reason = entry.Reason
+			return nil
+		}
+	}
+	m.DnsblAllowlistEntries = append(m.DnsblAllowlistEntries, entry)
+	return nil
+}
+
+func (m *MockClient) RemoveDnsblAllowlistEntry(_ context.Context, name string) error {
+	m.record("RemoveDnsblAllowlistEntry", name)
+	if m.RemoveDnsblAllowlistEntryErr != nil {
+		return m.RemoveDnsblAllowlistEntryErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, e := range m.DnsblAllowlistEntries {
+		if e.Name == name {
+			m.DnsblAllowlistEntries = append(m.DnsblAllowlistEntries[:i], m.DnsblAllowlistEntries[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *MockClient) ListDnsblAllowlistEntries(_ context.Context) ([]*upstream.DnsblAllowlistEntry, error) {
+	m.record("ListDnsblAllowlistEntries")
+	if m.ListDnsblAllowlistEntriesErr != nil {
+		return nil, m.ListDnsblAllowlistEntriesErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*upstream.DnsblAllowlistEntry, len(m.DnsblAllowlistEntries))
+	copy(out, m.DnsblAllowlistEntries)
 	return out, nil
 }
 

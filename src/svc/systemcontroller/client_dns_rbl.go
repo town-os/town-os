@@ -85,6 +85,37 @@ func (c *SystemdClient) RemoveLocalRblEntry(ctx context.Context, name string) er
 	return c.postClient(ctx, "dns/rbl/local/remove", pr)
 }
 
+// ListDnsblAllowlistEntries returns the DNSBL allowlist entries.
+func (c *SystemdClient) ListDnsblAllowlistEntries(ctx context.Context) (_ []DnsblAllowlistEntryDTO, err error) {
+	resp, err := c.getClient(ctx, "dns/dnsbl/allowlist")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListDnsblAllowlistEntries: %w", ErrHTTPRequest, err)
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "GET", "dns/dnsbl/allowlist")
+	}
+
+	var entries []DnsblAllowlistEntryDTO
+	return entries, json.NewDecoder(resp.Body).Decode(&entries)
+}
+
+// AddDnsblAllowlistEntry exempts a name (and every name beneath it) from the
+// name-based blocklist check.
+func (c *SystemdClient) AddDnsblAllowlistEntry(ctx context.Context, name, reason string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, AddDnsblAllowlistEntryRequest{Name: name, Reason: reason})
+	return c.postClient(ctx, "dns/dnsbl/allowlist/add", pr)
+}
+
+// RemoveDnsblAllowlistEntry removes a name from the DNSBL allowlist.
+func (c *SystemdClient) RemoveDnsblAllowlistEntry(ctx context.Context, name string) error {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, RemoveDnsblAllowlistEntryRequest{Name: name})
+	return c.postClient(ctx, "dns/dnsbl/allowlist/remove", pr)
+}
+
 // ListDNSServices returns installed package services with their published state.
 func (c *SystemdClient) ListDNSServices(ctx context.Context) (_ []DNSServiceEntry, err error) {
 	resp, err := c.getClient(ctx, "dns/services")

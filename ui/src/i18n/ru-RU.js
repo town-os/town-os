@@ -761,6 +761,7 @@ const ruRU = {
   // DNS sub-tabs
   'dns.tab_records': 'Записи',
   'dns.tab_blocklists': 'Списки блокировки',
+  'dns.tab_allowlists': 'Списки разрешений',
   'dns.tab_services': 'Службы',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const ruRU = {
   'dns.bl.entry_removed': 'Запись списка блокировки удалена',
   'dns.bl.remove_entry_title': 'Удалить запись списка блокировки',
   'dns.bl.remove_entry_message': 'Удалить запись списка блокировки {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Список разрешений',
+  'dns.al.description': 'Домены, освобождённые от проверки по спискам блокировки доменов. Запись охватывает имя и все имена под ним и имеет приоритет как над зонами провайдеров, так и над локальным списком блокировки.',
+  'dns.al.col_name': 'Домен',
+  'dns.al.col_reason': 'Причина',
+  'dns.al.add_entry': 'Добавить запись',
+  'dns.al.add_entry_title': 'Добавить запись списка разрешений',
+  'dns.al.add_entry_description': 'Освободить домен и все его поддомены от проверки блокировки.',
+  'dns.al.entry_name_label': 'Домен',
+  'dns.al.entry_name_placeholder': 'напр. cdn.example.com',
+  'dns.al.entry_reason_label': 'Причина (необязательно)',
+  'dns.al.entry_reason_placeholder': 'напр. ложное срабатывание',
+  'dns.al.entry_added': 'Запись списка разрешений добавлена',
+  'dns.al.entry_removed': 'Запись списка разрешений удалена',
+  'dns.al.remove_entry_title': 'Удалить запись списка разрешений',
+  'dns.al.remove_entry_message': 'Удалить запись списка разрешений {name}?',
 
   // Services tab
   'dns.svc.title': 'Опубликованные службы',

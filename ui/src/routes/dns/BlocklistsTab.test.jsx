@@ -69,6 +69,24 @@ describe('BlocklistsTab', () => {
     })
   })
 
+  // A quick-add is an endorsement: one click and the operator is relying on the
+  // zone. A decommissioned zone is a permanent no-op that reads as protection,
+  // and a registration-gated one may answer for a while and then be cut off —
+  // both fail silently, so they must never reappear in the suggestion lists.
+  it('offers no decommissioned or registration-gated zones', async () => {
+    // Nothing configured, so every suggestion renders as a quick-add.
+    mockGetRBL.mockResolvedValue({ enabled: false, providers: [] })
+    mockGetDNSBL.mockResolvedValue({ enabled: false, providers: [] })
+
+    renderTab()
+    await waitFor(() => expect(screen.getByText('Spamhaus DBL')).toBeTruthy())
+
+    expect(screen.queryByText('SORBS')).toBeNull() // decommissioned 2024-06-05
+    expect(screen.queryByText('Barracuda')).toBeNull() // requires IP registration
+    expect(screen.getByText('Spam Eating Monkey')).toBeTruthy()
+    expect(screen.getByText('PSBL')).toBeTruthy()
+  })
+
   it('hides admin controls for non-admins', async () => {
     renderTab(false)
     await waitFor(() => expect(screen.getByText('zen.spamhaus.org')).toBeTruthy())

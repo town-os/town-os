@@ -761,6 +761,7 @@ const saIN = {
   // DNS sub-tabs
   'dns.tab_records': 'अभिलेखाः',
   'dns.tab_blocklists': 'अवरोध-सूचयः',
+  'dns.tab_allowlists': 'अनुज्ञा-सूचयः',
   'dns.tab_services': 'सेवाः',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const saIN = {
   'dns.bl.entry_removed': 'अवरोध-सूची-प्रविष्टिः अपसारिता',
   'dns.bl.remove_entry_title': 'अवरोध-सूची-प्रविष्टिम् अपसारयतु',
   'dns.bl.remove_entry_message': '{name} अवरोध-सूची-प्रविष्टिम् अपसारयतु?',
+
+  // Allow Lists tab
+  'dns.al.title': 'अनुज्ञा-सूची',
+  'dns.al.description': 'ये क्षेत्रनामानि क्षेत्रनाम-अवरोध-परीक्षणात् मुक्तानि सन्ति। एका प्रविष्टिः तत् नाम तस्य अधःस्थं प्रत्येकं नाम च व्याप्नोति, प्रदातृ-क्षेत्रेभ्यः स्थानीय-अवरोध-सूच्याः च उभयतः प्राधान्यं धारयति च।',
+  'dns.al.col_name': 'क्षेत्रनाम',
+  'dns.al.col_reason': 'कारणम्',
+  'dns.al.add_entry': 'प्रविष्टिं योजयतु',
+  'dns.al.add_entry_title': 'अनुज्ञा-सूची-प्रविष्टिं योजयतु',
+  'dns.al.add_entry_description': 'एकं क्षेत्रनाम तस्य सर्वाणि उपक्षेत्रनामानि च अवरोध-परीक्षणात् मुञ्चतु।',
+  'dns.al.entry_name_label': 'क्षेत्रनाम',
+  'dns.al.entry_name_placeholder': 'यथा cdn.example.com',
+  'dns.al.entry_reason_label': 'कारणम् (वैकल्पिकम्)',
+  'dns.al.entry_reason_placeholder': 'यथा मिथ्या-सङ्केतः',
+  'dns.al.entry_added': 'अनुज्ञा-सूची-प्रविष्टिः योजिता',
+  'dns.al.entry_removed': 'अनुज्ञा-सूची-प्रविष्टिः अपसारिता',
+  'dns.al.remove_entry_title': 'अनुज्ञा-सूची-प्रविष्टिम् अपसारयतु',
+  'dns.al.remove_entry_message': '{name} अनुज्ञा-सूची-प्रविष्टिम् अपसारयतु?',
 
   // Services tab
   'dns.svc.title': 'प्रकाशिताः सेवाः',

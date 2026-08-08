@@ -160,6 +160,40 @@ SystemControllerClient.prototype.removeLocalRBL = async function (name) {
   await this.postJSON('/dns/rbl/local/remove', { name })
 }
 
+// --- DNSBL allowlist ---
+
+/**
+ * Lists the DNSBL allowlist entries — names exempted from the name-based
+ * blocklist check, along with every name beneath them.
+ * Calls GET /dns/dnsbl/allowlist.
+ * @returns {Promise<Array<{name: string, reason: string}>>}
+ */
+SystemControllerClient.prototype.listDNSBLAllowlist = async function () {
+  return this.getJSON('/dns/dnsbl/allowlist')
+}
+
+/**
+ * Exempts a domain (and every name under it) from the name-based blocklist
+ * check, overriding both the provider zones and the local blocklist.
+ * Calls POST /dns/dnsbl/allowlist/add.
+ * @param {string} name
+ * @param {string} reason
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.addDNSBLAllowlist = async function (name, reason) {
+  await this.postJSON('/dns/dnsbl/allowlist/add', { name, reason })
+}
+
+/**
+ * Removes a domain from the DNSBL allowlist.
+ * Calls POST /dns/dnsbl/allowlist/remove.
+ * @param {string} name
+ * @returns {Promise<void>}
+ */
+SystemControllerClient.prototype.removeDNSBLAllowlist = async function (name) {
+  await this.postJSON('/dns/dnsbl/allowlist/remove', { name })
+}
+
 // --- DNS services (publish toggle) ---
 
 /**

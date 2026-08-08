@@ -761,6 +761,7 @@ const bnBD = {
   // DNS sub-tabs
   'dns.tab_records': 'রেকর্ড',
   'dns.tab_blocklists': 'ব্লকলিস্ট',
+  'dns.tab_allowlists': 'অনুমোদন তালিকা',
   'dns.tab_services': 'সার্ভিস',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const bnBD = {
   'dns.bl.entry_removed': 'ব্লকলিস্ট এন্ট্রি সরানো হয়েছে',
   'dns.bl.remove_entry_title': 'ব্লকলিস্ট এন্ট্রি সরান',
   'dns.bl.remove_entry_message': '{name} ব্লকলিস্ট এন্ট্রি সরাবেন?',
+
+  // Allow Lists tab
+  'dns.al.title': 'অনুমোদন তালিকা',
+  'dns.al.description': 'যেসব ডোমেন ডোমেন ব্লকলিস্ট যাচাই থেকে অব্যাহতি পায়। একটি এন্ট্রি ওই নাম এবং তার নিচের প্রতিটি নামকে অন্তর্ভুক্ত করে, এবং সরবরাহকারী জোন ও স্থানীয় ব্লকলিস্ট উভয়ের উপরেই প্রাধান্য পায়।',
+  'dns.al.col_name': 'ডোমেন',
+  'dns.al.col_reason': 'কারণ',
+  'dns.al.add_entry': 'এন্ট্রি যোগ করুন',
+  'dns.al.add_entry_title': 'অনুমোদন তালিকার এন্ট্রি যোগ করুন',
+  'dns.al.add_entry_description': 'একটি ডোমেন ও তার সব সাবডোমেনকে ব্লক যাচাই থেকে অব্যাহতি দিন।',
+  'dns.al.entry_name_label': 'ডোমেন',
+  'dns.al.entry_name_placeholder': 'যেমন cdn.example.com',
+  'dns.al.entry_reason_label': 'কারণ (ঐচ্ছিক)',
+  'dns.al.entry_reason_placeholder': 'যেমন ভুল শনাক্তকরণ',
+  'dns.al.entry_added': 'অনুমোদন তালিকার এন্ট্রি যোগ করা হয়েছে',
+  'dns.al.entry_removed': 'অনুমোদন তালিকার এন্ট্রি সরানো হয়েছে',
+  'dns.al.remove_entry_title': 'অনুমোদন তালিকার এন্ট্রি সরান',
+  'dns.al.remove_entry_message': '{name} অনুমোদন তালিকার এন্ট্রি সরাবেন?',
 
   // Services tab
   'dns.svc.title': 'প্রকাশিত সার্ভিস',

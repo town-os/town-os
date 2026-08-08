@@ -761,6 +761,7 @@ const jaJP = {
   // DNS sub-tabs
   'dns.tab_records': 'レコード',
   'dns.tab_blocklists': 'ブロックリスト',
+  'dns.tab_allowlists': '許可リスト',
   'dns.tab_services': 'サービス',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const jaJP = {
   'dns.bl.entry_removed': 'ブロックリストエントリを削除しました',
   'dns.bl.remove_entry_title': 'ブロックリストエントリを削除',
   'dns.bl.remove_entry_message': 'ブロックリストエントリ {name} を削除しますか？',
+
+  // Allow Lists tab
+  'dns.al.title': '許可リスト',
+  'dns.al.description': 'ドメインのブロック判定から除外されるドメインです。エントリはその名前と配下のすべての名前に及び、プロバイダーゾーンとローカルブロックリストの両方より優先されます。',
+  'dns.al.col_name': 'ドメイン',
+  'dns.al.col_reason': '理由',
+  'dns.al.add_entry': 'エントリを追加',
+  'dns.al.add_entry_title': '許可リストエントリを追加',
+  'dns.al.add_entry_description': 'ドメインとそのすべてのサブドメインをブロック判定から除外します。',
+  'dns.al.entry_name_label': 'ドメイン',
+  'dns.al.entry_name_placeholder': '例: cdn.example.com',
+  'dns.al.entry_reason_label': '理由 (任意)',
+  'dns.al.entry_reason_placeholder': '例: 誤検知',
+  'dns.al.entry_added': '許可リストエントリを追加しました',
+  'dns.al.entry_removed': '許可リストエントリを削除しました',
+  'dns.al.remove_entry_title': '許可リストエントリを削除',
+  'dns.al.remove_entry_message': '許可リストエントリ {name} を削除しますか？',
 
   // Services tab
   'dns.svc.title': '公開サービス',

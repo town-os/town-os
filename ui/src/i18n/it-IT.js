@@ -765,6 +765,7 @@ const itIT = {
   // DNS sub-tabs
   'dns.tab_records': 'Record',
   'dns.tab_blocklists': 'Liste di blocco',
+  'dns.tab_allowlists': 'Liste di autorizzazione',
   'dns.tab_services': 'Servizi',
 
   // Blocklists tab
@@ -793,6 +794,23 @@ const itIT = {
   'dns.bl.entry_removed': 'Voce della lista di blocco rimossa',
   'dns.bl.remove_entry_title': 'Rimuovi voce dalla lista di blocco',
   'dns.bl.remove_entry_message': 'Rimuovere la voce della lista di blocco {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Lista di autorizzazione',
+  'dns.al.description': 'Domini esentati dal controllo delle liste di blocco per dominio. Una voce copre il nome e ogni nome sottostante e prevale sia sulle zone dei provider sia sulla lista di blocco locale.',
+  'dns.al.col_name': 'Dominio',
+  'dns.al.col_reason': 'Motivo',
+  'dns.al.add_entry': 'Aggiungi voce',
+  'dns.al.add_entry_title': 'Aggiungi voce alla lista di autorizzazione',
+  'dns.al.add_entry_description': 'Esenta un dominio e tutti i suoi sottodomini dal controllo di blocco.',
+  'dns.al.entry_name_label': 'Dominio',
+  'dns.al.entry_name_placeholder': 'es. cdn.example.com',
+  'dns.al.entry_reason_label': 'Motivo (facoltativo)',
+  'dns.al.entry_reason_placeholder': 'es. falso positivo',
+  'dns.al.entry_added': 'Voce della lista di autorizzazione aggiunta',
+  'dns.al.entry_removed': 'Voce della lista di autorizzazione rimossa',
+  'dns.al.remove_entry_title': 'Rimuovi voce dalla lista di autorizzazione',
+  'dns.al.remove_entry_message': 'Rimuovere la voce della lista di autorizzazione {name}?',
 
   // Services tab
   'dns.svc.title': 'Servizi pubblicati',

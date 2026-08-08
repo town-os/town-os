@@ -761,6 +761,7 @@ const trTR = {
   // DNS sub-tabs
   'dns.tab_records': 'Kayıtlar',
   'dns.tab_blocklists': 'Engelleme Listeleri',
+  'dns.tab_allowlists': 'İzin Listeleri',
   'dns.tab_services': 'Hizmetler',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const trTR = {
   'dns.bl.entry_removed': 'Engelleme listesi girdisi kaldırıldı',
   'dns.bl.remove_entry_title': 'Engelleme listesi girdisini kaldır',
   'dns.bl.remove_entry_message': '{name} engelleme listesi girdisi kaldırılsın mı?',
+
+  // Allow Lists tab
+  'dns.al.title': 'İzin listesi',
+  'dns.al.description': 'Alan adı engelleme denetiminden muaf tutulan alan adları. Bir girdi, adın kendisini ve altındaki her adı kapsar; hem sağlayıcı bölgelerine hem de yerel engelleme listesine göre önceliklidir.',
+  'dns.al.col_name': 'Alan adı',
+  'dns.al.col_reason': 'Neden',
+  'dns.al.add_entry': 'Girdi ekle',
+  'dns.al.add_entry_title': 'İzin listesi girdisi ekle',
+  'dns.al.add_entry_description': 'Bir alan adını ve tüm alt alan adlarını engelleme denetiminden muaf tut.',
+  'dns.al.entry_name_label': 'Alan adı',
+  'dns.al.entry_name_placeholder': 'ör. cdn.example.com',
+  'dns.al.entry_reason_label': 'Neden (isteğe bağlı)',
+  'dns.al.entry_reason_placeholder': 'ör. yanlış pozitif',
+  'dns.al.entry_added': 'İzin listesi girdisi eklendi',
+  'dns.al.entry_removed': 'İzin listesi girdisi kaldırıldı',
+  'dns.al.remove_entry_title': 'İzin listesi girdisini kaldır',
+  'dns.al.remove_entry_message': '{name} izin listesi girdisi kaldırılsın mı?',
 
   // Services tab
   'dns.svc.title': 'Yayımlanan hizmetler',

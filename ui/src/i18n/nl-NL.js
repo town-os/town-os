@@ -761,6 +761,7 @@ const nlNL = {
   // DNS sub-tabs
   'dns.tab_records': 'Records',
   'dns.tab_blocklists': 'Blokkeerlijsten',
+  'dns.tab_allowlists': 'Toelatingslijsten',
   'dns.tab_services': 'Services',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const nlNL = {
   'dns.bl.entry_removed': 'Blokkeerlijstvermelding verwijderd',
   'dns.bl.remove_entry_title': 'Blokkeerlijstvermelding verwijderen',
   'dns.bl.remove_entry_message': 'Blokkeerlijstvermelding {name} verwijderen?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Toelatingslijst',
+  'dns.al.description': 'Domeinen die zijn uitgezonderd van de domeinblokkeercontrole. Een vermelding geldt voor de naam en elke naam eronder, en gaat vóór zowel de providerzones als de lokale blokkeerlijst.',
+  'dns.al.col_name': 'Domein',
+  'dns.al.col_reason': 'Reden',
+  'dns.al.add_entry': 'Vermelding toevoegen',
+  'dns.al.add_entry_title': 'Toelatingslijstvermelding toevoegen',
+  'dns.al.add_entry_description': 'Een domein en al zijn subdomeinen uitzonderen van de blokkeercontrole.',
+  'dns.al.entry_name_label': 'Domein',
+  'dns.al.entry_name_placeholder': 'bijv. cdn.example.com',
+  'dns.al.entry_reason_label': 'Reden (optioneel)',
+  'dns.al.entry_reason_placeholder': 'bijv. vals positief',
+  'dns.al.entry_added': 'Toelatingslijstvermelding toegevoegd',
+  'dns.al.entry_removed': 'Toelatingslijstvermelding verwijderd',
+  'dns.al.remove_entry_title': 'Toelatingslijstvermelding verwijderen',
+  'dns.al.remove_entry_message': 'Toelatingslijstvermelding {name} verwijderen?',
 
   // Services tab
   'dns.svc.title': 'Gepubliceerde services',

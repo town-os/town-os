@@ -766,6 +766,7 @@ const frFR = {
   // DNS sub-tabs
   'dns.tab_records': 'Enregistrements',
   'dns.tab_blocklists': 'Listes de blocage',
+  'dns.tab_allowlists': "Listes d'autorisation",
   'dns.tab_services': 'Services',
 
   // Blocklists tab
@@ -794,6 +795,23 @@ const frFR = {
   'dns.bl.entry_removed': 'Entrée de liste de blocage supprimée',
   'dns.bl.remove_entry_title': 'Supprimer une entrée de liste de blocage',
   'dns.bl.remove_entry_message': "Supprimer l'entrée de liste de blocage {name} ?",
+
+  // Allow Lists tab
+  'dns.al.title': "Liste d'autorisation",
+  'dns.al.description': 'Domaines exemptés de la vérification des listes de blocage de domaines. Une entrée couvre le nom et tous les noms qui en dépendent, et prime sur les zones de fournisseurs comme sur la liste de blocage locale.',
+  'dns.al.col_name': 'Domaine',
+  'dns.al.col_reason': 'Raison',
+  'dns.al.add_entry': 'Ajouter une entrée',
+  'dns.al.add_entry_title': "Ajouter une entrée de liste d'autorisation",
+  'dns.al.add_entry_description': 'Exempter un domaine et tous ses sous-domaines de la vérification de blocage.',
+  'dns.al.entry_name_label': 'Domaine',
+  'dns.al.entry_name_placeholder': 'p. ex. cdn.example.com',
+  'dns.al.entry_reason_label': 'Raison (facultatif)',
+  'dns.al.entry_reason_placeholder': 'p. ex. faux positif',
+  'dns.al.entry_added': "Entrée de liste d'autorisation ajoutée",
+  'dns.al.entry_removed': "Entrée de liste d'autorisation supprimée",
+  'dns.al.remove_entry_title': "Supprimer une entrée de liste d'autorisation",
+  'dns.al.remove_entry_message': "Supprimer l'entrée de liste d'autorisation {name} ?",
 
   // Services tab
   'dns.svc.title': 'Services publiés',

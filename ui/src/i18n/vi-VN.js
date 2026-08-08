@@ -761,6 +761,7 @@ const viVN = {
   // DNS sub-tabs
   'dns.tab_records': 'Bản ghi',
   'dns.tab_blocklists': 'Danh sách chặn',
+  'dns.tab_allowlists': 'Danh sách cho phép',
   'dns.tab_services': 'Dịch vụ',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const viVN = {
   'dns.bl.entry_removed': 'Đã xóa mục danh sách chặn',
   'dns.bl.remove_entry_title': 'Xóa mục danh sách chặn',
   'dns.bl.remove_entry_message': 'Xóa mục danh sách chặn {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Danh sách cho phép',
+  'dns.al.description': 'Các tên miền được miễn khỏi bước kiểm tra danh sách chặn theo tên miền. Một mục áp dụng cho tên đó và mọi tên bên dưới nó, đồng thời được ưu tiên hơn cả các vùng của nhà cung cấp lẫn danh sách chặn cục bộ.',
+  'dns.al.col_name': 'Tên miền',
+  'dns.al.col_reason': 'Lý do',
+  'dns.al.add_entry': 'Thêm mục',
+  'dns.al.add_entry_title': 'Thêm mục danh sách cho phép',
+  'dns.al.add_entry_description': 'Miễn một tên miền và tất cả tên miền con của nó khỏi kiểm tra chặn.',
+  'dns.al.entry_name_label': 'Tên miền',
+  'dns.al.entry_name_placeholder': 'ví dụ cdn.example.com',
+  'dns.al.entry_reason_label': 'Lý do (tùy chọn)',
+  'dns.al.entry_reason_placeholder': 'ví dụ báo động giả',
+  'dns.al.entry_added': 'Đã thêm mục danh sách cho phép',
+  'dns.al.entry_removed': 'Đã xóa mục danh sách cho phép',
+  'dns.al.remove_entry_title': 'Xóa mục danh sách cho phép',
+  'dns.al.remove_entry_message': 'Xóa mục danh sách cho phép {name}?',
 
   // Services tab
   'dns.svc.title': 'Dịch vụ đã công bố',

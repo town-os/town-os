@@ -129,6 +129,12 @@ type MockClient struct {
 	ListLocalRblErr    error
 	AddLocalRblErr     error
 	RemoveLocalRblErr  error
+
+	DnsblAllowlistEntries   []DnsblAllowlistEntryDTO
+	ListDnsblAllowlistErr   error
+	AddDnsblAllowlistErr    error
+	RemoveDnsblAllowlistErr error
+
 	DNSServices        []DNSServiceEntry
 	ListDNSServicesErr error
 	SetDNSServiceErr   error

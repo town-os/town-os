@@ -761,6 +761,7 @@ const ptBR = {
   // DNS sub-tabs
   'dns.tab_records': 'Registros',
   'dns.tab_blocklists': 'Listas de Bloqueio',
+  'dns.tab_allowlists': 'Listas de Permissão',
   'dns.tab_services': 'Serviços',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const ptBR = {
   'dns.bl.entry_removed': 'Entrada de lista de bloqueio removida',
   'dns.bl.remove_entry_title': 'Remover entrada da lista de bloqueio',
   'dns.bl.remove_entry_message': 'Remover a entrada de lista de bloqueio {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Lista de permissão',
+  'dns.al.description': 'Domínios isentos da verificação de listas de bloqueio de domínio. Uma entrada cobre o nome e todos os nomes abaixo dele, e prevalece tanto sobre as zonas de provedores quanto sobre a lista de bloqueio local.',
+  'dns.al.col_name': 'Domínio',
+  'dns.al.col_reason': 'Motivo',
+  'dns.al.add_entry': 'Adicionar entrada',
+  'dns.al.add_entry_title': 'Adicionar entrada à lista de permissão',
+  'dns.al.add_entry_description': 'Isentar um domínio e todos os seus subdomínios da verificação de bloqueio.',
+  'dns.al.entry_name_label': 'Domínio',
+  'dns.al.entry_name_placeholder': 'ex.: cdn.example.com',
+  'dns.al.entry_reason_label': 'Motivo (opcional)',
+  'dns.al.entry_reason_placeholder': 'ex.: falso positivo',
+  'dns.al.entry_added': 'Entrada de lista de permissão adicionada',
+  'dns.al.entry_removed': 'Entrada de lista de permissão removida',
+  'dns.al.remove_entry_title': 'Remover entrada da lista de permissão',
+  'dns.al.remove_entry_message': 'Remover a entrada de lista de permissão {name}?',
 
   // Services tab
   'dns.svc.title': 'Serviços publicados',

@@ -761,6 +761,7 @@ const enUS = {
   // DNS sub-tabs
   'dns.tab_records': 'Records',
   'dns.tab_blocklists': 'Blocklists',
+  'dns.tab_allowlists': 'Allow Lists',
   'dns.tab_services': 'Services',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const enUS = {
   'dns.bl.entry_removed': 'Blocklist entry removed',
   'dns.bl.remove_entry_title': 'Remove blocklist entry',
   'dns.bl.remove_entry_message': 'Remove blocklist entry {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Allowlist',
+  'dns.al.description': 'Domains exempted from the domain blocklist check. An entry covers the name and every name under it, and overrides both the provider zones and the local blocklist.',
+  'dns.al.col_name': 'Domain',
+  'dns.al.col_reason': 'Reason',
+  'dns.al.add_entry': 'Add entry',
+  'dns.al.add_entry_title': 'Add allowlist entry',
+  'dns.al.add_entry_description': 'Exempt a domain and all of its subdomains from the blocklist check.',
+  'dns.al.entry_name_label': 'Domain',
+  'dns.al.entry_name_placeholder': 'e.g. cdn.example.com',
+  'dns.al.entry_reason_label': 'Reason (optional)',
+  'dns.al.entry_reason_placeholder': 'e.g. false positive',
+  'dns.al.entry_added': 'Allowlist entry added',
+  'dns.al.entry_removed': 'Allowlist entry removed',
+  'dns.al.remove_entry_title': 'Remove allowlist entry',
+  'dns.al.remove_entry_message': 'Remove allowlist entry {name}?',
 
   // Services tab
   'dns.svc.title': 'Published services',

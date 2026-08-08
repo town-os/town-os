@@ -761,6 +761,7 @@ const plPL = {
   // DNS sub-tabs
   'dns.tab_records': 'Rekordy',
   'dns.tab_blocklists': 'Listy blokowania',
+  'dns.tab_allowlists': 'Listy dozwolonych',
   'dns.tab_services': 'Usługi',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const plPL = {
   'dns.bl.entry_removed': 'Wpis listy blokowania usunięty',
   'dns.bl.remove_entry_title': 'Usuń wpis listy blokowania',
   'dns.bl.remove_entry_message': 'Usunąć wpis listy blokowania {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Lista dozwolonych',
+  'dns.al.description': 'Domeny zwolnione ze sprawdzania list blokowania domen. Wpis obejmuje nazwę i każdą nazwę pod nią oraz ma pierwszeństwo zarówno przed strefami dostawców, jak i przed lokalną listą blokowania.',
+  'dns.al.col_name': 'Domena',
+  'dns.al.col_reason': 'Powód',
+  'dns.al.add_entry': 'Dodaj wpis',
+  'dns.al.add_entry_title': 'Dodaj wpis listy dozwolonych',
+  'dns.al.add_entry_description': 'Zwolnij domenę i wszystkie jej subdomeny ze sprawdzania blokowania.',
+  'dns.al.entry_name_label': 'Domena',
+  'dns.al.entry_name_placeholder': 'np. cdn.example.com',
+  'dns.al.entry_reason_label': 'Powód (opcjonalnie)',
+  'dns.al.entry_reason_placeholder': 'np. fałszywy alarm',
+  'dns.al.entry_added': 'Wpis listy dozwolonych dodany',
+  'dns.al.entry_removed': 'Wpis listy dozwolonych usunięty',
+  'dns.al.remove_entry_title': 'Usuń wpis listy dozwolonych',
+  'dns.al.remove_entry_message': 'Usunąć wpis listy dozwolonych {name}?',
 
   // Services tab
   'dns.svc.title': 'Opublikowane usługi',

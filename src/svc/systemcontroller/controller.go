@@ -308,6 +308,10 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("GET", "/dns/rbl/local", s.listLocalRblEntries, s.requireAuth)
 	e.Add("POST", "/dns/rbl/local/add", s.addLocalRblEntry, s.requireAdmin)
 	e.Add("POST", "/dns/rbl/local/remove", s.removeLocalRblEntry, s.requireAdmin)
+	// The DNSBL allowlist: the escape hatch out of every name-based block.
+	e.Add("GET", "/dns/dnsbl/allowlist", s.listDnsblAllowlistEntries, s.requireAuth)
+	e.Add("POST", "/dns/dnsbl/allowlist/add", s.addDnsblAllowlistEntry, s.requireAdmin)
+	e.Add("POST", "/dns/dnsbl/allowlist/remove", s.removeDnsblAllowlistEntry, s.requireAdmin)
 	e.Add("GET", "/dns/services", s.listDNSServices, s.requireAuth)
 	e.Add("POST", "/dns/services/set", s.setDNSService, s.requireAdmin)
 

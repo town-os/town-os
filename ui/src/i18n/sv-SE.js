@@ -761,6 +761,7 @@ const svSE = {
   // DNS sub-tabs
   'dns.tab_records': 'Poster',
   'dns.tab_blocklists': 'Blocklistor',
+  'dns.tab_allowlists': 'Tillåtelselistor',
   'dns.tab_services': 'Tjänster',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const svSE = {
   'dns.bl.entry_removed': 'Blocklistepost borttagen',
   'dns.bl.remove_entry_title': 'Ta bort blocklistepost',
   'dns.bl.remove_entry_message': 'Ta bort blocklisteposten {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Tillåtelselista',
+  'dns.al.description': 'Domäner som undantas från domänblockeringskontrollen. En post omfattar namnet och varje namn under det, och går före både leverantörszonerna och den lokala blocklistan.',
+  'dns.al.col_name': 'Domän',
+  'dns.al.col_reason': 'Anledning',
+  'dns.al.add_entry': 'Lägg till post',
+  'dns.al.add_entry_title': 'Lägg till tillåtelselistepost',
+  'dns.al.add_entry_description': 'Undanta en domän och alla dess underdomäner från blockeringskontrollen.',
+  'dns.al.entry_name_label': 'Domän',
+  'dns.al.entry_name_placeholder': 't.ex. cdn.example.com',
+  'dns.al.entry_reason_label': 'Anledning (valfritt)',
+  'dns.al.entry_reason_placeholder': 't.ex. falskt positivt',
+  'dns.al.entry_added': 'Tillåtelselistepost tillagd',
+  'dns.al.entry_removed': 'Tillåtelselistepost borttagen',
+  'dns.al.remove_entry_title': 'Ta bort tillåtelselistepost',
+  'dns.al.remove_entry_message': 'Ta bort tillåtelselisteposten {name}?',
 
   // Services tab
   'dns.svc.title': 'Publicerade tjänster',

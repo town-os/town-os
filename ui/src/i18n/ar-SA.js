@@ -761,6 +761,7 @@ const arSA = {
   // DNS sub-tabs
   'dns.tab_records': 'السجلات',
   'dns.tab_blocklists': 'قوائم الحظر',
+  'dns.tab_allowlists': 'قوائم السماح',
   'dns.tab_services': 'الخدمات',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const arSA = {
   'dns.bl.entry_removed': 'تمت إزالة إدخال قائمة الحظر',
   'dns.bl.remove_entry_title': 'إزالة إدخال قائمة الحظر',
   'dns.bl.remove_entry_message': 'إزالة إدخال قائمة الحظر {name}؟',
+
+  // Allow Lists tab
+  'dns.al.title': 'قائمة السماح',
+  'dns.al.description': 'النطاقات المعفاة من فحص قوائم حظر النطاقات. يشمل الإدخال الاسم وكل اسم يقع تحته، وله الأسبقية على مناطق المزوّدين وعلى قائمة الحظر المحلية معًا.',
+  'dns.al.col_name': 'النطاق',
+  'dns.al.col_reason': 'السبب',
+  'dns.al.add_entry': 'إضافة إدخال',
+  'dns.al.add_entry_title': 'إضافة إدخال قائمة سماح',
+  'dns.al.add_entry_description': 'إعفاء نطاق وجميع نطاقاته الفرعية من فحص الحظر.',
+  'dns.al.entry_name_label': 'النطاق',
+  'dns.al.entry_name_placeholder': 'مثال: cdn.example.com',
+  'dns.al.entry_reason_label': 'السبب (اختياري)',
+  'dns.al.entry_reason_placeholder': 'مثال: نتيجة إيجابية خاطئة',
+  'dns.al.entry_added': 'تمت إضافة إدخال قائمة السماح',
+  'dns.al.entry_removed': 'تمت إزالة إدخال قائمة السماح',
+  'dns.al.remove_entry_title': 'إزالة إدخال قائمة السماح',
+  'dns.al.remove_entry_message': 'إزالة إدخال قائمة السماح {name}؟',
 
   // Services tab
   'dns.svc.title': 'الخدمات المنشورة',

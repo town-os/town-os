@@ -761,6 +761,7 @@ const thTH = {
   // DNS sub-tabs
   'dns.tab_records': 'ระเบียน',
   'dns.tab_blocklists': 'รายการบล็อก',
+  'dns.tab_allowlists': 'รายการอนุญาต',
   'dns.tab_services': 'บริการ',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const thTH = {
   'dns.bl.entry_removed': 'ลบรายการบล็อกแล้ว',
   'dns.bl.remove_entry_title': 'ลบรายการบล็อก',
   'dns.bl.remove_entry_message': 'ลบรายการบล็อก {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'รายการอนุญาต',
+  'dns.al.description': 'โดเมนที่ได้รับการยกเว้นจากการตรวจสอบรายการบล็อกโดเมน รายการหนึ่งครอบคลุมชื่อนั้นและทุกชื่อที่อยู่ภายใต้ และมีความสำคัญเหนือทั้งโซนของผู้ให้บริการและรายการบล็อกในเครื่อง',
+  'dns.al.col_name': 'โดเมน',
+  'dns.al.col_reason': 'เหตุผล',
+  'dns.al.add_entry': 'เพิ่มรายการ',
+  'dns.al.add_entry_title': 'เพิ่มรายการอนุญาต',
+  'dns.al.add_entry_description': 'ยกเว้นโดเมนและโดเมนย่อยทั้งหมดจากการตรวจสอบการบล็อก',
+  'dns.al.entry_name_label': 'โดเมน',
+  'dns.al.entry_name_placeholder': 'เช่น cdn.example.com',
+  'dns.al.entry_reason_label': 'เหตุผล (ไม่บังคับ)',
+  'dns.al.entry_reason_placeholder': 'เช่น ตรวจพบผิดพลาด',
+  'dns.al.entry_added': 'เพิ่มรายการอนุญาตแล้ว',
+  'dns.al.entry_removed': 'ลบรายการอนุญาตแล้ว',
+  'dns.al.remove_entry_title': 'ลบรายการอนุญาต',
+  'dns.al.remove_entry_message': 'ลบรายการอนุญาต {name}?',
 
   // Services tab
   'dns.svc.title': 'บริการที่เผยแพร่',

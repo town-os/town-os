@@ -19,20 +19,35 @@ import {
 import { toast } from 'sonner'
 import { Plus, Trash2 } from 'lucide-react'
 
-// Well-known DNSBL (domain) blocklist zones, queried on demand by rolodex.
+// Quick-add zones, queried on demand by rolodex. A zone earns a place here only
+// if a household box can actually use it as shipped: still operating, free, and
+// answering a self-recursing resolver with no registration step. The operator may
+// still type any zone into the custom field — this list is what we vouch for.
+//
+// Deliberately NOT offered, so nobody re-adds them:
+//   dnsbl.sorbs.net       decommissioned 2024-06-05; the zones were emptied, so
+//                         it is a permanent no-op that reads as protection.
+//   b.barracudacentral.org  free, but requires registering the querying IP first;
+//                         an unregistered box may work briefly and then be cut off.
+//   uceprotect levels 2/3  list entire ASNs, so one bad neighbour blocks a whole ISP.
+
+// Well-known DNSBL (domain) blocklist zones. This is the side that affects
+// ordinary browsing: a listing here answers a forward name lookup.
 const DNSBL_SUGGESTIONS = [
   { zone: 'dbl.spamhaus.org', label: 'Spamhaus DBL' },
   { zone: 'multi.surbl.org', label: 'SURBL' },
   { zone: 'black.uribl.com', label: 'URIBL' },
   { zone: 'dbl.nordspam.com', label: 'NordSpam DBL' },
+  { zone: 'uribl.spameatingmonkey.net', label: 'Spam Eating Monkey' },
 ]
 
-// Well-known RBL (IP) blocklist zones, queried on demand by rolodex.
+// Well-known RBL (IP) blocklist zones. These are only consulted for IPs found in
+// reverse DNS queries, which ordinary browsing barely generates — they matter far
+// less here than the domain zones above.
 const RBL_SUGGESTIONS = [
   { zone: 'zen.spamhaus.org', label: 'Spamhaus ZEN' },
   { zone: 'bl.spamcop.net', label: 'SpamCop' },
-  { zone: 'b.barracudacentral.org', label: 'Barracuda' },
-  { zone: 'dnsbl.sorbs.net', label: 'SORBS' },
+  { zone: 'psbl.surriel.com', label: 'PSBL' },
 ]
 
 // BlocklistProviders renders an RBL or DNSBL provider section: a global enable

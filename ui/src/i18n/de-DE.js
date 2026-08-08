@@ -761,6 +761,7 @@ const deDE = {
   // DNS sub-tabs
   'dns.tab_records': 'Einträge',
   'dns.tab_blocklists': 'Sperrlisten',
+  'dns.tab_allowlists': 'Erlaubnislisten',
   'dns.tab_services': 'Dienste',
 
   // Blocklists tab
@@ -789,6 +790,23 @@ const deDE = {
   'dns.bl.entry_removed': 'Sperrlisteneintrag entfernt',
   'dns.bl.remove_entry_title': 'Sperrlisteneintrag entfernen',
   'dns.bl.remove_entry_message': 'Sperrlisteneintrag {name} entfernen?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Erlaubnisliste',
+  'dns.al.description': 'Domains, die von der Domain-Sperrprüfung ausgenommen sind. Ein Eintrag gilt für den Namen und jeden Namen darunter und hat Vorrang vor den Anbieterzonen und der lokalen Sperrliste.',
+  'dns.al.col_name': 'Domain',
+  'dns.al.col_reason': 'Grund',
+  'dns.al.add_entry': 'Eintrag hinzufügen',
+  'dns.al.add_entry_title': 'Erlaubnislisteneintrag hinzufügen',
+  'dns.al.add_entry_description': 'Eine Domain und alle ihre Subdomains von der Sperrprüfung ausnehmen.',
+  'dns.al.entry_name_label': 'Domain',
+  'dns.al.entry_name_placeholder': 'z. B. cdn.example.com',
+  'dns.al.entry_reason_label': 'Grund (optional)',
+  'dns.al.entry_reason_placeholder': 'z. B. Fehlalarm',
+  'dns.al.entry_added': 'Erlaubnislisteneintrag hinzugefügt',
+  'dns.al.entry_removed': 'Erlaubnislisteneintrag entfernt',
+  'dns.al.remove_entry_title': 'Erlaubnislisteneintrag entfernen',
+  'dns.al.remove_entry_message': 'Erlaubnislisteneintrag {name} entfernen?',
 
   // Services tab
   'dns.svc.title': 'Veröffentlichte Dienste',

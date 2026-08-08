@@ -766,6 +766,7 @@ const ukUA = {
   // DNS sub-tabs
   'dns.tab_records': 'Записи',
   'dns.tab_blocklists': 'Списки блокування',
+  'dns.tab_allowlists': 'Списки дозволів',
   'dns.tab_services': 'Служби',
 
   // Blocklists tab
@@ -794,6 +795,23 @@ const ukUA = {
   'dns.bl.entry_removed': 'Запис списку блокування видалено',
   'dns.bl.remove_entry_title': 'Видалити запис списку блокування',
   'dns.bl.remove_entry_message': 'Видалити запис списку блокування {name}?',
+
+  // Allow Lists tab
+  'dns.al.title': 'Список дозволів',
+  'dns.al.description': 'Домени, звільнені від перевірки за списками блокування доменів. Запис охоплює імʼя та всі імена під ним і має пріоритет як над зонами постачальників, так і над локальним списком блокування.',
+  'dns.al.col_name': 'Домен',
+  'dns.al.col_reason': 'Причина',
+  'dns.al.add_entry': 'Додати запис',
+  'dns.al.add_entry_title': 'Додати запис списку дозволів',
+  'dns.al.add_entry_description': 'Звільнити домен і всі його субдомени від перевірки блокування.',
+  'dns.al.entry_name_label': 'Домен',
+  'dns.al.entry_name_placeholder': 'напр. cdn.example.com',
+  'dns.al.entry_reason_label': 'Причина (необовʼязково)',
+  'dns.al.entry_reason_placeholder': 'напр. хибне спрацювання',
+  'dns.al.entry_added': 'Запис списку дозволів додано',
+  'dns.al.entry_removed': 'Запис списку дозволів видалено',
+  'dns.al.remove_entry_title': 'Видалити запис списку дозволів',
+  'dns.al.remove_entry_message': 'Видалити запис списку дозволів {name}?',
 
   // Services tab
   'dns.svc.title': 'Опубліковані служби',
