@@ -41,6 +41,15 @@ type MockClient struct {
 	DnsblProviders  []*upstream.DnsblConfig
 	LocalRblEntries []*upstream.LocalRblEntry
 
+	// Refusal handling: how long a provider that refused a query stays out of
+	// the lookup rotation, and which providers are currently out. The cooldowns
+	// are recorded from the Set calls; the rotated-out lists are set by the test
+	// (a mock has no lookup path to refuse anything).
+	RblRefusalCooldownSecs   uint32
+	DnsblRefusalCooldownSecs uint32
+	RblRotatedOut            []*upstream.RotatedProvider
+	DnsblRotatedOut          []*upstream.RotatedProvider
+
 	DnsblAllowlistEntries []*upstream.DnsblAllowlistEntry
 
 	AddRecordErr      error
@@ -199,8 +208,8 @@ func (m *MockClient) FlushDnsCache(_ context.Context) error {
 	return m.FlushCacheErr
 }
 
-func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []*upstream.RblConfig) error {
-	m.record("SetRblConfig", enabled, providers)
+func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []*upstream.RblConfig, refusalCooldownSecs uint32) error {
+	m.record("SetRblConfig", enabled, providers, refusalCooldownSecs)
 	if m.SetRblConfigErr != nil {
 		return m.SetRblConfigErr
 	}
@@ -208,6 +217,7 @@ func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []*
 	defer m.mu.Unlock()
 	m.RblEnabled = enabled
 	m.RblProviders = slices.Clone(providers)
+	m.RblRefusalCooldownSecs = refusalCooldownSecs
 	return nil
 }
 
@@ -218,11 +228,16 @@ func (m *MockClient) GetRblConfig(_ context.Context) (*upstream.RblStatus, error
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return &upstream.RblStatus{Enabled: m.RblEnabled, Providers: slices.Clone(m.RblProviders)}, nil
+	return &upstream.RblStatus{
+		Enabled:             m.RblEnabled,
+		Providers:           slices.Clone(m.RblProviders),
+		RefusalCooldownSecs: m.RblRefusalCooldownSecs,
+		RotatedOut:          slices.Clone(m.RblRotatedOut),
+	}, nil
 }
 
-func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []*upstream.DnsblConfig) error {
-	m.record("SetDnsblConfig", enabled, providers)
+func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []*upstream.DnsblConfig, refusalCooldownSecs uint32) error {
+	m.record("SetDnsblConfig", enabled, providers, refusalCooldownSecs)
 	if m.SetDnsblConfigErr != nil {
 		return m.SetDnsblConfigErr
 	}
@@ -230,6 +245,7 @@ func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers [
 	defer m.mu.Unlock()
 	m.DnsblEnabled = enabled
 	m.DnsblProviders = slices.Clone(providers)
+	m.DnsblRefusalCooldownSecs = refusalCooldownSecs
 	return nil
 }
 
@@ -240,7 +256,12 @@ func (m *MockClient) GetDnsblConfig(_ context.Context) (*upstream.DnsblStatus, e
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return &upstream.DnsblStatus{Enabled: m.DnsblEnabled, Providers: slices.Clone(m.DnsblProviders)}, nil
+	return &upstream.DnsblStatus{
+		Enabled:             m.DnsblEnabled,
+		Providers:           slices.Clone(m.DnsblProviders),
+		RefusalCooldownSecs: m.DnsblRefusalCooldownSecs,
+		RotatedOut:          slices.Clone(m.DnsblRotatedOut),
+	}, nil
 }
 
 func (m *MockClient) AddLocalRblEntry(_ context.Context, entry *upstream.LocalRblEntry) error {

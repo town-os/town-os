@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
@@ -13,18 +14,42 @@ import (
 type RblProviderDTO struct {
 	Zone    string `json:"zone"`
 	Enabled bool   `json:"enabled"`
+	// RefusalCodes are the answers this provider gives to mean "I refused your
+	// query" rather than "this is listed" — see [ValidateRefusalCodes]. Empty
+	// means rolodex's built-in set; the single entry "none" switches detection
+	// off. On the way out this is what is actually in effect, so an empty
+	// configured list reads back as the built-in codes rather than as empty:
+	// an operator has to be able to see what the box is really matching on.
+	RefusalCodes []string `json:"refusal_codes,omitempty"`
+	// RefusalCooldownSecs is how long this provider is taken out of the lookup
+	// rotation after it refuses a query. 0 defers to the list-wide value.
+	RefusalCooldownSecs uint32 `json:"refusal_cooldown_secs,omitempty"`
+}
+
+// RotatedProviderDTO reports a provider currently out of the lookup rotation
+// because it refused a query — the operator-visible half of refusal handling,
+// and the answer to "why did my blocklist go quiet".
+type RotatedProviderDTO struct {
+	Zone             string `json:"zone"`
+	Code             string `json:"code"`
+	SecondsRemaining uint32 `json:"seconds_remaining"`
 }
 
 // RblConfigRequest is the request body for POST /dns/rbl and POST /dns/dnsbl.
 type RblConfigRequest struct {
 	Enabled   bool             `json:"enabled"`
 	Providers []RblProviderDTO `json:"providers"`
+	// RefusalCooldownSecs is the default rotate-out duration for providers that
+	// set none of their own. 0 uses rolodex's built-in default (3600).
+	RefusalCooldownSecs uint32 `json:"refusal_cooldown_secs,omitempty"`
 }
 
 // RblConfigResponse is the response for GET /dns/rbl and GET /dns/dnsbl.
 type RblConfigResponse struct {
-	Enabled   bool             `json:"enabled"`
-	Providers []RblProviderDTO `json:"providers"`
+	Enabled             bool                 `json:"enabled"`
+	Providers           []RblProviderDTO     `json:"providers"`
+	RefusalCooldownSecs uint32               `json:"refusal_cooldown_secs,omitempty"`
+	RotatedOut          []RotatedProviderDTO `json:"rotated_out,omitempty"`
 }
 
 // LocalRblEntryDTO is the JSON shape of a single local RBL blocklist entry.
@@ -70,7 +95,12 @@ func rblProvidersToDTO(providers []*upstream.RblConfig) []RblProviderDTO {
 		if p == nil {
 			continue
 		}
-		out = append(out, RblProviderDTO{Zone: p.Zone, Enabled: p.Enabled})
+		out = append(out, RblProviderDTO{
+			Zone:                p.Zone,
+			Enabled:             p.Enabled,
+			RefusalCodes:        slices.Clone(p.RefusalCodes),
+			RefusalCooldownSecs: p.RefusalCooldownSecs,
+		})
 	}
 	return out
 }
@@ -81,13 +111,36 @@ func dnsblProvidersToDTO(providers []*upstream.DnsblConfig) []RblProviderDTO {
 		if p == nil {
 			continue
 		}
-		out = append(out, RblProviderDTO{Zone: p.Zone, Enabled: p.Enabled})
+		out = append(out, RblProviderDTO{
+			Zone:                p.Zone,
+			Enabled:             p.Enabled,
+			RefusalCodes:        slices.Clone(p.RefusalCodes),
+			RefusalCooldownSecs: p.RefusalCooldownSecs,
+		})
+	}
+	return out
+}
+
+// rotatedOutToDTO converts rolodex's rotated-out report. It is the same shape
+// for both lists, so both handlers share it.
+func rotatedOutToDTO(rotated []*upstream.RotatedProvider) []RotatedProviderDTO {
+	out := make([]RotatedProviderDTO, 0, len(rotated))
+	for _, r := range rotated {
+		if r == nil {
+			continue
+		}
+		out = append(out, RotatedProviderDTO{
+			Zone:             r.Zone,
+			Code:             r.Code,
+			SecondsRemaining: r.SecondsRemaining,
+		})
 	}
 	return out
 }
 
 // validateProviderDTOs validates and normalizes (trim + lowercase) a list of
-// provider zones, returning the cleaned zones.
+// provider zones and their refusal-code settings, returning the cleaned
+// providers.
 func validateProviderDTOs(providers []RblProviderDTO) ([]RblProviderDTO, error) {
 	cleaned := make([]RblProviderDTO, 0, len(providers))
 	seen := make(map[string]struct{}, len(providers))
@@ -100,7 +153,18 @@ func validateProviderDTOs(providers []RblProviderDTO) ([]RblProviderDTO, error) 
 			return nil, fmt.Errorf("duplicate RBL zone %q", zone)
 		}
 		seen[zone] = struct{}{}
-		cleaned = append(cleaned, RblProviderDTO{Zone: zone, Enabled: p.Enabled})
+
+		codes, err := ValidateRefusalCodes(p.RefusalCodes)
+		if err != nil {
+			return nil, fmt.Errorf("RBL zone %q: %w", zone, err)
+		}
+
+		cleaned = append(cleaned, RblProviderDTO{
+			Zone:                zone,
+			Enabled:             p.Enabled,
+			RefusalCodes:        codes,
+			RefusalCooldownSecs: p.RefusalCooldownSecs,
+		})
 	}
 	return cleaned, nil
 }
@@ -116,8 +180,10 @@ func (s *SystemControllerHandlers) getRblConfig(c *echo.Context) error {
 		return echo.NewHTTPError(500, fmt.Sprintf("get rbl config: %v", err))
 	}
 	return c.JSON(200, RblConfigResponse{
-		Enabled:   status.Enabled,
-		Providers: rblProvidersToDTO(status.Providers),
+		Enabled:             status.Enabled,
+		Providers:           rblProvidersToDTO(status.Providers),
+		RefusalCooldownSecs: status.RefusalCooldownSecs,
+		RotatedOut:          rotatedOutToDTO(status.RotatedOut),
 	})
 }
 
@@ -140,13 +206,22 @@ func (s *SystemControllerHandlers) setRblConfig(c *echo.Context) error {
 
 	providers := make([]*upstream.RblConfig, 0, len(cleaned))
 	for _, p := range cleaned {
-		providers = append(providers, &upstream.RblConfig{Zone: p.Zone, Enabled: p.Enabled})
+		providers = append(providers, &upstream.RblConfig{
+			Zone:                p.Zone,
+			Enabled:             p.Enabled,
+			RefusalCodes:        p.RefusalCodes,
+			RefusalCooldownSecs: p.RefusalCooldownSecs,
+		})
 	}
 
-	if err := rc.SetRblConfig(c.Request().Context(), req.Enabled, providers); err != nil {
+	if err := rc.SetRblConfig(c.Request().Context(), req.Enabled, providers, req.RefusalCooldownSecs); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("set rbl config: %v", err))
 	}
-	return c.JSON(200, RblConfigResponse{Enabled: req.Enabled, Providers: cleaned})
+	return c.JSON(200, RblConfigResponse{
+		Enabled:             req.Enabled,
+		Providers:           cleaned,
+		RefusalCooldownSecs: req.RefusalCooldownSecs,
+	})
 }
 
 // getDnsblConfig handles GET /dns/dnsbl.
@@ -160,8 +235,10 @@ func (s *SystemControllerHandlers) getDnsblConfig(c *echo.Context) error {
 		return echo.NewHTTPError(500, fmt.Sprintf("get dnsbl config: %v", err))
 	}
 	return c.JSON(200, RblConfigResponse{
-		Enabled:   status.Enabled,
-		Providers: dnsblProvidersToDTO(status.Providers),
+		Enabled:             status.Enabled,
+		Providers:           dnsblProvidersToDTO(status.Providers),
+		RefusalCooldownSecs: status.RefusalCooldownSecs,
+		RotatedOut:          rotatedOutToDTO(status.RotatedOut),
 	})
 }
 
@@ -184,13 +261,22 @@ func (s *SystemControllerHandlers) setDnsblConfig(c *echo.Context) error {
 
 	providers := make([]*upstream.DnsblConfig, 0, len(cleaned))
 	for _, p := range cleaned {
-		providers = append(providers, &upstream.DnsblConfig{Zone: p.Zone, Enabled: p.Enabled})
+		providers = append(providers, &upstream.DnsblConfig{
+			Zone:                p.Zone,
+			Enabled:             p.Enabled,
+			RefusalCodes:        p.RefusalCodes,
+			RefusalCooldownSecs: p.RefusalCooldownSecs,
+		})
 	}
 
-	if err := rc.SetDnsblConfig(c.Request().Context(), req.Enabled, providers); err != nil {
+	if err := rc.SetDnsblConfig(c.Request().Context(), req.Enabled, providers, req.RefusalCooldownSecs); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("set dnsbl config: %v", err))
 	}
-	return c.JSON(200, RblConfigResponse{Enabled: req.Enabled, Providers: cleaned})
+	return c.JSON(200, RblConfigResponse{
+		Enabled:             req.Enabled,
+		Providers:           cleaned,
+		RefusalCooldownSecs: req.RefusalCooldownSecs,
+	})
 }
 
 // listLocalRblEntries handles GET /dns/rbl/local.

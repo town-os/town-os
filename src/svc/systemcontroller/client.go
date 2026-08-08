@@ -285,18 +285,21 @@ type Client interface {
 	//
 	// Calls GET /dns/rbl on the Control Plane Service.
 	GetRblConfig(ctx context.Context) (*RblConfigResponse, error)
-	// SetRblConfig replaces the RBL configuration.
+	// SetRblConfig replaces the RBL configuration, including each provider's
+	// refusal codes and the default rotate-out duration applied to a provider
+	// that refuses a query.
 	//
 	// Calls POST /dns/rbl on the Control Plane Service.
-	SetRblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO) error
+	SetRblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error
 	// GetDnsblConfig returns the current DNSBL (domain blocklist) config.
 	//
 	// Calls GET /dns/dnsbl on the Control Plane Service.
 	GetDnsblConfig(ctx context.Context) (*RblConfigResponse, error)
-	// SetDnsblConfig replaces the DNSBL configuration.
+	// SetDnsblConfig replaces the DNSBL configuration, including each provider's
+	// refusal codes and the default rotate-out duration.
 	//
 	// Calls POST /dns/dnsbl on the Control Plane Service.
-	SetDnsblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO) error
+	SetDnsblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error
 	// ListLocalRblEntries returns the local RBL blocklist entries.
 	//
 	// Calls GET /dns/rbl/local on the Control Plane Service.

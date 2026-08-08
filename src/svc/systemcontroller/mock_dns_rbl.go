@@ -17,14 +17,18 @@ func (m *MockClient) GetRblConfig(_ context.Context) (*RblConfigResponse, error)
 }
 
 // SetRblConfig records the RBL configuration on the mock.
-func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []RblProviderDTO) error {
+func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "SetRblConfig", Args: []any{enabled, providers}})
+	m.Calls = append(m.Calls, MockCall{Method: "SetRblConfig", Args: []any{enabled, providers, refusalCooldownSecs}})
 	if m.SetRblConfigErr != nil {
 		return m.SetRblConfigErr
 	}
-	m.RblConfig = &RblConfigResponse{Enabled: enabled, Providers: providers}
+	m.RblConfig = &RblConfigResponse{
+		Enabled:             enabled,
+		Providers:           providers,
+		RefusalCooldownSecs: refusalCooldownSecs,
+	}
 	return nil
 }
 
@@ -43,14 +47,18 @@ func (m *MockClient) GetDnsblConfig(_ context.Context) (*RblConfigResponse, erro
 }
 
 // SetDnsblConfig records the DNSBL configuration on the mock.
-func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []RblProviderDTO) error {
+func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "SetDnsblConfig", Args: []any{enabled, providers}})
+	m.Calls = append(m.Calls, MockCall{Method: "SetDnsblConfig", Args: []any{enabled, providers, refusalCooldownSecs}})
 	if m.SetDnsblConfigErr != nil {
 		return m.SetDnsblConfigErr
 	}
-	m.DnsblConfig = &RblConfigResponse{Enabled: enabled, Providers: providers}
+	m.DnsblConfig = &RblConfigResponse{
+		Enabled:             enabled,
+		Providers:           providers,
+		RefusalCooldownSecs: refusalCooldownSecs,
+	}
 	return nil
 }
 

@@ -18,11 +18,19 @@ type Client interface {
 	FlushDnsCache(ctx context.Context) error
 
 	// RBL (Realtime Blackhole List, reverse-IP) provider configuration.
-	SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig) error
+	//
+	// refusalCooldownSecs is how long a provider that answers with a refusal
+	// code — "you queried via a public resolver", "you are over your query
+	// limit" — is taken out of the lookup rotation, for providers that set no
+	// value of their own; 0 uses rolodex's built-in default. A refusal is not a
+	// listing, and believing one NXDOMAINs every name checked against that
+	// provider, so the provider is backed off rather than believed.
+	SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig, refusalCooldownSecs uint32) error
 	GetRblConfig(ctx context.Context) (*upstream.RblStatus, error)
 
-	// DNSBL (domain blocklist, forward-name) provider configuration.
-	SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig) error
+	// DNSBL (domain blocklist, forward-name) provider configuration. The
+	// refusal cooldown is independent of the RBL one.
+	SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig, refusalCooldownSecs uint32) error
 	GetDnsblConfig(ctx context.Context) (*upstream.DnsblStatus, error)
 
 	// Local RBL blocklist entries (DB-backed names/IPs, checked before
@@ -116,16 +124,16 @@ func (c *client) FlushDnsCache(ctx context.Context) error {
 	return c.c.FlushDnsCache(ctx)
 }
 
-func (c *client) SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig) error {
-	return c.c.SetRblConfig(ctx, enabled, providers)
+func (c *client) SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig, refusalCooldownSecs uint32) error {
+	return c.c.SetRblConfigWithRefusalCooldown(ctx, enabled, providers, refusalCooldownSecs)
 }
 
 func (c *client) GetRblConfig(ctx context.Context) (*upstream.RblStatus, error) {
 	return c.c.GetRblConfig(ctx)
 }
 
-func (c *client) SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig) error {
-	return c.c.SetDnsblConfig(ctx, enabled, providers)
+func (c *client) SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig, refusalCooldownSecs uint32) error {
+	return c.c.SetDnsblConfigWithRefusalCooldown(ctx, enabled, providers, refusalCooldownSecs)
 }
 
 func (c *client) GetDnsblConfig(ctx context.Context) (*upstream.DnsblStatus, error) {

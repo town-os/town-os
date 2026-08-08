@@ -16,7 +16,7 @@ func TestMockClientRblConfig(t *testing.T) {
 		{Zone: "zen.spamhaus.org", Enabled: true},
 		{Zone: "bl.spamcop.net", Enabled: false},
 	}
-	if err := m.SetRblConfig(ctx, true, providers); err != nil {
+	if err := m.SetRblConfig(ctx, true, providers, 0); err != nil {
 		t.Fatalf("SetRblConfig: %v", err)
 	}
 
@@ -37,7 +37,7 @@ func TestMockClientDnsblConfig(t *testing.T) {
 	ctx := context.Background()
 
 	providers := []*upstream.DnsblConfig{{Zone: "dbl.spamhaus.org", Enabled: true}}
-	if err := m.SetDnsblConfig(ctx, true, providers); err != nil {
+	if err := m.SetDnsblConfig(ctx, true, providers, 0); err != nil {
 		t.Fatalf("SetDnsblConfig: %v", err)
 	}
 

@@ -1803,6 +1803,57 @@ describe('SystemControllerClient integration', () => {
       await client.setDNSBLConfig(false, [])
     })
 
+    // A blocklist answers "I refused your query" — a rate limit, or a query it
+    // reads as coming from a public resolver — with the same kind of record it
+    // answers a listing with, so only the address separates them. Believing a
+    // refusal blocks every name checked against that provider. This proves the
+    // browser can say what a refusal looks like for a given provider, and that
+    // the answer survives the round trip through the controller and rolodex.
+    it('rbl refusal codes roundtrip', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      await client.setRBLConfig(
+        true,
+        [
+          { zone: 'zen.spamhaus.org', enabled: true, refusal_codes: ['127.255.255.0/24'], refusal_cooldown_secs: 900 },
+          { zone: 'bl.spamcop.net', enabled: true },
+        ],
+        1800,
+      )
+
+      const cfg = await client.getRBLConfig()
+      expect(cfg.refusal_cooldown_secs).toBe(1800)
+
+      const spamhaus = cfg.providers.find((p) => p.zone === 'zen.spamhaus.org')
+      expect(spamhaus).toBeTruthy()
+      // Exactly what was named, with none of the built-in codes merged in.
+      expect(spamhaus.refusal_codes).toEqual(['127.255.255.0/24'])
+      expect(spamhaus.refusal_cooldown_secs).toBe(900)
+
+      // A provider that named no codes reads back RESOLVED — as the built-in
+      // set — so the screen can show what the box is really matching on rather
+      // than an empty list that looks like no protection at all.
+      const spamcop = cfg.providers.find((p) => p.zone === 'bl.spamcop.net')
+      expect(spamcop).toBeTruthy()
+      expect(spamcop.refusal_codes.length).toBeGreaterThan(0)
+
+      await client.setRBLConfig(false, [])
+    })
+
+    it('rejects a refusal code that is not an address', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
+
+      await expect(
+        client.setRBLConfig(true, [
+          { zone: 'zen.spamhaus.org', enabled: true, refusal_codes: ['over-quota'] },
+        ]),
+      ).rejects.toThrow(/POST \/dns\/rbl:/)
+    })
+
     it('local rbl entry add/list/remove changes DNS state', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
