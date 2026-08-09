@@ -96,6 +96,11 @@ type SystemControllerHandlers struct {
 	loginOnce         sync.Once
 	loginLimiterStore *loginLimiter
 	loginGateStore    *loginGate
+
+	// Prometheus counters, built on first use for the same reason. See
+	// controller_metrics.go.
+	metricsOnce  sync.Once
+	metricsStore *metricsState
 }
 
 // oauthFlows returns the pending-device-flow store, creating it on first use so
@@ -131,6 +136,12 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// Public
 	e.Add("GET", "/status/ping", s.ping)
 	e.Add("GET", "/tls/ca.crt", s.getTLSCA)
+	// Prometheus scrapes this over loopback, which is why it is localhost-or-
+	// admin rather than public: it aggregates account counts, disk usage, and
+	// which services are down — a map of what to attack and when the box is
+	// least able to resist. Prometheus runs --net host, so loopback reaches it
+	// with no podman-network hop, exactly like the node-exporter target.
+	e.Add("GET", MetricsPath, s.metricsHandler, s.localhostOrAdmin)
 	e.Add("POST", "/account/authenticate", s.authenticateAccount)
 
 	// Self-authenticated (handlers do own token validation)

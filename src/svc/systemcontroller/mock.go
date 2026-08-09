@@ -58,6 +58,8 @@ type MockClient struct {
 	LogReplayErr         error
 	PingErr              error
 	PingResponse         *PingResponse
+	GetMetricsErr        error
+	MetricsBody          string
 	UpgradesList         []PackageUpgrade
 	ListUpgradesErr      error
 	DismissUpgradesErr   error

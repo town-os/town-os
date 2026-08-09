@@ -459,6 +459,10 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/account/sessions": true,
 			"/account/me":       true,
 			"/status/ping":      true,
+			// Prometheus scrapes this every 15s. Auditing it would write
+			// ~5,700 rows a day describing nothing an operator did, burying
+			// the actions that are actually accountable.
+			MetricsPath: true,
 			// The boot stub serves /boot-status; the full router does not.
 			// A UI watching a self-update keeps the SSE stream open across
 			// the handler swap, so the first request after the swap lands
@@ -570,6 +574,12 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		if handlerErr != nil {
 			entry.Error = handlerErr.Error()
 		}
+
+		// Counted from the entry, not from whether the write below succeeded:
+		// the metric answers "how often is an audited action failing", and an
+		// audit write that itself failed must not also erase the record that
+		// the action happened.
+		s.recordAuditEvent(entry.Success)
 
 		// Best-effort audit logging; don't fail the request if logging fails.
 		if err := am.LogEntry(entry); err != nil {

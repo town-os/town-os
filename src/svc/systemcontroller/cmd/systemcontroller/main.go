@@ -545,6 +545,14 @@ func run() (err error) {
 	// target is by construction the same string rolodex.yml binds — the same
 	// single-source-of-truth reason PackageNetworkState.FQDN exists.
 	monPorts.RolodexMetrics = rolMgr.MetricsAddr()
+	// Scrape the controller's own /metrics, derived from the same -listen value
+	// the server binds so the target cannot drift from the listener — and so a
+	// relocated harness instance scrapes itself rather than whichever process
+	// happens to hold the default port.
+	monPorts.ControllerMetrics = systemcontroller.MetricsScrapeTarget(*listenAddr)
+	if srv.TLSConfig != nil {
+		monPorts.ControllerMetricsScheme = "https"
+	}
 
 	// Determine monitoring backend (uplot or grafana).
 	monBackend := monitoring.BackendUPlot

@@ -66,6 +66,22 @@ type Ports struct {
 	// Empty means no rolodex scrape job, which is what every test that builds a
 	// bare Ports{} gets, so the generated config is unchanged for them.
 	RolodexMetrics string
+	// ControllerMetrics is the "host:port" address the system controller serves
+	// its Prometheus endpoint on. Like RolodexMetrics this is an address rather
+	// than a port this stack binds, and for the same reason: the controller's
+	// listener is chosen by -listen/TOWN_OS_LISTEN, so monitoring is told where
+	// to scrape rather than deciding it. That also means no new port to
+	// relocate for concurrent test-full and dev runs — the endpoint rides the
+	// listener the harness already moves.
+	//
+	// Empty omits the job.
+	ControllerMetrics string
+	// ControllerMetricsScheme is "https" when the controller's own listener is
+	// TLS-terminated (TOWN_OS_TLS), "" or "http" otherwise. It exists because
+	// that certificate is issued by the box's local CA, which Prometheus has no
+	// reason to trust, so the https job must also skip verification — see
+	// WritePrometheusConfig.
+	ControllerMetricsScheme string
 }
 
 // withDefaults returns a copy with every empty field filled in with its

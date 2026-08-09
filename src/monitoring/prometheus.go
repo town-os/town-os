@@ -15,6 +15,10 @@ import (
 // metrics has to name; changing it orphans every one of them.
 const RolodexJobName = "rolodex"
 
+// ControllerJobName is the Prometheus job label carried by every system
+// controller series, and is a constant for the same reason RolodexJobName is.
+const ControllerJobName = "systemcontroller"
+
 // prometheusUID / prometheusGID are the user and group IDs that the
 // Prometheus container runs as (upstream image uses "nobody"). The
 // bind-mounted data directory must be owned by this uid:gid pair or
@@ -91,6 +95,23 @@ scrape_configs:
     static_configs:
       - targets: [%q]
 `, RolodexJobName, ports.RolodexMetrics)
+	}
+	// Same omit-rather-than-guess rule as rolodex above.
+	if ports.ControllerMetrics != "" {
+		fmt.Fprintf(&b, `  - job_name: %q
+`, ControllerJobName)
+		if ports.ControllerMetricsScheme == "https" {
+			// The controller's leaf is issued by the box's own CA, which this
+			// Prometheus has no reason to trust and no clean way to be handed
+			// (the CA file lives on a btrfs path the container does not mount).
+			// Skipping verification is sound for this target specifically: it is
+			// a loopback scrape inside the host namespace, so there is no
+			// network path for anything else to answer as it.
+			b.WriteString("    scheme: https\n    tls_config:\n      insecure_skip_verify: true\n")
+		}
+		fmt.Fprintf(&b, `    static_configs:
+      - targets: [%q]
+`, ports.ControllerMetrics)
 	}
 	if err := os.WriteFile(filepath.Join(configDir, "prometheus.yml"), []byte(b.String()), 0644); err != nil { //nolint:gosec // config must be readable by container process
 		return fmt.Errorf("write prometheus.yml: %w", err)

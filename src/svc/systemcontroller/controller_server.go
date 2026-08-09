@@ -1004,6 +1004,11 @@ func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handl
 		AllowCredentials: true,
 		MaxAge:           3600,
 	}))
+	// Request tallies, registered outermost of the three so a request denied by
+	// either gate below is still counted. A 403 the operator cannot explain is
+	// exactly the kind of thing the counter exists to make visible, and one
+	// recorded only on the requests that got through would hide it.
+	e.Use(handlers.metricsMiddleware)
 	e.Use(handlers.auditMiddleware)
 	// Fail-closed gate for grant-holding accounts. Registered after audit so a
 	// denied request is still recorded, and before the routes so a scoped account

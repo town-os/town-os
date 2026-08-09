@@ -1582,10 +1582,10 @@ container or podman plumbing.
 - `GET /dns/tld` (auth required) -- get the current top-level domain.
 - `POST /dns/tld` (admin required) -- set the TLD. Changes the existing TLD and re-registers all installed packages.
 - `POST /dns/setup` (admin required) -- initialize DNS and register all installed packages.
-- `GET /dns/rbl` (auth required) -- get the RBL (Realtime Blackhole List, reverse-IP) configuration: global enabled flag and provider zones.
-- `POST /dns/rbl` (admin required) -- replace the RBL configuration. Accepts an enabled flag and a list of `{zone, enabled}` providers. Zones are validated as fully-qualified hostnames, lowercased, trimmed, and de-duplicated.
-- `GET /dns/dnsbl` (auth required) -- get the DNSBL (domain blocklist, forward-name) configuration.
-- `POST /dns/dnsbl` (admin required) -- replace the DNSBL configuration (same shape and validation as `/dns/rbl`).
+- `GET /dns/rbl` (auth required) -- get the RBL (Realtime Blackhole List, reverse-IP) configuration: global enabled flag, provider zones with their refusal codes **resolved to what is in effect**, the list-wide `refusal_cooldown_secs`, and `rotated_out` (providers currently backed off after refusing a query, with the code and seconds remaining). See [Refusal codes](#refusal-codes-a-provider-saying-stop-asking-is-not-saying-this-is-listed).
+- `POST /dns/rbl` (admin required) -- replace the RBL configuration. Accepts an enabled flag, a list-wide `refusal_cooldown_secs`, and a list of `{zone, enabled, refusal_codes, refusal_cooldown_secs}` providers. Zones are validated as fully-qualified hostnames, lowercased, trimmed, and de-duplicated; refusal codes are validated by `ValidateRefusalCodes` (IPv4 address or `address/prefix`, masked to the prefix, `"none"` only as a lone entry, no duplicates).
+- `GET /dns/dnsbl` (auth required) -- get the DNSBL (domain blocklist, forward-name) configuration, same shape as `/dns/rbl`.
+- `POST /dns/dnsbl` (admin required) -- replace the DNSBL configuration (same shape and validation as `/dns/rbl`; its refusal cooldown is independent of the RBL one).
 - `GET /dns/rbl/local` (auth required) -- list the local RBL blocklist entries (`{name, reason}`).
 - `POST /dns/rbl/local/add` (admin required) -- add a local RBL entry. Accepts a name (domain or IP) and an optional reason. The name is validated (domain or IP), lowercased, and trimmed.
 - `POST /dns/rbl/local/remove` (admin required) -- remove a local RBL entry by name.
@@ -1599,16 +1599,40 @@ DNS read-only endpoints (`/dns/status`, `/dns/records`, `/dns/rbl/local`, `/dns/
 
 ### RBL / DNSBL Blocklists
 
-Rolodex (0.2.4+) provides three complementary spam/malware/ad blocking mechanisms, plus (0.4.3+) one mechanism for undoing them, all exposed through the DNS API and the `rolodex.Client` wrapper (`SetRblConfig`/`GetRblConfig`, `SetDnsblConfig`/`GetDnsblConfig`, `AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`, `AddDnsblAllowlistEntry`/`RemoveDnsblAllowlistEntry`/`ListDnsblAllowlistEntries`). All are **queried on demand by rolodex** — Town OS never downloads, parses, or pre-caches blocklist feeds.
+Rolodex (0.2.4+) provides three complementary spam/malware/ad blocking mechanisms, plus (0.4.3+) one mechanism for undoing them and one for not believing a provider that refused the query, all exposed through the DNS API and the `rolodex.Client` wrapper (`SetRblConfig`/`GetRblConfig`, `SetDnsblConfig`/`GetDnsblConfig`, `AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`, `AddDnsblAllowlistEntry`/`RemoveDnsblAllowlistEntry`/`ListDnsblAllowlistEntries`). All are **queried on demand by rolodex** — Town OS never downloads, parses, or pre-caches blocklist feeds.
 
-- **RBL** (Realtime Blackhole List) -- reverse-IP blocklist zones queried on demand with a reversed IP against a zone (e.g. `zen.spamhaus.org`). Checked against IPs found in reverse DNS queries. Configured via `/dns/rbl` as a list of `{zone, enabled}` providers plus a global enabled flag.
-- **DNSBL** (domain blocklist) -- domain blocklist zones queried on demand by prepending the looked-up domain to the zone (e.g. `googleadservices.com` + `dbl.spamhaus.org`). DNSBL listings take precedence over forwarded/iterative answers. Configured via `/dns/dnsbl` with the same shape as RBL.
+Note the wrapper's two `Set*` methods take the list-wide refusal cooldown as a trailing argument (`SetRblConfig(ctx, enabled, providers, refusalCooldownSecs)`); they map onto upstream's `Set*ConfigWithRefusalCooldown`, since the arity-preserving upstream spellings exist for external API compatibility that an internal wrapper does not need.
+
+- **RBL** (Realtime Blackhole List) -- reverse-IP blocklist zones queried on demand with a reversed IP against a zone (e.g. `zen.spamhaus.org`). Checked against IPs found in reverse DNS queries. Configured via `/dns/rbl` as a list of `{zone, enabled, refusal_codes, refusal_cooldown_secs}` providers plus a global enabled flag and a list-wide `refusal_cooldown_secs`.
+- **DNSBL** (domain blocklist) -- domain blocklist zones queried on demand by prepending the looked-up domain to the zone (e.g. `googleadservices.com` + `dbl.spamhaus.org`). DNSBL listings take precedence over forwarded/iterative answers. Configured via `/dns/dnsbl` with the same shape as RBL, with its own independent cooldown.
 - **Local RBL entries** -- a DB-backed list of names/IPs managed manually via `/dns/rbl/local*`, checked before external providers. A **domain-name** local entry blocks forward A/AAAA lookups for that domain with `NXDOMAIN`, and takes effect immediately (rolodex updates an in-memory cache on add).
 - **DNSBL allowlist** (rolodex 0.4.3+) -- the operator's escape hatch from a third-party feed's false positive, managed via `/dns/dnsbl/allowlist*`. An entry covers the name **and every name beneath it**, so allowlisting `vendor.example` also exempts `cdn.vendor.example`. It **short-circuits the whole name-based check**, beating both the configured DNSBL providers and any matching local RBL entry, and it runs *before* the provider lookup so an exempted name never issues one. Also DB-backed with an in-memory cache, so it takes effect immediately.
 
   Without it the only remedy for a feed that lists a name the household needs is to disable the whole provider. Note the asymmetry with the local blocklist: an allowlist entry is a **name only**, never an IP, because the check it short-circuits is the name-based one. The IP-based RBL path is untouched by it.
 
   **Version floor:** an older rolodex answers the three allowlist RPCs with gRPC `Unimplemented`, surfacing as a 500. Neither `make test` nor the mocked integration tests catch that — `TestRolodexDnsblAllowlistRoundtripReal` is what proves the pinned image is new enough.
+
+#### Refusal codes: a provider saying "stop asking" is not saying "this is listed"
+
+A DNSxL answers a listing and a complaint about the querier with the **same kind of record** — an `A` under `127.0.0.0/8` — so the only thing separating them is the address. `127.0.0.2` means the name is listed; `127.255.255.254` means the query arrived via a public resolver and `127.255.255.255` means the querier is over its limit. Read the second kind as a listing and **every** name checked against that provider becomes `NXDOMAIN`: the blocklist stops being a blocklist and becomes an outage. Spamhaus publishes free-use limits a household box can cross without noticing, and the symptom when it does is the whole web going dark — which reads as broken DNS, not as a rate limit.
+
+Rolodex recognizes these codes and, on a refusal, **rotates that provider out of the lookup rotation for a cooldown** rather than believing it. Town OS exposes both halves:
+
+- **`refusal_codes`**, per provider, on both lists. Each entry is an IPv4 address or `address/prefix` — a prefix because providers document whole ranges, and Spamhaus reserves all of `127.255.255.0/24` for errors and adds codes to it over time, so enumerating today's three would silently start reading tomorrow's fourth as a listing.
+- **`refusal_cooldown_secs`**, per provider and list-wide. A provider's `0` defers to the list value; the list's `0` uses rolodex's built-in default (3600).
+- **`rotated_out`** on the `GET`, reporting which providers are currently not being asked, the code each refused with, and the seconds remaining. This is the operator-visible half: without it the only signal that a blocklist stopped being consulted is that it stopped blocking things.
+
+**`ValidateRefusalCodes` (`controller_dns_validate.go`) mirrors rolodex's `resolve_refusal_codes` exactly**, because the list is passed through verbatim and disagreeing about what an entry means would be worse than not validating at all. Three cases:
+
+- **empty** ⇒ rolodex substitutes its built-in set, so a configuration written before any of this existed gets the safe reading without being edited;
+- **exactly `"none"`** ⇒ detection off, for a private blocklist whose real listings collide with a built-in code;
+- **anything else** ⇒ exactly those codes, with the built-ins deliberately **not** merged in.
+
+`"none"` mixed with real codes is rejected — a list that both disables detection and names codes to detect has no reading to pick. Codes are masked to their prefix and **a `/32` renders bare**, matching rolodex's `Display`: a code that read back differently from the one just submitted would look like the box had rewritten the operator's input.
+
+**The `GET` reports codes RESOLVED**, so a provider that named none reads back carrying the built-in set — which is the point, since an operator has to be able to see what the box is actually matching on. It also means **a client must never echo that back on the next save**: doing so freezes today's list into the stored config, whereupon a code rolodex adds later starts being read as a listing — the exact failure this exists to prevent, reintroduced one layer up. `toWire` in `BlocklistsTab.jsx` collapses a resolved built-in set back to an absent field, and the UI keeps a copy of the built-in list (`BUILTIN_REFUSAL_CODES`) for one purpose only: deciding which radio the settings dialog opens on. If that copy drifts, the dialog opens on "Custom" prefilled with the codes in effect — a cosmetic wrong default, not a wrong configuration, since nothing changes unless the operator saves.
+
+**Version floor:** a rolodex predating refusal handling accepts these fields — proto3 ignores unknown fields — and stores nothing. The mocked tests cannot tell that from success, because a mock echoes back whatever it was handed. `TestRolodexRblRefusalCodesRoundtripReal` and its DNSBL twin assert that an **empty** configured list reads back *resolved*, which is the assertion an old image fails.
 
 There is **no feed ingestion / pre-caching**: provider zones are the unit of configuration, and the UI offers a curated list of well-known DNSBL/RBL zones as one-click quick-adds, but the user may add any zone. Provider-zone writes replace the whole config (validated, lowercased, de-duplicated).
 
@@ -1627,7 +1651,7 @@ Publishing is opt-out: every installed package service is published in the DNS z
 The DNS management screen shows DNS status (enabled, running, TLD, record count) above four deep-linkable sub-tabs (`?tab=`):
 
 - **Records** -- the DNS records table with dialogs for adding records (types: A, AAAA, CNAME, MX, TXT, SRV, PTR), removing records, changing the TLD, and initial DNS setup.
-- **Blocklists** -- DNSBL and RBL provider-zone sections (global enable switch, per-zone enable/remove, suggested-zone quick-adds, custom-zone add — all queried on demand) plus a manual local-entry table (add/remove). No feeds, no apply, nothing cached.
+- **Blocklists** -- DNSBL and RBL provider-zone sections (global enable switch, per-zone enable/remove, per-zone refusal-code settings, suggested-zone quick-adds, custom-zone add — all queried on demand) plus a manual local-entry table (add/remove). Each section leads with the providers currently backed off after refusing a query, when there are any. No feeds, no apply, nothing cached.
 - **Allow Lists** (`?tab=allowlists`, `ui/src/routes/dns/AllowListsTab.jsx`) -- the DNSBL allowlist: a table of exempted domains with reasons, plus add and remove. Reads are `requireAuth` so the tab is not admin-only; the add/remove controls are admin-only. It is a sibling tab rather than a card on Blocklists because an exemption is what an operator goes looking for by name when something is unreachable, not something to find while scrolling past provider zones.
 - **Services** -- installed package services with a publish switch (publish/unpublish in the DNS zone).
 
@@ -1672,7 +1696,7 @@ Changing the setting takes effect immediately: switching to `"grafana"` pulls th
 ### Monitoring Containers
 
 - **Node Exporter** (`quay.io/prometheus/node-exporter:latest`, host port 9100) -- collects host system metrics. Runs with host PID namespace, `SYS_TIME` capability, and a read-only bind mount of the host root filesystem at `/host`. The systemd unit passes `--collector.diskstats.device-exclude=^(ram|fd)\d+$` (the `monitoring.DiskstatsDeviceExclude` constant) to override node_exporter's upstream default (`^(ram|loop|fd|(h|s|v|xv)d[a-z]|nvme\d+n\d+p)\d+$`), which filters out partitions (`sda3`, `nvme0n1p3`) and loop devices — exactly the device shapes `monitoring.BtrfsDevices` reports for the btrfs filesystem backing `/town-os`. Without this override the Disk I/O dashboard queries silently return zero series and the panel renders empty. Do not remove or loosen the flag unless you also move the Disk I/O queries off `node_disk_*`. Regression coverage: `TestNodeExporterUnitConfigDiskstatsExcludeAllowsRealDevices` pins the flag and regex, and `TestMonitoringNodeExporterEmitsDiskMetricsForFilteredDevices` starts a real node_exporter container and confirms it emits `node_disk_read_bytes_total` for at least one upstream-default-excluded device.
-- **Prometheus** (`quay.io/prometheus/prometheus:latest`, host port 9090) -- scrapes Node Exporter and itself at 15-second intervals. Data is stored with 30-day retention in a persistent data directory. Configuration and data volumes are bind-mounted from a monitoring data directory. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot.
+- **Prometheus** (`quay.io/prometheus/prometheus:latest`, host port 9090) -- scrapes Node Exporter, itself, rolodex (job `rolodex`), and the system controller (job `systemcontroller`, see [System Controller Metrics](#system-controller-metrics)) at 15-second intervals. The two optional jobs are omitted when their address is unset rather than aimed at a guessed default, since a target nobody configured sits permanently down and reads as a broken service instead of an absent one. Data is stored with 30-day retention in a persistent data directory. Configuration and data volumes are bind-mounted from a monitoring data directory. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot.
 - **Grafana** (`docker.io/grafana/grafana:latest`, host port 5308) -- optional dashboarding UI, only started when `monitoring_backend` is `"grafana"`. Uses a light theme (`GF_USERS_DEFAULT_THEME=light`). Anonymous viewing is enabled with the Viewer role, iframe embedding is allowed. The systemd unit includes `ExecStartPre` mkdir directives to pre-create volume directories on boot. Pre-provisioned with a Prometheus datasource and two dashboards (all panels have `transparent: true`):
   - **System Overview** (`town-os-system-overview`) -- high-level percentages: CPU Usage, Memory Usage, Disk Usage (root mountpoint), and Network I/O (bytes/sec per device, excluding loopback). Uses smooth lines with fill, table legends showing mean and last values, 1-hour default range with 30-second auto-refresh.
   - **Town OS Overview** (`town-os-overview`) -- platform-specific metrics: Disk I/O (read/write throughput per block device), Free Storage Space (absolute bytes for `/trunk` btrfs mount and root `/`), Network Stats (bits/sec per device, excluding loopback and virtual interfaces), and CPU % Usage (total non-idle/non-iowait). Uses linear lines without fill, list legends, 6-hour default range. This is the default dashboard loaded by the monitoring UI iframe.
@@ -1696,6 +1720,49 @@ Prometheus and Node Exporter are always started on boot. The monitoring backend 
 ### Monitoring API
 
 - `GET /monitoring/status` (auth required) -- returns container status (name, image, running state, port) for each service, plus a `backend` field (`"uplot"` or `"grafana"`). Returns `{"status": "disabled"}` when monitoring is not configured.
+- `GET /metrics` (localhost or admin) -- the system controller's own Prometheus endpoint. See [System Controller Metrics](#system-controller-metrics).
+
+### System Controller Metrics
+
+The controller exports its own state in the Prometheus text exposition format on **its existing listener** (`:5309`, `MetricsPath = "/metrics"`), not on a port of its own. That is deliberate: the endpoint then rides the listener the harness already relocates with `TOWN_OS_LISTEN`, so there is no seventh host port to add to `SYSTEM_PORT_FILES` and no way for a `make test-full` and a `make dev` to collide on it — IRON RULE.
+
+It is **localhost-or-admin**, not public. The scrape aggregates account counts, disk usage, and which services are down: a map of what to attack and when the box is least able to resist. Prometheus runs `--net host`, so it reaches loopback with no podman-network hop, exactly like the node-exporter target.
+
+`src/metrics` renders the format in a few hundred lines rather than depending on `prometheus/client_golang`, for the same reason `errgroup` was kept out. The library's value is its registry, collector interface, and histogram machinery — none of which is used, since every value here is either a process-lifetime tally or read from a manager per scrape — while its transitive tree (`prometheus/common`, `procfs`, protobuf) is real and lands in an image that boots from RAM.
+
+**Label-value escaping is load-bearing, not defensive.** Label values carry operator input (a repository name, a package name, a systemd unit). An unescaped quote does not corrupt one line — it makes Prometheus reject the *entire* scrape, so one oddly-named package would silently take all monitoring down.
+
+What is exported:
+
+| Metric | Type | Notes |
+|---|---|---|
+| `townos_up` | gauge | always 1 while serving; absent when not |
+| `townos_start_time_seconds` | gauge | uptime is `time() - this`, in the scraper's clock |
+| `townos_package_units{state}` | gauge | `active`/`failed`/`inactive`, filtered to installed packages |
+| `townos_system_units{state}` | gauge | `town-os-system--*`, excluding NC and socket units |
+| `townos_package_unit_active{unit}` | gauge | per-unit 1/0, so an operator sees *which* service is down |
+| `townos_system_unit_active{unit}` | gauge | ditto for system services |
+| `townos_packages_installed` / `townos_packages_available` | gauge | inventory |
+| `townos_repositories` / `townos_repository_errors` | gauge | errors counted, not labelled by name |
+| `townos_upgrades_available` | gauge | |
+| `townos_accounts{kind}` | gauge | `admin`/`user`/`disabled` |
+| `townos_accounts_granted` | gauge | non-admins holding at least one grant |
+| `townos_filesystems{state}` | gauge | `user`/`installed`/`uninstalled` |
+| `townos_disk_total_bytes` / `_used_bytes` / `_available_bytes` | gauge | |
+| `townos_audit_recent_errors` | gauge | the same number the dashboard's red pill renders |
+| `townos_audit_events_total{result}` | counter | `success`/`failure`, incremented by `auditMiddleware` |
+| `townos_http_requests_total{method,status}` | counter | status is a **class** (`2xx`…), never the exact code |
+
+Several choices here are the point rather than incidental:
+
+- **A scrape never fails as a unit.** Each collector tolerates a nil manager and logs-and-skips on error. A 500 because one subsystem is sick makes every other metric vanish at exactly the moment they are wanted, so the box reads as entirely dead rather than partly degraded — and a scrape during boot should report what is up.
+- **Zero buckets are still emitted.** A gauge that disappears at zero is indistinguishable from one the box stopped reporting, so "no failed units" would look exactly like "unit collection is broken".
+- **Status is bucketed by class.** Every distinct code would become a permanent series, and a control plane answering 400/401/403/404/409/422 across dozens of routes multiplies out fast for a question nobody asks of a household box. The exact code is already in the audit log and the request log.
+- **The counters are in-memory and per-process.** A counter that survived a restart would describe the box's history rather than this process's, and Prometheus already understands a reset. It also keeps a scrape — and the audit middleware feeding it — off the database entirely.
+- **`/metrics` is excluded from audit logging** and from its own request counter. A 15s scrape would otherwise write ~5,700 audit rows a day describing nothing an operator did, and would dominate the counter it serves.
+- **`metricsMiddleware` is registered outermost** of the three (before audit and the grant allowlist) so a request denied by either gate is still counted — an unexplained 403 is exactly what the counter exists to surface. It takes the status from the returned error, because a handler that returns one has not written its status yet.
+
+**The scrape target is not recomposed anywhere.** `MetricsScrapeTarget(listenAddr)` derives it from the same string the server binds and `main.go` hands the result to `monitoring.Ports.ControllerMetrics` — the same single-source-of-truth reason `PackageNetworkState.FQDN` and `Manager.MetricsAddr()` exist. A wildcard bind (`:5309`, `0.0.0.0:5309`, `[::]:5309`) is rewritten to `localhost` because a wildcard is not an address anything can connect to; an explicitly pinned host is left alone, since rewriting it would aim the scrape at an address the controller is deliberately not on. An empty result omits the job rather than aiming it at a guess. When `TOWN_OS_TLS` is on, `ControllerMetricsScheme` is `https` and the job also carries `insecure_skip_verify` — the leaf is issued by the box's own CA, which Prometheus has no reason to trust and no clean way to be handed, and the scrape is loopback inside the host namespace so nothing else can answer as it.
 
 ### Monitoring UI
 
@@ -1788,16 +1855,16 @@ The `i18n` package provides a `T(locale, key, args...)` function that resolves t
 
 Backend catalogs live one file per locale in `src/i18n` (`de_de.go`, `zh_cn.go`, …); the frontend mirror lives in `ui/src/i18n` (`de-DE.js`, `zh-CN.js`, …). The two sides are kept in lockstep — every populated backend catalog has a frontend twin.
 
-`PopulatedLocales()` is the authoritative list (25 entries): `en-US`, `ar-SA`, `bn-BD`, `da-DK`, `de-DE`, `es-ES`, `fi-FI`, `fr-FR`, `hi-IN`, `it-IT`, `ja-JP`, `ko-KR`, `nl-NL`, `pl-PL`, `pt-BR`, `ru-RU`, `sa-IN`, `sux`, `sv-SE`, `th-TH`, `tr-TR`, `uk-UA`, `vi-VN`, `zh-CN`, `zh-TW`. Anything not on it falls back to English. `IsPopulated(code)` is what the UI uses to disable an unpopulated entry in the language picker.
+`PopulatedLocales()` is the authoritative list (24 entries): `en-US`, `ar-SA`, `bn-BD`, `da-DK`, `de-DE`, `es-ES`, `fi-FI`, `fr-FR`, `hi-IN`, `it-IT`, `ja-JP`, `ko-KR`, `nl-NL`, `pl-PL`, `pt-BR`, `ru-RU`, `sa-IN`, `sv-SE`, `th-TH`, `tr-TR`, `uk-UA`, `vi-VN`, `zh-CN`, `zh-TW`. Anything not on it falls back to English. `IsPopulated(code)` is what the UI uses to disable an unpopulated entry in the language picker.
 
-`sux` (Sumerian, `𒅴𒂠 (eme-ĝir)`) is a deliberate outlier in shape as well as content: it is a bare ISO 639-3 language code with no region subtag, so any code that assumes a `xx-YY` form must tolerate it.
+**Every locale code carries a region subtag**, and `TestLocaleCodesAreRegionQualified` holds it. Sumerian (`sux`) was the one exception — a bare ISO 639-3 code — and it is gone. It was removed for its script rather than its shape: cuneiform lives in `U+12000`–`U+1254F`, which almost nothing ships a font for, so on any box without Noto Sans Cuneiform every string in the locale painted as replacement boxes. The romanization the catalog carried in parentheses survived, which made it worse than blank — Latin fragments and punctuation around holes. Rendering it honestly meant vendoring a webfont (the catalog used 45 distinct codepoints, but the full face is 462K and subsetting wants `fonttools` on the build host) and adding `@font-face` machinery the UI has none of, which is a lot of apparatus for a language with no speakers.
 
 ### Locale Lists
 
 BCP 47 locale codes are used throughout. Two curated lists are provided:
 
-- **CommonLanguages** (22 entries) -- Arabic (ar-SA), Bengali (bn-BD), German (de-DE), English (en-US), Spanish (es-ES), French (fr-FR), Hindi (hi-IN), Italian (it-IT), Japanese (ja-JP), Korean (ko-KR), Dutch (nl-NL), Polish (pl-PL), Portuguese (pt-BR), Russian (ru-RU), Sanskrit (sa-IN), Sumerian (sux), Swedish (sv-SE), Thai (th-TH), Turkish (tr-TR), Ukrainian (uk-UA), Vietnamese (vi-VN), Chinese (zh-CN). Each entry includes the native-script name and English name.
-- **ExtendedLocales** (90 entries) -- comprehensive list of country-specific locale variants (e.g., de-AT, en-GB, es-MX, fr-CA, pt-PT, zh-TW), plus `sux`.
+- **CommonLanguages** (21 entries) -- Arabic (ar-SA), Bengali (bn-BD), German (de-DE), English (en-US), Spanish (es-ES), French (fr-FR), Hindi (hi-IN), Italian (it-IT), Japanese (ja-JP), Korean (ko-KR), Dutch (nl-NL), Polish (pl-PL), Portuguese (pt-BR), Russian (ru-RU), Sanskrit (sa-IN), Swedish (sv-SE), Thai (th-TH), Turkish (tr-TR), Ukrainian (uk-UA), Vietnamese (vi-VN), Chinese (zh-CN). Each entry includes the native-script name and English name.
+- **ExtendedLocales** (89 entries) -- comprehensive list of country-specific locale variants (e.g., de-AT, en-GB, es-MX, fr-CA, pt-PT, zh-TW).
 
 ### Frontend
 

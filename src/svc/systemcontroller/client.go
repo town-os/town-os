@@ -231,6 +231,11 @@ type Client interface {
 	// Ping returns service health and summary counts.
 	Ping(ctx context.Context) (*PingResponse, error)
 
+	// GetMetrics returns the Prometheus exposition-format scrape body.
+	//
+	// Calls GET /metrics on the Control Plane Service.
+	GetMetrics(ctx context.Context) (string, error)
+
 	// MonitoringStatus returns the current state of the monitoring stack.
 	//
 	// Calls GET /monitoring/status on the Control Plane Service.
