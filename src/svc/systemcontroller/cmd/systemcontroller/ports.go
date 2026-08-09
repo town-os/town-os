@@ -8,6 +8,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/rolodex"
+	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 )
 
 // Environment variables that relocate the fixed host ports the system services
@@ -106,6 +107,41 @@ func dnsPortFromEnv() string {
 // empty result means rolodex.DefaultMetricsPort, exactly as with the DNS port.
 func rolodexMetricsPortFromEnv() string {
 	return envPort(EnvRolodexMetricsPort)
+}
+
+// withScrapeTargets fills in the two scrape targets that are addresses rather
+// than ports this stack binds: rolodex's Prometheus endpoint and the
+// controller's own. Everything else in ports is passed through untouched.
+//
+// This is a function rather than four lines inline in main() because it is the
+// single point at which the box decides to collect its own metrics at all, and
+// inline it was covered by nothing: every test of the scrape config feeds
+// monitoring.WritePrometheusConfig a Ports value directly, so deleting the
+// assignments left both jobs silently absent from a real boot with the whole
+// suite still green.
+//
+// Neither address is defaulted when it cannot be derived. A job aimed at a
+// guessed address sits permanently down and reads as a broken rolodex or a
+// broken controller, which is worse than an absent scrape — see the omit
+// branches in monitoring.WritePrometheusConfig.
+func withScrapeTargets(ports monitoring.Ports, rolMgr *rolodex.Manager, listenAddr string, tls bool) monitoring.Ports {
+	// Taken from the manager rather than recomposed from the port, so the
+	// target is by construction the same string rolodex.yml binds — the same
+	// single-source-of-truth reason PackageNetworkState.FQDN exists.
+	if rolMgr != nil {
+		ports.RolodexMetrics = rolMgr.MetricsAddr()
+	}
+	// Derived from the same -listen value the server binds, so the target
+	// cannot drift from the listener — and so a relocated harness instance
+	// scrapes itself rather than whichever process happens to hold :5309.
+	ports.ControllerMetrics = systemcontroller.MetricsScrapeTarget(listenAddr)
+	// Only alongside a target: a scheme on a job that is never emitted is
+	// dead config, and pinning it would make an unparseable -listen look like
+	// a TLS decision.
+	if tls && ports.ControllerMetrics != "" {
+		ports.ControllerMetricsScheme = "https"
+	}
+	return ports
 }
 
 // dnsPortIsDefault reports whether rolodex is serving DNS on the standard port.

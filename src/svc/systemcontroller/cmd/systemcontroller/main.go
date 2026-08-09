@@ -539,20 +539,7 @@ func run() (err error) {
 
 	// Host ports for the three monitoring system services. The zero value means
 	// the production defaults; the harness relocates them (see ports.go).
-	monPorts := monitoringPortsFromEnv()
-	// Scrape rolodex alongside node-exporter. The address comes from the
-	// rolodex manager rather than being recomposed here, so the Prometheus
-	// target is by construction the same string rolodex.yml binds — the same
-	// single-source-of-truth reason PackageNetworkState.FQDN exists.
-	monPorts.RolodexMetrics = rolMgr.MetricsAddr()
-	// Scrape the controller's own /metrics, derived from the same -listen value
-	// the server binds so the target cannot drift from the listener — and so a
-	// relocated harness instance scrapes itself rather than whichever process
-	// happens to hold the default port.
-	monPorts.ControllerMetrics = systemcontroller.MetricsScrapeTarget(*listenAddr)
-	if srv.TLSConfig != nil {
-		monPorts.ControllerMetricsScheme = "https"
-	}
+	monPorts := withScrapeTargets(monitoringPortsFromEnv(), rolMgr, *listenAddr, srv.TLSConfig != nil)
 
 	// Determine monitoring backend (uplot or grafana).
 	monBackend := monitoring.BackendUPlot
