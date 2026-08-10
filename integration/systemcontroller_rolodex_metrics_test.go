@@ -111,6 +111,21 @@ func TestRolodexServesPrometheusMetrics(t *testing.T) {
 			t.Errorf("scrape did not carry %s; got %d bytes:\n%s", want, len(body), truncateForLog(body))
 		}
 	}
+
+	// Every metric family the DNS dashboards query must actually be
+	// exported by the rolodex image this repo pins. A panel naming a
+	// family the daemon does not emit is invisible: Grafana and the uPlot
+	// frontend both render an empty chart, which is exactly what an idle
+	// resolver looks like — so the failure ships silently and is only
+	// noticed by whoever needed the panel during an outage.
+	//
+	// Matched on the TYPE line rather than by substring, so a family whose
+	// name is a prefix of another cannot vouch for a missing one.
+	for _, family := range monitoring.RolodexDashboardMetrics() {
+		if !strings.Contains(body, "# TYPE "+family+" ") {
+			t.Errorf("rolodex does not export %s, which the DNS dashboards query", family)
+		}
+	}
 }
 
 // TestPrometheusConfigWithRolodexIsValid runs promtool over the config this

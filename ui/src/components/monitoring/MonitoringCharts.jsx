@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import UPlotChart from './UPlotChart.jsx'
+import PanelBox from './PanelBox.jsx'
 import { RATE_INTERVAL, buildDiskIOQueries, NETWORK_QUERIES } from './queries.js'
 
 const CPU_QUERIES = [
@@ -19,14 +20,6 @@ const MEMORY_QUERIES = [
   { expr: 'node_memory_MemAvailable_bytes', legend: 'Available' },
 ]
 
-function PanelBox({ children }) {
-  return (
-    <div className="min-h-0 min-w-0 overflow-hidden rounded-md border p-1.5">
-      {children}
-    </div>
-  )
-}
-
 /**
  * Four-panel monitoring dashboard replicating the Grafana Town OS Overview.
  * Queries Prometheus on port 5308 via the socat forwarder.
@@ -42,7 +35,9 @@ export default function MonitoringCharts({ diskDevices }) {
   return (
     <div
       className="grid grid-cols-1 grid-rows-4 gap-2 lg:grid-cols-2 lg:grid-rows-2"
-      style={{ height: 'calc(100vh - 96px)' }}
+      // 152px, not 96: the dashboard now carries a tab bar above this grid,
+      // and the old figure pushed the bottom row's legend off-screen.
+      style={{ height: 'calc(100vh - 152px)' }}
     >
       <PanelBox>
         <UPlotChart

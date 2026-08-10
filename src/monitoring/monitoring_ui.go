@@ -165,13 +165,17 @@ func WriteGrafanaProvisioningFiles(btrfsBase string, diskDevices []string, ports
 		return fmt.Errorf("write grafana dashboard provider: %w", err)
 	}
 
-	// Dashboard JSON directory (referenced by provider).
+	// Dashboard JSON directory (referenced by provider). The provider
+	// points at the directory, so every file in it is picked up: adding a
+	// dashboard is an entry in GrafanaDashboards and nothing here.
 	jsonDir := filepath.Join(provDir, "dashboard-json")
 	if err := os.MkdirAll(jsonDir, 0755); err != nil { //nolint:gosec // must be readable by container process
 		return fmt.Errorf("create grafana dashboard-json dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(jsonDir, "town-os-overview.json"), []byte(TownOSOverviewDashboard(diskDevices)), 0644); err != nil { //nolint:gosec // must be readable by container process
-		return fmt.Errorf("write town-os overview dashboard: %w", err)
+	for _, dash := range GrafanaDashboards(diskDevices) {
+		if err := os.WriteFile(filepath.Join(jsonDir, dash.Filename), []byte(dash.JSON), 0644); err != nil { //nolint:gosec // must be readable by container process
+			return fmt.Errorf("write grafana dashboard %s: %w", dash.Filename, err)
+		}
 	}
 
 	return nil

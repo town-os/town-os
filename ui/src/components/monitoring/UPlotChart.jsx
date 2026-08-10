@@ -36,12 +36,55 @@ function formatPercent(val) {
   return val.toFixed(1) + '%'
 }
 
+// formatRate renders a per-second rate. DNS query rates on a household box
+// spend most of their time below 1/s, so a plain toFixed(0) would render
+// every real value as "0"; the fractional digits are dropped only once the
+// magnitude makes them noise.
+function formatRate(val) {
+  if (val == null) return ''
+  const abs = Math.abs(val)
+  if (abs >= 1000) return (val / 1000).toFixed(1) + 'k/s'
+  if (abs >= 100) return val.toFixed(0) + '/s'
+  if (abs >= 1) return val.toFixed(1) + '/s'
+  return val.toFixed(2) + '/s'
+}
+
+// formatSeconds renders a duration held in seconds. DNS latency is
+// sub-millisecond when answered from cache and hundreds of milliseconds
+// when resolved from the roots, so the scale has to cover both without
+// showing "0.00" for the fast half.
+function formatSeconds(val) {
+  if (val == null || Number.isNaN(val)) return ''
+  const abs = Math.abs(val)
+  if (abs >= 1) return val.toFixed(2) + ' s'
+  if (abs >= 1e-3) return (val * 1e3).toFixed(1) + ' ms'
+  if (abs > 0) return (val * 1e6).toFixed(0) + ' µs'
+  return '0'
+}
+
+// formatShort is a plain count with a thousands suffix, for gauges like
+// cache entry counts that carry no unit of their own.
+function formatShort(val) {
+  if (val == null) return ''
+  const abs = Math.abs(val)
+  if (abs >= 1e9) return (val / 1e9).toFixed(1) + 'B'
+  if (abs >= 1e6) return (val / 1e6).toFixed(1) + 'M'
+  if (abs >= 1e3) return (val / 1e3).toFixed(1) + 'k'
+  return val.toFixed(0)
+}
+
+// Unit ids mirror the Grafana unit ids used by the matching panel in
+// src/monitoring/dashboard_dns.go, so a panel reads the same in either
+// backend.
 function getValueFormatter(unit) {
   switch (unit) {
     case 'bytes': return formatBytes
     case 'Bps': return formatBytesPerSec
     case 'bps': return formatBps
     case 'percent': return formatPercent
+    case 'reqps': return formatRate
+    case 's': return formatSeconds
+    case 'short': return formatShort
     default: return (v) => v == null ? '' : v.toFixed(2)
   }
 }

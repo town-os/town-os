@@ -52,3 +52,84 @@ export const NETWORK_QUERIES = [
     legend: '{{device}} Tx',
   },
 ]
+
+// --- rolodex (DNS) ---------------------------------------------------
+//
+// Every query below is the uPlot twin of a panel in the Grafana DNS
+// dashboard (src/monitoring/dashboard_dns.go), and the two must stay
+// identical apart from the rate window: Grafana expands its rate-interval
+// macro per panel, and this frontend has no macro expansion, so it pins
+// RATE_INTERVAL instead. A Go test
+// (TestRolodexDashboardMirroredInFrontendQueries) fails if either side
+// names a rolodex metric the other does not — and it also rejects the
+// macro's literal spelling anywhere in this file, which is why it is
+// described rather than quoted here.
+
+// ROLODEX_SELECTOR mirrors monitoring.RolodexJobName. Selecting on the job
+// rather than relying on the metric prefix is what keeps these panels
+// pointed at the box's own resolver if a second DNS exporter ever lands in
+// the same Prometheus.
+export const ROLODEX_SELECTOR = '{job="rolodex"}'
+
+const rate = (metric) => `rate(${metric}${ROLODEX_SELECTOR}[${RATE_INTERVAL}])`
+const sumBy = (label, metric) => `sum by (${label}) (${rate(metric)})`
+const sumAll = (metric) => `sum(${rate(metric)})`
+// Summing by le before histogram_quantile is mandatory: the raw bucket
+// series carry a proto label, and quantiling them unaggregated draws one
+// line per transport instead of the box-wide latency the panel is titled
+// for.
+const quantile = (q, metric) =>
+  `histogram_quantile(${q}, sum by (le) (${rate(metric + '_bucket')}))`
+
+export const DNS_QUERY_RCODE_QUERIES = [
+  { expr: sumBy('rcode', 'rolodex_dns_queries_total'), legend: '{{rcode}}' },
+]
+
+export const DNS_LATENCY_QUERIES = [
+  { expr: quantile(0.5, 'rolodex_dns_query_duration_seconds'), legend: 'p50' },
+  { expr: quantile(0.95, 'rolodex_dns_query_duration_seconds'), legend: 'p95' },
+  { expr: quantile(0.99, 'rolodex_dns_query_duration_seconds'), legend: 'p99' },
+]
+
+export const DNS_ANSWER_SOURCE_QUERIES = [
+  { expr: sumBy('source', 'rolodex_dns_answers_total'), legend: '{{source}}' },
+]
+
+// The denominator is deliberately unclamped: an idle box divides zero by
+// zero and the line breaks, which is honest. Clamping would draw a
+// confident 0% hit ratio for a cache nothing has asked anything.
+const cacheHits = sumAll('rolodex_dns_cache_hits_total')
+const cacheNegativeHits = sumAll('rolodex_dns_cache_negative_hits_total')
+const cacheMisses = sumAll('rolodex_dns_cache_misses_total')
+
+export const DNS_CACHE_RATIO_QUERIES = [
+  {
+    expr: `100 * (${cacheHits} + ${cacheNegativeHits}) / (${cacheHits} + ${cacheNegativeHits} + ${cacheMisses})`,
+    legend: 'Hit ratio',
+  },
+]
+
+export const DNS_CACHE_ENTRY_QUERIES = [
+  { expr: `rolodex_dns_cache_entries${ROLODEX_SELECTOR}`, legend: 'Positive' },
+  { expr: `rolodex_dns_cache_negative_entries${ROLODEX_SELECTOR}`, legend: 'Negative' },
+  { expr: `rolodex_dns_blocklist_cache_entries${ROLODEX_SELECTOR}`, legend: 'Blocklist' },
+]
+
+// Refusals sit next to blocks on purpose: a provider answering "stop
+// asking" rather than "listed" is what silently turns a blocklist into an
+// outage, and it only reads as anomalous beside the block rate it replaced.
+export const DNS_BLOCKLIST_QUERIES = [
+  { expr: sumBy('kind', 'rolodex_dns_blocklist_blocks_total'), legend: 'blocked {{kind}}' },
+  { expr: sumAll('rolodex_dns_blocklist_allowlisted_total'), legend: 'allowlisted' },
+  { expr: sumAll('rolodex_dns_blocklist_refusals_total'), legend: 'refused' },
+]
+
+export const DNS_UPSTREAM_TIER_QUERIES = [
+  { expr: sumBy('tier', 'rolodex_dns_upstream_tier_wins_total'), legend: '{{tier}} wins' },
+  { expr: sumBy('tier', 'rolodex_dns_upstream_tier_failures_total'), legend: '{{tier}} failures' },
+  { expr: sumAll('rolodex_dns_upstream_exhausted_total'), legend: 'exhausted' },
+]
+
+export const DNS_TRAFFIC_QUERIES = [
+  { expr: sumBy('direction', 'rolodex_dns_traffic_bytes_total'), legend: '{{direction}}' },
+]
