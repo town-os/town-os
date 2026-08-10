@@ -25,6 +25,7 @@ var (
 	ErrInvalidDependencyName = errors.New("invalid dependency name")
 	ErrInvalidDependencySpec = errors.New("invalid dependency spec")
 	ErrInvalidSharedMount    = errors.New("invalid shared volume mount")
+	ErrControlCharacter      = errors.New("value contains a control character")
 )
 
 var (
@@ -113,6 +114,44 @@ func ValidateImageURL(image string) error {
 func ValidateEnvironmentKey(key string) error {
 	if !envKeyRegexp.MatchString(key) {
 		return fmt.Errorf("%w: %q", ErrInvalidEnvironmentKey, key)
+	}
+	return nil
+}
+
+// ValidateNoControlChars rejects a value that cannot survive being written into
+// a systemd unit file.
+//
+// A unit file is line-oriented and its quoting does not span lines: a directive
+// ends at the first raw newline no matter what quotes enclose it. So a value
+// carrying one does not merely corrupt its own line — everything after the
+// newline is parsed as a fresh directive in the same section. An environment
+// value of
+//
+//	somevalue\nExecStartPre=/bin/sh -c 'curl … | sh'
+//
+// therefore adds an ExecStartPre to the generated unit. That crosses a real
+// boundary. A package author already controls the image and the command, which
+// is authority over what runs *inside a container*; a systemd directive runs on
+// the **host, as root**, before podman is ever invoked.
+//
+// The rejection covers every C0 control and DEL rather than just CR and LF.
+// Tab is the sole exception — it is legitimate whitespace inside a value, and
+// systemd's tokenizer treats it as a separator that quoting genuinely does
+// contain. NUL would truncate the unit at the write, and the remaining controls
+// have no meaning in a unit file and no legitimate use in a value that reaches
+// one.
+//
+// Nothing that worked before is refused here. A multi-line value already
+// produced a broken unit; the only change is that it now fails loudly at
+// compile time instead of silently generating a unit nobody inspected.
+func ValidateNoControlChars(field, value string) error {
+	for _, r := range value {
+		if r == '\t' {
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%w: %s contains %q", ErrControlCharacter, field, r)
+		}
 	}
 	return nil
 }

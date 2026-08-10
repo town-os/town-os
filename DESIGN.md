@@ -277,6 +277,19 @@ It is more than a UI hint: the compiler honors it. While the controlling boolean
 
 Compilation validates all responses, applies type-specific validation, substitutes all template variables, normalizes container image URLs, and produces a resolved `Package` struct. For VM packages, memory strings are parsed to byte counts and CPU defaults are applied. Post-update commands are trimmed of leading/trailing whitespace. Validation errors are collected and returned together.
 
+**No value that reaches a systemd unit may carry a control character.** A unit file is line-oriented and its quoting does not span lines: a directive ends at the first raw newline no matter what quotes enclose it. So a value carrying one does not corrupt its own line — everything after the newline is parsed as a fresh directive in the same `[Service]` section, and an environment value of `somevalue\nExecStartPre=/bin/sh -c '…'` adds an `ExecStartPre` to the generated unit. That crosses a privilege boundary rather than merely producing bad output: a package author already controls the image and the command, which is authority over what runs *inside a container*, while a systemd directive runs on the **host, as root**, before podman is invoked at all.
+
+`packages.ValidateNoControlChars` rejects every C0 control and DEL. **Tab is the sole exception** — it is legitimate whitespace, and systemd's tokenizer treats it as a separator that quoting genuinely does contain.
+
+The check runs **twice, and both passes are load-bearing**:
+
+- `InputPackage.Validate()` covers the author's literals in `environment`, `command`, and `entrypoint`. It runs at the *top* of `Compile`, so it only ever sees pre-substitution text.
+- A sweep over the **compiled** package at the end of `Compile` covers everything after substitution: environment values, command, entrypoint, volume mountpoints, and `post_update`. This is the pass that matters. A value that is a bare `@marker@` in the YAML carries no control character of its own and passes `Validate()`; the newline arrives with the *response*. A question declaring no `type:` is validated by nothing else at all, which makes the response path the one that actually reaches a unit file with caller-chosen bytes.
+
+`systemd.quoteCommandArg` strips the same characters as a backstop, because unit generation has no error return and is the last point before the bytes are written to `/etc/systemd/system`. It **drops** rather than escapes: systemd does resolve C-style escapes inside quotes, but resting a security boundary on a parser detail buys nothing when there is no legitimate reason to deliver the byte at all.
+
+Nothing that previously worked is refused. A multi-line value already produced a broken unit; the change is that it now fails loudly at compile time instead of silently generating a unit nobody inspected.
+
 ### Post-Update Commands
 
 The `post_update` field is a list of shell command strings executed inside the running container after the system controller detects an image SHA change during reconcile. This enables automated migration tasks (e.g., `pg_upgrade` after a PostgreSQL container updates).

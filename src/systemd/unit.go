@@ -35,14 +35,25 @@ func encodeEntrypointJSON(args []string) string {
 // single quotes are escaped POSIX-style as '\'' so a caller can pass any
 // string verbatim. Unchanged args pass through so existing unit files
 // stay byte-for-byte stable.
+//
+// Quoting is NOT sufficient for a newline, and used to be treated as though it
+// were: '\n' is in the list below, so a value carrying one was wrapped in
+// single quotes and emitted — but unit-file quoting does not span lines. The
+// directive ends at the raw newline regardless of the open quote, and whatever
+// followed is parsed as a new directive in the same section, which is how a
+// package's environment value could add an ExecStartPre that runs on the host
+// as root. packages.ValidateNoControlChars refuses those values at compile
+// time; stripControlChars is the backstop for any path that reaches unit
+// generation without having gone through Compile.
 func quoteCommandArg(arg string) string {
+	arg = stripControlChars(arg)
 	if arg == "" {
 		return "''"
 	}
 	needsQuote := false
 	for _, r := range arg {
 		switch r {
-		case ' ', '\t', '\n', '"', '\'', '\\', '$', '&', ';', '|',
+		case ' ', '\t', '"', '\'', '\\', '$', '&', ';', '|',
 			'<', '>', '(', ')', '*', '?', '!', '#', '~', '`', '[', ']', '{', '}':
 			needsQuote = true
 		}
@@ -54,6 +65,42 @@ func quoteCommandArg(arg string) string {
 		return arg
 	}
 	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
+}
+
+// stripControlChars removes the bytes that would end a unit-file directive
+// early or truncate the file, leaving tab (legitimate whitespace that quoting
+// does contain).
+//
+// It drops rather than escapes. systemd does resolve C-style escapes inside
+// quotes, so `\n` would in principle round-trip — but relying on that puts the
+// correctness of a security boundary on a parser detail, and there is no value
+// in faithfully delivering a newline to podman that a package had no business
+// sending. Dropping is the outcome that cannot be wrong.
+//
+// This should never fire: Compile refuses these values, so anything reaching
+// here has bypassed it. It exists because unit generation has no error return
+// and this is the last point before the bytes are written to
+// /etc/systemd/system.
+func stripControlChars(s string) string {
+	if !strings.ContainsFunc(s, isUnitControlChar) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if isUnitControlChar(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func isUnitControlChar(r rune) bool {
+	if r == '\t' {
+		return false
+	}
+	return r < 0x20 || r == 0x7f
 }
 
 // HostVolumeMount describes an arbitrary host-path to container-path volume

@@ -404,8 +404,26 @@ func (i *InputPackage) Validate() error {
 		}
 	}
 
-	for key := range i.Environment {
+	for key, value := range i.Environment {
 		if err := ValidateEnvironmentKey(key); err != nil {
+			return err
+		}
+		// The author's literal. A marker still to be substituted carries no
+		// control character of its own, so this catches a package that ships
+		// one and leaves a response that smuggles one to the post-substitution
+		// sweep at the end of Compile.
+		if err := ValidateNoControlChars("environment "+key, value); err != nil {
+			return err
+		}
+	}
+
+	for idx, arg := range i.Command {
+		if err := ValidateNoControlChars(fmt.Sprintf("command[%d]", idx), arg); err != nil {
+			return err
+		}
+	}
+	for idx, arg := range i.Entrypoint {
+		if err := ValidateNoControlChars(fmt.Sprintf("entrypoint[%d]", idx), arg); err != nil {
 			return err
 		}
 	}
@@ -807,7 +825,65 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		p.VM = vmCfg
 	}
 
+	// The load-bearing half of the control-character check, and the reason it
+	// is repeated here rather than only in Validate().
+	//
+	// Validate() runs at the TOP of Compile, before iterateFields substitutes
+	// @markers@, so it only ever sees the author's literals. A question
+	// response is substituted afterwards — so a value that is a bare `@pass@`
+	// in the YAML passes Validate() and can still arrive carrying a newline.
+	// The answer to a question with no `type:` is validated by nothing else at
+	// all, which makes the response path the one that actually reaches a unit
+	// file with attacker-chosen bytes in it.
+	//
+	// Sweeping the compiled package rather than the input is what makes this
+	// exhaustive: whatever the marker was, whoever supplied it, and whichever
+	// pass rewrote it, these are the strings unit generation will emit.
+	if err := validateCompiledNoControlChars(p); err != nil {
+		return nil, err
+	}
+
 	return p, nil
+}
+
+// validateCompiledNoControlChars rejects a compiled package whose values would
+// break out of their directive when written into a systemd unit file. See
+// ValidateNoControlChars for why a raw newline is a privilege boundary and not
+// a formatting problem.
+//
+// It covers the fields that reach ExecStart as podman arguments: environment
+// values, the command, the entrypoint, and volume mountpoints (which are
+// emitted as part of a `-v host:container:opts` token). Post-update commands
+// are checked too — they are run through `podman exec … sh -c`, so a newline
+// there is a second command rather than a broken unit, which is its own
+// problem.
+func validateCompiledNoControlChars(p *Package) error {
+	for key, value := range p.Environment {
+		if err := ValidateNoControlChars("environment "+key, value); err != nil {
+			return err
+		}
+	}
+	for idx, arg := range p.Command {
+		if err := ValidateNoControlChars(fmt.Sprintf("command[%d]", idx), arg); err != nil {
+			return err
+		}
+	}
+	for idx, arg := range p.Entrypoint {
+		if err := ValidateNoControlChars(fmt.Sprintf("entrypoint[%d]", idx), arg); err != nil {
+			return err
+		}
+	}
+	for name, vol := range p.Volumes {
+		if err := ValidateNoControlChars(fmt.Sprintf("volume %q mountpoint", name), vol.Mountpoint); err != nil {
+			return err
+		}
+	}
+	for idx, cmd := range p.PostUpdate {
+		if err := ValidateNoControlChars(fmt.Sprintf("post_update[%d]", idx), cmd); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // compileVM parses human-readable values in the VM configuration and returns
