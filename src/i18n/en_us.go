@@ -1,7 +1,7 @@
 package i18n
 
 // enUSMessages contains all English (United States) translations.
-var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var enUSMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "missing authorization token",
 	MsgAuthInvalidSession: "invalid session",

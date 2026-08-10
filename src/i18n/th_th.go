@@ -1,7 +1,7 @@
 package i18n
 
 // thTHMessages contains all Thai translations.
-var thTHMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var thTHMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "ไม่มีโทเคนสำหรับการอนุญาต",
 	MsgAuthInvalidSession: "เซสชันไม่ถูกต้อง",

@@ -1,7 +1,7 @@
 package i18n
 
 // jaJPMessages contains all Japanese translations.
-var jaJPMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var jaJPMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "認証トークンがありません",
 	MsgAuthInvalidSession: "セッションが無効です",

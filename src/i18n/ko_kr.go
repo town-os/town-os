@@ -1,7 +1,7 @@
 package i18n
 
 // koKRMessages contains all Korean translations.
-var koKRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var koKRMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "인증 토큰이 없습니다",
 	MsgAuthInvalidSession: "유효하지 않은 세션",

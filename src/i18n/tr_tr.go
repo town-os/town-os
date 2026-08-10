@@ -1,7 +1,7 @@
 package i18n
 
 // trTRMessages contains all Turkish translations.
-var trTRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var trTRMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "yetkilendirme belirteci eksik",
 	MsgAuthInvalidSession: "geçersiz oturum",

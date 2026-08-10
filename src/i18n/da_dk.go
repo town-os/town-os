@@ -1,7 +1,7 @@
 package i18n
 
 // daDKMessages contains all Danish translations.
-var daDKMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var daDKMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "manglende autorisationstoken",
 	MsgAuthInvalidSession: "ugyldig session",

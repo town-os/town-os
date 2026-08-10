@@ -1,7 +1,7 @@
 package i18n
 
 // esESMessages contains all Spanish translations.
-var esESMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var esESMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "falta el token de autorización",
 	MsgAuthInvalidSession: "sesión no válida",

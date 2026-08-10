@@ -11,7 +11,7 @@ package i18n
 // standards bodies reserve تحميل for uploading and use تنزيل for downloading.
 // ar_sa.go follows the latter. Following it in Egypt would name the wrong
 // direction, so these six strings switch.
-var arEGOverrides = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var arEGOverrides = map[string]string{
 	MsgArchiveUnsupportedFormat: "تنسيق التحميل غير مدعوم: %s",
 	MsgAuditDownloadArchive:     "تحميل أرشيف",
 	MsgArchiveGfehRefused:       "لا يمكن لعمليات رفع وتحميل الأرشيف استهداف قسم تخزين الكائنات",

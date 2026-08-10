@@ -19,7 +19,7 @@ package i18n
 //
 // Plus a handful of lexical swaps — verificar for comprobar, monitoreo for
 // monitorización, administrador for gestor — that fall the same way.
-var esLatamOverrides = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var esLatamOverrides = map[string]string{
 	// inválido rather than "no válido".
 	MsgAuthInvalidSession:     "sesión inválida",
 	MsgAuthInvalidCredentials: "credenciales inválidas",

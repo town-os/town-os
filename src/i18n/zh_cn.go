@@ -1,7 +1,7 @@
 package i18n
 
 // zhCNMessages contains all Simplified Chinese translations.
-var zhCNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var zhCNMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "缺少授权令牌",
 	MsgAuthInvalidSession: "会话无效",

@@ -1,7 +1,7 @@
 package i18n
 
 // hrHRMessages contains all Croatian translations.
-var hrHRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var hrHRMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "nedostaje autorizacijski token",
 	MsgAuthInvalidSession: "nevažeća sesija",

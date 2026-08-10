@@ -1,7 +1,7 @@
 package i18n
 
 // csCZMessages contains all Czech translations.
-var csCZMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var csCZMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "chybí autorizační token",
 	MsgAuthInvalidSession: "neplatná relace",

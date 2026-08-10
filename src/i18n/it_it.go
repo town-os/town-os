@@ -1,7 +1,7 @@
 package i18n
 
 // itITMessages contains all Italian translations.
-var itITMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var itITMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "token di autorizzazione mancante",
 	MsgAuthInvalidSession: "sessione non valida",

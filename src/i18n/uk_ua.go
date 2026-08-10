@@ -1,7 +1,7 @@
 package i18n
 
 // ukUAMessages contains all Ukrainian translations.
-var ukUAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var ukUAMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "відсутній токен авторизації",
 	MsgAuthInvalidSession: "недійсна сесія",

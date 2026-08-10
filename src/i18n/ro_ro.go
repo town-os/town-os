@@ -6,7 +6,7 @@ package i18n
 // (ş, ţ). The cedilla letters belong to Turkish and only ever stood in for
 // Romanian because early code pages had no comma-below glyph; a modern font
 // renders them visibly wrong.
-var roROMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var roROMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "lipsește tokenul de autorizare",
 	MsgAuthInvalidSession: "sesiune invalidă",

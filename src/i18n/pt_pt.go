@@ -19,7 +19,7 @@ package i18n
 //     MsgArchiveFileRequired change; the archives stay arquivos.
 //   - estado, not status.
 //   - carregar and transferir, not enviar and baixar, for upload and download.
-var ptPTOverrides = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var ptPTOverrides = map[string]string{
 	// Idiom.
 	MsgAuthMissingToken: "token de autorização em falta",
 

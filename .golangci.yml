@@ -62,3 +62,16 @@ linters:
       - linters:
           - gosmopolitan
         path: src/i18n/
+      # Same package, same reason, different linter. The catalog keys are
+      # message-ID constants -- MsgAuthMissingToken, MsgAuthInvalidCredentials
+      # -- and gosec's G101 matches that pattern for a hardcoded credential.
+      # Whether it actually fires on a given entry depends on the Shannon
+      # entropy of the *translated string*, so the same key is flagged in one
+      # locale and not in another, and rewording a translation silently turns
+      # a //nolint on that map into an unused directive that nolintlint then
+      # fails on. Exclude the rule for the package instead of annotating maps
+      # whose annotations expire on translation edits.
+      - linters:
+          - gosec
+        path: src/i18n/
+        text: G101

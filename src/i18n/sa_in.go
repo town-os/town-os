@@ -1,7 +1,7 @@
 package i18n
 
 // saINMessages contains all Sanskrit translations.
-var saINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var saINMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "प्राधिकरण-चिह्नकं न विद्यते",
 	MsgAuthInvalidSession: "अमान्यं सत्रम्",

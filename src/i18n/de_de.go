@@ -1,7 +1,7 @@
 package i18n
 
 // deDEMessages contains all German translations.
-var deDEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var deDEMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "Autorisierungstoken fehlt",
 	MsgAuthInvalidSession: "ungültige Sitzung",

@@ -1,7 +1,7 @@
 package i18n
 
 // plPLMessages contains all Polish translations.
-var plPLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var plPLMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "brak tokenu autoryzacji",
 	MsgAuthInvalidSession: "nieprawidłowa sesja",

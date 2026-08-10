@@ -6,7 +6,7 @@ package i18n
 // the creation of a filesystem) rather than put in the infinitive. Hungarian
 // log entries read as a list of events, and the infinitive would read as a list
 // of commands being given.
-var huHUMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var huHUMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "hiányzó engedélyezési token",
 	MsgAuthInvalidSession: "érvénytelen munkamenet",

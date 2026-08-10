@@ -1,7 +1,7 @@
 package i18n
 
 // ruRUMessages contains all Russian translations.
-var ruRUMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var ruRUMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "отсутствует токен авторизации",
 	MsgAuthInvalidSession: "недействительная сессия",

@@ -1,7 +1,7 @@
 package i18n
 
 // slSIMessages contains all Slovenian translations.
-var slSIMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var slSIMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "manjka avtorizacijski žeton",
 	MsgAuthInvalidSession: "neveljavna seja",

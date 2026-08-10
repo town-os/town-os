@@ -1,7 +1,7 @@
 package i18n
 
 // hiINMessages contains all Hindi translations.
-var hiINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var hiINMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "प्राधिकरण टोकन अनुपस्थित है",
 	MsgAuthInvalidSession: "अमान्य सत्र",

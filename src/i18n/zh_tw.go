@@ -1,7 +1,7 @@
 package i18n
 
 // zhTWMessages contains all Traditional Chinese translations.
-var zhTWMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var zhTWMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "缺少授權權杖",
 	MsgAuthInvalidSession: "工作階段無效",

@@ -7,7 +7,7 @@ package i18n
 // the vocabulary the two Englishes disagree about — there is no colour, no
 // licence, no catalogue and no centre anywhere in it. What is left is the
 // -ise/-ize split, which reaches exactly one message.
-var enGBOverrides = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var enGBOverrides = map[string]string{
 	MsgAuthMissingToken: "missing authorisation token",
 }
 

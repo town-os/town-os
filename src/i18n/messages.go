@@ -4,7 +4,7 @@ package i18n
 // Keys use a dot-separated namespace: "category.subcategory.description".
 const (
 	// MsgAuthMissingToken indicates a missing authorization token.
-	MsgAuthMissingToken = "auth.missing_token" //nolint:gosec // G101 -- not a credential
+	MsgAuthMissingToken = "auth.missing_token"
 	// MsgAuthInvalidSession indicates an invalid or expired session.
 	MsgAuthInvalidSession = "auth.invalid_session"
 	// MsgAuthAdminRequired indicates admin access is required.
@@ -12,7 +12,7 @@ const (
 
 	// MsgAuthInvalidCredentials is a generic authentication failure message
 	// that does not reveal whether the account exists.
-	MsgAuthInvalidCredentials = "auth.invalid_credentials" //nolint:gosec // G101 -- message key, not a credential
+	MsgAuthInvalidCredentials = "auth.invalid_credentials"
 
 	// MsgAuthNotConfigured indicates the server has no session manager while
 	// authentication is enabled — a misconfiguration, not a caller error. The

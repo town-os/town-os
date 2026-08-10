@@ -12,7 +12,7 @@ package i18n
 // The second is dépôt. France's technical writing borrows "repository"
 // wholesale; Canadian French resists the anglicism where a French term exists,
 // and dépôt is that term. This is the difference an actual reader notices.
-var frCAOverrides = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var frCAOverrides = map[string]string{
 	// Uploading is téléverser, not envoyer.
 	MsgPagesUploadArchiveOnly:      "le téléversement n'est autorisé que pour les pages de type archive",
 	MsgPagesArchiveRebuildRequired: "les pages archive doivent être reconstruites en téléversant une nouvelle archive via /pages/upload",

@@ -1,7 +1,7 @@
 package i18n
 
 // frFRMessages contains all French translations.
-var frFRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var frFRMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "jeton d'autorisation manquant",
 	MsgAuthInvalidSession: "session invalide",

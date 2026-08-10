@@ -1,7 +1,7 @@
 package i18n
 
 // bnBDMessages contains all Bengali translations.
-var bnBDMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var bnBDMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "অনুমোদন টোকেন অনুপস্থিত",
 	MsgAuthInvalidSession: "অবৈধ সেশন",

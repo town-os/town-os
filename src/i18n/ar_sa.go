@@ -1,7 +1,7 @@
 package i18n
 
 // arSAMessages contains all Arabic translations.
-var arSAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var arSAMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "رمز التفويض مفقود",
 	MsgAuthInvalidSession: "جلسة غير صالحة",

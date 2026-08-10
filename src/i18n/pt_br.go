@@ -1,7 +1,7 @@
 package i18n
 
 // ptBRMessages contains all Portuguese (Brazil) translations.
-var ptBRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var ptBRMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "token de autorização ausente",
 	MsgAuthInvalidSession: "sessão inválida",

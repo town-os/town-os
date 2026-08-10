@@ -1,7 +1,7 @@
 package i18n
 
 // viVNMessages contains all Vietnamese translations.
-var viVNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var viVNMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "thiếu mã thông báo ủy quyền",
 	MsgAuthInvalidSession: "phiên không hợp lệ",

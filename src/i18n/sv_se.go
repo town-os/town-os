@@ -1,7 +1,7 @@
 package i18n
 
 // svSEMessages contains all Swedish translations.
-var svSEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var svSEMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "auktoriseringstoken saknas",
 	MsgAuthInvalidSession: "ogiltig session",

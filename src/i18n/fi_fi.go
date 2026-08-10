@@ -1,7 +1,7 @@
 package i18n
 
 // fiFIMessages contains all Finnish translations.
-var fiFIMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var fiFIMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "valtuutustunniste puuttuu",
 	MsgAuthInvalidSession: "virheellinen istunto",

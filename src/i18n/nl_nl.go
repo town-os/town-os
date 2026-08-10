@@ -1,7 +1,7 @@
 package i18n
 
 // nlNLMessages contains all Dutch translations.
-var nlNLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var nlNLMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "autorisatietoken ontbreekt",
 	MsgAuthInvalidSession: "ongeldige sessie",

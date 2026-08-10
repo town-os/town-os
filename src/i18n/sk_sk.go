@@ -1,7 +1,7 @@
 package i18n
 
 // skSKMessages contains all Slovak translations.
-var skSKMessages = map[string]string{ //nolint:gosec // G101 -- map keys are message IDs, not credentials
+var skSKMessages = map[string]string{
 	// Authentication and authorization.
 	MsgAuthMissingToken:   "chýba autorizačný token",
 	MsgAuthInvalidSession: "neplatná relácia",
