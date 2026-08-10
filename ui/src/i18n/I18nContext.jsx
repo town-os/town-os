@@ -174,7 +174,7 @@ function preferredFallback(pref) {
 /**
  * Match an ordered list of preferred locale tags against the available
  * catalog codes. Tries exact (case-insensitive) matches first, then falls back
- * to a named default for the primary language subtag (so `de-AT` resolves to
+ * to a named default for the primary language subtag (so `de-LU` resolves to
  * `de-DE` and `es-CO` to `es-MX`), and only then to any catalog sharing the
  * subtag. Chinese is disambiguated by script/region so `zh-HK`/`zh-Hant` prefer
  * Traditional and `zh`/`zh-CN` prefer Simplified.

@@ -198,14 +198,27 @@ describe('I18nContext', () => {
     expect(screen.getByTestId('locale').textContent).toBe('de-DE')
   })
 
-  it('resolves a region variant to the shipped catalog (de-AT -> de-DE)', () => {
-    setNavLanguages(['de-AT'])
+  it('resolves a region variant we ship nothing for to its language (de-LU -> de-DE)', () => {
+    // de-LU, not de-AT: Austria ships its own catalog now, so de-AT is an exact
+    // match and proves nothing about folding. This has to stay a country we
+    // genuinely do not ship, or the test passes for the wrong reason.
+    setNavLanguages(['de-LU'])
     render(
       <I18nProvider>
         <TranslateDisplay msgKey="login.title" />
       </I18nProvider>,
     )
     expect(screen.getByTestId('locale').textContent).toBe('de-DE')
+  })
+
+  it('resolves a region variant we do ship to that variant (de-AT stays de-AT)', () => {
+    setNavLanguages(['de-AT'])
+    render(
+      <I18nProvider>
+        <TranslateDisplay msgKey="login.title" />
+      </I18nProvider>,
+    )
+    expect(screen.getByTestId('locale').textContent).toBe('de-AT')
   })
 
   it('a browser-detected locale is pinned and not overridden by the server setting', () => {
