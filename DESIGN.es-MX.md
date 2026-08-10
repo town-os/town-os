@@ -277,6 +277,19 @@ Es más que una pista de interfaz: el compilador la respeta. Mientras el boolean
 
 La compilación valida todas las respuestas, aplica la validación específica de cada tipo, sustituye todas las variables de plantilla, normaliza las URL de las imágenes de contenedor y produce una estructura `Package` resuelta. En los paquetes de VM, las cadenas de memoria se analizan a conteos de bytes y se aplican los valores por omisión de CPU. A los comandos posteriores a la actualización se les recortan los espacios en blanco de inicio y de final. Los errores de validación se juntan y se devuelven todos juntos.
 
+**Ningún valor que llegue a una unidad de systemd puede traer un carácter de control.** Un archivo de unidad está orientado a renglones y su entrecomillado no abarca varios renglones: una directiva termina en el primer salto de línea crudo, sin importar qué comillas la encierren. Así que un valor que traiga uno no corrompe su propio renglón — todo lo que va después del salto de línea se analiza como una directiva nueva en la misma sección `[Service]`, y un valor de entorno como `algúnvalor\nExecStartPre=/bin/sh -c '…'` le agrega un `ExecStartPre` a la unidad generada. Eso cruza una frontera de privilegio en vez de nada más producir salida incorrecta: el autor de un paquete ya controla la imagen y el comando, que es autoridad sobre lo que corre *dentro de un contenedor*, mientras que una directiva de systemd corre en el **host, como root**, antes siquiera de invocar podman.
+
+`packages.ValidateNoControlChars` rechaza todos los controles C0 y DEL. **El tabulador es la única excepción** — es espacio en blanco legítimo, y el tokenizador de systemd lo trata como un separador que el entrecomillado sí contiene de verdad.
+
+La revisión corre **dos veces, y las dos pasadas cargan peso**:
+
+- `InputPackage.Validate()` cubre los literales del autor en `environment`, `command` y `entrypoint`. Corre al *principio* de `Compile`, así que solo ve texto anterior a la sustitución.
+- Un barrido sobre el paquete **compilado** al final de `Compile` cubre todo lo posterior a la sustitución: valores de entorno, comando, entrypoint, puntos de montaje de volúmenes y `post_update`. Esta es la pasada que importa. Un valor que en el YAML es un `@marcador@` pelón no trae ningún carácter de control propio y pasa `Validate()`; el salto de línea llega con la *respuesta*. Una pregunta que no declara `type:` no la valida nada más, lo cual hace que la vía de las respuestas sea la que de veras alcanza un archivo de unidad con bytes que escogió quien llama.
+
+`systemd.quoteCommandArg` quita los mismos caracteres como red de seguridad, porque la generación de unidades no tiene retorno de error y es el último punto antes de que los bytes se escriban en `/etc/systemd/system`. **Los tira** en vez de escaparlos: systemd sí resuelve los escapes al estilo C dentro de las comillas, pero recargar una frontera de seguridad sobre un detalle del analizador no compra nada cuando no hay ninguna razón legítima para entregar ese byte.
+
+No se rechaza nada que antes funcionara. Un valor de varios renglones ya producía una unidad rota; el cambio es que ahora falla de forma ruidosa en tiempo de compilación en vez de generar en silencio una unidad que nadie revisó.
+
 ### Comandos Posteriores a la Actualización
 
 El campo `post_update` es una lista de cadenas de comandos de shell que se ejecutan dentro del contenedor en marcha después de que el controlador del sistema detecta un cambio de SHA de imagen durante la reconciliación. Esto permite tareas de migración automatizadas (p. ej., `pg_upgrade` después de que se actualiza un contenedor de PostgreSQL).
@@ -980,6 +993,14 @@ Las sesiones usan tokens JWT (HS256) con reclamos para el identificador de sesi�
 
 **El token de una cuenta deshabilitada está muerto al llegar.** `Validate` revisa `Disabled` y rechaza, porque todas las peticiones posteriores al inicio de sesión se autorizan únicamente desde esa función: sin la revisión, deshabilitar una cuenta solo impedía que volviera a *iniciar sesión*, mientras que un token que ya tuviera seguía sirviendo toda la vida de la sesión y se refrescaba con su propio uso.
 
+**Sin administrador de sesiones no hay servicio, no servicio abierto.** Todas las decisiones de autorización del equipo se derivaban de un solo nil: `requireAuth`, `requireAdmin`, `requireGrant`, `revokeSession`, `requireNetworkScope` y `callerIsAdmin` leían `GetSessionManager() == nil` como "la autenticación no está configurada, así que déjalo pasar". Eso hacía que *no hay a quién autenticar* y *todos están autorizados* fueran el mismo estado — toda la superficie de autorización a un campo sin definir de servirle `POST /account/create` y `POST /packages/install` a quien llamara de forma anónima, en un controlador que maneja el socket de podman del host como root, sin nada en el sistema de tipos que lo dijera y sin ningún error si pasaba.
+
+La condición ahora es **`ServerConfig.AuthDisabled`: declarada, no deducida**. Un administrador de sesiones ausente con la autenticación habilitada es una mala configuración, y `NewHandler` devuelve `ErrAuthNotConfigured` en vez de un manejador — rechazando al construir y no en cada petición, porque un equipo que arranca y luego contesta 500 en todas las rutas autenticadas es una caída confusa, mientras que uno que no arranca dice qué está mal una vez, en el diario, cuando todavía se puede arreglar. El middleware rechaza también ese mismo estado, así que un conjunto de manejadores armado por cualquier otra vía queda igual de cerrado.
+
+`InitTestServer` define `AuthDisabled` cuando — y solo cuando — la configuración no instala ningún administrador de sesiones. Eso es lo que mantiene funcionando sin cambios los ~230 puntos de llamada de prueba que nunca construyen uno, mientras que una prueba que *sí* construye uno conserva su autenticación en vigor; deshabilitarla ahí convertiría todas las comprobaciones de autorización de la suite en una tautología.
+
+`callerIsAdmin` es el único lugar donde la respuesta cambió en vez de moverse: devuelve **falso** para quien llama sin poder identificarse, donde antes devolvía verdadero. Todas las rutas que llegan hasta él están detrás de `requireAuth` o `requireAdmin`, que ahora rechazan ese estado de plano, así que en la práctica no se alcanza — pero un ayudante de censura es el lugar equivocado para andar de generoso apoyándose en eso.
+
 La interfaz `SessionManager` provee: `Create`, `Validate`, `Revoke`, `RevokeAllForUser`, `Cleanup`, `List`, `GetUsername`, `HasActiveAdminSessions` y `StartCleanup`.
 
 Endpoints de la API de sesiones:
@@ -1008,6 +1029,20 @@ Los ajustes llave-valor se guardan en SQLite. Entre los ajustes predeterminados 
 - `GET /settings` -- obtiene todos los ajustes (requiere admin).
 - `POST /settings/get` -- obtiene un ajuste específico por llave (requiere admin).
 - `POST /settings/set` -- pone el valor de un ajuste (requiere admin, se registra en auditoría). Los ajustes con valor en bytes (`default_quota`, `max_archive_size`) aceptan cadenas legibles por humanos (p. ej., "500GB", "10MB") que se analizan y se guardan como conteos numéricos de bytes.
+
+**Todos los administradores de cuentas toman un contexto en cada método, y `dbTimeout` es un techo más que toda la historia.** Antes abrían su propio contexto raíz por consulta (`account.dbCtx`, que ya no existe), lo que significaba que la cancelación de quien llamaba se detenía en la frontera del administrador: una petición HTTP abandonada seguía trabajando, y el apagado ordenado no podía interrumpir una consulta. Eso importa más aquí que en otros lados porque `OpenDB` define `SetMaxOpenConns(1)` — SQLite permite un solo escritor, así que todas las consultas se serializan detrás de una sola conexión y una consulta lenta deja a todos los demás que llaman esperando de forma ininterrumpible 30 segundos.
+
+`account.queryCtx` se deriva de quien llama: uno con una fecha límite más corta la conserva, uno sin ninguna de todos modos no se puede colgar para siempre, y uno que se canceló detiene la consulta en vez de dejar que se acabe su propio reloj. Un contexto nil se lee como `context.Background()` en vez de entrar en pánico — un administrador es la capa equivocada para tirar un equipo por un argumento que se le olvidó a quien lo llamó, y las pruebas que construyen manejadores directo dejan nil el contexto del servidor.
+
+Los manejadores pasan `c.Request().Context()`; las goroutines de fondo pasan el contexto acotado al servidor, nunca el de una petición, ya que la operación tiene que sobrevivir a la petición que la disparó.
+
+**`getLocale()` es la única excepción a propósito**, y usa el contexto del servidor en vez de tomar uno. Se llama desde como 55 lugares, casi todos armando un mensaje de error, y el contexto de la petición sería el límite equivocado de todos modos: el único caso en que ya está cancelado es el de un cliente que colgó, cuando el mensaje no se va a entregar de ninguna forma.
+
+Los seis están convertidos — `SettingsManager`, `AuditManager`, `PagesManager`, `NetworkManager`, `SessionManager` y `Manager` —, junto con `OpenDB`, y `dbCtx` ya no existe.
+
+Dos métodos toman el contexto del **servidor** en vez del de quien llama, y los dos son a propósito. `AuditManager.LogEntry` lo llama `auditMiddleware` *después* de que regresa el manejador, para registrar lo que hizo: pasar el contexto de la petición dejaría que un cliente que cuelga a media petición cancelara la escritura que la registra, así que las acciones que menos se registrarían serían justo aquellas durante las que alguien se desconectó. `NetworkManager.ReapExpiredPeers` es el barrido de pares en segundo plano, cuya finalización a medias deja pares que el dispositivo WireGuard vivo todavía trae.
+
+`Manager.Authenticate` toma un contexto que acota sus dos consultas pero **no** el hash argon2id que va entre ellas — argon2 no tiene cancelación, y `loginGate` es lo que limita los hashes simultáneos a 64 MiB cada uno.
 
 ### Interfaz de Ajustes
 
@@ -1485,6 +1520,43 @@ idéntico, y un desajuste en cualquiera de ellas rompe el servicio en silencio:
 1. su **registro A**, 2. el **SAN de su certificado hoja**, 3. su **propietario
 DANE TLSA**, y 4. su **vhost del ingress compartido en :443**.
 
+**Los tres publicadores componen ese nombre a través de un solo validador.** Un
+paquete, una página y una partición de almacenamiento de objetos obtienen cada uno
+un nombre bajo el TLD de una red, y cada uno lo componía por su lado — sin
+ponerse de acuerdo en qué era un nombre legal. `gfehFQDN` normalizaba la etiqueta,
+validaba todos los componentes separados por puntos contra la regla estricta LDH y
+rechazaba un nombre que al calificarse se pasara del límite de 253 caracteres;
+`packageFQDN` era concatenación pelona sin ninguna de las dos revisiones, y
+`pageFQDN` no revisaba nada más que recortar. `qualifyPublishedName`
+(`src/svc/systemcontroller/published_name.go`) ahora es el único compositor, y le
+aplica las reglas de gfeh a los tres; `validatePublishedName` es la mitad que no
+califica, para un nombre que hay que revisar pero no componer. Un nombre que falla
+se **tira** — todos los recolectores ya se saltan un FQDN vacío, así que no aporta
+ningún registro, ninguna ruta, ningún certificado ni ningún directorio en vez de
+aportarles uno roto a los cuatro — y el rechazo se registra en nivel **Error**,
+porque `LOG_LEVEL` es `error` por omisión y un servicio que deja de resolver en
+silencio no puede quedar descubrible solo subiéndole al nivel de registro.
+
+**El dominio de una página se valida en la API, no nada más al componerlo.** Para
+una página el nombre es una *quinta* cosa: su subvolumen en disco y su enlace
+simbólico de webroot, ya que el Caddy de pages tiene su raíz en `/srv/<host>`.
+`ValidatePageDomain` corre tanto en `POST /pages/create` como en
+`POST /pages/update`, devolviendo 400. La actualización era la ruta que importaba:
+la creación quedaba cubierta de rebote porque `CreateFilesystem` corre
+`storage.ValidateFilesystemName` y el manejador deshace los cambios antes de
+llegar al código del enlace simbólico, mientras que `migratePageDir` registra una
+falla de `RenameFilesystem` y sigue de largo hasta `RemovePageSymlink` /
+`EnsurePageSymlink` de todos modos.
+
+Lo sutil es que un **FQDN público está exento de la calificación, pero no de la
+validación**. `isPublicFQDN` lee cualquier nombre con puntos que no termine en el
+TLD como el dominio propio del operador, que hay que servir literal con ACME — lo
+cual es correcto para `blog.example.com` y es también cómo
+`../escape.example.com`, `site.example.com/../../etc` y
+`site.example.com other.example.com` llegaban sin revisar a `filepath.Join` y al
+Caddyfile. "Es el dominio del operador" es una razón para no componerlo bajo el
+TLD del equipo; nunca es una razón para no revisarlo.
+
 Para que no se separen, el FQDN se calcula **una sola vez** — en `applyPackageTLS`,
 en el mismo renglón que emite la hoja — y se persiste como
 `PackageNetworkState.FQDN` (`fqdn` en el JSON de estado de red por paquete). El
@@ -1913,7 +1985,37 @@ El paquete `i18n` provee una función `T(locale, key, args...)` que resuelve lla
 
 Los catálogos del backend viven en un archivo por configuración regional en `src/i18n` (`de_de.go`, `zh_cn.go`, …); el espejo del frontend vive en `ui/src/i18n` (`de-DE.js`, `zh-CN.js`, …). Los dos lados se mantienen a la par — todo catálogo poblado del backend tiene su gemelo en el frontend.
 
-`PopulatedLocales()` es la lista autoritativa (24 entradas): `en-US`, `ar-SA`, `bn-BD`, `da-DK`, `de-DE`, `es-ES`, `fi-FI`, `fr-FR`, `hi-IN`, `it-IT`, `ja-JP`, `ko-KR`, `nl-NL`, `pl-PL`, `pt-BR`, `ru-RU`, `sa-IN`, `sv-SE`, `th-TH`, `tr-TR`, `uk-UA`, `vi-VN`, `zh-CN`, `zh-TW`. Todo lo que no esté ahí se va al inglés. `IsPopulated(code)` es lo que usa la interfaz para deshabilitar una entrada no poblada en el selector de idioma.
+`PopulatedLocales()` es la lista autoritativa (48 entradas): `en-US`, `ar-AE`, `ar-EG`, `ar-SA`, `bn-BD`, `bn-IN`, `cs-CZ`, `da-DK`, `de-AT`, `de-CH`, `de-DE`, `en-AU`, `en-CA`, `en-GB`, `en-IN`, `en-NZ`, `en-ZA`, `es-AR`, `es-ES`, `es-MX`, `fi-FI`, `fr-BE`, `fr-CA`, `fr-CH`, `fr-FR`, `hi-IN`, `hr-HR`, `hu-HU`, `it-IT`, `ja-JP`, `ko-KR`, `nl-BE`, `nl-NL`, `pl-PL`, `pt-BR`, `pt-PT`, `ro-RO`, `ru-RU`, `sa-IN`, `sk-SK`, `sl-SI`, `sv-SE`, `th-TH`, `tr-TR`, `uk-UA`, `vi-VN`, `zh-CN`, `zh-TW`. Todo lo que no esté ahí se va al inglés. `IsPopulated(code)` es lo que usa la interfaz para deshabilitar una entrada no poblada en el selector de idioma.
+
+La lista se **deriva del mapa de catálogos en vez de escribirse a mano**: `buildPopulatedLocales()` lee las llaves de `catalogs` en el init, las ordena y fija `en-US` hasta adelante, e `IsPopulated` indexa `catalogs` directo. Antes era un literal de slice que se mantenía a mano, que tenía exactamente un modo de falla y era silencioso — un catálogo registrado en `catalogs` pero olvidado en el literal estaba traducido, se distribuía y nunca se ofrecía en el selector. `PopulatedLocales()` devuelve un clon, porque la lista ahora es estado del paquete en vez de un literal nuevo por llamada, y quien ordene o corte el resultado no debe poder afectar la siguiente llamada.
+
+### Variantes de País
+
+Un catálogo es de uno de dos tipos, y la diferencia está en cómo se escribe el archivo, no en cómo se escoge — los dos tipos están poblados y los dos salen en el selector.
+
+Un **catálogo de idioma** es una traducción, escrita completa: `de_de.go`, `cs_cz.go`, `ja_jp.go`.
+
+Un **catálogo de país** lo construye `derive(base, overrides)` (`src/i18n/derive.go`, con espejo en `ui/src/i18n/derive.js`) a partir del catálogo del idioma al que pertenece más únicamente las cadenas que ese país dice distinto. El alemán de Austria es alemán; la pregunta que contesta `de_at.go` no es "cómo se dice esto en alemán", sino "cuál de estas frases no la habría escrito alguien de Austria". Copiar `de-DE` dentro de `de_at.go` y editarle cuatro renglones significaría que la siguiente llave de mensaje que se agregue a `de-DE` le llegaría en silencio a Austria en inglés, y que una corrección en una cadena alemana habría que buscarla y repetirla en tres archivos. Heredar la base y enlistar nada más las diferencias mantiene una variante correcta por omisión: una llave nueva aterriza en todos lados en cuanto la tiene su idioma base.
+
+Dieciocho configuraciones regionales se derivan así:
+
+| Base | Derivadas de ella |
+| --- | --- |
+| `en-US` | `en-CA`, `en-GB` |
+| `en-GB` | `en-AU`, `en-IN`, `en-NZ`, `en-ZA` |
+| `de-DE` | `de-AT`, `de-CH` |
+| `fr-FR` | `fr-BE`, `fr-CA`, `fr-CH` |
+| `es-ES` → `es-latam` | `es-AR`, `es-MX` |
+| `pt-BR` | `pt-PT` |
+| `nl-NL` | `nl-BE` |
+| `ar-SA` | `ar-AE`, `ar-EG` |
+| `bn-BD` | `bn-IN` |
+
+`es-latam` (`src/i18n/es_latam.go`, `ui/src/i18n/es-latam.js`) es el único intermedio: trae las diferencias respecto del español peninsular que comparten todas las variedades americanas — `inválido` en vez de `no válido`, `agregar` en vez de `añadir`, comillas rectas en vez de `« »` — y tanto `es-AR` como `es-MX` se construyen encima de él. **No está registrado en `catalogs` y no se puede escoger**, porque es un fragmento compartido y no un lugar donde viva alguien; anunciarlo ofrecería un código de país que no lo es.
+
+Algunos mapas de sobrescrituras son chicos y varios (`en-CA`, `de-CH` en el backend, `es-MX`) están vacíos. Esa es la respuesta honesta para un panel de control técnico — el inglés de Canadá conserva las grafías estadounidenses en `-ize`, y ningún mensaje de `de_de.go` trae una `ß` a la que le pueda llegar la regla suiza del `ss` (el `de-CH.js` del frontend sí trae sobrescrituras reales, porque `de-DE.js` usa `ß`). Un mapa de sobrescrituras vacío de todos modos marca la configuración regional como revisada a propósito y no como olvidada.
+
+El esquema lo sostienen pruebas de los dos lados (`src/i18n/derive_test.go`, `ui/src/i18n/derive.test.js`): toda llave de sobrescritura tiene que existir en su base, toda sobrescritura tiene que diferir de veras de la cadena base que reemplaza, todo catálogo derivado tiene que traer el conjunto completo de llaves de su base, y todo catálogo derivado tiene que estar listado en la tabla `variants()` de la prueba — de modo que un catálogo de país no se puede distribuir sin que esas reglas le apliquen.
 
 **Todos los códigos de configuración regional traen una subetiqueta de región**, y `TestLocaleCodesAreRegionQualified` lo sostiene. El sumerio (`sux`) era la única excepción — un código ISO 639-3 pelón — y ya no está. Se quitó por su escritura, no por su forma: el cuneiforme vive en `U+12000`–`U+1254F`, para lo cual casi nada distribuye una fuente, así que en cualquier equipo sin Noto Sans Cuneiform todas las cadenas de esa configuración regional se pintaban como cuadritos de sustitución. La romanización que el catálogo traía entre paréntesis sí sobrevivía, lo cual lo hacía peor que estar en blanco — pedazos latinos y puntuación alrededor de agujeros. Renderizarlo con honestidad significaba empaquetar una fuente web (el catálogo usaba 45 puntos de código distintos, pero la tipografía completa pesa 462 K y hacer un subconjunto quiere `fonttools` en el host de compilación) y agregar maquinaria de `@font-face` que la interfaz no tiene, lo cual es mucho aparato para un idioma sin hablantes.
 
@@ -1930,7 +2032,15 @@ Un proveedor de contexto de React (`I18nProvider`) envuelve la aplicación y exp
 
 ### Detección, Almacenamiento y Sincronización de la Configuración Regional
 
-La interfaz escoge su idioma **primero desde el navegador**, no desde el ajuste global. Al cargar lee `navigator.languages` y compara las preferencias en orden contra los catálogos que se distribuyen: las variantes regionales se pliegan al idioma base (`de-AT` → `de-DE`), y el chino se desambigua por escritura/región (`zh-Hant` o una región `TW`/`HK`/`MO` → `zh-TW`, si no `zh-CN`). La comparación no distingue mayúsculas e intenta las etiquetas exactas de todas las preferencias antes de irse a las subetiquetas primarias.
+La interfaz escoge su idioma **primero desde el navegador**, no desde el ajuste global. Al cargar lee `navigator.languages` y compara las preferencias en orden contra los catálogos que se distribuyen. La comparación no distingue mayúsculas e intenta las etiquetas exactas de todas las preferencias antes de irse, en este orden, a:
+
+1. **Coincidencia exacta.** `de-CH` ya distribuye catálogo, así que `de-CH` se resuelve a `de-CH` en vez de plegarse a `de-DE`.
+2. **Chino por escritura/región.** `zh-Hant` o una región `TW`/`HK`/`MO` → `zh-TW`, si no `zh-CN`. La escritura es una señal más fuerte que cualquier valor predeterminado, así que esto corre antes que las dos reglas de abajo.
+3. **Un predeterminado regional con nombre.** Países que no distribuyen catálogo pero que leen una variante en vez del predeterminado de su idioma: América Latina hispanohablante → `es-MX`, el África lusófona y Timor → `pt-PT`, y los ingleses de Irlanda, África y el sur y sudeste de Asia → `en-GB`. Sin esto, `es-CO` recibiría el español peninsular y `en-IE` el estadounidense.
+4. **Un predeterminado de idioma con nombre.** `ar` → `ar-SA`, `bn` → `bn-BD`, `de` → `de-DE`, `en` → `en-US`, `es` → `es-ES`, `fr` → `fr-FR`, `nl` → `nl-NL`, `pt` → `pt-BR`.
+5. **Cualquier catálogo que comparta la subetiqueta primaria.**
+
+Los pasos 3 y 4 existen porque el respaldo antes era nada más el paso 5, y eso solo era correcto mientras cada idioma tenía exactamente un catálogo. Ahora ocho idiomas distribuyen más de uno: un navegador que pidiera un `en` pelón, o un `en-PH`, aterrizaría si no en el inglés que estuviera declarado primero en el objeto `catalogs`, con lo que la respuesta sería una propiedad del orden de importación en vez de una decisión que alguien tomó.
 
 Precedencia, de mayor a menor:
 
