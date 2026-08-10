@@ -832,6 +832,14 @@ type ReconcileDNSConfig struct {
 func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	tld := reconcileDNSTLD(cfg.SettingsMgr)
 
+	// Re-assert the blocklist provider lists. Rolodex keeps them in memory
+	// only, so a restart it performed without us — and a boot is exactly that
+	// — comes back with every configured blocklist switched off unless
+	// something puts them back.
+	if err := ReconcileBlocklists(ctx, cfg.Client, cfg.SettingsMgr); err != nil {
+		slog.Debug(fmt.Sprintf("rebuild DNS blocklists: %v", err))
+	}
+
 	// Teardown first so AddRecord (which appends, not upserts) does not
 	// create duplicate SOA/NS/A records on each rebuild.
 	if err := rolodex.TeardownTLD(ctx, cfg.Client, tld); err != nil {
@@ -1140,6 +1148,13 @@ func collectInstalledTLSA(cfg ReconcileDNSConfig, tld string) []rolodex.TLSAEntr
 func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	tld := reconcileDNSTLD(cfg.SettingsMgr)
 	zone := tld + "."
+
+	// Blocklists are diffed the same way the records below are, and for the
+	// same reason: rolodex can be restarted by anything at any time, and it
+	// remembers no provider list across one. Normally two reads and no writes.
+	if err := ReconcileBlocklists(ctx, cfg.Client, cfg.SettingsMgr); err != nil {
+		slog.Debug(fmt.Sprintf("reconcile DNS blocklists: %v", err))
+	}
 
 	// Ensure the authoritative zone and its SOA/NS/ns1 records exist.
 	// SetupTLD is a no-op if the zone is already present because AddRecord

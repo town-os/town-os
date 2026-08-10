@@ -463,3 +463,66 @@ func TestRolodexDnsblAllowlistOverridesLocalRblReal(t *testing.T) {
 	}
 	waitFor("the block to return once the allowlist entry is withdrawn", nxdomain)
 }
+
+// TestRolodexBlocklistsLoadFromConfigFileReal proves the mechanism that makes a
+// configured blocklist survive: rolodex keeps its provider lists in memory
+// only, so the ONLY thing a restarting rolodex reads them back from is
+// rolodex.yml. Nothing here makes a SetRblConfig/SetDnsblConfig call — the
+// container starts, and the lists are already there.
+//
+// The mocked tests cannot catch a regression in this: they stand in a fake
+// rolodex that echoes back whatever it was handed, so a config file rolodex
+// would ignore reads as success.
+func TestRolodexBlocklistsLoadFromConfigFileReal(t *testing.T) {
+	t.Parallel()
+	client, _ := initRolodexRealTestWith(t, nil,
+		rolodex.Blocklist{
+			Enabled:             true,
+			RefusalCooldownSecs: 900,
+			Providers: []rolodex.BlocklistProvider{
+				{Zone: "zen.spamhaus.org", Enabled: true, RefusalCodes: []string{"127.255.255.0/24"}},
+				{Zone: "bl.spamcop.net", Enabled: false},
+			},
+		},
+		rolodex.Blocklist{
+			Enabled:   true,
+			Providers: []rolodex.BlocklistProvider{{Zone: "dbl.spamhaus.org", Enabled: true}},
+		},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	rbl, err := client.GetRblConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetRblConfig: %v", err)
+	}
+	if !rbl.Enabled {
+		t.Fatal("RBL must come up enabled from the config file alone")
+	}
+	if rbl.RefusalCooldownSecs != 900 {
+		t.Fatalf("expected the configured cooldown, got %d", rbl.RefusalCooldownSecs)
+	}
+	if len(rbl.Providers) != 2 {
+		t.Fatalf("expected 2 RBL providers, got %d: %+v", len(rbl.Providers), rbl.Providers)
+	}
+	if rbl.Providers[0].Zone != "zen.spamhaus.org" || !rbl.Providers[0].Enabled {
+		t.Fatalf("unexpected first RBL provider: %+v", rbl.Providers[0])
+	}
+	if rbl.Providers[1].Enabled {
+		t.Fatalf("a provider configured off must come up off: %+v", rbl.Providers[1])
+	}
+	// A named refusal code must survive verbatim: it is what stops the
+	// provider's "stop querying me" answer being read as a listing.
+	if !slices.Contains(rbl.Providers[0].RefusalCodes, "127.255.255.0/24") {
+		t.Fatalf("refusal code lost: %+v", rbl.Providers[0].RefusalCodes)
+	}
+
+	dnsbl, err := client.GetDnsblConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetDnsblConfig: %v", err)
+	}
+	if !dnsbl.Enabled || len(dnsbl.Providers) != 1 || dnsbl.Providers[0].Zone != "dbl.spamhaus.org" {
+		t.Fatalf("DNSBL not loaded from the config file: %+v", dnsbl)
+	}
+}

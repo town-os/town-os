@@ -110,6 +110,14 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 // local stub DNS server so they work without internet access.
 func initRolodexRealTestForwarders(t *testing.T, forwarders []string) (rolodex.Client, string) {
 	t.Helper()
+	return initRolodexRealTestWith(t, forwarders, rolodex.Blocklist{}, rolodex.Blocklist{})
+}
+
+// initRolodexRealTestWith is initRolodexRealTestForwarders with blocklist
+// provider lists rendered into rolodex.yml, so a test can prove what a rolodex
+// starting from that file alone comes up holding.
+func initRolodexRealTestWith(t *testing.T, forwarders []string, rbl, dnsbl rolodex.Blocklist) (rolodex.Client, string) {
+	t.Helper()
 
 	dataDir := rolodexTempDir(t, "rolodex-data-*")
 	sd := systemd.NewManager()
@@ -129,6 +137,8 @@ func initRolodexRealTestForwarders(t *testing.T, forwarders []string) (rolodex.C
 		// upstream; rolodex's default is recursive-from-roots, so opt into
 		// forward mode here.
 		ResolutionMode: rolodex.ResolutionModeForward,
+		RBL:            rbl,
+		DNSBL:          dnsbl,
 	})
 
 	if _, err := mgr.WriteConfig(); err != nil {

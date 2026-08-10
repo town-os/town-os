@@ -214,6 +214,17 @@ func (s *SystemControllerHandlers) setRblConfig(c *echo.Context) error {
 		})
 	}
 
+	// Persist BEFORE pushing, and render the config file before the live push
+	// too. Rolodex persists none of this itself, so the stored setting is the
+	// source of truth: if the push below fails, ReconcileBlocklists converges
+	// the live server on the next pass, whereas a push that succeeded without
+	// being stored would quietly evaporate at the next rolodex restart.
+	stored := RblConfigRequest{Enabled: req.Enabled, Providers: cleaned, RefusalCooldownSecs: req.RefusalCooldownSecs}
+	if err := saveStoredBlocklist(s.Controller.GetSettingsManager(), settingDNSRblConfig, stored); err != nil {
+		return echo.NewHTTPError(500, fmt.Sprintf("save rbl config: %v", err))
+	}
+	s.syncRolodexBlocklistConfig()
+
 	if err := rc.SetRblConfig(c.Request().Context(), req.Enabled, providers, req.RefusalCooldownSecs); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("set rbl config: %v", err))
 	}
@@ -268,6 +279,15 @@ func (s *SystemControllerHandlers) setDnsblConfig(c *echo.Context) error {
 			RefusalCooldownSecs: p.RefusalCooldownSecs,
 		})
 	}
+
+	// Persisted first, for the same reason as the RBL twin: rolodex forgets
+	// this on every restart, so the stored setting is what makes the toggle
+	// stay where the operator put it.
+	stored := RblConfigRequest{Enabled: req.Enabled, Providers: cleaned, RefusalCooldownSecs: req.RefusalCooldownSecs}
+	if err := saveStoredBlocklist(s.Controller.GetSettingsManager(), settingDNSDnsblConfig, stored); err != nil {
+		return echo.NewHTTPError(500, fmt.Sprintf("save dnsbl config: %v", err))
+	}
+	s.syncRolodexBlocklistConfig()
 
 	if err := rc.SetDnsblConfig(c.Request().Context(), req.Enabled, providers, req.RefusalCooldownSecs); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("set dnsbl config: %v", err))

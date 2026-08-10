@@ -469,6 +469,14 @@ func run() (err error) {
 	// why the integration harness relocates it.
 	dnsPort := dnsPortFromEnv()
 
+	// The blocklist provider lists are rendered into rolodex.yml from the
+	// persisted settings, because rolodex keeps them in memory only and would
+	// otherwise come up with every configured blocklist switched off. The
+	// gRPC re-assert in RebuildDNS is the repair path; this is what makes
+	// rolodex correct from its first second, including the window before the
+	// systemcontroller has finished booting.
+	storedRBL, storedDNSBL := systemcontroller.StoredBlocklists(settingsMgr)
+
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:        sd,
 		DataDir:        rolDataDir,
@@ -477,6 +485,8 @@ func run() (err error) {
 		ResolutionMode: resolutionMode,
 		DNSPort:        dnsPort,
 		MetricsPort:    rolodexMetricsPortFromEnv(),
+		RBL:            storedRBL,
+		DNSBL:          storedDNSBL,
 	})
 	configWritten, configErr := rolMgr.WriteConfig()
 	if configErr != nil {

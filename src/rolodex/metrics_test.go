@@ -15,7 +15,7 @@ import (
 // starts and the scrape job goes permanently down.
 func TestRolodexConfigWritesMetricsSection(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode, DefaultMetricsPort)
+	cfg := rolodexConfig(rolodexConfigParams{Port: DefaultDNSPort, Forwarders: DefaultForwarders, Mode: DefaultResolutionMode, MetricsPort: DefaultMetricsPort})
 	want := "metrics:\n  bind: \"" + DNSLoopback + ":" + DefaultMetricsPort + "\"\n"
 	if !strings.Contains(cfg, want) {
 		t.Fatalf("expected metrics section %q, got:\n%s", want, cfg)
@@ -27,7 +27,7 @@ func TestRolodexConfigWritesMetricsSection(t *testing.T) {
 // concurrent test run must be able to relocate it — IRON RULE.
 func TestRolodexConfigMetricsPortOverride(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode, "39153")
+	cfg := rolodexConfig(rolodexConfigParams{Port: DefaultDNSPort, Forwarders: DefaultForwarders, Mode: DefaultResolutionMode, MetricsPort: "39153"})
 	if !strings.Contains(cfg, "\n  bind: \""+DNSLoopback+":39153\"\n") {
 		t.Fatalf("expected overridden metrics port, got:\n%s", cfg)
 	}
@@ -40,7 +40,7 @@ func TestRolodexConfigMetricsPortOverride(t *testing.T) {
 // the default", the same convention every other port field here follows.
 func TestRolodexConfigEmptyMetricsPortDefaults(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(DefaultDNSPort, DefaultForwarders, DefaultResolutionMode, "")
+	cfg := rolodexConfig(rolodexConfigParams{Port: DefaultDNSPort, Forwarders: DefaultForwarders, Mode: DefaultResolutionMode, MetricsPort: ""})
 	if !strings.Contains(cfg, "\n  bind: \""+DNSLoopback+":"+DefaultMetricsPort+"\"\n") {
 		t.Fatalf("expected default metrics port when unset, got:\n%s", cfg)
 	}
