@@ -14,6 +14,11 @@ const (
 	// that does not reveal whether the account exists.
 	MsgAuthInvalidCredentials = "auth.invalid_credentials" //nolint:gosec // G101 -- message key, not a credential
 
+	// MsgAuthNotConfigured indicates the server has no session manager while
+	// authentication is enabled — a misconfiguration, not a caller error. The
+	// request is refused rather than admitted; see ServerConfig.AuthDisabled.
+	MsgAuthNotConfigured = "auth.not_configured"
+
 	// MsgAccountAdminStatusImmutable indicates admin status cannot be changed.
 	MsgAccountAdminStatusImmutable = "account.admin_status_immutable"
 	// MsgAccountListError indicates a failure listing accounts.

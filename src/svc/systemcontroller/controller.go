@@ -26,6 +26,12 @@ type systemControllerBackend interface {
 	GetSystemdManager() systemd.Manager
 	GetAccountManager() account.Manager
 	GetSessionManager() account.SessionManager
+	// IsAuthDisabled reports whether every authentication and authorization
+	// check is turned off. See ServerConfig.AuthDisabled — it is deliberately
+	// not inferred from GetSessionManager() being nil. (Named Is... rather
+	// than matching the field: serverBase embeds ServerConfig, so a method
+	// spelled AuthDisabled would collide with the field it reads.)
+	IsAuthDisabled() bool
 	GetAuditManager() account.AuditManager
 	GetSettingsManager() account.SettingsManager
 	GetGitClient() git.Client
@@ -428,6 +434,25 @@ type ServerConfig struct {
 	// for HTTP-supplying packages. nil disables TLS termination and leaves
 	// HTTP endpoints as plain TCP forwarders.
 	TLSCA *townostls.CA
+
+	// AuthDisabled turns off every authentication and authorization check,
+	// serving each route as though the caller were an administrator.
+	//
+	// It exists for tests, and it is a field rather than an inference for one
+	// reason: the auth middleware used to derive the same condition from
+	// SessionMgr being nil, which made "authentication is not configured" and
+	// "authentication is wide open" the same state. The whole authorization
+	// surface then sat one unset field away from admitting everybody, and
+	// nothing in the type system said so — a production path that failed to
+	// wire a session manager would have served /account/create and
+	// /packages/install to an anonymous caller with no error anywhere.
+	//
+	// Stated explicitly, a missing session manager is a configuration failure
+	// that InitServer refuses to start with, and only a caller who asked for
+	// no auth gets none. InitTestServer asks for it on behalf of the ~230 test
+	// call sites that never install a session manager; a test that does
+	// install one keeps its auth enforced exactly as before.
+	AuthDisabled bool
 }
 
 func withContext(parent context.Context, handler http.Handler) http.Handler {

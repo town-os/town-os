@@ -9,6 +9,7 @@ var enUSMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "invalid credentials",
+	MsgAuthNotConfigured:      "authentication is not configured",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "admin status cannot be changed after account creation",

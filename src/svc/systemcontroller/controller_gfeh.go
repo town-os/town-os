@@ -207,7 +207,7 @@ func (s *SystemControllerHandlers) gfehClientFor(c *echo.Context, network string
 // account may do remains the route's own question — it cannot reach any of the
 // mutators, which are requireObjectStorage.
 func (s *SystemControllerHandlers) requireNetworkScope(c *echo.Context, network string) error {
-	if s.Controller.GetSessionManager() == nil {
+	if s.Controller.IsAuthDisabled() {
 		return nil
 	}
 	acct := s.callingAccount(c)

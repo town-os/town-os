@@ -9,6 +9,7 @@ var ptBRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "credenciais inválidas",
+	MsgAuthNotConfigured:      "a autenticação não está configurada",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "o status de administrador não pode ser alterado após a criação da conta",

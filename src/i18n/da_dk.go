@@ -9,6 +9,7 @@ var daDKMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "ugyldige loginoplysninger",
+	MsgAuthNotConfigured:      "godkendelse er ikke konfigureret",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "administratorstatus kan ikke ændres efter oprettelse af konto",

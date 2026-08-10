@@ -9,6 +9,7 @@ var koKRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "인증 정보가 올바르지 않습니다",
+	MsgAuthNotConfigured:      "인증이 구성되지 않았습니다",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "계정 생성 후에는 관리자 상태를 변경할 수 없습니다",

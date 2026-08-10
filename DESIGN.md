@@ -979,6 +979,14 @@ Sessions use JWT tokens (HS256) with claims for session ID (UUID), username, and
 
 **A disabled account's token is dead on arrival.** `Validate` checks `Disabled` and refuses, because every request after sign-in is authorized from that function alone: without the check, disabling an account only stopped it logging in *again*, while a token it already held stayed good for the full session lifetime and refreshed itself by its own use.
 
+**No session manager means no service, not open service.** Every authorization decision on the box used to be derived from one nil: `requireAuth`, `requireAdmin`, `requireGrant`, `revokeSession`, `requireNetworkScope`, and `callerIsAdmin` each read `GetSessionManager() == nil` as "authentication is not configured, so let it through". That made *there is nobody to authenticate* and *everybody is authorized* the same state — the whole authorization surface one unset field away from serving `POST /account/create` and `POST /packages/install` to an anonymous caller, on a controller that drives the host podman socket as root, with nothing in the type system saying so and no error if it happened.
+
+The condition is now **`ServerConfig.AuthDisabled`: stated, not inferred**. A missing session manager with auth enabled is a misconfiguration, and `NewHandler` returns `ErrAuthNotConfigured` rather than a handler — refusing at construction rather than per-request, because a box that boots and then answers 500 on every authenticated route is a confusing outage, while one that will not start says what is wrong once, in the journal, while it can still be fixed. The middleware refuses the same state too, so a handler set assembled by any other path is closed as well.
+
+`InitTestServer` sets `AuthDisabled` when — and only when — the config installs no session manager. That is what keeps the ~230 test call sites that never build one working unchanged, while a test that *does* build one keeps its auth enforced; disabling it there would turn every authorization assertion in the suite into a tautology.
+
+`callerIsAdmin` is the one place the answer changed rather than moved: it returns **false** for an unidentifiable caller, where it used to return true. Every route reaching it sits behind `requireAuth` or `requireAdmin`, both of which now refuse that state outright, so it is unreachable in practice — but a redaction helper is the wrong place to be generous on the strength of that.
+
 The `SessionManager` interface provides: `Create`, `Validate`, `Revoke`, `RevokeAllForUser`, `Cleanup`, `List`, `GetUsername`, `HasActiveAdminSessions`, and `StartCleanup`.
 
 Session API endpoints:

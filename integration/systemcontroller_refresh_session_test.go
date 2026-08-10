@@ -105,12 +105,15 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 	bs1 := systemcontroller.NewBootStatus()
 	ctx1, cancel1 := context.WithCancel(t.Context())
 	t.Cleanup(cancel1)
-	gen1 := systemcontroller.NewHandler(ctx1, systemcontroller.ServerConfig{
+	gen1, err := systemcontroller.NewHandler(ctx1, systemcontroller.ServerConfig{
 		Storage:    storage.InitBtrFS("/town-os"),
 		AccountMgr: acctMgr,
 		SessionMgr: sess1,
 		BootID:     bs1.BootID(),
 	})
+	if err != nil {
+		t.Fatalf("NewHandler gen1: %v", err)
+	}
 	root := systemcontroller.NewRootHandler(gen1)
 	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
@@ -180,12 +183,16 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 
 	ctx2, cancel2 := context.WithCancel(t.Context())
 	t.Cleanup(cancel2)
-	root.Swap(systemcontroller.NewHandler(ctx2, systemcontroller.ServerConfig{
+	gen2, err := systemcontroller.NewHandler(ctx2, systemcontroller.ServerConfig{
 		Storage:    storage.InitBtrFS("/town-os"),
 		AccountMgr: acctMgr,
 		SessionMgr: sess2,
 		BootID:     bs2.BootID(),
-	}))
+	})
+	if err != nil {
+		t.Fatalf("NewHandler gen2: %v", err)
+	}
+	root.Swap(gen2)
 	bs2.Done()
 
 	// THE BUG, in one assertion: the successor answers the operator's token

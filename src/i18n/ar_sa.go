@@ -9,6 +9,7 @@ var arSAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "بيانات اعتماد غير صالحة",
+	MsgAuthNotConfigured:      "لم يتم تكوين المصادقة",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "لا يمكن تغيير حالة المسؤول بعد إنشاء الحساب",

@@ -864,7 +864,7 @@ func run() (err error) {
 			len(failed), strings.Join(failed, ", "))
 	}
 
-	handler := systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{
+	handler, err := systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{
 		Storage:                    st,
 		RepositoryRoot:             rr,
 		Installer:                  inst,
@@ -896,6 +896,14 @@ func run() (err error) {
 		// per process and can tell this incarnation from its predecessor.
 		BootID: bs.BootID(),
 	})
+	// Fatal, and deliberately so: sessMgr is built unconditionally at step 7,
+	// so reaching here without one means the boot sequence broke. Swapping in
+	// a router that cannot authenticate anybody would leave the box either
+	// wide open or answering 500 on every route, and both are worse than
+	// saying why and stopping.
+	if err != nil {
+		return fmt.Errorf("create HTTP handler: %w", err)
+	}
 
 	// Atomically swap the root handler from the boot-status stub to the
 	// full Echo router. The listener socket has been bound the entire

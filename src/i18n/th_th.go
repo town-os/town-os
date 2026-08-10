@@ -9,6 +9,7 @@ var thTHMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "ข้อมูลรับรองไม่ถูกต้อง",
+	MsgAuthNotConfigured:      "ยังไม่ได้กำหนดค่าการยืนยันตัวตน",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "ไม่สามารถเปลี่ยนสถานะผู้ดูแลระบบได้หลังจากสร้างบัญชีแล้ว",

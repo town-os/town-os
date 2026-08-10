@@ -9,6 +9,7 @@ var zhTWMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "認證資訊無效",
+	MsgAuthNotConfigured:      "尚未設定驗證",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "帳號建立後無法變更管理員狀態",

@@ -9,6 +9,7 @@ var nlNLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "ongeldige inloggegevens",
+	MsgAuthNotConfigured:      "authenticatie is niet geconfigureerd",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "beheerdersstatus kan na het aanmaken van het account niet meer worden gewijzigd",

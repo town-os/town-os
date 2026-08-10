@@ -295,7 +295,12 @@ func TestNewHandlerStartsNetworkPoller(t *testing.T) {
 
 	// NewHandler should not panic and should start the network poller.
 	// The actual ipinfo.io fetch will either succeed or timeout gracefully.
-	handler := NewHandler(ctx, ServerConfig{})
+	// AuthDisabled is explicit because this config has no session manager and
+	// NewHandler refuses to serve an unauthenticated box by accident.
+	handler, err := NewHandler(ctx, ServerConfig{AuthDisabled: true})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
 	if handler == nil {
 		t.Fatal("expected non-nil handler from NewHandler")
 	}

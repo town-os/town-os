@@ -178,10 +178,18 @@ func TestBootStatusRefreshGenerationHandoff(t *testing.T) {
 	// --- Generation 1 finishes booting: swap in the full Echo router. ---
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
-	root.Swap(systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{
+	full, err := systemcontroller.NewHandler(ctx, systemcontroller.ServerConfig{
 		Storage: btr,
 		BootID:  bs1.BootID(),
-	}))
+		// This test is about the boot-status stub and the handler swap, not
+		// about auth, and it installs no session manager — so it has to say
+		// so, since NewHandler will not infer it.
+		AuthDisabled: true,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	root.Swap(full)
 	bs1.Done()
 
 	// This is the state the refresh dialog opens against: a fully booted

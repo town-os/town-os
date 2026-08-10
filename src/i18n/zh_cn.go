@@ -9,6 +9,7 @@ var zhCNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "凭据无效",
+	MsgAuthNotConfigured:      "未配置身份验证",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "账户创建后无法更改管理员状态",

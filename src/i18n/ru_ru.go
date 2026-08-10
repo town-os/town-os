@@ -9,6 +9,7 @@ var ruRUMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "неверные учётные данные",
+	MsgAuthNotConfigured:      "аутентификация не настроена",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "статус администратора нельзя изменить после создания учётной записи",

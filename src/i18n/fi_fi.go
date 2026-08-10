@@ -9,6 +9,7 @@ var fiFIMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "virheelliset tunnistetiedot",
+	MsgAuthNotConfigured:      "todennusta ei ole määritetty",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "ylläpitäjän asemaa ei voi muuttaa tilin luonnin jälkeen",

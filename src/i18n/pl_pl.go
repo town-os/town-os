@@ -9,6 +9,7 @@ var plPLMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "nieprawidłowe dane logowania",
+	MsgAuthNotConfigured:      "uwierzytelnianie nie jest skonfigurowane",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "statusu administratora nie można zmienić po utworzeniu konta",

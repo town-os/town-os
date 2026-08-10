@@ -9,6 +9,7 @@ var trTRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "geçersiz kimlik bilgileri",
+	MsgAuthNotConfigured:      "kimlik doğrulama yapılandırılmamış",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "yönetici durumu hesap oluşturulduktan sonra değiştirilemez",

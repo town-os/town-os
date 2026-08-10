@@ -146,6 +146,12 @@ func (b *archiveTestBackend) GetInstaller() packages.Installer                  
 func (b *archiveTestBackend) GetSystemdManager() systemd.Manager                  { return nil }
 func (b *archiveTestBackend) GetAccountManager() account.Manager                  { return nil }
 func (b *archiveTestBackend) GetSessionManager() account.SessionManager           { return nil }
+
+// IsAuthDisabled is true because this fake has no session manager: the archive
+// handlers under test are reached through requireAdmin, which now refuses a box
+// that can authenticate nobody rather than waving it through.
+func (b *archiveTestBackend) IsAuthDisabled() bool { return true }
+
 func (b *archiveTestBackend) GetAuditManager() account.AuditManager               { return nil }
 func (b *archiveTestBackend) GetSettingsManager() account.SettingsManager         { return b.settingsMgr }
 func (b *archiveTestBackend) GetGitClient() git.Client                            { return nil }

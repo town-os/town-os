@@ -9,6 +9,7 @@ var jaJPMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "認証情報が正しくありません",
+	MsgAuthNotConfigured:      "認証が構成されていません",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "アカウント作成後に管理者ステータスは変更できません",

@@ -9,6 +9,7 @@ var svSEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "ogiltiga inloggningsuppgifter",
+	MsgAuthNotConfigured:      "autentisering är inte konfigurerad",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "administratörsstatus kan inte ändras efter att kontot skapats",

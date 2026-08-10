@@ -9,6 +9,7 @@ var hiINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "अमान्य प्रमाण-पत्र",
+	MsgAuthNotConfigured:      "प्रमाणीकरण कॉन्फ़िगर नहीं किया गया है",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "खाता बनने के बाद व्यवस्थापक स्थिति बदली नहीं जा सकती",

@@ -9,6 +9,7 @@ var esESMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "credenciales no válidas",
+	MsgAuthNotConfigured:      "la autenticación no está configurada",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "el estado de administrador no se puede cambiar después de crear la cuenta",

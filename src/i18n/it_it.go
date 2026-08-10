@@ -9,6 +9,7 @@ var itITMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "credenziali non valide",
+	MsgAuthNotConfigured:      "l'autenticazione non è configurata",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "lo stato di amministratore non può essere modificato dopo la creazione dell'account",

@@ -107,9 +107,13 @@ func (s *SystemControllerHandlers) revokeSession(c *echo.Context) error {
 
 	sm := s.Controller.GetSessionManager()
 	if sm == nil {
-		// No session manager means authentication is not configured at all, the
-		// same condition every auth middleware treats as "let it through".
-		// There is also nothing to revoke.
+		// With auth disabled there is no session store, so there is nothing to
+		// revoke and nothing was missed — 200 is honest. With auth enabled
+		// this is a misconfigured box, and reporting success for a revocation
+		// that did not happen is the one answer an operator must not get.
+		if !s.Controller.IsAuthDisabled() {
+			return echo.NewHTTPError(500, i18n.T(locale, i18n.MsgAuthNotConfigured))
+		}
 		c.Response().WriteHeader(200)
 		return nil
 	}
@@ -185,11 +189,14 @@ func extractBearerToken(r *http.Request) string {
 
 func (s *SystemControllerHandlers) requireAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		if s.Controller.GetSessionManager() == nil {
+		if s.Controller.IsAuthDisabled() {
 			return next(c)
 		}
 
 		locale := s.getLocale()
+		if s.Controller.GetSessionManager() == nil {
+			return echo.NewHTTPError(500, i18n.T(locale, i18n.MsgAuthNotConfigured))
+		}
 		token := extractBearerToken(c.Request())
 		if token == "" {
 			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
@@ -252,11 +259,18 @@ func (s *SystemControllerHandlers) localhostOrAdmin(next echo.HandlerFunc) echo.
 
 func (s *SystemControllerHandlers) requireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		if s.Controller.GetSessionManager() == nil {
+		if s.Controller.IsAuthDisabled() {
 			return next(c)
 		}
 
 		locale := s.getLocale()
+		if s.Controller.GetSessionManager() == nil {
+			// Auth was not disabled, so this is a box with no way to
+			// authenticate anybody rather than one that asked for none.
+			// Refusing is the only safe reading: admitting would serve
+			// every route to an anonymous caller.
+			return echo.NewHTTPError(500, i18n.T(locale, i18n.MsgAuthNotConfigured))
+		}
 		token := extractBearerToken(c.Request())
 		if token == "" {
 			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
@@ -295,12 +309,18 @@ func (s *SystemControllerHandlers) callingAccount(c *echo.Context) *account.Acco
 //
 // It exists for handlers that serve everybody but must serve an administrator
 // more — where the alternative is two routes returning two shapes of the same
-// thing. A nil session manager means authentication is not configured at all,
-// the same condition every auth middleware treats as "let it through", so it
-// answers true there: a handler must not redact its way to being useless on a
-// box that has no accounts.
+// thing. With auth disabled it answers true: a handler must not redact its way
+// to being useless on a box that deliberately has no authentication.
+//
+// A nil session manager with auth still enabled answers false, not true. That
+// is the direction that matters: the caller is unidentifiable, and the choice
+// is between showing an unidentified caller everything and showing them the
+// public view. Every route reaching here is behind requireAuth or
+// requireAdmin, both of which now refuse that state outright, so in practice
+// this is unreachable — but a redaction helper is the wrong place to be
+// generous on the strength of that.
 func (s *SystemControllerHandlers) callerIsAdmin(c *echo.Context) bool {
-	if s.Controller.GetSessionManager() == nil {
+	if s.Controller.IsAuthDisabled() {
 		return true
 	}
 	acct := s.callingAccount(c)
@@ -405,10 +425,13 @@ func (s *SystemControllerHandlers) grantAllowlist(next echo.HandlerFunc) echo.Ha
 func (s *SystemControllerHandlers) requireGrant(grant, message string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if s.Controller.GetSessionManager() == nil {
+			if s.Controller.IsAuthDisabled() {
 				return next(c)
 			}
 			locale := s.getLocale()
+			if s.Controller.GetSessionManager() == nil {
+				return echo.NewHTTPError(500, i18n.T(locale, i18n.MsgAuthNotConfigured))
+			}
 			token := extractBearerToken(c.Request())
 			if token == "" {
 				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))

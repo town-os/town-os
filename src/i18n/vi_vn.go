@@ -9,6 +9,7 @@ var viVNMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "thông tin đăng nhập không hợp lệ",
+	MsgAuthNotConfigured:      "xác thực chưa được cấu hình",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "không thể thay đổi trạng thái quản trị viên sau khi tạo tài khoản",

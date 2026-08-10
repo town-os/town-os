@@ -9,6 +9,7 @@ var saINMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "अमान्यानि प्रमाणपत्राणि",
+	MsgAuthNotConfigured:      "प्रमाणीकरणं न विन्यस्तम्",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "खातासृष्टेः अनन्तरं प्रशासकपदं परिवर्तयितुं न शक्यते",

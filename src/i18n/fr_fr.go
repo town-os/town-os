@@ -9,6 +9,7 @@ var frFRMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "identifiants invalides",
+	MsgAuthNotConfigured:      "l'authentification n'est pas configurée",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "le statut d'administrateur ne peut pas être modifié après la création du compte",

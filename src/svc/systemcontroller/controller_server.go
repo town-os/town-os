@@ -3,6 +3,7 @@ package systemcontroller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -153,6 +154,7 @@ func (s *serverBase) GetInstaller() packages.Installer            { return s.Ins
 func (s *serverBase) GetSystemdManager() systemd.Manager          { return s.Systemd }
 func (s *serverBase) GetAccountManager() account.Manager          { return s.AccountMgr }
 func (s *serverBase) GetSessionManager() account.SessionManager   { return s.SessionMgr }
+func (s *serverBase) IsAuthDisabled() bool                        { return s.AuthDisabled }
 func (s *serverBase) GetAuditManager() account.AuditManager       { return s.AuditMgr }
 func (s *serverBase) GetSettingsManager() account.SettingsManager { return s.SettingsMgr }
 func (s *serverBase) GetGitClient() git.Client {
@@ -1058,10 +1060,24 @@ func configureRouter(ctx context.Context, sc systemControllerBackend) http.Handl
 	return e
 }
 
+// ErrAuthNotConfigured is returned by NewHandler for a config that installs no
+// session manager without setting AuthDisabled.
+var ErrAuthNotConfigured = errors.New("no session manager and AuthDisabled is not set: refusing to serve without authentication")
+
 // NewHandler creates an http.Handler for the given ServerConfig.
 // The system hostname is automatically added to AllowedHosts.
 // The external IP poller is started in the background using the provided context.
-func NewHandler(ctx context.Context, cfg ServerConfig) http.Handler {
+//
+// It returns ErrAuthNotConfigured rather than a handler when there is no
+// session manager and auth was not explicitly disabled. The middleware refuses
+// that state per-request too, but a box that boots and then 500s every
+// authenticated route is a confusing outage; refusing to start says what is
+// wrong once, in the journal, at the moment it can still be fixed.
+func NewHandler(ctx context.Context, cfg ServerConfig) (http.Handler, error) {
+	if cfg.SessionMgr == nil && !cfg.AuthDisabled {
+		return nil, ErrAuthNotConfigured
+	}
+
 	cfg.AllowedHosts = append(cfg.AllowedHosts, "localhost")
 	if hostname, err := os.Hostname(); err == nil {
 		// The bare hostname plus the two qualified forms a browser on the LAN
@@ -1082,7 +1098,7 @@ func NewHandler(ctx context.Context, cfg ServerConfig) http.Handler {
 	}
 	sb := &serverBase{ServerConfig: cfg}
 	sb.startNetworkPoller(ctx)
-	return configureRouter(ctx, sb)
+	return configureRouter(ctx, sb), nil
 }
 
 // --- TestServer ---
@@ -1094,7 +1110,19 @@ type TestServer struct {
 	cancel context.CancelFunc
 }
 
+// InitTestServer builds an in-process server for tests.
+//
+// It turns auth off for a config that installs no session manager. Most tests
+// are about storage, packages, or DNS and never construct one; before
+// ServerConfig.AuthDisabled existed the middleware inferred the same thing from
+// SessionMgr being nil, which is exactly the fail-open the flag replaced. Doing
+// it here keeps those ~230 call sites working while the production path gets no
+// such inference — and a test that DOES install a session manager is untouched,
+// so the auth suites still exercise real enforcement.
 func InitTestServer(cfg ServerConfig) *TestServer {
+	if cfg.SessionMgr == nil {
+		cfg.AuthDisabled = true
+	}
 	ts := &TestServer{}
 	ts.ServerConfig = cfg
 	ctx, cancel := context.WithCancel(context.Background())

@@ -9,6 +9,7 @@ var bnBDMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "অবৈধ শংসাপত্র",
+	MsgAuthNotConfigured:      "প্রমাণীকরণ কনফিগার করা হয়নি",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "অ্যাকাউন্ট তৈরির পরে অ্যাডমিন স্ট্যাটাস পরিবর্তন করা যায় না",

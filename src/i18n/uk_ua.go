@@ -9,6 +9,7 @@ var ukUAMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "недійсні облікові дані",
+	MsgAuthNotConfigured:      "автентифікацію не налаштовано",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "статус адміністратора не можна змінити після створення облікового запису",

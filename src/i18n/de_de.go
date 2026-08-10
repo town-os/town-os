@@ -9,6 +9,7 @@ var deDEMessages = map[string]string{ //nolint:gosec // G101 -- map keys are mes
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "ungültige Anmeldedaten",
+	MsgAuthNotConfigured:      "Authentifizierung ist nicht konfiguriert",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "Administratorstatus kann nach der Kontoerstellung nicht geändert werden",

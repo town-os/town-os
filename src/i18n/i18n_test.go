@@ -88,6 +88,7 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 		MsgAuthInvalidSession,
 		MsgAuthAdminRequired,
 		MsgAuthInvalidCredentials,
+		MsgAuthNotConfigured,
 		MsgAccountAdminStatusImmutable,
 		MsgAccountListError,
 		MsgAccountCheckSessions,
