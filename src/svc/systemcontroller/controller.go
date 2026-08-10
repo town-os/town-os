@@ -19,11 +19,46 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-type systemControllerBackend interface {
+// The backend is decomposed into role interfaces below, and
+// systemControllerBackend is their composition.
+//
+// This is a naming exercise, not a behavior change: the composed method set is
+// byte-for-byte what it was, every handler still receives the whole thing
+// through s.Controller, and no call site changes. What it buys is that the
+// subsystems now have names, so a helper CAN take the two or three methods it
+// actually uses instead of the world.
+//
+// **New handlers and helpers should take the narrowest role interface they
+// need as a parameter**, rather than reaching through s.Controller. That is the
+// only way this stops growing. It reached forty-four methods because there was
+// never a smaller thing to ask for: adding a subsystem meant adding a getter
+// here, which meant every implementation and every fake grew a method, and no
+// function anywhere declared what it actually depended on. `interfacebloat` is
+// deliberately disabled in .golangci.yml, so nothing was going to say so.
+//
+// Retrofitting the existing handlers is deliberately NOT part of this: it would
+// touch every file in the package for no behavior change and bury the parts of
+// this branch that do change behavior. The boundary is drawn; adoption is
+// incremental.
+
+// storageBackend is btrfs volumes and where they live on disk.
+type storageBackend interface {
 	GetStorage() storage.Storage
+	GetBtrfsBasePath() string
+}
+
+// packageBackend is the package repository and the installed-package record.
+type packageBackend interface {
 	GetRepositoryRoot() *packages.RepositoryRoot
 	GetInstaller() packages.Installer
-	GetSystemdManager() systemd.Manager
+	GetGitClient() git.Client
+	GetGitCloner() packages.GitCloner
+	GetDefaultRepoCredentials() (string, string)
+	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
+}
+
+// authBackend is who the caller is and what they may do.
+type authBackend interface {
 	GetAccountManager() account.Manager
 	GetSessionManager() account.SessionManager
 	// IsAuthDisabled reports whether every authentication and authorization
@@ -34,22 +69,25 @@ type systemControllerBackend interface {
 	IsAuthDisabled() bool
 	GetAuditManager() account.AuditManager
 	GetSettingsManager() account.SettingsManager
-	GetGitClient() git.Client
 	GetAllowedHosts() []string
-	GetDefaultRepoCredentials() (string, string)
-	GetBtrfsBasePath() string
+}
+
+// networkBackend is the WireGuard overlays, the addresses this box answers on,
+// and the per-package network state the network controllers read.
+type networkBackend interface {
+	GetNetworkManager() account.NetworkManager
 	GetNetworkControllerImage() string
 	GetNetworkStatePath() string
 	GetExternalIP() string
 	GetInternalIP() string
 	GetInternalIPv6() string
-	GetGitCloner() packages.GitCloner
-	GetPagesManager() account.PagesManager
-	GetNetworkManager() account.NetworkManager
-	GetMonitoringBackend() string
-	GetDiskDevices() []string
-	GetMonitoringPorts() monitoring.Ports
-	RefreshMonitoringBackend(ctx context.Context, backend string) error
+}
+
+// dnsBackend is rolodex: the zone, and the knobs that re-render its config.
+type dnsBackend interface {
+	GetRolodex() *rolodex.Manager
+	GetRolodexClient() rolodex.Client
+	GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string)
 	// RefreshDNSResolutionMode switches rolodex between recursive-from-roots
 	// and forwarding to its upstream resolvers, taking effect immediately.
 	RefreshDNSResolutionMode(ctx context.Context, mode string) error
@@ -57,18 +95,40 @@ type systemControllerBackend interface {
 	// public defaults and the resolvers this box's own network handed it,
 	// taking effect immediately.
 	RefreshDNSLocalForwarders(ctx context.Context, enabled bool) error
-	GetRolodex() *rolodex.Manager
-	GetRolodexClient() rolodex.Client
+}
+
+// serviceBackend is the system services the controller supervises alongside
+// packages: the ingress, the UI, pages, object storage, and monitoring.
+type serviceBackend interface {
+	GetSystemdManager() systemd.Manager
 	GetIngress() *ingressctl.Manager
 	GetIngressClient() ingress.Client
 	GetUI() *ui.Manager
+	GetPagesManager() account.PagesManager
 	GetGfehRegistry() GfehRegistry
-	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
-	GetResolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string)
+	GetMonitoringBackend() string
+	GetMonitoringPorts() monitoring.Ports
+	GetDiskDevices() []string
+	RefreshMonitoringBackend(ctx context.Context, backend string) error
+}
+
+// processBackend is what this process is: its own image, its listener, its
+// incarnation, and the CA it issues leaves from.
+type processBackend interface {
 	GetSystemControllerImage() string
 	GetSystemControllerListenAddr() string
 	GetBootID() string
 	GetTLSCA() *townostls.CA
+}
+
+type systemControllerBackend interface {
+	storageBackend
+	packageBackend
+	authBackend
+	networkBackend
+	dnsBackend
+	serviceBackend
+	processBackend
 }
 
 type SystemController interface {
