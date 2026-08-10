@@ -7,9 +7,12 @@ rules, and code style live in [CLAUDE.md](CLAUDE.md).
 A behavioral change belongs in this file as part of the same commit that makes
 it. A change to how the repo is built or tested belongs in CLAUDE.md.
 
-A Chinese translation of this file is [DESIGN.md.zh](DESIGN.md.zh) (see also
-[CLAUDE.md.zh](CLAUDE.md.zh) and [README.md.zh](README.md.zh)). **This file is
-authoritative** — describe the change here, and the translation follows.
+Chinese translations of this file are [DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)
+(Simplified) and [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md) (Traditional); see also
+CLAUDE.md ([zh-Hans](CLAUDE.zh-Hans.md), [zh-Hant](CLAUDE.zh-Hant.md)) and
+README.md ([zh-Hans](README.zh-Hans.md), [zh-Hant](README.zh-Hant.md)).
+**This file is authoritative** — describe the change here, and the translations
+follow.
 
 ## Architectural Invariants
 

@@ -9,9 +9,13 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 **GITHUB IS A MIRROR:** The origin repository is at <https://gitea.com/town-os/town-os>.
 
 > **中文 / Chinese.** This repository's documentation is also available in
-> Chinese: [README.md.zh](README.md.zh),
-> [CLAUDE.md.zh](CLAUDE.md.zh) (build and code-style rules), and
-> [DESIGN.md.zh](DESIGN.md.zh) (architecture and functional specification).
+> Chinese, in both Simplified (`zh-Hans`) and Traditional (`zh-Hant`) script.
+> Simplified: [README.zh-Hans.md](README.zh-Hans.md),
+> [CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md) (build and code-style rules), and
+> [DESIGN.zh-Hans.md](DESIGN.zh-Hans.md) (architecture and functional specification).
+> Traditional: [README.zh-Hant.md](README.zh-Hant.md),
+> [CLAUDE.zh-Hant.md](CLAUDE.zh-Hant.md), and
+> [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md).
 > The English files are authoritative; where the two disagree, the English is
 > correct and the translation is what needs fixing.
 

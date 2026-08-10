@@ -8,10 +8,11 @@ Town OS 是一个完全从 U 盘运行的自助式平台，能把任何一台电
 
 **GITHUB 只是镜像：** 源仓库位于 <https://gitea.com/town-os/town-os>。
 
-> **中文翻译。** 本文件是 [README.md](README.md) 的中文译本，**英文原件为准**。
+> **中文翻译（简体）。** 本文件是 [README.md](README.md) 的简体中文译本，
+> **英文原件为准**。繁体中文译本见 [README.zh-Hant.md](README.zh-Hant.md)。
 > 仓库中的其他文档也有中文译本：
-> [CLAUDE.md.zh](CLAUDE.md.zh)（构建与代码风格规则）与
-> [DESIGN.md.zh](DESIGN.md.zh)（架构与功能规格说明）。
+> [CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md)（构建与代码风格规则；繁体：[CLAUDE.zh-Hant.md](CLAUDE.zh-Hant.md)）与
+> [DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)（架构与功能规格说明；繁体：[DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)）。
 > 两者出现分歧时以英文原件为准，并应修正译文。代码标识符、文件路径、命令、
 > 环境变量、make 目标名与 API 路径一律保留原文，不作翻译。
 
