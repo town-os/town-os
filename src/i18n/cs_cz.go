@@ -9,6 +9,7 @@ var csCZMessages = map[string]string{
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "neplatné přihlašovací údaje",
+	MsgAuthNotConfigured:      "ověřování není nakonfigurováno",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "stav správce nelze po vytvoření účtu změnit",

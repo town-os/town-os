@@ -9,6 +9,7 @@ var skSKMessages = map[string]string{
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "neplatné prihlasovacie údaje",
+	MsgAuthNotConfigured:      "overovanie nie je nakonfigurované",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "stav správcu nie je možné po vytvorení účtu zmeniť",

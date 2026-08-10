@@ -9,6 +9,7 @@ var slSIMessages = map[string]string{
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "neveljavne poverilnice",
+	MsgAuthNotConfigured:      "overjanje pristnosti ni nastavljeno",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "skrbniškega stanja po ustvarjanju računa ni mogoče spremeniti",

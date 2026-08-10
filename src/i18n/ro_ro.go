@@ -14,6 +14,7 @@ var roROMessages = map[string]string{
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "credențiale invalide",
+	MsgAuthNotConfigured:      "autentificarea nu este configurată",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "statutul de administrator nu poate fi modificat după crearea contului",

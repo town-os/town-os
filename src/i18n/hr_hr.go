@@ -9,6 +9,7 @@ var hrHRMessages = map[string]string{
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "nevažeće vjerodajnice",
+	MsgAuthNotConfigured:      "autentifikacija nije konfigurirana",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "administratorski status ne može se promijeniti nakon stvaranja računa",

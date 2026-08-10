@@ -14,6 +14,7 @@ var huHUMessages = map[string]string{
 
 	// Authentication.
 	MsgAuthInvalidCredentials: "érvénytelen hitelesítő adatok",
+	MsgAuthNotConfigured:      "a hitelesítés nincs beállítva",
 
 	// Account management.
 	MsgAccountAdminStatusImmutable: "a rendszergazdai állapot a fiók létrehozása után nem módosítható",
