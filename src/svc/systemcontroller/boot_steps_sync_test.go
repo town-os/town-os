@@ -9,7 +9,7 @@ import (
 )
 
 // The systemcontroller emits boot progress via bs.Step("...") literals in
-// cmd/systemcontroller/main.go. The UI's BootStatusStepper renders one row
+// cmd/systemcontroller/boot.go. The UI's BootStatusStepper renders one row
 // per stage from the ordered list in ui/src/components/system/boot-steps.js
 // and classifies each stage by its INDEX in that list. A step the backend
 // emits that is missing from the frontend list resolves to indexOf === -1,
@@ -18,8 +18,15 @@ import (
 // stages back to unchecked whenever such a step is current.
 //
 // These tests fail if the two lists drift apart, so adding a bs.Step() to
-// main.go without adding it to boot-steps.js (or reordering one) is caught
+// boot.go without adding it to boot-steps.js (or reordering one) is caught
 // in CI instead of on a live box.
+//
+// The literals used to live in main.go, alongside the rest of a 752-line
+// run(); they moved with the stages when that was split. This test reads one
+// named file rather than globbing the package, which is deliberate: the
+// backend list is ORDER-sensitive, and concatenating whatever files happen to
+// match would make the assertion depend on filename sort order. If the stages
+// are ever split across two files, this needs to name both, in call order.
 
 var (
 	backendStepRe = regexp.MustCompile(`bs\.Step\("([a-z0-9_]+)"\)`)
@@ -41,16 +48,17 @@ func repoFile(t *testing.T, rel string) string {
 }
 
 // backendBootSteps extracts the ordered list of static bs.Step("...")
-// literals emitted by main.go.
+// literals emitted by the boot sequence.
 func backendBootSteps(t *testing.T) []string {
 	t.Helper()
-	data, err := os.ReadFile(repoFile(t, "src/svc/systemcontroller/cmd/systemcontroller/main.go"))
+	const src = "src/svc/systemcontroller/cmd/systemcontroller/boot.go"
+	data, err := os.ReadFile(repoFile(t, src))
 	if err != nil {
-		t.Fatalf("read main.go: %v", err)
+		t.Fatalf("read %s: %v", src, err)
 	}
 	matches := backendStepRe.FindAllStringSubmatch(string(data), -1)
 	if len(matches) == 0 {
-		t.Fatal("no bs.Step(\"...\") literals found in main.go — regex or file layout changed")
+		t.Fatalf("no bs.Step(\"...\") literals found in %s — regex or file layout changed", src)
 	}
 	steps := make([]string, 0, len(matches))
 	for _, m := range matches {
