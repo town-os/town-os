@@ -286,7 +286,7 @@ func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdCli
 	}
 
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
@@ -349,7 +349,7 @@ func initBootstrapTest(t *testing.T) (*systemcontroller.SystemdClient, *account.
 	}
 
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}

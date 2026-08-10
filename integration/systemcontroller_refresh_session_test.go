@@ -97,7 +97,7 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 	}
 
 	// --- Generation 1: the controller the operator is logged into. ---
-	sess1, err := account.InitSessionManager(db, acctMgr, []byte("generation-1-ephemeral-key-32byt"))
+	sess1, err := account.InitSessionManager(t.Context(), db, acctMgr, []byte("generation-1-ephemeral-key-32byt"))
 	if err != nil {
 		t.Fatalf("InitSessionManager gen1: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 	if _, err := acctMgr.Create("admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
-	token, err := sess1.Create("admin")
+	token, err := sess1.Create(t.Context(), "admin")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -168,12 +168,12 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 	// --- Generation 2 finishes booting. ---
 	// A new signing key, exactly as boot step 7 does — which drops every row
 	// in the sessions table.
-	sess2, err := account.InitSessionManager(db, acctMgr, []byte("generation-2-ephemeral-key-32byt"))
+	sess2, err := account.InitSessionManager(t.Context(), db, acctMgr, []byte("generation-2-ephemeral-key-32byt"))
 	if err != nil {
 		t.Fatalf("InitSessionManager gen2: %v", err)
 	}
 
-	sessions, err := sess1.List("admin")
+	sessions, err := sess1.List(t.Context(), "admin")
 	if err != nil {
 		t.Fatalf("list sessions after restart: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 
 	// Re-authenticating against the successor works: the account survived,
 	// only the session did not. This is what the operator's Reload lands on.
-	newToken, err := sess2.Create("admin")
+	newToken, err := sess2.Create(t.Context(), "admin")
 	if err != nil {
 		t.Fatalf("re-authenticate against the successor: %v", err)
 	}

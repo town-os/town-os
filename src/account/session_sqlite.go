@@ -19,8 +19,8 @@ type SQLiteSessionManager struct {
 	signingKey []byte
 }
 
-func InitSessionManager(db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSessionManager, error) {
-	ctx, cancel := dbCtx()
+func InitSessionManager(ctx context.Context, db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSessionManager, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS sessions (
@@ -46,8 +46,8 @@ func InitSessionManager(db *sql.DB, mgr Manager, signingKey []byte) (*SQLiteSess
 	}, nil
 }
 
-func (s *SQLiteSessionManager) Create(username string) (token string, err error) {
-	ctx, cancel := dbCtx()
+func (s *SQLiteSessionManager) Create(ctx context.Context, username string) (token string, err error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	err = s.Cleanup(ctx)
@@ -82,7 +82,7 @@ func (s *SQLiteSessionManager) Create(username string) (token string, err error)
 	return token, nil
 }
 
-func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error) {
+func (s *SQLiteSessionManager) Validate(ctx context.Context, token string) (*Session, *Account, error) {
 	parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
@@ -106,7 +106,7 @@ func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error
 	var username string
 	var createdStr, lastUsedStr string
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	err = s.db.QueryRowContext(ctx,
@@ -171,8 +171,8 @@ func (s *SQLiteSessionManager) Validate(token string) (*Session, *Account, error
 	return sess, acct, nil
 }
 
-func (s *SQLiteSessionManager) Revoke(sessionID string) error {
-	ctx, cancel := dbCtx()
+func (s *SQLiteSessionManager) Revoke(ctx context.Context, sessionID string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	res, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", sessionID)
@@ -190,8 +190,8 @@ func (s *SQLiteSessionManager) Revoke(sessionID string) error {
 	return nil
 }
 
-func (s *SQLiteSessionManager) RevokeAllForUser(username string) error {
-	ctx, cancel := dbCtx()
+func (s *SQLiteSessionManager) RevokeAllForUser(ctx context.Context, username string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE username = ?", username)
@@ -210,8 +210,8 @@ func (s *SQLiteSessionManager) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-func (s *SQLiteSessionManager) List(username string) (_ []Session, err error) {
-	ctx, cancel := dbCtx()
+func (s *SQLiteSessionManager) List(ctx context.Context, username string) (_ []Session, err error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rows, err := s.db.QueryContext(ctx,
@@ -255,8 +255,8 @@ func (s *SQLiteSessionManager) List(username string) (_ []Session, err error) {
 	return out, nil
 }
 
-func (s *SQLiteSessionManager) GetUsername(sessionID string) (string, error) {
-	ctx, cancel := dbCtx()
+func (s *SQLiteSessionManager) GetUsername(ctx context.Context, sessionID string) (string, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	var username string
@@ -270,8 +270,8 @@ func (s *SQLiteSessionManager) GetUsername(sessionID string) (string, error) {
 	return username, nil
 }
 
-func (s *SQLiteSessionManager) HasActiveAdminSessions(adminUsernames []string) (bool, error) {
-	ctx, cancel := dbCtx()
+func (s *SQLiteSessionManager) HasActiveAdminSessions(ctx context.Context, adminUsernames []string) (bool, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	err := s.Cleanup(ctx)

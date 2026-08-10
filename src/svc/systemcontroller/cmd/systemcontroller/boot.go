@@ -295,7 +295,7 @@ func (b *boot) openStores(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("signing key: %w", err)
 	}
-	if b.sessMgr, err = account.InitSessionManager(b.db, acctMgr, signingKey); err != nil {
+	if b.sessMgr, err = account.InitSessionManager(ctx, b.db, acctMgr, signingKey); err != nil {
 		return fmt.Errorf("init session manager: %w", err)
 	}
 

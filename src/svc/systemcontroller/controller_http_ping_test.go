@@ -160,7 +160,7 @@ func TestHTTPPingNeedsSetup(t *testing.T) {
 		t.Fatalf("InitManager: %v", err)
 	}
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}

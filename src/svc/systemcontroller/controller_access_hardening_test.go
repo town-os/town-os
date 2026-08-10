@@ -58,7 +58,7 @@ func newAuthEnv(t *testing.T) *authEnv {
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
-	sessMgr, err := account.InitSessionManager(db, mgr, []byte("test-signing-key-for-sessions-32"))
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, []byte("test-signing-key-for-sessions-32"))
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
@@ -73,11 +73,11 @@ func newAuthEnv(t *testing.T) *authEnv {
 	if _, err := mgr.Create("user", authTestPassword, "user@b.com", "555", "User", false); err != nil {
 		t.Fatalf("Create user: %v", err)
 	}
-	adminToken, err := sessMgr.Create("admin")
+	adminToken, err := sessMgr.Create(t.Context(), "admin")
 	if err != nil {
 		t.Fatalf("session Create admin: %v", err)
 	}
-	userToken, err := sessMgr.Create("user")
+	userToken, err := sessMgr.Create(t.Context(), "user")
 	if err != nil {
 		t.Fatalf("session Create user: %v", err)
 	}

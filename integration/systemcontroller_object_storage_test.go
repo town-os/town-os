@@ -68,7 +68,7 @@ func (e *objectStorageEnv) start(t *testing.T, signingKey string) {
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
-	sessMgr, err := account.InitSessionManager(db, mgr, []byte(signingKey))
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, []byte(signingKey))
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}

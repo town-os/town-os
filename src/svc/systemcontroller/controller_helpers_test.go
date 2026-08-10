@@ -281,7 +281,7 @@ func initAccountTestClient(t *testing.T) (*SystemdClient, account.AuditManager) 
 	}
 
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
@@ -371,7 +371,7 @@ func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 	}
 
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
@@ -456,7 +456,7 @@ notes:
 		t.Fatalf("InitManager: %v", err)
 	}
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := account.InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}

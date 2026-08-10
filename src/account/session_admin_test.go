@@ -17,12 +17,12 @@ func TestHasActiveAdminSessionsWithActiveSessions(t *testing.T) {
 	createTestUser(t, acctMgr, "admin2")
 	createTestUser(t, acctMgr, "regularuser")
 
-	_, err := sessMgr.Create("admin1")
+	_, err := sessMgr.Create(t.Context(), "admin1")
 	if err != nil {
 		t.Fatalf("Create admin1 session: %v", err)
 	}
 
-	has, err := sessMgr.HasActiveAdminSessions([]string{"admin1", "admin2"})
+	has, err := sessMgr.HasActiveAdminSessions(t.Context(), []string{"admin1", "admin2"})
 	if err != nil {
 		t.Fatalf("HasActiveAdminSessions: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestHasActiveAdminSessionsNoActiveSessions(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "admin1")
 
-	has, err := sessMgr.HasActiveAdminSessions([]string{"admin1"})
+	has, err := sessMgr.HasActiveAdminSessions(t.Context(), []string{"admin1"})
 	if err != nil {
 		t.Fatalf("HasActiveAdminSessions: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestHasActiveAdminSessionsNoActiveSessions(t *testing.T) {
 func TestHasActiveAdminSessionsEmptyList(t *testing.T) {
 	sessMgr, _ := initTestSessionDB(t)
 
-	has, err := sessMgr.HasActiveAdminSessions([]string{})
+	has, err := sessMgr.HasActiveAdminSessions(t.Context(), []string{})
 	if err != nil {
 		t.Fatalf("HasActiveAdminSessions: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestHasActiveAdminSessionsExpiredCleaned(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "admin1")
 
-	_, err := sessMgr.Create("admin1")
+	_, err := sessMgr.Create(t.Context(), "admin1")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestHasActiveAdminSessionsExpiredCleaned(t *testing.T) {
 		t.Fatalf("manual update last_used: %v", err)
 	}
 
-	has, err := sessMgr.HasActiveAdminSessions([]string{"admin1"})
+	has, err := sessMgr.HasActiveAdminSessions(t.Context(), []string{"admin1"})
 	if err != nil {
 		t.Fatalf("HasActiveAdminSessions: %v", err)
 	}
@@ -86,12 +86,12 @@ func TestHasActiveAdminSessionsOnlyNonAdminSessions(t *testing.T) {
 	createTestUser(t, acctMgr, "admin1")
 	createTestUser(t, acctMgr, "regularuser")
 
-	_, err := sessMgr.Create("regularuser")
+	_, err := sessMgr.Create(t.Context(), "regularuser")
 	if err != nil {
 		t.Fatalf("Create regularuser: %v", err)
 	}
 
-	has, err := sessMgr.HasActiveAdminSessions([]string{"admin1"})
+	has, err := sessMgr.HasActiveAdminSessions(t.Context(), []string{"admin1"})
 	if err != nil {
 		t.Fatalf("HasActiveAdminSessions: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestStartCleanupRunsAndStops(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	_, err := sessMgr.Create("alice")
+	_, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestStartCleanupRunsAndStops(t *testing.T) {
 	// Wait for at least one cleanup cycle.
 	time.Sleep(200 * time.Millisecond)
 
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

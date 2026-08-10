@@ -85,7 +85,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	if sm != nil {
 		token := extractBearerToken(c.Request())
 		if token != "" {
-			sess, _, err := sm.Validate(token)
+			sess, _, err := sm.Validate(c.Request().Context(), token)
 			if err == nil {
 				resp.Username = sess.Username
 			}

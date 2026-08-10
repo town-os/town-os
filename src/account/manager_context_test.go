@@ -200,3 +200,56 @@ func TestAuditLogEntrySucceedsAfterRequestContextIsCancelled(t *testing.T) {
 		t.Fatal("request context was expected to be cancelled")
 	}
 }
+
+// --- SessionManager ---
+
+// Validate is on the path of every authenticated request, and it reads two rows
+// — the session and the account, the latter to check Disabled. Both were
+// uncancellable before, on every request the box serves.
+func TestSessionValidateHonorsCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	db, err := OpenDB(filepath.Join(t.TempDir(), "session.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	acctMgr, err := InitManager(db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	sessMgr, err := InitSessionManager(t.Context(), db, acctMgr, []byte("test-signing-key-for-sessions-32"))
+	if err != nil {
+		t.Fatalf("InitSessionManager: %v", err)
+	}
+	if _, err := acctMgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("Create account: %v", err)
+	}
+
+	token, err := sessMgr.Create(t.Context(), "alice")
+	if err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	// The token is good, so a failure below is the context and nothing else.
+	if _, _, err := sessMgr.Validate(t.Context(), token); err != nil {
+		t.Fatalf("Validate with a live context: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, _, err := sessMgr.Validate(ctx, token); err == nil {
+		t.Error("Validate with a cancelled context succeeded; the caller's cancellation is not reaching the query")
+	}
+	if _, err := sessMgr.List(ctx, "alice"); err == nil {
+		t.Error("List with a cancelled context succeeded")
+	}
+	if err := sessMgr.Revoke(ctx, "whatever"); err == nil {
+		t.Error("Revoke with a cancelled context succeeded")
+	}
+}

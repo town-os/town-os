@@ -79,7 +79,7 @@ func initPeerInjectionTest(t *testing.T) *peerInjectionEnv {
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
-	sessMgr, err := account.InitSessionManager(db, mgr, []byte("test-signing-key-for-sessions-32"))
+	sessMgr, err := account.InitSessionManager(t.Context(), db, mgr, []byte("test-signing-key-for-sessions-32"))
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}

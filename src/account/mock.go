@@ -295,7 +295,7 @@ func (m *MockSessionManager) GetCalls() []MockCall {
 	return out
 }
 
-func (m *MockSessionManager) Create(username string) (string, error) {
+func (m *MockSessionManager) Create(_ context.Context, username string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{username}})
@@ -317,7 +317,7 @@ func (m *MockSessionManager) Create(username string) (string, error) {
 	return id, nil
 }
 
-func (m *MockSessionManager) Validate(token string) (*Session, *Account, error) {
+func (m *MockSessionManager) Validate(_ context.Context, token string) (*Session, *Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Validate", Args: []any{token}})
@@ -353,7 +353,7 @@ func (m *MockSessionManager) Validate(token string) (*Session, *Account, error) 
 	return &outSess, acct, nil
 }
 
-func (m *MockSessionManager) Revoke(sessionID string) error {
+func (m *MockSessionManager) Revoke(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Revoke", Args: []any{sessionID}})
@@ -370,7 +370,7 @@ func (m *MockSessionManager) Revoke(sessionID string) error {
 	return nil
 }
 
-func (m *MockSessionManager) RevokeAllForUser(username string) error {
+func (m *MockSessionManager) RevokeAllForUser(_ context.Context, username string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RevokeAllForUser", Args: []any{username}})
@@ -404,7 +404,7 @@ func (m *MockSessionManager) Cleanup(_ context.Context) error {
 	return nil
 }
 
-func (m *MockSessionManager) List(username string) ([]Session, error) {
+func (m *MockSessionManager) List(_ context.Context, username string) ([]Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "List", Args: []any{username}})
@@ -422,7 +422,7 @@ func (m *MockSessionManager) List(username string) ([]Session, error) {
 	return out, nil
 }
 
-func (m *MockSessionManager) GetUsername(sessionID string) (string, error) {
+func (m *MockSessionManager) GetUsername(_ context.Context, sessionID string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "GetUsername", Args: []any{sessionID}})
@@ -438,7 +438,7 @@ func (m *MockSessionManager) GetUsername(sessionID string) (string, error) {
 	return sess.Username, nil
 }
 
-func (m *MockSessionManager) HasActiveAdminSessions(adminUsernames []string) (bool, error) {
+func (m *MockSessionManager) HasActiveAdminSessions(_ context.Context, adminUsernames []string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "HasActiveAdminSessions", Args: []any{adminUsernames}})

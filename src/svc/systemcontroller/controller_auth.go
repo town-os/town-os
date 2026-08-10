@@ -68,7 +68,7 @@ func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {
 	// ordinary use.
 	limiter.reset(source)
 
-	token, err := s.Controller.GetSessionManager().Create(req.Username)
+	token, err := s.Controller.GetSessionManager().Create(c.Request().Context(), req.Username)
 	if err != nil {
 		return err
 	}
@@ -122,19 +122,19 @@ func (s *SystemControllerHandlers) revokeSession(c *echo.Context) error {
 	if token == "" {
 		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 	}
-	_, acct, err := sm.Validate(token)
+	_, acct, err := sm.Validate(c.Request().Context(), token)
 	if err != nil {
 		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 	}
 
 	if !acct.Admin {
-		owner, err := sm.GetUsername(req.SessionID)
+		owner, err := sm.GetUsername(c.Request().Context(), req.SessionID)
 		if err != nil || owner != acct.Username {
 			return echo.NewHTTPError(403, i18n.T(locale, i18n.MsgAuthSessionNotOwned))
 		}
 	}
 
-	if err := sm.Revoke(req.SessionID); err != nil {
+	if err := sm.Revoke(c.Request().Context(), req.SessionID); err != nil {
 		return err
 	}
 
@@ -149,12 +149,12 @@ func (s *SystemControllerHandlers) listSessions(c *echo.Context) error {
 		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 	}
 
-	sess, _, err := s.Controller.GetSessionManager().Validate(token)
+	sess, _, err := s.Controller.GetSessionManager().Validate(c.Request().Context(), token)
 	if err != nil {
 		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 	}
 
-	sessions, err := s.Controller.GetSessionManager().List(sess.Username)
+	sessions, err := s.Controller.GetSessionManager().List(c.Request().Context(), sess.Username)
 	if err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func (s *SystemControllerHandlers) sessionUsername(c *echo.Context) error {
 		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 	}
 
-	sess, _, err := s.Controller.GetSessionManager().Validate(token)
+	sess, _, err := s.Controller.GetSessionManager().Validate(c.Request().Context(), token)
 	if err != nil {
 		return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 	}
@@ -202,7 +202,7 @@ func (s *SystemControllerHandlers) requireAdmin(next echo.HandlerFunc) echo.Hand
 			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 		}
 
-		_, acct, err := s.Controller.GetSessionManager().Validate(token)
+		_, acct, err := s.Controller.GetSessionManager().Validate(c.Request().Context(), token)
 		if err != nil {
 			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 		}
@@ -276,7 +276,7 @@ func (s *SystemControllerHandlers) requireAuth(next echo.HandlerFunc) echo.Handl
 			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 		}
 
-		_, _, err := s.Controller.GetSessionManager().Validate(token)
+		_, _, err := s.Controller.GetSessionManager().Validate(c.Request().Context(), token)
 		if err != nil {
 			return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 		}
@@ -298,7 +298,7 @@ func (s *SystemControllerHandlers) callingAccount(c *echo.Context) *account.Acco
 	if token == "" {
 		return nil
 	}
-	_, acct, err := sm.Validate(token)
+	_, acct, err := sm.Validate(c.Request().Context(), token)
 	if err != nil {
 		return nil
 	}
@@ -436,7 +436,7 @@ func (s *SystemControllerHandlers) requireGrant(grant, message string) echo.Midd
 			if token == "" {
 				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 			}
-			_, acct, err := s.Controller.GetSessionManager().Validate(token)
+			_, acct, err := s.Controller.GetSessionManager().Validate(c.Request().Context(), token)
 			if err != nil {
 				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 			}
@@ -577,7 +577,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		} else {
 			token := extractBearerToken(c.Request())
 			if token != "" && s.Controller.GetSessionManager() != nil {
-				_, acct, err := s.Controller.GetSessionManager().Validate(token)
+				_, acct, err := s.Controller.GetSessionManager().Validate(c.Request().Context(), token)
 				if err == nil {
 					acctName = acct.Username
 				}

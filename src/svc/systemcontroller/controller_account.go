@@ -62,7 +62,7 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 			if token == "" {
 				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthMissingToken))
 			}
-			_, acct, err := sessMgr.Validate(token)
+			_, acct, err := sessMgr.Validate(c.Request().Context(), token)
 			if err != nil {
 				return echo.NewHTTPError(401, i18n.T(locale, i18n.MsgAuthInvalidSession))
 			}
@@ -184,7 +184,7 @@ func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 	// account is later re-enabled, which is not what an administrator means by
 	// "enable" after having revoked someone's access.
 	if sm := s.Controller.GetSessionManager(); sm != nil {
-		if err := sm.RevokeAllForUser(req.Username); err != nil {
+		if err := sm.RevokeAllForUser(c.Request().Context(), req.Username); err != nil {
 			return fmt.Errorf("revoke sessions for %s: %w", req.Username, err)
 		}
 	}

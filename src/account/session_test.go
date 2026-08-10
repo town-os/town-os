@@ -44,7 +44,7 @@ func initTestSessionDB(t *testing.T) (*SQLiteSessionManager, *SQLiteManager) {
 	}
 
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestSessionCreateAndValidate(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create session: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSessionCreateAndValidate(t *testing.T) {
 		t.Fatal("expected non-empty token")
 	}
 
-	sess, acct, err := sessMgr.Validate(token)
+	sess, acct, err := sessMgr.Validate(t.Context(), token)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestSessionCreateAndValidate(t *testing.T) {
 func TestSessionValidateInvalidToken(t *testing.T) {
 	sessMgr, _ := initTestSessionDB(t)
 
-	_, _, err := sessMgr.Validate("invalid-token")
+	_, _, err := sessMgr.Validate(t.Context(), "invalid-token")
 	if !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("expected ErrInvalidToken, got %v", err)
 	}
@@ -106,23 +106,23 @@ func TestSessionValidateRevokedSession(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create session: %v", err)
 	}
 
 	// get session ID by validating first
-	sess, _, err := sessMgr.Validate(token)
+	sess, _, err := sessMgr.Validate(t.Context(), token)
 	if err != nil {
 		t.Fatalf("first Validate: %v", err)
 	}
 
-	err = sessMgr.Revoke(sess.ID)
+	err = sessMgr.Revoke(t.Context(), sess.ID)
 	if err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
 
-	_, _, err = sessMgr.Validate(token)
+	_, _, err = sessMgr.Validate(t.Context(), token)
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound after revoke, got %v", err)
 	}
@@ -134,22 +134,22 @@ func TestSessionRevoke(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	sess, _, err := sessMgr.Validate(token)
+	sess, _, err := sessMgr.Validate(t.Context(), token)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 
-	err = sessMgr.Revoke(sess.ID)
+	err = sessMgr.Revoke(t.Context(), sess.ID)
 	if err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
 
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestSessionRevoke(t *testing.T) {
 func TestSessionRevokeNotFound(t *testing.T) {
 	sessMgr, _ := initTestSessionDB(t)
 
-	err := sessMgr.Revoke("nonexistent-id")
+	err := sessMgr.Revoke(t.Context(), "nonexistent-id")
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
@@ -174,25 +174,25 @@ func TestSessionRevokeAllForUser(t *testing.T) {
 	createTestUser(t, acctMgr, "alice")
 	createTestUser(t, acctMgr, "bob")
 
-	_, err := sessMgr.Create("alice")
+	_, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create alice session 1: %v", err)
 	}
-	_, err = sessMgr.Create("alice")
+	_, err = sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create alice session 2: %v", err)
 	}
-	_, err = sessMgr.Create("bob")
+	_, err = sessMgr.Create(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("Create bob session: %v", err)
 	}
 
-	err = sessMgr.RevokeAllForUser("alice")
+	err = sessMgr.RevokeAllForUser(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("RevokeAllForUser: %v", err)
 	}
 
-	aliceSessions, err := sessMgr.List("alice")
+	aliceSessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List alice: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestSessionRevokeAllForUser(t *testing.T) {
 		t.Fatalf("expected 0 alice sessions, got %d", len(aliceSessions))
 	}
 
-	bobSessions, err := sessMgr.List("bob")
+	bobSessions, err := sessMgr.List(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("List bob: %v", err)
 	}
@@ -215,16 +215,16 @@ func TestSessionList(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	_, err := sessMgr.Create("alice")
+	_, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create 1: %v", err)
 	}
-	_, err = sessMgr.Create("alice")
+	_, err = sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create 2: %v", err)
 	}
 
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestSessionList(t *testing.T) {
 func TestSessionListEmpty(t *testing.T) {
 	sessMgr, _ := initTestSessionDB(t)
 
-	sessions, err := sessMgr.List("nobody")
+	sessions, err := sessMgr.List(t.Context(), "nobody")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -253,17 +253,17 @@ func TestSessionGetUsername(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	sess, _, err := sessMgr.Validate(token)
+	sess, _, err := sessMgr.Validate(t.Context(), token)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 
-	username, err := sessMgr.GetUsername(sess.ID)
+	username, err := sessMgr.GetUsername(t.Context(), sess.ID)
 	if err != nil {
 		t.Fatalf("GetUsername: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestSessionGetUsername(t *testing.T) {
 func TestSessionGetUsernameNotFound(t *testing.T) {
 	sessMgr, _ := initTestSessionDB(t)
 
-	_, err := sessMgr.GetUsername("nonexistent")
+	_, err := sessMgr.GetUsername(t.Context(), "nonexistent")
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
@@ -287,7 +287,7 @@ func TestSessionCleanup(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	_, err := sessMgr.Create("alice")
+	_, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestSessionCleanup(t *testing.T) {
 		t.Fatalf("Cleanup: %v", err)
 	}
 
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestSessionCleanupPreservesActive(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	_, err := sessMgr.Create("alice")
+	_, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestSessionCleanupPreservesActive(t *testing.T) {
 		t.Fatalf("Cleanup: %v", err)
 	}
 
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -344,11 +344,11 @@ func TestSessionCreateCleansExpired(t *testing.T) {
 	createTestUser(t, acctMgr, "bob")
 
 	// Create sessions for both users.
-	_, err := sessMgr.Create("alice")
+	_, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create alice: %v", err)
 	}
-	_, err = sessMgr.Create("bob")
+	_, err = sessMgr.Create(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("Create bob: %v", err)
 	}
@@ -361,12 +361,12 @@ func TestSessionCreateCleansExpired(t *testing.T) {
 	}
 
 	// Creating a new session should clean up the expired ones.
-	_, err = sessMgr.Create("alice")
+	_, err = sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create after expiry: %v", err)
 	}
 
-	aliceSessions, err := sessMgr.List("alice")
+	aliceSessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List alice: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestSessionCreateCleansExpired(t *testing.T) {
 		t.Fatalf("expected 1 alice session (the new one), got %d", len(aliceSessions))
 	}
 
-	bobSessions, err := sessMgr.List("bob")
+	bobSessions, err := sessMgr.List(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("List bob: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestSessionExpired(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestSessionExpired(t *testing.T) {
 		t.Fatalf("manual update last_used: %v", err)
 	}
 
-	_, _, err = sessMgr.Validate(token)
+	_, _, err = sessMgr.Validate(t.Context(), token)
 	if !errors.Is(err, ErrSessionExpired) {
 		t.Fatalf("expected ErrSessionExpired, got %v", err)
 	}
@@ -411,26 +411,26 @@ func TestMultipleSessionsPerUser(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token1, err := sessMgr.Create("alice")
+	token1, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create 1: %v", err)
 	}
-	token2, err := sessMgr.Create("alice")
+	token2, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create 2: %v", err)
 	}
 
 	// both should be valid
-	_, _, err = sessMgr.Validate(token1)
+	_, _, err = sessMgr.Validate(t.Context(), token1)
 	if err != nil {
 		t.Fatalf("Validate token1: %v", err)
 	}
-	_, _, err = sessMgr.Validate(token2)
+	_, _, err = sessMgr.Validate(t.Context(), token2)
 	if err != nil {
 		t.Fatalf("Validate token2: %v", err)
 	}
 
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestSessionCascadeDisableOnAccountDisable(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	_, err := sessMgr.Create("alice")
+	_, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create session: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestSessionCascadeDisableOnAccountDisable(t *testing.T) {
 	}
 
 	// sessions still exist but account is disabled
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -471,13 +471,13 @@ func TestSessionRepeatedValidation(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	for i := range 100 {
-		sess, acct, err := sessMgr.Validate(token)
+		sess, acct, err := sessMgr.Validate(t.Context(), token)
 		if err != nil {
 			t.Fatalf("Validate iteration %d: %v", i, err)
 		}
@@ -496,7 +496,7 @@ func TestSessionConcurrentValidation(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -509,7 +509,7 @@ func TestSessionConcurrentValidation(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			for range iterations {
-				_, _, err := sessMgr.Validate(token)
+				_, _, err := sessMgr.Validate(t.Context(), token)
 				if err != nil {
 					errs <- err
 				}
@@ -535,12 +535,12 @@ func TestSessionValidateUpdatesLastUsed(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	sess1, _, err := sessMgr.Validate(token)
+	sess1, _, err := sessMgr.Validate(t.Context(), token)
 	if err != nil {
 		t.Fatalf("Validate 1: %v", err)
 	}
@@ -552,7 +552,7 @@ func TestSessionValidateUpdatesLastUsed(t *testing.T) {
 		t.Fatalf("manual update last_used: %v", err)
 	}
 
-	sess2, _, err := sessMgr.Validate(token)
+	sess2, _, err := sessMgr.Validate(t.Context(), token)
 	if err != nil {
 		t.Fatalf("Validate 2: %v", err)
 	}
@@ -568,7 +568,7 @@ func TestSessionNotExpiredPrematurely(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestSessionNotExpiredPrematurely(t *testing.T) {
 		t.Fatalf("manual update last_used: %v", err)
 	}
 
-	sess, _, err := sessMgr.Validate(token)
+	sess, _, err := sessMgr.Validate(t.Context(), token)
 	if err != nil {
 		t.Fatalf("session should still be valid at 6 days, got: %v", err)
 	}
@@ -596,7 +596,7 @@ func TestSessionConcurrentMixedOperations(t *testing.T) {
 	createTestUser(t, acctMgr, "alice")
 	createTestUser(t, acctMgr, "bob")
 
-	aliceToken, err := sessMgr.Create("alice")
+	aliceToken, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create alice: %v", err)
 	}
@@ -609,7 +609,7 @@ func TestSessionConcurrentMixedOperations(t *testing.T) {
 	for range goroutines / 2 {
 		wg.Go(func() {
 			for range 50 {
-				_, _, err := sessMgr.Validate(aliceToken)
+				_, _, err := sessMgr.Validate(t.Context(), aliceToken)
 				if err != nil {
 					errs <- fmt.Errorf("validate alice: %w", err)
 				}
@@ -621,7 +621,7 @@ func TestSessionConcurrentMixedOperations(t *testing.T) {
 	for range goroutines / 2 {
 		wg.Go(func() {
 			for range 10 {
-				_, err := sessMgr.Create("bob")
+				_, err := sessMgr.Create(t.Context(), "bob")
 				if err != nil {
 					errs <- fmt.Errorf("create bob: %w", err)
 				}
@@ -641,7 +641,7 @@ func TestSessionConcurrentMixedOperations(t *testing.T) {
 	}
 
 	// Alice's session should still be valid.
-	sess, _, err := sessMgr.Validate(aliceToken)
+	sess, _, err := sessMgr.Validate(t.Context(), aliceToken)
 	if err != nil {
 		t.Fatalf("alice session should survive concurrent ops: %v", err)
 	}
@@ -657,11 +657,11 @@ func TestSessionCleanupDoesNotRemoveRecentSessions(t *testing.T) {
 	createTestUser(t, acctMgr, "alice")
 	createTestUser(t, acctMgr, "bob")
 
-	aliceToken, err := sessMgr.Create("alice")
+	aliceToken, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create alice: %v", err)
 	}
-	bobToken, err := sessMgr.Create("bob")
+	bobToken, err := sessMgr.Create(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("Create bob: %v", err)
 	}
@@ -675,11 +675,11 @@ func TestSessionCleanupDoesNotRemoveRecentSessions(t *testing.T) {
 	}
 
 	// Both sessions should still be valid.
-	_, _, err = sessMgr.Validate(aliceToken)
+	_, _, err = sessMgr.Validate(t.Context(), aliceToken)
 	if err != nil {
 		t.Fatalf("alice session should survive cleanup: %v", err)
 	}
-	_, _, err = sessMgr.Validate(bobToken)
+	_, _, err = sessMgr.Validate(t.Context(), bobToken)
 	if err != nil {
 		t.Fatalf("bob session should survive cleanup: %v", err)
 	}
@@ -692,13 +692,13 @@ func TestSessionErrorsIs(t *testing.T) {
 	createTestUser(t, acctMgr, "alice")
 
 	// Invalid token
-	_, _, err := sessMgr.Validate("garbage")
+	_, _, err := sessMgr.Validate(t.Context(), "garbage")
 	if !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("expected errors.Is(err, ErrInvalidToken), got %v", err)
 	}
 
 	// Expired session
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -707,25 +707,25 @@ func TestSessionErrorsIs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manual update: %v", err)
 	}
-	_, _, err = sessMgr.Validate(token)
+	_, _, err = sessMgr.Validate(t.Context(), token)
 	if !errors.Is(err, ErrSessionExpired) {
 		t.Fatalf("expected errors.Is(err, ErrSessionExpired), got %v", err)
 	}
 
 	// Revoked session
-	token2, err := sessMgr.Create("alice")
+	token2, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create 2: %v", err)
 	}
-	sess, _, err := sessMgr.Validate(token2)
+	sess, _, err := sessMgr.Validate(t.Context(), token2)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	err = sessMgr.Revoke(sess.ID)
+	err = sessMgr.Revoke(t.Context(), sess.ID)
 	if err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
-	_, _, err = sessMgr.Validate(token2)
+	_, _, err = sessMgr.Validate(t.Context(), token2)
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected errors.Is(err, ErrSessionNotFound), got %v", err)
 	}
@@ -750,7 +750,7 @@ func TestInitSessionManagerClearsExistingSessions(t *testing.T) {
 	}
 
 	signingKey := []byte("test-signing-key-for-sessions-32")
-	sessMgr, err := InitSessionManager(db, mgr, signingKey)
+	sessMgr, err := InitSessionManager(t.Context(), db, mgr, signingKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
@@ -758,16 +758,16 @@ func TestInitSessionManagerClearsExistingSessions(t *testing.T) {
 	createTestUser(t, mgr, "alice")
 	createTestUser(t, mgr, "bob")
 
-	_, err = sessMgr.Create("alice")
+	_, err = sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create alice: %v", err)
 	}
-	_, err = sessMgr.Create("bob")
+	_, err = sessMgr.Create(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("Create bob: %v", err)
 	}
 
-	sessions, err := sessMgr.List("alice")
+	sessions, err := sessMgr.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List alice: %v", err)
 	}
@@ -777,13 +777,13 @@ func TestInitSessionManagerClearsExistingSessions(t *testing.T) {
 
 	// Re-initialize the session manager (simulates service restart).
 	newKey := []byte("new-signing-key-for-sessions-32!")
-	sessMgr2, err := InitSessionManager(db, mgr, newKey)
+	sessMgr2, err := InitSessionManager(t.Context(), db, mgr, newKey)
 	if err != nil {
 		t.Fatalf("InitSessionManager (reinit): %v", err)
 	}
 
 	// All sessions should be cleared.
-	aliceSessions, err := sessMgr2.List("alice")
+	aliceSessions, err := sessMgr2.List(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("List alice after reinit: %v", err)
 	}
@@ -791,7 +791,7 @@ func TestInitSessionManagerClearsExistingSessions(t *testing.T) {
 		t.Fatalf("expected 0 alice sessions after reinit, got %d", len(aliceSessions))
 	}
 
-	bobSessions, err := sessMgr2.List("bob")
+	bobSessions, err := sessMgr2.List(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("List bob after reinit: %v", err)
 	}
@@ -806,18 +806,18 @@ func TestSessionValidateWrongSigningKey(t *testing.T) {
 	sessMgr, acctMgr := initTestSessionDB(t)
 	createTestUser(t, acctMgr, "alice")
 
-	token, err := sessMgr.Create("alice")
+	token, err := sessMgr.Create(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	// create a new session manager with a different key
-	sessMgr2, err := InitSessionManager(sessMgr.db, acctMgr, []byte("different-signing-key-1234567890"))
+	sessMgr2, err := InitSessionManager(t.Context(), sessMgr.db, acctMgr, []byte("different-signing-key-1234567890"))
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
-	_, _, err = sessMgr2.Validate(token)
+	_, _, err = sessMgr2.Validate(t.Context(), token)
 	if !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("expected ErrInvalidToken with wrong key, got %v", err)
 	}
