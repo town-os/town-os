@@ -202,6 +202,15 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		req.Domain = req.Name
 	}
 
+	// A page's domain is not a label the operator gets to choose freely: it
+	// becomes a Caddy vhost, a rolodex record, a leaf SAN, AND a directory
+	// under pages-webroot/ that the pages container serves. Refused here so
+	// the operator is told, rather than accepted and dropped later where only
+	// a log line would record it.
+	if err := ValidatePageDomain(req.Domain); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	// Default source type to archive.
 	if req.SourceType == "" {
 		req.SourceType = account.PageSourceArchive
@@ -321,6 +330,18 @@ func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
 	req := UpdatePageRequest{}
 	if err := de.Decode(&req); err != nil {
 		return err
+	}
+
+	// Same check as create, and it has to be here too rather than only there:
+	// update is the route that was NOT incidentally covered. On create,
+	// CreateFilesystem runs storage.ValidateFilesystemName and the handler
+	// rolls back before reaching the symlink code; migratePageDir logs the
+	// RenameFilesystem failure and carries on to RemovePageSymlink /
+	// EnsurePageSymlink regardless.
+	if req.Fields.Domain != nil {
+		if err := ValidatePageDomain(*req.Fields.Domain); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
 	}
 
 	old, getErr := mgr.Get(req.Name)

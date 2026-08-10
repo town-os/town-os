@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/account"
@@ -90,30 +89,13 @@ type GfehSite struct {
 // and every caller already drops an empty FQDN, so a malformed name contributes
 // no record, no route, no certificate and no directory rather than contributing
 // a broken one.
+//
+// Those rules now live in qualifyPublishedName, shared with packages and pages.
+// They were written here first because gfeh reports its labels over a socket —
+// but they turned out to be the rules all three publishers needed, and the
+// other two had none.
 func gfehFQDN(label, tld string) string {
-	label = gfeh.NormalizeLabel(label)
-	if label == "" || tld == "" {
-		return ""
-	}
-	if err := gfeh.ValidateLabel(label); err != nil {
-		slog.Warn("gfeh reported a hostname label Town OS will not publish", "label", label, "error", err)
-		return ""
-	}
-	// Idempotent, so a label that somehow arrives already qualified does not
-	// become s3.gfeh.home.home.
-	if label == tld || strings.HasSuffix(label, "."+tld) {
-		return label
-	}
-	// Length is checked on the composed name rather than on the label alone: a
-	// label within the limit can still qualify past it under a long TLD, and a
-	// name DNS will not carry is one the certificate and the vhost should not
-	// claim either.
-	fqdn := label + "." + tld
-	if len(fqdn) > gfeh.NameMaxLen {
-		slog.Warn("gfeh hostname is too long to publish once qualified", "fqdn", fqdn)
-		return ""
-	}
-	return fqdn
+	return qualifyPublishedName("gfeh", label, tld)
 }
 
 // gfehNetworkTLD resolves a partition's TLD. The page-side twin, reused rather

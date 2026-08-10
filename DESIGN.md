@@ -1501,6 +1501,40 @@ identically, and a mismatch in any one of them silently breaks serving:
 1. its **A record**, 2. its **leaf certificate SAN**, 3. its **DANE TLSA owner**,
 and 4. its **shared :443 ingress vhost**.
 
+**All three publishers compose that name through one validator.** A package, a
+page, and an object-storage partition each get a name under a network's TLD, and
+each used to compose it itself — disagreeing about what a legal name was.
+`gfehFQDN` normalized the label, validated every dot-separated component against
+the strict LDH rule, and refused a name that qualified past the 253-character
+limit; `packageFQDN` was bare concatenation with neither check; `pageFQDN`
+checked nothing beyond trimming. `qualifyPublishedName`
+(`src/svc/systemcontroller/published_name.go`) is now the one composer, applying
+gfeh's rules to all three, and `validatePublishedName` is the non-qualifying half
+for a name that must be checked but not composed. A name that fails is **dropped**
+— every collector already skips an empty FQDN, so it contributes no record, no
+route, no certificate and no directory rather than a broken one to all four — and
+the refusal logs at **Error**, because `LOG_LEVEL` defaults to `error` and a
+service that silently stops resolving must not be discoverable only by turning
+logging up.
+
+**A page's domain is validated at the API, not just at composition.** For a page
+the name is a *fifth* thing: its on-disk subvolume and webroot symlink, since the
+pages Caddy roots on `/srv/<host>`. `ValidatePageDomain` runs in both
+`POST /pages/create` and `POST /pages/update`, returning 400. Update is the route
+that mattered: create was incidentally covered because `CreateFilesystem` runs
+`storage.ValidateFilesystemName` and the handler rolls back before reaching the
+symlink code, whereas `migratePageDir` logs a `RenameFilesystem` failure and
+carries on to `RemovePageSymlink` / `EnsurePageSymlink` regardless.
+
+The subtle part is that a **public FQDN is exempt from qualification but not from
+validation**. `isPublicFQDN` reads any dotted name not ending in the TLD as the
+operator's own domain, to be served verbatim via ACME — which is correct for
+`blog.example.com` and is also how `../escape.example.com`,
+`site.example.com/../../etc`, and `site.example.com other.example.com` reached
+`filepath.Join` and the Caddyfile unexamined. "It is the operator's domain" is a
+reason not to compose it under the box's TLD; it is never a reason not to check
+it.
+
 To keep them from drifting, the FQDN is computed **once** — in `applyPackageTLS`,
 on the same line that issues the leaf — and persisted as
 `PackageNetworkState.FQDN` (`fqdn` in the per-package network state JSON). The

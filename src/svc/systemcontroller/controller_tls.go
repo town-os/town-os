@@ -242,8 +242,13 @@ func internalDomains(domains []string, tld string) []string {
 // network is gitea.default.fart, never gitea.default.home. Deriving these four
 // names from one function is what keeps the ingress from serving a vhost the
 // cert is not valid for.
+// It composes through qualifyPublishedName, so a package whose repo or name is
+// not a legal DNS label is dropped rather than published as a record no
+// resolver will carry and a vhost the certificate cannot cover. Previously
+// this was bare concatenation with no validation and no length check — the
+// only one of the three publishers with neither.
 func packageFQDN(repoName, pkgName, tld string) string {
-	return pkgName + "." + repoName + "." + tld
+	return qualifyPublishedName("package", pkgName+"."+repoName, tld)
 }
 
 // publicDomains returns the package's network.domains entries that are public
