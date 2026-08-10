@@ -192,7 +192,7 @@ func (e *peerInjectionEnv) addPeer(t *testing.T, token, body string) (int, strin
 func (e *peerInjectionEnv) wgConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(e.stateDir, systemcontroller.NetworkInterfaceName(e.networkName)+".conf")
-	data, err := os.ReadFile(path) //nolint:gosec // G304 -- path derived from the test's own temp dir
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return ""
 	}

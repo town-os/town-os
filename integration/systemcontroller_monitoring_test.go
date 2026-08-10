@@ -111,9 +111,9 @@ func TestMonitoringNodeExporterRealStart(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)    //nolint:errcheck // best-effort cleanup
-		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable) //nolint:errcheck // best-effort cleanup
-		_ = sd.UninstallUnit(cleanupCtx, unitName)              //nolint:errcheck // best-effort cleanup
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable)
+		_ = sd.UninstallUnit(cleanupCtx, unitName)
 	})
 
 	// Verify the unit was installed and loaded by real systemd.
@@ -179,9 +179,9 @@ func TestMonitoringNodeExporterEmitsDiskMetricsForFilteredDevices(t *testing.T) 
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)    //nolint:errcheck // best-effort cleanup
-		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable) //nolint:errcheck // best-effort cleanup
-		_ = sd.UninstallUnit(cleanupCtx, unitName)              //nolint:errcheck // best-effort cleanup
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable)
+		_ = sd.UninstallUnit(cleanupCtx, unitName)
 	})
 	if err := sd.SetStatus(ctx, unitName, systemd.Enable); err != nil {
 		t.Fatalf("Enable: %v", err)
@@ -478,9 +478,9 @@ func TestMonitoringPrometheusRealStart(t *testing.T) {
 
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)    //nolint:errcheck // best-effort cleanup
-		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable) //nolint:errcheck // best-effort cleanup
-		_ = sd.UninstallUnit(cleanupCtx, unitName)              //nolint:errcheck // best-effort cleanup
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Stop)
+		_ = sd.SetStatus(cleanupCtx, unitName, systemd.Disable)
+		_ = sd.UninstallUnit(cleanupCtx, unitName)
 	})
 
 	units, err := sd.ListUnits(ctx)
@@ -528,8 +528,8 @@ func TestMonitoringCleanupUnitsRemovesRealUnit(t *testing.T) {
 	t.Cleanup(func() {
 		// CleanupUnits should already have removed it; belt-and-suspenders in
 		// case the assertion below fails.
-		_ = sd.SetStatus(context.Background(), unitName, systemd.Stop) //nolint:errcheck // best-effort cleanup
-		_ = sd.UninstallUnit(context.Background(), unitName)           //nolint:errcheck // best-effort cleanup
+		_ = sd.SetStatus(context.Background(), unitName, systemd.Stop)
+		_ = sd.UninstallUnit(context.Background(), unitName)
 	})
 
 	if _, err := os.Stat(unitPath); err != nil {

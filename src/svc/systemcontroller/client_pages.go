@@ -193,7 +193,7 @@ func (c *SystemdClient) UploadPageArchive(ctx context.Context, name string, arch
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: POST pages/upload: %w", ErrHTTPRequest, err)
 	}

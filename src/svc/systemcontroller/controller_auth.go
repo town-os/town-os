@@ -17,7 +17,7 @@ import (
 
 type AuthenticateRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"` //nolint:gosec // G117 -- request field, not hardcoded
+	Password string `json:"password"`
 }
 
 type AuthenticateResponse struct {

@@ -63,8 +63,8 @@ func TestRolodexServesPrometheusMetrics(t *testing.T) {
 	}
 
 	unitName := systemd.SystemServiceUnitName(key)
-	_ = sd.SetStatus(ctx, unitName, systemd.Stop) //nolint:errcheck // best-effort pre-clean
-	_ = sd.UninstallUnit(ctx, unitName)           //nolint:errcheck // best-effort pre-clean
+	_ = sd.SetStatus(ctx, unitName, systemd.Stop)
+	_ = sd.UninstallUnit(ctx, unitName)
 
 	uf := systemd.GenerateSystemServiceUnit(systemd.SystemServiceUnitConfig{
 		Key:         key,
@@ -161,7 +161,7 @@ func TestPrometheusConfigWithRolodexIsValid(t *testing.T) {
 	// ownership straight through, so nobody cannot even traverse into it.
 	// Widening the temp dir instead would be the wrong trade: this container
 	// reads one file and exits.
-	out, err := exec.CommandContext(ctx, "podman", "run", "--rm", //nolint:gosec,noctx // test-controlled args
+	out, err := exec.CommandContext(ctx, "podman", "run", "--rm",
 		"--net", "host",
 		"--user", "0:0",
 		"--entrypoint", "/bin/promtool",

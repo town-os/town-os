@@ -40,7 +40,7 @@ func TestIngressRoutesTLSToBackend(t *testing.T) {
 		t.Fatalf("EnsureCA: %v", err)
 	}
 	leafDir := filepath.Join(tlsDir, "leaf")
-	if err := os.MkdirAll(leafDir, 0o755); err != nil { //nolint:gosec // test dir
+	if err := os.MkdirAll(leafDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := ca.IssueLeaf(leafDir, []string{"test.local"}); err != nil {
@@ -125,7 +125,7 @@ func TestIngressHTTPPortRouting(t *testing.T) {
 	}
 	issue := func(host string) string {
 		dir := filepath.Join(tlsDir, host)
-		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // test dir
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := ca.IssueLeaf(dir, []string{host}); err != nil {
@@ -265,7 +265,7 @@ func httpGet(t *testing.T, client *http.Client, url string) (*http.Response, err
 // dials 127.0.0.1:port while presenting SNI for the requested host.
 func caClient(t *testing.T, caPath string, port int) *http.Client {
 	t.Helper()
-	caPEM, err := os.ReadFile(caPath) //nolint:gosec // test-controlled path
+	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
 		t.Fatalf("read CA: %v", err)
 	}
@@ -290,7 +290,7 @@ func caClient(t *testing.T, caPath string, port int) *http.Client {
 // the given CA and always dials 127.0.0.1:port.
 func caClientSNI(t *testing.T, caPath string, port int) *http.Client {
 	t.Helper()
-	caPEM, err := os.ReadFile(caPath) //nolint:gosec // test-controlled path
+	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
 		t.Fatalf("read CA: %v", err)
 	}

@@ -228,7 +228,7 @@ func TestArchiveUploadOrdinaryArchiveStillWorks(t *testing.T) {
 		t.Fatalf("UploadArchive: %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(path, "index.html")) //nolint:gosec // G304 -- path built from the test's own subvolume
+	got, err := os.ReadFile(filepath.Join(path, "index.html"))
 	if err != nil {
 		t.Fatalf("ReadFile index.html: %v", err)
 	}

@@ -36,7 +36,6 @@ linters:
     - misspell
     - mnd
     - nestif
-    - nolintlint
     - nlreturn
     - noinlineerr
     - nonamedreturns

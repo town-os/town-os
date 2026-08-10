@@ -69,7 +69,7 @@ func (c *SystemdClient) ListSessions(ctx context.Context, token string) (_ []acc
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: ListSessions: %w", ErrHTTPRequest, err)
 	}
@@ -98,7 +98,7 @@ func (c *SystemdClient) SessionUsername(ctx context.Context, token string) (_ st
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("%w: SessionUsername: %w", ErrHTTPRequest, err)
 	}

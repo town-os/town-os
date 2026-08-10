@@ -403,7 +403,7 @@ func ensureAdminUser(ctx context.Context, client *http.Client, giteaURL string) 
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(adminUser, adminPass)
 
-	resp, err := client.Do(req) //nolint:gosec // G704 -- URL from trusted giteaURL parameter
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("create admin user request: %w", err)
 	}

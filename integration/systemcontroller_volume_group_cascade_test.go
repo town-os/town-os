@@ -50,7 +50,7 @@ func TestSystemControllerCascadeVolumeGroupDeleteRealSystemd(t *testing.T) {
 			}
 		}
 		// Also remove the on-disk unit file just in case.
-		_ = os.Remove("/etc/systemd/system/" + unitName) //nolint:errcheck // best-effort cleanup
+		_ = os.Remove("/etc/systemd/system/" + unitName)
 	})
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {

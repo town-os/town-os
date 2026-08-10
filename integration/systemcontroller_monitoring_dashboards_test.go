@@ -52,7 +52,7 @@ func TestGrafanaProvisioningWritesEveryDashboard(t *testing.T) {
 
 	jsonDir := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning", "dashboard-json")
 	for _, want := range monitoring.GrafanaDashboards(devices) {
-		raw, err := os.ReadFile(filepath.Join(jsonDir, want.Filename)) //nolint:gosec // path under t.TempDir()
+		raw, err := os.ReadFile(filepath.Join(jsonDir, want.Filename))
 		if err != nil {
 			t.Errorf("dashboard %q not provisioned: %v", want.Filename, err)
 			continue

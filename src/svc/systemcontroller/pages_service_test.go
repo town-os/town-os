@@ -24,7 +24,7 @@ func TestStartPagesService(t *testing.T) {
 	// The static Caddyfile serves /srv/<full-request-host> so each page's
 	// FQDN-named directory is matched directly (no leftmost-label collision).
 	cf := filepath.Join(btrfsBase, PagesServeCaddyDir, "Caddyfile")
-	data, err := os.ReadFile(cf) //nolint:gosec // test-controlled path
+	data, err := os.ReadFile(cf)
 	if err != nil {
 		t.Fatalf("read Caddyfile: %v", err)
 	}

@@ -163,11 +163,11 @@ func matchMagicBytes(header []byte) string {
 func decompressCommand(ctx context.Context, format string) *exec.Cmd {
 	switch format {
 	case "tar.gz":
-		return exec.CommandContext(ctx, "pigz", "-dc") //nolint:gosec // G702 -- constant args
+		return exec.CommandContext(ctx, "pigz", "-dc")
 	case "tar.bz2":
-		return exec.CommandContext(ctx, "lbzip2", "-dc") //nolint:gosec // G702 -- constant args
+		return exec.CommandContext(ctx, "lbzip2", "-dc")
 	case "tar.xz":
-		return exec.CommandContext(ctx, "xz", "-dc") //nolint:gosec // G702 -- constant args
+		return exec.CommandContext(ctx, "xz", "-dc")
 	default:
 		return nil
 	}
@@ -315,7 +315,7 @@ func validateUnpackedPaths(destDir string) error {
 	root = filepath.Clean(root)
 
 	var escapes []string
-	walkErr := filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // root is sanitized via filepath.Abs and Clean above
+	walkErr := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}

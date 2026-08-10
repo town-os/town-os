@@ -145,7 +145,7 @@ func TestRewriteConfigWritesBlocklists(t *testing.T) {
 		t.Fatal("expected rolodex.yml to change when the blocklists did")
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "rolodex.yml")) //nolint:gosec // G304 -- path built from t.TempDir()
+	data, err := os.ReadFile(filepath.Join(dir, "rolodex.yml"))
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}

@@ -36,7 +36,7 @@ func writeFakeCaddy(t *testing.T, failReloads int) string {
 		"  exit 0 ;;\n" +
 		"esac\n" +
 		"exit 0\n"
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil { //nolint:gosec // G306 -- test stub must be executable
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake caddy: %v", err)
 	}
 	return bin

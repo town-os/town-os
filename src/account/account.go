@@ -67,7 +67,7 @@ type Account struct {
 // 8 characters; Email must match a standard email pattern; Phone must
 // contain digits with optional formatting characters.
 type UpdateFields struct {
-	Password *string `json:"password,omitempty"` //nolint:gosec // G117 -- request field, not hardcoded
+	Password *string `json:"password,omitempty"`
 	Email    *string `json:"email,omitempty"`
 	Phone    *string `json:"phone,omitempty"`
 	RealName *string `json:"real_name,omitempty"`

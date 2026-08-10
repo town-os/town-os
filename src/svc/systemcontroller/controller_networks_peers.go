@@ -67,12 +67,12 @@ var wgShowDump = func(ctx context.Context, iface string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, wgDumpTimeout)
 	defer cancel()
 
-	// nolint:gosec // G204: iface is not attacker-controlled data. Every caller
-	// derives it from wireguard.InterfaceName, which returns "town" + 4 hex
-	// characters of a sha256 — it cannot contain a metacharacter regardless of
-	// what a network is named. There is no shell here either: exec passes argv
-	// directly, so the argument is never re-parsed.
-	out, err := exec.CommandContext(ctx, "wg", "show", iface, "dump").Output()
+	// iface is not attacker-controlled data. Every caller derives it from
+	// wireguard.InterfaceName, which returns "town" + 4 hex characters of a
+	// sha256 — it cannot contain a metacharacter regardless of what a network
+	// is named. There is no shell here either: exec passes argv directly, so
+	// the argument is never re-parsed.
+	out, err := exec.CommandContext(ctx, "wg", "show", iface, "dump").Output() //nolint:gosec // G204 -- see above
 	if err != nil {
 		return "", fmt.Errorf("wg show %s dump: %w", iface, err)
 	}

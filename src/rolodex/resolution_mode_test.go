@@ -141,7 +141,7 @@ func TestUnitNameIsTheRolodexSystemService(t *testing.T) {
 func assertConfigMode(t *testing.T, dir, want string) {
 	t.Helper()
 
-	data, err := os.ReadFile(filepath.Join(dir, "rolodex.yml")) //nolint:gosec // test-controlled temp dir
+	data, err := os.ReadFile(filepath.Join(dir, "rolodex.yml"))
 	if err != nil {
 		t.Fatalf("read rolodex.yml: %v", err)
 	}

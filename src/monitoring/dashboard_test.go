@@ -276,7 +276,7 @@ func TestRolodexDashboardMirroredInFrontendQueries(t *testing.T) {
 
 	// The package lives at src/monitoring; the UI is two levels up.
 	path := filepath.Join("..", "..", "ui", "src", "components", "monitoring", "queries.js")
-	raw, err := os.ReadFile(path) //nolint:gosec // fixed repo-relative path
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
@@ -355,7 +355,7 @@ func TestWriteGrafanaProvisioningFilesWritesEveryDashboard(t *testing.T) {
 
 	jsonDir := filepath.Join(base, "monitoring", "grafana-provisioning", "dashboard-json")
 	for _, d := range GrafanaDashboards([]string{"sda3"}) {
-		raw, err := os.ReadFile(filepath.Join(jsonDir, d.Filename)) //nolint:gosec // path built from a test temp dir
+		raw, err := os.ReadFile(filepath.Join(jsonDir, d.Filename))
 		if err != nil {
 			t.Errorf("dashboard %q was not written: %v", d.Filename, err)
 			continue

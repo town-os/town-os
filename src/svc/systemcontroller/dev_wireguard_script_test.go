@@ -67,7 +67,7 @@ printf '%s\n' "${args[*]}" >> "${STUB_STATE}/privileged.log"
 if [ -f "${STUB_STATE}/fail" ]; then exit 1; fi
 exit 0
 `
-	if err := os.WriteFile(filepath.Join(h.binDir, "record-privileged"), []byte(script), 0o755); err != nil { //nolint:gosec // G306 -- a stub invoked as a command must be executable
+	if err := os.WriteFile(filepath.Join(h.binDir, "record-privileged"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write recorder: %v", err)
 	}
 	return h

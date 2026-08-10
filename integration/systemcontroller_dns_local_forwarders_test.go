@@ -213,7 +213,7 @@ func assertRolodexLacksForwarder(t *testing.T, dataDir, unwanted string) {
 func readRolodexYAML(t *testing.T, dataDir string) string {
 	t.Helper()
 
-	data, err := os.ReadFile(filepath.Join(dataDir, "rolodex.yml")) //nolint:gosec // test-controlled temp dir
+	data, err := os.ReadFile(filepath.Join(dataDir, "rolodex.yml"))
 	if err != nil {
 		t.Fatalf("read rolodex.yml: %v", err)
 	}

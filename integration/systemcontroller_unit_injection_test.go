@@ -47,7 +47,7 @@ func TestInstalledUnitCannotCarryInjectedDirective(t *testing.T) {
 	if err := os.WriteFile(path, []byte(units.Service.Content), 0600); err != nil {
 		t.Fatalf("write unit: %v", err)
 	}
-	raw, err := os.ReadFile(path) //nolint:gosec // G304 -- path is t.TempDir()
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read unit back: %v", err)
 	}

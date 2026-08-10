@@ -64,7 +64,7 @@ func TestNoServiceAccountSurvivesInSource(t *testing.T) {
 		if d.IsDir() || !strings.HasSuffix(path, ".go") || filepath.Base(path) == self {
 			return nil
 		}
-		body, readErr := os.ReadFile(path) //nolint:gosec // G304 -- walking this repo's own source
+		body, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
 		}

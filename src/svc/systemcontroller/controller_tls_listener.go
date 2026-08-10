@@ -43,8 +43,8 @@ const (
 	// EnvTLSCert and EnvTLSKey point at an operator-supplied certificate and
 	// key, for a box fronted by a name with a publicly trusted cert. Setting
 	// both enables TLS on its own; the local CA is not consulted.
-	EnvTLSCert = "TOWN_OS_TLS_CERT" //nolint:gosec // G101 -- env var name, not a credential
-	EnvTLSKey  = "TOWN_OS_TLS_KEY"  //nolint:gosec // G101 -- env var name, not a credential
+	EnvTLSCert = "TOWN_OS_TLS_CERT"
+	EnvTLSKey  = "TOWN_OS_TLS_KEY"
 	// EnvTLSSANs adds comma-separated names or IPs to the generated leaf, for
 	// a box reached by a name this cannot derive (a CNAME, a router-assigned
 	// DHCP name).

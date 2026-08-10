@@ -198,7 +198,7 @@ func TestIngressBadHostnameDoesNotBreakCaddyValidation(t *testing.T) {
 
 			// `caddy validate` parses and provisions the config without binding
 			// ports, which is the same parse `caddy reload` performs.
-			out, err := exec.CommandContext(context.Background(), caddyBin, "validate", "--config", path, "--adapter", "caddyfile").CombinedOutput() //nolint:gosec // G204 -- binary resolved by findCaddy, path is the test's temp dir
+			out, err := exec.CommandContext(context.Background(), caddyBin, "validate", "--config", path, "--adapter", "caddyfile").CombinedOutput()
 			if err != nil {
 				t.Errorf("caddy rejected the whole config because of one malformed hostname: %v\n%s\n--- config ---\n%s",
 					err, string(out), string(content))

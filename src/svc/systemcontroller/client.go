@@ -439,7 +439,7 @@ func (c *SystemdClient) postClient(ctx context.Context, path string, body io.Rea
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: POST %s: %w", ErrHTTPRequest, path, err)
 	}
@@ -468,7 +468,7 @@ func (c *SystemdClient) postSSE(ctx context.Context, path string, body io.Reader
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: POST %s: %w", ErrHTTPRequest, path, err)
 	}
@@ -516,7 +516,7 @@ func (c *SystemdClient) getClient(ctx context.Context, path string) (_ *http.Res
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	return c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	return c.HTTP.Do(req)
 }
 
 // postJSON sends a POST request with a JSON body and returns the raw response.
@@ -530,5 +530,5 @@ func (c *SystemdClient) postJSON(ctx context.Context, path string, body io.Reade
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	return c.HTTP.Do(req) //nolint:gosec // G704 -- URL from trusted c.URL
+	return c.HTTP.Do(req)
 }

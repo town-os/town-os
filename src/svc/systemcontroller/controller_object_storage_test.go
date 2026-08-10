@@ -51,7 +51,7 @@ func newPlainAccount(t *testing.T, e *wgTestEnv, username, password string) stri
 // helper cannot drift from the authToken call that follows it.
 const (
 	scopedAccountName     = "portal"
-	scopedAccountPassword = "portalpass1" //nolint:gosec // G101 -- a test fixture, not a credential
+	scopedAccountPassword = "portalpass1"
 )
 
 // newNetworkOnlyAccount creates the scoped account holding the gfeh grant.

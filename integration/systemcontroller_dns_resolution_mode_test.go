@@ -135,7 +135,7 @@ func rolodexRestartRequested(sd *systemd.MockManager, want string) bool {
 func assertRolodexMode(t *testing.T, dataDir, want string) {
 	t.Helper()
 
-	data, err := os.ReadFile(filepath.Join(dataDir, "rolodex.yml")) //nolint:gosec // test-controlled temp dir
+	data, err := os.ReadFile(filepath.Join(dataDir, "rolodex.yml"))
 	if err != nil {
 		t.Fatalf("read rolodex.yml: %v", err)
 	}

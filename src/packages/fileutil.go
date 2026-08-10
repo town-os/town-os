@@ -40,7 +40,7 @@ func atomicWriteJSON(path string, v any) (err error) {
 		return err
 	}
 
-	return os.Rename(tmpPath, path) //nolint:gosec // G703 -- paths validated by caller
+	return os.Rename(tmpPath, path)
 }
 
 // fileLock represents an exclusive advisory lock on a file.
@@ -61,7 +61,7 @@ func lockDir(dir string) (_ *fileLock, err error) {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}
 
-	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX) //nolint:gosec // G115 -- fd fits in int
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("acquire lock: %w", err), f.Close())
 	}
@@ -71,6 +71,6 @@ func lockDir(dir string) (_ *fileLock, err error) {
 
 // Unlock releases the advisory lock and closes the lock file.
 func (l *fileLock) Unlock() error {
-	unlockErr := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN) //nolint:gosec // G115 -- fd fits in int
+	unlockErr := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
 	return errors.Join(unlockErr, l.f.Close())
 }

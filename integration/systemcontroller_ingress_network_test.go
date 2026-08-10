@@ -47,7 +47,7 @@ func routeFor(routes []*ingresspb.Route, host string) *ingresspb.Route {
 // readNetworkState decodes the per-package network state file.
 func readNetworkState(t *testing.T, stateDir, repo, pkg, version string) networkcontroller.PackageNetworkState {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(stateDir, repo+"-"+pkg+"-"+version+".json")) //nolint:gosec // G304 -- test temp path
+	data, err := os.ReadFile(filepath.Join(stateDir, repo+"-"+pkg+"-"+version+".json"))
 	if err != nil {
 		t.Fatalf("read network state: %v", err)
 	}
@@ -62,7 +62,7 @@ func readNetworkState(t *testing.T, stateDir, repo, pkg, version string) network
 func leafDNSNames(t *testing.T, btrfsBase, repo, pkg, version string) []string {
 	t.Helper()
 	certPath := filepath.Join(btrfsBase, "tls", "leaves", repo, pkg, version, "cert.pem")
-	data, err := os.ReadFile(certPath) //nolint:gosec // G304 -- test temp path
+	data, err := os.ReadFile(certPath)
 	if err != nil {
 		t.Fatalf("read leaf cert: %v", err)
 	}

@@ -391,7 +391,7 @@ func run() (err error) {
 				defaults[i].Password = repoPass
 			}
 		}
-		repoData, err := json.Marshal(defaults) //nolint:gosec // G117 -- Password field is internal config, not user-facing
+		repoData, err := json.Marshal(defaults)
 		if err != nil {
 			return fmt.Errorf("marshal default repo list: %w", err)
 		}
@@ -948,7 +948,7 @@ func run() (err error) {
 	go func() {
 		<-sig
 		cancel()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:govet // shadow is intentional for shutdown scope
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 		shutdownErr := srv.Shutdown(shutdownCtx)
 		if shutdownErr != nil {

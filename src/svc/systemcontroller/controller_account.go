@@ -12,7 +12,7 @@ import (
 
 type CreateAccountRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"` //nolint:gosec // G117 -- request field, not hardcoded
+	Password string `json:"password"`
 	Email    string `json:"email"`
 	Phone    string `json:"phone"`
 	RealName string `json:"real_name"`

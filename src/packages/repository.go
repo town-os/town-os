@@ -275,7 +275,7 @@ type Repository struct {
 	Name     string
 	URL      url.URL
 	Username string
-	Password string //nolint:gosec // G117 -- credential field, not hardcoded
+	Password string
 }
 
 type repositoryJSON struct {

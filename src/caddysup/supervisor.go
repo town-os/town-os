@@ -233,11 +233,11 @@ func writeCaddyfileAtomic(path string, content []byte) error {
 	defer func() {
 		// Best-effort cleanup if rename failed.
 		if _, statErr := os.Stat(tmpName); statErr == nil {
-			_ = os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
+			_ = os.Remove(tmpName)
 		}
 	}()
 	if _, err := tmp.Write(content); err != nil {
-		_ = tmp.Close() //nolint:errcheck // best-effort close on error
+		_ = tmp.Close()
 		return fmt.Errorf("write tmp: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

@@ -106,7 +106,7 @@ exit 1
 func (h *devDNSHarness) writeStub(name, body string) {
 	h.t.Helper()
 	script := "#!/usr/bin/env bash\n" + body
-	if err := os.WriteFile(filepath.Join(h.binDir, name), []byte(script), 0o755); err != nil { //nolint:gosec // G306 -- a stub on PATH must be executable
+	if err := os.WriteFile(filepath.Join(h.binDir, name), []byte(script), 0o755); err != nil {
 		h.t.Fatalf("write stub %s: %v", name, err)
 	}
 }

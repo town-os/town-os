@@ -47,7 +47,7 @@ var CommonLanguages = []Locale{
 	{Code: "fr-FR", NativeName: "Français", EnglishName: "French"},
 	{Code: "hi-IN", NativeName: "हिन्दी", EnglishName: "Hindi"},
 	{Code: "it-IT", NativeName: "Italiano", EnglishName: "Italian"},
-	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},   //nolint:gosmopolitan // i18n locale data
+	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},
 	{Code: "ko-KR", NativeName: "한국어", EnglishName: "Korean"},
 	{Code: "nl-NL", NativeName: "Nederlands", EnglishName: "Dutch"},
 	{Code: "pl-PL", NativeName: "Polski", EnglishName: "Polish"},
@@ -59,7 +59,7 @@ var CommonLanguages = []Locale{
 	{Code: "tr-TR", NativeName: "Türkçe", EnglishName: "Turkish"},
 	{Code: "uk-UA", NativeName: "Українська", EnglishName: "Ukrainian"},
 	{Code: "vi-VN", NativeName: "Tiếng Việt", EnglishName: "Vietnamese"},
-	{Code: "zh-CN", NativeName: "中文", EnglishName: "Chinese"}, //nolint:gosmopolitan // i18n locale data
+	{Code: "zh-CN", NativeName: "中文", EnglishName: "Chinese"},
 }
 
 // ExtendedLocales is a comprehensive list of country-specific locale codes
@@ -112,7 +112,7 @@ var ExtendedLocales = []Locale{
 	{Code: "id-ID", NativeName: "Bahasa Indonesia", EnglishName: "Indonesian"},
 	{Code: "is-IS", NativeName: "Íslenska", EnglishName: "Icelandic"},
 	{Code: "it-IT", NativeName: "Italiano", EnglishName: "Italian"},
-	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},   //nolint:gosmopolitan // i18n locale data
+	{Code: "ja-JP", NativeName: "日本語", EnglishName: "Japanese"},
 	{Code: "ka-GE", NativeName: "ქართული", EnglishName: "Georgian"},
 	{Code: "kk-KZ", NativeName: "Қазақша", EnglishName: "Kazakh"},
 	{Code: "km-KH", NativeName: "ខ្មែរ", EnglishName: "Khmer"},
@@ -153,8 +153,8 @@ var ExtendedLocales = []Locale{
 	{Code: "ur-PK", NativeName: "اردو", EnglishName: "Urdu"},
 	{Code: "uz-UZ", NativeName: "Oʻzbekcha", EnglishName: "Uzbek"},
 	{Code: "vi-VN", NativeName: "Tiếng Việt", EnglishName: "Vietnamese"},
-	{Code: "zh-CN", NativeName: "中文 (简体)", EnglishName: "Chinese (Simplified)"}, //nolint:gosmopolitan // i18n locale data
-	{Code: "zh-TW", NativeName: "中文 (繁體)", EnglishName: "Chinese (Traditional)"}, //nolint:gosmopolitan // i18n locale data
+	{Code: "zh-CN", NativeName: "中文 (简体)", EnglishName: "Chinese (Simplified)"},
+	{Code: "zh-TW", NativeName: "中文 (繁體)", EnglishName: "Chinese (Traditional)"},
 	{Code: "zu-ZA", NativeName: "IsiZulu", EnglishName: "Zulu"},
 }
 

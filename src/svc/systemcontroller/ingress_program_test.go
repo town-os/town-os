@@ -36,7 +36,7 @@ func TestBuildIngressRoutesPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "asdf-gitea-1.0.json"), data, 0o644); err != nil { //nolint:gosec // test fixture
+	if err := os.WriteFile(filepath.Join(stateDir, "asdf-gitea-1.0.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,7 +76,7 @@ func TestRebuildIngressPushesRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "asdf-gitea-1.0.json"), data, 0o644); err != nil { //nolint:gosec // test fixture
+	if err := os.WriteFile(filepath.Join(stateDir, "asdf-gitea-1.0.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

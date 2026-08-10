@@ -55,7 +55,7 @@ func TestWriteGrafanaProvisioningFilesEmbedsDiskRegex(t *testing.T) {
 	}
 
 	dashFile := filepath.Join(btrfsBase, "monitoring", "grafana-provisioning", "dashboard-json", "town-os-overview.json")
-	data, err := os.ReadFile(dashFile) //nolint:gosec // file is under t.TempDir()
+	data, err := os.ReadFile(dashFile)
 	if err != nil {
 		t.Fatalf("read dashboard JSON: %v", err)
 	}

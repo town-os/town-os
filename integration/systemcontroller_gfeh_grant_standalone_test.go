@@ -39,7 +39,7 @@ type gfehGrantEnv struct {
 
 const (
 	gfehGrantAdminPassword = "adminpass1"
-	gfehGrantUserPassword  = "shelfpass1" //nolint:gosec // G101 -- a test fixture, not a credential
+	gfehGrantUserPassword  = "shelfpass1"
 	gfehGrantUsername      = "shelf"
 )
 

@@ -114,7 +114,7 @@ func TestPagesUpdateDomainCannotUnlinkOutsideWebroot(t *testing.T) {
 	traversing := "../" + sentinelName
 	_, err := env.Client.UpdatePage(context.TODO(), "victim-site", account.PageSiteUpdate{Domain: &traversing})
 
-	data, readErr := os.ReadFile(sentinelPath) //nolint:gosec // G304 -- path built from the test's own temp dir
+	data, readErr := os.ReadFile(sentinelPath)
 	if readErr != nil {
 		t.Fatalf("a page edit unlinked %s, a file outside the pages webroot: %v", sentinelPath, readErr)
 	}

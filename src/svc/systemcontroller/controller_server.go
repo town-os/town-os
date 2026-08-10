@@ -723,13 +723,13 @@ func (s *serverBase) fetchExternalIPOnce(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("new request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G107 -- URL is operator-configured
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("do: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status %d", resp.StatusCode) //nolint:gosec // G706 -- status code is not tainted
+		return "", fmt.Errorf("status %d", resp.StatusCode)
 	}
 	var result struct {
 		IP string `json:"ip"`

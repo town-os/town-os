@@ -302,12 +302,12 @@ func (s *SystemControllerHandlers) ensureVMImage(ctx context.Context, vmImage st
 	}
 
 	rawPath := resolveVMImagePath(basePath, vmImage)
-	if _, err := os.Stat(rawPath); err == nil { //nolint:gosec // G703 -- path from resolveVMImagePath
+	if _, err := os.Stat(rawPath); err == nil {
 		return nil // already cached
 	}
 
 	dir := filepath.Join(basePath, VMImagesSubvolume)
-	if err := os.MkdirAll(dir, 0750); err != nil { //nolint:gosec // G703 -- path from trusted basePath
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("create vm-images dir: %w", err)
 	}
 
@@ -320,13 +320,13 @@ func (s *SystemControllerHandlers) ensureVMImage(ctx context.Context, vmImage st
 	}
 
 	if err := convertVMImage(ctx, downloadPath, rawPath); err != nil {
-		if rmErr := os.Remove(downloadPath); rmErr != nil { //nolint:gosec // G703 -- path from trusted basePath
+		if rmErr := os.Remove(downloadPath); rmErr != nil {
 			slog.Debug(fmt.Sprintf("remove download file: %v", rmErr))
 		}
 		return err
 	}
 
-	if err := os.Remove(downloadPath); err != nil { //nolint:gosec // G703 -- path from trusted basePath
+	if err := os.Remove(downloadPath); err != nil {
 		slog.Debug(fmt.Sprintf("remove download file: %v", err))
 	}
 

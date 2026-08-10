@@ -58,7 +58,7 @@ func startRealPartitionReconcilable(t *testing.T) (gfeh.Client, func(context.Con
 		t.Skip("GFEH_IMAGE is empty; object storage is disabled in this build")
 	}
 
-	suffix := strconv.FormatUint(rand.Uint64(), 36) //nolint:gosec // G404 -- a test-local name, not a secret
+	suffix := strconv.FormatUint(rand.Uint64(), 36)
 	network := "gfehgrants" + suffix
 
 	nm := account.InitMockNetworkManager()

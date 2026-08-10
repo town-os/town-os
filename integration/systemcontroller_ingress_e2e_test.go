@@ -80,7 +80,7 @@ func TestIntegrationIngressE2ERealContainer(t *testing.T) {
 		t.Fatalf("EnsureCA: %v", err)
 	}
 	leafDir := filepath.Join("/town-os/tls/leaves/e2e", uniq)
-	if err := os.MkdirAll(leafDir, 0o755); err != nil { //nolint:gosec // served read-only
+	if err := os.MkdirAll(leafDir, 0o755); err != nil {
 		t.Fatalf("mkdir leaf: %v", err)
 	}
 	if err := ca.IssueLeaf(leafDir, []string{fqdn}); err != nil {
@@ -92,7 +92,7 @@ func TestIntegrationIngressE2ERealContainer(t *testing.T) {
 	port := e2eFreePort(t)
 	httpPort := e2eFreePort(t)
 	dataDir := filepath.Join("/run/town-os/ingress-e2e", uniq)
-	if err := os.MkdirAll(dataDir, 0o755); err != nil { //nolint:gosec // holds the gRPC socket
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		t.Fatalf("mkdir data: %v", err)
 	}
 	mgr := ingressctl.NewManager(ingressctl.Config{
@@ -207,12 +207,12 @@ func TestIntegrationIngressE2ERealContainer(t *testing.T) {
 }
 
 func podman(args ...string) error {
-	return exec.Command("podman", args...).Run() //nolint:gosec,noctx // test-controlled args
+	return exec.Command("podman", args...).Run() //nolint:noctx // test-controlled args
 }
 
 func mustPodman(t *testing.T, args ...string) {
 	t.Helper()
-	if out, err := exec.Command("podman", args...).CombinedOutput(); err != nil { //nolint:gosec,noctx // test-controlled args
+	if out, err := exec.Command("podman", args...).CombinedOutput(); err != nil { //nolint:noctx // test-controlled args
 		t.Fatalf("podman %v: %v\n%s", args, err, out)
 	}
 }
@@ -245,7 +245,7 @@ func e2eGet(client *http.Client, url string) (*http.Response, error) {
 // 127.0.0.1:port while presenting SNI for host.
 func e2eCAClient(t *testing.T, caPath, host string, port int) *http.Client {
 	t.Helper()
-	caPEM, err := os.ReadFile(caPath) //nolint:gosec // test-controlled path
+	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
 		t.Fatalf("read CA: %v", err)
 	}
@@ -285,7 +285,7 @@ func e2eContainerIP(t *testing.T, container, network string) string {
 	tmpl := fmt.Sprintf("{{(index .NetworkSettings.Networks %q).IPAddress}}", network)
 	var ip string
 	if !e2ePoll(func() bool {
-		out, err := exec.Command("podman", "inspect", "-f", tmpl, container).Output() //nolint:gosec,noctx // test-controlled args
+		out, err := exec.Command("podman", "inspect", "-f", tmpl, container).Output() //nolint:noctx // test-controlled args
 		if err != nil {
 			return false
 		}
@@ -305,19 +305,19 @@ func e2eContainerIP(t *testing.T, container, network string) string {
 // — it only adds signal to an already-failing test.
 func e2eDumpIngressDiag(t *testing.T, ingressContainer, backendAddr string) {
 	t.Helper()
-	if out, err := exec.Command("podman", "logs", ingressContainer).CombinedOutput(); err == nil { //nolint:gosec,noctx // test-controlled args
+	if out, err := exec.Command("podman", "logs", ingressContainer).CombinedOutput(); err == nil { //nolint:noctx // test-controlled args
 		t.Logf("ingress container (%s) logs:\n%s", ingressContainer, out)
 	} else {
 		t.Logf("podman logs %s: %v\n%s", ingressContainer, err, out)
 	}
-	probe := exec.Command("podman", "exec", ingressContainer, "sh", "-c", //nolint:gosec,noctx // test-controlled args
+	probe := exec.Command("podman", "exec", ingressContainer, "sh", "-c", //nolint:noctx // test-controlled args
 		"wget -T 5 -qO- http://"+backendAddr+":80/ >/dev/null 2>&1 && echo BACKEND_OK || echo BACKEND_UNREACHABLE")
 	if out, err := probe.CombinedOutput(); err == nil {
 		t.Logf("ingress->backend(%s) probe:\n%s", backendAddr, out)
 	} else {
 		t.Logf("ingress->backend(%s) probe: %v\n%s", backendAddr, err, out)
 	}
-	if out, err := exec.Command("podman", "inspect", ingressContainer, "--format", "{{json .NetworkSettings.Networks}}").CombinedOutput(); err == nil { //nolint:gosec,noctx // test-controlled args
+	if out, err := exec.Command("podman", "inspect", ingressContainer, "--format", "{{json .NetworkSettings.Networks}}").CombinedOutput(); err == nil { //nolint:noctx // test-controlled args
 		t.Logf("%s networks: %s", ingressContainer, out)
 	}
 }

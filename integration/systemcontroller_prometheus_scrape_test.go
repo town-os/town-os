@@ -261,7 +261,7 @@ func startPrometheusForScrape(t *testing.T, base, port string) {
 	// --user 0:0 for the same reason the promtool test needs it: the image
 	// declares USER nobody and the bind-mount source is root-owned, and a bind
 	// mount passes host ownership straight through.
-	cmd := exec.CommandContext(ctx, "podman", "run", "-d", "--replace", //nolint:gosec,noctx // test-controlled args
+	cmd := exec.CommandContext(ctx, "podman", "run", "-d", "--replace",
 		"--name", name,
 		"--net", "host",
 		"--user", "0:0",
@@ -278,7 +278,7 @@ func startPrometheusForScrape(t *testing.T, base, port string) {
 
 	t.Cleanup(func() {
 		// Cleanup is exempt from the never-swallow-exit-codes rule.
-		_ = exec.Command("podman", "rm", "-f", name).Run() //nolint:errcheck,gosec,noctx // best-effort cleanup
+		_ = exec.Command("podman", "rm", "-f", name).Run() //nolint:noctx // best-effort cleanup
 	})
 }
 
@@ -386,7 +386,7 @@ func promtoolCheckConfig(t *testing.T, configDir string) {
 
 	// --entrypoint and --user 0:0 are both required; see the equivalent call in
 	// systemcontroller_rolodex_metrics_test.go for why.
-	out, err := exec.CommandContext(ctx, "podman", "run", "--rm", //nolint:gosec,noctx // test-controlled args
+	out, err := exec.CommandContext(ctx, "podman", "run", "--rm",
 		"--net", "host",
 		"--user", "0:0",
 		"--entrypoint", "/bin/promtool",

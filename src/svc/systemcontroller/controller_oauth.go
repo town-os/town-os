@@ -245,7 +245,7 @@ func oauthSeconds(spec string, def time.Duration) time.Duration {
 	if err != nil || secs == 0 || secs > uint64(oauthMaxDuration/time.Second) {
 		return def
 	}
-	return time.Duration(secs) * time.Second //nolint:gosec // bounded above
+	return time.Duration(secs) * time.Second
 }
 
 // oauthAllowPrivate reports whether this server may aim a device flow at a

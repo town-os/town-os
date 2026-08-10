@@ -223,7 +223,7 @@ func TestConnectedPeersHTTPDisconnectRevokesPeer(t *testing.T) {
 
 	iface := systemcontroller.NetworkInterfaceName("office")
 	cfgPath := filepath.Join(stateDir, iface+".conf")
-	cfg, err := os.ReadFile(cfgPath) //nolint:gosec // G304 -- test-controlled path
+	cfg, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("read interface config: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestConnectedPeersHTTPDisconnectRevokesPeer(t *testing.T) {
 	}
 
 	// Its key is gone from the rendered interface config...
-	cfg, err = os.ReadFile(cfgPath) //nolint:gosec // G304 -- test-controlled path
+	cfg, err = os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("read interface config after disconnect: %v", err)
 	}

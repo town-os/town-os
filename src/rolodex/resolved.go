@@ -57,7 +57,7 @@ func ConfigureResolvedRouting(ctx context.Context, tld, loopbackAddr string) {
 // drop-in config files. This avoids "systemctl restart" which is refused
 // on systems where resolved has RefuseManualStop=yes.
 func reloadResolved(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, "pkill", "-HUP", "systemd-resolved") //nolint:gosec // G204 -- arguments are constants
+	cmd := exec.CommandContext(ctx, "pkill", "-HUP", "systemd-resolved")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%w: %s", err, output)
 	}

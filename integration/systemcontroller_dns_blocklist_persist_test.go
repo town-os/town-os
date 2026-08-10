@@ -28,7 +28,7 @@ type blocklistPersistEnv struct {
 
 func (e blocklistPersistEnv) configFile(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(e.dataDir, "rolodex.yml")) //nolint:gosec // G304 -- path built from the test's own temp dir
+	data, err := os.ReadFile(filepath.Join(e.dataDir, "rolodex.yml"))
 	if err != nil {
 		t.Fatalf("read rolodex.yml: %v", err)
 	}

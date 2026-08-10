@@ -136,7 +136,7 @@ func TestIssueLeafForPackageWritesAndReturnsContainerPath(t *testing.T) {
 	// Walk the issued cert and verify the internal IP landed in SANs —
 	// the whole point of threading internalIP through the issuance path
 	// is that LAN-IP browser access matches the cert.
-	data, err := os.ReadFile(leafCert) //nolint:gosec // G304 -- test temp path
+	data, err := os.ReadFile(leafCert)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestReconcileWriteNetworkStateIncludesTLSWhenSuppliesHTTP(t *testing.T) {
 // leafSANs parses the issued leaf and returns its DNS names and IP SANs.
 func leafSANs(t *testing.T, btrfs, repo, pkg, version string) ([]string, []string) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(btrfs, "tls", "leaves", repo, pkg, version, "cert.pem")) //nolint:gosec // G304 -- test temp path
+	data, err := os.ReadFile(filepath.Join(btrfs, "tls", "leaves", repo, pkg, version, "cert.pem"))
 	if err != nil {
 		t.Fatalf("read leaf: %v", err)
 	}

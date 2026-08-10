@@ -577,7 +577,7 @@ func TestWaitForDNSReadyImmediate(t *testing.T) {
 		// 127.0.0.2 may not be configured on all CI hosts; skip gracefully.
 		t.Skip("127.0.0.2 not available, skipping")
 	}
-	t.Cleanup(func() { _ = ln.Close() }) //nolint:errcheck // best-effort cleanup
+	t.Cleanup(func() { _ = ln.Close() })
 
 	mgr := NewManager(Config{
 		Systemd: systemd.InitMockManager(),
@@ -630,7 +630,7 @@ func TestWaitForDNSReadyDelayedStart(t *testing.T) {
 			return
 		}
 		<-done
-		_ = ln.Close() //nolint:errcheck // goroutine cleanup
+		_ = ln.Close()
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

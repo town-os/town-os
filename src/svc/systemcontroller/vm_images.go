@@ -250,7 +250,7 @@ func downloadFile(ctx context.Context, url, destPath string) (err error) {
 	}
 
 	client := vmImageClient()
-	resp, err := client.Do(req) //nolint:gosec // G704 -- URL scheme and every dialled address are checked above
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

@@ -156,7 +156,7 @@ func TestNetworkTLDResolvesInstallNetwork(t *testing.T) {
 
 func leafDNSNames(t *testing.T, certPath string) []string {
 	t.Helper()
-	data, err := os.ReadFile(certPath) //nolint:gosec // G304 -- test temp path
+	data, err := os.ReadFile(certPath)
 	if err != nil {
 		t.Fatalf("read leaf cert: %v", err)
 	}

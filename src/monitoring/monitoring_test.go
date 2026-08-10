@@ -749,7 +749,7 @@ func TestWriteGrafanaProvisioningFiles(t *testing.T) {
 	// Without this file, the default /d/town-os-overview/... URL
 	// returns 404 and the monitoring iframe renders as blank.
 	dashboardFile := filepath.Join(jsonDir, "town-os-overview.json")
-	data, err = os.ReadFile(dashboardFile) //nolint:gosec // test reads a file under t.TempDir()
+	data, err = os.ReadFile(dashboardFile)
 	if err != nil {
 		t.Fatalf("town-os-overview.json should exist: %v", err)
 	}

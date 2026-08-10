@@ -73,7 +73,7 @@ type MockClient struct {
 	RevokeSessionErr     error
 	ListSessionsErr      error
 	SessionUsernameErr   error
-	AuthToken            string //nolint:gosec // G117 -- test field, not a real token
+	AuthToken            string
 	AuditEntries         []account.AuditEntry
 	ListAuditErr         error
 	Settings             map[string]string

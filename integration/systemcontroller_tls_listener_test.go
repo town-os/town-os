@@ -176,7 +176,7 @@ func TestSystemControllerTLSListenerRejectsUntrustingClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
-	resp, err := client.Do(req) //nolint:bodyclose // the request is expected to fail before a body exists
+	resp, err := client.Do(req)
 	if err == nil {
 		if cerr := resp.Body.Close(); cerr != nil {
 			t.Errorf("close body: %v", cerr)

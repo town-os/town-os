@@ -103,7 +103,7 @@ func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 	// only. The default/home network is LAN-only and gets no WireGuard transport.
 	iface := systemcontroller.NetworkInterfaceName("office")
 	p := filepath.Join(stateDir, iface+".conf")
-	data, rerr := os.ReadFile(p) //nolint:gosec // G304 -- test-controlled path
+	data, rerr := os.ReadFile(p)
 	if rerr != nil {
 		t.Fatalf("expected config file for office at %s: %v", p, rerr)
 	}
@@ -231,7 +231,7 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 		unitPath := "/etc/systemd/system/" + unit
 
 		// The unit file exists on disk and references the rendered wg config.
-		content, err := os.ReadFile(unitPath) //nolint:gosec // G304 -- fixed systemd unit path
+		content, err := os.ReadFile(unitPath)
 		if err != nil {
 			t.Fatalf("expected unit file %s on disk: %v", unitPath, err)
 		}
@@ -404,7 +404,7 @@ func TestNetworkHTTPLifecycle(t *testing.T) {
 	}
 
 	// The re-rendered interface config now carries the peer's public key.
-	cfg, err := os.ReadFile(cfgPath) //nolint:gosec // G304 -- test-controlled path
+	cfg, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("read interface config: %v", err)
 	}
