@@ -44,7 +44,7 @@ const legacyRow = `INSERT INTO accounts
 // the standalone object-storage capability and an enrolled SMB hash.
 func openLegacyDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := OpenDB(filepath.Join(t.TempDir(), "legacy.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "legacy.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -84,12 +84,12 @@ func openLegacyDB(t *testing.T) *sql.DB {
 // account on the first boot after an upgrade — the account keeps its password,
 // and nothing on screen would say its confinement had been lifted.
 func TestMigrationCarriesWireGuardIntoNetworkOnly(t *testing.T) {
-	mgr, err := InitManager(openLegacyDB(t))
+	mgr, err := InitManager(t.Context(), openLegacyDB(t))
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
 
-	got, err := mgr.Get("portal")
+	got, err := mgr.Get(t.Context(), "portal")
 	if err != nil {
 		t.Fatalf("Get portal: %v", err)
 	}
@@ -111,13 +111,13 @@ func TestMigrationCarriesWireGuardIntoNetworkOnly(t *testing.T) {
 // object_storage gets the gfeh grant and NOT wireguard: silently handing it peer
 // enrollment during an upgrade is the direction you cannot take back.
 func TestMigrationDoesNotInventNetworkOnlyAccounts(t *testing.T) {
-	mgr, err := InitManager(openLegacyDB(t))
+	mgr, err := InitManager(t.Context(), openLegacyDB(t))
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
 
 	for _, username := range []string{"root", "bob"} {
-		got, err := mgr.Get(username)
+		got, err := mgr.Get(t.Context(), username)
 		if err != nil {
 			t.Fatalf("Get %s: %v", username, err)
 		}
@@ -126,7 +126,7 @@ func TestMigrationDoesNotInventNetworkOnlyAccounts(t *testing.T) {
 		}
 	}
 
-	bob, err := mgr.Get("bob")
+	bob, err := mgr.Get(t.Context(), "bob")
 	if err != nil {
 		t.Fatalf("Get bob: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestMigrationDoesNotInventNetworkOnlyAccounts(t *testing.T) {
 		t.Errorf("the object_storage column did not become the gfeh grant: %v", bob.Grants)
 	}
 
-	root, err := mgr.Get("root")
+	root, err := mgr.Get(t.Context(), "root")
 	if err != nil {
 		t.Fatalf("Get root: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestMigrationDoesNotInventNetworkOnlyAccounts(t *testing.T) {
 // view. Nothing else would ever remove it from an upgraded box.
 func TestMigrationDropsLegacyColumns(t *testing.T) {
 	db := openLegacyDB(t)
-	if _, err := InitManager(db); err != nil {
+	if _, err := InitManager(t.Context(), db); err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
 
@@ -187,11 +187,11 @@ func TestMigrationIsIdempotentAcrossBoots(t *testing.T) {
 	db := openLegacyDB(t)
 
 	for i := range 3 {
-		mgr, err := InitManager(db)
+		mgr, err := InitManager(t.Context(), db)
 		if err != nil {
 			t.Fatalf("InitManager run %d: %v", i+1, err)
 		}
-		got, err := mgr.Get("portal")
+		got, err := mgr.Get(t.Context(), "portal")
 		if err != nil {
 			t.Fatalf("Get portal after run %d: %v", i+1, err)
 		}
@@ -204,7 +204,7 @@ func TestMigrationIsIdempotentAcrossBoots(t *testing.T) {
 // A database that never had any of these columns takes the same path on every
 // boot and must not error there.
 func TestMigrationOnAFreshDatabase(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "fresh.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "fresh.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestMigrationOnAFreshDatabase(t *testing.T) {
 		}
 	})
 
-	if _, err := InitManager(db); err != nil {
+	if _, err := InitManager(t.Context(), db); err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
 

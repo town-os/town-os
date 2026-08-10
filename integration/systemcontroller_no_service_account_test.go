@@ -33,7 +33,7 @@ func TestIntegrationAFreshBoxHasNoAccounts(t *testing.T) {
 
 	// Straight from the store, so nothing about the API's filtering or
 	// pagination can hide a row.
-	accounts, err := mgr.List()
+	accounts, err := mgr.List(t.Context())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

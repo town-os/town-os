@@ -31,7 +31,7 @@ func (s *SystemControllerHandlers) collectMetrics(ctx context.Context) []metrics
 
 	families = append(families, s.collectUnitMetrics(ctx)...)
 	families = append(families, s.collectPackageMetrics()...)
-	families = append(families, s.collectAccountMetrics()...)
+	families = append(families, s.collectAccountMetrics(ctx)...)
 	families = append(families, s.collectStorageMetrics()...)
 	families = append(families, s.collectAuditMetrics(ctx)...)
 
@@ -201,12 +201,12 @@ func (s *SystemControllerHandlers) collectPackageMetrics() []metrics.Metric {
 // collectAccountMetrics reports who can log in. Disabled accounts are their own
 // bucket rather than being dropped, so an account that was disabled is visibly
 // still present rather than appearing to have been deleted.
-func (s *SystemControllerHandlers) collectAccountMetrics() []metrics.Metric {
+func (s *SystemControllerHandlers) collectAccountMetrics(ctx context.Context) []metrics.Metric {
 	am := s.Controller.GetAccountManager()
 	if am == nil {
 		return nil
 	}
-	list, err := am.List()
+	list, err := am.List(ctx)
 	if err != nil {
 		slog.Error("metrics: listing accounts", "error", err)
 		return nil

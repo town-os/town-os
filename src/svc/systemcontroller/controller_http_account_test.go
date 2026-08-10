@@ -472,7 +472,7 @@ func TestHTTPListAccountsSearch(t *testing.T) {
 
 func TestHTTPCreateAccountBootstrap(t *testing.T) {
 	// Fresh DB with no accounts — createAccount should succeed without auth
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestHTTPCreateAccountBootstrap(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -659,7 +659,7 @@ func TestHTTPCreateAccountBootstrapNoAdmins(t *testing.T) {
 
 func TestHTTPCreateAccountBootstrapWithStaleToken(t *testing.T) {
 	// Fresh DB with no accounts — a stale/invalid bearer token should be ignored.
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -669,7 +669,7 @@ func TestHTTPCreateAccountBootstrapWithStaleToken(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -735,7 +735,7 @@ func TestHTTPCreateAccountBootstrapAllDisabledWithStaleToken(t *testing.T) {
 func TestHTTPCreateAccountRejectsWhenAdminExistsNoSession(t *testing.T) {
 	// Admin exists but was never authenticated — unauthenticated create should
 	// be rejected because an enabled admin account exists.
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -745,7 +745,7 @@ func TestHTTPCreateAccountRejectsWhenAdminExistsNoSession(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -793,7 +793,7 @@ func TestHTTPCreateAccountRejectsWhenAdminExistsNoSession(t *testing.T) {
 
 func TestHTTPCreateAccountRejectsStaleTokenWhenAdminExists(t *testing.T) {
 	// Admin exists, stale token — should be rejected because admin exists.
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -803,7 +803,7 @@ func TestHTTPCreateAccountRejectsStaleTokenWhenAdminExists(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -838,7 +838,7 @@ func TestHTTPCreateAccountRejectsStaleTokenWhenAdminExists(t *testing.T) {
 
 func TestHTTPCreateAccountRejectsWithoutToken(t *testing.T) {
 	// Admin exists + no token → 401.
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -848,7 +848,7 @@ func TestHTTPCreateAccountRejectsWithoutToken(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

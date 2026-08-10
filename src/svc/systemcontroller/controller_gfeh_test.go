@@ -183,7 +183,7 @@ func TestGfehAddPrincipalProjectsTheAccountsCeiling(t *testing.T) {
 	h, acctMgr := gfehUITest(t, map[string]gfeh.Client{"office": client})
 
 	mustAccount(t, acctMgr, "alice", false)
-	if _, err := acctMgr.Create("root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
+	if _, err := acctMgr.Create(t.Context(), "root", "hunter2hunter2", "r@example.com", "5551234", "Root", true); err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
 

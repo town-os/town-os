@@ -71,7 +71,8 @@ var DefaultSettings = map[string]string{
 // SettingsManager reads and writes the key/value settings table.
 //
 // Every method takes a context, and that is not decoration. The SQLite managers
-// used to open their own 30-second root context per query (dbCtx), so nothing a
+// used to open their own 30-second root context per query (the former dbCtx),
+// so nothing a
 // caller did could cancel or bound a query: an abandoned HTTP request kept
 // working, and graceful shutdown could not interrupt one. With
 // SetMaxOpenConns(1) — SQLite allows a single writer, so every query is

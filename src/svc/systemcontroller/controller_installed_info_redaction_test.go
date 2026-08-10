@@ -31,7 +31,7 @@ const infoRedactionSecret = "d3adb33fcafebabe0123456789abcdef"
 func initInfoRedactionClient(t *testing.T) *SystemdClient {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "info.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "info.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -40,7 +40,7 @@ func initInfoRedactionClient(t *testing.T) *SystemdClient {
 			t.Errorf("db.Close: %v", cerr)
 		}
 	})
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

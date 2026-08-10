@@ -1029,7 +1029,7 @@ Key-value settings are stored in SQLite. Default settings include `default_quota
 - `POST /settings/get` -- get a specific setting by key (admin required).
 - `POST /settings/set` -- set a setting value (admin required, audit logged). Byte-value settings (`default_quota`, `max_archive_size`) accept human-readable strings (e.g., "500GB", "10MB") which are parsed and stored as numeric byte counts.
 
-**`SettingsManager` takes a context on every method, and `dbTimeout` is a ceiling rather than the whole story.** The SQLite managers open their own root context per query (`account.dbCtx`), which means a caller's cancellation stops at the manager boundary: an abandoned HTTP request keeps working, and graceful shutdown cannot interrupt a query. That matters more here than it would elsewhere because `OpenDB` sets `SetMaxOpenConns(1)` — SQLite permits one writer, so every query is serialized behind a single connection and one slow query holds every other caller behind an uninterruptible 30-second wait.
+**Every account manager takes a context on each method, and `dbTimeout` is a ceiling rather than the whole story.** They used to open their own root context per query (`account.dbCtx`, now gone), which meant a caller's cancellation stopped at the manager boundary: an abandoned HTTP request kept working, and graceful shutdown could not interrupt a query. That matters more here than it would elsewhere because `OpenDB` sets `SetMaxOpenConns(1)` — SQLite permits one writer, so every query is serialized behind a single connection and one slow query holds every other caller behind an uninterruptible 30-second wait.
 
 `account.queryCtx` derives from the caller instead: a caller with a shorter deadline keeps it, a caller with none still cannot hang forever, and a cancelled caller stops the query rather than leaving it to run out its own clock. A nil context is read as `context.Background()` rather than panicking — a manager is the wrong layer to take a box down over an argument its caller forgot, and tests that construct handlers directly leave the server context nil.
 
@@ -1037,7 +1037,11 @@ Handlers pass `c.Request().Context()`; background goroutines pass the server-sco
 
 **`getLocale()` is the one deliberate exception**, using the server context rather than taking one. It is called from ~55 sites, almost all building an error message, and the request context would be the wrong bound anyway: the one case where it is already cancelled is a client that hung up, when the message is not going to be delivered either way.
 
-`SettingsManager` is the first of the six managers converted. `AuditManager`, `PagesManager`, `NetworkManager`, `SessionManager`, and `Manager` still use `dbCtx`; `dbCtx` disappears with the last of them.
+All six are converted — `SettingsManager`, `AuditManager`, `PagesManager`, `NetworkManager`, `SessionManager`, and `Manager` — along with `OpenDB`, and `dbCtx` is gone.
+
+Two methods take the **server** context rather than the caller's, and both are deliberate. `AuditManager.LogEntry` is called by `auditMiddleware` *after* the handler returns, to record what it did: passing the request context would let a client that hangs up mid-request cancel the write recording the request, so the least-recorded actions would be exactly the ones somebody disconnected during. `NetworkManager.ReapExpiredPeers` is the background peer sweep, whose partial completion leaves peers the live WireGuard device still carries.
+
+`Manager.Authenticate` takes a context that bounds its two queries but **not** the argon2id hash between them — argon2 has no cancellation, and `loginGate` is what caps concurrent hashes at 64 MiB each.
 
 ### Settings UI
 

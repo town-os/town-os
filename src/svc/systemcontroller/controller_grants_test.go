@@ -38,7 +38,7 @@ func initWireGuardTestEnv(t *testing.T) *wgTestEnv {
 // one rather than a handler called directly.
 func initWireGuardTestEnvWith(t *testing.T, tweak func(*ServerConfig)) *wgTestEnv {
 	t.Helper()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -48,7 +48,7 @@ func initWireGuardTestEnvWith(t *testing.T, tweak func(*ServerConfig)) *wgTestEn
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

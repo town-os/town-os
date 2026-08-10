@@ -321,7 +321,7 @@ func (s *SystemControllerHandlers) listGfehPrincipals(c *echo.Context) error {
 	// tell a projected account from a sub-principal created inside gfeh.
 	accounts := map[string]bool{}
 	if am := s.Controller.GetAccountManager(); am != nil {
-		if list, listErr := am.List(); listErr == nil {
+		if list, listErr := am.List(c.Request().Context()); listErr == nil {
 			for _, a := range list {
 				accounts[a.Username] = true
 			}
@@ -369,7 +369,7 @@ func (s *SystemControllerHandlers) addGfehPrincipal(c *echo.Context) error {
 	if am == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(locale, i18n.MsgGfehNotConfigured))
 	}
-	acct, err := am.Get(name)
+	acct, err := am.Get(c.Request().Context(), name)
 	if err != nil || acct == nil {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgGfehUnknownAccount))
 	}

@@ -81,7 +81,7 @@ func pingWithToken(t *testing.T, url, token string) (int, authPingBody) {
 //  2. /status/ping and /boot-status serve the whole restart without a token,
 //     so the dialog can keep reporting status with a dead session.
 func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 		}
 	})
 
-	acctMgr, err := account.InitManager(db)
+	acctMgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestRefreshCoreServicesInvalidatesTheOperatorsSession(t *testing.T) {
 	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
 
-	if _, err := acctMgr.Create("admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
+	if _, err := acctMgr.Create(t.Context(), "admin", "adminpass", "admin@test.com", "555-0000", "Admin", true); err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
 	token, err := sess1.Create(t.Context(), "admin")

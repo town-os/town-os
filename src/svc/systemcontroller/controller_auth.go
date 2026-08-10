@@ -57,7 +57,7 @@ func (s *SystemControllerHandlers) authenticateAccount(c *echo.Context) error {
 	// four of them would wedge every login on the box until a restart.
 	acct, err := func() (*account.Account, error) {
 		defer gate.release()
-		return s.Controller.GetAccountManager().Authenticate(req.Username, req.Password)
+		return s.Controller.GetAccountManager().Authenticate(c.Request().Context(), req.Username, req.Password)
 	}()
 	if err != nil {
 		return echo.NewHTTPError(401, i18n.T(s.getLocale(), i18n.MsgAuthInvalidCredentials))

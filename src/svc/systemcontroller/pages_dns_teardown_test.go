@@ -44,7 +44,7 @@ type pagesDNSEnv struct {
 func initPagesDNSEnv(t *testing.T, withNetworks bool) pagesDNSEnv {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -53,7 +53,7 @@ func initPagesDNSEnv(t *testing.T, withNetworks bool) pagesDNSEnv {
 			t.Errorf("db.Close: %v", err)
 		}
 	})
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

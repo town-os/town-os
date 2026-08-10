@@ -21,16 +21,6 @@ import (
 // dbTimeout is the default timeout for SQLite database operations.
 const dbTimeout = 30 * time.Second
 
-// dbCtx returns a context with the default database timeout.
-//
-// It roots a fresh context per query, so a caller's cancellation and a
-// graceful shutdown both stop at the manager boundary. Each manager interface
-// is being converted to take a context — SettingsManager is done — and this
-// disappears with the last of them. Use queryCtx for anything converted.
-func dbCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), dbTimeout)
-}
-
 // queryCtx bounds one query, derived from the caller's context.
 //
 // dbTimeout becomes a ceiling rather than the whole story: a caller that
@@ -61,7 +51,7 @@ type SQLiteManager struct {
 	db *sql.DB
 }
 
-func OpenDB(path string) (db *sql.DB, err error) {
+func OpenDB(ctx context.Context, path string) (db *sql.DB, err error) {
 	db, err = sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
@@ -78,7 +68,7 @@ func OpenDB(path string) (db *sql.DB, err error) {
 	// SQLITE_BUSY errors from connection pool contention.
 	db.SetMaxOpenConns(1)
 
-	pragmaCtx, pragmaCancel := dbCtx()
+	pragmaCtx, pragmaCancel := queryCtx(ctx)
 	defer pragmaCancel()
 
 	_, err = db.ExecContext(pragmaCtx, "PRAGMA journal_mode=WAL")
@@ -99,8 +89,8 @@ func OpenDB(path string) (db *sql.DB, err error) {
 	return db, nil
 }
 
-func InitManager(db *sql.DB) (*SQLiteManager, error) {
-	ctx, cancel := dbCtx()
+func InitManager(ctx context.Context, db *sql.DB) (*SQLiteManager, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS accounts (
@@ -389,8 +379,8 @@ func verifyPassword(hash, password string) bool {
 // account.DefaultNetwork() always exists (InitNetworkManager seeds it), so this
 // never names a network that is not there -- including for the very first
 // account, created before boot reconcile has run.
-func (m *SQLiteManager) Create(username, password, email, phone, realName string, admin bool) (*Account, error) {
-	return m.create(username, password, email, phone, realName, admin, nil, []string{DefaultNetworkName})
+func (m *SQLiteManager) Create(ctx context.Context, username, password, email, phone, realName string, admin bool) (*Account, error) {
+	return m.create(ctx, username, password, email, phone, realName, admin, nil, []string{DefaultNetworkName})
 }
 
 // CreateGranted creates a non-admin account holding grants. It can never be
@@ -398,20 +388,20 @@ func (m *SQLiteManager) Create(username, password, email, phone, realName string
 // incoherent), every grant is checked against AllGrants, and the network scope
 // is validated non-empty before the row is written -- so an account holding a
 // grant with no reachable network cannot exist.
-func (m *SQLiteManager) CreateGranted(username, password, email, phone, realName string, grants, networks []string) (*Account, error) {
+func (m *SQLiteManager) CreateGranted(ctx context.Context, username, password, email, phone, realName string, grants, networks []string) (*Account, error) {
 	if err := validateGrants(grants); err != nil {
 		return nil, err
 	}
 	if err := validateNetworkScope(networks); err != nil {
 		return nil, err
 	}
-	return m.create(username, password, email, phone, realName, false, normalizeGrants(grants), normalizeNetworkScope(networks))
+	return m.create(ctx, username, password, email, phone, realName, false, normalizeGrants(grants), normalizeNetworkScope(networks))
 }
 
 // create is the shared insert path. Keeping it in one place means the grant set
 // and network scope are written atomically with the rest of the row — there is
 // no window where an account exists but its authority has not been applied yet.
-func (m *SQLiteManager) create(username, password, email, phone, realName string, admin bool, grants, networks []string) (_ *Account, err error) {
+func (m *SQLiteManager) create(ctx context.Context, username, password, email, phone, realName string, admin bool, grants, networks []string) (_ *Account, err error) {
 	if err = validatePassword(password); err != nil {
 		return nil, err
 	}
@@ -437,7 +427,7 @@ func (m *SQLiteManager) create(username, password, email, phone, realName string
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err = m.db.ExecContext(ctx,
@@ -469,8 +459,8 @@ func (m *SQLiteManager) create(username, password, email, phone, realName string
 // Get and List so the two can never drift out of sync with scanAccountRow.
 const accountColumns = `username, password_hash, email, phone, real_name, admin, disabled, grants, networks, created_at, updated_at`
 
-func (m *SQLiteManager) Get(username string) (*Account, error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteManager) Get(ctx context.Context, username string) (*Account, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	row := m.db.QueryRowContext(ctx,
@@ -530,7 +520,7 @@ func scanAccountRow(s rowScanner) (*Account, error) {
 	return &acct, nil
 }
 
-func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account, err error) {
+func (m *SQLiteManager) Update(ctx context.Context, username string, fields UpdateFields) (_ *Account, err error) {
 	err = validateUpdateFields(fields)
 	if err != nil {
 		return nil, err
@@ -585,12 +575,12 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 	// reachable network, and grants stored on an administrator can only
 	// disagree with the every-grant rule. Resolve the post-update state and
 	// reject it before writing.
-	if err := m.validateGrantResult(username, fields); err != nil {
+	if err := m.validateGrantResult(ctx, username, fields); err != nil {
 		return nil, err
 	}
 
 	if len(sets) == 0 {
-		return m.Get(username)
+		return m.Get(ctx, username)
 	}
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -598,7 +588,7 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 	args = append(args, nowStr)
 	args = append(args, username)
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	res, err := m.db.ExecContext(ctx,
@@ -617,7 +607,7 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 		return nil, ErrNotFound
 	}
 
-	return m.Get(username)
+	return m.Get(ctx, username)
 }
 
 // validateGrantResult enforces the two grant invariants against the state the
@@ -629,12 +619,12 @@ func (m *SQLiteManager) Update(username string, fields UpdateFields) (_ *Account
 // an administrator, promoting a grant-holder, or clearing the scope out from
 // under a grant — rather than only the paths where the offending field is the
 // one being written.
-func (m *SQLiteManager) validateGrantResult(username string, fields UpdateFields) error {
+func (m *SQLiteManager) validateGrantResult(ctx context.Context, username string, fields UpdateFields) error {
 	if fields.Grants == nil && fields.Networks == nil && fields.Admin == nil {
 		return nil // no dimension that matters is changing
 	}
 
-	current, err := m.Get(username)
+	current, err := m.Get(ctx, username)
 	if err != nil {
 		return err
 	}
@@ -661,8 +651,8 @@ func (m *SQLiteManager) validateGrantResult(username string, fields UpdateFields
 	return validateNetworkScope(networks)
 }
 
-func (m *SQLiteManager) Disable(username string) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteManager) Disable(ctx context.Context, username string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -682,8 +672,8 @@ func (m *SQLiteManager) Disable(username string) error {
 	return nil
 }
 
-func (m *SQLiteManager) Enable(username string) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteManager) Enable(ctx context.Context, username string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -703,8 +693,8 @@ func (m *SQLiteManager) Enable(username string) error {
 	return nil
 }
 
-func (m *SQLiteManager) List() ([]Account, error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteManager) List(ctx context.Context) ([]Account, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,
@@ -787,8 +777,8 @@ func dummyHash() string {
 // skipped: the result is discarded either way, but doing it in this order means
 // there is exactly one place in the function that can be reached without
 // hashing, and it is the success path.
-func (m *SQLiteManager) Authenticate(username, password string) (*Account, error) {
-	acct, err := m.Get(username)
+func (m *SQLiteManager) Authenticate(ctx context.Context, username, password string) (*Account, error) {
+	acct, err := m.Get(ctx, username)
 	if err != nil {
 		// No stored hash to check, so check against a dummy one and throw the
 		// answer away. Without this the lookup failure is the fastest path

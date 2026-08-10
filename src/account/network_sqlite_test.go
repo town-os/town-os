@@ -11,7 +11,7 @@ import (
 
 func initNetworkTestDB(t *testing.T) *SQLiteNetworkManager {
 	t.Helper()
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestNetworkManagerSeedsTheDefaultNetwork(t *testing.T) {
 // Seeding runs on every InitNetworkManager, including against a database that
 // already has the row -- an existing box opens its accounts DB on every boot.
 func TestNetworkManagerSeedIsIdempotent(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

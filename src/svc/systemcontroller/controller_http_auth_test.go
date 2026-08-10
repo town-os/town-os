@@ -174,7 +174,7 @@ func TestAdminMiddlewareBlocksNonAdmin(t *testing.T) {
 }
 
 func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestAdminMiddlewareAllowsAdmin(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

@@ -42,17 +42,17 @@ func TestAllGrantsIsTheRegistry(t *testing.T) {
 func TestUnknownGrantIsRefused(t *testing.T) {
 	for _, mgr := range grantManagers(t) {
 		t.Run(mgr.name, func(t *testing.T) {
-			_, err := mgr.m.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal",
+			_, err := mgr.m.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal",
 				[]string{"wireguard", "storage-admin"}, []string{"office"})
 			if !errors.Is(err, ErrInvalidGrant) {
 				t.Fatalf("CreateGranted with an unknown grant = %v, want ErrInvalidGrant", err)
 			}
 
-			if _, err := mgr.m.Create("bob", "password123", "b@example.com", "555-1000", "Bob", false); err != nil {
+			if _, err := mgr.m.Create(t.Context(), "bob", "password123", "b@example.com", "555-1000", "Bob", false); err != nil {
 				t.Fatalf("Create: %v", err)
 			}
 			bad := []string{"nonsense"}
-			if _, err := mgr.m.Update("bob", UpdateFields{Grants: &bad}); !errors.Is(err, ErrInvalidGrant) {
+			if _, err := mgr.m.Update(t.Context(), "bob", UpdateFields{Grants: &bad}); !errors.Is(err, ErrInvalidGrant) {
 				t.Fatalf("Update with an unknown grant = %v, want ErrInvalidGrant", err)
 			}
 		})
@@ -171,7 +171,7 @@ func TestEmptyScopeIsNeverEveryNetwork(t *testing.T) {
 func TestGrantsRequireANetworkScope(t *testing.T) {
 	for _, mgr := range grantManagers(t) {
 		t.Run(mgr.name, func(t *testing.T) {
-			if _, err := mgr.m.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal",
+			if _, err := mgr.m.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal",
 				[]string{GrantGfeh}, nil); !errors.Is(err, ErrGrantsNoNetworks) {
 				t.Fatalf("CreateGranted with no scope = %v, want ErrGrantsNoNetworks", err)
 			}
@@ -180,15 +180,15 @@ func TestGrantsRequireANetworkScope(t *testing.T) {
 			// membership, so the unscoped state has to be reached explicitly.
 			// Clearing it is legal while the account holds no grants — the
 			// emptiness rule is only about grant-holding accounts.
-			if _, err := mgr.m.Create("bob", "password123", "b@example.com", "555-1000", "Bob", false); err != nil {
+			if _, err := mgr.m.Create(t.Context(), "bob", "password123", "b@example.com", "555-1000", "Bob", false); err != nil {
 				t.Fatalf("Create: %v", err)
 			}
 			var none []string
-			if _, err := mgr.m.Update("bob", UpdateFields{Networks: &none}); err != nil {
+			if _, err := mgr.m.Update(t.Context(), "bob", UpdateFields{Networks: &none}); err != nil {
 				t.Fatalf("clearing the scope of an account holding no grants: %v", err)
 			}
 			grants := []string{GrantWireGuard}
-			if _, err := mgr.m.Update("bob", UpdateFields{Grants: &grants}); !errors.Is(err, ErrGrantsNoNetworks) {
+			if _, err := mgr.m.Update(t.Context(), "bob", UpdateFields{Grants: &grants}); !errors.Is(err, ErrGrantsNoNetworks) {
 				t.Fatalf("granting with no scope = %v, want ErrGrantsNoNetworks", err)
 			}
 		})
@@ -200,12 +200,12 @@ func TestGrantsRequireANetworkScope(t *testing.T) {
 func TestClearingScopeUnderAGrantIsRefused(t *testing.T) {
 	for _, mgr := range grantManagers(t) {
 		t.Run(mgr.name, func(t *testing.T) {
-			if _, err := mgr.m.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal",
+			if _, err := mgr.m.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal",
 				[]string{GrantGfeh}, []string{"office"}); err != nil {
 				t.Fatalf("CreateGranted: %v", err)
 			}
 			var none []string
-			if _, err := mgr.m.Update("portal", UpdateFields{Networks: &none}); !errors.Is(err, ErrGrantsNoNetworks) {
+			if _, err := mgr.m.Update(t.Context(), "portal", UpdateFields{Networks: &none}); !errors.Is(err, ErrGrantsNoNetworks) {
 				t.Fatalf("clearing the scope = %v, want ErrGrantsNoNetworks", err)
 			}
 		})
@@ -217,17 +217,17 @@ func TestClearingScopeUnderAGrantIsRefused(t *testing.T) {
 func TestGrantsOnAnAdministratorAreRefused(t *testing.T) {
 	for _, mgr := range grantManagers(t) {
 		t.Run(mgr.name, func(t *testing.T) {
-			if _, err := mgr.m.Create("root", "password123", "r@example.com", "555-1000", "Root", true); err != nil {
+			if _, err := mgr.m.Create(t.Context(), "root", "password123", "r@example.com", "555-1000", "Root", true); err != nil {
 				t.Fatalf("Create admin: %v", err)
 			}
 			grants := []string{GrantGfeh}
 			networks := []string{"office"}
-			if _, err := mgr.m.Update("root", UpdateFields{Grants: &grants, Networks: &networks}); !errors.Is(err, ErrGrantsAdmin) {
+			if _, err := mgr.m.Update(t.Context(), "root", UpdateFields{Grants: &grants, Networks: &networks}); !errors.Is(err, ErrGrantsAdmin) {
 				t.Fatalf("granting an administrator = %v, want ErrGrantsAdmin", err)
 			}
 
 			// And the refusal left the row alone rather than half-applying.
-			got, err := mgr.m.Get("root")
+			got, err := mgr.m.Get(t.Context(), "root")
 			if err != nil {
 				t.Fatalf("Get: %v", err)
 			}
@@ -242,12 +242,12 @@ func TestGrantsOnAnAdministratorAreRefused(t *testing.T) {
 func TestPromotingAGrantHolderIsRefused(t *testing.T) {
 	for _, mgr := range grantManagers(t) {
 		t.Run(mgr.name, func(t *testing.T) {
-			if _, err := mgr.m.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal",
+			if _, err := mgr.m.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal",
 				[]string{GrantWireGuard}, []string{"office"}); err != nil {
 				t.Fatalf("CreateGranted: %v", err)
 			}
 			admin := true
-			if _, err := mgr.m.Update("portal", UpdateFields{Admin: &admin}); !errors.Is(err, ErrGrantsAdmin) {
+			if _, err := mgr.m.Update(t.Context(), "portal", UpdateFields{Admin: &admin}); !errors.Is(err, ErrGrantsAdmin) {
 				t.Fatalf("promoting a grant holder = %v, want ErrGrantsAdmin", err)
 			}
 		})
@@ -258,7 +258,7 @@ func TestPromotingAGrantHolderIsRefused(t *testing.T) {
 func TestCreateGrantedIsNeverAdmin(t *testing.T) {
 	for _, mgr := range grantManagers(t) {
 		t.Run(mgr.name, func(t *testing.T) {
-			acct, err := mgr.m.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal",
+			acct, err := mgr.m.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal",
 				[]string{GrantWireGuard}, []string{"office"})
 			if err != nil {
 				t.Fatalf("CreateGranted: %v", err)
@@ -278,12 +278,12 @@ func TestCreateGrantedIsNeverAdmin(t *testing.T) {
 func TestGrantsRoundTripAndToggleOff(t *testing.T) {
 	for _, mgr := range grantManagers(t) {
 		t.Run(mgr.name, func(t *testing.T) {
-			if _, err := mgr.m.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal",
+			if _, err := mgr.m.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal",
 				[]string{GrantGfeh, GrantWireGuard, GrantGfeh}, []string{"office"}); err != nil {
 				t.Fatalf("CreateGranted: %v", err)
 			}
 
-			got, err := mgr.m.Get("portal")
+			got, err := mgr.m.Get(t.Context(), "portal")
 			if err != nil {
 				t.Fatalf("Get: %v", err)
 			}
@@ -294,7 +294,7 @@ func TestGrantsRoundTripAndToggleOff(t *testing.T) {
 			}
 
 			one := []string{GrantWireGuard}
-			after, err := mgr.m.Update("portal", UpdateFields{Grants: &one})
+			after, err := mgr.m.Update(t.Context(), "portal", UpdateFields{Grants: &one})
 			if err != nil {
 				t.Fatalf("Update(narrow): %v", err)
 			}
@@ -306,7 +306,7 @@ func TestGrantsRoundTripAndToggleOff(t *testing.T) {
 			}
 
 			var none []string
-			plain, err := mgr.m.Update("portal", UpdateFields{Grants: &none, Networks: &none})
+			plain, err := mgr.m.Update(t.Context(), "portal", UpdateFields{Grants: &none, Networks: &none})
 			if err != nil {
 				t.Fatalf("Update(drop all): %v", err)
 			}

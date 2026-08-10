@@ -46,7 +46,7 @@ const (
 func initGfehGrantTest(t *testing.T) *gfehGrantEnv {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "gfehgrant.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "gfehgrant.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -56,7 +56,7 @@ func initGfehGrantTest(t *testing.T) *gfehGrantEnv {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

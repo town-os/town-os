@@ -20,7 +20,7 @@ func TestSQLiteAuditManagerImplementsAuditManager(t *testing.T) {
 // --- Helpers ---
 
 func TestAuditIndexesExist(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestAuditIndexesExist(t *testing.T) {
 
 func initTestAuditDB(t *testing.T) *SQLiteAuditManager {
 	t.Helper()
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -607,7 +607,7 @@ func TestAuditListSortByAction(t *testing.T) {
 // --- Migration: duplicate column ---
 
 func TestInitAuditManagerTwice(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

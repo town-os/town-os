@@ -21,7 +21,7 @@ import (
 func newAuthTestManagers(t *testing.T) (account.Manager, account.SessionManager) {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "auth.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "auth.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -31,7 +31,7 @@ func newAuthTestManagers(t *testing.T) (account.Manager, account.SessionManager)
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

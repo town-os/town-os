@@ -54,7 +54,7 @@ func TestIsLocalhostEmptyAddr(t *testing.T) {
 // Returns the server URL and a valid admin token.
 func initAuthTestServer(t *testing.T) (string, string) { //nolint:unparam // token is available for future authenticated tests
 	t.Helper()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -64,7 +64,7 @@ func initAuthTestServer(t *testing.T) (string, string) { //nolint:unparam // tok
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

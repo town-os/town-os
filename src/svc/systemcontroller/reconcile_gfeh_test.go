@@ -283,7 +283,7 @@ func countStops(sd *systemd.MockManager) int {
 // on the other side.
 func mustAccount(t *testing.T, mgr account.Manager, username string, admin bool) {
 	t.Helper()
-	if _, err := mgr.Create(username, "hunter2hunter2", username+"@example.com", "5551234", username, admin); err != nil {
+	if _, err := mgr.Create(t.Context(), username, "hunter2hunter2", username+"@example.com", "5551234", username, admin); err != nil {
 		t.Fatalf("create account %s: %v", username, err)
 	}
 }

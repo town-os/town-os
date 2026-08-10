@@ -27,7 +27,7 @@ func TestMockSessionManagerImplementsSessionManager(t *testing.T) {
 
 func initTestSessionDB(t *testing.T) (*SQLiteSessionManager, *SQLiteManager) {
 	t.Helper()
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -38,7 +38,7 @@ func initTestSessionDB(t *testing.T) (*SQLiteSessionManager, *SQLiteManager) {
 		}
 	})
 
-	mgr, err := InitManager(db)
+	mgr, err := InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -54,7 +54,7 @@ func initTestSessionDB(t *testing.T) (*SQLiteSessionManager, *SQLiteManager) {
 
 func createTestUser(t *testing.T, mgr *SQLiteManager, username string) {
 	t.Helper()
-	_, err := mgr.Create(username, "password", username+"@test.com", "555-0000", "Test User", false)
+	_, err := mgr.Create(t.Context(), username, "password", username+"@test.com", "555-0000", "Test User", false)
 	if err != nil {
 		t.Fatalf("Create user %q: %v", username, err)
 	}
@@ -450,7 +450,7 @@ func TestSessionCascadeDisableOnAccountDisable(t *testing.T) {
 		t.Fatalf("Create session: %v", err)
 	}
 
-	err = acctMgr.Disable("alice")
+	err = acctMgr.Disable(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Disable account: %v", err)
 	}
@@ -734,7 +734,7 @@ func TestSessionErrorsIs(t *testing.T) {
 // --- InitSessionManager clears all sessions ---
 
 func TestInitSessionManagerClearsExistingSessions(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -744,7 +744,7 @@ func TestInitSessionManagerClearsExistingSessions(t *testing.T) {
 		}
 	})
 
-	mgr, err := InitManager(db)
+	mgr, err := InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

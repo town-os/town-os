@@ -270,7 +270,7 @@ func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdCli
 	t.Helper()
 
 	dir := t.TempDir()
-	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(dir, "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -280,7 +280,7 @@ func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdCli
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -333,7 +333,7 @@ func initBootstrapTest(t *testing.T) (*systemcontroller.SystemdClient, *account.
 	t.Helper()
 
 	dir := t.TempDir()
-	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(dir, "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -343,7 +343,7 @@ func initBootstrapTest(t *testing.T) (*systemcontroller.SystemdClient, *account.
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

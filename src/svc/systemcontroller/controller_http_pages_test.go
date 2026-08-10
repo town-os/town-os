@@ -50,7 +50,7 @@ func initPagesTestEnv(t *testing.T) pagesTestEnv {
 		t.Fatal("expected *storage.MockBtrFSController")
 	}
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -60,7 +60,7 @@ func initPagesTestEnv(t *testing.T) pagesTestEnv {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

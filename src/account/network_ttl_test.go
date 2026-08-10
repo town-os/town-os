@@ -207,7 +207,7 @@ func TestReapExpiredPeersNoneExpired(t *testing.T) {
 // --- Migration from a pre-TTL network_peers table ---
 
 func TestPeerMigrationFromPreTTLDB(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "old.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "old.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

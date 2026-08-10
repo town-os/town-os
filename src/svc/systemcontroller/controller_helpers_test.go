@@ -265,7 +265,7 @@ questions:
 
 func initAccountTestClient(t *testing.T) (*SystemdClient, account.AuditManager) {
 	t.Helper()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -275,7 +275,7 @@ func initAccountTestClient(t *testing.T) (*SystemdClient, account.AuditManager) 
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -355,7 +355,7 @@ func initSystemdTestClientWithRepoRoot(t *testing.T) (*SystemdClient, *systemd.M
 
 func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 	t.Helper()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -365,7 +365,7 @@ func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -442,7 +442,7 @@ notes:
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "1.0", nginx10)
 	writeTestPackage(t, rr.BaseDir, "repo-a", "nginx", "2.0", "image: nginx:2.0\n")
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -451,7 +451,7 @@ notes:
 			t.Errorf("db.Close: %v", err)
 		}
 	})
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -702,7 +702,7 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallMana
 	}
 
 	dbFile := filepath.Join(t.TempDir(), "test.db")
-	db, err := account.OpenDB(dbFile)
+	db, err := account.OpenDB(t.Context(), dbFile)
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

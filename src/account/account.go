@@ -3,6 +3,7 @@
 package account
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"sort"
@@ -83,11 +84,18 @@ type UpdateFields struct {
 }
 
 // Manager defines the interface for account CRUD and authentication operations.
+// Manager owns the accounts table.
+//
+// Authenticate is the method to be careful about: it is public (POST
+// /account/authenticate) and it runs argon2id at 64 MiB. The context does not
+// bound the hash -- argon2 has no cancellation, and loginGate is what caps
+// concurrent hashes -- but it does bound the two queries around it, which are
+// the part that queues behind the single SQLite connection.
 type Manager interface {
 	// Create creates a new user account. The password must be at least
 	// 8 characters. Email, phone, and realName are all required. When admin
 	// is true the account receives administrator privileges.
-	Create(username, password, email, phone, realName string, admin bool) (*Account, error)
+	Create(ctx context.Context, username, password, email, phone, realName string, admin bool) (*Account, error)
 	// CreateGranted creates a non-admin account holding grants, scoped to
 	// networks.
 	//
@@ -95,23 +103,23 @@ type Manager interface {
 	// dozens of existing call sites are untouched, and so the security-relevant
 	// invariants — such an account is never an admin, every grant is known, and
 	// the scope is never empty — are enforced in one place at creation time.
-	CreateGranted(username, password, email, phone, realName string, grants, networks []string) (*Account, error)
+	CreateGranted(ctx context.Context, username, password, email, phone, realName string, grants, networks []string) (*Account, error)
 	// Get retrieves an account by username. Returns [ErrNotFound] if the
 	// account does not exist.
-	Get(username string) (*Account, error)
+	Get(ctx context.Context, username string) (*Account, error)
 	// Update applies the non-nil fields in UpdateFields to the named account.
 	// Returns the updated account or [ErrNotFound].
-	Update(username string, fields UpdateFields) (*Account, error)
+	Update(ctx context.Context, username string, fields UpdateFields) (*Account, error)
 	// Disable prevents the named user from authenticating.
-	Disable(username string) error
+	Disable(ctx context.Context, username string) error
 	// Enable re-enables a previously disabled account.
-	Enable(username string) error
+	Enable(ctx context.Context, username string) error
 	// List returns all accounts.
-	List() ([]Account, error)
+	List(ctx context.Context) ([]Account, error)
 	// Authenticate validates credentials and returns the account on success.
 	// Returns [ErrInvalidCredentials] on failure or [ErrAccountDisabled] if
 	// the account is disabled.
-	Authenticate(username, password string) (*Account, error)
+	Authenticate(ctx context.Context, username, password string) (*Account, error)
 }
 
 func validateEmail(email string) error {

@@ -236,15 +236,9 @@ func (b *boot) start() error {
 // manager on it, the package repositories, and the image tag everything else
 // derives from.
 //
-// ctx is used for the background repository-refresh goroutine, which is the
-// only cancellable thing this stage starts. contextcheck objects that the
-// constructors below take no context, and it is right: account.OpenDB and the
-// six InitXManager functions each open their own 30-second root context per
-// query (account.dbCtx), so nothing here can be cancelled or shut down early.
-// That is a real finding about those APIs rather than about this call site, and
-// fixing it means threading a context through all six manager interfaces.
-//
-//nolint:contextcheck // the account managers accept no context; see account.dbCtx
+// ctx reaches the database now: account.OpenDB and all six InitXManager
+// functions take it, so this stage's work is cancellable and bounded by
+// shutdown rather than by a root context each query opened for itself.
 func (b *boot) openStores(ctx context.Context) error {
 	b.bs.Step("boot_controller")
 
@@ -281,11 +275,11 @@ func (b *boot) openStores(ctx context.Context) error {
 		}
 	}
 
-	if b.db, err = account.OpenDB(dbFile); err != nil {
+	if b.db, err = account.OpenDB(ctx, dbFile); err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
 
-	acctMgr, err := account.InitManager(b.db)
+	acctMgr, err := account.InitManager(ctx, b.db)
 	if err != nil {
 		return fmt.Errorf("init account manager: %w", err)
 	}
@@ -325,7 +319,10 @@ func (b *boot) openStores(ctx context.Context) error {
 	}
 	b.rr = rr
 
-	rr.ForceRefresh()
+	// packages.RepositoryRoot takes no context: its refresh shells out to
+	// go-git with its own timeouts. A different package from the account
+	// managers, and not part of this conversion.
+	rr.ForceRefresh() //nolint:contextcheck // RepositoryRoot accepts no context
 
 	b.inst = packages.NewInstallManager(b.repoBase)
 	b.st = storage.InitBtrFS(b.btrfsPath)
@@ -355,7 +352,7 @@ func (b *boot) openStores(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				rr.Refresh()
+				rr.Refresh() //nolint:contextcheck // RepositoryRoot accepts no context
 			}
 		}
 	}()

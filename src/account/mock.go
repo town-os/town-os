@@ -47,11 +47,11 @@ func (m *MockManager) GetCalls() []MockCall {
 // Create mirrors SQLiteManager.Create, including the home-network membership:
 // an account that came back scoped only against the real store would make every
 // test over the mock disagree with the box.
-func (m *MockManager) Create(username, password, email, phone, realName string, admin bool) (*Account, error) {
+func (m *MockManager) Create(_ context.Context, username, password, email, phone, realName string, admin bool) (*Account, error) {
 	return m.create("Create", username, password, email, phone, realName, admin, nil, []string{DefaultNetworkName})
 }
 
-func (m *MockManager) CreateGranted(username, password, email, phone, realName string, grants, networks []string) (*Account, error) {
+func (m *MockManager) CreateGranted(_ context.Context, username, password, email, phone, realName string, grants, networks []string) (*Account, error) {
 	if err := validateGrants(grants); err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (m *MockManager) create(method, username, password, email, phone, realName 
 	return &out, nil
 }
 
-func (m *MockManager) Get(username string) (*Account, error) {
+func (m *MockManager) Get(_ context.Context, username string) (*Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Get", Args: []any{username}})
@@ -116,7 +116,7 @@ func (m *MockManager) Get(username string) (*Account, error) {
 	return &out, nil
 }
 
-func (m *MockManager) Update(username string, fields UpdateFields) (*Account, error) {
+func (m *MockManager) Update(_ context.Context, username string, fields UpdateFields) (*Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Update", Args: []any{username, fields}})
@@ -184,7 +184,7 @@ func (m *MockManager) Update(username string, fields UpdateFields) (*Account, er
 	return &out, nil
 }
 
-func (m *MockManager) Disable(username string) error {
+func (m *MockManager) Disable(_ context.Context, username string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Disable", Args: []any{username}})
@@ -202,7 +202,7 @@ func (m *MockManager) Disable(username string) error {
 	return nil
 }
 
-func (m *MockManager) Enable(username string) error {
+func (m *MockManager) Enable(_ context.Context, username string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Enable", Args: []any{username}})
@@ -220,7 +220,7 @@ func (m *MockManager) Enable(username string) error {
 	return nil
 }
 
-func (m *MockManager) List() ([]Account, error) {
+func (m *MockManager) List(_ context.Context) ([]Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "List", Args: nil})
@@ -236,7 +236,7 @@ func (m *MockManager) List() ([]Account, error) {
 	return out, nil
 }
 
-func (m *MockManager) Authenticate(username, password string) (*Account, error) {
+func (m *MockManager) Authenticate(_ context.Context, username, password string) (*Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Authenticate", Args: []any{username, password}})
@@ -317,7 +317,7 @@ func (m *MockSessionManager) Create(_ context.Context, username string) (string,
 	return id, nil
 }
 
-func (m *MockSessionManager) Validate(_ context.Context, token string) (*Session, *Account, error) {
+func (m *MockSessionManager) Validate(ctx context.Context, token string) (*Session, *Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Validate", Args: []any{token}})
@@ -338,7 +338,7 @@ func (m *MockSessionManager) Validate(_ context.Context, token string) (*Session
 
 	sess.LastUsed = time.Now()
 
-	acct, err := m.accountMgr.Get(sess.Username)
+	acct, err := m.accountMgr.Get(ctx, sess.Username)
 	if err != nil {
 		return nil, nil, err
 	}

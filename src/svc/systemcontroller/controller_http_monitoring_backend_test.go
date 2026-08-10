@@ -21,7 +21,7 @@ import (
 // when monitoring_backend changes.
 func initMonitoringBackendTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager) {
 	t.Helper()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -31,7 +31,7 @@ func initMonitoringBackendTestClient(t *testing.T) (*SystemdClient, *systemd.Moc
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

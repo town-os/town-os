@@ -50,7 +50,7 @@ type revokeAuthzEnv struct {
 func initRevokeAuthzTest(t *testing.T) *revokeAuthzEnv {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "sessions.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -60,7 +60,7 @@ func initRevokeAuthzTest(t *testing.T) *revokeAuthzEnv {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

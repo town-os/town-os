@@ -21,7 +21,7 @@ import (
 func newSettingsForCtxTest(t *testing.T) *SQLiteSettingsManager {
 	t.Helper()
 
-	db, err := OpenDB(filepath.Join(t.TempDir(), "settings.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "settings.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestQueryCtxToleratesNilContext(t *testing.T) {
 func newAuditForCtxTest(t *testing.T) *SQLiteAuditManager {
 	t.Helper()
 
-	db, err := OpenDB(filepath.Join(t.TempDir(), "audit.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "audit.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestAuditLogEntrySucceedsAfterRequestContextIsCancelled(t *testing.T) {
 func TestSessionValidateHonorsCallerCancellation(t *testing.T) {
 	t.Parallel()
 
-	db, err := OpenDB(filepath.Join(t.TempDir(), "session.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "session.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestSessionValidateHonorsCallerCancellation(t *testing.T) {
 		}
 	})
 
-	acctMgr, err := InitManager(db)
+	acctMgr, err := InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestSessionValidateHonorsCallerCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	if _, err := acctMgr.Create("alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+	if _, err := acctMgr.Create(t.Context(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create account: %v", err)
 	}
 
@@ -251,5 +251,55 @@ func TestSessionValidateHonorsCallerCancellation(t *testing.T) {
 	}
 	if err := sessMgr.Revoke(ctx, "whatever"); err == nil {
 		t.Error("Revoke with a cancelled context succeeded")
+	}
+}
+
+// --- Manager ---
+
+// Authenticate is public (POST /account/authenticate) and runs argon2id at
+// 64 MiB. The context does not bound the hash — argon2 has no cancellation, and
+// loginGate is what caps concurrent hashes — but it does bound the two queries
+// around it, which are the part that queues behind the single connection.
+func TestAccountManagerHonorsCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "accounts.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	mgr, err := InitManager(t.Context(), db)
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	if _, err := mgr.Create(t.Context(), "alice", "password1", "a@b.com", "555", "Alice", false); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := mgr.Get(ctx, "alice"); !errors.Is(err, context.Canceled) {
+		t.Errorf("Get with a cancelled context = %v, want context.Canceled", err)
+	}
+	if _, err := mgr.List(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("List with a cancelled context = %v, want context.Canceled", err)
+	}
+	if err := mgr.Disable(ctx, "alice"); err == nil {
+		t.Error("Disable with a cancelled context succeeded")
+	}
+	// The account is still enabled, so a nil error here would mean the disable
+	// above had silently gone through despite the cancellation.
+	acct, err := mgr.Get(t.Context(), "alice")
+	if err != nil {
+		t.Fatalf("Get after cancelled Disable: %v", err)
+	}
+	if acct.Disabled {
+		t.Error("a Disable on a cancelled context took effect anyway")
 	}
 }

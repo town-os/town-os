@@ -48,7 +48,7 @@ const (
 func initPeerScopeTest(t *testing.T) *peerScopeEnv {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "peers.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "peers.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -58,7 +58,7 @@ func initPeerScopeTest(t *testing.T) *peerScopeEnv {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

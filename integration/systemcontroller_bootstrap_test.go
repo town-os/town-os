@@ -63,7 +63,7 @@ func TestBootstrapCreateAccountAllAdminsDisabled(t *testing.T) {
 	c.Token = resp.Token
 
 	// Disable the only admin.
-	if err := mgr.Disable("admin"); err != nil {
+	if err := mgr.Disable(t.Context(), "admin"); err != nil {
 		t.Fatalf("Disable admin: %v", err)
 	}
 
@@ -93,7 +93,7 @@ func TestBootstrapCreateAccountAllAdminsDisabledWithStaleToken(t *testing.T) {
 	c.Token = resp.Token
 
 	// Disable the only admin.
-	if err := mgr.Disable("admin"); err != nil {
+	if err := mgr.Disable(t.Context(), "admin"); err != nil {
 		t.Fatalf("Disable admin: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestBootstrapPingNeedsSetup(t *testing.T) {
 func TestBootstrapPingIncludesExternalIP(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	db, err := account.OpenDB(filepath.Join(dir, "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(dir, "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestBootstrapPingIncludesExternalIP(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

@@ -48,7 +48,7 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 	locale := s.getLocale()
 	sessMgr := s.Controller.GetSessionManager()
 	if sessMgr != nil {
-		accounts, err := s.Controller.GetAccountManager().List()
+		accounts, err := s.Controller.GetAccountManager().List(c.Request().Context())
 		if err != nil {
 			return fmt.Errorf("%s: %w", i18n.T(locale, i18n.MsgAccountListError), err)
 		}
@@ -82,9 +82,9 @@ func (s *SystemControllerHandlers) createAccount(c *echo.Context) error {
 	var acct *account.Account
 	var err error
 	if len(req.Grants) > 0 {
-		acct, err = s.Controller.GetAccountManager().CreateGranted(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Grants, req.Networks)
+		acct, err = s.Controller.GetAccountManager().CreateGranted(c.Request().Context(), req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Grants, req.Networks)
 	} else {
-		acct, err = s.Controller.GetAccountManager().Create(req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Admin)
+		acct, err = s.Controller.GetAccountManager().Create(c.Request().Context(), req.Username, req.Password, req.Email, req.Phone, req.RealName, req.Admin)
 	}
 	if err != nil {
 		if errors.Is(err, account.ErrDuplicateUsername) {
@@ -108,7 +108,7 @@ func (s *SystemControllerHandlers) getAccount(c *echo.Context) error {
 		return err
 	}
 
-	acct, err := s.Controller.GetAccountManager().Get(req.Username)
+	acct, err := s.Controller.GetAccountManager().Get(c.Request().Context(), req.Username)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (s *SystemControllerHandlers) updateAccount(c *echo.Context) error {
 		}
 	}
 
-	acct, err := s.Controller.GetAccountManager().Update(req.Username, req.Fields)
+	acct, err := s.Controller.GetAccountManager().Update(c.Request().Context(), req.Username, req.Fields)
 	if err != nil {
 		return err
 	}
@@ -174,7 +174,7 @@ func (s *SystemControllerHandlers) disableAccount(c *echo.Context) error {
 		return err
 	}
 
-	if err := s.Controller.GetAccountManager().Disable(req.Username); err != nil {
+	if err := s.Controller.GetAccountManager().Disable(c.Request().Context(), req.Username); err != nil {
 		return err
 	}
 
@@ -201,7 +201,7 @@ func (s *SystemControllerHandlers) enableAccount(c *echo.Context) error {
 		return err
 	}
 
-	if err := s.Controller.GetAccountManager().Enable(req.Username); err != nil {
+	if err := s.Controller.GetAccountManager().Enable(c.Request().Context(), req.Username); err != nil {
 		return err
 	}
 
@@ -210,7 +210,7 @@ func (s *SystemControllerHandlers) enableAccount(c *echo.Context) error {
 }
 
 func (s *SystemControllerHandlers) listAccounts(c *echo.Context) error {
-	accounts, err := s.Controller.GetAccountManager().List()
+	accounts, err := s.Controller.GetAccountManager().List(c.Request().Context())
 	if err != nil {
 		return err
 	}

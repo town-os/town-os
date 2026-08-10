@@ -16,7 +16,7 @@ import (
 func TestCreateNetworkOnlyAccount(t *testing.T) {
 	mgr := initTestDB(t)
 
-	acct, err := mgr.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, []string{"office"})
+	acct, err := mgr.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, []string{"office"})
 	if err != nil {
 		t.Fatalf("CreateNetworkOnly: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestCreateNetworkOnlyAccount(t *testing.T) {
 	}
 
 	// Persisted and read back identically.
-	got, err := mgr.Get("portal")
+	got, err := mgr.Get(t.Context(), "portal")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -44,13 +44,13 @@ func TestCreateNetworkOnlyRejectsEmptyScope(t *testing.T) {
 	mgr := initTestDB(t)
 
 	for _, networks := range [][]string{nil, {}} {
-		_, err := mgr.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, networks)
+		_, err := mgr.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, networks)
 		if !errors.Is(err, ErrGrantsNoNetworks) {
 			t.Errorf("CreateNetworkOnly(%v) error = %v, want ErrGrantsNoNetworks", networks, err)
 		}
 	}
 	// Nothing should have been written.
-	if _, err := mgr.Get("portal"); !errors.Is(err, ErrNotFound) {
+	if _, err := mgr.Get(t.Context(), "portal"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("account should not exist after a rejected create, got %v", err)
 	}
 }
@@ -58,7 +58,7 @@ func TestCreateNetworkOnlyRejectsEmptyScope(t *testing.T) {
 func TestCreateNetworkOnlyRejectsInvalidNetworkName(t *testing.T) {
 	mgr := initTestDB(t)
 
-	_, err := mgr.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, []string{"office", "Not A Network"})
+	_, err := mgr.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, []string{"office", "Not A Network"})
 	if !errors.Is(err, ErrInvalidNetworkName) {
 		t.Errorf("error = %v, want ErrInvalidNetworkName", err)
 	}
@@ -67,7 +67,7 @@ func TestCreateNetworkOnlyRejectsInvalidNetworkName(t *testing.T) {
 func TestCreateNetworkOnlyNormalizesScope(t *testing.T) {
 	mgr := initTestDB(t)
 
-	acct, err := mgr.CreateGranted("portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, []string{"office", "home-lab", "office"}) // duplicate + unsorted
+	acct, err := mgr.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555-1000", "Portal", AllGrants, []string{"office", "home-lab", "office"}) // duplicate + unsorted
 	if err != nil {
 		t.Fatalf("CreateNetworkOnly: %v", err)
 	}
@@ -79,10 +79,10 @@ func TestCreateNetworkOnlyNormalizesScope(t *testing.T) {
 func TestCreateNetworkOnlyStillValidatesContactAndPassword(t *testing.T) {
 	mgr := initTestDB(t)
 
-	if _, err := mgr.CreateGranted("p", "short", "p@example.com", "555", "P", AllGrants, []string{"office"}); !errors.Is(err, ErrPasswordTooShort) {
+	if _, err := mgr.CreateGranted(t.Context(), "p", "short", "p@example.com", "555", "P", AllGrants, []string{"office"}); !errors.Is(err, ErrPasswordTooShort) {
 		t.Errorf("short password: got %v, want ErrPasswordTooShort", err)
 	}
-	if _, err := mgr.CreateGranted("p", "password123", "", "555", "P", AllGrants, []string{"office"}); !errors.Is(err, ErrMissingContactInfo) {
+	if _, err := mgr.CreateGranted(t.Context(), "p", "password123", "", "555", "P", AllGrants, []string{"office"}); !errors.Is(err, ErrMissingContactInfo) {
 		t.Errorf("missing email: got %v, want ErrMissingContactInfo", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestCreateNetworkOnlyStillValidatesContactAndPassword(t *testing.T) {
 func TestPlainCreateJoinsTheHomeNetwork(t *testing.T) {
 	mgr := initTestDB(t)
 
-	acct, err := mgr.Create("alice", "password123", "a@example.com", "555", "Alice", false)
+	acct, err := mgr.Create(t.Context(), "alice", "password123", "a@example.com", "555", "Alice", false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestPlainCreateJoinsTheHomeNetwork(t *testing.T) {
 		t.Errorf("Networks = %v, want [%s]", acct.Networks, DefaultNetworkName)
 	}
 
-	got, err := mgr.Get("alice")
+	got, err := mgr.Get(t.Context(), "alice")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestPlainCreateJoinsTheHomeNetwork(t *testing.T) {
 func TestFirstAdminJoinsTheHomeNetwork(t *testing.T) {
 	mgr := initTestDB(t)
 
-	acct, err := mgr.Create("root", "password123", "r@example.com", "555", "Root", true)
+	acct, err := mgr.Create(t.Context(), "root", "password123", "r@example.com", "555", "Root", true)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -149,14 +149,14 @@ func TestFirstAdminJoinsTheHomeNetwork(t *testing.T) {
 
 func TestListReturnsNetworkScope(t *testing.T) {
 	mgr := initTestDB(t)
-	if _, err := mgr.Create("alice", "password123", "a@example.com", "555", "Alice", false); err != nil {
+	if _, err := mgr.Create(t.Context(), "alice", "password123", "a@example.com", "555", "Alice", false); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := mgr.CreateGranted("portal", "password123", "p@example.com", "555", "Portal", AllGrants, []string{"office"}); err != nil {
+	if _, err := mgr.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555", "Portal", AllGrants, []string{"office"}); err != nil {
 		t.Fatalf("CreateNetworkOnly: %v", err)
 	}
 
-	accts, err := mgr.List()
+	accts, err := mgr.List(t.Context())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -176,11 +176,11 @@ func TestListReturnsNetworkScope(t *testing.T) {
 
 func TestAuthenticateReturnsNetworkScope(t *testing.T) {
 	mgr := initTestDB(t)
-	if _, err := mgr.CreateGranted("portal", "password123", "p@example.com", "555", "Portal", AllGrants, []string{"office"}); err != nil {
+	if _, err := mgr.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555", "Portal", AllGrants, []string{"office"}); err != nil {
 		t.Fatalf("CreateNetworkOnly: %v", err)
 	}
 
-	acct, err := mgr.Authenticate("portal", "password123")
+	acct, err := mgr.Authenticate(t.Context(), "portal", "password123")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestAuthenticateReturnsNetworkScope(t *testing.T) {
 // network_only/networks columns existed is transparently upgraded, and its rows
 // read back as ordinary accounts.
 func TestMigrationFromPreNetworkOnlyDB(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "old.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "old.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -228,12 +228,12 @@ func TestMigrationFromPreNetworkOnlyDB(t *testing.T) {
 	}
 
 	// InitManager must add the missing columns without touching the row's data.
-	mgr, err := InitManager(db)
+	mgr, err := InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager (migration): %v", err)
 	}
 
-	got, err := mgr.Get("legacy")
+	got, err := mgr.Get(t.Context(), "legacy")
 	if err != nil {
 		t.Fatalf("Get legacy: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestMigrationFromPreNetworkOnlyDB(t *testing.T) {
 	}
 
 	// And the migrated table now accepts a network-only account.
-	if _, err := mgr.CreateGranted("portal", "password123", "p@example.com", "555", "Portal", AllGrants, []string{"office"}); err != nil {
+	if _, err := mgr.CreateGranted(t.Context(), "portal", "password123", "p@example.com", "555", "Portal", AllGrants, []string{"office"}); err != nil {
 		t.Fatalf("CreateNetworkOnly on migrated DB: %v", err)
 	}
 }
@@ -256,7 +256,7 @@ func TestMigrationFromPreNetworkOnlyDB(t *testing.T) {
 // TestInitManagerMigrationIsIdempotent runs InitManager twice on the same DB;
 // the second run must not error on the already-present columns.
 func TestInitManagerMigrationIsIdempotent(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "twice.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "twice.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -266,10 +266,10 @@ func TestInitManagerMigrationIsIdempotent(t *testing.T) {
 		}
 	})
 
-	if _, err := InitManager(db); err != nil {
+	if _, err := InitManager(t.Context(), db); err != nil {
 		t.Fatalf("InitManager first: %v", err)
 	}
-	if _, err := InitManager(db); err != nil {
+	if _, err := InitManager(t.Context(), db); err != nil {
 		t.Fatalf("InitManager second (idempotent): %v", err)
 	}
 }

@@ -44,7 +44,7 @@ type authEnv struct {
 func newAuthEnv(t *testing.T) *authEnv {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "auth.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "auth.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -54,7 +54,7 @@ func newAuthEnv(t *testing.T) *authEnv {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -67,10 +67,10 @@ func newAuthEnv(t *testing.T) *authEnv {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
 
-	if _, err := mgr.Create("admin", authTestPassword, "admin@b.com", "555", "Admin", true); err != nil {
+	if _, err := mgr.Create(t.Context(), "admin", authTestPassword, "admin@b.com", "555", "Admin", true); err != nil {
 		t.Fatalf("Create admin: %v", err)
 	}
-	if _, err := mgr.Create("user", authTestPassword, "user@b.com", "555", "User", false); err != nil {
+	if _, err := mgr.Create(t.Context(), "user", authTestPassword, "user@b.com", "555", "User", false); err != nil {
 		t.Fatalf("Create user: %v", err)
 	}
 	adminToken, err := sessMgr.Create(t.Context(), "admin")

@@ -20,7 +20,7 @@ import (
 func TestIntegrationHomeNetworkExistsBeforeAnythingCreatesIt(t *testing.T) {
 	t.Parallel()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "fresh.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "fresh.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

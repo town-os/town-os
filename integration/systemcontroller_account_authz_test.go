@@ -40,7 +40,7 @@ const (
 func initAuthzServer(t *testing.T) (*systemcontroller.SystemdClient, *account.SQLiteManager) {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "authz.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "authz.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -50,7 +50,7 @@ func initAuthzServer(t *testing.T) (*systemcontroller.SystemdClient, *account.SQ
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -144,10 +144,10 @@ func TestSystemControllerAccountUpdateEscalationBlocked(t *testing.T) {
 	}
 
 	// Straight at the store: the hash must not have moved.
-	if _, err := e.mgr.Authenticate("admin", authzAdminPassword); err != nil {
+	if _, err := e.mgr.Authenticate(t.Context(), "admin", authzAdminPassword); err != nil {
 		t.Fatalf("admin password no longer works: %v", err)
 	}
-	if _, err := e.mgr.Authenticate("admin", "takeover1"); err == nil {
+	if _, err := e.mgr.Authenticate(t.Context(), "admin", "takeover1"); err == nil {
 		t.Fatal("admin authenticated with the password the user tried to set")
 	}
 }
@@ -161,7 +161,7 @@ func TestSystemControllerAccountUpdateSelfServiceStillWorks(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("user updating itself = %d (%s), want 200", code, body)
 	}
-	if _, err := e.mgr.Authenticate("user", "newuserpass1"); err != nil {
+	if _, err := e.mgr.Authenticate(t.Context(), "user", "newuserpass1"); err != nil {
 		t.Fatalf("Authenticate with the new password: %v", err)
 	}
 }
@@ -218,7 +218,7 @@ func TestSystemControllerDisabledAdminCannotAdminister(t *testing.T) {
 	if code != http.StatusUnauthorized {
 		t.Fatalf("disabled admin creating an account = %d (%s), want 401", code, body)
 	}
-	if _, err := e.mgr.Get("backdoor"); err == nil {
+	if _, err := e.mgr.Get(t.Context(), "backdoor"); err == nil {
 		t.Fatal("disabled admin created an account")
 	}
 }

@@ -144,7 +144,7 @@ func (s *SQLiteSessionManager) Validate(ctx context.Context, token string) (*Ses
 		return nil, nil, fmt.Errorf("update last_used: %w", err)
 	}
 
-	acct, err := s.accountMgr.Get(username)
+	acct, err := s.accountMgr.Get(ctx, username)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -282,7 +282,7 @@ func TestBootStatusPingBootIDStableWithinGeneration(t *testing.T) {
 // that the dashboard renders as a red failure pill: a clean update would
 // manufacture its own alarm.
 func TestBootStatusNotAudited(t *testing.T) {
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

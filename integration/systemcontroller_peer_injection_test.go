@@ -65,7 +65,7 @@ const peerInjectionPassword = "portalpass1"
 func initPeerInjectionTest(t *testing.T) *peerInjectionEnv {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "peers.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "peers.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -75,7 +75,7 @@ func initPeerInjectionTest(t *testing.T) *peerInjectionEnv {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

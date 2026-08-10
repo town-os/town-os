@@ -109,7 +109,7 @@ func assertIndistinguishable(t *testing.T, baseline, other time.Duration, what s
 func initLoginTimingManager(t *testing.T) *account.SQLiteManager {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "timing.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "timing.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -119,18 +119,18 @@ func initLoginTimingManager(t *testing.T) *account.SQLiteManager {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
 
-	if _, err := mgr.Create("known", "knownpass1", "k@test.com", "555-0000", "Known", false); err != nil {
+	if _, err := mgr.Create(t.Context(), "known", "knownpass1", "k@test.com", "555-0000", "Known", false); err != nil {
 		t.Fatalf("Create known: %v", err)
 	}
-	if _, err := mgr.Create("shutoff", "shutoffpass1", "s@test.com", "555-0001", "Shut Off", false); err != nil {
+	if _, err := mgr.Create(t.Context(), "shutoff", "shutoffpass1", "s@test.com", "555-0001", "Shut Off", false); err != nil {
 		t.Fatalf("Create shutoff: %v", err)
 	}
-	if err := mgr.Disable("shutoff"); err != nil {
+	if err := mgr.Disable(t.Context(), "shutoff"); err != nil {
 		t.Fatalf("Disable shutoff: %v", err)
 	}
 
@@ -146,12 +146,12 @@ func TestAuthenticateDoesNotLeakAccountExistenceByTiming(t *testing.T) {
 	mgr := initLoginTimingManager(t)
 
 	baseline := timeCalls(t, "existing account, wrong password", func() error {
-		_, err := mgr.Authenticate("known", "wrongpassword1")
+		_, err := mgr.Authenticate(t.Context(), "known", "wrongpassword1")
 		return err
 	})
 
 	unknown := timeCalls(t, "nonexistent account", func() error {
-		_, err := mgr.Authenticate("no-such-account", "wrongpassword1")
+		_, err := mgr.Authenticate(t.Context(), "no-such-account", "wrongpassword1")
 		return err
 	})
 
@@ -167,12 +167,12 @@ func TestAuthenticateDoesNotLeakDisabledAccountsByTiming(t *testing.T) {
 	mgr := initLoginTimingManager(t)
 
 	baseline := timeCalls(t, "existing account, wrong password", func() error {
-		_, err := mgr.Authenticate("known", "wrongpassword1")
+		_, err := mgr.Authenticate(t.Context(), "known", "wrongpassword1")
 		return err
 	})
 
 	disabled := timeCalls(t, "disabled account", func() error {
-		_, err := mgr.Authenticate("shutoff", "wrongpassword1")
+		_, err := mgr.Authenticate(t.Context(), "shutoff", "wrongpassword1")
 		return err
 	})
 
@@ -190,7 +190,7 @@ func TestAuthenticateDoesNotLeakDisabledAccountsByTiming(t *testing.T) {
 func TestAuthenticateEndpointDoesNotLeakAccountExistenceByTiming(t *testing.T) {
 	t.Parallel()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "timing-http.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "timing-http.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestAuthenticateEndpointDoesNotLeakAccountExistenceByTiming(t *testing.T) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}

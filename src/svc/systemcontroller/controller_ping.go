@@ -68,7 +68,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	// admin count. Previously this handler called am.List() twice.
 	var accounts []account.Account
 	if am := s.Controller.GetAccountManager(); am != nil {
-		list, err := am.List()
+		list, err := am.List(c.Request().Context())
 		if err != nil {
 			return err
 		}

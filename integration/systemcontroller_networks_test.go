@@ -19,7 +19,7 @@ import (
 
 func initNetworkDB(t *testing.T) *account.SQLiteNetworkManager {
 	t.Helper()
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "networks.db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "networks.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

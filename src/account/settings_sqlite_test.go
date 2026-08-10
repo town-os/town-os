@@ -10,7 +10,7 @@ import (
 
 func initTestSettingsDB(t *testing.T) *SQLiteSettingsManager {
 	t.Helper()
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestSettingsList(t *testing.T) {
 }
 
 func TestSettingsDefaultsNotOverwritten(t *testing.T) {
-	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	db, err := OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

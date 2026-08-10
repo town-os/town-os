@@ -54,7 +54,7 @@ func initObjectStorageEnv(t *testing.T) *objectStorageEnv {
 func (e *objectStorageEnv) start(t *testing.T, signingKey string) {
 	t.Helper()
 
-	db, err := account.OpenDB(e.dbPath)
+	db, err := account.OpenDB(t.Context(), e.dbPath)
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -64,7 +64,7 @@ func (e *objectStorageEnv) start(t *testing.T, signingKey string) {
 		}
 	})
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -369,7 +369,7 @@ func seedLegacyAccountsDB(t *testing.T, path string) {
 		"filer":  hashFor(t, "filer", "filerpass123", false),
 	}
 
-	db, err := account.OpenDB(path)
+	db, err := account.OpenDB(t.Context(), path)
 	if err != nil {
 		t.Fatalf("OpenDB legacy: %v", err)
 	}
@@ -426,7 +426,7 @@ func seedLegacyAccountsDB(t *testing.T, path string) {
 func hashFor(t *testing.T, username, password string, admin bool) string {
 	t.Helper()
 
-	db, err := account.OpenDB(filepath.Join(t.TempDir(), "hash-"+username+".db"))
+	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "hash-"+username+".db"))
 	if err != nil {
 		t.Fatalf("OpenDB for hash: %v", err)
 	}
@@ -436,11 +436,11 @@ func hashFor(t *testing.T, username, password string, admin bool) string {
 		}
 	}()
 
-	mgr, err := account.InitManager(db)
+	mgr, err := account.InitManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitManager for hash: %v", err)
 	}
-	if _, err := mgr.Create(username, password, username+"@test.com", "555-0000", "Hash Source", admin); err != nil {
+	if _, err := mgr.Create(t.Context(), username, password, username+"@test.com", "555-0000", "Hash Source", admin); err != nil {
 		t.Fatalf("Create for hash: %v", err)
 	}
 
