@@ -266,8 +266,41 @@ describe('matchLocale', () => {
     expect(matchLocale(['FR-fr'], catalogs)).toBe('fr-FR')
   })
 
+  it('prefers an exact country catalog over its base language', () => {
+    // de-CH used to fall back to de-DE because Switzerland shipped no catalog.
+    // It has one now, and the exact match must win.
+    expect(matchLocale(['de-CH', 'de'], catalogs)).toBe('de-CH')
+  })
+
   it('falls back to the primary language subtag', () => {
-    expect(matchLocale(['de-CH', 'de'], catalogs)).toBe('de-DE')
+    expect(matchLocale(['de-LU', 'de'], catalogs)).toBe('de-DE')
+  })
+
+  it('resolves a bare language tag to a named default, not to import order', () => {
+    // Eight languages now ship more than one catalog. Without a named default
+    // these answers would be whichever variant `catalogs` happens to declare
+    // first — a property of the import block rather than a decision.
+    expect(matchLocale(['en'], catalogs)).toBe('en-US')
+    expect(matchLocale(['de'], catalogs)).toBe('de-DE')
+    expect(matchLocale(['fr'], catalogs)).toBe('fr-FR')
+    expect(matchLocale(['es'], catalogs)).toBe('es-ES')
+    expect(matchLocale(['pt'], catalogs)).toBe('pt-BR')
+    expect(matchLocale(['nl'], catalogs)).toBe('nl-NL')
+    expect(matchLocale(['ar'], catalogs)).toBe('ar-SA')
+    expect(matchLocale(['bn'], catalogs)).toBe('bn-BD')
+  })
+
+  it('routes an unshipped country to the variant it reads, not the language default', () => {
+    // Latin America reads American Spanish, not peninsular.
+    expect(matchLocale(['es-CO'], catalogs)).toBe('es-MX')
+    expect(matchLocale(['es-CL'], catalogs)).toBe('es-MX')
+    // Lusophone Africa reads European Portuguese, not Brazilian.
+    expect(matchLocale(['pt-AO'], catalogs)).toBe('pt-PT')
+    // Ireland and Kenya follow British spelling, not American.
+    expect(matchLocale(['en-IE'], catalogs)).toBe('en-GB')
+    expect(matchLocale(['en-KE'], catalogs)).toBe('en-GB')
+    // The Philippines follow American spelling.
+    expect(matchLocale(['en-PH'], catalogs)).toBe('en-US')
   })
 
   it('honors browser preference order', () => {
@@ -283,7 +316,11 @@ describe('matchLocale', () => {
   })
 
   it('returns null when nothing is shipped for the language', () => {
-    expect(matchLocale(['af-ZA', 'zu-ZA'], catalogs)).toBeNull()
+    // Deliberately reserved codes rather than real ones: this assertion used to
+    // name af-ZA and zu-ZA, which meant it would start failing the day either
+    // language got a catalog — turning "we ship no Afrikaans" into a test
+    // guarding that we never do.
+    expect(matchLocale(['qq-QQ', 'xx-YY'], catalogs)).toBeNull()
     expect(matchLocale([], catalogs)).toBeNull()
   })
 

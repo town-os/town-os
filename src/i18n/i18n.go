@@ -158,40 +158,42 @@ var ExtendedLocales = []Locale{
 	{Code: "zu-ZA", NativeName: "IsiZulu", EnglishName: "Zulu"},
 }
 
+// populatedLocales lists every locale code that has a catalog, in the order
+// the API reports them: the default first, then alphabetically. It is derived
+// from catalogs at init so the two can never disagree — a catalog registered
+// without being advertised here was the one drift this list could develop.
+var populatedLocales = buildPopulatedLocales()
+
+// buildPopulatedLocales reads the catalog map into a sorted list with the
+// default locale pinned to the front.
+//
+// Returns the locale codes in API order.
+func buildPopulatedLocales() []string {
+	codes := make([]string, 0, len(catalogs))
+	for code := range catalogs {
+		if code == DefaultLocale {
+			continue
+		}
+		codes = append(codes, code)
+	}
+	slices.Sort(codes)
+
+	return append([]string{DefaultLocale}, codes...)
+}
+
 // PopulatedLocales returns the list of locale codes that have translations
 // available.
+//
+// Returns a copy, so a caller sorting or truncating the result cannot disturb
+// what the next caller sees.
 func PopulatedLocales() []string {
-	return []string{
-		DefaultLocale,
-		"ar-SA",
-		"bn-BD",
-		"da-DK",
-		"de-DE",
-		"es-ES",
-		"fi-FI",
-		"fr-FR",
-		"hi-IN",
-		"it-IT",
-		"ja-JP",
-		"ko-KR",
-		"nl-NL",
-		"pl-PL",
-		"pt-BR",
-		"ru-RU",
-		"sa-IN",
-		"sv-SE",
-		"th-TH",
-		"tr-TR",
-		"uk-UA",
-		"vi-VN",
-		"zh-CN",
-		"zh-TW",
-	}
+	return slices.Clone(populatedLocales)
 }
 
 // IsPopulated reports whether the given locale code has translations available.
 func IsPopulated(code string) bool {
-	return slices.Contains(PopulatedLocales(), code)
+	_, ok := catalogs[code]
+	return ok
 }
 
 // T returns the localized message for the given key and locale.
@@ -240,24 +242,55 @@ func T(locale, key string, args ...any) string {
 }
 
 // catalogs holds all message translations keyed by locale code.
+//
+// Entries fall into two kinds. A language catalog is a translation, written
+// out in full in its own file. A country catalog is built by derive() from the
+// language it belongs to plus the strings that country states differently —
+// see derive.go for why that is not the same as copying the base and editing
+// it. Both kinds are selectable and both count as populated; the distinction
+// is only in how the file is written.
 var catalogs = map[string]map[string]string{
 	DefaultLocale: enUSMessages,
+	"ar-AE":       arAEMessages,
+	"ar-EG":       arEGMessages,
 	"ar-SA":       arSAMessages,
 	"bn-BD":       bnBDMessages,
+	"bn-IN":       bnINMessages,
+	"cs-CZ":       csCZMessages,
 	"da-DK":       daDKMessages,
+	"de-AT":       deATMessages,
+	"de-CH":       deCHMessages,
 	"de-DE":       deDEMessages,
+	"en-AU":       enAUMessages,
+	"en-CA":       enCAMessages,
+	"en-GB":       enGBMessages,
+	"en-IN":       enINMessages,
+	"en-NZ":       enNZMessages,
+	"en-ZA":       enZAMessages,
+	"es-AR":       esARMessages,
 	"es-ES":       esESMessages,
+	"es-MX":       esMXMessages,
 	"fi-FI":       fiFIMessages,
+	"fr-BE":       frBEMessages,
+	"fr-CA":       frCAMessages,
+	"fr-CH":       frCHMessages,
 	"fr-FR":       frFRMessages,
 	"hi-IN":       hiINMessages,
+	"hr-HR":       hrHRMessages,
+	"hu-HU":       huHUMessages,
 	"it-IT":       itITMessages,
 	"ja-JP":       jaJPMessages,
 	"ko-KR":       koKRMessages,
+	"nl-BE":       nlBEMessages,
 	"nl-NL":       nlNLMessages,
 	"pl-PL":       plPLMessages,
 	"pt-BR":       ptBRMessages,
+	"pt-PT":       ptPTMessages,
+	"ro-RO":       roROMessages,
 	"ru-RU":       ruRUMessages,
 	"sa-IN":       saINMessages,
+	"sk-SK":       skSKMessages,
+	"sl-SI":       slSIMessages,
 	"sv-SE":       svSEMessages,
 	"th-TH":       thTHMessages,
 	"tr-TR":       trTRMessages,

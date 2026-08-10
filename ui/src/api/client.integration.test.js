@@ -2,6 +2,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { SystemControllerClient, ApiError } from './client.js'
 
+// The locale codes the frontend ships a catalog file for. Globbed rather than
+// imported from I18nContext.jsx so this suite stays free of React under the
+// node-environment integration config; `derive.test.js` is what holds each of
+// these files to actually being registered in `catalogs`. The pattern is the
+// `xx-YY` shape on purpose: it leaves out derive.js and es-latam.js, which are
+// machinery and a shared base rather than locales.
+const shippedCatalogs = Object.keys(import.meta.glob('../i18n/*.js'))
+  .map((p) => p.replace('../i18n/', '').replace('.js', ''))
+  .filter((code) => /^[a-z]{2}-[A-Z]{2}$/.test(code))
+
 const baseURL = process.env.INTEGRATION_URL
 if (!baseURL) {
   throw new Error('INTEGRATION_URL environment variable is required')
@@ -1685,6 +1695,53 @@ describe('SystemControllerClient integration', () => {
 
       // Reset back to default.
       await client.setSetting('locale', 'en-US')
+    })
+
+    it('advertises exactly the catalogs the frontend ships', async () => {
+      // The two catalog sets are meant to be in lockstep, and this is the only
+      // place both are visible at once: the backend list arrives over the wire,
+      // the frontend list is what is on disk beside it. A backend-only code is
+      // a locale the picker offers and then renders in English; a frontend-only
+      // code is a translation the picker disables.
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getLocales()
+      expect([...result.populated].sort()).toEqual([...shippedCatalogs].sort())
+    })
+
+    it('advertises the derived country variants', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getLocales()
+      for (const code of [
+        'ar-AE', 'ar-EG', 'bn-IN', 'de-AT', 'de-CH',
+        'en-AU', 'en-CA', 'en-GB', 'en-IN', 'en-NZ', 'en-ZA',
+        'es-AR', 'es-MX', 'fr-BE', 'fr-CA', 'fr-CH', 'nl-BE', 'pt-PT',
+      ]) {
+        expect(result.populated, `${code} is not advertised`).toContain(code)
+      }
+      // The shared American Spanish fragment is a base, not a place.
+      expect(result.populated).not.toContain('es-latam')
+      expect(result.populated).not.toContain('es-419')
+    })
+
+    it('offers every populated locale in a picker list', async () => {
+      // SystemSettings builds its options from common_languages and
+      // extended_locales and disables anything absent from populated, so a code
+      // that is populated but in neither list can never be selected.
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getLocales()
+      const offered = new Set([
+        ...result.common_languages.map((l) => l.code),
+        ...result.extended_locales.map((l) => l.code),
+      ])
+      for (const code of result.populated) {
+        expect(offered.has(code), `${code} is populated but in no picker list`).toBe(true)
+      }
     })
 
     it('requires authentication', async () => {

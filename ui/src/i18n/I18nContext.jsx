@@ -1,21 +1,45 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import enUS from './en-US.js'
+import arAE from './ar-AE.js'
+import arEG from './ar-EG.js'
 import arSA from './ar-SA.js'
 import bnBD from './bn-BD.js'
+import bnIN from './bn-IN.js'
+import csCZ from './cs-CZ.js'
 import daDK from './da-DK.js'
+import deAT from './de-AT.js'
+import deCH from './de-CH.js'
 import deDE from './de-DE.js'
+import enAU from './en-AU.js'
+import enCA from './en-CA.js'
+import enGB from './en-GB.js'
+import enIN from './en-IN.js'
+import enNZ from './en-NZ.js'
+import enZA from './en-ZA.js'
+import esAR from './es-AR.js'
 import esES from './es-ES.js'
+import esMX from './es-MX.js'
 import fiFI from './fi-FI.js'
+import frBE from './fr-BE.js'
+import frCA from './fr-CA.js'
+import frCH from './fr-CH.js'
 import frFR from './fr-FR.js'
 import hiIN from './hi-IN.js'
+import hrHR from './hr-HR.js'
+import huHU from './hu-HU.js'
 import itIT from './it-IT.js'
 import jaJP from './ja-JP.js'
 import koKR from './ko-KR.js'
+import nlBE from './nl-BE.js'
 import nlNL from './nl-NL.js'
 import plPL from './pl-PL.js'
 import ptBR from './pt-BR.js'
+import ptPT from './pt-PT.js'
+import roRO from './ro-RO.js'
 import ruRU from './ru-RU.js'
 import saIN from './sa-IN.js'
+import skSK from './sk-SK.js'
+import slSI from './sl-SI.js'
 import svSE from './sv-SE.js'
 import thTH from './th-TH.js'
 import trTR from './tr-TR.js'
@@ -24,25 +48,59 @@ import viVN from './vi-VN.js'
 import zhCN from './zh-CN.js'
 import zhTW from './zh-TW.js'
 
-/** @type {Record<string, Record<string, string>>} */
+/**
+ * Every shipped catalog, keyed by locale code.
+ *
+ * Entries are of two kinds. A language catalog is a translation, written out in
+ * full in its own file. A country catalog is built by `derive()` from the
+ * language it belongs to plus the strings that country states differently — see
+ * derive.js. Both kinds are selectable and both count as populated; only the
+ * way the file is written differs.
+ *
+ * @type {Record<string, Record<string, string>>}
+ */
 const catalogs = {
   'en-US': enUS,
+  'ar-AE': arAE,
+  'ar-EG': arEG,
   'ar-SA': arSA,
   'bn-BD': bnBD,
+  'bn-IN': bnIN,
+  'cs-CZ': csCZ,
   'da-DK': daDK,
+  'de-AT': deAT,
+  'de-CH': deCH,
   'de-DE': deDE,
+  'en-AU': enAU,
+  'en-CA': enCA,
+  'en-GB': enGB,
+  'en-IN': enIN,
+  'en-NZ': enNZ,
+  'en-ZA': enZA,
+  'es-AR': esAR,
   'es-ES': esES,
+  'es-MX': esMX,
   'fi-FI': fiFI,
+  'fr-BE': frBE,
+  'fr-CA': frCA,
+  'fr-CH': frCH,
   'fr-FR': frFR,
   'hi-IN': hiIN,
+  'hr-HR': hrHR,
+  'hu-HU': huHU,
   'it-IT': itIT,
   'ja-JP': jaJP,
   'ko-KR': koKR,
+  'nl-BE': nlBE,
   'nl-NL': nlNL,
   'pl-PL': plPL,
   'pt-BR': ptBR,
+  'pt-PT': ptPT,
+  'ro-RO': roRO,
   'ru-RU': ruRU,
   'sa-IN': saIN,
+  'sk-SK': skSK,
+  'sl-SI': slSI,
   'sv-SE': svSE,
   'th-TH': thTH,
   'tr-TR': trTR,
@@ -60,10 +118,65 @@ const defaultLocale = 'en-US'
 const STORAGE_KEY = 'townos.locale'
 
 /**
+ * The catalog a bare language tag — or a country we ship no catalog for —
+ * should fall back to, keyed by primary subtag.
+ *
+ * This map exists because the fallback used to be "the first catalog whose
+ * primary subtag matches", and that was only ever correct while each language
+ * had exactly one catalog. Eight now ship more than one: a browser asking for
+ * plain `en`, or for `en-PH`, would otherwise land on whichever English happens
+ * to be declared first in `catalogs`, making the answer a property of import
+ * order rather than a decision anyone made.
+ *
+ * Chinese is absent deliberately — it is resolved by script below, which is a
+ * stronger signal than a default.
+ */
+const languageDefaults = {
+  ar: 'ar-SA',
+  bn: 'bn-BD',
+  de: 'de-DE',
+  en: 'en-US',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  nl: 'nl-NL',
+  pt: 'pt-BR',
+}
+
+/**
+ * Countries we ship no catalog for that belong with a variant rather than with
+ * their language's default: Spanish-speaking Latin America reads American
+ * Spanish, Lusophone Africa and Timor read European Portuguese, and the
+ * Englishes of Ireland, Africa and South and Southeast Asia follow British
+ * spelling. Without this, es-CO would get peninsular Spanish and en-IE would
+ * get American.
+ */
+const regionDefaults = {
+  es: [/^(ar|bo|cl|co|cr|cu|do|ec|gt|hn|mx|ni|pa|pe|pr|py|sv|uy|ve)$/, 'es-MX'],
+  pt: [/^(ao|cv|gw|mz|st|tl)$/, 'pt-PT'],
+  en: [/^(ie|gh|ke|lk|my|ng|pk|sg|tz|ug|zm|zw)$/, 'en-GB'],
+}
+
+/**
+ * Resolve the catalog code a preference should fall back to when no catalog
+ * matches it exactly.
+ *
+ * @param {string} pref - A lowercased preference tag (e.g. "en-ph").
+ * @returns {string|null} A locale code to look for, or null if there is no
+ *   better answer than "any catalog in this language".
+ */
+function preferredFallback(pref) {
+  const [base, region] = pref.split('-')
+  const regional = regionDefaults[base]
+  if (regional && region && regional[0].test(region)) return regional[1]
+  return languageDefaults[base] ?? null
+}
+
+/**
  * Match an ordered list of preferred locale tags against the available
- * catalog codes. Tries exact (case-insensitive) matches first, then falls
- * back to the primary language subtag (so `de-AT` resolves to `de-DE`).
- * Chinese is disambiguated by script/region so `zh-HK`/`zh-Hant` prefer
+ * catalog codes. Tries exact (case-insensitive) matches first, then falls back
+ * to a named default for the primary language subtag (so `de-AT` resolves to
+ * `de-DE` and `es-CO` to `es-MX`), and only then to any catalog sharing the
+ * subtag. Chinese is disambiguated by script/region so `zh-HK`/`zh-Hant` prefer
  * Traditional and `zh`/`zh-CN` prefer Simplified.
  *
  * @param {string[]} prefs - Ordered preferred locale tags (e.g. navigator.languages).
@@ -90,6 +203,13 @@ export function matchLocale(prefs, available) {
       const zh = lower.find(([, l]) => l === want) || lower.find(([, l]) => l.startsWith('zh'))
       if (zh) return zh[0]
       continue
+    }
+    // Prefer the named default for this language before settling for whichever
+    // catalog in it comes first.
+    const fallback = preferredFallback(p)
+    if (fallback) {
+      const named = lower.find(([, l]) => l === fallback.toLowerCase())
+      if (named) return named[0]
     }
     const hit = lower.find(([, l]) => l.split('-')[0] === base)
     if (hit) return hit[0]

@@ -1891,7 +1891,37 @@ The `i18n` package provides a `T(locale, key, args...)` function that resolves t
 
 Backend catalogs live one file per locale in `src/i18n` (`de_de.go`, `zh_cn.go`, …); the frontend mirror lives in `ui/src/i18n` (`de-DE.js`, `zh-CN.js`, …). The two sides are kept in lockstep — every populated backend catalog has a frontend twin.
 
-`PopulatedLocales()` is the authoritative list (24 entries): `en-US`, `ar-SA`, `bn-BD`, `da-DK`, `de-DE`, `es-ES`, `fi-FI`, `fr-FR`, `hi-IN`, `it-IT`, `ja-JP`, `ko-KR`, `nl-NL`, `pl-PL`, `pt-BR`, `ru-RU`, `sa-IN`, `sv-SE`, `th-TH`, `tr-TR`, `uk-UA`, `vi-VN`, `zh-CN`, `zh-TW`. Anything not on it falls back to English. `IsPopulated(code)` is what the UI uses to disable an unpopulated entry in the language picker.
+`PopulatedLocales()` is the authoritative list (48 entries): `en-US`, `ar-AE`, `ar-EG`, `ar-SA`, `bn-BD`, `bn-IN`, `cs-CZ`, `da-DK`, `de-AT`, `de-CH`, `de-DE`, `en-AU`, `en-CA`, `en-GB`, `en-IN`, `en-NZ`, `en-ZA`, `es-AR`, `es-ES`, `es-MX`, `fi-FI`, `fr-BE`, `fr-CA`, `fr-CH`, `fr-FR`, `hi-IN`, `hr-HR`, `hu-HU`, `it-IT`, `ja-JP`, `ko-KR`, `nl-BE`, `nl-NL`, `pl-PL`, `pt-BR`, `pt-PT`, `ro-RO`, `ru-RU`, `sa-IN`, `sk-SK`, `sl-SI`, `sv-SE`, `th-TH`, `tr-TR`, `uk-UA`, `vi-VN`, `zh-CN`, `zh-TW`. Anything not on it falls back to English. `IsPopulated(code)` is what the UI uses to disable an unpopulated entry in the language picker.
+
+The list is **derived from the catalog map rather than written out**: `buildPopulatedLocales()` reads the keys of `catalogs` at init, sorts them, and pins `en-US` to the front, and `IsPopulated` indexes `catalogs` directly. It used to be a hand-maintained slice literal, which had exactly one failure mode and it was silent — a catalog registered in `catalogs` but forgotten in the literal was translated, shipped, and never offered in the picker. `PopulatedLocales()` returns a clone, because the list is package state now rather than a fresh literal per call and a caller that sorts or truncates the result must not be able to disturb the next one.
+
+### Country Variants
+
+A catalog is one of two kinds, and the difference is in how the file is written, not in how it is selected — both kinds are populated and both appear in the picker.
+
+A **language catalog** is a translation, written out in full: `de_de.go`, `cs_cz.go`, `ja_jp.go`.
+
+A **country catalog** is built by `derive(base, overrides)` (`src/i18n/derive.go`, mirrored by `ui/src/i18n/derive.js`) from the catalog of the language it belongs to plus only the strings that country states differently. Austrian German is German; the question `de_at.go` answers is not "how do you say this in German" but "which of these sentences would an Austrian not have written". Copying `de-DE` into `de_at.go` and editing four lines would mean the next message key added to `de-DE` silently reaches Austria in English, and a fix to a German string has to be found and repeated in three files. Inheriting the base and listing only the departures keeps a variant correct by default: a new key lands everywhere the moment its base language has it.
+
+Eighteen locales are derived this way:
+
+| Base | Derived from it |
+| --- | --- |
+| `en-US` | `en-CA`, `en-GB` |
+| `en-GB` | `en-AU`, `en-IN`, `en-NZ`, `en-ZA` |
+| `de-DE` | `de-AT`, `de-CH` |
+| `fr-FR` | `fr-BE`, `fr-CA`, `fr-CH` |
+| `es-ES` → `es-latam` | `es-AR`, `es-MX` |
+| `pt-BR` | `pt-PT` |
+| `nl-NL` | `nl-BE` |
+| `ar-SA` | `ar-AE`, `ar-EG` |
+| `bn-BD` | `bn-IN` |
+
+`es-latam` (`src/i18n/es_latam.go`, `ui/src/i18n/es-latam.js`) is the one intermediate: it holds the departures from peninsular Spanish that every American variety shares — `inválido` over `no válido`, `agregar` over `añadir`, straight quotes over `« »` — and both `es-AR` and `es-MX` build on it. **It is not registered in `catalogs` and is not selectable**, because it is a shared fragment rather than a place anyone lives; advertising it would offer a country code that is not one.
+
+Some override maps are small and several (`en-CA`, `de-CH` on the backend, `es-MX`) are empty. That is the honest answer for a technical control panel — Canadian English keeps the American `-ize` spellings, and no message in `de_de.go` contains a `ß` for Switzerland's `ss` rule to reach (the frontend `de-CH.js` does carry real overrides, because `de-DE.js` uses `ß`). An empty override map still marks the locale as deliberately reviewed rather than forgotten.
+
+The scheme is held by tests on both sides (`src/i18n/derive_test.go`, `ui/src/i18n/derive.test.js`): every override key must exist in its base, every override must actually differ from the base string it replaces, every derived catalog must carry its base's full key set, and every derived catalog must be listed in the test's `variants()` table — so a country catalog cannot be shipped without those rules applying to it.
 
 **Every locale code carries a region subtag**, and `TestLocaleCodesAreRegionQualified` holds it. Sumerian (`sux`) was the one exception — a bare ISO 639-3 code — and it is gone. It was removed for its script rather than its shape: cuneiform lives in `U+12000`–`U+1254F`, which almost nothing ships a font for, so on any box without Noto Sans Cuneiform every string in the locale painted as replacement boxes. The romanization the catalog carried in parentheses survived, which made it worse than blank — Latin fragments and punctuation around holes. Rendering it honestly meant vendoring a webfont (the catalog used 45 distinct codepoints, but the full face is 462K and subsetting wants `fonttools` on the build host) and adding `@font-face` machinery the UI has none of, which is a lot of apparatus for a language with no speakers.
 
@@ -1908,7 +1938,15 @@ A React context provider (`I18nProvider`) wraps the application and exposes a `u
 
 ### Locale Detection, Storage, and Sync
 
-The UI picks its language **from the browser first**, not from the global setting. On load it reads `navigator.languages` and matches the ordered preferences against the shipped catalogs: region variants fold to the base language (`de-AT` → `de-DE`), and Chinese is disambiguated by script/region (`zh-Hant` or a `TW`/`HK`/`MO` region → `zh-TW`, otherwise `zh-CN`). Matching is case-insensitive and tries exact tags across all preferences before falling back to primary subtags.
+The UI picks its language **from the browser first**, not from the global setting. On load it reads `navigator.languages` and matches the ordered preferences against the shipped catalogs. Matching is case-insensitive and tries exact tags across all preferences before falling back, in this order:
+
+1. **Exact match.** `de-CH` now ships a catalog, so `de-CH` resolves to `de-CH` rather than folding to `de-DE`.
+2. **Chinese by script/region.** `zh-Hant` or a `TW`/`HK`/`MO` region → `zh-TW`, otherwise `zh-CN`. Script is a stronger signal than any default, so this runs before the two rules below.
+3. **A named regional default.** Countries that ship no catalog but read a variant rather than their language's default: Spanish-speaking Latin America → `es-MX`, Lusophone Africa and Timor → `pt-PT`, and the Englishes of Ireland, Africa, and South/Southeast Asia → `en-GB`. Without this, `es-CO` would get peninsular Spanish and `en-IE` would get American.
+4. **A named language default.** `ar` → `ar-SA`, `bn` → `bn-BD`, `de` → `de-DE`, `en` → `en-US`, `es` → `es-ES`, `fr` → `fr-FR`, `nl` → `nl-NL`, `pt` → `pt-BR`.
+5. **Any catalog sharing the primary subtag.**
+
+Steps 3 and 4 exist because the fallback used to be step 5 alone, and that was only correct while each language had exactly one catalog. Eight languages now ship more than one: a browser asking for plain `en`, or for `en-PH`, would otherwise land on whichever English is declared first in the `catalogs` object, making the answer a property of import order rather than a decision anyone made.
 
 Precedence, highest first:
 
