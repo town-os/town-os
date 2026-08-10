@@ -8,6 +8,13 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 
 **GITHUB IS A MIRROR:** The origin repository is at <https://gitea.com/town-os/town-os>.
 
+> **中文 / Chinese.** This repository's documentation is also available in
+> Chinese: [README.md.zh](README.md.zh),
+> [CLAUDE.md.zh](CLAUDE.md.zh) (build and code-style rules), and
+> [DESIGN.md.zh](DESIGN.md.zh) (architecture and functional specification).
+> The English files are authoritative; where the two disagree, the English is
+> correct and the translation is what needs fixing.
+
 ## Table of Contents
 
 - [Why It Matters](#why-it-matters)

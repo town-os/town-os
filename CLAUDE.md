@@ -7,6 +7,11 @@ Read DESIGN.md when you need to know what Town OS does; read this when you need
 to know how to build it, how to test it, and how to write code in it. When a
 change alters behavior, DESIGN.md is the file that needs updating with it.
 
+A Chinese translation of this file is [CLAUDE.md.zh](CLAUDE.md.zh) (see also
+[DESIGN.md.zh](DESIGN.md.zh) and [README.md.zh](README.md.zh)). **This file is
+authoritative** — when a rule here changes, change it here, and the translation
+follows.
+
 - **MOST IMPORTANT**:
     - **Use `make`, not raw compiler/test tools.** Never run `go build`, `go test`, `go vet`, `golangci-lint`, `bun test`, `vitest`, or any equivalent directly. Always go through a make target so the repo's wrappers (cleanup traps, btrfs lifecycle, per-run instance IDs) apply.
     - **Make targets you may run whenever you need them** (fast, idempotent, no remote side effects):
